@@ -68,7 +68,8 @@ npm install
 - **P3** — Port ranking to JS: **Top destinations** (score = Σ 3×rarity / 1×target
   per unseen species, clustered by hotspot) with an inline SVG map, optional Home
   location for distances, and Maps links. ✅
-- **P4** — Excursions, trip-planner route, birdiest checklists, then notifications
-  & polish.
+- **P4** — Top excursions (distance-penalised), trip-planner route (nearest-
+  neighbour + map path), and birdiest recent checklists. ✅
+- **P5** — Local notifications for new rarities; polish.
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
