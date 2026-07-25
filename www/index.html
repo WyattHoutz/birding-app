@@ -101,7 +101,7 @@
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
-    .maplink, .extlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .maplink, .extlink, .favlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
   </style>
 </head>
 <body>
@@ -189,6 +189,12 @@
     </section>
 
     <section class="panel">
+      <h2>⭐ Favorite hotspots</h2>
+      <div id="favStatus" class="status">Save hotspots from the lists above to pin them here.</div>
+      <ul id="favResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -223,7 +229,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P5 · discovery</div>
+    <div>Birding · P6 · favorites</div>
   </footer>
 
   <script>
@@ -407,6 +413,40 @@
         return (isFinite(la) && isFinite(lo)) ? { lat: la, lng: lo } : null;
       }
 
+      // --- Favorite hotspots (pinned locations) ---
+      function getFavs() { try { return JSON.parse(localStorage.getItem('ebird_favs') || '[]'); } catch (e) { return []; } }
+      function setFavs(a) { localStorage.setItem('ebird_favs', JSON.stringify(a)); }
+      function favId(o) { return (o.locId || '') || (o.lat + ',' + o.lng); }
+      function isFav(id) { return getFavs().some(function (f) { return f.id === id; }); }
+      function toggleFav(o) {
+        var id = favId(o), favs = getFavs(), i = -1;
+        for (var k = 0; k < favs.length; k++) { if (favs[k].id === id) { i = k; break; } }
+        if (i > -1) { favs.splice(i, 1); setFavs(favs); return false; }
+        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '', lat: o.lat, lng: o.lng });
+        setFavs(favs); return true;
+      }
+      function favLink(o) {
+        return '<a class="favlink" data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') +
+          '" data-lat="' + esc(o.lat) + '" data-lng="' + esc(o.lng) + '">' + (isFav(favId(o)) ? '★ Saved' : '☆ Save') + '</a>';
+      }
+      function renderFavs() {
+        var favs = getFavs(), el = $('favResults'), st = $('favStatus');
+        if (!el) return;
+        el.innerHTML = '';
+        if (!favs.length) { st.textContent = 'Save hotspots from the lists above to pin them here.'; return; }
+        st.textContent = favs.length + ' saved hotspot' + (favs.length === 1 ? '' : 's') + '.';
+        favs.forEach(function (f) {
+          var li = document.createElement('li');
+          li.innerHTML =
+            '<div><span class="name">' + esc(f.locName || f.id) + '</span></div>' +
+            '<div class="sp recentbox"></div>' +
+            '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">Open in Maps ↗</a>' +
+            (f.locId ? ' &nbsp; <a class="recentlink" data-locid="' + esc(f.locId) + '">Recent sightings ↧</a>' : '') +
+            ' &nbsp; ' + favLink(f);
+          el.appendChild(li);
+        });
+      }
+
       function renderDestinations(list, mapEl, listEl) {
         mapEl.innerHTML = mapSVG(list, getHome());
         listEl.innerHTML = '';
@@ -419,7 +459,8 @@
             '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(d.locName) + '</span></div>' +
             '<div class="meta">score ' + d.score + ' · ' + d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
             '<div class="sp">' + names + '</div>' +
-            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>';
+            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>' +
+            ' &nbsp; ' + favLink(d);
           listEl.appendChild(li);
         });
       }
@@ -494,7 +535,8 @@
             '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(d.locName) + '</span></div>' +
             '<div class="meta">score ' + d.score + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
             '<div class="sp">' + names + '</div>' +
-            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>';
+            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>' +
+            ' &nbsp; ' + favLink(d);
           listEl.appendChild(li);
         });
         var roundTrip = home ? plan.total + (plan.stops.length ? haversineMi(plan.stops[plan.stops.length - 1].lat, plan.stops[plan.stops.length - 1].lng, home.lat, home.lng) : 0) : plan.total;
@@ -612,7 +654,8 @@
             li.innerHTML = dist +
               '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(h.locName) + '</span></div>' +
               '<div class="meta">' + h.n + ' species all-time' + (h.latest ? ' · latest ' + esc(fmtDate(h.latest)) : '') + '</div>' +
-              '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>';
+              '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>' +
+              ' &nbsp; ' + favLink(h);
             el.appendChild(li);
           });
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
@@ -725,14 +768,38 @@
       $('newBtn').addEventListener('click', loadNewArrivals);
       $('quickBtn').addEventListener('click', loadQuickOuting);
       document.addEventListener('click', function (ev) {
-        var t = ev.target && ev.target.closest ? ev.target.closest('.maplink, .extlink') : null;
-        if (!t) return;
-        ev.preventDefault();
-        var url = t.classList.contains('extlink')
-          ? (t.getAttribute('data-href') || '')
-          : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t.getAttribute('data-q') || '');
-        if (!url) return;
-        try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); }
+        if (!ev.target || !ev.target.closest) return;
+        var link = ev.target.closest('.maplink, .extlink');
+        if (link) {
+          ev.preventDefault();
+          var url = link.classList.contains('extlink')
+            ? (link.getAttribute('data-href') || '')
+            : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(link.getAttribute('data-q') || '');
+          if (url) { try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); } }
+          return;
+        }
+        var fav = ev.target.closest('.favlink');
+        if (fav) {
+          ev.preventDefault();
+          var nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
+          fav.textContent = nowFav ? '★ Saved' : '☆ Save';
+          renderFavs();
+          return;
+        }
+        var rec = ev.target.closest('.recentlink');
+        if (rec) {
+          ev.preventDefault();
+          if (!getKey()) { showSettings(true); return; }
+          var locId = rec.getAttribute('data-locid'), li = rec.closest('li');
+          var box = li ? li.querySelector('.recentbox') : null;
+          if (box) box.textContent = 'Loading…';
+          ebird('data/obs/' + encodeURIComponent(locId) + '/recent?detail=simple&back=14').then(function (obs) {
+            var seenN = {}, names = [];
+            (obs || []).forEach(function (o) { var k = o.comName || ''; if (k && !seenN[k]) { seenN[k] = 1; names.push(k); } });
+            if (box) box.textContent = names.length ? (names.length + ' species (14d): ' + names.slice(0, 40).join(', ')) : 'No recent reports.';
+          }).catch(function (e) { if (box) box.textContent = netErr(e); });
+          return;
+        }
       });
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
@@ -762,6 +829,7 @@
       loadSettings();
       updateCsvStatus();
       updateMyYear();
+      renderFavs();
       if (getKey()) refresh();
     })();
   </script>
