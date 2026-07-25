@@ -44,8 +44,8 @@ features land so the two stay at parity.
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🐦 header — year list count | **My year** count | ✅ | Current-year species count computed from the imported CSV's Date column. Top-100 rank omitted (eBird scrapes it — no API). |
-| 🐦 Year List | **My year** list | ✅ | Expandable current-year and all-time species lists (common names), parsed from the imported CSV. |
+| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled sample list on first run. Top-100 rank omitted (eBird scrapes it — no API). |
+| 🐦 Year List | **My year** list | ✅ | Expandable current-year (and all-time, for CSV) species lists, from the imported CSV or the bundled sample data. |
 
 ## Environmental (non-eBird sources)
 
@@ -77,3 +77,11 @@ in-app "N new since last check" indicator, using a region-scoped baseline of
 rarity species codes in localStorage. True background / push rarity alerts are
 deliberately out of scope — the app runs with no server (by design) and
 free-Apple-ID sideloads cannot use push notifications.
+
+**Bundled sample data.** The app ships a snapshot of the owner's eBird 2026
+year lists (`www/seed-birdlist.js`, ~330 species codes) and loads it on first
+launch so Targets / Destinations / My year / etc. have real data before any
+CSV is imported. It matches by eBird `speciesCode` (exact and locale-proof).
+Fully replaceable: importing a *Download My Data* CSV overrides it, *Clear*
+removes it, and *Load sample data* brings it back. Regenerate from the private
+report pipeline's `birdlist-*.md` exports with `node assets/build-seed.js`.
