@@ -23,7 +23,7 @@ Settings  → your eBird API key (stored on device)
 Seen list → import MyEBirdData.csv once (local storage)
 Live data → CapacitorHttp → eBird API 2.0   (no CORS, no server, no GitHub)
 Analysis  → on-device (JS)
-UI        → Nearby / Targets / My Year / Alerts / Settings
+UI        → Notable sightings / Targets / My Year / Settings
 ```
 
 ## How it's built (no Mac required)
@@ -60,8 +60,9 @@ npm install
 
 ## Roadmap
 
-- **P0** — Capacitor shell + CI → installable `.ipa`. ✅ (this)
-- **P1** — Settings + eBird API key; one live call (notables near home).
+- **P0** — Capacitor shell + CI → installable `.ipa`. ✅
+- **P1** — Settings (eBird API key + region, on-device) + live notable-sightings
+  call via `CapacitorHttp`. ✅
 - **P2** — Import eBird CSV → first real "targets near me" (unseen) view.
 - **P3** — Port ranking (trip planner / top destinations) to JS; maps.
 - **P4** — Local notifications, polish.
