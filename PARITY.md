@@ -44,8 +44,8 @@ features land so the two stay at parity.
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🐦 header — year list count | **My year** totals | 🟡 | Totals from imported CSV; top-100 rank omitted (scraped). |
-| 🐦 Year List | **My year** | 🟡 | Totals shown; full species listing planned. |
+| 🐦 header — year list count | **My year** count | ✅ | Current-year species count computed from the imported CSV's Date column. Top-100 rank omitted (eBird scrapes it — no API). |
+| 🐦 Year List | **My year** list | ✅ | Expandable current-year and all-time species lists (common names), parsed from the imported CSV. |
 
 ## Environmental (non-eBird sources)
 
