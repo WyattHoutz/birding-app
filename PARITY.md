@@ -69,3 +69,11 @@ features land so the two stay at parity.
 |---|---|---|---|
 | Contents (TOC) | Panel layout | ➖ | Single-screen app; panels replace a TOC. |
 | Footer | Footer badge | ✅ | Version / phase badge. |
+
+## App-only
+
+Not a report section, but an app-native touch: the **Notable** panel shows an
+in-app "N new since last check" indicator, using a region-scoped baseline of
+rarity species codes in localStorage. True background / push rarity alerts are
+deliberately out of scope — the app runs with no server (by design) and
+free-Apple-ID sideloads cannot use push notifications.

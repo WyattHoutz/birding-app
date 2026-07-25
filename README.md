@@ -74,6 +74,8 @@ npm install
   (richest hotspots near Home). ✅
 - **P6** — Favorite hotspots: pin spots from any list + per-hotspot recent
   sightings. ✅
-- **P7** — Local notifications for new rarities; polish.
+- **P7** — In-app "new rarities since last check" indicator on Notable. ✅
+  (True background/push alerts are out of scope — no server, and free-Apple-ID
+  sideloads can't use push notifications.)
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
