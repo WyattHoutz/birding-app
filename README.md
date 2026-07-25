@@ -63,6 +63,7 @@ npm install
 - **P0** — Capacitor shell + CI → installable `.ipa`. ✅
 - **P1** — Settings (eBird API key + region, on-device) + live notable-sightings
   call via `CapacitorHttp`. ✅
-- **P2** — Import eBird CSV → first real "targets near me" (unseen) view.
+- **P2** — Import eBird CSV (on-device seen list) → Targets view (recent
+  regional species you haven't logged) + My Year totals. ✅
 - **P3** — Port ranking (trip planner / top destinations) to JS; maps.
 - **P4** — Local notifications, polish.
