@@ -32,6 +32,11 @@ jobs:
       - name: Add iOS platform
         run: npx cap add ios
 
+      # ios/ is regenerated each build, so (re)inject the app icon + launch
+      # image from assets/*.png into the fresh Xcode asset catalog.
+      - name: Generate app icon + splash
+        run: npx capacitor-assets generate --ios
+
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 

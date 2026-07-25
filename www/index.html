@@ -102,6 +102,11 @@
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
     .maplink, .extlink, .favlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
+    .wxline.dim2 { color: var(--muted); font-size: 12px; }
+    .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
+    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+    .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -195,6 +200,17 @@
     </section>
 
     <section class="panel">
+      <h2>🌤 Conditions for chasing</h2>
+      <div class="row">
+        <button id="wxBtn">Load conditions</button>
+      </div>
+      <div id="wxStatus" class="status">Sun, moon, tides, and the NOAA forecast for your Home location.</div>
+      <div id="wxSun"></div>
+      <div id="wxTides"></div>
+      <div id="wxForecast"></div>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -212,7 +228,10 @@
         <div><input id="homeLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.75" /></div>
         <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
       </div>
-      <p class="hint">Adds distances and a home marker to Top destinations.</p>
+      <p class="hint">Adds distances and a home marker to Top destinations. Also drives the Conditions forecast (US only).</p>
+      <label for="tideStation">NOAA tide station ID (optional)</label>
+      <input id="tideStation" type="text" inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="e.g. 9447130" />
+      <p class="hint">For coastal tides in Conditions. Find yours at <code>tidesandcurrents.noaa.gov</code>. Leave blank inland.</p>
       <label>Seen list — eBird CSV</label>
       <div class="row">
         <label class="filebtn" for="csvFile">Import CSV…</label>
@@ -229,7 +248,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P7 · alerts</div>
+    <div>Birding · P8 · weather</div>
   </footer>
 
   <script>
@@ -738,6 +757,136 @@
         updateCsvStatus(); updateMyYear();
       }
 
+      // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
+      function wxGet(url) {
+        return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      }
+      function wxErr(e) {
+        var cap = window.Capacitor, native = cap && cap.isNativePlatform && cap.isNativePlatform();
+        return native ? ('Weather unavailable — ' + e.message)
+                      : 'Weather loads in the installed app (browser preview may block the request).';
+      }
+      function isSoutherly(dir) { return dir === 'S' || dir === 'SSW' || dir === 'SW' || dir === 'SSE'; }
+      function julianDay(y, m, d) {
+        var a = Math.floor((14 - m) / 12), yy = y + 4800 - a, mm = m + 12 * a - 3;
+        return d + Math.floor((153 * mm + 2) / 5) + 365 * yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) - 32045;
+      }
+      function sunriseSunset(lat, lon, y, m, d) {
+        var n = julianDay(y, m, d) - 2451545 + 0.0008;
+        var jStar = n - lon / 360;
+        var M = (357.5291 + 0.98560028 * jStar) % 360, Mr = M * Math.PI / 180;
+        var C = 1.9148 * Math.sin(Mr) + 0.0200 * Math.sin(2 * Mr) + 0.0003 * Math.sin(3 * Mr);
+        var lam = (M + C + 180 + 102.9372) % 360, lamR = lam * Math.PI / 180;
+        var jTransit = 2451545.0 + jStar + 0.0053 * Math.sin(Mr) - 0.0069 * Math.sin(2 * lamR);
+        var delta = Math.asin(Math.sin(lamR) * Math.sin(23.4397 * Math.PI / 180));
+        var latR = lat * Math.PI / 180;
+        var cosOmega = (Math.sin(-0.833 * Math.PI / 180) - Math.sin(latR) * Math.sin(delta)) / (Math.cos(latR) * Math.cos(delta));
+        if (cosOmega > 1 || cosOmega < -1) return null;
+        var omega = Math.acos(cosOmega) * 180 / Math.PI;
+        var toDate = function (j) { return new Date((j - 2440587.5) * 86400000); };
+        return { rise: toDate(jTransit - omega / 360), set: toDate(jTransit + omega / 360) };
+      }
+      function moonPhase(y, m, d) {
+        var KNOWN = Date.UTC(2000, 0, 6, 18, 14), SYN = 29.530588853;
+        var days = (Date.UTC(y, m - 1, d, 12) - KNOWN) / 86400000;
+        var phase = (((days % SYN) + SYN) % SYN) / SYN;
+        var illum = (1 - Math.cos(2 * Math.PI * phase)) / 2 * 100;
+        var bands = [[0.02, 'New Moon', '🌑'], [0.24, 'Waxing Crescent', '🌒'], [0.27, 'First Quarter', '🌓'],
+          [0.48, 'Waxing Gibbous', '🌔'], [0.52, 'Full Moon', '🌕'], [0.73, 'Waning Gibbous', '🌖'],
+          [0.77, 'Last Quarter', '🌗'], [0.98, 'Waning Crescent', '🌘']];
+        for (var i = 0; i < bands.length; i++) { if (phase < bands[i][0]) return { name: bands[i][1], illum: illum, emoji: bands[i][2] }; }
+        return { name: 'New Moon', illum: illum, emoji: '🌑' };
+      }
+      function to12(hhmm) {
+        var mm = /^(\d{2}):(\d{2})/.exec(hhmm || '');
+        if (!mm) return hhmm || '';
+        var h = +mm[1]; return (h % 12 || 12) + ':' + mm[2] + ' ' + (h < 12 ? 'am' : 'pm');
+      }
+      function buildTideRows(preds) {
+        preds = preds || [];
+        return preds.map(function (p, i) {
+          var t = p.t || '', hhmm = t.length >= 16 ? t.slice(11, 16) : t;
+          var isHigh = p.type === 'H', v = parseFloat(p.v), ft = isFinite(v) ? v.toFixed(1) + ' ft' : '';
+          var nxt = preds[i + 1], nt = (nxt && nxt.t) || '', nhhmm = nt.length >= 16 ? nt.slice(11, 16) : nt;
+          var to = nhhmm ? (' to ' + to12(nhhmm)) : '';
+          return { kind: isHigh ? 'High' : 'Low', time: to12(hhmm), height: ft, trend: (isHigh ? '⬇ Falling' : '⬆ Rising') + to };
+        });
+      }
+      function renderSunMoon(home) {
+        var el = $('wxSun'); if (!el) return;
+        var now = new Date(), y = now.getFullYear(), m = now.getMonth() + 1, d = now.getDate();
+        var ss = sunriseSunset(home.lat, home.lng, y, m, d), html = '';
+        var t = function (dt) { return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
+        if (ss) {
+          var first = new Date(ss.rise.getTime() - 1800000), last = new Date(ss.set.getTime() + 1800000);
+          var mins = Math.round((ss.set - ss.rise) / 60000);
+          html += '<div class="wxline">☀️ <b>Sunrise</b> ' + t(ss.rise) + ' · <b>Sunset</b> ' + t(ss.set) +
+            ' · <b>' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm</b> daylight</div>';
+          html += '<div class="wxline dim2">First light ~' + t(first) + ' · last light ~' + t(last) + ' — dawn-chorus & dusk windows</div>';
+        }
+        var mp = moonPhase(y, m, d);
+        html += '<div class="wxline">' + mp.emoji + ' <b>Moon:</b> ' + esc(mp.name) + ' · ' + Math.round(mp.illum) + '% illuminated</div>';
+        el.innerHTML = html;
+      }
+      function renderForecast(periods) {
+        var el = $('wxForecast'); if (!el) return;
+        if (!periods.length) { el.innerHTML = ''; return; }
+        var rows = periods.map(function (p) {
+          var wind = ((p.windDirection || '') + ' ' + (p.windSpeed || '')).trim();
+          if (isSoutherly(p.windDirection || '')) wind = '🐦 ' + wind;
+          var short = esc(p.shortForecast || '');
+          var pop = p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value;
+          if (pop) short += ' (' + pop + '% precip)';
+          var temp = (p.temperature != null ? p.temperature : '?') + '°' + (p.temperatureUnit || '');
+          return '<tr><td>' + esc(p.name || '') + '</td><td>' + short + '</td><td>' + esc(temp) + '</td><td>' + esc(wind) + '</td></tr>';
+        }).join('');
+        el.innerHTML = '<div class="wxline dim2">NOAA forecast at Home · 🐦 = southerly winds (spring-migration arrivals)</div>' +
+          '<table class="wxtable"><thead><tr><th>When</th><th>Forecast</th><th>Temp</th><th>Wind</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      }
+      function renderTides(preds, station) {
+        var el = $('wxTides'); if (!el) return;
+        var rows = buildTideRows(preds);
+        if (!rows.length) { el.innerHTML = ''; return; }
+        var body = rows.map(function (r) {
+          return '<tr><td>' + esc(r.kind) + '</td><td>' + esc(r.time) + '</td><td>' + esc(r.height) + '</td><td>' + esc(r.trend) + '</td></tr>';
+        }).join('');
+        el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · station ' + esc(station) + '</div>' +
+          '<table class="wxtable"><thead><tr><th>Tide</th><th>Time</th><th>Height</th><th>Trend</th></tr></thead><tbody>' + body + '</tbody></table>' +
+          '<div class="wxline dim2">⬆ Rising (incoming) tides push waterfowl & seafowl closer to shore — prime chase windows.</div>';
+      }
+      function loadTides() {
+        var el = $('wxTides'); if (!el) return;
+        var station = (localStorage.getItem('ebird_tide_station') || '').trim();
+        if (!station) { el.innerHTML = ''; return; }
+        el.innerHTML = '<div class="wxline dim2">Loading tides…</div>';
+        var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
+        var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=' + d8 + '&end_date=' + d8 +
+          '&station=' + encodeURIComponent(station) + '&product=predictions&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json';
+        wxGet(url).then(function (data) { renderTides((data && data.predictions) || [], station); })
+          .catch(function (e) { el.innerHTML = '<div class="wxline dim2">Tides unavailable — ' + esc(e.message || 'error') + '</div>'; });
+      }
+      function loadConditions() {
+        var home = getHome();
+        if (!home) { $('wxStatus').textContent = 'Set your Home location in Settings to load conditions.'; showSettings(true); return; }
+        var btn = $('wxBtn'), st = $('wxStatus');
+        btn.disabled = true; st.textContent = 'Loading conditions…';
+        renderSunMoon(home);
+        loadTides();
+        wxGet('https://api.weather.gov/points/' + home.lat.toFixed(4) + ',' + home.lng.toFixed(4))
+          .then(function (p) {
+            var url = p && p.properties && p.properties.forecast;
+            if (!url) throw new Error('no NOAA forecast grid for this location (US only).');
+            return wxGet(url);
+          })
+          .then(function (f) {
+            renderForecast((f && f.properties && f.properties.periods || []).slice(0, 4));
+            st.textContent = 'Updated ' + nowTime();
+          })
+          .catch(function (e) { $('wxForecast').innerHTML = ''; st.textContent = wxErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+
       function updateCsvStatus() {
         var meta = getSeenMeta();
         $('csvStatus').textContent = meta
@@ -770,6 +919,7 @@
         var h = getHome();
         $('homeLat').value = h ? h.lat : '';
         $('homeLng').value = h ? h.lng : '';
+        $('tideStation').value = localStorage.getItem('ebird_tide_station') || '';
       }
 
       // --- wire up ---
@@ -783,6 +933,7 @@
       $('cklBtn').addEventListener('click', loadBirdiest);
       $('newBtn').addEventListener('click', loadNewArrivals);
       $('quickBtn').addEventListener('click', loadQuickOuting);
+      $('wxBtn').addEventListener('click', loadConditions);
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
         var link = ev.target.closest('.maplink, .extlink');
@@ -825,6 +976,7 @@
         var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
         if (isFinite(hla) && isFinite(hlo)) { localStorage.setItem('ebird_home_lat', hla); localStorage.setItem('ebird_home_lng', hlo); }
         else { localStorage.removeItem('ebird_home_lat'); localStorage.removeItem('ebird_home_lng'); }
+        localStorage.setItem('ebird_tide_station', ($('tideStation').value || '').trim());
         loadSettings();
         showSettings(false);
         if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';
