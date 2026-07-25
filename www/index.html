@@ -96,6 +96,12 @@
     .filebtn { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
     .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
+    .map { width: 100%; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
+    .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 12px; font-weight: 800; margin-right: 8px; vertical-align: middle; }
+    .dest .name { vertical-align: middle; }
+    .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .dest .sp .star { color: #e5a300; }
+    .maplink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
   </style>
 </head>
 <body>
@@ -126,6 +132,16 @@
     </section>
 
     <section class="panel">
+      <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
+      <div class="row">
+        <button id="destBtn">Rank hotspots</button>
+      </div>
+      <div id="destStatus" class="status">Hotspots with the most species you still need, ranked by score (rarities ×3).</div>
+      <div id="destMap"></div>
+      <ul id="destResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -138,6 +154,12 @@
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" />
       <p class="hint">Country <code>US</code>, state <code>US-WA</code>, or county <code>US-WA-033</code>.</p>
+      <label>Home location (optional)</label>
+      <div class="row">
+        <div><input id="homeLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.75" /></div>
+        <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
+      </div>
+      <p class="hint">Adds distances and a home marker to Top destinations.</p>
       <label>Seen list — eBird CSV</label>
       <div class="row">
         <label class="filebtn" for="csvFile">Import CSV…</label>
@@ -154,7 +176,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P1 · live eBird</div>
+    <div>Birding · P3 · destinations</div>
   </footer>
 
   <script>
@@ -246,6 +268,120 @@
           .finally(function () { btn.disabled = false; });
       }
 
+      // --- shared region data (recent + notable), cached ~10 min ---
+      var _cache = {};
+      function getData(region) {
+        var c = _cache[region];
+        if (c && (Date.now() - c.t) < 600000) return Promise.resolve(c);
+        return Promise.all([
+          ebird('data/obs/' + encodeURIComponent(region) + '/recent?detail=full&back=14'),
+          ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=full&back=14&maxResults=1000').catch(function () { return []; })
+        ]).then(function (res) {
+          _cache[region] = { t: Date.now(), recent: res[0] || [], notable: res[1] || [] };
+          return _cache[region];
+        });
+      }
+
+      // --- Top destinations (rank hotspots by unseen-target richness) ---
+      function haversineMi(la1, lo1, la2, lo2) {
+        var R = 3958.8, toR = Math.PI / 180;
+        var dLa = (la2 - la1) * toR, dLo = (lo2 - lo1) * toR;
+        var a = Math.sin(dLa / 2) * Math.sin(dLa / 2) +
+                Math.cos(la1 * toR) * Math.cos(la2 * toR) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+      }
+
+      function buildDestinations(recent, notable, seen, field, home) {
+        var rareSet = {};
+        (notable || []).forEach(function (o) { var s = (o.sciName || '').trim().toLowerCase(); if (s) rareSet[s] = 1; });
+        var groups = {};
+        (recent || []).forEach(function (o) {
+          var seenKey = (o[field] || '').toString().trim().toLowerCase();
+          if (!seenKey || seen[seenKey]) return;
+          if (o.lat == null || o.lng == null) return;
+          var key = o.locId || (o.lat + ',' + o.lng);
+          var g = groups[key];
+          if (!g) g = groups[key] = { locId: o.locId || '', locName: o.locName || 'Unknown location', lat: +o.lat, lng: +o.lng, sp: {} };
+          var sci = (o.sciName || o.comName || '').trim().toLowerCase();
+          if (!g.sp[sci]) g.sp[sci] = { comName: o.comName || 'Unknown species', rare: rareSet[sci] === 1 };
+        });
+        return Object.keys(groups).map(function (k) {
+          var g = groups[k], sp = Object.keys(g.sp).map(function (s) { return g.sp[s]; });
+          var score = sp.reduce(function (a, x) { return a + (x.rare ? 3 : 1); }, 0);
+          var rare = sp.reduce(function (a, x) { return a + (x.rare ? 1 : 0); }, 0);
+          return { locId: g.locId, locName: g.locName, lat: g.lat, lng: g.lng, species: sp, score: score, rare: rare,
+                   dist: home ? haversineMi(home.lat, home.lng, g.lat, g.lng) : null };
+        }).sort(function (a, b) {
+          if (b.score !== a.score) return b.score - a.score;
+          var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
+          if (da !== db) return da - db;
+          return a.locName < b.locName ? -1 : 1;
+        });
+      }
+
+      function mapSVG(points, home) {
+        var W = 320, H = 200, pad = 24;
+        var all = points.map(function (p) { return { lat: p.lat, lng: p.lng }; });
+        if (home) all.push({ lat: home.lat, lng: home.lng });
+        if (!all.length) return '';
+        var minLa = Math.min.apply(null, all.map(function (p) { return p.lat; }));
+        var maxLa = Math.max.apply(null, all.map(function (p) { return p.lat; }));
+        var minLo = Math.min.apply(null, all.map(function (p) { return p.lng; }));
+        var maxLo = Math.max.apply(null, all.map(function (p) { return p.lng; }));
+        var rLa = (maxLa - minLa) || 0.01, rLo = (maxLo - minLo) || 0.01;
+        function X(lo) { return pad + (lo - minLo) / rLo * (W - 2 * pad); }
+        function Y(la) { return pad + (maxLa - la) / rLa * (H - 2 * pad); }
+        var s = '<svg class="map" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Destinations map">';
+        s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="12" fill="currentColor" opacity="0.05"/>';
+        if (home) {
+          var hx = X(home.lng), hy = Y(home.lat);
+          s += '<circle cx="' + hx.toFixed(1) + '" cy="' + hy.toFixed(1) + '" r="10" fill="#0f7a52"/>';
+          s += '<text x="' + hx.toFixed(1) + '" y="' + (hy + 4).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="sans-serif">H</text>';
+        }
+        points.forEach(function (p, i) {
+          var x = X(p.lng), y = Y(p.lat);
+          s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="11" fill="#e5484d"/>';
+          s += '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="sans-serif">' + (i + 1) + '</text>';
+        });
+        return s + '</svg>';
+      }
+
+      function getHome() {
+        var la = parseFloat(localStorage.getItem('ebird_home_lat')), lo = parseFloat(localStorage.getItem('ebird_home_lng'));
+        return (isFinite(la) && isFinite(lo)) ? { lat: la, lng: lo } : null;
+      }
+
+      function renderDestinations(list, mapEl, listEl) {
+        mapEl.innerHTML = mapSVG(list, getHome());
+        listEl.innerHTML = '';
+        list.forEach(function (d, i) {
+          var li = document.createElement('li');
+          var dist = (d.dist != null) ? '<span class="count">' + d.dist.toFixed(1) + ' mi</span>' : '';
+          var names = d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
+            .map(function (x) { return (x.rare ? '<span class="star">★</span> ' : '') + esc(x.comName); }).join(', ');
+          li.innerHTML = dist +
+            '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(d.locName) + '</span></div>' +
+            '<div class="meta">score ' + d.score + ' · ' + d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
+            '<div class="sp">' + names + '</div>' +
+            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>';
+          listEl.appendChild(li);
+        });
+      }
+
+      function loadDestinations() {
+        if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var seen = getSeen(), field = getField();
+        if (!Object.keys(seen).length) { $('destStatus').textContent = 'Import your eBird CSV in Settings to rank hotspots.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('destBtn'), st = $('destStatus');
+        btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots in ' + region + '…';
+        getData(region).then(function (c) {
+          var dests = buildDestinations(c.recent, c.notable, seen, field, getHome()).slice(0, 12);
+          if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + region + '.'; return; }
+          st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          renderDestinations(dests, $('destMap'), $('destResults'));
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
       // --- CSV import (quote/newline-aware) ---
       function parseCSV(text) {
         var rows = [], row = [], field = '', inQ = false, c;
@@ -330,6 +466,10 @@
         var reg = '· ' + getRegion();
         $('regionLabel').textContent = reg;
         $('targetRegionLabel').textContent = reg;
+        $('destRegionLabel').textContent = reg;
+        var h = getHome();
+        $('homeLat').value = h ? h.lat : '';
+        $('homeLng').value = h ? h.lng : '';
       }
 
       // --- wire up ---
@@ -337,11 +477,22 @@
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);
+      $('destBtn').addEventListener('click', loadDestinations);
+      $('destResults').addEventListener('click', function (ev) {
+        var a = ev.target && ev.target.closest ? ev.target.closest('.maplink') : null;
+        if (!a) return;
+        ev.preventDefault();
+        var url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(a.getAttribute('data-q') || '');
+        try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); }
+      });
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
       $('saveBtn').addEventListener('click', function () {
         localStorage.setItem(K.api, $('apiKey').value.trim());
         localStorage.setItem(K.region, ($('region').value.trim() || 'US-WA').toUpperCase());
+        var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
+        if (isFinite(hla) && isFinite(hlo)) { localStorage.setItem('ebird_home_lat', hla); localStorage.setItem('ebird_home_lng', hlo); }
+        else { localStorage.removeItem('ebird_home_lat'); localStorage.removeItem('ebird_home_lng'); }
         loadSettings();
         showSettings(false);
         if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';

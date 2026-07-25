@@ -23,7 +23,7 @@ Settings  → your eBird API key (stored on device)
 Seen list → import MyEBirdData.csv once (local storage)
 Live data → CapacitorHttp → eBird API 2.0   (no CORS, no server, no GitHub)
 Analysis  → on-device (JS)
-UI        → Notable sightings / Targets / My Year / Settings
+UI        → Notable sightings / Targets / Top destinations / My Year / Settings
 ```
 
 ## How it's built (no Mac required)
@@ -65,5 +65,10 @@ npm install
   call via `CapacitorHttp`. ✅
 - **P2** — Import eBird CSV (on-device seen list) → Targets view (recent
   regional species you haven't logged) + My Year totals. ✅
-- **P3** — Port ranking (trip planner / top destinations) to JS; maps.
-- **P4** — Local notifications, polish.
+- **P3** — Port ranking to JS: **Top destinations** (score = Σ 3×rarity / 1×target
+  per unseen species, clustered by hotspot) with an inline SVG map, optional Home
+  location for distances, and Maps links. ✅
+- **P4** — Excursions, trip-planner route, birdiest checklists, then notifications
+  & polish.
+
+See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
