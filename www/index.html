@@ -237,6 +237,7 @@
         <label class="filebtn" for="csvFile">Import CSV…</label>
         <input id="csvFile" type="file" accept=".csv,text/csv" hidden />
         <button id="clearCsv" class="secondary" type="button">Clear</button>
+        <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
       </div>
       <p class="hint" id="csvStatus">No seen list yet. eBird → Download My Data → import MyEBirdData.csv.</p>
       <div class="row" style="margin-top:16px">
@@ -248,9 +249,10 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P9 · year list</div>
+    <div>Birding · P10 · sample data</div>
   </footer>
 
+  <script src="seed-birdlist.js"></script>
   <script>
     (function () {
       var K = { api: 'ebird_api_key', region: 'ebird_region', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
@@ -769,7 +771,44 @@
       function clearCsv() {
         localStorage.removeItem(K.seen); localStorage.removeItem(K.seenMeta); localStorage.removeItem(K.field);
         localStorage.removeItem('ebird_life_names'); localStorage.removeItem('ebird_year_names');
+        localStorage.setItem('ebird_seed_dismissed', '1');
         updateCsvStatus(); updateMyYear();
+      }
+
+      // --- bundled sample data (owner's eBird 2026 year lists) -------------
+      // Ships in seed-birdlist.js (loaded as window.__SEED_BIRDLIST__) so every
+      // panel has real data to chew on before an eBird "Download My Data" CSV
+      // is imported. Matches by eBird speciesCode — exact and locale-proof.
+      // Fully replaceable: importing a CSV overrides it, and Clear removes it
+      // for good (the "Load sample data" button brings it back).
+      function applySeed(seed) {
+        var codes = (seed && seed.codes) || [], names = (seed && seed.names) || [];
+        var set = {};
+        codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
+        var n = Object.keys(set).length;
+        var sorted = names.slice().sort(function (a, b) { return String(a).localeCompare(String(b)); });
+        localStorage.setItem(K.seen, JSON.stringify(set));
+        localStorage.setItem(K.field, seed.seenField || 'speciesCode');
+        localStorage.setItem('ebird_year_names', JSON.stringify(sorted));
+        localStorage.setItem('ebird_life_names', '[]');
+        localStorage.setItem(K.seenMeta, JSON.stringify({
+          count: n, rows: n, date: new Date().toISOString(),
+          year: seed.year || new Date().getFullYear(),
+          yearCount: sorted.length, source: 'seed'
+        }));
+        return n;
+      }
+      function loadSeed(force) {
+        var seed = window.__SEED_BIRDLIST__;
+        if (!seed || !seed.codes) { $('csvStatus').textContent = 'Sample data is unavailable in this build.'; return false; }
+        if (force) localStorage.removeItem('ebird_seed_dismissed');
+        applySeed(seed);
+        updateCsvStatus(); updateMyYear();
+        return true;
+      }
+      function maybeAutoSeed() {
+        if (getSeenMeta() || localStorage.getItem('ebird_seed_dismissed') === '1') return;
+        loadSeed(false);
       }
 
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
@@ -904,6 +943,10 @@
 
       function updateCsvStatus() {
         var meta = getSeenMeta();
+        if (meta && meta.source === 'seed') {
+          $('csvStatus').textContent = meta.count + ' species from bundled sample data. Import your eBird CSV to use your own list.';
+          return;
+        }
         $('csvStatus').textContent = meta
           ? (meta.count + ' species imported from ' + meta.rows + ' rows · ' + fmtDate(meta.date))
           : 'No seen list yet. eBird → Download My Data → import MyEBirdData.csv.';
@@ -916,13 +959,16 @@
         try { yearNames = JSON.parse(localStorage.getItem('ebird_year_names') || '[]'); } catch (e) {}
         try { lifeNames = JSON.parse(localStorage.getItem('ebird_life_names') || '[]'); } catch (e) {}
         var yc = meta.yearCount != null ? meta.yearCount : yearNames.length;
+        var isSeed = meta.source === 'seed';
         var html;
         if (yc) {
           html = '<div class="bignum">' + esc(yc) + ' <small>species in ' + esc(meta.year || '') + '</small></div>' +
-            '<div class="meta">' + esc(meta.count) + ' all-time · ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>';
+            (isSeed
+              ? '<div class="meta">bundled sample data · import your eBird CSV to use your own list</div>'
+              : '<div class="meta">' + esc(meta.count) + ' all-time · ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>');
         } else {
           html = '<div class="bignum">' + esc(meta.count) + ' <small>species logged</small></div>' +
-            '<div class="meta">from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>';
+            '<div class="meta">' + (isSeed ? 'bundled sample data' : 'from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date))) + '</div>';
         }
         var links = [];
         if (yearNames.length) links.push('<a class="mylink" data-list="year">Show ' + esc(meta.year || 'year') + ' list ▾</a>');
@@ -1012,6 +1058,7 @@
       });
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
+      $('loadSeedBtn').addEventListener('click', function () { loadSeed(true); });
       $('saveBtn').addEventListener('click', function () {
         localStorage.setItem(K.api, $('apiKey').value.trim());
         localStorage.setItem(K.region, ($('region').value.trim() || 'US-WA').toUpperCase());
@@ -1037,6 +1084,7 @@
       })();
 
       loadSettings();
+      maybeAutoSeed();
       updateCsvStatus();
       updateMyYear();
       renderFavs();

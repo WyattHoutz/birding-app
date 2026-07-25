@@ -16,11 +16,13 @@ your own device — no App Store, no paid Apple Developer account.
 - **Your data stays on your phone.** The seen-list comes from an eBird
   *Download My Data* CSV that you import once and store locally. eBird's public
   API has no personal life/year/needs-list endpoint, so the CSV is how the app
-  knows what you've already seen.
+  knows what you've already seen. On first launch the app also loads a **bundled
+  sample list** (the owner's eBird 2026 year lists) so every panel has data to
+  work with immediately — importing your CSV replaces it, and *Clear* removes it.
 
 ```
 Settings  → your eBird API key (stored on device)
-Seen list → import MyEBirdData.csv once (local storage)
+Seen list → bundled sample data on first run; import MyEBirdData.csv to replace
 Live data → CapacitorHttp → eBird + NOAA APIs (no CORS, no server, no GitHub)
 Analysis  → on-device (JS)
 UI        → Notable / Targets / Destinations / Excursions / Trip / Birdiest /
@@ -84,5 +86,10 @@ npm install
   Plus a birding app icon + launch image. ✅
 - **P9** — My Year: current-year species count + expandable year and all-time
   species lists, parsed from the imported eBird CSV. ✅
+- **P10** — Bundled sample data: ships the owner's eBird 2026 year lists
+  (`www/seed-birdlist.js`, ~330 species) so every panel works before any CSV
+  import. Matches by eBird `speciesCode` (exact, locale-proof). Auto-loads on
+  first run; *Load sample data* re-loads it; importing a CSV or *Clear*
+  overrides it. Regenerate with `node assets/build-seed.js`. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
