@@ -91,5 +91,14 @@ npm install
   import. Matches by eBird `speciesCode` (exact, locale-proof). Auto-loads on
   first run; *Load sample data* re-loads it; importing a CSV or *Clear*
   overrides it. Regenerate with `node assets/build-seed.js`. ✅
+- **P11** — In-app eBird login (`@capgo/capacitor-inappbrowser`) unlocks the
+  login-gated report features: **My eBird rankings** (your Top-100 rank +
+  species + checklists + top-25 leaderboard, scoped to your region / Lower 48 /
+  ABA Area) and the **ABA rare-bird alert** (continent-wide megararities, each
+  flagged seen/need against your list). eBird pages redirect to Cornell SSO, so
+  the app opens them in an in-app browser, lets you log in once (cookie persists
+  on device — no GitHub, no proxy), then injects HTML parsers ported 1:1 from
+  the pipeline's `rankings.py` / `aba_rba.py` and posts back compact JSON.
+  Display name + alert `sid` + *Sign out* live in Settings. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
