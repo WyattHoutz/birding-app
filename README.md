@@ -72,6 +72,8 @@ npm install
   neighbour + map path), and birdiest recent checklists. ✅
 - **P5** — Discovery: fresh targets (recent report dates) + quick outing
   (richest hotspots near Home). ✅
-- **P6** — Local notifications for new rarities; polish.
+- **P6** — Favorite hotspots: pin spots from any list + per-hotspot recent
+  sightings. ✅
+- **P7** — Local notifications for new rarities; polish.
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
