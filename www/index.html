@@ -100,7 +100,7 @@
     .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 12px; font-weight: 800; margin-right: 8px; vertical-align: middle; }
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
-    .dest .sp .star { color: #e5a300; }
+    .star { color: #e5a300; }
     .maplink, .extlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
   </style>
 </head>
@@ -171,6 +171,24 @@
     </section>
 
     <section class="panel">
+      <h2>🌟 Fresh targets <span class="dim" id="newRegionLabel"></span></h2>
+      <div class="row">
+        <button id="newBtn">Find fresh targets</button>
+      </div>
+      <div id="newStatus" class="status">Target species reported in your region within the last 2 days.</div>
+      <ul id="newResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
+      <div class="row">
+        <button id="quickBtn">Hotspots near home</button>
+      </div>
+      <div id="quickStatus" class="status">The richest eBird hotspots within ~20 mi of Home (needs Home set).</div>
+      <ul id="quickResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -205,7 +223,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P4 · routing</div>
+    <div>Birding · P5 · discovery</div>
   </footer>
 
   <script>
@@ -526,6 +544,80 @@
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
+      // --- Fresh targets (target species reported in the last N days) ---
+      function buildNewArrivals(recent, notable, seen, field, sinceDays, todayMs) {
+        var rareSet = {};
+        (notable || []).forEach(function (o) { var s = (o.sciName || '').trim().toLowerCase(); if (s) rareSet[s] = 1; });
+        var cutoff = todayMs - sinceDays * 86400000;
+        var out = [];
+        (recent || []).forEach(function (o) {
+          var seenKey = (o[field] || '').toString().trim().toLowerCase();
+          if (!seenKey || seen[seenKey]) return;
+          var ts = Date.parse(String(o.obsDt || '').slice(0, 10));
+          if (isNaN(ts) || ts < cutoff) return;
+          var sci = (o.sciName || o.comName || '').trim().toLowerCase();
+          out.push({ comName: o.comName || 'Unknown species', locName: o.locName || '', lat: o.lat, lng: o.lng, obsDt: o.obsDt || '', ts: ts, rare: rareSet[sci] === 1 });
+        });
+        return out.sort(function (a, b) { return (b.ts - a.ts) || (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); });
+      }
+
+      function loadNewArrivals() {
+        if (!getKey()) { $('newStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var seen = getSeen(), field = getField();
+        if (!Object.keys(seen).length) { $('newStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('newBtn'), st = $('newStatus');
+        btn.disabled = true; $('newResults').innerHTML = ''; st.textContent = 'Finding fresh targets in ' + region + '…';
+        getData(region).then(function (c) {
+          var arr = buildNewArrivals(c.recent, c.notable, seen, field, 2, Date.now()).slice(0, 30);
+          if (!arr.length) { st.textContent = 'No target species reported in the last 2 days in ' + region + '.'; return; }
+          st.textContent = arr.length + ' fresh target' + (arr.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          var el = $('newResults'); el.innerHTML = '';
+          arr.forEach(function (o) {
+            var li = document.createElement('li');
+            li.innerHTML = '<span class="count">' + esc(fmtDate(o.obsDt)) + '</span>' +
+              '<div class="name">' + (o.rare ? '<span class="star">★</span> ' : '') + esc(o.comName) + '</div>' +
+              '<div class="meta">' + esc(o.locName || '') + '</div>' +
+              ((o.lat != null && o.lng != null) ? '<a class="maplink" data-q="' + esc(o.lat + ',' + o.lng) + '">Open in Maps ↗</a>' : '');
+            el.appendChild(li);
+          });
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // --- Quick outing (richest hotspots near home) ---
+      function buildQuickOuting(hotspots, home) {
+        return (hotspots || []).map(function (h) {
+          var d = (home && h.lat != null && h.lng != null) ? haversineMi(home.lat, home.lng, +h.lat, +h.lng) : null;
+          return { locId: h.locId, locName: h.locName || 'Unknown location', lat: +h.lat, lng: +h.lng, n: h.numSpeciesAllTime || 0, latest: h.latestObsDt || '', dist: d };
+        }).sort(function (a, b) {
+          if (b.n !== a.n) return b.n - a.n;
+          var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
+          return da - db;
+        });
+      }
+
+      function loadQuickOuting() {
+        if (!getKey()) { $('quickStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var home = getHome();
+        if (!home) { $('quickStatus').textContent = 'Set a Home location in Settings to find hotspots near you.'; showSettings(true); return; }
+        var btn = $('quickBtn'), st = $('quickStatus');
+        btn.disabled = true; $('quickResults').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
+        ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
+          var top = buildQuickOuting(hs, home).slice(0, 15);
+          if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of home.'; return; }
+          st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') + ' near home · updated ' + nowTime();
+          var el = $('quickResults'); el.innerHTML = '';
+          top.forEach(function (h, i) {
+            var li = document.createElement('li');
+            var dist = (h.dist != null) ? '<span class="count">' + h.dist.toFixed(1) + ' mi</span>' : '';
+            li.innerHTML = dist +
+              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(h.locName) + '</span></div>' +
+              '<div class="meta">' + h.n + ' species all-time' + (h.latest ? ' · latest ' + esc(fmtDate(h.latest)) : '') + '</div>' +
+              '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>';
+            el.appendChild(li);
+          });
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
       // --- CSV import (quote/newline-aware) ---
       function parseCSV(text) {
         var rows = [], row = [], field = '', inQ = false, c;
@@ -614,6 +706,8 @@
         $('excRegionLabel').textContent = reg;
         $('tripRegionLabel').textContent = reg;
         $('cklRegionLabel').textContent = reg;
+        $('newRegionLabel').textContent = reg;
+        $('quickRegionLabel').textContent = reg;
         var h = getHome();
         $('homeLat').value = h ? h.lat : '';
         $('homeLng').value = h ? h.lng : '';
@@ -628,6 +722,8 @@
       $('excBtn').addEventListener('click', loadExcursions);
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadBirdiest);
+      $('newBtn').addEventListener('click', loadNewArrivals);
+      $('quickBtn').addEventListener('click', loadQuickOuting);
       document.addEventListener('click', function (ev) {
         var t = ev.target && ev.target.closest ? ev.target.closest('.maplink, .extlink') : null;
         if (!t) return;

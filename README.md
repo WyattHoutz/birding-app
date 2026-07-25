@@ -70,6 +70,8 @@ npm install
   location for distances, and Maps links. ✅
 - **P4** — Top excursions (distance-penalised), trip-planner route (nearest-
   neighbour + map path), and birdiest recent checklists. ✅
-- **P5** — Local notifications for new rarities; polish.
+- **P5** — Discovery: fresh targets (recent report dates) + quick outing
+  (richest hotspots near Home). ✅
+- **P6** — Local notifications for new rarities; polish.
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
