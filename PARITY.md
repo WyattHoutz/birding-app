@@ -17,7 +17,7 @@ features land so the two stay at parity.
 | 📋 All unseen reports | **Targets near you** | ✅ | Region `recent` minus your imported seen-list. |
 | 🔍 Watchlist (verification chases) | — | ➖ | "Needs-verification" is a report-only concept; the app has no NV list. |
 | 🦅 ABA Code 3+ rarities | — | 🟡 | Approximate via country-level notable feed; eBird API exposes no ABA code. Planned. |
-| 🌟 New arrivals today | — | 🔜 | Derive first-seen dates from `recent` `obsDt`. |
+| 🌟 New arrivals today | **Fresh targets** | ✅ | Targets whose most-recent report is within 2 days (approximates arrivals — eBird API has no first-seen date). |
 
 ## Destinations & routing
 
@@ -27,7 +27,7 @@ features land so the two stay at parity.
 | 📍 Closest spots with unseen birds | **Top destinations** (distance) | ✅ | Same ranking; distances shown when Home is set. |
 | 🚗 Top excursions | **Top excursions** | ✅ | Far-from-home clusters with soft distance penalty `score/(1+extra/30)`; needs Home set. |
 | 🧭 Trip planner — half-day route | **Trip planner** | ✅ | Nearest-neighbour route through the top ≤6 nearby target hotspots; SVG map with route path + per-leg / round-trip miles. |
-| 🚶 Quick outing — best hotspots close by | — | 🔜 | Nearby hotspots by recent activity (`ref/hotspot/geo`). |
+| 🚶 Quick outing — best hotspots close by | **Quick outing** | ✅ | `ref/hotspot/geo` (≤32 km, active ≤30 days) ranked by all-time species; needs Home. |
 | 📍 Favorite hotspots | — | 🔜 | User-pinned hotspots + their recent notables. |
 
 ## Hotspot intelligence
