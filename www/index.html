@@ -229,7 +229,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P6 · favorites</div>
+    <div>Birding · P7 · alerts</div>
   </footer>
 
   <script>
@@ -283,6 +283,21 @@
                       : 'Live eBird calls work only in the installed app (browser preview is blocked by CORS).';
       }
 
+      function markNewNotable(data) {
+        var key = 'ebird_notable_' + getRegion();
+        var prev = {}; try { prev = JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) { prev = {}; }
+        var first = localStorage.getItem(key) === null;
+        var cur = {}, newCount = 0;
+        (data || []).forEach(function (o) {
+          var id = o.speciesCode || (o.sciName || '').toLowerCase();
+          if (!id) return;
+          cur[id] = 1;
+          if (!prev[id]) newCount++;
+        });
+        localStorage.setItem(key, JSON.stringify(cur));
+        return { newCount: first ? 0 : newCount, first: first };
+      }
+
       function refresh() {
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var region = getRegion(), btn = $('refreshBtn'), st = $('status'), out = $('results');
@@ -291,7 +306,8 @@
           .then(function (data) {
             data = Array.isArray(data) ? data : [];
             if (!data.length) { st.textContent = 'No notable sightings reported here recently.'; return; }
-            st.textContent = data.length + ' notable · updated ' + nowTime();
+            var nn = markNewNotable(data);
+            st.textContent = data.length + ' notable' + (nn.newCount ? ' · ' + nn.newCount + ' new since last check' : '') + ' · updated ' + nowTime();
             renderList(out, data);
           })
           .catch(function (e) { st.textContent = netErr(e); })
