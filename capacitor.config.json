@@ -1,0 +1,10 @@
+{
+  "appId": "com.wyatthoutz.birding",
+  "appName": "Birding",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

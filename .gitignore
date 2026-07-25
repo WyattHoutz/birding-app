@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Native platforms are regenerated in CI via `npx cap add ios`
+/ios/
+/android/
+
+# Build outputs / packaging
+/build/
+Payload/
+*.ipa
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+.vscode/
