@@ -82,5 +82,7 @@ npm install
 - **P8** — Conditions for chasing: NOAA forecast (southerly-wind flag) + tides +
   sunrise/sunset/first-&-last-light/daylight + moon phase, all from the device.
   Plus a birding app icon + launch image. ✅
+- **P9** — My Year: current-year species count + expandable year and all-time
+  species lists, parsed from the imported eBird CSV. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.

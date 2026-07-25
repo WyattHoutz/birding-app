@@ -101,7 +101,7 @@
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
-    .maplink, .extlink, .favlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
     .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
     .wxline.dim2 { color: var(--muted); font-size: 12px; }
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
@@ -248,7 +248,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P8 · weather</div>
+    <div>Birding · P9 · year list</div>
   </footer>
 
   <script>
@@ -727,14 +727,28 @@
         var useSci = sciIdx >= 0;
         var idx = useSci ? sciIdx : comIdx;
         if (idx < 0) throw new Error('no "Scientific Name" or "Common Name" column');
-        var set = {}, n = 0;
+        var nameIdx = comIdx >= 0 ? comIdx : idx;
+        var dateIdx = header.indexOf('date');
+        var thisYear = String(new Date().getFullYear());
+        var set = {}, n = 0, life = {}, year = {};
         for (var r = 1; r < rows.length; r++) {
           var v = (rows[r][idx] || '').trim().toLowerCase();
           if (v && !set[v]) { set[v] = 1; n++; }
+          var disp = (rows[r][nameIdx] || '').trim();
+          if (disp) {
+            var dk = disp.toLowerCase();
+            if (!life[dk]) life[dk] = disp;
+            if (dateIdx >= 0 && (rows[r][dateIdx] || '').slice(0, 4) === thisYear && !year[dk]) year[dk] = disp;
+          }
         }
+        var byName = function (a, b) { return a.localeCompare(b); };
+        var lifeNames = Object.keys(life).map(function (k) { return life[k]; }).sort(byName);
+        var yearNames = Object.keys(year).map(function (k) { return year[k]; }).sort(byName);
         localStorage.setItem(K.seen, JSON.stringify(set));
         localStorage.setItem(K.field, useSci ? 'sciName' : 'comName');
-        localStorage.setItem(K.seenMeta, JSON.stringify({ count: n, rows: rows.length - 1, date: new Date().toISOString() }));
+        localStorage.setItem('ebird_life_names', JSON.stringify(lifeNames));
+        localStorage.setItem('ebird_year_names', JSON.stringify(yearNames));
+        localStorage.setItem(K.seenMeta, JSON.stringify({ count: n, rows: rows.length - 1, date: new Date().toISOString(), year: thisYear, yearCount: yearNames.length }));
         return n;
       }
 
@@ -754,6 +768,7 @@
 
       function clearCsv() {
         localStorage.removeItem(K.seen); localStorage.removeItem(K.seenMeta); localStorage.removeItem(K.field);
+        localStorage.removeItem('ebird_life_names'); localStorage.removeItem('ebird_year_names');
         updateCsvStatus(); updateMyYear();
       }
 
@@ -895,11 +910,26 @@
       }
 
       function updateMyYear() {
-        var meta = getSeenMeta();
-        $('myYearBody').innerHTML = meta
-          ? '<div class="bignum">' + esc(meta.count) + ' <small>species logged</small></div>' +
-            '<div class="meta">from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>'
-          : 'Import your eBird CSV in Settings to see your totals.';
+        var meta = getSeenMeta(), el = $('myYearBody');
+        if (!meta) { el.innerHTML = 'Import your eBird CSV in Settings to see your totals.'; return; }
+        var yearNames = [], lifeNames = [];
+        try { yearNames = JSON.parse(localStorage.getItem('ebird_year_names') || '[]'); } catch (e) {}
+        try { lifeNames = JSON.parse(localStorage.getItem('ebird_life_names') || '[]'); } catch (e) {}
+        var yc = meta.yearCount != null ? meta.yearCount : yearNames.length;
+        var html;
+        if (yc) {
+          html = '<div class="bignum">' + esc(yc) + ' <small>species in ' + esc(meta.year || '') + '</small></div>' +
+            '<div class="meta">' + esc(meta.count) + ' all-time · ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>';
+        } else {
+          html = '<div class="bignum">' + esc(meta.count) + ' <small>species logged</small></div>' +
+            '<div class="meta">from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>';
+        }
+        var links = [];
+        if (yearNames.length) links.push('<a class="mylink" data-list="year">Show ' + esc(meta.year || 'year') + ' list ▾</a>');
+        if (lifeNames.length) links.push('<a class="mylink" data-list="life">Show all-time list ▾</a>');
+        if (links.length) html += '<div style="margin-top:6px">' + links.join(' &nbsp; ') + '</div>';
+        html += '<div id="myYearList" style="margin-top:8px;font-size:13px;color:var(--muted);line-height:1.6"></div>';
+        el.innerHTML = html;
       }
 
       // --- settings ---
@@ -951,6 +981,18 @@
           var nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
           fav.textContent = nowFav ? '★ Saved' : '☆ Save';
           renderFavs();
+          return;
+        }
+        var my = ev.target.closest('.mylink');
+        if (my) {
+          ev.preventDefault();
+          var which = my.getAttribute('data-list'), box = $('myYearList');
+          if (!box) return;
+          if (box.getAttribute('data-shown') === which) { box.textContent = ''; box.removeAttribute('data-shown'); return; }
+          var mynames = [];
+          try { mynames = JSON.parse(localStorage.getItem(which === 'year' ? 'ebird_year_names' : 'ebird_life_names') || '[]'); } catch (e) {}
+          box.textContent = mynames.length ? mynames.join(', ') : 'No species recorded.';
+          box.setAttribute('data-shown', which);
           return;
         }
         var rec = ev.target.closest('.recentlink');
