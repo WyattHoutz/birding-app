@@ -7,10 +7,10 @@ your own device — no App Store, no paid Apple Developer account.
 ## Design principles
 
 - **No runtime dependency on GitHub.** Once installed, the app talks only to
-  the **eBird API** and your **on-device data**. It never fetches anything from
-  this repo or GitHub Pages.
-- **No server / no backend.** All network calls go straight to eBird from the
-  device. Capacitor's native HTTP layer (`CapacitorHttp`, enabled in
+  public data APIs — the **eBird API** plus **NOAA** weather/tides — and your
+  **on-device data**. It never fetches anything from this repo or GitHub Pages.
+- **No server / no backend.** All network calls go straight to eBird and NOAA
+  from the device. Capacitor's native HTTP layer (`CapacitorHttp`, enabled in
   `capacitor.config.json`) makes those calls natively, so there is no CORS
   problem and no proxy.
 - **Your data stays on your phone.** The seen-list comes from an eBird
@@ -21,9 +21,10 @@ your own device — no App Store, no paid Apple Developer account.
 ```
 Settings  → your eBird API key (stored on device)
 Seen list → import MyEBirdData.csv once (local storage)
-Live data → CapacitorHttp → eBird API 2.0   (no CORS, no server, no GitHub)
+Live data → CapacitorHttp → eBird + NOAA APIs (no CORS, no server, no GitHub)
 Analysis  → on-device (JS)
-UI        → Notable sightings / Targets / Top destinations / My Year / Settings
+UI        → Notable / Targets / Destinations / Excursions / Trip / Birdiest /
+            Fresh / Quick outing / Favorites / Conditions / My Year / Settings
 ```
 
 ## How it's built (no Mac required)
@@ -36,8 +37,9 @@ tool; it leaves no trace in the shipped app.
 
 The native `ios/` project is **not** committed — it is regenerated on every CI
 run with `npx cap add ios`, so a Windows machine never needs Xcode or
-CocoaPods. (When we start customizing native bits — icons, Info.plist — we'll
-commit `ios/` instead.)
+CocoaPods. The app icon and launch image are generated during CI from the
+committed `assets/*.png` (see [`assets/generate.js`](assets/generate.js)) via
+`@capacitor/assets`, so we still don't need to commit `ios/`.
 
 ### Build + install
 
@@ -77,5 +79,8 @@ npm install
 - **P7** — In-app "new rarities since last check" indicator on Notable. ✅
   (True background/push alerts are out of scope — no server, and free-Apple-ID
   sideloads can't use push notifications.)
+- **P8** — Conditions for chasing: NOAA forecast (southerly-wind flag) + tides +
+  sunrise/sunset/first-&-last-light/daylight + moon phase, all from the device.
+  Plus a birding app icon + launch image. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.

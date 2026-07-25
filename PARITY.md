@@ -51,7 +51,7 @@ features land so the two stay at parity.
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| Weather + tides | — | 🌦️ | Open-Meteo / NOAA; optional later. |
+| 🌤 Conditions — weather + tides | **Conditions for chasing** | ✅ | NOAA `api.weather.gov` 4-period forecast (🐦 southerly-wind flag) + NOAA CO-OPS tides (optional station) + locally-computed sunrise/sunset, first/last light, daylight length, and moon phase. Called straight from the device — no GitHub. |
 | 🛬 Migration outlook | — | 🌦️ | eBird bar-chart history; complex. |
 | 🌙 Nightly migration — BirdCast | — | 🌦️ | BirdCast is a separate service (scraped in report). |
 
