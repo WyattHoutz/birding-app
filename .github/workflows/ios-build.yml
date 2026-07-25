@@ -35,21 +35,15 @@ jobs:
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 
-      # Capacitor did not auto-run pod install on the runner, so the
-      # App.xcworkspace was never generated. Run it explicitly — CocoaPods is
-      # preinstalled on GitHub macOS runners.
-      - name: Install CocoaPods dependencies (generates App.xcworkspace)
-        run: |
-          set -euo pipefail
-          pod --version
-          cd ios/App
-          pod install
-
       - name: Build unsigned .app for device
         run: |
           set -euo pipefail
+          # Capacitor 8 uses Swift Package Manager (no CocoaPods, no workspace),
+          # so build the .xcodeproj directly. -list first triggers scheme
+          # autocreation and logs available schemes for diagnostics.
+          xcodebuild -list -project ios/App/App.xcodeproj
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
