@@ -93,6 +93,9 @@
     .obs .name { font-weight: 700; font-size: 15px; color: var(--accent); }
     .obs .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
     .obs .count { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .filebtn { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
+    .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+    .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -113,6 +116,20 @@
       <ul id="results" class="obs"></ul>
     </section>
 
+    <section class="panel">
+      <h2>🎯 Targets near you <span class="dim" id="targetRegionLabel"></span></h2>
+      <div class="row">
+        <button id="targetsBtn">Load targets</button>
+      </div>
+      <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
+      <ul id="targetResults" class="obs"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>📅 My year</h2>
+      <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
+    </section>
+
     <section class="panel" id="settingsPanel" hidden>
       <h2>⚙️ Settings</h2>
       <label for="apiKey">eBird API key</label>
@@ -121,25 +138,18 @@
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" />
       <p class="hint">Country <code>US</code>, state <code>US-WA</code>, or county <code>US-WA-033</code>.</p>
+      <label>Seen list — eBird CSV</label>
+      <div class="row">
+        <label class="filebtn" for="csvFile">Import CSV…</label>
+        <input id="csvFile" type="file" accept=".csv,text/csv" hidden />
+        <button id="clearCsv" class="secondary" type="button">Clear</button>
+      </div>
+      <p class="hint" id="csvStatus">No seen list yet. eBird → Download My Data → import MyEBirdData.csv.</p>
       <div class="row" style="margin-top:16px">
         <button id="saveBtn">Save</button>
         <button id="closeSettings" class="secondary">Done</button>
       </div>
     </section>
-
-    <div class="grid">
-      <section class="card">
-        <div class="emoji">🎯</div>
-        <div><h2>Targets</h2><p class="sub">Species you still need this year.</p></div>
-        <span class="badge">Coming soon</span>
-      </section>
-
-      <section class="card">
-        <div class="emoji">📅</div>
-        <div><h2>My Year</h2><p class="sub">Progress from your eBird CSV.</p></div>
-        <span class="badge">Coming soon</span>
-      </section>
-    </div>
   </main>
 
   <footer>
@@ -149,83 +159,192 @@
 
   <script>
     (function () {
-      var KEY_API = 'ebird_api_key', KEY_REGION = 'ebird_region';
+      var K = { api: 'ebird_api_key', region: 'ebird_region', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
-      var statusEl = $('status'), resultsEl = $('results'), regionLabel = $('regionLabel');
 
-      function getKey() { return (localStorage.getItem(KEY_API) || '').trim(); }
-      function getRegion() { return (localStorage.getItem(KEY_REGION) || 'US-WA').trim().toUpperCase(); }
+      function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
+      function getRegion() { return (localStorage.getItem(K.region) || 'US-WA').trim().toUpperCase(); }
+      function getSeen() { try { return JSON.parse(localStorage.getItem(K.seen) || '{}'); } catch (e) { return {}; } }
+      function getSeenMeta() { try { return JSON.parse(localStorage.getItem(K.seenMeta) || 'null'); } catch (e) { return null; } }
+      function getField() { return localStorage.getItem(K.field) || 'sciName'; }
 
       function esc(s) {
         return String(s).replace(/[&<>"]/g, function (c) {
           return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
         });
       }
-
       function fmtDate(s) {
         var d = new Date(String(s).replace(' ', 'T'));
         if (isNaN(d.getTime())) return s || '';
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       }
+      function nowTime() { return new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
 
-      function loadSettings() {
-        $('apiKey').value = getKey();
-        $('region').value = getRegion();
-        regionLabel.textContent = '· ' + getRegion();
-      }
-
-      function showSettings(show) { $('settingsPanel').hidden = !show; }
-
-      function render(obs) {
-        resultsEl.innerHTML = '';
-        if (!obs.length) { statusEl.textContent = 'No notable sightings reported here recently.'; return; }
-        var now = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-        statusEl.textContent = obs.length + ' notable sighting' + (obs.length === 1 ? '' : 's') + ' · updated ' + now;
+      function renderList(el, obs) {
+        el.innerHTML = '';
         obs.forEach(function (o) {
           var li = document.createElement('li');
           var count = (o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
           li.innerHTML = count +
             '<div class="name">' + esc(o.comName || 'Unknown species') + '</div>' +
             '<div class="meta">' + esc(o.locName || '') + ' · ' + esc(fmtDate(o.obsDt)) + '</div>';
-          resultsEl.appendChild(li);
+          el.appendChild(li);
         });
       }
 
-      function refresh() {
-        var key = getKey(), region = getRegion();
-        if (!key) { statusEl.textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
-        var btn = $('refreshBtn'); btn.disabled = true;
-        resultsEl.innerHTML = '';
-        statusEl.textContent = 'Loading notable sightings for ' + region + '…';
-        var url = 'https://api.ebird.org/v2/data/obs/' + encodeURIComponent(region) +
-                  '/recent/notable?detail=simple&maxResults=50';
-        // With CapacitorHttp enabled, this fetch runs natively on-device (no CORS).
-        fetch(url, { headers: { 'X-eBirdApiToken': key } })
+      // --- eBird API (native fetch via CapacitorHttp on device; no CORS) ---
+      function ebird(path) {
+        return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
           .then(function (r) {
             if (r.status === 401 || r.status === 403) throw new Error('the API key was rejected (HTTP ' + r.status + ').');
             if (!r.ok) throw new Error('eBird returned HTTP ' + r.status + '.');
             return r.json();
+          });
+      }
+      function netErr(e) {
+        var cap = window.Capacitor;
+        var native = cap && cap.isNativePlatform && cap.isNativePlatform();
+        return native ? ('Could not load — ' + e.message)
+                      : 'Live eBird calls work only in the installed app (browser preview is blocked by CORS).';
+      }
+
+      function refresh() {
+        if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('refreshBtn'), st = $('status'), out = $('results');
+        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading notable sightings for ' + region + '…';
+        ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=simple&maxResults=50')
+          .then(function (data) {
+            data = Array.isArray(data) ? data : [];
+            if (!data.length) { st.textContent = 'No notable sightings reported here recently.'; return; }
+            st.textContent = data.length + ' notable · updated ' + nowTime();
+            renderList(out, data);
           })
-          .then(function (data) { render(Array.isArray(data) ? data : []); })
-          .catch(function (e) {
-            var cap = window.Capacitor;
-            var native = cap && cap.isNativePlatform && cap.isNativePlatform();
-            statusEl.textContent = native
-              ? 'Could not load sightings — ' + e.message
-              : 'Live eBird calls work only in the installed app (browser preview is blocked by CORS).';
-          })
+          .catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
 
+      function loadTargets() {
+        if (!getKey()) { $('targetStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var seen = getSeen(), field = getField();
+        if (!Object.keys(seen).length) { $('targetStatus').textContent = 'Import your eBird CSV in Settings to compute targets.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults');
+        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Finding targets in ' + region + '…';
+        ebird('data/obs/' + encodeURIComponent(region) + '/recent?detail=simple&back=14')
+          .then(function (data) {
+            data = Array.isArray(data) ? data : [];
+            var targets = data.filter(function (o) {
+              var v = (o[field] || '').toString().trim().toLowerCase();
+              return v && !seen[v];
+            });
+            if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
+            var shown = targets.slice(0, 100);
+            st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
+              (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
+            renderList(out, shown);
+          })
+          .catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+
+      // --- CSV import (quote/newline-aware) ---
+      function parseCSV(text) {
+        var rows = [], row = [], field = '', inQ = false, c;
+        text = text.replace(/^\uFEFF/, '');
+        for (var i = 0; i < text.length; i++) {
+          c = text[i];
+          if (inQ) {
+            if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } }
+            else { field += c; }
+          } else if (c === '"') { inQ = true; }
+          else if (c === ',') { row.push(field); field = ''; }
+          else if (c === '\n' || c === '\r') {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(field); field = '';
+            if (row.length > 1 || row[0] !== '') rows.push(row);
+            row = [];
+          } else { field += c; }
+        }
+        if (field !== '' || row.length) { row.push(field); rows.push(row); }
+        return rows;
+      }
+
+      function importCSV(text) {
+        var rows = parseCSV(text);
+        if (!rows.length) throw new Error('the file is empty');
+        var header = rows[0].map(function (h) { return h.trim().toLowerCase(); });
+        var sciIdx = header.indexOf('scientific name');
+        var comIdx = header.indexOf('common name');
+        var useSci = sciIdx >= 0;
+        var idx = useSci ? sciIdx : comIdx;
+        if (idx < 0) throw new Error('no "Scientific Name" or "Common Name" column');
+        var set = {}, n = 0;
+        for (var r = 1; r < rows.length; r++) {
+          var v = (rows[r][idx] || '').trim().toLowerCase();
+          if (v && !set[v]) { set[v] = 1; n++; }
+        }
+        localStorage.setItem(K.seen, JSON.stringify(set));
+        localStorage.setItem(K.field, useSci ? 'sciName' : 'comName');
+        localStorage.setItem(K.seenMeta, JSON.stringify({ count: n, rows: rows.length - 1, date: new Date().toISOString() }));
+        return n;
+      }
+
+      function onCsvFile(ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        $('csvStatus').textContent = 'Reading ' + file.name + '…';
+        var reader = new FileReader();
+        reader.onload = function () {
+          try { importCSV(String(reader.result)); updateCsvStatus(); updateMyYear(); }
+          catch (e) { $('csvStatus').textContent = 'Could not import CSV — ' + e.message + '.'; }
+        };
+        reader.onerror = function () { $('csvStatus').textContent = 'Could not read the file.'; };
+        reader.readAsText(file);
+        ev.target.value = '';
+      }
+
+      function clearCsv() {
+        localStorage.removeItem(K.seen); localStorage.removeItem(K.seenMeta); localStorage.removeItem(K.field);
+        updateCsvStatus(); updateMyYear();
+      }
+
+      function updateCsvStatus() {
+        var meta = getSeenMeta();
+        $('csvStatus').textContent = meta
+          ? (meta.count + ' species imported from ' + meta.rows + ' rows · ' + fmtDate(meta.date))
+          : 'No seen list yet. eBird → Download My Data → import MyEBirdData.csv.';
+      }
+
+      function updateMyYear() {
+        var meta = getSeenMeta();
+        $('myYearBody').innerHTML = meta
+          ? '<div class="bignum">' + esc(meta.count) + ' <small>species logged</small></div>' +
+            '<div class="meta">from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date)) + '</div>'
+          : 'Import your eBird CSV in Settings to see your totals.';
+      }
+
+      // --- settings ---
+      function showSettings(show) { $('settingsPanel').hidden = !show; }
+      function loadSettings() {
+        $('apiKey').value = getKey();
+        $('region').value = getRegion();
+        var reg = '· ' + getRegion();
+        $('regionLabel').textContent = reg;
+        $('targetRegionLabel').textContent = reg;
+      }
+
+      // --- wire up ---
       $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
       $('refreshBtn').addEventListener('click', refresh);
+      $('targetsBtn').addEventListener('click', loadTargets);
+      $('csvFile').addEventListener('change', onCsvFile);
+      $('clearCsv').addEventListener('click', clearCsv);
       $('saveBtn').addEventListener('click', function () {
-        localStorage.setItem(KEY_API, $('apiKey').value.trim());
-        localStorage.setItem(KEY_REGION, ($('region').value.trim() || 'US-WA').toUpperCase());
+        localStorage.setItem(K.api, $('apiKey').value.trim());
+        localStorage.setItem(K.region, ($('region').value.trim() || 'US-WA').toUpperCase());
         loadSettings();
         showSettings(false);
-        if (getKey()) refresh(); else statusEl.textContent = 'Add your eBird API key in Settings to begin.';
+        if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';
       });
 
       // Runtime badge — confirms the native Capacitor bridge once sideloaded.
@@ -241,6 +360,8 @@
       })();
 
       loadSettings();
+      updateCsvStatus();
+      updateMyYear();
       if (getKey()) refresh();
     })();
   </script>
