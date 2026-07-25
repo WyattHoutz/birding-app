@@ -25,8 +25,8 @@ features land so the two stay at parity.
 |---|---|---|---|
 | 🥇 Top destinations | **Top destinations** | ✅ | Ports `score = Σ (3 if rarity else 1)` per unseen species, clustered by locId; inline SVG map + Maps links. |
 | 📍 Closest spots with unseen birds | **Top destinations** (distance) | ✅ | Same ranking; distances shown when Home is set. |
-| 🚗 Top excursions | — | 🔜 | Far-from-home clusters with soft distance penalty; reuses destination logic. |
-| 🧭 Trip planner — half-day route | — | 🔜 | Order top destinations into a nearest-neighbour route. |
+| 🚗 Top excursions | **Top excursions** | ✅ | Far-from-home clusters with soft distance penalty `score/(1+extra/30)`; needs Home set. |
+| 🧭 Trip planner — half-day route | **Trip planner** | ✅ | Nearest-neighbour route through the top ≤6 nearby target hotspots; SVG map with route path + per-leg / round-trip miles. |
 | 🚶 Quick outing — best hotspots close by | — | 🔜 | Nearby hotspots by recent activity (`ref/hotspot/geo`). |
 | 📍 Favorite hotspots | — | 🔜 | User-pinned hotspots + their recent notables. |
 
@@ -34,7 +34,7 @@ features land so the two stay at parity.
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🦜 Birdiest recent checklists | — | 🔜 | Rank `product/lists/{region}` by species count. |
+| 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | `product/lists/{region}` ranked by `numSpecies`, with observer + checklist link. |
 | 🔥 Hot hotspots — recent surges | — | 🧪 | Needs recent-vs-baseline activity comparison. |
 | 🥶 Cold hotspots — overlooked gems | — | 🧪 | Needs hotspot activity stats. |
 | 👥 Birder convoys | — | 🧪 | Group-route detection across checklists; low priority. |

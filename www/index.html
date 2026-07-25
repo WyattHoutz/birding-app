@@ -101,7 +101,7 @@
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .dest .sp .star { color: #e5a300; }
-    .maplink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .maplink, .extlink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
   </style>
 </head>
 <body>
@@ -142,6 +142,35 @@
     </section>
 
     <section class="panel">
+      <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
+      <div class="row">
+        <button id="excBtn">Find excursions</button>
+      </div>
+      <div id="excStatus" class="status">Target-rich hotspots beyond a day-trip radius (needs Home set).</div>
+      <div id="excMap"></div>
+      <ul id="excResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🧭 Trip planner <span class="dim" id="tripRegionLabel"></span></h2>
+      <div class="row">
+        <button id="tripBtn">Plan a route</button>
+      </div>
+      <div id="tripStatus" class="status">A nearest-neighbour route through your best nearby target hotspots.</div>
+      <div id="tripMap"></div>
+      <ul id="tripResults" class="obs dest route"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🦜 Birdiest checklists <span class="dim" id="cklRegionLabel"></span></h2>
+      <div class="row">
+        <button id="cklBtn">Load checklists</button>
+      </div>
+      <div id="cklStatus" class="status">Recent regional checklists ranked by species count.</div>
+      <ul id="cklResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -176,7 +205,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P3 · destinations</div>
+    <div>Birding · P4 · routing</div>
   </footer>
 
   <script>
@@ -319,7 +348,7 @@
         });
       }
 
-      function mapSVG(points, home) {
+      function mapSVG(points, home, connect) {
         var W = 320, H = 200, pad = 24;
         var all = points.map(function (p) { return { lat: p.lat, lng: p.lng }; });
         if (home) all.push({ lat: home.lat, lng: home.lng });
@@ -333,6 +362,15 @@
         function Y(la) { return pad + (maxLa - la) / rLa * (H - 2 * pad); }
         var s = '<svg class="map" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Destinations map">';
         s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="12" fill="currentColor" opacity="0.05"/>';
+        if (connect) {
+          var seq = [];
+          if (home) seq.push({ lat: home.lat, lng: home.lng });
+          points.forEach(function (p) { seq.push({ lat: p.lat, lng: p.lng }); });
+          if (seq.length > 1) {
+            var poly = seq.map(function (p) { return X(p.lng).toFixed(1) + ',' + Y(p.lat).toFixed(1); }).join(' ');
+            s += '<polyline points="' + poly + '" fill="none" stroke="#e5484d" stroke-width="2" stroke-opacity="0.55" stroke-linejoin="round"/>';
+          }
+        }
         if (home) {
           var hx = X(home.lng), hy = Y(home.lat);
           s += '<circle cx="' + hx.toFixed(1) + '" cy="' + hy.toFixed(1) + '" r="10" fill="#0f7a52"/>';
@@ -379,6 +417,112 @@
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + region + '.'; return; }
           st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           renderDestinations(dests, $('destMap'), $('destResults'));
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // --- Top excursions (target-rich hotspots beyond a day-trip radius) ---
+      var DAILY_DRIVE_MI = 20;
+
+      function buildExcursions(dests, threshold) {
+        return dests.filter(function (d) { return d.dist != null && d.dist > threshold; })
+          .map(function (d) { var extra = d.dist - threshold; d.adj = d.score / (1 + extra / 30); return d; })
+          .sort(function (a, b) { if (b.adj !== a.adj) return b.adj - a.adj; return a.dist - b.dist; });
+      }
+
+      function loadExcursions() {
+        if (!getKey()) { $('excStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var home = getHome();
+        if (!home) { $('excStatus').textContent = 'Set a Home location in Settings to rank excursions by distance.'; showSettings(true); return; }
+        var seen = getSeen(), field = getField();
+        if (!Object.keys(seen).length) { $('excStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('excBtn'), st = $('excStatus');
+        btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + DAILY_DRIVE_MI + ' mi…';
+        getData(region).then(function (c) {
+          var all = buildDestinations(c.recent, c.notable, seen, field, home);
+          var exc = buildExcursions(all, DAILY_DRIVE_MI).slice(0, 12);
+          if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + DAILY_DRIVE_MI + ' mi right now.'; return; }
+          st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          renderDestinations(exc, $('excMap'), $('excResults'));
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // --- Trip planner (nearest-neighbour route through nearby targets) ---
+      function planRoute(points, start) {
+        var remaining = points.slice(), route = [];
+        var prev = start || (remaining.length ? { lat: remaining[0].lat, lng: remaining[0].lng } : null);
+        if (!prev) return { stops: [], total: 0 };
+        var total = 0;
+        while (remaining.length) {
+          var bi = 0, bd = Infinity;
+          for (var i = 0; i < remaining.length; i++) {
+            var dd = haversineMi(prev.lat, prev.lng, remaining[i].lat, remaining[i].lng);
+            if (dd < bd) { bd = dd; bi = i; }
+          }
+          var nx = remaining.splice(bi, 1)[0];
+          nx.leg = bd; total += bd; route.push(nx); prev = nx;
+        }
+        return { stops: route, total: total };
+      }
+
+      function renderRoute(plan, home, mapEl, listEl, statusEl) {
+        mapEl.innerHTML = mapSVG(plan.stops, home, true);
+        listEl.innerHTML = '';
+        plan.stops.forEach(function (d, i) {
+          var li = document.createElement('li');
+          var leg = '<span class="count">' + d.leg.toFixed(1) + ' mi</span>';
+          var names = d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
+            .map(function (x) { return (x.rare ? '<span class="star">★</span> ' : '') + esc(x.comName); }).join(', ');
+          li.innerHTML = leg +
+            '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(d.locName) + '</span></div>' +
+            '<div class="meta">score ' + d.score + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
+            '<div class="sp">' + names + '</div>' +
+            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>';
+          listEl.appendChild(li);
+        });
+        var roundTrip = home ? plan.total + (plan.stops.length ? haversineMi(plan.stops[plan.stops.length - 1].lat, plan.stops[plan.stops.length - 1].lng, home.lat, home.lng) : 0) : plan.total;
+        statusEl.textContent = plan.stops.length + ' stops · ' + roundTrip.toFixed(0) + ' mi' + (home ? ' round trip' : '') + ' est. · updated ' + nowTime();
+      }
+
+      function loadTripPlanner() {
+        if (!getKey()) { $('tripStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var seen = getSeen(), field = getField();
+        if (!Object.keys(seen).length) { $('tripStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
+        var region = getRegion(), home = getHome(), btn = $('tripBtn'), st = $('tripStatus');
+        btn.disabled = true; $('tripResults').innerHTML = ''; $('tripMap').innerHTML = ''; st.textContent = 'Planning a route…';
+        getData(region).then(function (c) {
+          var dests = buildDestinations(c.recent, c.notable, seen, field, home);
+          if (home) dests = dests.filter(function (d) { return d.dist == null || d.dist <= DAILY_DRIVE_MI; });
+          var top = dests.slice(0, 6);
+          if (top.length < 2) { st.textContent = 'Not enough nearby target hotspots to build a route.'; return; }
+          renderRoute(planRoute(top, home), home, $('tripMap'), $('tripResults'), st);
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // --- Birdiest recent checklists (rank by species count) ---
+      function buildBirdiest(lists) {
+        return (lists || []).slice().sort(function (a, b) { return (b.numSpecies || 0) - (a.numSpecies || 0); });
+      }
+
+      function loadBirdiest() {
+        if (!getKey()) { $('cklStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('cklBtn'), st = $('cklStatus');
+        btn.disabled = true; $('cklResults').innerHTML = ''; st.textContent = 'Loading recent checklists in ' + region + '…';
+        ebird('product/lists/' + encodeURIComponent(region) + '?maxResults=200').then(function (lists) {
+          var top = buildBirdiest(lists).slice(0, 15);
+          if (!top.length) { st.textContent = 'No recent checklists found in ' + region + '.'; return; }
+          st.textContent = top.length + ' checklist' + (top.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          var el = $('cklResults');
+          el.innerHTML = '';
+          top.forEach(function (l, i) {
+            var li = document.createElement('li');
+            var loc = l.loc ? (l.loc.name || l.loc.locName || '') : (l.locName || '');
+            var sub = l.subId || l.subID || '';
+            li.innerHTML = '<span class="count">' + (l.numSpecies || 0) + ' sp.</span>' +
+              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(l.userDisplayName || 'eBirder') + '</span></div>' +
+              '<div class="meta">' + esc(loc || 'Location hidden') + ' · ' + esc(l.obsDt || '') + '</div>' +
+              (sub ? '<a class="extlink" data-href="https://ebird.org/checklist/' + esc(sub) + '">View checklist ↗</a>' : '');
+            el.appendChild(li);
+          });
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -467,6 +611,9 @@
         $('regionLabel').textContent = reg;
         $('targetRegionLabel').textContent = reg;
         $('destRegionLabel').textContent = reg;
+        $('excRegionLabel').textContent = reg;
+        $('tripRegionLabel').textContent = reg;
+        $('cklRegionLabel').textContent = reg;
         var h = getHome();
         $('homeLat').value = h ? h.lat : '';
         $('homeLng').value = h ? h.lng : '';
@@ -478,11 +625,17 @@
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);
       $('destBtn').addEventListener('click', loadDestinations);
-      $('destResults').addEventListener('click', function (ev) {
-        var a = ev.target && ev.target.closest ? ev.target.closest('.maplink') : null;
-        if (!a) return;
+      $('excBtn').addEventListener('click', loadExcursions);
+      $('tripBtn').addEventListener('click', loadTripPlanner);
+      $('cklBtn').addEventListener('click', loadBirdiest);
+      document.addEventListener('click', function (ev) {
+        var t = ev.target && ev.target.closest ? ev.target.closest('.maplink, .extlink') : null;
+        if (!t) return;
         ev.preventDefault();
-        var url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(a.getAttribute('data-q') || '');
+        var url = t.classList.contains('extlink')
+          ? (t.getAttribute('data-href') || '')
+          : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t.getAttribute('data-q') || '');
+        if (!url) return;
         try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); }
       });
       $('csvFile').addEventListener('change', onCsvFile);
