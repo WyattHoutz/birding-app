@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0f5132" />
+  <title>Birding</title>
+  <style>
+    :root {
+      --bg: #f6f7f5;
+      --card: #ffffff;
+      --ink: #16211b;
+      --muted: #5c6b63;
+      --accent: #0f7a52;
+      --accent-ink: #ffffff;
+      --line: #e4e8e4;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1512;
+        --card: #17201b;
+        --ink: #eaf1ec;
+        --muted: #9fb0a6;
+        --accent: #37d391;
+        --accent-ink: #06120c;
+        --line: #26302a;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    header {
+      padding: calc(env(safe-area-inset-top) + 28px) 20px 20px;
+      background: linear-gradient(160deg, var(--accent), #0b5a3c);
+      color: var(--accent-ink);
+    }
+    header .kicker { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
+    header h1 { font-size: 30px; margin: 0; font-weight: 800; letter-spacing: -0.02em; }
+    header p { margin: 8px 0 0; font-size: 15px; opacity: .9; max-width: 34ch; }
+    main { padding: 18px 16px 40px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      min-height: 104px;
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .card.wide { grid-column: 1 / -1; }
+    .card .emoji { font-size: 26px; }
+    .card h2 { font-size: 16px; margin: 10px 0 2px; font-weight: 700; }
+    .card .sub { font-size: 13px; color: var(--muted); margin: 0; }
+    .badge {
+      align-self: flex-start; margin-top: 10px;
+      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+      padding: 3px 8px; border-radius: 999px; text-transform: uppercase;
+    }
+    footer {
+      text-align: center; color: var(--muted); font-size: 12px;
+      padding: 8px 16px calc(env(safe-area-inset-bottom) + 24px);
+    }
+    footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="kicker">Personal eBird tracker</p>
+    <h1>🦉 Birding</h1>
+    <p>Your live target list, straight from the eBird API — no server, no account sync.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="card">
+        <div class="emoji">📍</div>
+        <div><h2>Nearby</h2><p class="sub">Notable birds around you right now.</p></div>
+        <span class="badge">Coming soon</span>
+      </section>
+
+      <section class="card">
+        <div class="emoji">🎯</div>
+        <div><h2>Targets</h2><p class="sub">Species you still need this year.</p></div>
+        <span class="badge">Coming soon</span>
+      </section>
+
+      <section class="card">
+        <div class="emoji">📅</div>
+        <div><h2>My Year</h2><p class="sub">Progress from your eBird CSV.</p></div>
+        <span class="badge">Coming soon</span>
+      </section>
+
+      <section class="card">
+        <div class="emoji">🔔</div>
+        <div><h2>Alerts</h2><p class="sub">Rarities worth chasing.</p></div>
+        <span class="badge">Coming soon</span>
+      </section>
+
+      <section class="card wide">
+        <div class="emoji">⚙️</div>
+        <div><h2>Settings</h2><p class="sub">eBird API key, home location, and CSV import.</p></div>
+        <span class="badge">Coming soon</span>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div id="runtime">Loading…</div>
+    <div>Birding · P0 skeleton</div>
+  </footer>
+
+  <script>
+    // Confirms the native Capacitor bridge is live once sideloaded.
+    (function () {
+      var el = document.getElementById('runtime');
+      try {
+        var cap = window.Capacitor;
+        if (cap && typeof cap.getPlatform === 'function') {
+          var p = cap.getPlatform();
+          var native = cap.isNativePlatform && cap.isNativePlatform();
+          el.textContent = 'Running on ' + p + (native ? ' (native)' : ' (web preview)');
+        } else {
+          el.textContent = 'Running in web preview';
+        }
+      } catch (e) {
+        el.textContent = 'Running in web preview';
+      }
+    })();
+  </script>
+</body>
+</html>
