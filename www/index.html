@@ -73,6 +73,26 @@
       padding: 8px 16px calc(env(safe-area-inset-bottom) + 24px);
     }
     footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
+    .panel h2 { font-size: 15px; margin: 0 0 12px; font-weight: 700; }
+    .panel h2 .dim { color: var(--muted); font-weight: 600; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
+    input[type=text], input[type=password] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
+    input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+    button:active { transform: translateY(1px); }
+    button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .status { font-size: 13px; color: var(--muted); padding: 10px 0 2px; }
+    .obs { list-style: none; margin: 6px 0 0; padding: 0; }
+    .obs li { padding: 12px 0; border-top: 1px solid var(--line); overflow: hidden; }
+    .obs .name { font-weight: 700; font-size: 15px; color: var(--accent); }
+    .obs .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .obs .count { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -83,13 +103,31 @@
   </header>
 
   <main>
-    <div class="grid">
-      <section class="card">
-        <div class="emoji">📍</div>
-        <div><h2>Nearby</h2><p class="sub">Notable birds around you right now.</p></div>
-        <span class="badge">Coming soon</span>
-      </section>
+    <section class="panel">
+      <h2>🔔 Notable sightings <span class="dim" id="regionLabel"></span></h2>
+      <div class="row">
+        <button id="refreshBtn">Refresh</button>
+        <button id="settingsToggle" class="secondary">Settings</button>
+      </div>
+      <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
+      <ul id="results" class="obs"></ul>
+    </section>
 
+    <section class="panel" id="settingsPanel" hidden>
+      <h2>⚙️ Settings</h2>
+      <label for="apiKey">eBird API key</label>
+      <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
+      <p class="hint">Free key from <code>ebird.org/api/keygen</code>. Stored only on this device.</p>
+      <label for="region">Region code</label>
+      <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" />
+      <p class="hint">Country <code>US</code>, state <code>US-WA</code>, or county <code>US-WA-033</code>.</p>
+      <div class="row" style="margin-top:16px">
+        <button id="saveBtn">Save</button>
+        <button id="closeSettings" class="secondary">Done</button>
+      </div>
+    </section>
+
+    <div class="grid">
       <section class="card">
         <div class="emoji">🎯</div>
         <div><h2>Targets</h2><p class="sub">Species you still need this year.</p></div>
@@ -101,42 +139,109 @@
         <div><h2>My Year</h2><p class="sub">Progress from your eBird CSV.</p></div>
         <span class="badge">Coming soon</span>
       </section>
-
-      <section class="card">
-        <div class="emoji">🔔</div>
-        <div><h2>Alerts</h2><p class="sub">Rarities worth chasing.</p></div>
-        <span class="badge">Coming soon</span>
-      </section>
-
-      <section class="card wide">
-        <div class="emoji">⚙️</div>
-        <div><h2>Settings</h2><p class="sub">eBird API key, home location, and CSV import.</p></div>
-        <span class="badge">Coming soon</span>
-      </section>
     </div>
   </main>
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P0 skeleton</div>
+    <div>Birding · P1 · live eBird</div>
   </footer>
 
   <script>
-    // Confirms the native Capacitor bridge is live once sideloaded.
     (function () {
-      var el = document.getElementById('runtime');
-      try {
-        var cap = window.Capacitor;
-        if (cap && typeof cap.getPlatform === 'function') {
-          var p = cap.getPlatform();
-          var native = cap.isNativePlatform && cap.isNativePlatform();
-          el.textContent = 'Running on ' + p + (native ? ' (native)' : ' (web preview)');
-        } else {
-          el.textContent = 'Running in web preview';
-        }
-      } catch (e) {
-        el.textContent = 'Running in web preview';
+      var KEY_API = 'ebird_api_key', KEY_REGION = 'ebird_region';
+      var $ = function (id) { return document.getElementById(id); };
+      var statusEl = $('status'), resultsEl = $('results'), regionLabel = $('regionLabel');
+
+      function getKey() { return (localStorage.getItem(KEY_API) || '').trim(); }
+      function getRegion() { return (localStorage.getItem(KEY_REGION) || 'US-WA').trim().toUpperCase(); }
+
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+        });
       }
+
+      function fmtDate(s) {
+        var d = new Date(String(s).replace(' ', 'T'));
+        if (isNaN(d.getTime())) return s || '';
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      }
+
+      function loadSettings() {
+        $('apiKey').value = getKey();
+        $('region').value = getRegion();
+        regionLabel.textContent = '· ' + getRegion();
+      }
+
+      function showSettings(show) { $('settingsPanel').hidden = !show; }
+
+      function render(obs) {
+        resultsEl.innerHTML = '';
+        if (!obs.length) { statusEl.textContent = 'No notable sightings reported here recently.'; return; }
+        var now = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        statusEl.textContent = obs.length + ' notable sighting' + (obs.length === 1 ? '' : 's') + ' · updated ' + now;
+        obs.forEach(function (o) {
+          var li = document.createElement('li');
+          var count = (o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
+          li.innerHTML = count +
+            '<div class="name">' + esc(o.comName || 'Unknown species') + '</div>' +
+            '<div class="meta">' + esc(o.locName || '') + ' · ' + esc(fmtDate(o.obsDt)) + '</div>';
+          resultsEl.appendChild(li);
+        });
+      }
+
+      function refresh() {
+        var key = getKey(), region = getRegion();
+        if (!key) { statusEl.textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
+        var btn = $('refreshBtn'); btn.disabled = true;
+        resultsEl.innerHTML = '';
+        statusEl.textContent = 'Loading notable sightings for ' + region + '…';
+        var url = 'https://api.ebird.org/v2/data/obs/' + encodeURIComponent(region) +
+                  '/recent/notable?detail=simple&maxResults=50';
+        // With CapacitorHttp enabled, this fetch runs natively on-device (no CORS).
+        fetch(url, { headers: { 'X-eBirdApiToken': key } })
+          .then(function (r) {
+            if (r.status === 401 || r.status === 403) throw new Error('the API key was rejected (HTTP ' + r.status + ').');
+            if (!r.ok) throw new Error('eBird returned HTTP ' + r.status + '.');
+            return r.json();
+          })
+          .then(function (data) { render(Array.isArray(data) ? data : []); })
+          .catch(function (e) {
+            var cap = window.Capacitor;
+            var native = cap && cap.isNativePlatform && cap.isNativePlatform();
+            statusEl.textContent = native
+              ? 'Could not load sightings — ' + e.message
+              : 'Live eBird calls work only in the installed app (browser preview is blocked by CORS).';
+          })
+          .finally(function () { btn.disabled = false; });
+      }
+
+      $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
+      $('closeSettings').addEventListener('click', function () { showSettings(false); });
+      $('refreshBtn').addEventListener('click', refresh);
+      $('saveBtn').addEventListener('click', function () {
+        localStorage.setItem(KEY_API, $('apiKey').value.trim());
+        localStorage.setItem(KEY_REGION, ($('region').value.trim() || 'US-WA').toUpperCase());
+        loadSettings();
+        showSettings(false);
+        if (getKey()) refresh(); else statusEl.textContent = 'Add your eBird API key in Settings to begin.';
+      });
+
+      // Runtime badge — confirms the native Capacitor bridge once sideloaded.
+      (function () {
+        var el = $('runtime');
+        try {
+          var cap = window.Capacitor;
+          if (cap && typeof cap.getPlatform === 'function') {
+            var native = cap.isNativePlatform && cap.isNativePlatform();
+            el.textContent = 'Running on ' + cap.getPlatform() + (native ? ' (native)' : ' (web preview)');
+          } else { el.textContent = 'Running in web preview'; }
+        } catch (e) { el.textContent = 'Running in web preview'; }
+      })();
+
+      loadSettings();
+      if (getKey()) refresh();
     })();
   </script>
 </body>
