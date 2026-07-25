@@ -107,6 +107,13 @@
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
     .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
     .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .seenflag, .needflag { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-right: 4px; vertical-align: middle; }
+    .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
+    .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .rankhead { margin: 2px 0 4px; }
+    .rankhead .bignum small { display: inline; }
+    .obs .sp .star { color: var(--accent); font-weight: 800; }
+    select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
   </style>
 </head>
 <body>
@@ -215,6 +222,29 @@
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
 
+    <section class="panel">
+      <h2>🏅 My eBird rankings <span class="dim" id="rankScopeLabel"></span></h2>
+      <div class="row">
+        <select id="rankScope" aria-label="Leaderboard scope">
+          <option value="region">My region</option>
+          <option value="lower48">Lower 48</option>
+          <option value="aba">ABA Area</option>
+        </select>
+        <button id="rankBtn">Load rankings</button>
+      </div>
+      <div id="rankStatus" class="status">Your Top-100 rank and the leaderboard — signs you in to eBird in-app the first time.</div>
+      <div id="rankResults"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🚨 ABA rare-bird alert</h2>
+      <div class="row">
+        <button id="abaBtn">Load ABA alert</button>
+      </div>
+      <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
+      <ul id="abaResults" class="obs"></ul>
+    </section>
+
     <section class="panel" id="settingsPanel" hidden>
       <h2>⚙️ Settings</h2>
       <label for="apiKey">eBird API key</label>
@@ -223,6 +253,16 @@
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" />
       <p class="hint">Country <code>US</code>, state <code>US-WA</code>, or county <code>US-WA-033</code>.</p>
+      <label for="ebirdName">eBird display name</label>
+      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Birder Wyatt" />
+      <p class="hint">Used to find your row on eBird leaderboards. It's the public name on your eBird profile.</p>
+      <label for="abaSid">ABA rare-bird alert code</label>
+      <input id="abaSid" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="SN10489" />
+      <p class="hint">eBird alert id for the “ABA Rarities” needs alert (default <code>SN10489</code>). Paste a regional RBA alert id to track a smaller area.</p>
+      <div class="row" style="margin-top:8px">
+        <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
+      </div>
+      <p class="hint">Rankings and the ABA alert need an eBird login. The in-app browser keeps you signed in on this device until you sign out.</p>
       <label>Home location (optional)</label>
       <div class="row">
         <div><input id="homeLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.75" /></div>
@@ -249,7 +289,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P10 · sample data</div>
+    <div>Birding · P11 · eBird login</div>
   </footer>
 
   <script src="seed-birdlist.js"></script>
@@ -811,6 +851,278 @@
         loadSeed(false);
       }
 
+      // --- eBird account (login-gated): rankings + ABA rare-bird alert -------
+      // These eBird pages redirect to Cornell SSO, so the eBird REST key can't
+      // reach them. We open the target page in an in-app browser (Capgo
+      // InAppBrowser), let the user log in once (the session cookie persists on
+      // device), then inject a parser into the eBird page that scrapes the
+      // server-rendered HTML and posts a small JSON payload back over the
+      // bridge — never piping eBird's multi-MB HTML across. Ported 1:1 from the
+      // pipeline's rankings.py and aba_rba.py scrapers.
+      function getDisplayName() { return (localStorage.getItem('ebird_display_name') || 'Birder Wyatt').trim(); }
+      function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
+
+      function isSpeciesSeen(code, name) {
+        var seen = getSeen(), field = getField();
+        if (field === 'speciesCode' && code && seen[String(code).toLowerCase()]) return true;
+        if (!name) return false;
+        var lc = String(name).toLowerCase();
+        try {
+          var ys = JSON.parse(localStorage.getItem('ebird_year_names') || '[]');
+          var ls = JSON.parse(localStorage.getItem('ebird_life_names') || '[]');
+          for (var i = 0; i < ys.length; i++) if (String(ys[i]).toLowerCase() === lc) return true;
+          for (var j = 0; j < ls.length; j++) if (String(ls[j]).toLowerCase() === lc) return true;
+        } catch (e) {}
+        return false;
+      }
+
+      // top100 URL, mirroring rankings.py REGIONS query construction.
+      function rankingsUrl(region, year, maxResults) {
+        var reg = String(region || '').trim(), low = reg.toLowerCase(), q;
+        if (low === 'lower48') q = 'region=USA+Lower+48&locInfo.regionCode=lower48&rankedBy=spp';
+        else if (low === 'aba') q = 'region=ABA+Area&locInfo.regionCode=aba&rankedBy=spp';
+        else {
+          var dashes = (reg.match(/-/g) || []).length;
+          var type = dashes >= 2 ? 'subnational2' : (dashes === 1 ? 'subnational1' : 'country');
+          q = 'locInfo.regionType=' + type + '&locInfo.regionCode=' + encodeURIComponent(reg);
+        }
+        return 'https://ebird.org/top100?' + q + '&year=' + year + '&maxResults=' + (maxResults || 500);
+      }
+
+      // Ported from rankings.py (_RANK_RE/_NAME_RE/_COUNT_RE/_RECENT_RE,
+      // _parse_row, _find_user). Injected into the eBird page, so it must be
+      // self-contained (no closure refs).
+      function parseRankingsHTML(html, displayName) {
+        var rankRe = /<div id="rank-(\d+)" class="ResultsStats-index">[\d,]+\.<\/div>/g;
+        var marks = [], m;
+        while ((m = rankRe.exec(html))) marks.push({ idx: m.index, rank: parseInt(m[1], 10) });
+        function parseRow(chunk) {
+          var nameM = chunk.match(/<h5 id="([^"]+)" class="u-margin-none"/);
+          if (!nameM) return null;
+          var counts = [], cRe = /StatsIcon-stat-count">\s*([\d,]+)\s*</g, cm;
+          while ((cm = cRe.exec(chunk))) counts.push(cm[1].replace(/,/g, ''));
+          var recentM = chunk.match(/ResultsStats-details-detail">([^<]+)<\/span>/);
+          return {
+            name: nameM[1],
+            checklists: counts.length >= 1 ? parseInt(counts[0], 10) : null,
+            species: counts.length >= 2 ? parseInt(counts[1], 10) : null,
+            recent: recentM ? recentM[1].trim() : null
+          };
+        }
+        var rows = [];
+        for (var i = 0; i < marks.length; i++) {
+          var start = marks[i].idx, end = (i + 1 < marks.length) ? marks[i + 1].idx : html.length;
+          var row = parseRow(html.slice(start, end));
+          if (row) { row.rank = marks[i].rank; rows.push(row); }
+        }
+        var me = null, dn = (displayName || '').trim();
+        if (dn) for (var j = 0; j < rows.length; j++) if (rows[j].name === dn) { me = rows[j]; break; }
+        var maxRank = 0; for (var k = 0; k < marks.length; k++) if (marks[k].rank > maxRank) maxRank = marks[k].rank;
+        return { rows: rows.slice(0, 25), me: me, checkedToRank: maxRank || null, total: rows.length };
+      }
+
+      // Ported from aba_rba.py (_BLOCK_START_RE, _SPECIES_RE, _DATE_RE, _LOC_RE,
+      // _NUM_RE, _OBSERVER_RE, _CONFIRMED_RE, _parse_when). Species suffix
+      // relaxed from /aba to /[^"]+ so regional RBA alerts parse too.
+      function parseAlertHTML(html) {
+        var startRe = /<div id="obs-(OBS\d+)" class="Observation"/g, starts = [], m;
+        while ((m = startRe.exec(html))) starts.push({ idx: m.index, id: m[1] });
+        function pWhen(w) {
+          var mm = String(w).trim().match(/([A-Z][a-z]{2})\s+(\d{1,2}),\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+          if (!mm) return String(w).trim();
+          var MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+          var p2 = function (x) { return (x < 10 ? '0' : '') + x; };
+          var base = mm[3] + '-' + p2(MON[mm[1]]) + '-' + p2(parseInt(mm[2], 10));
+          if (mm[4] == null) return base;
+          return base + ' ' + p2(parseInt(mm[4], 10)) + ':' + p2(parseInt(mm[5], 10));
+        }
+        var out = [];
+        for (var i = 0; i < starts.length; i++) {
+          var s = starts[i].idx, e = (i + 1 < starts.length) ? starts[i + 1].idx : html.length, body = html.slice(s, e);
+          var sm = body.match(/<a href="\/species\/([a-z0-9]+)\/[^"]*"[^>]*data-species-code="[a-z0-9]+">\s*<span class="Heading-main">([^<]+)<\/span>/);
+          var dm = body.match(/<a href="\/checklist\/(S\d+)" title="Checklist">([^<]+)<\/a>/);
+          var lm = body.match(/rel="noopener" title="Map: (-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)">([^<]+)<\/a>/);
+          if (!(sm && dm && lm)) continue;
+          var nm = body.match(/<span class="is-visuallyHidden">Number observed:\s*<\/span>([^<]+)<\/span>/);
+          var om = body.match(/<span class="is-visuallyHidden">Observer:\s*<\/span>\s*<span>([^<]+)<\/span>/);
+          var cm = /<strong>CONFIRMED<\/strong>/.test(body);
+          var howMany = null; if (nm) { var nt = nm[1].trim(); if (/^\d+$/.test(nt)) howMany = parseInt(nt, 10); }
+          out.push({
+            obsId: starts[i].id, speciesCode: sm[1], comName: sm[2],
+            obsDt: pWhen(dm[2]), subId: dm[1],
+            lat: parseFloat(lm[1]), lng: parseFloat(lm[2]), locName: lm[3],
+            howMany: howMany, obsReviewed: cm, userDisplayName: om ? om[1].trim() : null
+          });
+        }
+        return out;
+      }
+
+      // Capgo InAppBrowser bridge (auto-registered native proxy; may be absent
+      // in web preview).
+      function ib() { var c = window.Capacitor; var p = c && c.Plugins && c.Plugins.InAppBrowser; return p || null; }
+      function ibAvail() { return !!ib(); }
+
+      // Wrap a parser as page-injected code: read the server-rendered HTML,
+      // run the parser, post a compact JSON payload back over the bridge. The
+      // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
+      function buildRankInject(displayName) {
+        return '(function(){try{if(!window.mobileApp)return;' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var onPage=/\\/top100/.test(location.pathname);' +
+          parseRankingsHTML.toString() + ';' +
+          'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ');' +
+          'var ok=!!(onPage&&R&&R.rows&&R.rows.length);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:ok,data:R}});' +
+          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+      function buildAlertInject() {
+        return '(function(){try{if(!window.mobileApp)return;' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var onPage=/\\/alert\\/summary/.test(location.pathname);' +
+          parseAlertHTML.toString() + ';' +
+          'var A=parseAlertHTML(H);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",ok:onPage,data:A}});' +
+          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+
+      // Open an eBird page, wait through the login redirect if needed, inject a
+      // parser on each page load, and resolve with the first successful parse.
+      function captureEbird(opts) {
+        var IB = ib();
+        if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
+        return new Promise(function (resolve, reject) {
+          var id = null, done = false, timer = null, revealTimer = null, handles = [];
+          function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
+          function cleanup() {
+            done = true;
+            if (timer) clearTimeout(timer);
+            if (revealTimer) clearTimeout(revealTimer);
+            handles.forEach(function (h) { try { h && h.remove && h.remove(); } catch (e) {} });
+            handles = [];
+          }
+          function finish(err, data) {
+            if (done) return;
+            cleanup();
+            if (id) { try { IB.close({ id: id }); } catch (e) {} }
+            err ? reject(err) : resolve(data);
+          }
+          function reveal() {
+            if (done || !id) return;
+            try { IB.show({ id: id }); } catch (e) {}
+            if (opts.onStatus) opts.onStatus('Finish on eBird if prompted — this closes automatically.');
+          }
+          addH('messageFromWebview', function (ev) {
+            if (done) return;
+            var d = ev && ev.detail; if (!d || !d.__ebird) return;
+            if (d.ok) finish(null, d.data);
+          });
+          addH('urlChangeEvent', function (ev) {
+            if (done) return;
+            var u = (ev && ev.url) || '';
+            if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
+          });
+          addH('browserPageLoaded', function () {
+            if (done || !id) return;
+            setTimeout(function () {
+              if (done || !id) return;
+              IB.executeScript({ id: id, code: opts.buildInject() }).catch(function () {});
+            }, 500);
+          });
+          addH('closeEvent', function () { finish(new Error('The eBird window was closed before it finished.')); });
+          IB.openWebView({ url: opts.url, showReloadButton: true }).then(function (r) {
+            id = r && r.id;
+            try { IB.hide({ id: id }); } catch (e) {}
+            revealTimer = setTimeout(reveal, 6000);
+            timer = setTimeout(function () { finish(new Error('Timed out waiting for eBird — try “View on eBird”.')); }, opts.timeout || 120000);
+          }).catch(function (e) { finish(e); });
+        });
+      }
+
+      function ebirdSignOut() {
+        var IB = ib();
+        if (IB && IB.clearAllBrowsingData) { try { IB.clearAllBrowsingData(); } catch (e) {} }
+        if ($('rankStatus')) $('rankStatus').textContent = 'Signed out of eBird on this device.';
+        if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
+      }
+
+      function loadRankings() {
+        if (!ibAvail()) { $('rankStatus').textContent = 'In-app eBird login works only in the installed app.'; return; }
+        var scope = $('rankScope') ? $('rankScope').value : 'region';
+        var region = scope === 'lower48' ? 'lower48' : (scope === 'aba' ? 'aba' : getRegion());
+        var year = new Date().getFullYear();
+        var url = rankingsUrl(region, year, scope === 'region' ? 500 : 10000);
+        var name = getDisplayName();
+        var btn = $('rankBtn'), st = $('rankStatus');
+        btn.disabled = true; $('rankResults').innerHTML = ''; st.textContent = 'Opening eBird… log in if prompted.';
+        captureEbird({ url: url, buildInject: function () { return buildRankInject(name); }, onStatus: function (m) { st.textContent = m; } })
+          .then(function (data) { renderRankings(data, scope, region, url, name); st.textContent = 'Updated ' + nowTime(); })
+          .catch(function (e) { st.innerHTML = esc(e.message || 'Could not load rankings.') + ' <a class="ebirdlink" data-href="' + esc(url) + '">View on eBird</a>'; })
+          .finally(function () { btn.disabled = false; });
+      }
+
+      function renderRankings(data, scope, region, url, name) {
+        var out = $('rankResults'); out.innerHTML = '';
+        data = data || {}; var rows = data.rows || [], me = data.me;
+        var label = scope === 'lower48' ? 'Lower 48' : (scope === 'aba' ? 'ABA Area' : region);
+        var head = document.createElement('div'); head.className = 'rankhead';
+        if (me) {
+          head.innerHTML = '<div class="bignum">#' + esc(me.rank) + ' <small>in ' + esc(label) + ' · ' + esc(me.species != null ? me.species : '?') + ' species</small></div>' +
+            '<div class="meta">' + esc(me.checklists != null ? me.checklists + ' checklists' : '') + (me.recent ? ' · recent: ' + esc(me.recent) : '') + '</div>';
+        } else {
+          head.innerHTML = '<div class="bignum">—</div><div class="meta">' + esc(name) + ' isn’t in the top ' + esc(data.checkedToRank || rows.length) + ' for ' + esc(label) + '. Set your exact eBird display name in Settings.</div>';
+        }
+        out.appendChild(head);
+        var ul = document.createElement('ul'); ul.className = 'obs dest';
+        rows.forEach(function (r) {
+          var li = document.createElement('li');
+          var mark = (me && r.rank === me.rank) ? ' <span class="star">◄ you</span>' : '';
+          li.innerHTML = '<div><span class="rank">' + esc(r.rank) + '</span><span class="name">' + esc(r.name) + '</span>' + mark + '</div>' +
+            '<div class="sp">' + esc(r.species != null ? r.species + ' species' : '') + (r.checklists != null ? ' · ' + esc(r.checklists) + ' checklists' : '') + (r.recent ? ' · ' + esc(r.recent) : '') + '</div>';
+          ul.appendChild(li);
+        });
+        out.appendChild(ul);
+        var foot = document.createElement('div');
+        foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(url) + '">View full leaderboard on eBird</a>';
+        out.appendChild(foot);
+      }
+
+      function loadAbaAlert() {
+        if (!ibAvail()) { $('abaStatus').textContent = 'In-app eBird login works only in the installed app.'; return; }
+        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid());
+        var btn = $('abaBtn'), st = $('abaStatus');
+        btn.disabled = true; $('abaResults').innerHTML = ''; st.textContent = 'Opening eBird… log in if prompted.';
+        captureEbird({ url: url, buildInject: buildAlertInject, onStatus: function (m) { st.textContent = m; } })
+          .then(function (list) {
+            list = Array.isArray(list) ? list : [];
+            renderAbaAlert(list, url);
+            var unseen = list.filter(function (o) { return !isSpeciesSeen(o.speciesCode, o.comName); }).length;
+            st.textContent = list.length ? (list.length + ' rarities · ' + unseen + ' you still need · ' + nowTime()) : ('No rarities on this alert right now · ' + nowTime());
+          })
+          .catch(function (e) { st.innerHTML = esc(e.message || 'Could not load the alert.') + ' <a class="ebirdlink" data-href="' + esc(url) + '">View on eBird</a>'; })
+          .finally(function () { btn.disabled = false; });
+      }
+
+      function renderAbaAlert(list, url) {
+        var el = $('abaResults'); el.innerHTML = '';
+        list.slice().sort(function (a, b) {
+          var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
+          if (sa !== sb) return sa - sb;
+          return String(b.obsDt).localeCompare(String(a.obsDt));
+        }).forEach(function (o) {
+          var li = document.createElement('li');
+          var seen = isSpeciesSeen(o.speciesCode, o.comName);
+          var count = (o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
+          var flag = seen ? '<span class="seenflag">seen</span>' : '<span class="needflag">need</span>';
+          var conf = o.obsReviewed ? ' ✓' : '';
+          li.innerHTML = count + '<div class="name">' + flag + esc(o.comName || 'Unknown species') + conf + '</div>' +
+            '<div class="meta">' + esc(o.locName || '') + ' · ' + esc(fmtDate(o.obsDt)) + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') + '</div>';
+          el.appendChild(li);
+        });
+        var foot = document.createElement('li'); foot.style.borderTop = 'none';
+        foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(url) + '">View alert on eBird</a>';
+        el.appendChild(foot);
+      }
+
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
       function wxGet(url) {
         return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
@@ -996,6 +1308,9 @@
         $('homeLat').value = h ? h.lat : '';
         $('homeLng').value = h ? h.lng : '';
         $('tideStation').value = localStorage.getItem('ebird_tide_station') || '';
+        $('ebirdName').value = getDisplayName();
+        $('abaSid').value = getAbaSid();
+        if ($('rankScopeLabel')) $('rankScopeLabel').textContent = '· ' + getRegion();
       }
 
       // --- wire up ---
@@ -1010,6 +1325,9 @@
       $('newBtn').addEventListener('click', loadNewArrivals);
       $('quickBtn').addEventListener('click', loadQuickOuting);
       $('wxBtn').addEventListener('click', loadConditions);
+      $('rankBtn').addEventListener('click', loadRankings);
+      $('abaBtn').addEventListener('click', loadAbaAlert);
+      $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
         var link = ev.target.closest('.maplink, .extlink');
@@ -1019,6 +1337,14 @@
             ? (link.getAttribute('data-href') || '')
             : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(link.getAttribute('data-q') || '');
           if (url) { try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); } }
+          return;
+        }
+        var eb = ev.target.closest('.ebirdlink');
+        if (eb) {
+          ev.preventDefault();
+          var ebu = eb.getAttribute('data-href') || '', IB = ib();
+          if (IB && ebu) { IB.openWebView({ url: ebu, showReloadButton: true }).catch(function () { try { window.open(ebu, '_system'); } catch (e) {} }); }
+          else if (ebu) { try { window.open(ebu, '_system'); } catch (e) { window.open(ebu, '_blank'); } }
           return;
         }
         var fav = ev.target.closest('.favlink');
@@ -1066,6 +1392,8 @@
         if (isFinite(hla) && isFinite(hlo)) { localStorage.setItem('ebird_home_lat', hla); localStorage.setItem('ebird_home_lng', hlo); }
         else { localStorage.removeItem('ebird_home_lat'); localStorage.removeItem('ebird_home_lng'); }
         localStorage.setItem('ebird_tide_station', ($('tideStation').value || '').trim());
+        localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
+        localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
         loadSettings();
         showSettings(false);
         if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';

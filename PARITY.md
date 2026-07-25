@@ -16,7 +16,7 @@ features land so the two stay at parity.
 | 🌅 Today's rarity reports / 🚨 Active rarities | **Notable sightings** | ✅ | `…/recent/notable` feed, live via CapacitorHttp. |
 | 📋 All unseen reports | **Targets near you** | ✅ | Region `recent` minus your imported seen-list. |
 | 🔍 Watchlist (verification chases) | — | ➖ | "Needs-verification" is a report-only concept; the app has no NV list. |
-| 🦅 ABA Code 3+ rarities | — | 🟡 | Approximate via country-level notable feed; eBird API exposes no ABA code. Planned. |
+| 🦅 ABA Code 3+ rarities | **ABA rare-bird alert** | ✅ | In-app eBird login + scrape of the ABA Rarities needs alert (`sid` configurable); each record flagged seen/need against your list. Ports `aba_rba.py`. |
 | 🌟 New arrivals today | **Fresh targets** | ✅ | Targets whose most-recent report is within 2 days (approximates arrivals — eBird API has no first-seen date). |
 
 ## Destinations & routing
@@ -44,7 +44,7 @@ features land so the two stay at parity.
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled sample list on first run. Top-100 rank omitted (eBird scrapes it — no API). |
+| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled sample list on first run. Top-100 rank now in **My eBird rankings** (login-gated). |
 | 🐦 Year List | **My year** list | ✅ | Expandable current-year (and all-time, for CSV) species lists, from the imported CSV or the bundled sample data. |
 
 ## Environmental (non-eBird sources)
@@ -55,13 +55,13 @@ features land so the two stay at parity.
 | 🛬 Migration outlook | — | 🌦️ | eBird bar-chart history; complex. |
 | 🌙 Nightly migration — BirdCast | — | 🌦️ | BirdCast is a separate service (scraped in report). |
 
-## Leaderboards (website-scraped in report)
+## Leaderboards (website-scraped in report; in-app via eBird login)
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🏆 eBird Rankings | — | ⛔ | eBird has no public ranking API; report scrapes the website. |
-| 🥇 Top 25 eBirders | — | ⛔ | Same — scraped, not an API. |
-| 🏅 Your state rankings | — | ⛔ | Same — scraped, not an API. |
+| 🏆 eBird Rankings | **My eBird rankings** | ✅ | In-app eBird login → scrape of `top100`; shows your rank + species + checklists + recent. Ports `rankings.py`. |
+| 🥇 Top 25 eBirders | **My eBird rankings** (list) | ✅ | Renders the top-25 leaderboard rows, highlighting your row. |
+| 🏅 Your state / Lower 48 / ABA rankings | **My eBird rankings** (scope) | ✅ | Scope selector — your region, Lower 48, or ABA Area — mirrors `rankings.py` REGIONS query construction. |
 
 ## App structure
 
@@ -85,3 +85,14 @@ CSV is imported. It matches by eBird `speciesCode` (exact and locale-proof).
 Fully replaceable: importing a *Download My Data* CSV overrides it, *Clear*
 removes it, and *Load sample data* brings it back. Regenerate from the private
 report pipeline's `birdlist-*.md` exports with `node assets/build-seed.js`.
+
+**In-app eBird login (P11).** The two leaderboard/ABA features above hit eBird
+pages that redirect to Cornell SSO, so the REST key can't reach them. The app
+opens the target page in an in-app browser (`@capgo/capacitor-inappbrowser`),
+lets you log in once (the session cookie persists on device — no GitHub, no
+proxy), then injects a parser into the eBird page that scrapes the
+server-rendered HTML and posts a small JSON payload back over the bridge (never
+piping eBird's multi-MB HTML across). The parsers are 1:1 ports of the
+pipeline's `rankings.py` / `aba_rba.py` regexes. *Sign out of eBird* in Settings
+clears the browsing data. The flow can only be exercised on-device with real
+credentials; offline it's covered by parser unit tests + the CI compile.
