@@ -343,9 +343,12 @@
       <label for="apiKey">eBird API key</label>
       <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
       <p class="hint">Free key from <code>ebird.org/api/keygen</code>. Stored only on this device.</p>
+      <label for="reportSelect">Default report</label>
+      <select id="reportSelect"></select>
+      <p class="hint">Pick which birding report to chase. Every section below matches that report's counties, home base, and seen-species list exactly.</p>
       <label for="region">Region code</label>
-      <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" />
-      <p class="hint">Country <code>US</code>, state <code>US-WA</code>, or county <code>US-WA-033</code>.</p>
+      <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" readonly />
+      <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
       <label for="ebirdName">eBird display name</label>
       <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Birder Wyatt" />
       <p class="hint">Used to find your row on eBird leaderboards. It's the public name on your eBird profile.</p>
@@ -409,17 +412,45 @@
     <textarea id="dbgLog" readonly spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
   </div>
 
+  <script src="logic.js"></script>
   <script src="seed-birdlist.js"></script>
   <script>
     (function () {
-      var K = { api: 'ebird_api_key', region: 'ebird_region', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
+      var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
+      var BL = window.BirdLogic;
 
       function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
-      function getRegion() { return (localStorage.getItem(K.region) || 'US-WA').trim().toUpperCase(); }
+      // Active report (one of BirdLogic's 9 report slugs). Selecting a report
+      // scopes every chase section to exactly what the Markdown report computes.
+      function getReportSlug() {
+        var s = (localStorage.getItem(K.report) || '').trim().toLowerCase();
+        return (BL && BL.REPORTS && BL.REPORTS[s]) ? s : 'wa';
+      }
+      function getReport() { return BL.profileFor(getReportSlug()); }
+      // eBird region code for the active report (US-WA, lower48, aba, …), used by
+      // the state-wide feeds (notable, rankings, hotspots, migration, convoys).
+      function getRegion() { return (getReport().stateCode || 'US-WA').toString(); }
+      // eBird region code valid for /data/obs/<r>/... calls. Rarity trackers use
+      // the national US feed (their stateCode 'lower48'/'aba' isn't a feed code).
+      function getObsRegion() { var p = getReport(); return p.isRarityTracker ? 'US' : getRegion(); }
       function getSeen() { try { return JSON.parse(localStorage.getItem(K.seen) || '{}'); } catch (e) { return {}; } }
       function getSeenMeta() { try { return JSON.parse(localStorage.getItem(K.seenMeta) || 'null'); } catch (e) { return null; } }
       function getField() { return localStorage.getItem(K.field) || 'sciName'; }
+      // Seen-species set (eBird codes) the ACTIVE report chases against. Matches
+      // the Markdown report exactly: each report subtracts its own region's year
+      // list (bundled in seed-birdlist.js as seenByReport[slug]). Falls back to
+      // the imported CSV / combined seed when a per-report set isn't bundled.
+      function getReportSeen() {
+        var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
+        var rep = seed && seed.seenByReport && seed.seenByReport[slug];
+        if (rep && rep.codes && rep.codes.length) {
+          var set = {};
+          rep.codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
+          return set;
+        }
+        return getSeen();
+      }
 
       function esc(s) {
         return String(s).replace(/[&<>"]/g, function (c) {
@@ -495,8 +526,8 @@
 
       function refresh() {
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('refreshBtn'), st = $('status'), out = $('results');
-        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading notable sightings for ' + region + '…';
+        var region = getObsRegion(), btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
+        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading notable sightings for ' + label + '…';
         ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=simple&maxResults=50')
           .then(function (data) {
             data = Array.isArray(data) ? data : [];
@@ -513,41 +544,83 @@
 
       function loadTargets() {
         if (!getKey()) { $('targetStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var seen = getSeen(), field = getField();
-        if (!Object.keys(seen).length) { $('targetStatus').textContent = 'Import your eBird CSV in Settings to compute targets.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults');
-        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Finding targets in ' + region + '…';
-        ebird('data/obs/' + encodeURIComponent(region) + '/recent?detail=simple&back=14')
-          .then(function (data) {
-            data = Array.isArray(data) ? data : [];
-            todAccumulate(data);
-            var targets = data.filter(function (o) {
-              var v = (o[field] || '').toString().trim().toLowerCase();
-              return v && !seen[v];
-            });
-            if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
-            var shown = targets.slice(0, 100);
-            st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
-              (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
-            renderList(out, shown);
-          })
-          .catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
+        var btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults'), label = getReport().label;
+        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Finding targets for ' + label + '…';
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          // Unseen species across the report's counties/geo (report scope + seen
+          // set), collapsed to one row per species — newest, closest first.
+          var seenSp = {}, targets = [];
+          c.cv.unseen.forEach(function (r) {
+            if (!r.code || seenSp[r.code]) return;
+            seenSp[r.code] = 1;
+            targets.push({ comName: r.name || r.code, howMany: r.count, locName: r.loc, obsDt: r.dateStr });
+          });
+          if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
+          var shown = targets.slice(0, 100);
+          st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
+            (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
+          renderList(out, shown);
+        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
-      // --- shared region data (recent + notable), cached ~10 min ---
-      var _cache = {};
-      function getData(region) {
-        var c = _cache[region];
+      // --- shared chase pipeline (BirdLogic.computeChaseViews), cached ~10 min -
+      // This is the SAME orchestration the Markdown report runs (proven by the
+      // cross-repo parity suite in birding/tests/parity). For the active report
+      // we fetch exactly the feeds planFeeds() prescribes, key them by the plan
+      // file name, and hand them to computeChaseViews — so Top destinations /
+      // excursions / fresh targets match the report section-for-section.
+      var _chase = {};
+      function todayStr() {
+        var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
+        return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+      }
+      function snapKey(slug, d) { return 'bc_snap:' + slug + ':' + d; }
+      // Persist a day's merged species codes so tomorrow's "fresh targets" can
+      // diff against today. The report reads yesterday's committed snapshot; the
+      // app has none, so it accumulates its own light per-report daily snapshot.
+      function saveSnapCodes(slug, codes) {
+        try { localStorage.setItem(snapKey(slug, todayStr()), JSON.stringify(codes)); } catch (e) {}
+      }
+      function priorSnapCodes(slug) {
+        var pref = 'bc_snap:' + slug + ':', today = todayStr(), best = '';
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf(pref) === 0) { var dd = k.slice(pref.length); if (dd < today && dd > best) best = dd; }
+        }
+        if (!best) return null;
+        try {
+          var arr = JSON.parse(localStorage.getItem(snapKey(slug, best)) || '[]'), set = {};
+          arr.forEach(function (c) { set[c] = 1; });
+          return set;
+        } catch (e) { return null; }
+      }
+      function getChase() {
+        var profile = getReport(), slug = profile.slug;
+        var c = _chase[slug];
         if (c && (Date.now() - c.t) < 600000) return Promise.resolve(c);
-        return Promise.all([
-          ebird('data/obs/' + encodeURIComponent(region) + '/recent?detail=full&back=14'),
-          ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=full&back=14&maxResults=1000').catch(function () { return []; })
-        ]).then(function (res) {
-          _cache[region] = { t: Date.now(), recent: res[0] || [], notable: res[1] || [] };
-          return _cache[region];
+        var feeds = BL.planFeeds(profile);
+        if (!feeds.length) return Promise.resolve({ t: Date.now(), profile: profile, cv: null, rarity: true });
+        return Promise.all(feeds.map(function (f) {
+          return ebird(BL.requestUrl(f))
+            .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
+            .catch(function () { return { file: f.file, rows: [] }; });
+        })).then(function (results) {
+          var rowsByFile = {};
+          results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+          var cv = BL.computeChaseViews(profile, {
+            rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug),
+            seen: getReportSeen(), ownName: getDisplayName(), snapshotDate: todayStr(),
+            home: getHome(), dailyDriveMi: profile.dailyDriveMi
+          });
+          var codes = {}; cv.merged.forEach(function (r) { if (r.code) codes[r.code] = 1; });
+          saveSnapCodes(slug, Object.keys(codes));
+          var res = { t: Date.now(), profile: profile, cv: cv, rarity: false };
+          _chase[slug] = res;
+          return res;
         });
       }
+      function clearChaseCache() { _chase = {}; }
 
       // --- Top destinations (rank hotspots by unseen-target richness) ---
       function haversineMi(la1, lo1, la2, lo2) {
@@ -556,34 +629,6 @@
         var a = Math.sin(dLa / 2) * Math.sin(dLa / 2) +
                 Math.cos(la1 * toR) * Math.cos(la2 * toR) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
         return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
-      }
-
-      function buildDestinations(recent, notable, seen, field, home) {
-        var rareSet = {};
-        (notable || []).forEach(function (o) { var s = (o.sciName || '').trim().toLowerCase(); if (s) rareSet[s] = 1; });
-        var groups = {};
-        (recent || []).forEach(function (o) {
-          var seenKey = (o[field] || '').toString().trim().toLowerCase();
-          if (!seenKey || seen[seenKey]) return;
-          if (o.lat == null || o.lng == null) return;
-          var key = o.locId || (o.lat + ',' + o.lng);
-          var g = groups[key];
-          if (!g) g = groups[key] = { locId: o.locId || '', locName: o.locName || 'Unknown location', lat: +o.lat, lng: +o.lng, sp: {} };
-          var sci = (o.sciName || o.comName || '').trim().toLowerCase();
-          if (!g.sp[sci]) g.sp[sci] = { comName: o.comName || 'Unknown species', rare: rareSet[sci] === 1 };
-        });
-        return Object.keys(groups).map(function (k) {
-          var g = groups[k], sp = Object.keys(g.sp).map(function (s) { return g.sp[s]; });
-          var score = sp.reduce(function (a, x) { return a + (x.rare ? 3 : 1); }, 0);
-          var rare = sp.reduce(function (a, x) { return a + (x.rare ? 1 : 0); }, 0);
-          return { locId: g.locId, locName: g.locName, lat: g.lat, lng: g.lng, species: sp, score: score, rare: rare,
-                   dist: home ? haversineMi(home.lat, home.lng, g.lat, g.lng) : null };
-        }).sort(function (a, b) {
-          if (b.score !== a.score) return b.score - a.score;
-          var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
-          if (da !== db) return da - db;
-          return a.locName < b.locName ? -1 : 1;
-        });
       }
 
       function mapSVG(points, home, connect) {
@@ -624,7 +669,11 @@
 
       function getHome() {
         var la = parseFloat(localStorage.getItem('ebird_home_lat')), lo = parseFloat(localStorage.getItem('ebird_home_lng'));
-        return (isFinite(la) && isFinite(lo)) ? { lat: la, lng: lo } : null;
+        if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
+        // Default to the active report's home (regions.py home coord) so chase
+        // distances match the Markdown report even before the user sets one.
+        var h = getReport().home;
+        return (h && isFinite(h.lat) && isFinite(h.lng)) ? { lat: +h.lat, lng: +h.lng } : null;
       }
 
       // --- Favorite hotspots (pinned locations) ---
@@ -679,41 +728,35 @@
         });
       }
 
+      // Shared status for reports where hotspot chasing doesn't apply (Lower 48 /
+      // ABA are rare-bird trackers — the Markdown report skips destinations/map
+      // for them and surfaces out-of-list rarities via the alert instead).
+      function rarityRedirect(st) {
+        st.textContent = getReport().label + ' is a rare-bird tracker — hotspot ranking doesn\u2019t apply. See the \uD83D\uDEA8 ABA rare-bird alert and \uD83C\uDFC6 eBird rankings sections.';
+      }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var seen = getSeen(), field = getField();
-        if (!Object.keys(seen).length) { $('destStatus').textContent = 'Import your eBird CSV in Settings to rank hotspots.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('destBtn'), st = $('destStatus');
-        btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots in ' + region + '…';
-        getData(region).then(function (c) {
-          var dests = buildDestinations(c.recent, c.notable, seen, field, getHome()).slice(0, 12);
-          if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + region + '.'; return; }
+        var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
+        btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          var dests = c.cv.destinations.map(BL.toRenderDest);
+          if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
           st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           renderDestinations(dests, $('destMap'), $('destResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
       // --- Top excursions (target-rich hotspots beyond a day-trip radius) ---
-      var DAILY_DRIVE_MI = 20;
-
-      function buildExcursions(dests, threshold) {
-        return dests.filter(function (d) { return d.dist != null && d.dist > threshold; })
-          .map(function (d) { var extra = d.dist - threshold; d.adj = d.score / (1 + extra / 30); return d; })
-          .sort(function (a, b) { if (b.adj !== a.adj) return b.adj - a.adj; return a.dist - b.dist; });
-      }
-
       function loadExcursions() {
         if (!getKey()) { $('excStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var home = getHome();
-        if (!home) { $('excStatus').textContent = 'Set a Home location in Settings to rank excursions by distance.'; showSettings(true); return; }
-        var seen = getSeen(), field = getField();
-        if (!Object.keys(seen).length) { $('excStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('excBtn'), st = $('excStatus');
-        btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + DAILY_DRIVE_MI + ' mi…';
-        getData(region).then(function (c) {
-          var all = buildDestinations(c.recent, c.notable, seen, field, home);
-          var exc = buildExcursions(all, DAILY_DRIVE_MI).slice(0, 12);
-          if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + DAILY_DRIVE_MI + ' mi right now.'; return; }
+        var btn = $('excBtn'), st = $('excStatus'), profile = getReport();
+        btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + profile.dailyDriveMi + ' mi…';
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          var exc = c.cv.excursions.map(BL.toRenderDest);
+          if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + profile.dailyDriveMi + ' mi right now.'; return; }
           st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           renderDestinations(exc, $('excMap'), $('excResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
@@ -759,14 +802,13 @@
 
       function loadTripPlanner() {
         if (!getKey()) { $('tripStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var seen = getSeen(), field = getField();
-        if (!Object.keys(seen).length) { $('tripStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), home = getHome(), btn = $('tripBtn'), st = $('tripStatus');
+        var home = getHome(), btn = $('tripBtn'), st = $('tripStatus');
         btn.disabled = true; $('tripResults').innerHTML = ''; $('tripMap').innerHTML = ''; st.textContent = 'Planning a route…';
-        getData(region).then(function (c) {
-          var dests = buildDestinations(c.recent, c.notable, seen, field, home);
-          if (home) dests = dests.filter(function (d) { return d.dist == null || d.dist <= DAILY_DRIVE_MI; });
-          var top = dests.slice(0, 6);
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          // cv.destinations are already the near targets within the report's
+          // daily-drive radius (top 10) — take the best 6 as route stops.
+          var top = c.cv.destinations.map(BL.toRenderDest).slice(0, 6);
           if (top.length < 2) { st.textContent = 'Not enough nearby target hotspots to build a route.'; return; }
           renderRoute(planRoute(top, home), home, $('tripMap'), $('tripResults'), st);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
@@ -800,40 +842,24 @@
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
-      // --- Fresh targets (target species reported in the last N days) ---
-      function buildNewArrivals(recent, notable, seen, field, sinceDays, todayMs) {
-        var rareSet = {};
-        (notable || []).forEach(function (o) { var s = (o.sciName || '').trim().toLowerCase(); if (s) rareSet[s] = 1; });
-        var cutoff = todayMs - sinceDays * 86400000;
-        var out = [];
-        (recent || []).forEach(function (o) {
-          var seenKey = (o[field] || '').toString().trim().toLowerCase();
-          if (!seenKey || seen[seenKey]) return;
-          var ts = Date.parse(String(o.obsDt || '').slice(0, 10));
-          if (isNaN(ts) || ts < cutoff) return;
-          var sci = (o.sciName || o.comName || '').trim().toLowerCase();
-          out.push({ comName: o.comName || 'Unknown species', locName: o.locName || '', lat: o.lat, lng: o.lng, obsDt: o.obsDt || '', ts: ts, rare: rareSet[sci] === 1 });
-        });
-        return out.sort(function (a, b) { return (b.ts - a.ts) || (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); });
-      }
-
+      // --- Fresh targets (report.section_new_today via BirdLogic.newArrivals) --
       function loadNewArrivals() {
         if (!getKey()) { $('newStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var seen = getSeen(), field = getField();
-        if (!Object.keys(seen).length) { $('newStatus').textContent = 'Import your eBird CSV in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('newBtn'), st = $('newStatus');
-        btn.disabled = true; $('newResults').innerHTML = ''; st.textContent = 'Finding fresh targets in ' + region + '…';
-        getData(region).then(function (c) {
-          var arr = buildNewArrivals(c.recent, c.notable, seen, field, 2, Date.now()).slice(0, 30);
-          if (!arr.length) { st.textContent = 'No target species reported in the last 2 days in ' + region + '.'; return; }
+        var btn = $('newBtn'), st = $('newStatus'), label = getReport().label;
+        btn.disabled = true; $('newResults').innerHTML = ''; st.textContent = 'Finding fresh targets for ' + label + '…';
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          var arr = c.cv.newArrivals.slice(0, 30);
+          if (!arr.length) { st.textContent = 'No new target species since the last check in ' + label + '.'; return; }
           st.textContent = arr.length + ' fresh target' + (arr.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           var el = $('newResults'); el.innerHTML = '';
-          arr.forEach(function (o) {
-            var li = document.createElement('li');
-            li.innerHTML = '<span class="count">' + esc(fmtDate(o.obsDt)) + '</span>' +
-              '<div class="name">' + (o.rare ? '<span class="star">★</span> ' : '') + esc(o.comName) + '</div>' +
-              '<div class="meta">' + esc(o.locName || '') + '</div>' +
-              ((o.lat != null && o.lng != null) ? '<a class="maplink" data-q="' + esc(o.lat + ',' + o.lng) + '">Open in Maps ↗</a>' : '');
+          arr.forEach(function (r) {
+            var li = document.createElement('li'), rare = r.kind === 'Rarity';
+            var d = (r.distMi != null && r.distMi !== Infinity) ? ' · ' + r.distMi.toFixed(1) + ' mi' : '';
+            li.innerHTML = '<span class="count">' + esc(fmtDate(r.dateStr)) + '</span>' +
+              '<div class="name">' + (rare ? '<span class="star">★</span> ' : '') + esc(r.name || r.code || 'Unknown species') + '</div>' +
+              '<div class="meta">' + esc(r.loc || '') + d + '</div>' +
+              ((r.lat != null && r.lon != null) ? '<a class="maplink" data-q="' + esc(r.lat + ',' + r.lon) + '">Open in Maps ↗</a>' : '');
             el.appendChild(li);
           });
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
@@ -1940,10 +1966,22 @@
         p.hidden = !show;
         if (show) { try { p.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { try { p.scrollIntoView(); } catch (_) {} } }
       }
+      function populateReportSelect() {
+        var sel = $('reportSelect'); if (!sel || sel.dataset.filled) return;
+        (BL.reports() || []).forEach(function (r) {
+          var o = document.createElement('option');
+          o.value = r.slug;
+          o.textContent = r.label + (r.kind === 'trip' ? ' (trip)' : '') + (r.isRarityTracker ? ' — rarities' : '');
+          sel.appendChild(o);
+        });
+        sel.dataset.filled = '1';
+      }
       function loadSettings() {
+        populateReportSelect();
         $('apiKey').value = getKey();
+        $('reportSelect').value = getReportSlug();
         $('region').value = getRegion();
-        var reg = '· ' + getRegion();
+        var reg = '· ' + getReport().label;
         $('regionLabel').textContent = reg;
         $('targetRegionLabel').textContent = reg;
         $('destRegionLabel').textContent = reg;
@@ -1952,18 +1990,18 @@
         $('cklRegionLabel').textContent = reg;
         $('newRegionLabel').textContent = reg;
         $('quickRegionLabel').textContent = reg;
-        var h = getHome();
-        $('homeLat').value = h ? h.lat : '';
-        $('homeLng').value = h ? h.lng : '';
+        var hla = parseFloat(localStorage.getItem('ebird_home_lat')), hlo = parseFloat(localStorage.getItem('ebird_home_lng'));
+        $('homeLat').value = isFinite(hla) ? hla : '';
+        $('homeLng').value = isFinite(hlo) ? hlo : '';
         $('tideStation').value = localStorage.getItem('ebird_tide_station') || '';
         $('ebirdName').value = getDisplayName();
         $('abaSid').value = getAbaSid();
-        if ($('rankScopeLabel')) $('rankScopeLabel').textContent = '· ' + getRegion();
+        if ($('rankScopeLabel')) $('rankScopeLabel').textContent = '· ' + getReport().label;
         renderBirdcast();
         renderTimeOfDay();
         renderMigration();
-        if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getRegion();
-        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getRegion();
+        if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getReport().label;
+        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getReport().label;
       }
 
       // --- on-device debug console ---
@@ -2019,6 +2057,13 @@
       // --- wire up ---
       $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
+      $('reportSelect').addEventListener('change', function () {
+        localStorage.setItem(K.report, (this.value || 'wa').toLowerCase());
+        clearChaseCache();
+        loadSettings();
+        ['results', 'targetResults', 'destResults', 'excResults', 'tripResults', 'newResults'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
+        if (getKey()) refresh();
+      });
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);
       $('destBtn').addEventListener('click', loadDestinations);
@@ -2119,13 +2164,14 @@
       $('loadSeedBtn').addEventListener('click', function () { loadSeed(true); });
       $('saveBtn').addEventListener('click', function () {
         localStorage.setItem(K.api, $('apiKey').value.trim());
-        localStorage.setItem(K.region, ($('region').value.trim() || 'US-WA').toUpperCase());
+        localStorage.setItem(K.report, getReportSlug());
         var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
         if (isFinite(hla) && isFinite(hlo)) { localStorage.setItem('ebird_home_lat', hla); localStorage.setItem('ebird_home_lng', hlo); }
         else { localStorage.removeItem('ebird_home_lat'); localStorage.removeItem('ebird_home_lng'); }
         localStorage.setItem('ebird_tide_station', ($('tideStation').value || '').trim());
         localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
         localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
+        clearChaseCache();
         loadSettings();
         showSettings(false);
         if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';
