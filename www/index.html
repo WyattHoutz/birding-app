@@ -86,6 +86,7 @@
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    .destfoot { margin: 8px 0 2px; }
     .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .status { font-size: 13px; color: var(--muted); padding: 10px 0 2px; }
     .obs { list-style: none; margin: 6px 0 0; padding: 0; }
@@ -218,6 +219,11 @@
     </section>
 
     <section class="panel">
+      <h2>🌙 Nightly migration <span class="dim" id="bcRegionLabel"></span></h2>
+      <div id="bcBody"></div>
+    </section>
+
+    <section class="panel">
       <h2>📅 My year</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
     </section>
@@ -243,6 +249,15 @@
       </div>
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
       <ul id="abaResults" class="obs"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🕰️ Time-of-day specialists <span class="dim" id="todRegionLabel"></span></h2>
+      <div class="row">
+        <button id="todBtn">Sample recent checklists</button>
+      </div>
+      <div id="todStatus" class="status">Finds dawn-only and dusk/night species from recent checklist times — grows richer each time you sample.</div>
+      <div id="todResults"></div>
     </section>
 
     <section class="panel" id="settingsPanel" hidden>
@@ -289,7 +304,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P11 · eBird login</div>
+    <div>Birding · P13 · time-of-day</div>
   </footer>
 
   <script src="seed-birdlist.js"></script>
@@ -366,6 +381,7 @@
         ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=simple&maxResults=50')
           .then(function (data) {
             data = Array.isArray(data) ? data : [];
+            todAccumulate(data);
             if (!data.length) { st.textContent = 'No notable sightings reported here recently.'; return; }
             var nn = markNewNotable(data);
             st.textContent = data.length + ' notable' + (nn.newCount ? ' · ' + nn.newCount + ' new since last check' : '') + ' · updated ' + nowTime();
@@ -384,6 +400,7 @@
         ebird('data/obs/' + encodeURIComponent(region) + '/recent?detail=simple&back=14')
           .then(function (data) {
             data = Array.isArray(data) ? data : [];
+            todAccumulate(data);
             var targets = data.filter(function (o) {
               var v = (o[field] || '').toString().trim().toLowerCase();
               return v && !seen[v];
@@ -1123,6 +1140,139 @@
         el.appendChild(foot);
       }
 
+      // --- P12: BirdCast nightly migration (season-aware deep link, no API) ---
+      function birdcastSeason(d) {
+        var y = d.getFullYear();
+        function D(m, day) { return new Date(y, m - 1, day); }
+        var sp0 = D(3, 1), sp1 = D(6, 15), fa0 = D(8, 1), fa1 = D(11, 15);
+        if (d >= sp0 && d <= sp1) return { active: true, season: 'spring migration' };
+        if (d >= fa0 && d <= fa1) return { active: true, season: 'fall migration' };
+        var next = d < sp0 ? sp0 : (d < fa0 ? fa0 : new Date(y + 1, 2, 1));
+        return { active: false, next: next };
+      }
+      function renderBirdcast() {
+        var el = $('bcBody'); if (!el) return;
+        var region = getRegion();
+        if ($('bcRegionLabel')) $('bcRegionLabel').textContent = '· ' + region;
+        var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(region);
+        var linkHtml = '<a class="extlink" data-href="' + esc(link) + '">' + esc(region) + ' live radar dashboard →</a>';
+        var s = birdcastSeason(new Date());
+        if (s.active) {
+          el.innerHTML = '<div class="status">It\u2019s <b>' + esc(s.season) + '</b> — BirdCast\u2019s nightly radar forecast is live. A high-traffic night usually means fresh migrants dropping in by dawn.</div>' +
+            '<div class="destfoot">' + linkHtml + '</div>' +
+            '<div class="hint">Best odds: a big forecast night paired with southerly winds (check Conditions above).</div>';
+        } else {
+          var nd = s.next.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          el.innerHTML = '<div class="status">BirdCast\u2019s live forecast runs <b>Mar 1\u2013Jun 15</b> and <b>Aug 1\u2013Nov 15</b>. It\u2019s <b>between seasons</b> now and resumes <b>' + esc(nd) + '</b>.</div>' +
+            '<div class="destfoot">' + linkHtml + '</div>';
+        }
+      }
+
+      // --- P13: time-of-day specialists (dawn / dusk accumulator) ---
+      var TOD_DAWN_END = 7, TOD_DUSK_START = 19, TOD_MIN_OBS = 5, TOD_DAWN_TH = 0.50, TOD_NIGHT_TH = 0.30;
+      function todKey() { return 'ebird_tod_' + getRegion(); }
+      function todLoad() {
+        try { return JSON.parse(localStorage.getItem(todKey()) || 'null') || { seen: {}, hours: {}, names: {} }; }
+        catch (e) { return { seen: {}, hours: {}, names: {} }; }
+      }
+      function todSave(s) { try { localStorage.setItem(todKey(), JSON.stringify(s)); } catch (e) {} }
+      function todAccumulate(obs) {
+        if (!obs || !obs.length) return 0;
+        var s = todLoad(), added = 0;
+        obs.forEach(function (o) {
+          var code = o.speciesCode, sub = o.subId, dt = (o.obsDt || '').toString();
+          if (!code || !sub || dt.length < 13) return;
+          var key = sub + '|' + code;
+          if (s.seen[key]) return;
+          var hh = parseInt(dt.slice(11, 13), 10);
+          if (!(hh >= 0 && hh <= 23)) return;
+          s.seen[key] = 1;
+          (s.hours[code] = s.hours[code] || []).push(hh);
+          if (s.hours[code].length > 300) s.hours[code].shift();
+          if (!s.names[code] && o.comName) s.names[code] = o.comName;
+          added++;
+        });
+        if (added) todSave(s);
+        return added;
+      }
+      function todProfile(hs) {
+        var n = hs.length; if (!n) return { n: 0 };
+        var early = 0, late = 0;
+        for (var i = 0; i < n; i++) { if (hs[i] < TOD_DAWN_END) early++; if (hs[i] >= TOD_DUSK_START) late++; }
+        var srt = hs.slice().sort(function (a, b) { return a - b; });
+        var med = n % 2 ? srt[(n - 1) / 2] : Math.round((srt[n / 2 - 1] + srt[n / 2]) / 2);
+        return { n: n, early: early / n, late: late / n, med: med, min: srt[0], max: srt[n - 1] };
+      }
+      function todSpecialists() {
+        var s = todLoad(), dawn = [], night = [];
+        Object.keys(s.hours).forEach(function (code) {
+          var p = todProfile(s.hours[code]); if (p.n < TOD_MIN_OBS) return;
+          var e = { code: code, name: s.names[code] || code, p: p };
+          if (p.early >= TOD_DAWN_TH) dawn.push(e);
+          if (p.late >= TOD_NIGHT_TH) night.push(e);
+        });
+        dawn.sort(function (a, b) { return (b.p.early - a.p.early) || (b.p.n - a.p.n); });
+        night.sort(function (a, b) { return (b.p.late - a.p.late) || (b.p.n - a.p.n); });
+        return { dawn: dawn, night: night, n: Object.keys(s.hours).length };
+      }
+      function todHourLabel(h) { var hr = ((h + 11) % 12) + 1; return hr + (h < 12 ? 'am' : 'pm'); }
+      function renderTimeOfDay() {
+        var el = $('todResults'); if (!el) return;
+        if ($('todRegionLabel')) $('todRegionLabel').textContent = '· ' + getRegion();
+        var sp = todSpecialists();
+        if (!sp.n) { el.innerHTML = '<div class="status">No timed checklists sampled yet — tap “Sample recent checklists”.</div>'; return; }
+        function section(title, arr, kind) {
+          if (!arr.length) return '';
+          var h = '<div class="rankhead"><b>' + esc(title) + '</b></div><ul class="obs dest">';
+          arr.slice(0, 15).forEach(function (e) {
+            var pct = Math.round((kind === 'dawn' ? e.p.early : e.p.late) * 100);
+            var when = kind === 'dawn' ? 'before 7am' : 'after 7pm';
+            h += '<li><div class="name">' + esc(e.name) + '</div><div class="sp">' + pct + '% ' + when +
+              ' · n=' + e.p.n + ' · typ ' + todHourLabel(e.p.med) + ' (' + todHourLabel(e.p.min) + '–' + todHourLabel(e.p.max) + ')</div></li>';
+          });
+          return h + '</ul>';
+        }
+        var html = section('🌅 Dawn specialists', sp.dawn, 'dawn') + section('🌘 Dusk / night specialists', sp.night, 'night');
+        if (!html) html = '<div class="status">' + sp.n + ' species sampled, but none meet the dawn/dusk thresholds yet — sample again over a few days to enrich it.</div>';
+        el.innerHTML = html;
+      }
+      function todDates(n) {
+        var out = [], base = new Date(); base.setHours(12, 0, 0, 0);
+        for (var i = 1; i <= n; i++) out.push(new Date(base.getTime() - i * 86400000));
+        return out;
+      }
+      function todDelay(v, ms) { return new Promise(function (res) { setTimeout(function () { res(v); }, ms); }); }
+      function todFetchHistoric(region, dates, onProg) {
+        return dates.reduce(function (p, dt, idx) {
+          return p.then(function (acc) {
+            if (onProg) onProg(idx + 1, dates.length);
+            var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&cat=species&maxResults=200';
+            return ebird(path)
+              .then(function (r) { if (Array.isArray(r)) acc.push.apply(acc, r); return todDelay(acc, 260); })
+              .catch(function () { return todDelay(acc, 260); });
+          });
+        }, Promise.resolve([]));
+      }
+      function loadTimeOfDay() {
+        if (!getKey()) { $('todStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var region = getRegion(), btn = $('todBtn'), st = $('todStatus');
+        btn.disabled = true; st.textContent = 'Sampling recent checklists… this takes a few seconds.';
+        todFetchHistoric(region, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; })
+          .then(function (all) {
+            return ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=full&back=30&maxResults=1000')
+              .then(function (nb) { return Array.isArray(nb) ? all.concat(nb) : all; })
+              .catch(function () { return all; });
+          })
+          .then(function (all) {
+            todAccumulate(all);
+            renderTimeOfDay();
+            var sp = todSpecialists();
+            st.textContent = sp.n + ' species in sample · ' + sp.dawn.length + ' dawn · ' + sp.night.length + ' night · ' + nowTime();
+          })
+          .catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
       function wxGet(url) {
         return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
@@ -1311,6 +1461,8 @@
         $('ebirdName').value = getDisplayName();
         $('abaSid').value = getAbaSid();
         if ($('rankScopeLabel')) $('rankScopeLabel').textContent = '· ' + getRegion();
+        renderBirdcast();
+        renderTimeOfDay();
       }
 
       // --- wire up ---
@@ -1327,6 +1479,7 @@
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
       $('abaBtn').addEventListener('click', loadAbaAlert);
+      $('todBtn').addEventListener('click', loadTimeOfDay);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;

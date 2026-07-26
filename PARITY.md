@@ -38,7 +38,7 @@ features land so the two stay at parity.
 | 🔥 Hot hotspots — recent surges | — | 🧪 | Needs recent-vs-baseline activity comparison. |
 | 🥶 Cold hotspots — overlooked gems | — | 🧪 | Needs hotspot activity stats. |
 | 👥 Birder convoys | — | 🧪 | Group-route detection across checklists; low priority. |
-| ⏰ Time-of-day specialists | — | 🧪 | Needs historical checklist-time aggregation. |
+| ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + passive from Notable/Targets), then flags dawn (≥50% before 7am) and dusk/night (≥30% after 7pm) species — mirrors the report's `time_of_day.py` thresholds (`MIN_OBS=5`). Sample grows richer each run. |
 
 ## Personal stats
 
@@ -53,7 +53,7 @@ features land so the two stay at parity.
 |---|---|---|---|
 | 🌤 Conditions — weather + tides | **Conditions for chasing** | ✅ | NOAA `api.weather.gov` 4-period forecast (🐦 southerly-wind flag) + NOAA CO-OPS tides (optional station) + locally-computed sunrise/sunset, first/last light, daylight length, and moon phase. Called straight from the device — no GitHub. |
 | 🛬 Migration outlook | — | 🌦️ | eBird bar-chart history; complex. |
-| 🌙 Nightly migration — BirdCast | — | 🌦️ | BirdCast is a separate service (scraped in report). |
+| 🌙 Nightly migration — BirdCast | **Nightly migration** | ✅ | Season-aware deep link to BirdCast's live radar dashboard for your region (`dashboard.birdcast.org/region/<code>`); knows the live-forecast windows (Mar 1–Jun 15, Aug 1–Nov 15) and shows the next active date between seasons — same season logic as the report's `section_birdcast`. No API (BirdCast has none). |
 
 ## Leaderboards (website-scraped in report; in-app via eBird login)
 
