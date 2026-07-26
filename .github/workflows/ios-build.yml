@@ -12,7 +12,26 @@ permissions:
   contents: read
 
 jobs:
+  # Fast self-contained unit + syntax suite (BirdLogic + index.html inline
+  # scripts). Gates the iOS build below so a logic regression or a stray brace
+  # in the single-file app fails CI before we spend ~2 min compiling on macOS.
+  test:
+    name: Unit tests (BirdLogic + syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run unit + syntax tests
+        run: npm test
+
   build:
+    needs: test
     runs-on: macos-latest
     steps:
       - name: Checkout
