@@ -7,6 +7,53 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0f5132" />
   <title>Bird Chaser</title>
+  <script>
+    /* Early debug capture — buffers console output, uncaught errors, promise
+       rejections, and network calls BEFORE the main app runs, so even init-time
+       failures show up in the on-device 🐞 debug log (Settings → Debug log, or
+       tap the footer version 5×). No external services; everything stays local. */
+    (function () {
+      var MAX = 800, buf = [];
+      function p2(n, w) { n = String(n); while (n.length < (w || 2)) n = '0' + n; return n; }
+      function ts() { var d = new Date(); return p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) + '.' + p2(d.getMilliseconds(), 3); }
+      function str(a) { try { if (a instanceof Error) return a.stack || (a.name + ': ' + a.message); if (typeof a === 'object') return JSON.stringify(a); return String(a); } catch (e) { return '' + a; } }
+      function push(level, parts) {
+        var m = []; for (var i = 0; i < parts.length; i++) m.push(str(parts[i]));
+        buf.push({ t: ts(), level: level, msg: m.join(' ') });
+        if (buf.length > MAX) buf.shift();
+        try { if (window.__dbgLive) window.__dbgLive(); } catch (e) {}
+      }
+      window.__dbg = { buf: buf, push: push };
+      var C = window.console || (window.console = {});
+      ['log', 'info', 'warn', 'error', 'debug'].forEach(function (m) {
+        var orig = C[m] ? C[m].bind(C) : function () {};
+        C[m] = function () { try { push(m, [].slice.call(arguments)); } catch (e) {} try { orig.apply(C, arguments); } catch (e) {} };
+      });
+      window.addEventListener('error', function (e) {
+        if (e && e.message) push('error', ['window.onerror: ' + e.message + (e.filename ? ' @ ' + e.filename + ':' + e.lineno + ':' + e.colno : '')]);
+        if (e && e.error && e.error.stack) push('error', [e.error.stack]);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e ? e.reason : null; push('error', ['unhandledrejection: ' + (r && r.stack ? r.stack : str(r))]);
+      });
+      if (window.fetch) {
+        var of = window.fetch;
+        window.fetch = function (input, init) {
+          var url = (typeof input === 'string') ? input : (input && input.url) || '';
+          var method = (init && init.method) || (input && input.method) || 'GET';
+          var t0 = Date.now(), short = String(url).replace(/^https?:\/\//, '').slice(0, 140);
+          return of.apply(this, arguments).then(function (r) {
+            push(r.ok ? 'net' : 'error', [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);
+            return r;
+          }, function (err) {
+            push('error', [method + ' FAILED (' + (Date.now() - t0) + 'ms) ' + short + ' — ' + str(err)]);
+            throw err;
+          });
+        };
+      }
+      push('info', ['debug capture ready']);
+    })();
+  </script>
   <style>
     :root {
       --bg: #f6f7f5;
@@ -329,14 +376,38 @@
       <div class="row" style="margin-top:16px">
         <button id="saveBtn">Save</button>
         <button id="closeSettings" class="secondary">Done</button>
+        <button id="openDebugBtn" class="secondary" type="button">🐞 Debug log</button>
       </div>
     </section>
   </main>
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Bird Chaser · v1.0.1 · full report parity</div>
+    <div id="ver">Bird Chaser · v1.0.2 · tap 5× for 🐞 debug</div>
   </footer>
+
+  <style>
+    #debugPanel { position: fixed; inset: 0; z-index: 99999; background: #0b0f0d; color: #d6f2e4; display: flex; flex-direction: column; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+    #debugPanel[hidden] { display: none; }
+    #debugPanel .dbgbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); background: #14201a; border-bottom: 1px solid #2a3a30; }
+    #debugPanel .dbgbar strong { color: #7fe0b0; }
+    #debugPanel .dbgcount { color: #8aa0a8; font-size: 11px; }
+    #debugPanel .dbgspacer { flex: 1; }
+    #debugPanel .dbgbar button { background: #24463a; color: #e6fff4; border: 0; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+    #dbgLog { flex: 1; width: 100%; box-sizing: border-box; border: 0; resize: none; background: #0b0f0d; color: #d6f2e4; padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
+    #dbgLog:focus { outline: none; }
+  </style>
+  <div id="debugPanel" hidden>
+    <div class="dbgbar">
+      <strong>🐞 Debug</strong>
+      <span id="dbgCount" class="dbgcount"></span>
+      <span class="dbgspacer"></span>
+      <button id="dbgCopy" type="button">Copy</button>
+      <button id="dbgClear" type="button">Clear</button>
+      <button id="dbgClose" type="button">Close</button>
+    </div>
+    <textarea id="dbgLog" readonly spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+  </div>
 
   <script src="seed-birdlist.js"></script>
   <script>
@@ -391,14 +462,16 @@
 
       // --- eBird API (native fetch via CapacitorHttp on device; no CORS) ---
       function ebird(path) {
+        dbg('net', 'GET ' + path);
         return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
           .then(function (r) {
-            if (r.status === 401 || r.status === 403) throw new Error('the API key was rejected (HTTP ' + r.status + ').');
-            if (!r.ok) throw new Error('eBird returned HTTP ' + r.status + '.');
+            if (r.status === 401 || r.status === 403) { dbg('error', 'eBird ' + r.status + ' (key rejected) · ' + path); throw new Error('the API key was rejected (HTTP ' + r.status + ').'); }
+            if (!r.ok) { dbg('error', 'eBird HTTP ' + r.status + ' · ' + path); throw new Error('eBird returned HTTP ' + r.status + '.'); }
             return r.json();
           });
       }
       function netErr(e) {
+        dbg('error', 'netErr: ' + (e && e.message ? e.message : e));
         var cap = window.Capacitor;
         var native = cap && cap.isNativePlatform && cap.isNativePlatform();
         return native ? ('Could not load — ' + e.message)
@@ -1893,6 +1966,56 @@
         if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getRegion();
       }
 
+      // --- on-device debug console ---
+      function dbg(level, msg) { try { if (window.__dbg) window.__dbg.push(level, [msg]); } catch (e) {} }
+      function dbgContext() {
+        var out = [];
+        function add(s) { out.push(s); }
+        try { add('Bird Chaser v1.0.2 · ' + new Date().toString()); } catch (e) {}
+        try { var cap = window.Capacitor; var plat = cap && cap.getPlatform ? cap.getPlatform() : '?'; var nat = cap && cap.isNativePlatform && cap.isNativePlatform() ? 'native' : 'web'; add('platform: ' + plat + ' (' + nat + ')'); } catch (e) {}
+        try { add('online: ' + (navigator.onLine ? 'yes' : 'NO') + ' · viewport ' + window.innerWidth + 'x' + window.innerHeight); } catch (e) {}
+        try { add('region: ' + getRegion()); } catch (e) {}
+        try { var h = getHome(); add('home: ' + (h ? (h.lat + ', ' + h.lng) : 'NOT SET (feeds are region-wide)')); } catch (e) {}
+        try { var k = getKey(); add('apiKey: ' + (k ? ('set, len ' + k.length) : 'MISSING')); } catch (e) {}
+        try { add('seen list: ' + Object.keys(getSeen()).length + ' species'); } catch (e) {}
+        try { add('displayName: ' + getDisplayName()); } catch (e) {}
+        try { add('abaSid: ' + getAbaSid()); } catch (e) {}
+        try { add('InAppBrowser: ' + (ibAvail() ? 'available' : 'NOT available')); } catch (e) {}
+        try { add('UA: ' + (navigator.userAgent || '')); } catch (e) {}
+        return out.join('\n');
+      }
+      function dbgRender() {
+        var ta = $('dbgLog'); if (!ta) return;
+        var buf = (window.__dbg && window.__dbg.buf) || [];
+        var body = buf.map(function (e) {
+          var mark = e.level === 'error' ? '✖' : (e.level === 'warn' ? '!' : (e.level === 'net' ? '↔' : '·'));
+          return e.t + ' ' + mark + ' [' + e.level + '] ' + e.msg;
+        }).join('\n');
+        ta.value = dbgContext() + '\n────────────────────────────\n' + body + '\n';
+        var c = $('dbgCount'); if (c) c.textContent = buf.length + ' entries';
+        ta.scrollTop = ta.scrollHeight;
+      }
+      function openDebug(show) {
+        var p = $('debugPanel'); if (!p) return;
+        p.hidden = !show;
+        if (show) { window.__dbgLive = dbgRender; dbgRender(); } else { window.__dbgLive = null; }
+      }
+      function dbgCopyLog() {
+        var ta = $('dbgLog'); if (!ta) return;
+        var text = ta.value, btn = $('dbgCopy');
+        function done(ok) { if (btn) { btn.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); } }
+        function fallback() {
+          try { ta.removeAttribute('readonly'); ta.focus(); ta.setSelectionRange(0, text.length); var ok = document.execCommand('copy'); ta.setAttribute('readonly', 'readonly'); done(ok); }
+          catch (e) { done(false); }
+        }
+        try {
+          var CB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Clipboard;
+          if (CB && CB.write) { CB.write({ string: text }).then(function () { done(true); }, fallback); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); return; }
+        } catch (e) {}
+        fallback();
+      }
+
       // --- wire up ---
       $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
@@ -1912,6 +2035,20 @@
       $('migBtn').addEventListener('click', migBootstrap);
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
+      $('dbgCopy').addEventListener('click', dbgCopyLog);
+      $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
+      $('dbgClose').addEventListener('click', function () { openDebug(false); });
+      if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
+      (function () {
+        var el = $('ver'); if (!el) return;
+        var taps = 0, timer = null;
+        el.addEventListener('click', function () {
+          taps++;
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(function () { taps = 0; }, 2500);
+          if (taps >= 5) { taps = 0; openDebug(true); }
+        });
+      })();
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
         var link = ev.target.closest('.maplink, .extlink');
