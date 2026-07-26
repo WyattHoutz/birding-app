@@ -452,6 +452,22 @@
         return getSeen();
       }
 
+      // Counties of the active report ([{slug,code,label}], []). The auxiliary
+      // sections (BirdCast, time-of-day, hotspots, migration, convoys) are
+      // scoped to exactly these counties — same as the Markdown report, which
+      // returns [] (skips the section) when analyze.REGION.counties is empty
+      // (the two rarity-tracker reports). getRegion()'s state code is NOT used
+      // for these anymore, so non-WA reports match the report's county scope
+      // and wa vs fort-casey (both US-WA) no longer collide on cache keys.
+      function getCounties() { var c = getReport().counties; return Array.isArray(c) ? c : []; }
+      function countyCodes() { return getCounties().map(function (c) { return c.code; }); }
+      function countyLabelStr() {
+        var c = getCounties();
+        return c.length ? c.map(function (x) { return x.label; }).join(' + ') : getReport().label;
+      }
+      // Report has county-scoped data? (false for lower48 / aba rarity trackers.)
+      function hasCounties() { return getCounties().length > 0; }
+
       function esc(s) {
         return String(s).replace(/[&<>"]/g, function (c) {
           return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -815,17 +831,53 @@
       }
 
       // --- Birdiest recent checklists (rank by species count) ---
-      function buildBirdiest(lists) {
-        return (lists || []).slice().sort(function (a, b) { return (b.numSpecies || 0) - (a.numSpecies || 0); });
+      // Mirrors report.section_birdiest_checklists: dedup by checklist, last 7
+      // days, public hotspots only (skip restricted), best checklist per
+      // hotspot, within 40 mi of home. Fed the per-county product/lists feed.
+      function buildBirdiest(lists, home) {
+        var cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - 7);
+        var own = (getDisplayName() || '').trim().toLowerCase(), bySub = {};
+        (lists || []).forEach(function (chk) {
+          var name = (chk.userDisplayName || '').trim();
+          if (own && name.toLowerCase() === own) return;
+          var sub = chk.subId || chk.subID;
+          if (sub && !bySub[sub]) bySub[sub] = chk;
+        });
+        var best = {};
+        Object.keys(bySub).forEach(function (sub) {
+          var chk = bySub[sub], iso = chk.isoObsDate || '';
+          var d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+          if (isNaN(d.getTime()) || d < cutoff) return;
+          var loc = chk.loc || {};
+          if (!loc.isHotspot) return;
+          var nm = loc.name || loc.locName || '';
+          if (COLD_SKIP_RE.test(nm)) return;
+          var lat = loc.latitude, lng = loc.longitude;
+          if (lat == null || lng == null) return;
+          if (home && haversineMi(home.lat, home.lng, +lat, +lng) > 40) return;
+          var lid = chk.locId || loc.locId || iso, n = parseInt(chk.numSpecies || 0, 10) || 0;
+          var e = best[lid], en = e ? (parseInt(e.numSpecies || 0, 10) || 0) : -1;
+          if (!e || n > en || (n === en && iso > (e.isoObsDate || ''))) best[lid] = chk;
+        });
+        return Object.keys(best).map(function (k) { return best[k]; })
+          .sort(function (a, b) { return ((b.numSpecies || 0) - (a.numSpecies || 0)) || String(b.isoObsDate || '').localeCompare(String(a.isoObsDate || '')); });
       }
 
       function loadBirdiest() {
         if (!getKey()) { $('cklStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('cklBtn'), st = $('cklStatus');
-        btn.disabled = true; $('cklResults').innerHTML = ''; st.textContent = 'Loading recent checklists in ' + region + '…';
-        ebird('product/lists/' + encodeURIComponent(region) + '?maxResults=200').then(function (lists) {
-          var top = buildBirdiest(lists).slice(0, 15);
-          if (!top.length) { st.textContent = 'No recent checklists found in ' + region + '.'; return; }
+        var btn = $('cklBtn'), st = $('cklStatus');
+        $('cklResults').innerHTML = '';
+        if (!hasCounties()) {
+          $('cklResults').innerHTML = '<div class="status">Birdiest checklists come from the report\u2019s county hotspots — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        var feeds = BL.planConvoyFeeds(getReport()), home = getHome();
+        btn.disabled = true; st.textContent = 'Loading recent checklists in ' + countyLabelStr() + '…';
+        Promise.all(feeds.map(function (f) { return ebird(BL.requestUrl(f)).catch(function () { return []; }); })).then(function (results) {
+          var lists = [];
+          results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+          var top = buildBirdiest(lists, home).slice(0, 25);
+          if (!top.length) { st.textContent = 'No recent hotspot checklists within 40 mi in ' + countyLabelStr() + '.'; return; }
           st.textContent = top.length + ' checklist' + (top.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           var el = $('cklResults');
           el.innerHTML = '';
@@ -1311,10 +1363,16 @@
       }
       function renderBirdcast() {
         var el = $('bcBody'); if (!el) return;
-        var region = getRegion();
-        if ($('bcRegionLabel')) $('bcRegionLabel').textContent = '· ' + region;
-        var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(region);
-        var linkHtml = '<a class="extlink" data-href="' + esc(link) + '">' + esc(region) + ' live radar dashboard →</a>';
+        if ($('bcRegionLabel')) $('bcRegionLabel').textContent = '· ' + countyLabelStr();
+        if (!hasCounties()) {
+          el.innerHTML = '<div class="status">BirdCast county dashboards aren\u2019t applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker — pick a region report (e.g. Washington) for nightly migration forecasts.</div>';
+          return;
+        }
+        // Per-county deep links — exactly what report.section_birdcast builds.
+        var linkHtml = getCounties().map(function (c) {
+          var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(c.code);
+          return '<a class="extlink" data-href="' + esc(link) + '">' + esc(c.label) + ' →</a>';
+        }).join(' · ');
         var s = birdcastSeason(new Date());
         if (s.active) {
           el.innerHTML = '<div class="status">It\u2019s <b>' + esc(s.season) + '</b> — BirdCast\u2019s nightly radar forecast is live. A high-traffic night usually means fresh migrants dropping in by dawn.</div>' +
@@ -1329,7 +1387,7 @@
 
       // --- P13: time-of-day specialists (dawn / dusk accumulator) ---
       var TOD_DAWN_END = 7, TOD_DUSK_START = 19, TOD_MIN_OBS = 5, TOD_DAWN_TH = 0.50, TOD_NIGHT_TH = 0.30;
-      function todKey() { return 'ebird_tod_' + getRegion(); }
+      function todKey() { return 'ebird_tod_' + getReportSlug(); }
       function todLoad() {
         try { return JSON.parse(localStorage.getItem(todKey()) || 'null') || { seen: {}, hours: {}, names: {} }; }
         catch (e) { return { seen: {}, hours: {}, names: {} }; }
@@ -1354,40 +1412,34 @@
         if (added) todSave(s);
         return added;
       }
-      function todProfile(hs) {
-        var n = hs.length; if (!n) return { n: 0 };
-        var early = 0, late = 0;
-        for (var i = 0; i < n; i++) { if (hs[i] < TOD_DAWN_END) early++; if (hs[i] >= TOD_DUSK_START) late++; }
-        var srt = hs.slice().sort(function (a, b) { return a - b; });
-        var med = n % 2 ? srt[(n - 1) / 2] : Math.round((srt[n / 2 - 1] + srt[n / 2]) / 2);
-        return { n: n, early: early / n, late: late / n, med: med, min: srt[0], max: srt[n - 1] };
-      }
+      // Specialist selection delegates to BirdLogic (BL.todSpecialists) so the
+      // dawn/dusk thresholds + ranking are identical to report.section_time_of_day.
+      // We keep our own persistent hour accumulator (todAccumulate) because the
+      // app pools samples across taps, mirroring the report pooling daily
+      // snapshots — but the math that turns hours -> specialists is shared.
       function todSpecialists() {
-        var s = todLoad(), dawn = [], night = [];
-        Object.keys(s.hours).forEach(function (code) {
-          var p = todProfile(s.hours[code]); if (p.n < TOD_MIN_OBS) return;
-          var e = { code: code, name: s.names[code] || code, p: p };
-          if (p.early >= TOD_DAWN_TH) dawn.push(e);
-          if (p.late >= TOD_NIGHT_TH) night.push(e);
-        });
-        dawn.sort(function (a, b) { return (b.p.early - a.p.early) || (b.p.n - a.p.n); });
-        night.sort(function (a, b) { return (b.p.late - a.p.late) || (b.p.n - a.p.n); });
-        return { dawn: dawn, night: night, n: Object.keys(s.hours).length };
+        var s = todLoad();
+        var r = BL.todSpecialists(s.hours || {}, s.names || {}, BL.CONST.TOD_MIN_OBS);
+        return { dawn: r.dawn, night: r.night, n: Object.keys(s.hours || {}).length };
       }
       function todHourLabel(h) { var hr = ((h + 11) % 12) + 1; return hr + (h < 12 ? 'am' : 'pm'); }
       function renderTimeOfDay() {
         var el = $('todResults'); if (!el) return;
-        if ($('todRegionLabel')) $('todRegionLabel').textContent = '· ' + getRegion();
+        if ($('todRegionLabel')) $('todRegionLabel').textContent = '· ' + countyLabelStr();
+        if (!hasCounties()) {
+          el.innerHTML = '<div class="status">Time-of-day specialists are drawn from county checklists — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          return;
+        }
         var sp = todSpecialists();
         if (!sp.n) { el.innerHTML = '<div class="status">No timed checklists sampled yet — tap “Sample recent checklists”.</div>'; return; }
         function section(title, arr, kind) {
           if (!arr.length) return '';
           var h = '<div class="rankhead"><b>' + esc(title) + '</b></div><ul class="obs dest">';
           arr.slice(0, 15).forEach(function (e) {
-            var pct = Math.round((kind === 'dawn' ? e.p.early : e.p.late) * 100);
+            var pct = Math.round((kind === 'dawn' ? e.early_pct : e.late_pct) * 100);
             var when = kind === 'dawn' ? 'before 7am' : 'after 7pm';
             h += '<li><div class="name">' + esc(e.name) + '</div><div class="sp">' + pct + '% ' + when +
-              ' · n=' + e.p.n + ' · typ ' + todHourLabel(e.p.med) + ' (' + todHourLabel(e.p.min) + '–' + todHourLabel(e.p.max) + ')</div></li>';
+              ' · n=' + e.n + ' · typ ' + todHourLabel(Math.round(e.median_hour)) + ' (' + todHourLabel(e.min_hour) + '–' + todHourLabel(e.max_hour) + ')</div></li>';
           });
           return h + '</ul>';
         }
@@ -1412,15 +1464,34 @@
           });
         }, Promise.resolve([]));
       }
+      // Fetch historic-day samples for EVERY county of the report and merge,
+      // so the sample scope matches report.section_time_of_day (its counties),
+      // not the whole state. Progress is combined across counties x dates.
+      function todFetchCounties(codes, dates, onProg) {
+        var total = codes.length * dates.length, base = 0;
+        return codes.reduce(function (p, code) {
+          return p.then(function (acc) {
+            return todFetchHistoric(code, dates, function (i) { onProg(base + i, total); })
+              .then(function (part) { base += dates.length; acc.push.apply(acc, part); return acc; });
+          });
+        }, Promise.resolve([]));
+      }
       function loadTimeOfDay() {
         if (!getKey()) { $('todStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('todBtn'), st = $('todStatus');
-        btn.disabled = true; st.textContent = 'Sampling recent checklists… this takes a few seconds.';
-        todFetchHistoric(region, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; })
+        var btn = $('todBtn'), st = $('todStatus');
+        if (!hasCounties()) { st.textContent = 'Not applicable to the ' + getReport().label + ' rarity tracker — pick a region report.'; renderTimeOfDay(); return; }
+        var codes = countyCodes();
+        btn.disabled = true; st.textContent = 'Sampling recent checklists in ' + countyLabelStr() + '… this takes a few seconds.';
+        todFetchCounties(codes, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; })
           .then(function (all) {
-            return ebird('data/obs/' + encodeURIComponent(region) + '/recent/notable?detail=full&back=30&maxResults=1000')
-              .then(function (nb) { return Array.isArray(nb) ? all.concat(nb) : all; })
-              .catch(function () { return all; });
+            // Add each county's notable feed (rarity detection hours).
+            return codes.reduce(function (p, code) {
+              return p.then(function (acc) {
+                return ebird('data/obs/' + encodeURIComponent(code) + '/recent/notable?detail=full&back=30&maxResults=1000')
+                  .then(function (nb) { if (Array.isArray(nb)) acc.push.apply(acc, nb); return todDelay(acc, 200); })
+                  .catch(function () { return todDelay(acc, 200); });
+              });
+            }, Promise.resolve(all));
           })
           .then(function (all) {
             todAccumulate(all);
@@ -1435,11 +1506,23 @@
       // --- P14: hot & cold hotspots (2 API calls, ranked from home) ---
       var HOT_MIN_FRESH = 5, HOTSPOT_MAX_DIST_MI = 35, COLD_MIN_ALLTIME = 100, COLD_SILENT_CAP_DAYS = 30;
       var COLD_SKIP_RE = /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
-      function hotspotFeeds(region) {
-        return Promise.all([
-          ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&hotspot=true&includeProvisional=true&maxResults=10000').catch(function () { return []; }),
-          ebird('ref/hotspot/' + encodeURIComponent(region) + '?fmt=json').catch(function () { return []; })
-        ]);
+      function hotspotFeeds(codes) {
+        // Per-county recent-at-hotspots + hotspot metadata, merged — matches the
+        // report's county scope (report._load_county_hotspots per county). locIds
+        // are globally unique so a plain concat is safe (computeHotspots dedups).
+        return Promise.all(codes.map(function (code) {
+          return Promise.all([
+            ebird('data/obs/' + encodeURIComponent(code) + '/recent?back=30&detail=full&hotspot=true&includeProvisional=true&maxResults=10000').catch(function () { return []; }),
+            ebird('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json').catch(function () { return []; })
+          ]);
+        })).then(function (perCounty) {
+          var recent = [], meta = [];
+          perCounty.forEach(function (pair) {
+            if (Array.isArray(pair[0])) recent.push.apply(recent, pair[0]);
+            if (Array.isArray(pair[1])) meta.push.apply(meta, pair[1]);
+          });
+          return [recent, meta];
+        });
       }
       function computeHotspots(recent, meta, home) {
         recent = Array.isArray(recent) ? recent : []; meta = Array.isArray(meta) ? meta : [];
@@ -1524,10 +1607,15 @@
         if (!getKey()) { $('hotStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var home = getHome();
         if (!home) { $('hotStatus').textContent = 'Set your Home location in Settings to rank nearby hotspots.'; showSettings(true); return; }
-        if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getRegion();
-        var region = getRegion(), btn = $('hotBtn'), st = $('hotStatus');
-        btn.disabled = true; st.textContent = 'Scanning hotspots in ' + region + '…';
-        hotspotFeeds(region)
+        if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + countyLabelStr();
+        var btn = $('hotBtn'), st = $('hotStatus');
+        if (!hasCounties()) {
+          $('hotResults').innerHTML = '<div class="status">Hot &amp; cold hotspots are ranked within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        var codes = countyCodes();
+        btn.disabled = true; st.textContent = 'Scanning hotspots in ' + countyLabelStr() + '…';
+        hotspotFeeds(codes)
           .then(function (res) {
             var r = computeHotspots(res[0], res[1], home);
             renderHotspots(r);
@@ -1539,7 +1627,7 @@
 
       // --- P15: migration outlook (weekly phenology from historic samples) ---
       var MIG_MIN_PRESENCE = 1, MIG_YEARS_BACK = 2, MIG_WINDOW_WEEKS = 2, MIG_SAMPLE_WEEKDAY = 3; // 3 = Wednesday
-      function migKey() { return 'ebird_mig_' + getRegion(); }
+      function migKey() { return 'ebird_mig_' + getReportSlug(); }
       function migLoad() { try { return JSON.parse(localStorage.getItem(migKey()) || 'null') || { samples: {}, names: {} }; } catch (e) { return { samples: {}, names: {} }; } }
       function migSave(s) { try { localStorage.setItem(migKey(), JSON.stringify(s)); } catch (e) {} }
       function migPad(n) { return (n < 10 ? '0' : '') + n; }
@@ -1600,9 +1688,11 @@
       }
       function migWeeksUntil(target, cur) { if (target == null) return 9999; return (((target - cur) % 53) + 53) % 53; }
       function migYearCodes() {
-        var codes = {};
-        if (getField() === 'speciesCode') { var seen = getSeen(); Object.keys(seen).forEach(function (k) { codes[k] = 1; }); }
-        return codes;
+        // The active report's year-list codes (bundled per-report seen set) so
+        // "arriving" excludes birds already on the list and "departing" flags
+        // list birds leaving — same inputs as report.section_migration_outlook
+        // (year_list_codes). Codes are lowercase eBird speciesCodes.
+        return getReportSeen();
       }
       function migExpectedSoon(cache, snapDate, yearCodes) {
         var phen = migPhenology(cache), cur = isoWeek(snapDate), arr = [], dep = [];
@@ -1622,7 +1712,11 @@
       }
       function renderMigration() {
         var el = $('migResults'); if (!el) return;
-        if ($('migRegionLabel')) $('migRegionLabel').textContent = '· ' + getRegion();
+        if ($('migRegionLabel')) $('migRegionLabel').textContent = '· ' + countyLabelStr();
+        if (!hasCounties()) {
+          el.innerHTML = '<div class="status">Migration outlook is built from the report\u2019s county history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          return;
+        }
         var cache = migLoad(), nSamples = Object.keys(cache.samples || {}).length;
         if (!nSamples) { el.innerHTML = '<div class="status">No history yet — tap “Build migration history”. It fetches ~2 years of weekly checklists once (resumable), then predicts arrivals/departures offline.</div>'; return; }
         var out = migExpectedSoon(cache, new Date(), migYearCodes());
@@ -1644,84 +1738,62 @@
         html += '<div class="hint">Week ' + out.currentWeek + ' · ' + nSamples + ' weekly samples cached' + (cache.updated ? ' · built ' + esc(fmtDate(cache.updated)) : '') + '.</div>';
         el.innerHTML = html;
       }
-      function migRun(region, dates, cache, onProg, done, total) {
-        return dates.reduce(function (p, d, idx) {
+      function migSampleKey(d) { return getReportSlug() + '|' + migIsoDate(d); }
+      // Merge every county's species for one historic day into a single sample,
+      // mirroring the report's per-date county-merged snapshot. One sample per
+      // week keyed by report slug (so wa vs fort-casey don't collide).
+      function migFetchDate(codes, d, cache) {
+        var set = {};
+        return codes.reduce(function (p, code) {
           return p.then(function () {
-            onProg(done + idx + 1, total);
-            var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?cat=species&detail=simple&maxResults=500';
+            var path = 'data/obs/' + encodeURIComponent(code) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?cat=species&detail=simple&maxResults=500';
             return ebird(path).then(function (recs) {
-              var set = {};
               (Array.isArray(recs) ? recs : []).forEach(function (r) {
                 if (r.speciesCode) { set[r.speciesCode] = 1; if (r.comName && !cache.names[r.speciesCode]) cache.names[r.speciesCode] = r.comName; }
               });
-              cache.samples[region + '|' + migIsoDate(d)] = Object.keys(set).sort();
-              if ((idx + 1) % 10 === 0) { cache.updated = new Date().toISOString(); migSave(cache); }
-              return todDelay(null, 200);
-            }).catch(function () { return todDelay(null, 400); });
+              return todDelay(null, 180);
+            }).catch(function () { return todDelay(null, 220); });
+          });
+        }, Promise.resolve()).then(function () {
+          cache.samples[migSampleKey(d)] = Object.keys(set).sort();
+        });
+      }
+      function migRun(codes, dates, cache, onProg, done, total) {
+        return dates.reduce(function (p, d, idx) {
+          return p.then(function () {
+            onProg(done + idx + 1, total);
+            return migFetchDate(codes, d, cache).then(function () {
+              if ((idx + 1) % 5 === 0) { cache.updated = new Date().toISOString(); migSave(cache); }
+            });
           });
         }, Promise.resolve());
       }
       function migBootstrap() {
         if (!getKey()) { $('migStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var region = getRegion(), btn = $('migBtn'), st = $('migStatus');
+        var btn = $('migBtn'), st = $('migStatus');
+        if (!hasCounties()) {
+          $('migResults').innerHTML = '<div class="status">Migration outlook is built from the report\u2019s county history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        var codes = countyCodes();
         var cache = migLoad(); cache.samples = cache.samples || {}; cache.names = cache.names || {};
         var all = migTargets();
-        var pending = all.filter(function (d) { return !cache.samples[region + '|' + migIsoDate(d)]; });
+        var pending = all.filter(function (d) { return !cache.samples[migSampleKey(d)]; });
         var done = all.length - pending.length, total = all.length;
         if (!pending.length) { renderMigration(); $('migStatus').textContent = 'History complete (' + total + ' weekly samples) · ' + nowTime(); return; }
         btn.disabled = true; st.textContent = 'Building migration history… ' + done + '/' + total;
-        migRun(region, pending, cache, function (i, t) { $('migStatus').textContent = 'Building migration history… ' + i + '/' + t; }, done, total)
+        migRun(codes, pending, cache, function (i, t) { $('migStatus').textContent = 'Building migration history… ' + i + '/' + t + ' weeks × ' + codes.length + ' counties'; }, done, total)
           .then(function () { cache.updated = new Date().toISOString(); migSave(cache); renderMigration(); $('migStatus').textContent = 'History built (' + total + ' weekly samples) · ' + nowTime(); })
           .catch(function (e) { migSave(cache); $('migStatus').textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
 
       // --- Birder convoys (group routes from shared checklists) ---
-      var CONVOY_LOOKBACK_DAYS = 7, CONVOY_MIN_STOPS = 2, CONVOY_MAX_RESULTS = 200;
-      function convoyDetect(lists, snapDate, ownName) {
-        lists = Array.isArray(lists) ? lists : [];
-        var cutoff = new Date(snapDate.getTime()); cutoff.setDate(cutoff.getDate() - CONVOY_LOOKBACK_DAYS); cutoff.setHours(0, 0, 0, 0);
-        var own = (ownName || '').trim().toLowerCase();
-        var bySub = {};
-        lists.forEach(function (chk) {
-          var name = (chk.userDisplayName || '').trim();
-          if (own && name.toLowerCase() === own) return;
-          var sub = chk.subId || chk.subID;
-          if (sub && !bySub[sub]) bySub[sub] = chk;
-        });
-        var shared = {};
-        Object.keys(bySub).forEach(function (sub) {
-          var chk = bySub[sub], loc = chk.locId || (chk.loc && chk.loc.locId), iso = chk.isoObsDate;
-          if (!loc || !iso) return;
-          var d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
-          if (isNaN(d.getTime()) || d < cutoff) return;
-          var key = loc + '|' + iso;
-          (shared[key] = shared[key] || []).push(chk);
-        });
-        var convoys = {};
-        Object.keys(shared).forEach(function (key) {
-          var chks = shared[key]; if (chks.length < 2) return;
-          var uniq = {}; chks.forEach(function (c) { var m = (c.userDisplayName || '?').trim(); if (m) uniq[m] = 1; });
-          var members = Object.keys(uniq).sort(); if (members.length < 2) return;
-          var iso = key.split('|')[1], day = String(iso).slice(0, 10);
-          var mkey = members.join(' + ') + '|' + day;
-          var g = convoys[mkey] = convoys[mkey] || { members: members, day: day, stops: [] };
-          g.stops.push(chks[0]);
-        });
-        var routes = [];
-        Object.keys(convoys).forEach(function (k) {
-          var g = convoys[k];
-          if (g.stops.length < CONVOY_MIN_STOPS) return;
-          g.stops.sort(function (a, b) { return String(a.isoObsDate).localeCompare(String(b.isoObsDate)); });
-          routes.push(g);
-        });
-        routes.sort(function (a, b) {
-          if (b.stops.length !== a.stops.length) return b.stops.length - a.stops.length;
-          if (b.members.length !== a.members.length) return b.members.length - a.members.length;
-          return b.day.localeCompare(a.day);
-        });
-        return routes;
-      }
+      // Detection + per-county product/lists feeds come from BirdLogic
+      // (BL.convoyDetect / BL.planConvoyFeeds) — the same parity-tested logic
+      // report.section_birder_convoys uses. CONVOY_LOOKBACK_DAYS mirrors
+      // BirdLogic's CONST only for the "last N days" status label.
+      var CONVOY_LOOKBACK_DAYS = (BL && BL.CONST && BL.CONST.CONVOY_LOOKBACK_DAYS) || 7;
       function convoyLocName(s) { return (s.loc && (s.loc.name || s.loc.locName)) || s.locName || s.locId || 'Hidden location'; }
       function renderConvoys(routes) {
         var el = $('convoyResults'); el.innerHTML = '';
@@ -1780,12 +1852,22 @@
       }
       function loadConvoys() {
         if (!getKey()) { $('convoyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getRegion();
-        var region = getRegion(), btn = $('convoyBtn'), st = $('convoyStatus');
-        btn.disabled = true; $('convoyResults').innerHTML = ''; st.textContent = 'Scanning recent checklists in ' + region + '…';
-        ebird('product/lists/' + encodeURIComponent(region) + '?maxResults=' + CONVOY_MAX_RESULTS)
-          .then(function (lists) {
-            var routes = convoyDetect(lists, new Date(), getDisplayName());
+        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + countyLabelStr();
+        var btn = $('convoyBtn'), st = $('convoyStatus');
+        $('convoyResults').innerHTML = '';
+        if (!hasCounties()) {
+          $('convoyResults').innerHTML = '<div class="status">Birder convoys track groups sharing county hotspots — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        // Per-county product/lists feeds (BL.planConvoyFeeds) merged, then the
+        // shared BL.convoyDetect — identical to report.section_birder_convoys.
+        var feeds = BL.planConvoyFeeds(getReport());
+        btn.disabled = true; st.textContent = 'Scanning recent checklists in ' + countyLabelStr() + '…';
+        Promise.all(feeds.map(function (f) { return ebird(BL.requestUrl(f)).catch(function () { return []; }); }))
+          .then(function (results) {
+            var lists = [];
+            results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+            var routes = BL.convoyDetect(lists, new Date(), getDisplayName());
             renderConvoys(routes);
             st.textContent = routes.length ? (routes.length + ' group route' + (routes.length === 1 ? '' : 's') + ' · ' + nowTime()) : ('No convoys detected right now · ' + nowTime());
           })
@@ -1893,7 +1975,10 @@
       }
       function loadTides() {
         var el = $('wxTides'); if (!el) return;
-        var station = (localStorage.getItem('ebird_tide_station') || '').trim();
+        // User override wins; otherwise use the active report's tide station
+        // (report.section_weather uses analyze.REGION.tide_station). Inland
+        // reports have none -> station '' -> section hidden, same as the report.
+        var station = (localStorage.getItem('ebird_tide_station') || '').trim() || (getReport().tideStation || '').trim();
         if (!station) { el.innerHTML = ''; return; }
         el.innerHTML = '<div class="wxline dim2">Loading tides…</div>';
         var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
