@@ -48,6 +48,30 @@ checks), additionally proves `index.html`'s wired data layer (`getChase()`)
 reproduces the golden destinations / excursions / new-arrivals, and that
 `planFeeds` file names match the `mergePlan` map keys for all 9 reports.
 
+## County-scoped auxiliary panels
+
+Beyond the chase engine, the auxiliary panels — BirdCast, time-of-day
+specialists, hot/cold hotspots, migration outlook, weather-tides, birder
+convoys, and birdiest checklists — are scoped to **each report's counties**
+(and its NOAA tide station), exactly like the matching `report.py` sections
+(`section_birdcast`, `section_time_of_day`, `section_cold/hot_hotspots`,
+`section_migration_outlook`, `section_weather`, `section_birder_convoys`,
+`section_birdiest_checklists`). The two rarity trackers (Lower 48, ABA Area)
+have no counties, so every one of these panels shows a graceful "not
+applicable" notice — matching the report, which returns `[]` and skips them.
+
+These panels remain **live on-device approximations**: they call eBird
+directly and pool samples across taps, so they use a different data source
+than the report's committed offline caches (e.g. `migration-cache.json`,
+accumulated daily time-of-day snapshots) and won't be byte-parity with a
+given day's Markdown. What is guaranteed is that their **geographic scope,
+thresholds, and — where shared — their math** match the report: convoys and
+time-of-day specialists run the parity-tested `BirdLogic.convoyDetect` /
+`todSpecialists`; BirdCast links and the tide station equal the report's; and
+hotspots / migration / birdiest use the report's per-county feeds and
+selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
+— both `US-WA` — no longer collide.)
+
 **Legend** — ✅ Done · 🟡 Partial · 🔜 Planned (feasible on eBird API) ·
 🧪 Planned (needs historical/stats data) · 🌦️ Planned (needs non-eBird source) ·
 ⛔ Not feasible (eBird has no public API — website-scraped in the report) ·
@@ -78,11 +102,11 @@ reproduces the golden destinations / excursions / new-arrivals, and that
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | `product/lists/{region}` ranked by `numSpecies`, with observer + checklist link. |
-| 🔥 Hot hotspots — recent surges | **Hot hotspots** | ✅ | From the region's 30-day hotspot recent feed (`recent?hotspot=true`), buckets each species' freshest sighting by `locId`; joined with `ref/hotspot/{region}` metadata and ranked `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)` within 35 mi of Home — same score as `section_hot_hotspots` (`HOT_MIN_FRESH=5`). |
-| 🥶 Cold hotspots — overlooked gems | **Cold hotspots** | ✅ | High all-time diversity (`≥100`), currently quiet hotspots within 35 mi of Home, ranked by the report's pre-refinement `upper_score = all-time × √(1 + min(silent days, 30)) ÷ (dist + 5)`; `latestObsDt` overridden by the recent feed. Shares one fetch with Hot hotspots. (Report additionally refines the top ~30 with per-hotspot historic sampling; the app uses the metadata pre-rank to stay at 2 calls.) |
-| 👥 Birder convoys | **Birder convoys** | ✅ | Detects birding groups from `product/lists/{region}` (last 7 days): dedupes checklists by `subId`, skips your own, groups by shared `locId`+exact submitted time (eBird's shared-checklist signature). A convoy = ≥2 birders sharing ≥2 stops in one day; ranked by stops → group size → recency (top 10). Ports `section_birder_convoys` (`CONVOY_LOOKBACK_DAYS=7`, `CONVOY_MIN_STOPS=2`). Lazy per-route **combined species** expander pools each stop's `product/checklist/view/{sub}` obs and flags 🆕 species not on your list via one batched `ref/taxonomy` lookup (ports `_convoy_species_cell`). |
-| ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + passive from Notable/Targets), then flags dawn (≥50% before 7am) and dusk/night (≥30% after 7pm) species — mirrors the report's `time_of_day.py` thresholds (`MIN_OBS=5`). Sample grows richer each run. |
+| 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | Per-county `product/lists` merged, then mirrors `section_birdiest_checklists`: dedup by checklist, last 7 days, public hotspots only (skips restricted), best checklist per hotspot by `numSpecies`, within 40 mi of Home, top 25 — with observer + checklist link. |
+| 🔥 Hot hotspots — recent surges | **Hot hotspots** | ✅ | From each report county's 30-day hotspot recent feed (`recent?hotspot=true`), merged, buckets each species' freshest sighting by `locId`; joined with `ref/hotspot/{region}` metadata and ranked `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)` within 35 mi of Home — same score as `section_hot_hotspots` (`HOT_MIN_FRESH=5`). |
+| 🥶 Cold hotspots — overlooked gems | **Cold hotspots** | ✅ | High all-time diversity (`≥100`), currently quiet hotspots within 35 mi of Home, ranked by the report's pre-refinement `upper_score = all-time × √(1 + min(silent days, 30)) ÷ (dist + 5)`; `latestObsDt` overridden by the recent feed. Shares the per-county hotspot fetch with Hot hotspots. (Report additionally refines the top ~30 with per-hotspot historic sampling; the app uses the metadata pre-rank to stay at 2 calls.) |
+| 👥 Birder convoys | **Birder convoys** | ✅ | Detects birding groups from the report's **per-county** `product/lists` feeds (merged, last 7 days): dedupes checklists by `subId`, skips your own, groups by shared `locId`+exact submitted time (eBird's shared-checklist signature). A convoy = ≥2 birders sharing ≥2 stops in one day; ranked by stops → group size → recency (top 10). Detection runs the parity-tested `BirdLogic.convoyDetect` — same as `section_birder_convoys` (`CONVOY_LOOKBACK_DAYS=7`, `CONVOY_MIN_STOPS=2`). Lazy per-route **combined species** expander pools each stop's `product/checklist/view/{sub}` obs and flags 🆕 species not on your list via one batched `ref/taxonomy` lookup (ports `_convoy_species_cell`). |
+| ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates **per-county** checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + each county's Notable feed); the dawn (≥50% before 7am) / dusk-night (≥30% after 7pm) split delegates to the parity-tested `BirdLogic.todSpecialists` (report `time_of_day.py` thresholds, `MIN_OBS=5`). Sample grows richer each run. |
 
 ## Personal stats
 
@@ -95,9 +119,9 @@ reproduces the golden destinations / excursions / new-arrivals, and that
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🌤 Conditions — weather + tides | **Conditions for chasing** | ✅ | NOAA `api.weather.gov` 4-period forecast (🐦 southerly-wind flag) + NOAA CO-OPS tides (optional station) + locally-computed sunrise/sunset, first/last light, daylight length, and moon phase. Called straight from the device — no GitHub. |
-| 🛬 Migration outlook | **Migration outlook** | ✅ | User-triggered one-time bootstrap fetches ~2 years of weekly (`historic/{y}/{m}/{d}`) checklists per region, cached in localStorage (resumable). Derives per-species weekly phenology and flags arrivals (unseen targets whose first-presence week is within 2 weeks) + departures (year-list species whose last week is near) — ports `migration.py`'s `_detect_run`/`expected_soon` (year-round ≥40 wk or gap ≤4; window 2 wk). |
-| 🌙 Nightly migration — BirdCast | **Nightly migration** | ✅ | Season-aware deep link to BirdCast's live radar dashboard for your region (`dashboard.birdcast.org/region/<code>`); knows the live-forecast windows (Mar 1–Jun 15, Aug 1–Nov 15) and shows the next active date between seasons — same season logic as the report's `section_birdcast`. No API (BirdCast has none). |
+| 🌤 Conditions — weather + tides | **Conditions for chasing** | ✅ | NOAA `api.weather.gov` 4-period forecast (🐦 southerly-wind flag) + NOAA CO-OPS tides (defaults to the report's tide station; inland reports have none) + locally-computed sunrise/sunset, first/last light, daylight length, and moon phase. Called straight from the device — no GitHub. |
+| 🛬 Migration outlook | **Migration outlook** | ✅ | User-triggered one-time bootstrap fetches ~2 years of weekly (`historic/{y}/{m}/{d}`) checklists **per county** (merged into one sample per week), cached in localStorage (resumable). Derives per-species weekly phenology and flags arrivals (unseen targets whose first-presence week is within 2 weeks) + departures (report year-list species whose last week is near) — ports `migration.py`'s `_detect_run`/`expected_soon` (year-round ≥40 wk or gap ≤4; window 2 wk). |
+| 🌙 Nightly migration — BirdCast | **Nightly migration** | ✅ | Season-aware **per-county** deep links to BirdCast's live radar dashboards (`dashboard.birdcast.org/region/<county>` for each report county); knows the live-forecast windows (Mar 1–Jun 15, Aug 1–Nov 15) and shows the next active date between seasons — same season logic as the report's `section_birdcast`. No API (BirdCast has none). |
 
 ## Leaderboards (website-scraped in report; in-app via eBird login)
 
