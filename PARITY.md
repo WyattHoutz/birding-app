@@ -9,6 +9,45 @@ app or marked ➖ N/A (report-only concepts). Birder convoys — the last
 historical/stats feature — landed alongside BirdCast, time-of-day, hot/cold
 hotspots, and the migration outlook.
 
+## Multi-report selector
+
+The app ships all 9 reports. **Settings → "Default report"** switches between
+Washington, Missouri, Kansas, Arizona, California, Lower 48, ABA Area, Fort
+Casey, and Waikoloa. Each report carries its own counties, home base, geo
+radius, and bundled year-list seen set (`seed-birdlist.js` →
+`seenByReport[slug]`, generated to equal `analyze.py`'s exact seen formula).
+The two rarity-tracker reports (Lower 48, ABA Area) have no county feeds, so
+their chase tabs redirect to the ABA rare-bird alert + rankings — matching the
+Markdown report, which builds those two from the same SN10489 scrape.
+
+## Automated parity guarantee (same APIs · same inputs · same outputs)
+
+The chase engine is not re-implemented in the app. Both the app and the report
+run the **same orchestration** — `computeChaseViews()` in
+[`www/logic.js`](www/logic.js) (`BirdLogic`) — which the report pipeline is
+proven equivalent to by a cross-language test suite in the sibling repo:
+[`birding/tests/parity/`](https://github.com/WyattHoutz/birding). Run it with
+`python tests/parity/run_all.py`.
+
+For every shared fixture it asserts, on **both** the live Python report code
+and the app's JS `BirdLogic`, that they agree on 11 projections:
+
+- **Same APIs** — `feed-plan.json`: identical eBird endpoint paths, query
+  params, feed **merge order**, and per-county convoy (`product/lists`) feeds.
+  The golden is captured from the report's real fetcher
+  (`fetch_ebird._build_jobs`) via a monkeypatched HTTP layer, then the app's
+  `planFeeds` / `requestUrl` / `mergePlan` / `planConvoyFeeds` must reproduce
+  it byte-for-byte.
+- **Same inputs** — both sides read the same fixture eBird rows.
+- **Same outputs** — `merged`, `unseen`, `near`, `destinations`, `excursions`,
+  `notable-today`, `new-arrivals`, `tod-hours-built`, `tod-specialists`,
+  `convoys`.
+
+An app-side glue test, [`assets/smoke-wiring.js`](assets/smoke-wiring.js) (21
+checks), additionally proves `index.html`'s wired data layer (`getChase()`)
+reproduces the golden destinations / excursions / new-arrivals, and that
+`planFeeds` file names match the `mergePlan` map keys for all 9 reports.
+
 **Legend** — ✅ Done · 🟡 Partial · 🔜 Planned (feasible on eBird API) ·
 🧪 Planned (needs historical/stats data) · 🌦️ Planned (needs non-eBird source) ·
 ⛔ Not feasible (eBird has no public API — website-scraped in the report) ·
