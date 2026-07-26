@@ -1,6 +1,6 @@
 {
   "appId": "com.wyatthoutz.birding",
-  "appName": "Birding",
+  "appName": "Bird Chaser",
   "webDir": "www",
   "plugins": {
     "CapacitorHttp": {

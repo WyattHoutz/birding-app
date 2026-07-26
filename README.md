@@ -1,4 +1,4 @@
-# Birding (iOS)
+# Bird Chaser (iOS)
 
 A self-contained iPhone app for personal eBird target tracking, built with
 [Capacitor](https://capacitorjs.com/). It is a native app you sideload onto
@@ -46,7 +46,7 @@ committed `assets/*.png` (see [`assets/generate.js`](assets/generate.js)) via
 ### Build + install
 
 1. Push to `main` (or run the workflow manually from the **Actions** tab).
-2. Download the `Birding-unsigned-ipa` artifact from the completed run.
+2. Download the `BirdChaser-unsigned-ipa` artifact from the completed run.
 3. Sideload it with [AltStore](https://altstore.io/) + AltServer on Windows,
    signing with your free Apple ID.
    - Free-Apple-ID limits: app expires every 7 days (AltServer auto-refreshes

@@ -66,12 +66,12 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r -y "$GITHUB_WORKSPACE/Birding-unsigned.ipa" Payload
-          ls -lh "$GITHUB_WORKSPACE/Birding-unsigned.ipa"
+          zip -r -y "$GITHUB_WORKSPACE/BirdChaser-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/BirdChaser-unsigned.ipa"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Birding-unsigned-ipa
-          path: Birding-unsigned.ipa
+          name: BirdChaser-unsigned-ipa
+          path: BirdChaser-unsigned.ipa
           if-no-files-found: error
