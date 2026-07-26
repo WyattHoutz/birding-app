@@ -26,58 +26,112 @@ const appRoot = path.resolve(__dirname, '..');
 const srcRoot = path.resolve(process.argv[2] || path.join(appRoot, '..', 'birding'));
 const outPath = path.join(appRoot, 'www', 'seed-birdlist.json');
 
+// The report registry (which birdlist + seen_from_region drives each report)
+// lives in the shared BirdLogic module, so the seed and the app agree on scope.
+const BirdLogic = require(path.join(appRoot, 'www', 'logic.js'));
+
 if (!fs.existsSync(srcRoot)) {
   console.error('Source repo not found: ' + srcRoot);
   console.error('Pass the path to the birding pipeline repo as the first argument.');
   process.exit(1);
 }
 
-const codeToName = Object.create(null); // speciesCode -> common name (first wins)
-const codes = Object.create(null);      // speciesCode -> 1 (union, incl. codes w/o a name)
+// eBird obsDt/name normalization matching analyze._norm (lower, collapse ws).
+function normName(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
 
-function addCode(c) { if (c) codes[c] = 1; }
-
-// Parse one birdlist-*.md export.
+// Parse one birdlist-*.md export → { codes:Set, codeToName:{code:name},
+// nameToCode:{normName:code} }. Mirrors analyze._parse_birdlist link shapes.
 function parseBirdlist(text) {
+  const codes = Object.create(null), codeToName = Object.create(null), nameToCode = Object.create(null);
   let m;
-  // Canonical species links: /species/<code>/  or  /species/<code>/US-WA
-  const spRe = /\/species\/([a-z0-9]+)\//g;
-  while ((m = spRe.exec(text))) addCode(m[1]);
-  // Hybrids / sp. groups only appear as ?spp=<code> / &spp=<code>
-  const sppRe = /[?&]spp=([a-z0-9]+)/g;
-  while ((m = sppRe.exec(text))) addCode(m[1]);
-  // Common name → code from the markdown link text.
-  const nameRe = /\[([^\]]+)\]\(\/species\/([a-z0-9]+)\//g;
+  const spRe = /\/species\/([a-z0-9]+)\//g;               // /species/<code>/  or  /US-WA
+  while ((m = spRe.exec(text))) codes[m[1]] = 1;
+  const sppRe = /[?&]spp=([a-z0-9]+)/g;                    // hybrids / sp. groups
+  while ((m = sppRe.exec(text))) codes[m[1]] = 1;
+  const nameRe = /\[([^\]]+)\]\(\/species\/([a-z0-9]+)\//g; // link text → code
   while ((m = nameRe.exec(text))) {
     const name = m[1].trim(), code = m[2];
     if (name && !codeToName[code]) codeToName[code] = name;
+    if (name && !nameToCode[normName(name)]) nameToCode[normName(name)] = code;
   }
+  return { codes: codes, codeToName: codeToName, nameToCode: nameToCode };
 }
 
-const files = fs.readdirSync(srcRoot).filter(function (f) {
-  return /^birdlist-.*\.md$/.test(f);
-});
-let usedFiles = [];
-files.forEach(function (f) {
-  const text = fs.readFileSync(path.join(srcRoot, f), 'utf8');
-  if (!text.trim()) return; // skip empty stubs (e.g. birdlist-hi.md)
-  parseBirdlist(text);
-  usedFiles.push(f);
-});
+// --- parse every birdlist-<slug>.md, keyed by its file slug -----------------
+const listBySlug = Object.create(null);   // 'wa'|'lower48'|'hi'… → parsed birdlist
+const codeToNameAll = Object.create(null);
+const nameToCodeAll = Object.create(null);
+const usedFiles = [];
+fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f) && f !== 'birdlist-needsverification.md'; })
+  .forEach(function (f) {
+    const text = fs.readFileSync(path.join(srcRoot, f), 'utf8');
+    const slug = f.replace(/^birdlist-/, '').replace(/\.md$/, '');
+    const parsed = parseBirdlist(text);
+    listBySlug[slug] = parsed;
+    Object.keys(parsed.codeToName).forEach(function (c) { if (!codeToNameAll[c]) codeToNameAll[c] = parsed.codeToName[c]; });
+    Object.keys(parsed.nameToCode).forEach(function (n) { if (!nameToCodeAll[n]) nameToCodeAll[n] = parsed.nameToCode[n]; });
+    if (text.trim()) usedFiles.push(f);
+  });
 
-// seen_codes.txt — plain species codes, one per line (WA life "seen" union).
+// seen_codes.txt — plain species codes, one per line (WA "seen" union; the
+// report treats it as authoritative for the WA report ONLY).
+const scCodes = Object.create(null);
 const scPath = path.join(srcRoot, 'seen_codes.txt');
 if (fs.existsSync(scPath)) {
   fs.readFileSync(scPath, 'utf8').split(/\r?\n/).forEach(function (line) {
     const c = line.trim().toLowerCase();
-    if (/^[a-z0-9]+$/.test(c)) addCode(c);
+    if (/^[a-z0-9]+$/.test(c)) scCodes[c] = 1;
   });
   usedFiles.push('seen_codes.txt');
 }
 
-const codeList = Object.keys(codes).sort();
-const nameList = Object.keys(codeToName)
-  .map(function (c) { return codeToName[c]; })
+// needsverification.md — a numbered list of NAMES (a watchlist). The report
+// SUBTRACTS these from every region's seen set so they resurface as targets.
+// Resolve each name to a code via the union of all birdlist name→code maps.
+const nvCodes = Object.create(null);
+const nvPath = path.join(srcRoot, 'birdlist-needsverification.md');
+if (fs.existsSync(nvPath)) {
+  fs.readFileSync(nvPath, 'utf8').split(/\r?\n/).forEach(function (line) {
+    const m = /^\s*\d+\.\s*(.+?)\s*$/.exec(line);
+    if (!m) return;
+    const code = nameToCodeAll[normName(m[1])];
+    if (code) nvCodes[code] = 1;
+  });
+  usedFiles.push('birdlist-needsverification.md');
+}
+
+// --- per-report seen set: seen = (seen_bl ∪ sc_wa) − watchlist --------------
+// Keyed by REPORT slug so the app looks the set up directly by selected report.
+// The seen source birdlist follows Region.seen_from_region (resolved in
+// BirdLogic.seenSlugFor: mo/ks/az/ca→lower48, fort-casey→wa, else own).
+function birdlistSlugToKey(slug) { return slug; } // birdlist files already keyed by slug ('hi' for waikoloa)
+const seenByReport = Object.create(null);
+BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
+  const profile = BirdLogic.REPORTS[reportSlug];
+  const seenSrcSlug = BirdLogic.seenSlugFor(profile);        // birdlist slug supplying "seen"
+  const srcList = listBySlug[birdlistSlugToKey(seenSrcSlug)] || { codes: {}, codeToName: {} };
+  const set = Object.create(null);
+  Object.keys(srcList.codes).forEach(function (c) { set[c] = 1; });
+  if (reportSlug === 'wa') Object.keys(scCodes).forEach(function (c) { set[c] = 1; }); // WA-only
+  Object.keys(nvCodes).forEach(function (c) { delete set[c]; });                       // watchlist resurfaces
+  // Display names come from the report's OWN year list (birdlistSlug).
+  const ownList = listBySlug[profile.birdlistSlug] || { codeToName: {} };
+  const names = Object.keys(ownList.codeToName)
+    .map(function (c) { return ownList.codeToName[c]; })
+    .filter(function (v, i, a) { return a.indexOf(v) === i; })
+    .sort(function (a, b) { return a.localeCompare(b); });
+  seenByReport[reportSlug] = { codes: Object.keys(set).sort(), names: names };
+});
+
+// Combined union (backwards-compatible "seen anywhere" fallback for applySeed).
+const codeUnion = Object.create(null);
+Object.keys(listBySlug).forEach(function (slug) {
+  Object.keys(listBySlug[slug].codes).forEach(function (c) { codeUnion[c] = 1; });
+});
+Object.keys(scCodes).forEach(function (c) { codeUnion[c] = 1; });
+const codeList = Object.keys(codeUnion).sort();
+const nameList = Object.keys(codeToNameAll)
+  .map(function (c) { return codeToNameAll[c]; })
   .filter(function (v, i, a) { return a.indexOf(v) === i; })
   .sort(function (a, b) { return a.localeCompare(b); });
 
@@ -87,7 +141,8 @@ const seed = {
   year: new Date().getFullYear(),
   seenField: 'speciesCode',
   codes: codeList,
-  names: nameList
+  names: nameList,
+  seenByReport: seenByReport
 };
 
 fs.writeFileSync(outPath, JSON.stringify(seed) + '\n');
@@ -102,5 +157,9 @@ fs.writeFileSync(jsPath, 'window.__SEED_BIRDLIST__ = ' + JSON.stringify(seed) + 
 console.log('Wrote ' + outPath);
 console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
-console.log('  codes:  ' + codeList.length);
-console.log('  names:  ' + nameList.length);
+console.log('  codes:  ' + codeList.length + ' (combined union)');
+console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length);
+console.log('  seenByReport:');
+BirdLogic.REGION_ORDER.forEach(function (slug) {
+  console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' + seenByReport[slug].names.length + ' names');
+});

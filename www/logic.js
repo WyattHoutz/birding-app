@@ -42,35 +42,158 @@
     CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200
   };
 
-  // ---- region profiles (mirror regions.py) ---------------------------------
-  // Each profile carries every WA-specific assumption the report bakes into
-  // regions._WA so the app fetches + scopes data identically.
-  var PROFILES = {
-    'US-WA': {
-      stateCode: 'US-WA',
+  // ---- report registry (mirror regions.py REGIONS) -------------------------
+  // Every report the Markdown pipeline generates is defined here so the app can
+  // offer the SAME menu of reports and scope its eBird fetches identically.
+  // Each profile carries every assumption regions.py bakes into its Region:
+  // target counties, home coordinate, geo radius, daily-drive split, whether it
+  // is a rarity tracker (no county/geo feeds — national alert only), which
+  // birdlist supplies the "already seen" filter (seenFromRegion), and per-report
+  // location exclusions. Keyed by slug; profileFor() also resolves stateCode.
+  //
+  //   birdlistSlug   — the seed key for THIS report's own year list (display)
+  //   seenFromRegion — chase against ANOTHER region's list ('' = own)
+  // The chase "seen" set = seenFromRegion || birdlistSlug (see seenSlugFor).
+  var REPORTS = {
+    wa: {
+      slug: 'wa', label: 'Washington', kind: 'region', stateCode: 'US-WA',
       counties: [
         { slug: 'king', code: 'US-WA-033', label: 'King' },
         { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }
       ],
-      home: { lat: 47.7616, lng: -122.1447 },
-      geoDistKm: 50,
-      dailyDriveMi: 12,
-      tideStation: '9447130'
+      home: { lat: 47.7616, lng: -122.1447 }, homeLabel: 'Woodinville, WA',
+      geoDistKm: 50, dailyDriveMi: 12, tideStation: '9447130',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: '',
+      tzStdOffset: -8, tzObservesDst: true
+    },
+    mo: {
+      slug: 'mo', label: 'Missouri', kind: 'region', stateCode: 'US-MO',
+      counties: [
+        { slug: 'platte', code: 'US-MO-165', label: 'Platte' },
+        { slug: 'clay', code: 'US-MO-047', label: 'Clay' },
+        { slug: 'jackson', code: 'US-MO-095', label: 'Jackson' }
+      ],
+      home: { lat: 39.2152, lng: -94.7468 }, homeLabel: 'Parkville, MO',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'mo', seenFromRegion: 'lower48',
+      tzStdOffset: -6, tzObservesDst: true
+    },
+    ks: {
+      slug: 'ks', label: 'Kansas', kind: 'region', stateCode: 'US-KS',
+      counties: [
+        { slug: 'wyandotte', code: 'US-KS-209', label: 'Wyandotte' },
+        { slug: 'johnson', code: 'US-KS-091', label: 'Johnson' },
+        { slug: 'leavenworth', code: 'US-KS-103', label: 'Leavenworth' }
+      ],
+      home: { lat: 39.2152, lng: -94.7468 }, homeLabel: 'Parkville, MO',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'ks', seenFromRegion: 'lower48',
+      tzStdOffset: -6, tzObservesDst: true
+    },
+    az: {
+      slug: 'az', label: 'Arizona', kind: 'region', stateCode: 'US-AZ',
+      counties: [
+        { slug: 'maricopa', code: 'US-AZ-013', label: 'Maricopa' },
+        { slug: 'yavapai', code: 'US-AZ-025', label: 'Yavapai' }
+      ],
+      home: { lat: 33.8539, lng: -112.1133 }, homeLabel: 'Anthem, AZ',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'az', seenFromRegion: 'lower48',
+      tzStdOffset: -7, tzObservesDst: false
+    },
+    ca: {
+      slug: 'ca', label: 'California', kind: 'region', stateCode: 'US-CA',
+      counties: [
+        { slug: 'placer', code: 'US-CA-061', label: 'Placer' },
+        { slug: 'sacramento', code: 'US-CA-067', label: 'Sacramento' }
+      ],
+      home: { lat: 38.7622, lng: -121.1850 }, homeLabel: 'Granite Bay, CA',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'ca', seenFromRegion: 'lower48',
+      tzStdOffset: -8, tzObservesDst: true
+    },
+    lower48: {
+      slug: 'lower48', label: 'Lower 48', kind: 'region', stateCode: 'lower48',
+      counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'Lower 48',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: false, isRarityTracker: true, birdlistSlug: 'lower48', seenFromRegion: '',
+      // eBird subnational1 codes dropped from the rarity feed (non-CONUS).
+      excludeSubnational1: ['US-AK', 'US-HI', 'US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
+      tzStdOffset: -8, tzObservesDst: true
+    },
+    aba: {
+      slug: 'aba', label: 'ABA Area', kind: 'region', stateCode: 'aba',
+      counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'ABA Area',
+      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoFeed: false, isRarityTracker: true, birdlistSlug: 'aba', seenFromRegion: '',
+      // Inclusive companion to Lower 48: keeps HI + Canada, drops only US territories.
+      excludeSubnational1: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
+      tzStdOffset: -8, tzObservesDst: true
+    },
+    'fort-casey': {
+      slug: 'fort-casey', label: 'Fort Casey Camping Trip', kind: 'trip', stateCode: 'US-WA',
+      counties: [
+        { slug: 'island', code: 'US-WA-029', label: 'Island' },
+        { slug: 'jefferson', code: 'US-WA-031', label: 'Jefferson' }
+      ],
+      home: { lat: 48.1607, lng: -122.6776 }, homeLabel: 'Fort Casey, Whidbey Island',
+      geoDistKm: 40, dailyDriveMi: 15, tideStation: '9444900',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: 'wa',
+      excludeLocIds: ['L7706326', 'L34755635'],
+      excludeNameSubstrings: ['Smith Island', 'Partridge Bank'],
+      tzStdOffset: -8, tzObservesDst: true,
+      activeFrom: '2026-06-28', activeTo: '2026-07-04'
+    },
+    waikoloa: {
+      slug: 'waikoloa', label: 'Waikoloa / Big Island Trip', kind: 'trip', stateCode: 'US-HI',
+      counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
+      home: { lat: 19.9223, lng: -155.8836 }, homeLabel: 'Vista Waikoloa, Big Island',
+      geoDistKm: 50, dailyDriveMi: 25, tideStation: '1617433',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
+      tzStdOffset: -10, tzObservesDst: false,
+      activeFrom: '2026-08-27', activeTo: '2026-09-18'
     }
   };
 
+  // publish.py REGION_ORDER — drives the report selector order.
+  var REGION_ORDER = ['wa', 'mo', 'ks', 'az', 'ca', 'lower48', 'aba', 'fort-casey', 'waikoloa'];
+
+  // Backwards-compatible alias (older callers referenced PROFILES['US-WA']).
+  var PROFILES = REPORTS;
+
+  // The seed key whose bundled "already seen" codes filter this report's chases.
+  function seenSlugFor(profile) {
+    return (profile && (profile.seenFromRegion || profile.birdlistSlug || profile.slug)) || '';
+  }
+
+  // Ordered, UI-friendly list of every available report for the selector menu.
+  function reports() {
+    return REGION_ORDER.map(function (s) {
+      var r = REPORTS[s];
+      return {
+        slug: r.slug, label: r.label, kind: r.kind,
+        isRarityTracker: !!r.isRarityTracker, stateCode: r.stateCode
+      };
+    });
+  }
+
   function profileFor(region) {
-    var key = (region || '').toString().trim().toUpperCase();
-    if (PROFILES[key]) return PROFILES[key];
+    var key = (region || '').toString().trim();
+    if (!key) return REPORTS.wa;
+    var low = key.toLowerCase();
+    if (REPORTS[low]) return REPORTS[low];                 // by slug: 'wa', 'mo', 'fort-casey'…
+    var up = key.toUpperCase();
+    for (var i = 0; i < REGION_ORDER.length; i++) {        // by eBird state code: 'US-WA', 'lower48', 'aba'
+      var r = REPORTS[REGION_ORDER[i]];
+      if (r.stateCode.toUpperCase() === up) return r;
+    }
     // Fallback: treat an arbitrary region code as a single "county" feed with
-    // no geo feed, so the app still works for regions outside the WA profile.
+    // no geo feed, so the app still works for regions outside the registry.
     return {
-      stateCode: key,
-      counties: [{ slug: key.toLowerCase(), code: key, label: key }],
-      home: null,
-      geoDistKm: 50,
-      dailyDriveMi: CONST.DAILY_DRIVE_MI,
-      tideStation: ''
+      slug: low, label: up, kind: 'region', stateCode: up,
+      counties: [{ slug: low, code: up, label: up }],
+      home: null, geoDistKm: 50, dailyDriveMi: CONST.DAILY_DRIVE_MI, tideStation: '',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: low, seenFromRegion: ''
     };
   }
 
@@ -95,7 +218,7 @@
         params: { back: back, detail: 'full' }
       });
     });
-    if (profile.home && profile.home.lat && profile.home.lng) {
+    if (profile.geoFeed !== false && profile.home && profile.home.lat && profile.home.lng) {
       var lat = round4(profile.home.lat), lng = round4(profile.home.lng);
       var dist = Math.min(Math.max(profile.geoDistKm, 0), 50);
       jobs.push({
@@ -122,7 +245,7 @@
       recents.push({ file: c.slug + '-recent.json', kind: 'recent', src: c.label });
       notables.push({ file: c.slug + '-notable.json', kind: 'notable', src: c.label });
     });
-    if (profile.home && profile.home.lat && profile.home.lng) {
+    if (profile.geoFeed !== false && profile.home && profile.home.lat && profile.home.lng) {
       var dist = Math.min(Math.max(profile.geoDistKm, 0), 50);
       recents.push({ file: 'geo-recent.json', kind: 'recent', src: 'Geo' + dist + 'km' });
       notables.push({ file: 'geo-notable.json', kind: 'notable', src: 'Geo' + dist + 'km' });
@@ -611,7 +734,105 @@
     return routes;
   }
 
-  // ---- simple notable dedupe (app "notable sightings" list) ----------------
+  // ---- region location exclusions (mirror Region.exclude_locids / _substrings)
+  // Drop unreachable spots (e.g. a boat-only offshore island inside the radius)
+  // from EVERY section by removing their records from the merged snapshot.
+  function applyExclusions(records, profile) {
+    var ids = (profile && profile.excludeLocIds) || [];
+    var subs = (profile && profile.excludeNameSubstrings) || [];
+    if (!ids.length && !subs.length) return records;
+    var idset = {};
+    ids.forEach(function (i) { idset[i] = 1; });
+    var lows = subs.map(function (s) { return String(s).toLowerCase(); });
+    return (records || []).filter(function (r) {
+      if (r.locId && idset[r.locId]) return false;
+      var nm = (r.loc || '').toLowerCase();
+      for (var i = 0; i < lows.length; i++) if (lows[i] && nm.indexOf(lows[i]) >= 0) return false;
+      return true;
+    });
+  }
+
+  // ---- chase pipeline (mirror report.build_report L5900-5990) --------------
+  // The SINGLE orchestration shared by the iPhone app and the parity test.
+  // Given a report profile and a day's six feeds (keyed by planFeeds file name),
+  // reproduce Top destinations / Top excursions / today's rarities / fresh
+  // targets exactly as the Markdown report does. Keeping this here (rather than
+  // duplicated in the app and the test harness) guarantees the app can never
+  // silently diverge from the report — the parity suite drives this same code.
+  //
+  // opts: { rowsToday:{file:rows[]}, rowsPrior:{file:rows[]}|null,
+  //         priorCodes:{code:1}|null, seen:{code:1}, ownName, snapshotDate,
+  //         home:{lat,lng}|null, dailyDriveMi }
+  function computeChaseViews(profile, opts) {
+    opts = opts || {};
+    var seen = opts.seen || {};
+    var ownName = opts.ownName || '';
+    var home = opts.home !== undefined ? opts.home : (profile.home || null);
+    var dailyDriveMi = opts.dailyDriveMi == null ? profile.dailyDriveMi : opts.dailyDriveMi;
+    var snapshotDate = opts.snapshotDate;
+    var countyLabels = (profile.counties || []).map(function (c) { return c.label; });
+
+    // merged snapshot (analyze.load_snapshot) → exclusions → distances.
+    var allRecs = applyExclusions(mergeFromFiles(profile, opts.rowsToday || {}), profile);
+    annotateDistance(allRecs, home);
+
+    var stakeout = computeStakeoutLocids(allRecs, seen);
+    var unseenAll = computeUnseen(allRecs, seen, { excludeOwn: false });
+    var unseen = computeUnseen(allRecs, seen, { excludeOwn: true, ownName: ownName });
+    var near = unseen.filter(function (r) { return inTargetCounties(r, countyLabels); });
+
+    var snapMid = parseObsDt(snapshotDate);
+    function recMs(r) { var d = parseObsDt(r.dateStr); return d ? d.getTime() : NaN; }
+    var cutoff = snapMid
+      ? new Date(snapMid.getFullYear(), snapMid.getMonth(), snapMid.getDate() - CONST.CUTOFF_DAYS).getTime()
+      : -Infinity;
+    var excCutoff = snapMid
+      ? new Date(snapMid.getFullYear(), snapMid.getMonth(), snapMid.getDate() - CONST.TRIP_WINDOW_DAYS).getTime()
+      : -Infinity;
+
+    var nearRecent = near.filter(function (r) { return recMs(r) >= cutoff; });
+    var excursionRecent = unseen.filter(function (r) {
+      if (!inExcursionPool(r, countyLabels)) return false;
+      var t = recMs(r);
+      return t >= cutoff || (isSpecialTrip(r) && t >= excCutoff);
+    });
+
+    var nearRecentGo = nearRecent.filter(function (r) { return isChaseable(r, stakeout); });
+    var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
+
+    var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi });
+    var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi });
+    var notable = notableToday(unseenAll, snapshotDate);
+
+    var priorCodes = opts.priorCodes || null;
+    if (!priorCodes && opts.rowsPrior) {
+      priorCodes = {};
+      mergeFromFiles(profile, opts.rowsPrior).forEach(function (r) { if (r.code) priorCodes[r.code] = 1; });
+    }
+    var arrivals = newArrivals(near, priorCodes || {}, snapshotDate);
+
+    return {
+      merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
+      near: near, destinations: dest, excursions: exc,
+      notableToday: notable, newArrivals: arrivals
+    };
+  }
+
+  // Adapt a scored cluster (destinations/excursions) to the app's render shape:
+  //   { locId, locName, lat, lng, species:[{comName,rare}], score, rare, dist }
+  function toRenderDest(cluster) {
+    return {
+      locId: cluster.locId || '', locName: cluster.loc || 'Unknown location',
+      lat: cluster.lat, lng: cluster.lon,
+      species: (cluster.species || []).map(function (s) {
+        return { comName: s.name || s.code || 'Unknown species', rare: s.kind === 'Rarity' };
+      }),
+      score: cluster.score, rare: cluster.rareCount,
+      dist: cluster.distMi == null || cluster.distMi === Infinity ? null : cluster.distMi
+    };
+  }
+
+
   // Collapse repeat obs of same species at same location (keep max howMany).
   function dedupeObs(obs) {
     var idx = {}, out = [];
@@ -628,7 +849,14 @@
   return {
     CONST: CONST,
     PROFILES: PROFILES,
+    REPORTS: REPORTS,
+    REGION_ORDER: REGION_ORDER,
+    reports: reports,
     profileFor: profileFor,
+    seenSlugFor: seenSlugFor,
+    applyExclusions: applyExclusions,
+    computeChaseViews: computeChaseViews,
+    toRenderDest: toRenderDest,
     planFeeds: planFeeds,
     mergePlan: mergePlan,
     mergeFromFiles: mergeFromFiles,
