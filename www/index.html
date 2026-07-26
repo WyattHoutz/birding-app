@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0f5132" />
-  <title>Birding</title>
+  <title>Bird Chaser</title>
   <style>
     :root {
       --bg: #f6f7f5;
@@ -124,7 +124,7 @@
 <body>
   <header>
     <p class="kicker">Personal eBird tracker</p>
-    <h1>🦉 Birding</h1>
+    <h1>🦉 Bird Chaser</h1>
     <p>Your live target list, straight from the eBird API — no server, no account sync.</p>
   </header>
 
@@ -335,7 +335,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · birder convoys · full report parity</div>
+    <div>Bird Chaser · v1.0.1 · full report parity</div>
   </footer>
 
   <script src="seed-birdlist.js"></script>
@@ -372,6 +372,21 @@
             '<div class="meta">' + esc(o.locName || '') + ' · ' + esc(fmtDate(o.obsDt)) + '</div>';
           el.appendChild(li);
         });
+      }
+
+      // Collapse repeat observations of the same species at the same location
+      // (eBird's notable feed returns one row per checklist, so a single rare
+      // bird reported by several observers would otherwise show many times).
+      function dedupeObs(obs) {
+        var idx = {}, out = [];
+        (obs || []).forEach(function (o) {
+          var sp = ((o.sciName || o.comName || '') + '').toLowerCase();
+          var loc = o.locId || o.locName || '';
+          var k = sp + '|' + loc;
+          if (idx[k]) { var i = idx[k] - 1; if ((o.howMany || 0) > (out[i].howMany || 0)) out[i] = o; return; }
+          out.push(o); idx[k] = out.length;
+        });
+        return out;
       }
 
       // --- eBird API (native fetch via CapacitorHttp on device; no CORS) ---
@@ -415,8 +430,9 @@
             todAccumulate(data);
             if (!data.length) { st.textContent = 'No notable sightings reported here recently.'; return; }
             var nn = markNewNotable(data);
-            st.textContent = data.length + ' notable' + (nn.newCount ? ' · ' + nn.newCount + ' new since last check' : '') + ' · updated ' + nowTime();
-            renderList(out, data);
+            var display = dedupeObs(data);
+            st.textContent = display.length + ' notable' + (nn.newCount ? ' · ' + nn.newCount + ' new since last check' : '') + ' · updated ' + nowTime();
+            renderList(out, display);
           })
           .catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
@@ -1009,6 +1025,19 @@
       // in web preview).
       function ib() { var c = window.Capacitor; var p = c && c.Plugins && c.Plugins.InAppBrowser; return p || null; }
       function ibAvail() { return !!ib(); }
+      // Open an external URL (maps, eBird "view" links) outside the app. In the
+      // installed Capacitor app window.open(url,'_system') is a no-op (that's a
+      // Cordova-ism WKWebView ignores), so route through the InAppBrowser
+      // plugin's system-browser open, falling back to an in-app web view.
+      function openExternal(url) {
+        if (!url) return;
+        var IB = ib();
+        if (IB) {
+          if (typeof IB.open === 'function') { try { IB.open({ url: url }); return; } catch (e) {} }
+          if (typeof IB.openWebView === 'function') { try { IB.openWebView({ url: url, showReloadButton: true }); return; } catch (e) {} }
+        }
+        try { window.open(url, '_blank'); } catch (e) { try { window.open(url, '_system'); } catch (_) {} }
+      }
 
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
@@ -1833,7 +1862,11 @@
       }
 
       // --- settings ---
-      function showSettings(show) { $('settingsPanel').hidden = !show; }
+      function showSettings(show) {
+        var p = $('settingsPanel');
+        p.hidden = !show;
+        if (show) { try { p.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { try { p.scrollIntoView(); } catch (_) {} } }
+      }
       function loadSettings() {
         $('apiKey').value = getKey();
         $('region').value = getRegion();
@@ -1887,15 +1920,15 @@
           var url = link.classList.contains('extlink')
             ? (link.getAttribute('data-href') || '')
             : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(link.getAttribute('data-q') || '');
-          if (url) { try { window.open(url, '_system'); } catch (e) { window.open(url, '_blank'); } }
+          if (url) openExternal(url);
           return;
         }
         var eb = ev.target.closest('.ebirdlink');
         if (eb) {
           ev.preventDefault();
           var ebu = eb.getAttribute('data-href') || '', IB = ib();
-          if (IB && ebu) { IB.openWebView({ url: ebu, showReloadButton: true }).catch(function () { try { window.open(ebu, '_system'); } catch (e) {} }); }
-          else if (ebu) { try { window.open(ebu, '_system'); } catch (e) { window.open(ebu, '_blank'); } }
+          if (IB && ebu) { IB.openWebView({ url: ebu, showReloadButton: true }).catch(function () { openExternal(ebu); }); }
+          else if (ebu) { openExternal(ebu); }
           return;
         }
         var fav = ev.target.closest('.favlink');
