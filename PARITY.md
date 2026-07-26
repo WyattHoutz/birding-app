@@ -4,6 +4,11 @@ Tracks every section of the Python birding report (`WyattHoutz/birding`,
 `report.py`) against its status in this iPhone app. Keep this in sync as
 features land so the two stay at parity.
 
+**Status: ✅ full parity.** Every report section is either implemented in the
+app or marked ➖ N/A (report-only concepts). Birder convoys — the last
+historical/stats feature — landed alongside BirdCast, time-of-day, hot/cold
+hotspots, and the migration outlook.
+
 **Legend** — ✅ Done · 🟡 Partial · 🔜 Planned (feasible on eBird API) ·
 🧪 Planned (needs historical/stats data) · 🌦️ Planned (needs non-eBird source) ·
 ⛔ Not feasible (eBird has no public API — website-scraped in the report) ·
@@ -37,7 +42,7 @@ features land so the two stay at parity.
 | 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | `product/lists/{region}` ranked by `numSpecies`, with observer + checklist link. |
 | 🔥 Hot hotspots — recent surges | **Hot hotspots** | ✅ | From the region's 30-day hotspot recent feed (`recent?hotspot=true`), buckets each species' freshest sighting by `locId`; joined with `ref/hotspot/{region}` metadata and ranked `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)` within 35 mi of Home — same score as `section_hot_hotspots` (`HOT_MIN_FRESH=5`). |
 | 🥶 Cold hotspots — overlooked gems | **Cold hotspots** | ✅ | High all-time diversity (`≥100`), currently quiet hotspots within 35 mi of Home, ranked by the report's pre-refinement `upper_score = all-time × √(1 + min(silent days, 30)) ÷ (dist + 5)`; `latestObsDt` overridden by the recent feed. Shares one fetch with Hot hotspots. (Report additionally refines the top ~30 with per-hotspot historic sampling; the app uses the metadata pre-rank to stay at 2 calls.) |
-| 👥 Birder convoys | — | 🧪 | Group-route detection across checklists; low priority. |
+| 👥 Birder convoys | **Birder convoys** | ✅ | Detects birding groups from `product/lists/{region}` (last 7 days): dedupes checklists by `subId`, skips your own, groups by shared `locId`+exact submitted time (eBird's shared-checklist signature). A convoy = ≥2 birders sharing ≥2 stops in one day; ranked by stops → group size → recency (top 10). Ports `section_birder_convoys` (`CONVOY_LOOKBACK_DAYS=7`, `CONVOY_MIN_STOPS=2`). Lazy per-route **combined species** expander pools each stop's `product/checklist/view/{sub}` obs and flags 🆕 species not on your list via one batched `ref/taxonomy` lookup (ports `_convoy_species_cell`). |
 | ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + passive from Notable/Targets), then flags dawn (≥50% before 7am) and dusk/night (≥30% after 7pm) species — mirrors the report's `time_of_day.py` thresholds (`MIN_OBS=5`). Sample grows richer each run. |
 
 ## Personal stats

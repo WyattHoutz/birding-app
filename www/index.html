@@ -103,6 +103,10 @@
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .convoyspp { display: inline-block; margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
+    .convoywrap { margin: 8px 0 14px; }
+    .convoysppbox { font-size: 13px; margin-top: 4px; line-height: 1.45; }
+    .convoymiss { color: var(--accent); font-weight: 600; }
     .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
     .wxline.dim2 { color: var(--muted); font-size: 12px; }
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
@@ -270,6 +274,15 @@
     </section>
 
     <section class="panel">
+      <h2>👥 Birder convoys <span class="dim" id="convoyRegionLabel"></span></h2>
+      <div class="row">
+        <button id="convoyBtn">Find group routes</button>
+      </div>
+      <div id="convoyStatus" class="status">Detects birding groups (2+ people sharing 2+ hotspots in a day) from recent checklists — their route is a tested itinerary worth copying.</div>
+      <div id="convoyResults"></div>
+    </section>
+
+    <section class="panel">
       <h2>🛬 Migration outlook <span class="dim" id="migRegionLabel"></span></h2>
       <div class="row">
         <button id="migBtn">Build migration history</button>
@@ -322,7 +335,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div>Birding · P15 · migration outlook</div>
+    <div>Birding · birder convoys · full report parity</div>
   </footer>
 
   <script src="seed-birdlist.js"></script>
@@ -1535,6 +1548,123 @@
           .finally(function () { btn.disabled = false; });
       }
 
+      // --- Birder convoys (group routes from shared checklists) ---
+      var CONVOY_LOOKBACK_DAYS = 7, CONVOY_MIN_STOPS = 2, CONVOY_MAX_RESULTS = 200;
+      function convoyDetect(lists, snapDate, ownName) {
+        lists = Array.isArray(lists) ? lists : [];
+        var cutoff = new Date(snapDate.getTime()); cutoff.setDate(cutoff.getDate() - CONVOY_LOOKBACK_DAYS); cutoff.setHours(0, 0, 0, 0);
+        var own = (ownName || '').trim().toLowerCase();
+        var bySub = {};
+        lists.forEach(function (chk) {
+          var name = (chk.userDisplayName || '').trim();
+          if (own && name.toLowerCase() === own) return;
+          var sub = chk.subId || chk.subID;
+          if (sub && !bySub[sub]) bySub[sub] = chk;
+        });
+        var shared = {};
+        Object.keys(bySub).forEach(function (sub) {
+          var chk = bySub[sub], loc = chk.locId || (chk.loc && chk.loc.locId), iso = chk.isoObsDate;
+          if (!loc || !iso) return;
+          var d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+          if (isNaN(d.getTime()) || d < cutoff) return;
+          var key = loc + '|' + iso;
+          (shared[key] = shared[key] || []).push(chk);
+        });
+        var convoys = {};
+        Object.keys(shared).forEach(function (key) {
+          var chks = shared[key]; if (chks.length < 2) return;
+          var uniq = {}; chks.forEach(function (c) { var m = (c.userDisplayName || '?').trim(); if (m) uniq[m] = 1; });
+          var members = Object.keys(uniq).sort(); if (members.length < 2) return;
+          var iso = key.split('|')[1], day = String(iso).slice(0, 10);
+          var mkey = members.join(' + ') + '|' + day;
+          var g = convoys[mkey] = convoys[mkey] || { members: members, day: day, stops: [] };
+          g.stops.push(chks[0]);
+        });
+        var routes = [];
+        Object.keys(convoys).forEach(function (k) {
+          var g = convoys[k];
+          if (g.stops.length < CONVOY_MIN_STOPS) return;
+          g.stops.sort(function (a, b) { return String(a.isoObsDate).localeCompare(String(b.isoObsDate)); });
+          routes.push(g);
+        });
+        routes.sort(function (a, b) {
+          if (b.stops.length !== a.stops.length) return b.stops.length - a.stops.length;
+          if (b.members.length !== a.members.length) return b.members.length - a.members.length;
+          return b.day.localeCompare(a.day);
+        });
+        return routes;
+      }
+      function convoyLocName(s) { return (s.loc && (s.loc.name || s.loc.locName)) || s.locName || s.locId || 'Hidden location'; }
+      function renderConvoys(routes) {
+        var el = $('convoyResults'); el.innerHTML = '';
+        if (!routes.length) {
+          el.innerHTML = '<div class="status">No group routes detected in the last ' + CONVOY_LOOKBACK_DAYS + ' days — convoys need 2+ birders sharing 2+ hotspots on one day.</div>';
+          return;
+        }
+        routes.slice(0, 10).forEach(function (r, i) {
+          var wrap = document.createElement('div'); wrap.className = 'convoywrap';
+          var head = '<div class="rankhead"><div class="bignum">' + (i + 1) + '. ' + esc(r.members.join(' + ')) +
+            ' <small>' + esc(fmtDate(r.day)) + ' · ' + r.stops.length + ' stops</small></div></div>';
+          var ul = '<ul class="obs dest">';
+          r.stops.forEach(function (s) {
+            var sub = s.subId || s.subID || '';
+            var t = s.obsTime || ((s.isoObsDate && s.isoObsDate.length >= 16) ? s.isoObsDate.slice(11, 16) : '');
+            var q = (s.loc && s.loc.latitude != null && s.loc.longitude != null) ? (s.loc.latitude + ',' + s.loc.longitude) : '';
+            ul += '<li><div class="name">' + esc(convoyLocName(s)) + (t ? ' <span class="dim">' + esc(t) + '</span>' : '') + '</div>' +
+              '<div class="sp">' + (s.numSpecies != null ? s.numSpecies + ' sp · ' : '') +
+              (sub ? '<a class="extlink" data-href="https://ebird.org/checklist/' + esc(sub) + '">📋 checklist</a>' : '') +
+              (q ? ' · <a class="maplink" data-q="' + esc(q) + '">🗺 map</a>' : '') + '</div></li>';
+          });
+          ul += '</ul>';
+          var subs = r.stops.map(function (s) { return s.subId || s.subID || ''; }).filter(Boolean).join(',');
+          var spp = '<div class="destfoot"><a class="convoyspp" data-subs="' + esc(subs) + '">🐦 Show combined species (flags 🆕 needs)</a></div><div class="convoysppbox"></div>';
+          wrap.innerHTML = head + ul + spp;
+          el.appendChild(wrap);
+        });
+      }
+      function loadConvoySpecies(subs, box) {
+        box.innerHTML = '<span class="dim">Loading species…</span>';
+        var list = (subs || '').split(',').filter(Boolean), codes = {};
+        list.reduce(function (p, sub) {
+          return p.then(function () {
+            return ebird('product/checklist/view/' + encodeURIComponent(sub))
+              .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); return todDelay(null, 170); })
+              .catch(function () { return todDelay(null, 170); });
+          });
+        }, Promise.resolve()).then(function () {
+          var all = Object.keys(codes);
+          if (!all.length) { box.innerHTML = '<span class="dim">No species detail available for this route.</span>'; return; }
+          return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(all.join(',')))
+            .catch(function () { return []; })
+            .then(function (tax) {
+              var nameByCode = {}; (Array.isArray(tax) ? tax : []).forEach(function (t) { if (t.speciesCode) nameByCode[t.speciesCode] = t.comName || t.speciesCode; });
+              var missing = [], have = [];
+              all.forEach(function (c) { var nm = nameByCode[c] || c; (isSpeciesSeen(c, nameByCode[c]) ? have : missing).push(nm); });
+              missing.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+              have.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+              var html = '';
+              if (missing.length) html += '<div class="convoymiss"><b>🆕 ' + missing.length + ' not on your list:</b> ' + missing.map(esc).join(', ') + '</div>';
+              else html += '<div><em>Every species already on your list ✓</em></div>';
+              if (have.length) html += '<div class="dim" style="margin-top:4px">Also seen (' + have.length + '): ' + have.map(esc).join(', ') + '</div>';
+              box.innerHTML = html;
+            });
+        });
+      }
+      function loadConvoys() {
+        if (!getKey()) { $('convoyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getRegion();
+        var region = getRegion(), btn = $('convoyBtn'), st = $('convoyStatus');
+        btn.disabled = true; $('convoyResults').innerHTML = ''; st.textContent = 'Scanning recent checklists in ' + region + '…';
+        ebird('product/lists/' + encodeURIComponent(region) + '?maxResults=' + CONVOY_MAX_RESULTS)
+          .then(function (lists) {
+            var routes = convoyDetect(lists, new Date(), getDisplayName());
+            renderConvoys(routes);
+            st.textContent = routes.length ? (routes.length + ' group route' + (routes.length === 1 ? '' : 's') + ' · ' + nowTime()) : ('No convoys detected right now · ' + nowTime());
+          })
+          .catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
       function wxGet(url) {
         return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
@@ -1727,6 +1857,7 @@
         renderTimeOfDay();
         renderMigration();
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getRegion();
+        if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getRegion();
       }
 
       // --- wire up ---
@@ -1746,6 +1877,7 @@
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('hotBtn').addEventListener('click', loadHotspots);
       $('migBtn').addEventListener('click', migBootstrap);
+      $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
@@ -1798,6 +1930,17 @@
             (obs || []).forEach(function (o) { var k = o.comName || ''; if (k && !seenN[k]) { seenN[k] = 1; names.push(k); } });
             if (box) box.textContent = names.length ? (names.length + ' species (14d): ' + names.slice(0, 40).join(', ')) : 'No recent reports.';
           }).catch(function (e) { if (box) box.textContent = netErr(e); });
+          return;
+        }
+        var cspp = ev.target.closest('.convoyspp');
+        if (cspp) {
+          ev.preventDefault();
+          if (!getKey()) { showSettings(true); return; }
+          var wrap = cspp.closest('.convoywrap'), cbox = wrap ? wrap.querySelector('.convoysppbox') : null;
+          if (!cbox) return;
+          if (cbox.getAttribute('data-loaded') === '1') { cbox.innerHTML = ''; cbox.removeAttribute('data-loaded'); cspp.textContent = '🐦 Show combined species (flags 🆕 needs)'; return; }
+          cbox.setAttribute('data-loaded', '1'); cspp.textContent = '🐦 Hide combined species';
+          loadConvoySpecies(cspp.getAttribute('data-subs') || '', cbox);
           return;
         }
       });

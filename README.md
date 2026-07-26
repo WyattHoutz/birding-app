@@ -121,5 +121,13 @@ npm install
   then derives per-species weekly phenology and predicts which species should
   **arrive** (unseen targets due within 2 weeks) or **depart** (year-list species
   leaving soon). Ports `migration.py`'s `_detect_run` / `expected_soon`. ✅
+- **P16** — Birder convoys: scans the region's recent checklists (`product/lists`,
+  last 7 days), dedupes by `subId`, skips your own, and groups by shared hotspot +
+  exact submitted time (eBird's shared-checklist signature) to surface birding
+  **groups** — 2+ people who hit 2+ hotspots together in a day. Each route is a
+  field-tested itinerary, ranked by stops → group size → recency. A lazy per-route
+  expander pools every stop's `checklist/view` species and flags 🆕 birds not on
+  your list via one batched `ref/taxonomy` call. Ports `section_birder_convoys` /
+  `_convoy_species_cell`. This completes **full report parity**. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
