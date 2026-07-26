@@ -35,8 +35,8 @@ features land so the two stay at parity.
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
 | 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | `product/lists/{region}` ranked by `numSpecies`, with observer + checklist link. |
-| 🔥 Hot hotspots — recent surges | — | 🧪 | Needs recent-vs-baseline activity comparison. |
-| 🥶 Cold hotspots — overlooked gems | — | 🧪 | Needs hotspot activity stats. |
+| 🔥 Hot hotspots — recent surges | **Hot hotspots** | ✅ | From the region's 30-day hotspot recent feed (`recent?hotspot=true`), buckets each species' freshest sighting by `locId`; joined with `ref/hotspot/{region}` metadata and ranked `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)` within 35 mi of Home — same score as `section_hot_hotspots` (`HOT_MIN_FRESH=5`). |
+| 🥶 Cold hotspots — overlooked gems | **Cold hotspots** | ✅ | High all-time diversity (`≥100`), currently quiet hotspots within 35 mi of Home, ranked by the report's pre-refinement `upper_score = all-time × √(1 + min(silent days, 30)) ÷ (dist + 5)`; `latestObsDt` overridden by the recent feed. Shares one fetch with Hot hotspots. (Report additionally refines the top ~30 with per-hotspot historic sampling; the app uses the metadata pre-rank to stay at 2 calls.) |
 | 👥 Birder convoys | — | 🧪 | Group-route detection across checklists; low priority. |
 | ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + passive from Notable/Targets), then flags dawn (≥50% before 7am) and dusk/night (≥30% after 7pm) species — mirrors the report's `time_of_day.py` thresholds (`MIN_OBS=5`). Sample grows richer each run. |
 
@@ -52,7 +52,7 @@ features land so the two stay at parity.
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
 | 🌤 Conditions — weather + tides | **Conditions for chasing** | ✅ | NOAA `api.weather.gov` 4-period forecast (🐦 southerly-wind flag) + NOAA CO-OPS tides (optional station) + locally-computed sunrise/sunset, first/last light, daylight length, and moon phase. Called straight from the device — no GitHub. |
-| 🛬 Migration outlook | — | 🌦️ | eBird bar-chart history; complex. |
+| 🛬 Migration outlook | **Migration outlook** | ✅ | User-triggered one-time bootstrap fetches ~2 years of weekly (`historic/{y}/{m}/{d}`) checklists per region, cached in localStorage (resumable). Derives per-species weekly phenology and flags arrivals (unseen targets whose first-presence week is within 2 weeks) + departures (year-list species whose last week is near) — ports `migration.py`'s `_detect_run`/`expected_soon` (year-round ≥40 wk or gap ≤4; window 2 wk). |
 | 🌙 Nightly migration — BirdCast | **Nightly migration** | ✅ | Season-aware deep link to BirdCast's live radar dashboard for your region (`dashboard.birdcast.org/region/<code>`); knows the live-forecast windows (Mar 1–Jun 15, Aug 1–Nov 15) and shows the next active date between seasons — same season logic as the report's `section_birdcast`. No API (BirdCast has none). |
 
 ## Leaderboards (website-scraped in report; in-app via eBird login)
