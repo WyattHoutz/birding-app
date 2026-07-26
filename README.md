@@ -110,5 +110,16 @@ npm install
   store, then flags dawn (≥50% before 7am) and dusk/night (≥30% after 7pm)
   species — same thresholds as the pipeline's `time_of_day.py`. The sample grows
   richer every time you tap *Sample recent checklists*. ✅
+- **P14** — Hot & cold hotspots: two API calls (region 30-day hotspot recent feed
+  + `ref/hotspot/{region}` metadata) rank, within 35 mi of Home, hotspots
+  *running hot* (concentrating the region's freshest sightings, scored
+  `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)`) and *overlooked gems* (high
+  all-time diversity but currently quiet, scored `all-time × √(1 + min(silent,30))
+  ÷ (dist + 5)`). Ports `section_hot_hotspots` and the cold-hotspot pre-rank. ✅
+- **P15** — Migration outlook: a one-time, resumable bootstrap fetches ~2 years of
+  weekly `historic/{y}/{m}/{d}` checklists for your region into localStorage,
+  then derives per-species weekly phenology and predicts which species should
+  **arrive** (unseen targets due within 2 weeks) or **depart** (year-list species
+  leaving soon). Ports `migration.py`'s `_detect_run` / `expected_soon`. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
