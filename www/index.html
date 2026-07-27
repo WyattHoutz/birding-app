@@ -43,7 +43,10 @@
           var method = (init && init.method) || (input && input.method) || 'GET';
           var t0 = Date.now(), short = String(url).replace(/^https?:\/\//, '').slice(0, 140);
           return of.apply(this, arguments).then(function (r) {
-            push(r.ok ? 'net' : 'error', [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);
+            // A 404 from Wikipedia's summary endpoint just means that species
+            // has no article — expected, not an error worth flagging.
+            var expected = !r.ok && r.status === 404 && /wikipedia\.org\/api\/rest_v1\/page\/summary/.test(String(url));
+            push(r.ok ? 'net' : (expected ? 'warn' : 'error'), [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);
             return r;
           }, function (err) {
             push('error', [method + ' FAILED (' + (Date.now() - t0) + 'ms) ' + short + ' — ' + str(err)]);
@@ -332,6 +335,15 @@
     </section>
 
     <section class="panel">
+      <h2>🔭 Last new bird on the leaderboard</h2>
+      <div class="row">
+        <button id="lastNewBtn">Load last new birds</button>
+      </div>
+      <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
+      <ul id="lastNewResults" class="obs"></ul>
+    </section>
+
+    <section class="panel">
       <h2>🚨 ABA rare-bird alert</h2>
       <div class="row">
         <button id="abaBtn">Load ABA alert</button>
@@ -459,6 +471,7 @@
       <strong>🐞 Debug</strong>
       <span id="dbgCount" class="dbgcount"></span>
       <span class="dbgspacer"></span>
+      <button id="dbgDump" type="button">Dump</button>
       <button id="dbgCopy" type="button">Copy</button>
       <button id="dbgClear" type="button">Clear</button>
       <button id="dbgClose" type="button">Close</button>
@@ -474,7 +487,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.7';
+      var APP_VERSION = '1.0.8';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -965,43 +978,90 @@
       // eBird has no free photo API (Macaulay images need a licence), so
       // thumbnails come from Wikipedia's REST summary endpoint: keyless,
       // CORS-enabled, and keyed by the bird's common name. Hits AND misses are
-      // cached in localStorage so re-rendering a section costs no network, and
-      // lookups run one at a time so opening a 200-row year list doesn't fire
-      // 200 parallel requests.
+      // cached in localStorage so re-rendering a section costs no network,
+      // lookups run one at a time, and slots only fetch once they scroll into
+      // view — a 200-row year list must not fire 200 requests on open.
       var PHOTO_KEY = 'ebird_photos_v1', _photoMem = null, _photoQueue = [], _photoBusy = false;
       function photoCache() {
         if (_photoMem) return _photoMem;
         try { _photoMem = JSON.parse(localStorage.getItem(PHOTO_KEY) || '{}'); } catch (e) { _photoMem = {}; }
         return _photoMem;
       }
+      // eBird common names carry qualifiers Wikipedia has no article for:
+      // "Merlin (Black)", "Red Crossbill (Ponderosa Pine or type 2)",
+      // "Northern Flicker (Yellow-shafted x Red-shafted)",
+      // "Muscovy Duck x Mallard (hybrid)", "Northern Yellow Warbler".
+      // Try progressively broader names so those still get the species photo.
+      var _PHOTO_ADJ = /^(Northern|Southern|Eastern|Western|American|Eurasian|Common|Great|Lesser|Greater|Pacific|Atlantic|Hudsonian|Mexican|Canada)\s+/;
+      function photoNames(name) {
+        var t = String(name || '').trim(), out = [], seen = {};
+        function add(v) { v = String(v || '').trim(); if (v && !seen[v]) { seen[v] = 1; out.push(v); } }
+        add(t);
+        var hy = t.split(/\s+x\s+/i)[0];               // hybrids: keep parent 1
+        var base = hy.replace(/\s*\([^)]*\)\s*$/, '');  // drop a trailing (form)
+        add(base);
+        if (_PHOTO_ADJ.test(base)) {
+          var stripped = base.replace(_PHOTO_ADJ, '');
+          if (stripped.split(/\s+/).length >= 2) add(stripped);
+        }
+        return out;
+      }
+      function photoFetch(title) {
+        var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' +
+          encodeURIComponent(title.replace(/\s+/g, '_')) + '?redirect=true';
+        return fetch(url, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) { return (j && j.thumbnail && j.thumbnail.source) || ''; })
+          .catch(function () { return ''; });
+      }
       function photoLookup(name) {
         var t = String(name || '').trim();
         if (!t) return Promise.resolve('');
         var c = photoCache();
         if (Object.prototype.hasOwnProperty.call(c, t)) return Promise.resolve(c[t] || '');
-        var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' +
-          encodeURIComponent(t.replace(/\s+/g, '_')) + '?redirect=true';
-        return fetch(url, { headers: { 'Accept': 'application/json' } })
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (j) { return (j && j.thumbnail && j.thumbnail.source) || ''; })
-          .catch(function () { return ''; })
-          .then(function (src) {
-            c[t] = src;
-            try { localStorage.setItem(PHOTO_KEY, JSON.stringify(c)); } catch (e) {}
-            return src;
+        var cands = photoNames(t);
+        return cands.reduce(function (p, title) {
+          return p.then(function (src) {
+            if (src) return src;
+            if (title !== t && Object.prototype.hasOwnProperty.call(c, title)) return c[title] || '';
+            return photoFetch(title).then(function (s) {
+              if (title !== t) c[title] = s;
+              return s;
+            });
           });
+        }, Promise.resolve('')).then(function (src) {
+          c[t] = src;
+          try { localStorage.setItem(PHOTO_KEY, JSON.stringify(c)); } catch (e) {}
+          return src;
+        });
       }
       function photoSlot(name) { return name ? '<span class="thumb" data-bird="' + esc(name) + '"></span>' : ''; }
+      var _photoObs = (typeof IntersectionObserver === 'function') ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          _photoObs.unobserve(en.target);
+          _photoQueue.push(en.target);
+        });
+        pumpPhotos();
+      }, { rootMargin: '300px 0px' }) : null;
       function hydratePhotos(root) {
         if (!root || !root.querySelectorAll) return;
         var slots = root.querySelectorAll('.thumb[data-bird]:not([data-q])');
-        for (var i = 0; i < slots.length; i++) { slots[i].setAttribute('data-q', '1'); _photoQueue.push(slots[i]); }
+        for (var i = 0; i < slots.length; i++) {
+          slots[i].setAttribute('data-q', '1');
+          // Cached names cost nothing, so resolve them immediately; only
+          // uncached ones wait until they're near the viewport.
+          var nm = slots[i].getAttribute('data-bird') || '';
+          if (!_photoObs || Object.prototype.hasOwnProperty.call(photoCache(), nm)) _photoQueue.push(slots[i]);
+          else _photoObs.observe(slots[i]);
+        }
         pumpPhotos();
       }
       function pumpPhotos() {
         if (_photoBusy || !_photoQueue.length) return;
         _photoBusy = true;
         var el = _photoQueue.shift(), name = el.getAttribute('data-bird') || '';
+        var cached = Object.prototype.hasOwnProperty.call(photoCache(), name);
         photoLookup(name).then(function (src) {
           if (!src) { el.classList.add('nopic'); return; }
           var img = document.createElement('img');
@@ -1010,7 +1070,7 @@
           el.appendChild(img);
         }).catch(function () {}).then(function () {
           _photoBusy = false;
-          setTimeout(pumpPhotos, 40);
+          setTimeout(pumpPhotos, cached ? 0 : 120);
         });
       }
 
@@ -1795,7 +1855,9 @@
       }
       function fetchRank(rr, year, name) {
         var url = rankingsUrl(rr.region, year, rr.max);
-        var ck = rr.key + '|' + year + '|' + name;
+        // Key by URL so the selected-scope leaderboard and the multi-region
+        // summary share one fetch when they point at the same page.
+        var ck = url + '|' + name;
         var hit = rankCacheGet(ck);
         if (hit) return Promise.resolve(hit);
         return fetchPublicHTML(url).then(function (html) {
@@ -1841,19 +1903,16 @@
         var scope = $('rankScope') ? $('rankScope').value : 'region';
         var region = scope === 'lower48' ? 'lower48' : (scope === 'aba' ? 'aba' : getRegion());
         var year = new Date().getFullYear();
-        var url = rankingsUrl(region, year, scope === 'region' ? 500 : 10000);
+        var max = scope === 'region' ? 500 : 10000;
+        var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var btn = $('rankBtn'), st = $('rankStatus');
         btn.disabled = true; $('rankResults').innerHTML = ''; $('rankSummary').innerHTML = ''; st.textContent = 'Loading the leaderboard…';
         // rankings.py reads ebird.org/top100 unauthenticated, so try that first
         // and only fall back to the in-app login flow if the public page can't
-        // be read (or parses to nothing).
-        fetchPublicHTML(url)
-          .then(function (html) {
-            var data = parseRankingsHTML(html, name);
-            if (!data || !data.rows || !data.rows.length) throw new Error('empty leaderboard');
-            return data;
-          })
+        // be read. Goes through fetchRank so the day-cache is shared with the
+        // multi-region summary below and the same page is never fetched twice.
+        fetchRank({ key: scope === 'region' ? 'sel-' + region : scope, region: region, max: max }, year, name)
           .catch(function (e) {
             dbg('warn', 'rankings direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
@@ -1890,6 +1949,139 @@
         var foot = document.createElement('div');
         foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(url) + '">View full leaderboard on eBird</a>';
         out.appendChild(foot);
+      }
+
+      // --- Last new bird on the leaderboard ---------------------------------
+      // Mirrors report.py::section_leaderboard_last_new. eBird's top100 page
+      // prints each birder's most recently added species; grouping that column
+      // by bird turns the leaderboard into a chase board, because a species
+      // that is several birders' newest tick is demonstrably findable right
+      // now. Same two leaderboards the report reads (this region + Lower 48),
+      // same grouping, same 🆕 flagging, same in-state checklists.
+      var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5;
+      var LAST_NEW_RE = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/;
+
+      function lastNewParse(recent) {
+        var m = LAST_NEW_RE.exec(String(recent || '').trim());
+        if (!m) return null;
+        var d = new Date(m[2].replace('.', '') + ' 00:00:00');
+        return {
+          species: m[1].trim(),
+          date: isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+        };
+      }
+
+      function loadLastNew() {
+        var btn = $('lastNewBtn'), st = $('lastNewStatus');
+        var out = $('lastNewResults');
+        var year = new Date().getFullYear();
+        var region = getRegion(), name = getDisplayName();
+        btn.disabled = true; out.innerHTML = '';
+        st.textContent = 'Reading the leaderboards…';
+
+        // The report unions every leaderboard it tracks for this report, so a
+        // bird only Lower 48 birders ticked still shows (without in-state
+        // checklists). Failures on one board must not sink the other.
+        var boards = [{ key: 'sel-' + region, region: region, max: 500 }];
+        if (!getReport().isRarityTracker) boards.push({ key: 'lower48', region: 'lower48', max: 10000 });
+        var jobs = boards.map(function (b) {
+          return fetchRank(b, year, name)
+            .then(function (d) { return { board: b, data: d }; })
+            .catch(function (e) { dbg('warn', 'last-new: board ' + b.region + ' failed: ' + (e && e.message)); return null; });
+        });
+
+        Promise.all(jobs).then(function (got) {
+          var groups = {};
+          got.filter(Boolean).forEach(function (g) {
+            var rows = (g.data.rows || []).slice();
+            if (g.data.me && g.data.me.recent) rows.push(g.data.me);
+            rows.forEach(function (r) {
+              var p = lastNewParse(r.recent);
+              if (!p || !r.name) return;
+              var e = groups[p.species] || (groups[p.species] = { birders: [], latest: '' });
+              e.birders.push({ name: r.name, rank: r.rank, url: g.data.url });
+              if (p.date > e.latest) e.latest = p.date;
+            });
+          });
+          var species = Object.keys(groups);
+          if (!species.length) {
+            st.textContent = 'No leaderboard entry carried a newest-species note.';
+            return;
+          }
+          st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
+          return lastNewChecklists(species, region).then(function (byName) {
+            renderLastNew(groups, byName, region);
+            st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
+          });
+        }).catch(function (e) {
+          st.textContent = e && e.message ? e.message : 'Could not load the leaderboard.';
+        }).finally(function () { btn.disabled = false; });
+      }
+
+      // One region-wide feed gives comName -> speciesCode for everything
+      // reported lately; only then can we ask for a species' own checklists.
+      function lastNewChecklists(speciesNames, region) {
+        if (!/^US-[A-Z]{2}/.test(region)) return Promise.resolve({});
+        return ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&includeProvisional=true&maxResults=10000')
+          .catch(function () { return []; })
+          .then(function (obs) {
+            var code = {};
+            (obs || []).forEach(function (o) {
+              if (o.comName && o.speciesCode) code[String(o.comName).toLowerCase()] = o.speciesCode;
+            });
+            var wanted = speciesNames.filter(function (n) { return code[n.toLowerCase()]; });
+            var byName = {};
+            return wanted.reduce(function (chain, n) {
+              return chain.then(function () {
+                return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' + encodeURIComponent(code[n.toLowerCase()]) + '?back=' + LAST_NEW_BACK_DAYS + '&detail=full&includeProvisional=true&maxResults=200')
+                  .catch(function () { return []; })
+                  .then(function (rows) { byName[n] = { code: code[n.toLowerCase()], obs: rows || [] }; });
+              });
+            }, Promise.resolve()).then(function () { return byName; });
+          });
+      }
+
+      function renderLastNew(groups, byName, region) {
+        var out = $('lastNewResults'); out.innerHTML = '';
+        var keys = Object.keys(groups).sort(function (a, b) {
+          var d = groups[b].birders.length - groups[a].birders.length;
+          if (d) return d;
+          if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
+          return a < b ? -1 : 1;
+        });
+        keys.forEach(function (sp) {
+          var g = groups[sp], info = byName[sp] || {}, li = document.createElement('li');
+          var seen = isSpeciesSeen(info.code || '', sp);
+          var people = g.birders.slice().sort(function (a, b) { return (a.rank || 9999) - (b.rank || 9999); });
+          var who = people.map(function (b) {
+            return esc(b.name) + (b.rank ? ' (#' + esc(b.rank) + ')' : '');
+          }).join(', ');
+          var head = '<div class="name">' + (seen ? '' : '<span class="star">🆕</span> ') + esc(sp) +
+            ' <span class="rank">×' + g.birders.length + '</span></div>';
+          var meta = '<div class="meta">newest tick ' + esc(fmtDate(g.latest)) + ' · ' + who + '</div>';
+          var obs = (info.obs || []).slice().sort(function (a, b) {
+            return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
+          });
+          var subs = {}, uniq = [];
+          obs.forEach(function (o) { if (o.subId && subs[o.subId]) return; if (o.subId) subs[o.subId] = 1; uniq.push(o); });
+          var ck;
+          if (!info.code) {
+            ck = '<div class="sp">no recent reports in ' + esc(region) + '</div>';
+          } else if (!uniq.length) {
+            ck = '<div class="sp">no checklists in the last ' + LAST_NEW_BACK_DAYS + ' days</div>';
+          } else {
+            ck = '<div class="sp">' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + ':<br>' +
+              uniq.slice(0, LAST_NEW_CHECKLISTS).map(function (o) {
+                var when = esc(fmtDate(o.obsDt)) + (o.howMany ? ' (' + esc(o.howMany) + ')' : '');
+                var link = o.subId ? ' ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '';
+                return when + ' · ' + esc(o.locName || '') + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') + link;
+              }).join('<br>') +
+              (uniq.length > LAST_NEW_CHECKLISTS ? '<br><em>…and ' + (uniq.length - LAST_NEW_CHECKLISTS) + ' more</em>' : '') +
+              '</div>';
+          }
+          li.innerHTML = head + meta + ck;
+          out.appendChild(li);
+        });
       }
 
       function loadAbaAlert() {
@@ -2088,14 +2280,32 @@
         return out;
       }
       function todDelay(v, ms) { return new Promise(function (res) { setTimeout(function () { res(v); }, ms); }); }
+      function todDayKey(code, dt) {
+        function p2(n) { return (n < 10 ? '0' : '') + n; }
+        return code + '|' + dt.getFullYear() + '-' + p2(dt.getMonth() + 1) + '-' + p2(dt.getDate());
+      }
+      function todHasDay(code, dt) { var s = todLoad(); return !!(s.days && s.days[todDayKey(code, dt)]); }
+      function todMarkDay(code, dt) {
+        var s = todLoad(); s.days = s.days || {}; s.days[todDayKey(code, dt)] = 1;
+        // The sampled window slides with today; drop keys that fell out of it.
+        var cutoff = Date.now() - 60 * 86400000;
+        Object.keys(s.days).forEach(function (k) {
+          var t = Date.parse(k.split('|')[1]);
+          if (!isNaN(t) && t < cutoff) delete s.days[k];
+        });
+        todSave(s);
+      }
       function todFetchHistoric(region, dates, onProg) {
         return dates.reduce(function (p, dt, idx) {
           return p.then(function (acc) {
             if (onProg) onProg(idx + 1, dates.length);
             var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&cat=species&maxResults=200';
-            return ebird(path)
-              .then(function (r) { if (Array.isArray(r)) acc.push.apply(acc, r); return todDelay(acc, 260); })
-              .catch(function () { return todDelay(acc, 260); });
+            // Background lane: same 1.2s spacing + backoff as the report's
+            // ebird.py, so a 21-day × N-county sample can't exhaust the key.
+            // The limiter supplies the spacing, so no extra sleep here.
+            return ebirdBg(path)
+              .then(function (r) { if (Array.isArray(r)) acc.push.apply(acc, r); return acc; })
+              .catch(function () { return acc; });
           });
         }, Promise.resolve([]));
       }
@@ -2106,8 +2316,18 @@
         var total = codes.length * dates.length, base = 0;
         return codes.reduce(function (p, code) {
           return p.then(function (acc) {
-            return todFetchHistoric(code, dates, function (i) { onProg(base + i, total); })
-              .then(function (part) { base += dates.length; acc.push.apply(acc, part); return acc; });
+            // Skip (county, day) pairs already accumulated — the background
+            // prefetch usually has them, making an on-demand build instant.
+            var need = dates.filter(function (d) { return !todHasDay(code, d); });
+            base += dates.length - need.length;
+            if (onProg) onProg(base, total);
+            return todFetchHistoric(code, need, function (i) { onProg(base + i, total); })
+              .then(function (part) {
+                base += need.length;
+                need.forEach(function (d) { todMarkDay(code, d); });
+                acc.push.apply(acc, part);
+                return acc;
+              });
           });
         }, Promise.resolve([]));
       }
@@ -2116,7 +2336,11 @@
         var btn = $('todBtn'), st = $('todStatus');
         if (!hasCounties()) { st.textContent = 'Not applicable to the ' + getReport().label + ' rarity tracker — pick a region report.'; renderTimeOfDay(); return; }
         var codes = countyCodes();
-        btn.disabled = true; st.textContent = 'Sampling recent checklists in ' + countyLabelStr() + '… this takes a few seconds.';
+        var missing = bgTodPending().length;
+        btn.disabled = true;
+        st.textContent = missing
+          ? 'Sampling recent checklists in ' + countyLabelStr() + '… ' + missing + ' county-days to go.'
+          : 'Using the history built in the background — refreshing rarity hours…';
         todFetchCounties(codes, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; })
           .then(function (all) {
             // Add each county's notable feed (rarity detection hours).
@@ -2466,11 +2690,12 @@
       }
 
       // --- Background history prefetch -------------------------------------
-      // Sections that need multi-year history (Migration outlook) are expensive
-      // to build on demand — the report builds that cache offline, ahead of
-      // time. Do the same here: as soon as the app has a key and a county-scoped
-      // report, fill the cache in the background on the rate-limited lane, a
-      // slice at a time, so opening the section later is instant. Progress is
+      // Sections that need history (Migration outlook ~2y of weekly samples,
+      // Time of day 21 days × N counties) are expensive to build on demand —
+      // the report builds those caches offline, ahead of time. Do the same
+      // here: as soon as the app has a key and a county-scoped report, fill
+      // both caches in the background on the rate-limited lane, a slice at a
+      // time, so opening either section later is instant. Progress is
       // persisted after every date, so it resumes across launches.
       var BG_SLICE = 12, _bgRunning = false, _bgTimer = null;
       function bgHistoryState() {
@@ -2480,15 +2705,46 @@
         var pending = all.filter(function (d) { return !cache.samples[migSampleKey(d)]; });
         return { cache: cache, all: all, pending: pending };
       }
+      // Time-of-day: the (county, day) pairs still missing from the store.
+      function bgTodPending() {
+        if (!getKey() || !hasCounties()) return [];
+        var out = [], dates = todDates(21);
+        countyCodes().forEach(function (code) {
+          dates.forEach(function (d) { if (!todHasDay(code, d)) out.push({ code: code, d: d }); });
+        });
+        return out;
+      }
       function bgHistoryStatus() {
         var s = bgHistoryState();
         if (!s) return null;
         return { done: s.all.length - s.pending.length, total: s.all.length, pending: s.pending.length };
       }
+      function bgTodTick() {
+        var pending = bgTodPending();
+        if (!pending.length) { _bgRunning = false; dbg('net', 'background history complete'); return; }
+        _bgRunning = true;
+        var slice = pending.slice(0, BG_SLICE);
+        dbg('net', 'background time-of-day: ' + slice.length + ' of ' + pending.length + ' county-days pending');
+        slice.reduce(function (p, job) {
+          return p.then(function () {
+            return todFetchHistoric(job.code, [job.d]).then(function (obs) {
+              todAccumulate(obs);
+              todMarkDay(job.code, job.d);
+            });
+          });
+        }, Promise.resolve()).catch(function (e) {
+          dbg('warn', 'background time-of-day paused: ' + (e && e.message || e));
+        }).finally(function () {
+          _bgRunning = false;
+          if (bgTodPending().length) { clearTimeout(_bgTimer); _bgTimer = setTimeout(bgTodTick, 5000); }
+          else { try { renderTimeOfDay(); } catch (e) {} dbg('net', 'background history complete'); }
+        });
+      }
       function bgHistoryTick() {
         if (_bgRunning) return;
         var s = bgHistoryState();
-        if (!s || !s.pending.length) return;
+        if (!s) return;
+        if (!s.pending.length) { bgTodTick(); return; }
         _bgRunning = true;
         var codes = countyCodes(), slice = s.pending.slice(0, BG_SLICE), cache = s.cache;
         dbg('net', 'background history: ' + slice.length + ' of ' + s.pending.length + ' weeks pending');
@@ -2509,8 +2765,9 @@
           _bgRunning = false;
           try { migSave(cache); } catch (e) {}
           var left = bgHistoryStatus();
-          if (left && left.pending) { clearTimeout(_bgTimer); _bgTimer = setTimeout(bgHistoryTick, 5000); }
-          else { try { renderMigration(); } catch (e) {} dbg('net', 'background history complete'); }
+          clearTimeout(_bgTimer);
+          if (left && left.pending) _bgTimer = setTimeout(bgHistoryTick, 5000);
+          else { try { renderMigration(); } catch (e) {} _bgTimer = setTimeout(bgTodTick, 5000); }
         });
       }
       function startBackgroundHistory(delayMs) {
@@ -2849,6 +3106,7 @@
       var MENU = [
         { at: 'wxBtn',         label: '🌤 Conditions for chasing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings' },
+        { at: 'lastNewBtn',    label: '🔭 Last new bird on the leaderboard' },
         { at: 'newBtn',        label: '🌟 New arrivals today' },
         { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports' },
         { at: 'activeBtn',     label: '🚨 Active rarities' },
@@ -2876,6 +3134,7 @@
       var LOADERS = {
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
+        lastNewBtn: { fn: loadLastNew,      needsKey: true },
         newBtn:     { fn: loadNewArrivals,  needsKey: true },
         refreshBtn: { fn: refresh,          needsKey: true },
         activeBtn:  { fn: loadActiveRarities, needsKey: true },
@@ -2929,6 +3188,7 @@
           if (!sec) { dbg('warn', 'menu: no section for ' + m.at); return; }
           if (!sec.id) sec.id = 'sec-' + m.at;
           sec._loader = LOADERS[m.at] || null;
+          sec._at = m.at; sec._label = m.label;
           _setH2(sec, m.label);
           _sections.push(sec);
           var li = document.createElement('li');
@@ -2960,6 +3220,54 @@
       }
       // Settings is now just another section in the Contents menu.
       function showSettings(show) { if (show) showSection('settingsPanel'); else showMenu(); }
+
+      // --- swipe right to return to the Contents menu -----------------------
+      // Mirrors the iOS interactive-pop gesture people expect from a pushed
+      // view. Deliberately conservative about what counts as a back-swipe,
+      // because this app is full of wide, horizontally scrollable tables and
+      // Leaflet maps that must keep their own drag behaviour:
+      //   * ignored unless a section (not the menu) is on screen
+      //   * ignored when the touch starts inside a map or a horizontally
+      //     scrolled container that hasn't been scrolled back to its left edge
+      //   * requires a mostly-horizontal, rightward, reasonably quick travel
+      //   * single-finger only, so pinch-zoom on a photo never navigates
+      var SWIPE_MIN_X = 72;      // px of travel before it counts
+      var SWIPE_MAX_OFF = 0.6;   // |dy| must stay under this share of |dx|
+      var SWIPE_MAX_MS = 700;
+      var _sw = null;
+
+      function swipeBlocked(node) {
+        for (var el = node; el && el !== document.body; el = el.parentElement) {
+          if (!el.classList) continue;
+          if (el.classList.contains('leaflet-container')) return true;
+          if (el.scrollWidth > el.clientWidth + 4 && el.scrollLeft > 2) return true;
+        }
+        return false;
+      }
+      function menuVisible() {
+        var m = $('menuPanel');
+        return !!(m && !m.hidden);
+      }
+      function bindSwipeBack() {
+        document.addEventListener('touchstart', function (e) {
+          _sw = null;
+          if (e.touches.length !== 1 || menuVisible()) return;
+          var t = e.touches[0];
+          if (swipeBlocked(e.target)) return;
+          _sw = { x: t.clientX, y: t.clientY, t: Date.now() };
+        }, { passive: true });
+        document.addEventListener('touchend', function (e) {
+          var s = _sw; _sw = null;
+          if (!s || menuVisible()) return;
+          var t = (e.changedTouches && e.changedTouches[0]);
+          if (!t) return;
+          var dx = t.clientX - s.x, dy = t.clientY - s.y;
+          if (dx < SWIPE_MIN_X) return;
+          if (Math.abs(dy) > Math.abs(dx) * SWIPE_MAX_OFF) return;
+          if (Date.now() - s.t > SWIPE_MAX_MS) return;
+          showMenu();
+        }, { passive: true });
+      }
       function populateReportSelect() {
         var sel = $('reportSelect'); if (!sel || sel.dataset.filled) return;
         (BL.reports() || []).forEach(function (r) {
@@ -2998,6 +3306,165 @@
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getReport().label;
         if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + getReport().label;
         if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getReport().label;
+      }
+
+      // --- section parity dump ---------------------------------------------
+      // Projects what the app ACTUALLY rendered into the same JSON shape
+      // birding/parity_dump.py produces from the Markdown report, so the two
+      // can be diffed section-for-section instead of eyeballed:
+      //     python parity_dump.py compare reports/wa/<date>.md app-dump.json
+      // pdNormalize/pdEntryKey MUST stay identical to normalize()/entry_key()
+      // in parity_dump.py — both are pinned to tests/fixtures/normalize-cases.json.
+      var _PD_IMG = /!\[[^\]]*\]\([^)]*\)/g,
+          _PD_LINK = /\[([^\]]*)\]\([^)]*\)/g,
+          _PD_BLOCKTAG = /<\/?(?:div|p|li|ul|ol|tr|td|th|table|tbody|thead|section|details|summary|h[1-6]|br|hr|blockquote|dl|dt|dd|pre)\b[^>]*>/gi,
+          _PD_TAG = /<[^>]*>/g,
+          _PD_EMOJI = /[\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\ufe0e\ufe0f\u200d\u20e3\u00a9\u00ae\u2122]|[\ud800-\udbff][\udc00-\udfff]/g,
+          _PD_EMPH = /[*_`~]/g,
+          _PD_DASH = /[\u2013\u2014\u2012\u2011]/g,
+          _PD_SEP = /(?:\s*\u00b7\s*)+/g,
+          _PD_WS = /\s+/g,
+          _PD_EMPTY_BRACKET = /[(\[{]\s*[)\]}]/g,
+          _PD_KEYJUNK = /[^a-z0-9 ]+/g,
+          _PD_DECOR = /^(?:(?:[x\u00d7\u2715]\s*)?\d+(?:[.,]\d+)?\s*(?:mi|km|spp|species|lists?|reports?)?[.)]?|[^\w]+)$/i;
+      function _pdUnescape(s) {
+        var d = document.createElement('textarea');
+        d.innerHTML = s;
+        return d.value;
+      }
+      function pdNormalize(text) {
+        var s = String(text == null ? '' : text);
+        s = s.replace(/\u00a0/g, ' ');
+        s = s.replace(_PD_IMG, ' ');
+        for (var i = 0; i < 3; i++) {
+          var n = s.replace(_PD_LINK, '$1');
+          if (n === s) break;
+          s = n;
+        }
+        s = s.replace(_PD_BLOCKTAG, ' \u00b7 ');
+        s = s.replace(_PD_TAG, ' ');
+        s = _pdUnescape(s);
+        s = s.replace(_PD_EMOJI, ' ');
+        s = s.replace(_PD_EMPH, '');
+        s = s.replace(_PD_DASH, '-');
+        s = s.replace(_PD_WS, ' ');
+        for (var j = 0; j < 3; j++) {
+          var m = s.replace(_PD_EMPTY_BRACKET, ' ');
+          if (m === s) break;
+          s = m;
+        }
+        s = s.replace(_PD_WS, ' ');
+        s = s.replace(_PD_SEP, ' \u00b7 ');
+        s = s.trim().replace(/^\u00b7+|\u00b7+$/g, '').trim();
+        return s.replace(_PD_WS, ' ');
+      }
+      function pdEntryKey(text) {
+        var segs = pdNormalize(text).split(' \u00b7 ');
+        for (var i = 0; i < segs.length; i++) {
+          var seg = segs[i].trim();
+          if (!seg || _PD_DECOR.test(seg)) continue;
+          seg = seg.split(' - ')[0].split(',')[0];
+          seg = seg.toLowerCase().replace(_PD_KEYJUNK, ' ').replace(_PD_WS, ' ').trim();
+          if (seg) return seg;
+        }
+        return '';
+      }
+      var _PD_ISO = /\b(\d{4})-(\d{2})-(\d{2})\b/g,
+          _PD_MDY = /\b([A-Z][a-z]{2})\s+(\d{1,2})\b/g,
+          _PD_MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+      function pdDates(text, refYear) {
+        var out = [], m;
+        _PD_ISO.lastIndex = 0;
+        while ((m = _PD_ISO.exec(text))) out.push(m[1] + '-' + m[2] + '-' + m[3]);
+        _PD_MDY.lastIndex = 0;
+        while ((m = _PD_MDY.exec(text))) {
+          var mi = _PD_MONTHS[m[1].toLowerCase()];
+          if (!mi) continue;
+          var day = parseInt(m[2], 10);
+          if (!(day >= 1 && day <= 31)) continue;
+          out.push(refYear + '-' + (mi < 10 ? '0' : '') + mi + '-' + (day < 10 ? '0' : '') + day);
+        }
+        return out;
+      }
+      // Rows the app renders: list items and table body rows. Skips the
+      // Contents menu and anything nested inside another counted row.
+      function pdRows(sec) {
+        var all = sec.querySelectorAll('li, tbody tr'), out = [];
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          if (el.closest('#menuPanel') || el.closest('.toc')) continue;
+          var nested = false;
+          for (var p = el.parentElement; p && p !== sec; p = p.parentElement) {
+            if (p.tagName === 'LI' || (p.tagName === 'TR')) { nested = true; break; }
+          }
+          if (!nested) out.push(el);
+        }
+        return out;
+      }
+      function dumpSections() {
+        var refYear = new Date().getFullYear();
+        var secs = (_sections || []).map(function (sec) {
+          var entries = [], dates = [];
+          pdRows(sec).forEach(function (el) {
+            var raw = el.innerHTML || '';
+            var text = pdNormalize(raw);
+            if (!text) return;
+            entries.push({ key: pdEntryKey(raw), text: text });
+            dates = dates.concat(pdDates(text, refYear));
+          });
+          var uniq = dates.filter(function (d, i) { return dates.indexOf(d) === i; }).sort();
+          var h2 = sec.querySelector('h2');
+          return {
+            at: sec._at || null,
+            label: sec._label || null,
+            heading: pdNormalize(h2 ? h2.innerHTML : ''),
+            entries: entries,
+            count: entries.length,
+            dates: uniq,
+            newest: uniq.length ? uniq[uniq.length - 1] : null,
+            loaded: !!entries.length
+          };
+        });
+        return {
+          kind: 'app',
+          version: APP_VERSION,
+          region: (function () { try { return getReport().slug || getRegion(); } catch (e) { return ''; } })(),
+          date: new Date().toISOString().slice(0, 10),
+          generated: new Date().toISOString(),
+          sections: secs
+        };
+      }
+      // Sections only render once opened, so an unopened section dumps empty
+      // and would look like a delta. Load everything first, then dump.
+      function dumpSectionsAll(onStatus) {
+        var pend = (_sections || []).filter(function (s) { return s._loader && !pdRows(s).length; });
+        if (!pend.length) return Promise.resolve(dumpSections());
+        return pend.reduce(function (p, sec, i) {
+          return p.then(function () {
+            if (onStatus) onStatus('loading ' + (i + 1) + '/' + pend.length + ': ' + (sec._label || sec.id));
+            try {
+              var r = sec._loader.fn();
+              return (r && r.then) ? r.catch(function () {}) : null;
+            } catch (e) { return null; }
+          });
+        }, Promise.resolve()).then(function () { return dumpSections(); });
+      }
+      function dbgDump() {
+        var btn = $('dbgDump'), ta = $('dbgLog');
+        if (btn) { btn.disabled = true; btn.textContent = 'Dumping…'; }
+        dumpSectionsAll(function (m) { if (btn) btn.textContent = m; })
+          .then(function (d) {
+            var text = JSON.stringify(d, null, 2);
+            if (ta) { ta.value = text; ta.scrollTop = 0; }
+            window.__dbgLive = null;   // freeze the panel on the dump
+            var n = d.sections.reduce(function (a, s) { return a + s.count; }, 0);
+            dbg('net', 'section dump: ' + d.sections.length + ' sections, ' + n + ' entries');
+            if (btn) btn.textContent = 'Dumped ✓ — Copy';
+          })
+          .catch(function (e) { if (btn) btn.textContent = 'Dump failed'; dbg('error', 'dump: ' + (e && e.message || e)); })
+          .then(function () {
+            if (btn) { btn.disabled = false; setTimeout(function () { btn.textContent = 'Dump'; }, 4000); }
+          });
       }
 
       // --- on-device debug console ---
@@ -3054,6 +3521,7 @@
       $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
       $('navBack').addEventListener('click', function () { showMenu(); });
+      bindSwipeBack();
       $('reportSelect').addEventListener('change', function () {
         localStorage.setItem(K.report, (this.value || 'wa').toLowerCase());
         clearChaseCache();
@@ -3072,6 +3540,7 @@
       $('quickBtn').addEventListener('click', loadQuickOuting);
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
+      $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('hotBtn').addEventListener('click', loadHotspots);
@@ -3080,6 +3549,7 @@
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       $('dbgCopy').addEventListener('click', dbgCopyLog);
+      $('dbgDump').addEventListener('click', dbgDump);
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });

@@ -190,3 +190,117 @@ test('hot and cold hotspots render from ONE shared scan', async () => {
     'the cold section reports the shared scan');
   app.window.close();
 });
+
+/* --- swipe-back gesture ---------------------------------------------------
+ * The gesture has to coexist with vertical page scrolling, horizontally
+ * scrollable tables and Leaflet drag, so these cases pin both directions:
+ * a clean rightward swipe navigates, and every guarded situation does not.
+ */
+function swipe(app, from, dx, dy, opts) {
+  const w = app.window;
+  const o = opts || {};
+  const x0 = 40, y0 = 300;
+  const mk = (type, x, y, key) => {
+    const e = new w.Event(type, { bubbles: true });
+    const pt = [{ clientX: x, clientY: y }];
+    Object.defineProperty(e, key, { value: o.multi ? pt.concat(pt) : pt });
+    return e;
+  };
+  from.dispatchEvent(mk('touchstart', x0, y0, 'touches'));
+  from.dispatchEvent(mk('touchend', x0 + dx, y0 + dy, 'changedTouches'));
+}
+
+test('swiping right in a section returns to the Contents menu', async () => {
+  const app = await boot();
+  app.open(/Top destinations/);
+  assert.equal(app.$('menuPanel').hidden, true, 'section is open');
+
+  swipe(app, app.$('destStatus'), 140, 10);
+  assert.equal(app.$('menuPanel').hidden, false, 'swipe right reopened Contents');
+  assert.equal(app.$('navbar').hidden, true, 'navbar hidden back on the menu');
+  const visible = [...app.document.querySelectorAll('main section')].filter((s) => !s.hidden);
+  assert.equal(visible.length, 0, 'no section left open');
+  app.window.close();
+});
+
+test('swipe-back ignores gestures it must not steal', async () => {
+  const app = await boot();
+  const open = () => { app.open(/Top destinations/); return app.$('destStatus'); };
+
+  let el = open();
+  swipe(app, el, -140, 0);
+  assert.equal(app.$('menuPanel').hidden, true, 'leftward swipe does not navigate');
+
+  swipe(app, el, 30, 0);
+  assert.equal(app.$('menuPanel').hidden, true, 'short drag does not navigate');
+
+  swipe(app, el, 140, 200);
+  assert.equal(app.$('menuPanel').hidden, true, 'diagonal/vertical scroll does not navigate');
+
+  swipe(app, el, 140, 0, { multi: true });
+  assert.equal(app.$('menuPanel').hidden, true, 'two-finger pinch does not navigate');
+
+  // A table already scrolled right must keep its own horizontal scroll.
+  const scroller = app.document.createElement('div');
+  Object.defineProperty(scroller, 'scrollWidth', { value: 900 });
+  Object.defineProperty(scroller, 'clientWidth', { value: 300 });
+  scroller.scrollLeft = 120;
+  app.$('destStatus').appendChild(scroller);
+  swipe(app, scroller, 140, 0);
+  assert.equal(app.$('menuPanel').hidden, true,
+    'swipe inside a horizontally scrolled table is left to the table');
+
+  // Same container back at its left edge: the gesture is free again.
+  scroller.scrollLeft = 0;
+  swipe(app, scroller, 140, 0);
+  assert.equal(app.$('menuPanel').hidden, false,
+    'at the left edge the swipe navigates');
+  app.window.close();
+});
+
+test('swiping right on the Contents menu is a no-op', async () => {
+  const app = await boot();
+  assert.equal(app.$('menuPanel').hidden, false, 'menu is showing');
+  swipe(app, app.$('menuPanel'), 160, 0);
+  assert.equal(app.$('menuPanel').hidden, false, 'still on the menu');
+  assert.deepEqual(app.state.errors, [], 'no errors from a menu swipe');
+  app.window.close();
+});
+
+test('Last new bird section is wired and auto-loads from the leaderboard', async () => {
+  const app = await boot();
+  app.open(/Last new bird/);
+  assert.equal(app.$('lastNewResults').closest('section').hidden, false,
+    'the section is the one on screen');
+  assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,
+    'the loader ran and reported progress');
+  assert.ok(app.state.fetches.some((u) => /top100/.test(u)),
+    'it reads ebird.org/top100, the same source rankings.py scrapes');
+  assert.deepEqual(app.state.errors, [], 'no uncaught errors');
+  app.window.close();
+});
+
+/* The leaderboard prints each birder's newest species as
+ * "Pectoral Sandpiper (Jul 25, 2026)". report.py::_LAST_NEW_RE and the app's
+ * LAST_NEW_RE must agree on that shape or the two sections group differently.
+ * This pulls the literal straight out of index.html so an edit there is what
+ * gets tested, not a copy that can silently drift.
+ */
+test("the app's LAST_NEW_RE parses the leaderboard newest-species column", () => {
+  const m = /var LAST_NEW_RE = (\/.+\/);/.exec(HTML);
+  assert.ok(m, 'LAST_NEW_RE is still declared in index.html');
+  const RE = eval(m[1]);          // eslint-disable-line no-eval
+
+  const hit = RE.exec('Pectoral Sandpiper (Jul 25, 2026)');
+  assert.ok(hit, 'the eBird "Species (Mon D, YYYY)" form parses');
+  assert.equal(hit[1], 'Pectoral Sandpiper');
+  assert.equal(hit[2], 'Jul 25, 2026');
+
+  assert.equal(RE.exec('Gray-crowned Rosy-Finch (Jul 21, 2026)')[1],
+    'Gray-crowned Rosy-Finch', 'hyphenated names survive');
+  assert.equal(RE.exec("Swainson's Thrush (Sep 3, 2026)")[1],
+    "Swainson's Thrush", 'apostrophes survive');
+  assert.equal(RE.exec('White Wagtail (Black-backed) (Jul 3, 2026)')[1],
+    'White Wagtail (Black-backed)', 'subspecies parentheses are not eaten');
+  assert.equal(RE.exec('no parenthetical here'), null, 'junk is rejected');
+});
