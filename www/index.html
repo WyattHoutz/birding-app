@@ -159,8 +159,8 @@
     .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
-    #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty { display: none; }
+    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
@@ -221,6 +221,7 @@
         <button id="targetsBtn">Load targets</button>
       </div>
       <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
+      <div id="closeMap"></div>
       <ul id="targetResults" class="obs"></ul>
     </section>
 
@@ -251,6 +252,7 @@
       </div>
       <div id="tripStatus" class="status">A nearest-neighbour route through your best nearby target hotspots.</div>
       <div id="tripMap"></div>
+      <div id="tripRouteLink" class="hint"></div>
       <ul id="tripResults" class="obs dest route"></ul>
     </section>
 
@@ -279,6 +281,7 @@
         <button id="quickBtn">Hotspots near home</button>
       </div>
       <div id="quickStatus" class="status">The richest eBird hotspots within ~20 mi of Home (needs Home set).</div>
+      <div id="quickMap"></div>
       <ul id="quickResults" class="obs dest"></ul>
     </section>
 
@@ -487,7 +490,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.10';
+      var APP_VERSION = '1.0.11';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -554,7 +557,7 @@
 
       // One observation row, carrying the same links the Markdown report puts on
       // every row: species page, location (hotspot page + map, or map only for a
-      // personal location), the checklist, and the 🎯 not-on-year-list tag.
+      // personal location), the checklist, and the 🔍 not-on-year-list tag.
       function renderList(el, obs) {
         el.innerHTML = '';
         obs.forEach(function (o) {
@@ -701,7 +704,7 @@
       function loadTargets() {
         if (!getKey()) { $('targetStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults'), label = getReport().label;
-        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Finding targets for ' + label + '…';
+        btn.disabled = true; out.innerHTML = ''; $('closeMap').innerHTML = ''; st.textContent = 'Finding targets for ' + label + '…';
         getChase().then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           // Unseen species across the report's counties/geo (report scope + seen
@@ -721,6 +724,17 @@
           var shown = targets.slice(0, 100);
           st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
             (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
+          // The report maps this section, so the app must too. Rows are one per
+          // species but several can share a spot, so pin the distinct locations.
+          var atLoc = {}, pts = [];
+          shown.forEach(function (t) {
+            var la = parseFloat(t.lat), ln = parseFloat(t.lng);
+            var id = t.locId || (la + ',' + ln);
+            if (!isFinite(la) || !isFinite(ln) || atLoc[id]) return;
+            atLoc[id] = 1;
+            pts.push({ lat: la, lng: ln, locName: t.locName });
+          });
+          renderMap($('closeMap'), pts.slice(0, 25), getHome(), false);
           renderList(out, shown);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -970,8 +984,8 @@
         return locLink(r.loc || r.locName || '', r.lat, (r.lon != null ? r.lon : r.lng),
           r.locId || '', r.location_private || r.locationPrivate);
       }
-      // 🎯 = not on the active report's year list; ⭐ = eBird-flagged rarity.
-      function needTag(code, name) { return isSpeciesSeen(code, name) ? '' : '<span class="needflag">🎯</span> '; }
+      // 🔍 = not on the active report's year list; ⭐ = eBird-flagged rarity.
+      function needTag(code, name) { return isSpeciesSeen(code, name) ? '' : '<span class="needflag">🔍</span> '; }
       function rareTag(kind) { return kind === 'Rarity' ? '<span class="star">⭐</span> ' : ''; }
 
       // 🕒 = no fresh report in 48h+, so the bird may have moved on. Mirrors
@@ -1338,8 +1352,32 @@
         return { stops: route, total: total };
       }
 
+      // Port of report.py::_route_maps_url — one Google Maps directions link
+      // covering every stop, so the whole itinerary opens in the Maps app
+      // instead of having to tap each stop separately. Origin = home,
+      // destination = last stop, everything between as waypoints.
+      function routeMapsUrl(stops, home) {
+        var pts = (stops || []).filter(function (s) { return isFinite(s.lat) && isFinite(s.lng); });
+        if (!pts.length) return '';
+        var origin = home ? home.lat + ',' + home.lng : pts[0].lat + ',' + pts[0].lng;
+        var rest = home ? pts : pts.slice(1);
+        if (!rest.length) return '';
+        var last = rest[rest.length - 1], mid = rest.slice(0, -1);
+        var u = 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(origin) +
+          '&destination=' + encodeURIComponent(last.lat + ',' + last.lng);
+        if (mid.length) {
+          u += '&waypoints=' + encodeURIComponent(mid.map(function (s) { return s.lat + ',' + s.lng; }).join('|'));
+        }
+        return u + '&travelmode=driving';
+      }
+
       function renderRoute(plan, home, mapEl, listEl, statusEl) {
         renderMap(mapEl, plan.stops, home, true);
+        var linkEl = $('tripRouteLink');
+        if (linkEl) {
+          var g = routeMapsUrl(plan.stops, home);
+          linkEl.innerHTML = g ? extA(g, '📍 open route in Google Maps') : '';
+        }
         listEl.innerHTML = '';
         plan.stops.forEach(function (d, i) {
           var li = document.createElement('li');
@@ -1359,7 +1397,9 @@
       function loadTripPlanner() {
         if (!getKey()) { $('tripStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var home = getHome(), btn = $('tripBtn'), st = $('tripStatus');
-        btn.disabled = true; $('tripResults').innerHTML = ''; $('tripMap').innerHTML = ''; st.textContent = 'Planning a route…';
+        btn.disabled = true; $('tripResults').innerHTML = ''; $('tripMap').innerHTML = '';
+        if ($('tripRouteLink')) $('tripRouteLink').innerHTML = '';
+        st.textContent = 'Planning a route…';
         getChase().then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           // cv.destinations are already the near targets within the report's
@@ -1590,12 +1630,13 @@
         var home = getHome();
         if (!home) { $('quickStatus').textContent = 'Set a Home location in Settings to find hotspots near you.'; showSettings(true); return; }
         var btn = $('quickBtn'), st = $('quickStatus');
-        btn.disabled = true; $('quickResults').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
+        btn.disabled = true; $('quickResults').innerHTML = ''; $('quickMap').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
         ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
           var top = buildQuickOuting(hs, home).slice(0, 15);
           if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of home.'; return; }
           st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') + ' near home · updated ' + nowTime();
           var el = $('quickResults'); el.innerHTML = '';
+          renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), home, false);
           top.forEach(function (h, i) {
             var li = document.createElement('li');
             var dist = (h.dist != null) ? '<span class="count">' + h.dist.toFixed(1) + ' mi</span>' : '';
@@ -1966,6 +2007,35 @@
         var reg = getRegion();
         return [{ key: slug, label: (getReport() && getReport().label) || getRegion(), region: reg, max: 500, activeFor: [slug] }];
       }
+      // Which leaderboard a scope choice actually reads. loadRankings and the
+      // heading MUST derive the region the same way, or the two disagree.
+      function rankScopeRegion(scope) {
+        return scope === 'lower48' ? 'lower48' : (scope === 'aba' ? 'aba' : getRegion());
+      }
+      // Human name for a leaderboard region ('US-WA' -> 'Washington'), so the
+      // heading and the results header read like the report's rankings section
+      // instead of printing a raw eBird region code.
+      function rankRegionName(region) {
+        var reg = String(region || '').trim(), low = reg.toLowerCase();
+        if (low === 'lower48') return 'Lower 48';
+        if (low === 'aba') return 'ABA Area';
+        var m = /^US-([A-Z]{2})$/.exec(reg.toUpperCase());
+        if (m) for (var k in _US_STATES) if (_US_STATES[k] === m[1]) return k;
+        return reg;
+      }
+      // The <h2> suffix and the "My region" option have to name the leaderboard
+      // that is on screen. They named the active REPORT, so picking Lower 48 or
+      // ABA Area left a heading still saying "Washington" over other people's
+      // numbers.
+      function syncRankScopeUI() {
+        var sel = $('rankScope');
+        if (!sel) return;
+        var own = sel.querySelector('option[value="region"]');
+        if (own) own.textContent = 'My region · ' + rankRegionName(getRegion());
+        if ($('rankScopeLabel')) {
+          $('rankScopeLabel').textContent = '· ' + rankRegionName(rankScopeRegion(sel.value));
+        }
+      }
       // rankings.py caches the scrape once per day (the Lower-48 page is huge);
       // do the same on device so re-opening the section is instant.
       var RANK_CACHE_KEY = 'ebird_rank_cache_v1';
@@ -2032,7 +2102,8 @@
 
       function loadRankings() {
         var scope = $('rankScope') ? $('rankScope').value : 'region';
-        var region = scope === 'lower48' ? 'lower48' : (scope === 'aba' ? 'aba' : getRegion());
+        var region = rankScopeRegion(scope);
+        syncRankScopeUI();
         var year = new Date().getFullYear();
         var max = scope === 'region' ? 500 : 10000;
         var url = rankingsUrl(region, year, max);
@@ -2059,7 +2130,7 @@
       function renderRankings(data, scope, region, url, name) {
         var out = $('rankResults'); out.innerHTML = '';
         data = data || {}; var rows = data.rows || [], me = data.me;
-        var label = scope === 'lower48' ? 'Lower 48' : (scope === 'aba' ? 'ABA Area' : region);
+        var label = rankRegionName(region);
         var head = document.createElement('div'); head.className = 'rankhead';
         if (me) {
           head.innerHTML = '<div class="bignum">#' + esc(me.rank) + ' <small>in ' + esc(label) + ' · ' + esc(me.species != null ? me.species : '?') + ' species</small></div>' +
@@ -2088,7 +2159,7 @@
       // by bird turns the leaderboard into a chase board, because a species
       // that is several birders' newest tick is demonstrably findable right
       // now. Same two leaderboards the report reads (this region + Lower 48),
-      // same grouping, same 🎯 flagging, same in-state checklists.
+      // same grouping, same 🔍 flagging, same in-state checklists.
       var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5;
       var LAST_NEW_RE = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/;
 
@@ -2182,12 +2253,11 @@
         });
         keys.forEach(function (sp) {
           var g = groups[sp], info = byName[sp] || {}, li = document.createElement('li');
-          var seen = isSpeciesSeen(info.code || '', sp);
           var people = g.birders.slice().sort(function (a, b) { return (a.rank || 9999) - (b.rank || 9999); });
           var who = people.map(function (b) {
             return esc(b.name) + (b.rank ? ' (#' + esc(b.rank) + ')' : '');
           }).join(', ');
-          var head = '<div class="name">' + (seen ? '' : '<span class="star">🎯</span> ') + esc(sp) +
+          var head = '<div class="name">' + photoSlot(sp, info.code || '') + needTag(info.code || '', sp) + esc(sp) +
             ' <span class="rank">×' + g.birders.length + '</span></div>';
           var meta = '<div class="meta">newest tick ' + esc(fmtDate(g.latest)) + ' · ' + who + '</div>';
           var obs = (info.obs || []).slice().sort(function (a, b) {
@@ -2213,6 +2283,7 @@
           li.innerHTML = head + meta + ck;
           out.appendChild(li);
         });
+        hydratePhotos(out);
       }
 
       function loadAbaAlert() {
@@ -2255,7 +2326,7 @@
       }
 
       // Mirrors report.py::section_state_aba_rarities — one row per species with
-      // Reports / Observers / Latest, newest first, 🎯 when it's not on the year
+      // Reports / Observers / Latest, newest first, 🔍 when it's not on the year
       // list. Rarity trackers show the ungrouped continent-wide feed instead.
       function renderAbaAlert(list, url, grouped) {
         var el = $('abaResults'); el.innerHTML = '';
@@ -2927,21 +2998,29 @@
         }
         routes.slice(0, 10).forEach(function (r, i) {
           var wrap = document.createElement('div'); wrap.className = 'convoywrap';
-          var head = '<div class="rankhead"><div class="bignum">' + (i + 1) + '. ' + esc(r.members.join(' + ')) +
-            ' <small>' + esc(fmtDate(r.day)) + ' · ' + r.stops.length + ' stops</small></div></div>';
+          var allSubs = [];
+          r.stops.forEach(function (s) {
+            (s._subs && s._subs.length ? s._subs : [s.subId || s.subID || ''])
+              .forEach(function (x) { if (x && allSubs.indexOf(x) < 0) allSubs.push(x); });
+          });
+          // Members are counted, never named — the checklist links below are
+          // where a reader sees who filed what (mirrors the report).
+          var head = '<div class="rankhead"><div class="bignum">' + (i + 1) + '. ' +
+            r.members.length + ' birders <small>' + esc(fmtDate(r.day)) + ' · ' +
+            r.stops.length + ' stops · ' + allSubs.length + ' checklist' +
+            (allSubs.length === 1 ? '' : 's') + '</small></div></div>';
           var ul = '<ul class="obs dest">';
           r.stops.forEach(function (s) {
-            var sub = s.subId || s.subID || '';
+            var subs = (s._subs && s._subs.length) ? s._subs : [s.subId || s.subID || ''].filter(Boolean);
             var t = s.obsTime || ((s.isoObsDate && s.isoObsDate.length >= 16) ? s.isoObsDate.slice(11, 16) : '');
             var q = (s.loc && s.loc.latitude != null && s.loc.longitude != null) ? (s.loc.latitude + ',' + s.loc.longitude) : '';
             ul += '<li><div class="name">' + convoyLocLink(s) + (t ? ' <span class="dim">' + esc(t) + '</span>' : '') + '</div>' +
               '<div class="sp">' + (s.numSpecies != null ? s.numSpecies + ' sp · ' : '') +
-              (sub ? checklistLink(sub) : '') +
+              subs.map(function (x) { return checklistLink(x); }).join(' ') +
               (q ? ' · <a class="maplink" data-q="' + esc(q) + '">🗺 map</a>' : '') + '</div></li>';
           });
           ul += '</ul>';
-          var subs = r.stops.map(function (s) { return s.subId || s.subID || ''; }).filter(Boolean).join(',');
-          var spp = '<div class="destfoot"><a class="convoyspp" data-subs="' + esc(subs) + '">🐦 Show combined species (flags 🎯 needs)</a></div><div class="convoysppbox"></div>';
+          var spp = '<div class="destfoot"><a class="convoyspp" data-subs="' + esc(allSubs.join(',')) + '">🐦 Show combined species (flags 🔍 needs)</a></div><div class="convoysppbox"></div>';
           wrap.innerHTML = head + ul + spp;
           el.appendChild(wrap);
         });
@@ -2970,8 +3049,9 @@
               function key(s) { return s.replace(/<[^>]*>/g, '').toLowerCase(); }
               missing.sort(function (a, b) { return key(a) < key(b) ? -1 : 1; });
               have.sort(function (a, b) { return key(a) < key(b) ? -1 : 1; });
-              var html = '';
-              if (missing.length) html += '<div class="convoymiss"><b>🎯 ' + missing.length + ' not on your list:</b> ' + missing.join(', ') + '</div>';
+              var html = '<div><b>' + all.length + ' species</b>' +
+                (missing.length ? ' · <b class="convoymiss">🔍 ' + missing.length + '</b>' : '') + '</div>';
+              if (missing.length) html += '<div class="convoymiss"><b>🔍 ' + missing.length + ' not on your list:</b> ' + missing.join(', ') + '</div>';
               else html += '<div><em>Every species already on your list ✓</em></div>';
               if (have.length) html += '<div class="dim" style="margin-top:4px">Also seen (' + have.length + '): ' + have.join(', ') + '</div>';
               box.innerHTML = html;
@@ -3056,7 +3136,7 @@
           var isHigh = p.type === 'H', v = parseFloat(p.v), ft = isFinite(v) ? v.toFixed(1) + ' ft' : '';
           var nxt = preds[i + 1], nt = (nxt && nxt.t) || '', nhhmm = nt.length >= 16 ? nt.slice(11, 16) : nt;
           var to = nhhmm ? (' to ' + to12(nhhmm)) : '';
-          return { kind: isHigh ? 'High' : 'Low', time: to12(hhmm), height: ft, trend: (isHigh ? '⬇ Falling' : '⬆ Rising') + to };
+          return { kind: isHigh ? 'High' : 'Low', time: to12(hhmm), height: ft, trend: (isHigh ? '⬇ Falling' : '👀 ⬆ Rising') + to };
         });
       }
       function renderSunMoon(home) {
@@ -3099,7 +3179,7 @@
         }).join('');
         el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · station ' + esc(station) + '</div>' +
           '<table class="wxtable"><thead><tr><th>Tide</th><th>Time</th><th>Height</th><th>Trend</th></tr></thead><tbody>' + body + '</tbody></table>' +
-          '<div class="wxline dim2">⬆ Rising (incoming) tides push waterfowl & seafowl closer to shore — prime chase windows.</div>';
+          '<div class="wxline dim2">👀 ⬆ Rising (incoming) tides push waterfowl &amp; seafowl closer to shore — prime chase windows, go now.</div>';
       }
       function loadTides() {
         var el = $('wxTides'); if (!el) return;
@@ -3430,7 +3510,7 @@
         $('tideStation').value = localStorage.getItem('ebird_tide_station') || '';
         $('ebirdName').value = getDisplayName();
         $('abaSid').value = getAbaSid();
-        if ($('rankScopeLabel')) $('rankScopeLabel').textContent = '· ' + getReport().label;
+        syncRankScopeUI();
         renderBirdcast();
         renderTimeOfDay();
         renderMigration();
@@ -3671,6 +3751,9 @@
       $('quickBtn').addEventListener('click', loadQuickOuting);
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
+      // Picking a scope must reload. Without this the list kept whatever board
+      // was loaded last, so switching to Lower 48 or ABA Area looked inert.
+      $('rankScope').addEventListener('change', loadRankings);
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
@@ -3741,7 +3824,7 @@
           if (!getKey()) { showSettings(true); return; }
           var wrap = cspp.closest('.convoywrap'), cbox = wrap ? wrap.querySelector('.convoysppbox') : null;
           if (!cbox) return;
-          if (cbox.getAttribute('data-loaded') === '1') { cbox.innerHTML = ''; cbox.removeAttribute('data-loaded'); cspp.textContent = '🐦 Show combined species (flags 🎯 needs)'; return; }
+          if (cbox.getAttribute('data-loaded') === '1') { cbox.innerHTML = ''; cbox.removeAttribute('data-loaded'); cspp.textContent = '🐦 Show combined species (flags 🔍 needs)'; return; }
           cbox.setAttribute('data-loaded', '1'); cspp.textContent = '🐦 Hide combined species';
           loadConvoySpecies(cspp.getAttribute('data-subs') || '', cbox);
           return;

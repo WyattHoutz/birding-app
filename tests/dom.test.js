@@ -390,3 +390,43 @@ test('the fallback icon ships with the app', () => {
   assert.match(svg, /<svg[^>]*viewBox/, 'must be a real SVG');
   assert.ok(svg.length < 4096, 'fallback should stay tiny');
 });
+
+
+test('rankings: changing the scope reloads that scope (v1.0.10 bug)', async () => {
+  // Shipped bug: #rankScope had no change listener and the heading was bound to
+  // the report, so picking "Lower 48" left the previous board on screen under a
+  // "Washington" title. Both halves are asserted here.
+  const app = await boot();
+  app.open(/eBird Rankings/);
+  await new Promise((r) => setTimeout(r, 40));
+  const top100 = () => app.state.fetches.filter((u) => /top100/.test(u));
+  const before = top100();
+  assert.ok(before.some((u) => /US-WA/.test(u)),
+    '"My region" must load the report region board, not a national one');
+  assert.match(app.$('rankScopeLabel').textContent, /Washington/,
+    'the heading names the selected scope, not the raw region code');
+
+  const sel = app.$('rankScope');
+  sel.value = 'lower48';
+  sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 40));
+  const after = top100();
+  assert.ok(after.length > before.length,
+    'changing the scope must reload — it silently did nothing before');
+  assert.ok(after.slice(before.length).some((u) => /lower48/.test(u)),
+    'the reload is scoped to the newly chosen region');
+  assert.match(app.$('rankScopeLabel').textContent, /Lower 48/,
+    'the heading follows the scope so rows and title can never disagree');
+  app.window.close();
+});
+
+test('birder convoys list checklists per stop and never name the members', async () => {
+  const app = await boot();
+  const src = HTML.slice(HTML.indexOf('function renderConvoys('),
+    HTML.indexOf('function loadConvoySpecies('));
+  assert.ok(!/members\.join/.test(src),
+    'convoy rows must not print member names — the checklist links show who filed');
+  assert.match(src, /r\.members\.length/, 'the group is described by a birder count');
+  assert.match(src, /s\._subs/, 'every member checklist at a stop gets a link, not just the first');
+  app.window.close();
+});

@@ -717,7 +717,14 @@
       var iso = key.split('|')[1], day = dayStr(iso);
       var mkey = members.join(' + ') + '|' + day;
       var g = convoys[mkey] = convoys[mkey] || { members: members, day: day, stops: [] };
-      g.stops.push(chks[0]);
+      // Copy the representative checklist and hang every member's subId off
+      // it (mirrors report.section_birder_convoys) — the links are how a
+      // reader sees who was in the group without printing their names.
+      var visit = {};
+      Object.keys(chks[0]).forEach(function (k) { visit[k] = chks[0][k]; });
+      visit._subs = chks.map(function (c) { return c.subId || c.subID; })
+        .filter(Boolean);
+      g.stops.push(visit);
     });
     var routes = [];
     Object.keys(convoys).forEach(function (k) {
