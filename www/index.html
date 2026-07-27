@@ -54,6 +54,7 @@
       push('info', ['debug capture ready']);
     })();
   </script>
+  <link rel="stylesheet" href="vendor/leaflet.css" />
   <style>
     :root {
       --bg: #f6f7f5;
@@ -155,6 +156,12 @@
     .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
+    #destMap, #excMap, #tripMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    .leaflet-container { font: inherit; background: #e8ecea; }
+    .leaflet-container a { color: var(--accent); }
+    .leaflet-div-icon { background: transparent; border: none; }
+    .pinbubble { width: 24px; height: 24px; border-radius: 50%; background: #e5484d; color: #fff; font-weight: 800; font-size: 12px; line-height: 22px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
+    .pinbubble.home { background: #0f7a52; }
     .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 12px; font-weight: 800; margin-right: 8px; vertical-align: middle; }
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
@@ -325,13 +332,22 @@
       <div id="todResults"></div>
     </section>
 
-    <section class="panel">
-      <h2>🔥 Hot &amp; 🥶 cold hotspots <span class="dim" id="hotRegionLabel"></span></h2>
+    <section class="panel" id="hotPanel">
+      <h2>🔥 Hot hotspots <span class="dim" id="hotRegionLabel"></span></h2>
       <div class="row">
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
-      <div id="hotStatus" class="status">Ranks nearby hotspots running hot (fresh sightings) and overlooked gems (high all-time diversity, currently quiet). Needs your Home location.</div>
+      <div id="hotStatus" class="status">Ranks nearby hotspots running hot — fresh sightings surging right now. Needs your Home location.</div>
       <div id="hotResults"></div>
+    </section>
+
+    <section class="panel" id="coldPanel">
+      <h2>🥶 Cold hotspots <span class="dim" id="coldRegionLabel"></span></h2>
+      <div class="row">
+        <button id="coldBtn">Scan hotspots near home</button>
+      </div>
+      <div id="coldStatus" class="status">Overlooked gems — high all-time diversity hotspots that are currently quiet. Needs your Home location.</div>
+      <div id="coldResults"></div>
     </section>
 
     <section class="panel">
@@ -405,7 +421,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div id="ver">Bird Chaser · v1.0.4 · tap 5× for 🐞 debug</div>
+    <div id="ver">Bird Chaser · v1.0.5 · tap 5× for 🐞 debug</div>
   </footer>
 
   <style>
@@ -431,6 +447,7 @@
     <textarea id="dbgLog" readonly spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
   </div>
 
+  <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
   <script src="seed-birdlist.js"></script>
   <script>
@@ -655,7 +672,7 @@
           return res;
         });
       }
-      function clearChaseCache() { _chase = {}; }
+      function clearChaseCache() { _chase = {}; resetHotspotCache(); }
 
       // --- Top destinations (rank hotspots by unseen-target richness) ---
       function haversineMi(la1, lo1, la2, lo2) {
@@ -721,6 +738,58 @@
           s += '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="sans-serif">' + (i + 1) + '</text>';
         });
         return s + '</svg>';
+      }
+
+      // Real slippy map (Leaflet + keyless CARTO/OSM raster tiles). Markers are
+      // numbered bubbles matching the list ranks; home shows as a green "H".
+      // Falls back to the abstract SVG scatter if Leaflet fails to load.
+      var _leafletMaps = {};
+      function pinIcon(label, home) {
+        return L.divIcon({ className: 'leaflet-div-icon', html: '<div class="pinbubble' + (home ? ' home' : '') + '">' + label + '</div>', iconSize: [24, 24], iconAnchor: [12, 12] });
+      }
+      function renderMap(el, points, home, connect) {
+        if (!el) return;
+        points = (points || []).filter(function (p) { return p && isFinite(p.lat) && isFinite(p.lng); });
+        var h = (home && isFinite(home.lat) && isFinite(home.lng)) ? home : null;
+        if (typeof L === 'undefined' || !L || !L.map) { setSVG(el, mapSVG(points, h, connect)); return; }
+        if (!el.id) el.id = 'lmap-' + (renderMap._n = (renderMap._n || 0) + 1);
+        if (_leafletMaps[el.id]) { try { _leafletMaps[el.id].remove(); } catch (e) {} delete _leafletMaps[el.id]; }
+        el.innerHTML = '';
+        if (!points.length && !h) return;
+        var map;
+        try { map = L.map(el, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }); }
+        catch (e) { dbg('error', 'leaflet init: ' + (e && e.message || e)); setSVG(el, mapSVG(points, h, connect)); return; }
+        _leafletMaps[el.id] = map;
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          subdomains: 'abcd', maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }).addTo(map);
+        var latlngs = [];
+        if (connect) {
+          var seq = [];
+          if (h) seq.push([h.lat, h.lng]);
+          points.forEach(function (p) { seq.push([p.lat, p.lng]); });
+          if (seq.length > 1) L.polyline(seq, { color: '#e5484d', weight: 3, opacity: 0.6 }).addTo(map);
+        }
+        if (h) { L.marker([h.lat, h.lng], { icon: pinIcon('H', true) }).addTo(map); latlngs.push([h.lat, h.lng]); }
+        points.forEach(function (p, i) { L.marker([p.lat, p.lng], { icon: pinIcon(String(i + 1), false) }).addTo(map); latlngs.push([p.lat, p.lng]); });
+        function fit() {
+          try {
+            map.invalidateSize();
+            if (latlngs.length === 1) map.setView(latlngs[0], 12);
+            else if (latlngs.length > 1) map.fitBounds(latlngs, { padding: [26, 26], maxZoom: 14 });
+          } catch (e) {}
+        }
+        fit();
+        setTimeout(fit, 80);
+      }
+      // WKWebView/Leaflet needs invalidateSize once a hidden map becomes visible.
+      function refreshVisibleMaps() {
+        setTimeout(function () {
+          Object.keys(_leafletMaps).forEach(function (k) {
+            var el = document.getElementById(k), m = _leafletMaps[k];
+            if (el && m && el.offsetParent !== null) { try { m.invalidateSize(); } catch (e) {} }
+          });
+        }, 40);
       }
 
       function getHome() {
@@ -792,7 +861,7 @@
       }
 
       function renderDestinations(list, mapEl, listEl) {
-        setSVG(mapEl, mapSVG(list, getHome()));
+        renderMap(mapEl, list, getHome(), false);
         listEl.innerHTML = '';
         list.forEach(function (d, i) {
           var li = document.createElement('li');
@@ -862,7 +931,7 @@
       }
 
       function renderRoute(plan, home, mapEl, listEl, statusEl) {
-        setSVG(mapEl, mapSVG(plan.stops, home, true));
+        renderMap(mapEl, plan.stops, home, true);
         listEl.innerHTML = '';
         plan.stops.forEach(function (d, i) {
           var li = document.createElement('li');
@@ -1647,9 +1716,23 @@
         return '<li><div class="name"><a class="extlink" data-href="' + esc(eb) + '">' + esc(h.name) + '</a></div>' +
           '<div class="sp">' + d + extra + ' · <a class="maplink" data-q="' + esc(q) + '">🗺 directions</a> · ' + fav + '</div></li>';
       }
-      function renderHotspots(r) {
+      var _hotspotCache = null, _hotspotPromise = null;
+      function resetHotspotCache() { _hotspotCache = null; _hotspotPromise = null; }
+      function scanHotspots(force) {
+        if (force) resetHotspotCache();
+        if (_hotspotCache) return Promise.resolve(_hotspotCache);
+        if (_hotspotPromise) return _hotspotPromise;
+        var home = getHome(), codes = countyCodes();
+        _hotspotPromise = hotspotFeeds(codes).then(function (res) {
+          _hotspotCache = computeHotspots(res[0], res[1], home);
+          _hotspotPromise = null;
+          return _hotspotCache;
+        }, function (e) { _hotspotPromise = null; throw e; });
+        return _hotspotPromise;
+      }
+      function renderHot(r) {
         var el = $('hotResults'); if (!el) return;
-        var html = '<div class="rankhead"><b>🔥 Running hot</b></div>';
+        var html = '';
         if (r.hot.length) {
           html += '<ul class="obs dest">';
           r.hot.slice(0, 10).forEach(function (h) {
@@ -1657,7 +1740,11 @@
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
-        html += '<div class="rankhead" style="margin-top:14px"><b>🥶 Overlooked gems</b></div>';
+        el.innerHTML = html;
+      }
+      function renderCold(r) {
+        var el = $('coldResults'); if (!el) return;
+        var html = '';
         if (r.cold.length) {
           html += '<ul class="obs dest">';
           r.cold.slice(0, 10).forEach(function (h) {
@@ -1668,27 +1755,37 @@
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
         el.innerHTML = html;
       }
-      function loadHotspots() {
-        if (!getKey()) { $('hotStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+      // Hot and cold share ONE scan (2 API calls per county). Either section's
+      // button or first-open triggers it; both sections render from the cache.
+      function runHotspotScan(opts) {
+        opts = opts || {};
+        var hotSt = $('hotStatus'), coldSt = $('coldStatus');
+        if (!getKey()) { var m = 'Add your eBird API key in Settings first.'; if (hotSt) hotSt.textContent = m; if (coldSt) coldSt.textContent = m; if (opts.redirect) showSettings(true); return; }
         var home = getHome();
-        if (!home) { $('hotStatus').textContent = 'Set your Home location in Settings to rank nearby hotspots.'; showSettings(true); return; }
+        if (!home) { var m2 = 'Set your Home location in Settings to rank nearby hotspots.'; if (hotSt) hotSt.textContent = m2; if (coldSt) coldSt.textContent = m2; if (opts.redirect) showSettings(true); return; }
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + countyLabelStr();
-        var btn = $('hotBtn'), st = $('hotStatus');
+        if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + countyLabelStr();
         if (!hasCounties()) {
-          $('hotResults').innerHTML = '<div class="status">Hot &amp; cold hotspots are ranked within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
-          st.textContent = ''; return;
+          var msg = '<div class="status">Hotspot ranking runs within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          if ($('hotResults')) $('hotResults').innerHTML = msg;
+          if ($('coldResults')) $('coldResults').innerHTML = msg;
+          if (hotSt) hotSt.textContent = ''; if (coldSt) coldSt.textContent = ''; return;
         }
-        var codes = countyCodes();
-        btn.disabled = true; st.textContent = 'Scanning hotspots in ' + countyLabelStr() + '…';
-        hotspotFeeds(codes)
-          .then(function (res) {
-            var r = computeHotspots(res[0], res[1], home);
-            renderHotspots(r);
-            st.textContent = r.hot.length + ' hot · ' + r.cold.length + ' cold within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
-          })
-          .catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
+        if ($('hotBtn')) $('hotBtn').disabled = true;
+        if ($('coldBtn')) $('coldBtn').disabled = true;
+        if (!(_hotspotCache && !opts.force)) {
+          var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
+          if (hotSt) hotSt.textContent = scanMsg; if (coldSt) coldSt.textContent = scanMsg;
+        }
+        scanHotspots(opts.force).then(function (r) {
+          renderHot(r); renderCold(r);
+          if (hotSt) hotSt.textContent = r.hot.length + ' running hot within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
+          if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem' + (r.cold.length === 1 ? '' : 's') + ' within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
+        }).catch(function (e) { var em = netErr(e); if (hotSt) hotSt.textContent = em; if (coldSt) coldSt.textContent = em; })
+          .finally(function () { if ($('hotBtn')) $('hotBtn').disabled = false; if ($('coldBtn')) $('coldBtn').disabled = false; });
       }
+      function loadHotspots() { runHotspotScan({ force: true, redirect: true }); }
+      function loadColdspots() { runHotspotScan({ force: true, redirect: true }); }
 
       // --- P15: migration outlook (weekly phenology from historic samples) ---
       var MIG_MIN_PRESENCE = 1, MIG_YEARS_BACK = 2, MIG_WINDOW_WEEKS = 2, MIG_SAMPLE_WEEKDAY = 3; // 3 = Wednesday
@@ -2127,7 +2224,8 @@
         { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds' },
         { at: 'quickBtn',      label: '🚶 Quick outing' },
         { at: 'excBtn',        label: '🚗 Top excursions' },
-        { at: 'hotBtn',        label: '🔥 Hot & 🥶 cold hotspots' },
+        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges' },
+        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems' },
         { at: 'cklBtn',        label: '🦜 Birdiest checklists' },
         { at: 'convoyBtn',     label: '👥 Birder convoys' },
         { at: 'favResults',    label: '📍 Favorite hotspots' },
@@ -2137,6 +2235,42 @@
         { at: 'myYearBody',    label: '📅 My year' },
         { at: 'settingsPanel', label: '⚙️ Settings' }
       ];
+      // First time a section is opened, load its content automatically (no button
+      // tap). Keyed by anchor id. needsKey/needsHome gate the eBird/geo loaders so
+      // auto-open never redirects to Settings; the heavy migration build stays
+      // manual (no entry here).
+      var LOADERS = {
+        wxBtn:      { fn: loadConditions,   needsHome: true },
+        rankBtn:    { fn: loadRankings,     needsKey: true },
+        newBtn:     { fn: loadNewArrivals,  needsKey: true },
+        refreshBtn: { fn: refresh,          needsKey: true },
+        abaBtn:     { fn: loadAbaAlert,     needsKey: true },
+        tripBtn:    { fn: loadTripPlanner,  needsKey: true },
+        destBtn:    { fn: loadDestinations, needsKey: true },
+        targetsBtn: { fn: loadTargets,      needsKey: true },
+        quickBtn:   { fn: loadQuickOuting,  needsKey: true },
+        excBtn:     { fn: loadExcursions,   needsKey: true },
+        hotBtn:     { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
+        coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
+        cklBtn:     { fn: loadBirdiest,     needsKey: true },
+        convoyBtn:  { fn: loadConvoys,      needsKey: true },
+        favResults: { fn: renderFavs },
+        bcBody:     { fn: renderBirdcast },
+        todBtn:     { fn: loadTimeOfDay,    needsKey: true },
+        myYearBody: { fn: updateMyYear }
+      };
+      var _autoLoaded = {};
+      function autoLoad(sec) {
+        if (!sec || _autoLoaded[sec.id]) return;
+        var spec = sec._loader;
+        if (!spec || !spec.fn) return;
+        try {
+          if (spec.needsKey && !getKey()) return;
+          if (spec.needsHome && !getHome()) return;
+        } catch (e) { return; }
+        _autoLoaded[sec.id] = true;
+        try { spec.fn(); } catch (e) { try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {} }
+      }
       var _sections = [];
       function _setH2(sec, label) {
         var h2 = sec.querySelector('h2'); if (!h2) return;
@@ -2159,6 +2293,7 @@
           var sec = (anchor && anchor.closest) ? anchor.closest('section') : null;
           if (!sec) { dbg('warn', 'menu: no section for ' + m.at); return; }
           if (!sec.id) sec.id = 'sec-' + m.at;
+          sec._loader = LOADERS[m.at] || null;
           _setH2(sec, m.label);
           _sections.push(sec);
           var li = document.createElement('li');
@@ -2177,6 +2312,8 @@
         var target = $(id), t = $('navTitle');
         if (t) { var h = target && target.querySelector('h2'); t.textContent = h ? h.textContent.trim() : ''; }
         try { window.scrollTo(0, 0); } catch (e) {}
+        autoLoad(target);
+        refreshVisibleMaps();
       }
       function showMenu() {
         _sections.forEach(function (s) { s.hidden = true; });
@@ -2224,6 +2361,7 @@
         renderTimeOfDay();
         renderMigration();
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getReport().label;
+        if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + getReport().label;
         if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + getReport().label;
       }
 
@@ -2232,7 +2370,7 @@
       function dbgContext() {
         var out = [];
         function add(s) { out.push(s); }
-        try { add('Bird Chaser v1.0.4 · ' + new Date().toString()); } catch (e) {}
+        try { add('Bird Chaser v1.0.5 · ' + new Date().toString()); } catch (e) {}
         try { var cap = window.Capacitor; var plat = cap && cap.getPlatform ? cap.getPlatform() : '?'; var nat = cap && cap.isNativePlatform && cap.isNativePlatform() ? 'native' : 'web'; add('platform: ' + plat + ' (' + nat + ')'); } catch (e) {}
         try { add('online: ' + (navigator.onLine ? 'yes' : 'NO') + ' · viewport ' + window.innerWidth + 'x' + window.innerHeight); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
@@ -2284,9 +2422,9 @@
       $('reportSelect').addEventListener('change', function () {
         localStorage.setItem(K.report, (this.value || 'wa').toLowerCase());
         clearChaseCache();
+        _autoLoaded = {};
         loadSettings();
         ['results', 'targetResults', 'destResults', 'excResults', 'tripResults', 'newResults'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
-        if (getKey()) refresh();
       });
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);
@@ -2301,6 +2439,7 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('hotBtn').addEventListener('click', loadHotspots);
+      $('coldBtn').addEventListener('click', loadColdspots);
       $('migBtn').addEventListener('click', migBootstrap);
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
@@ -2415,9 +2554,10 @@
           localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           clearChaseCache();
+          _autoLoaded = {};
           loadSettings();
           showSettings(false);
-          if (getKey()) refresh(); else $('status').textContent = 'Add your eBird API key in Settings to begin.';
+          if (!getKey()) $('status').textContent = 'Add your eBird API key in Settings to begin.';
         }
         var place = ($('homePlace').value || '').trim();
         var haveCoords = isFinite(parseFloat($('homeLat').value)) && isFinite(parseFloat($('homeLng').value));
@@ -2451,7 +2591,6 @@
       updateCsvStatus();
       updateMyYear();
       renderFavs();
-      if (getKey()) refresh();
     })();
   </script>
 </body>
