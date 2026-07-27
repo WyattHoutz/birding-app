@@ -124,6 +124,16 @@
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
     .panel h2 { font-size: 15px; margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { color: var(--muted); font-weight: 600; }
+    #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
+    #navbar[hidden] { display: none; }
+    #navbar button { padding: 8px 12px; font-size: 14px; }
+    #navTitle { font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #menuPanel h2 { font-size: 19px; margin-bottom: 4px; }
+    .toc { list-style: none; padding: 0; margin: 8px 0 0; }
+    .toc li { border-top: 1px solid var(--line); }
+    .toc li:first-child { border-top: 0; }
+    .toc .toclink { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 2px; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; }
+    .toc .toclink::after { content: "\203a"; color: var(--muted); font-weight: 700; font-size: 20px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -169,6 +179,10 @@
   </style>
 </head>
 <body>
+  <div id="navbar" hidden>
+    <button id="navBack" class="secondary" type="button">‹ Contents</button>
+    <span id="navTitle"></span>
+  </div>
   <header>
     <p class="kicker">Personal eBird tracker</p>
     <h1>🦉 Bird Chaser</h1>
@@ -2097,11 +2111,83 @@
       }
 
       // --- settings ---
-      function showSettings(show) {
-        var p = $('settingsPanel');
-        p.hidden = !show;
-        if (show) { try { p.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { try { p.scrollIntoView(); } catch (_) {} } }
+      // ---- Report-style Contents menu + single-section navigation ----
+      // Order and labels mirror the Markdown report's table of contents. Each
+      // entry anchors on a unique element already inside its <section>, so no
+      // section markup has to move — only the navigation model changes. Tapping
+      // a Contents entry shows that one section; the rest stay hidden.
+      var MENU = [
+        { at: 'wxBtn',         label: '🌤 Conditions for chasing' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings' },
+        { at: 'newBtn',        label: '🌟 New arrivals today' },
+        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports' },
+        { at: 'abaBtn',        label: '🚨 ABA rare-bird alert' },
+        { at: 'tripBtn',       label: '🧭 Trip planner' },
+        { at: 'destBtn',       label: '🥇 Top destinations' },
+        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds' },
+        { at: 'quickBtn',      label: '🚶 Quick outing' },
+        { at: 'excBtn',        label: '🚗 Top excursions' },
+        { at: 'hotBtn',        label: '🔥 Hot & 🥶 cold hotspots' },
+        { at: 'cklBtn',        label: '🦜 Birdiest checklists' },
+        { at: 'convoyBtn',     label: '👥 Birder convoys' },
+        { at: 'favResults',    label: '📍 Favorite hotspots' },
+        { at: 'migBtn',        label: '🛬 Migration outlook' },
+        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast' },
+        { at: 'todBtn',        label: '⏰ Time-of-day specialists' },
+        { at: 'myYearBody',    label: '📅 My year' },
+        { at: 'settingsPanel', label: '⚙️ Settings' }
+      ];
+      var _sections = [];
+      function _setH2(sec, label) {
+        var h2 = sec.querySelector('h2'); if (!h2) return;
+        var span = h2.querySelector('span');
+        h2.textContent = label + ' ';
+        if (span) h2.appendChild(span);
       }
+      function buildNav() {
+        var main = document.querySelector('main'); if (!main) return;
+        var menu = document.createElement('nav');
+        menu.id = 'menuPanel'; menu.className = 'panel';
+        menu.innerHTML = '<h2>📑 Contents</h2>' +
+          '<p class="hint" id="menuReport">Tap a section to open it — this menu mirrors your Markdown report.</p>' +
+          '<ul id="menuList" class="toc"></ul>';
+        main.insertBefore(menu, main.firstChild);
+        var list = menu.querySelector('#menuList');
+        _sections = [];
+        MENU.forEach(function (m) {
+          var anchor = document.getElementById(m.at);
+          var sec = (anchor && anchor.closest) ? anchor.closest('section') : null;
+          if (!sec) { dbg('warn', 'menu: no section for ' + m.at); return; }
+          if (!sec.id) sec.id = 'sec-' + m.at;
+          _setH2(sec, m.label);
+          _sections.push(sec);
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          a.className = 'toclink'; a.textContent = m.label;
+          (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
+          li.appendChild(a); list.appendChild(li);
+        });
+        showMenu();
+      }
+      function showSection(id) {
+        _sections.forEach(function (s) { s.hidden = (s.id !== id); });
+        var menu = $('menuPanel'); if (menu) menu.hidden = true;
+        var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
+        var nav = $('navbar'); if (nav) nav.hidden = false;
+        var target = $(id), t = $('navTitle');
+        if (t) { var h = target && target.querySelector('h2'); t.textContent = h ? h.textContent.trim() : ''; }
+        try { window.scrollTo(0, 0); } catch (e) {}
+      }
+      function showMenu() {
+        _sections.forEach(function (s) { s.hidden = true; });
+        var menu = $('menuPanel'); if (menu) menu.hidden = false;
+        var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
+        var nav = $('navbar'); if (nav) nav.hidden = true;
+        var mr = $('menuReport'); if (mr) { try { mr.textContent = getReport().label + ' · tap a section to open it (mirrors your Markdown report).'; } catch (e) {} }
+        try { window.scrollTo(0, 0); } catch (e) {}
+      }
+      // Settings is now just another section in the Contents menu.
+      function showSettings(show) { if (show) showSection('settingsPanel'); else showMenu(); }
       function populateReportSelect() {
         var sel = $('reportSelect'); if (!sel || sel.dataset.filled) return;
         (BL.reports() || []).forEach(function (r) {
@@ -2146,7 +2232,7 @@
       function dbgContext() {
         var out = [];
         function add(s) { out.push(s); }
-        try { add('Bird Chaser v1.0.2 · ' + new Date().toString()); } catch (e) {}
+        try { add('Bird Chaser v1.0.4 · ' + new Date().toString()); } catch (e) {}
         try { var cap = window.Capacitor; var plat = cap && cap.getPlatform ? cap.getPlatform() : '?'; var nat = cap && cap.isNativePlatform && cap.isNativePlatform() ? 'native' : 'web'; add('platform: ' + plat + ' (' + nat + ')'); } catch (e) {}
         try { add('online: ' + (navigator.onLine ? 'yes' : 'NO') + ' · viewport ' + window.innerWidth + 'x' + window.innerHeight); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
@@ -2194,6 +2280,7 @@
       // --- wire up ---
       $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
+      $('navBack').addEventListener('click', function () { showMenu(); });
       $('reportSelect').addEventListener('change', function () {
         localStorage.setItem(K.report, (this.value || 'wa').toLowerCase());
         clearChaseCache();
@@ -2358,6 +2445,7 @@
         } catch (e) { el.textContent = 'Running in web preview'; }
       })();
 
+      buildNav();
       loadSettings();
       maybeAutoSeed();
       updateCsvStatus();
