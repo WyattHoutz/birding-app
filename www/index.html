@@ -487,7 +487,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.9';
+      var APP_VERSION = '1.0.10';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1006,6 +1006,7 @@
       //     and only once a slot nears the viewport, so a 200-row year list
       //     never fires 200 requests on open.
       var ICON_DIR = 'assets/birds/', ICON_EXTS = ['.jpg', '.png'];
+      var ICON_FALLBACK = 'fallback.svg';
       var PHOTO_KEY = 'ebird_photos_v1', _photoMem = null, _photoQueue = [], _photoBusy = false;
       function photoCache() {
         if (_photoMem) return _photoMem;
@@ -1111,8 +1112,21 @@
         img.className = 'birdpic'; img.alt = name || ''; img.src = src;
         img.addEventListener('error', function () {
           if (el.firstChild) el.removeChild(img);
-          if (onErr) onErr(); else el.classList.add('nopic');
+          if (onErr) onErr(); else showFallback(el);
         });
+        el.appendChild(img);
+      }
+      // Last resort: a generic silhouette, drawn for this project so it carries
+      // no licence obligation of its own. Better than hiding the slot — an
+      // empty gap makes a list of birds look broken, and collapsing only some
+      // rows leaves the column ragged.
+      function showFallback(el) {
+        if (el.querySelector('img.birdpic')) return;
+        var img = document.createElement('img');
+        img.className = 'birdpic isfallback'; img.alt = ''; img.src = ICON_DIR + ICON_FALLBACK;
+        // If even the bundled fallback can't load, there is nothing left to
+        // show, so collapse the slot rather than leave a broken-image box.
+        img.addEventListener('error', function () { el.classList.add('nopic'); });
         el.appendChild(img);
       }
       var _photoObs = (typeof IntersectionObserver === 'function') ? new IntersectionObserver(function (entries) {
@@ -1167,7 +1181,7 @@
         idbGet(key).then(function (blob) {
           if (blob) { putImg(el, URL.createObjectURL(blob), name); done(true); return; }
           return photoLookup(name).then(function (src) {
-            if (!src) { el.classList.add('nopic'); done(cached); return; }
+            if (!src) { showFallback(el); done(cached); return; }
             putImg(el, src, name);
             // Keep the bytes so the next launch doesn't need the network.
             return fetch(src).then(function (r) { return r.ok ? r.blob() : null; })
@@ -1175,7 +1189,7 @@
               .catch(function () {})
               .then(function () { done(cached); });
           });
-        }).catch(function () { el.classList.add('nopic'); done(cached); });
+        }).catch(function () { showFallback(el); done(cached); });
       }
 
       // Test seam. Every other icon entry point runs inside a section that
@@ -1185,8 +1199,10 @@
       window.BirdIcons = {
         photoSlot: photoSlot,
         hydratePhotos: hydratePhotos,
+        showFallback: showFallback,
         dir: ICON_DIR,
         exts: ICON_EXTS,
+        fallback: ICON_FALLBACK,
       };
 
       // eBird's ABA Rarities alert and Top-100 leaderboard are PUBLIC pages —
