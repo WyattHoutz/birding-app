@@ -156,7 +156,8 @@
     .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #tripMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
@@ -252,6 +253,7 @@
         <button id="cklBtn">Load checklists</button>
       </div>
       <div id="cklStatus" class="status">Recent regional checklists ranked by species count.</div>
+      <div id="cklMap"></div>
       <ul id="cklResults" class="obs dest"></ul>
     </section>
 
@@ -338,6 +340,7 @@
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
       <div id="hotStatus" class="status">Ranks nearby hotspots running hot — fresh sightings surging right now. Needs your Home location.</div>
+      <div id="hotMap"></div>
       <div id="hotResults"></div>
     </section>
 
@@ -347,6 +350,7 @@
         <button id="coldBtn">Scan hotspots near home</button>
       </div>
       <div id="coldStatus" class="status">Overlooked gems — high all-time diversity hotspots that are currently quiet. Needs your Home location.</div>
+      <div id="coldMap"></div>
       <div id="coldResults"></div>
     </section>
 
@@ -421,7 +425,7 @@
 
   <footer>
     <div id="runtime">Loading…</div>
-    <div id="ver">Bird Chaser · v1.0.5 · tap 5× for 🐞 debug</div>
+    <div id="ver">Bird Chaser · tap 5× for 🐞 debug</div>
   </footer>
 
   <style>
@@ -452,6 +456,10 @@
   <script src="seed-birdlist.js"></script>
   <script>
     (function () {
+      // Single source of truth for the shipped version. The footer and the debug
+      // header both render from this, and tests/version.test.js asserts it
+      // matches package.json so a release can't ship a mislabeled build.
+      var APP_VERSION = '1.0.6';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1001,6 +1009,7 @@
         if (!getKey()) { $('cklStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('cklBtn'), st = $('cklStatus');
         $('cklResults').innerHTML = '';
+        if ($('cklMap')) $('cklMap').innerHTML = '';
         if (!hasCounties()) {
           $('cklResults').innerHTML = '<div class="status">Birdiest checklists come from the report\u2019s county hotspots — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
@@ -1025,6 +1034,11 @@
               (sub ? '<a class="extlink" data-href="https://ebird.org/checklist/' + esc(sub) + '">View checklist ↗</a>' : '');
             el.appendChild(li);
           });
+          // Pins match the numbered rows above (mirrors the report's map).
+          renderMap($('cklMap'), top.map(function (l) {
+            var loc = l.loc || {};
+            return { lat: +loc.latitude, lng: +loc.longitude, name: loc.name || loc.locName || '' };
+          }), home, false);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -1732,28 +1746,31 @@
       }
       function renderHot(r) {
         var el = $('hotResults'); if (!el) return;
-        var html = '';
-        if (r.hot.length) {
+        var top = r.hot.slice(0, 10), html = '';
+        if (top.length) {
           html += '<ul class="obs dest">';
-          r.hot.slice(0, 10).forEach(function (h) {
+          top.forEach(function (h) {
             html += hotspotRow(h, h.fresh + ' fresh species · ' + h.share.toFixed(0) + '% of region' + (h.silent != null ? ' · last obs ' + h.silent + 'd ago' : ''));
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
         el.innerHTML = html;
+        // Numbered pins match the list ranks, mirroring the report's section map.
+        renderMap($('hotMap'), top, getHome(), false);
       }
       function renderCold(r) {
         var el = $('coldResults'); if (!el) return;
-        var html = '';
-        if (r.cold.length) {
+        var top = r.cold.slice(0, 10), html = '';
+        if (top.length) {
           html += '<ul class="obs dest">';
-          r.cold.slice(0, 10).forEach(function (h) {
+          top.forEach(function (h) {
             var s = h.silent >= 365 ? '1y+' : h.silent + 'd';
             html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s);
           });
           html += '</ul>';
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
         el.innerHTML = html;
+        renderMap($('coldMap'), top, getHome(), false);
       }
       // Hot and cold share ONE scan (2 API calls per county). Either section's
       // button or first-open triggers it; both sections render from the cache.
@@ -1769,6 +1786,8 @@
           var msg = '<div class="status">Hotspot ranking runs within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           if ($('hotResults')) $('hotResults').innerHTML = msg;
           if ($('coldResults')) $('coldResults').innerHTML = msg;
+          if ($('hotMap')) $('hotMap').innerHTML = '';
+          if ($('coldMap')) $('coldMap').innerHTML = '';
           if (hotSt) hotSt.textContent = ''; if (coldSt) coldSt.textContent = ''; return;
         }
         if ($('hotBtn')) $('hotBtn').disabled = true;
@@ -2370,7 +2389,7 @@
       function dbgContext() {
         var out = [];
         function add(s) { out.push(s); }
-        try { add('Bird Chaser v1.0.5 · ' + new Date().toString()); } catch (e) {}
+        try { add('Bird Chaser v' + APP_VERSION + ' · ' + new Date().toString()); } catch (e) {}
         try { var cap = window.Capacitor; var plat = cap && cap.getPlatform ? cap.getPlatform() : '?'; var nat = cap && cap.isNativePlatform && cap.isNativePlatform() ? 'native' : 'web'; add('platform: ' + plat + ' (' + nat + ')'); } catch (e) {}
         try { add('online: ' + (navigator.onLine ? 'yes' : 'NO') + ' · viewport ' + window.innerWidth + 'x' + window.innerHeight); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
@@ -2586,6 +2605,7 @@
       })();
 
       buildNav();
+      if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       loadSettings();
       maybeAutoSeed();
       updateCsvStatus();
