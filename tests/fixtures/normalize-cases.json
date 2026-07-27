@@ -1,0 +1,98 @@
+{
+  "_comment": [
+    "Shared normalisation contract for section parity dumps.",
+    "",
+    "The Markdown report and the app render the same content in different",
+    "markup (Markdown vs DOM). To diff them we project both through the SAME",
+    "normalisation rules. Two implementations exist:",
+    "  - birding/parity_dump.py          normalize() / entry_key()",
+    "  - birding-app/www/index.html      pdNormalize() / pdEntryKey()",
+    "",
+    "Both are asserted against this fixture, so they cannot drift:",
+    "  - birding/tests/parity/test_normalize.py",
+    "  - birding-app/tests/normalize.test.js",
+    "",
+    "'in' is raw Markdown or raw HTML, 'text' is the normalised plain text,",
+    "'key' is the diff identity (leading label, decoration stripped)."
+  ],
+  "cases": [
+    {
+      "why": "markdown link unwraps to its text",
+      "in": "[Tufted Puffin](https://ebird.org/species/tufpuf/US-WA) — **11.7 mi**",
+      "text": "Tufted Puffin - 11.7 mi",
+      "key": "tufted puffin"
+    },
+    {
+      "why": "html link unwraps the same way",
+      "in": "<a href=\"https://ebird.org/species/tufpuf/US-WA\">Tufted Puffin</a> &mdash; <b>11.7 mi</b>",
+      "text": "Tufted Puffin - 11.7 mi",
+      "key": "tufted puffin"
+    },
+    {
+      "why": "app list row: count badge, photo slot, name and meta divs",
+      "in": "<span class=\"count\">\u00d711</span><div class=\"name\"><span class=\"thumb\" data-bird=\"Tufted Puffin\"><img class=\"birdpic\" src=\"x.jpg\"></span>Tufted Puffin</div><div class=\"meta\">Edmonds Waterfront \u00b7 Jul 26 10:50 am</div>",
+      "text": "\u00d711 \u00b7 Tufted Puffin \u00b7 Edmonds Waterfront \u00b7 Jul 26 10:50 am",
+      "key": "tufted puffin"
+    },
+    {
+      "why": "report table row keyed past the rank column",
+      "in": "1 \u00b7 [Stanwood Water Treatment Plant](https://ebird.org/hotspot/L343249) ([\ud83d\uddfa](https://maps.example)) \u00b7 53 \u00b7 34.4 mi",
+      "text": "1 \u00b7 Stanwood Water Treatment Plant \u00b7 53 \u00b7 34.4 mi",
+      "key": "stanwood water treatment plant"
+    },
+    {
+      "why": "emoji-only link text leaves no empty brackets behind",
+      "in": "Edmonds Waterfront ([\ud83d\uddfa](https://www.google.com/maps))",
+      "text": "Edmonds Waterfront",
+      "key": "edmonds waterfront"
+    },
+    {
+      "why": "new-bird marker and emphasis are decoration, not content",
+      "in": "\ud83c\udd95 **[White Wagtail](https://ebird.org/species/whiwag/US-WA)**",
+      "text": "White Wagtail",
+      "key": "white wagtail"
+    },
+    {
+      "why": "images are dropped entirely",
+      "in": "![Birdiest checklists map](maps/2026-07-26-birdiest-checklists.svg) Stanwood",
+      "text": "Stanwood",
+      "key": "stanwood"
+    },
+    {
+      "why": "hyphenated species names survive the ' - ' split",
+      "in": "[Black-backed Woodpecker](https://ebird.org/species/bkbwoo) — 38.6 mi",
+      "text": "Black-backed Woodpecker - 38.6 mi",
+      "key": "black backed woodpecker"
+    },
+    {
+      "why": "html entities decode",
+      "in": "Kent Ponds &amp; Marsh &#183; 42",
+      "text": "Kent Ponds & Marsh \u00b7 42",
+      "key": "kent ponds marsh"
+    },
+    {
+      "why": "collapsible report cell keeps its summary content",
+      "in": "<details><summary>2</summary>Jul 25 8:11 pm (1) \u00b7 <a href=\"u\">Stanwood</a></details>",
+      "text": "2 \u00b7 Jul 25 8:11 pm (1) \u00b7 Stanwood",
+      "key": "jul 25 8 11 pm 1"
+    },
+    {
+      "why": "runs of separators collapse to one",
+      "in": "A \u00b7\u00b7 B  \u00b7   \u00b7 C",
+      "text": "A \u00b7 B \u00b7 C",
+      "key": "a"
+    },
+    {
+      "why": "non-breaking spaces are ordinary spaces",
+      "in": "Ruff\u00a0\u00a0\u2014\u00a0Pacific Co.",
+      "text": "Ruff - Pacific Co.",
+      "key": "ruff"
+    },
+    {
+      "why": "empty input stays empty",
+      "in": "   ",
+      "text": "",
+      "key": ""
+    }
+  ]
+}
