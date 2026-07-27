@@ -1,6 +1,6 @@
 {
   "name": "birding-app",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -17,6 +17,7 @@
     "@capgo/capacitor-inappbrowser": "^8.12.3"
   },
   "devDependencies": {
-    "@capacitor/assets": "^3.0.5"
+    "@capacitor/assets": "^3.0.5",
+    "jsdom": "^29.1.1"
   }
 }

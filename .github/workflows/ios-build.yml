@@ -12,11 +12,12 @@ permissions:
   contents: read
 
 jobs:
-  # Fast self-contained unit + syntax suite (BirdLogic + index.html inline
-  # scripts). Gates the iOS build below so a logic regression or a stray brace
-  # in the single-file app fails CI before we spend ~2 min compiling on macOS.
+  # Fast self-contained unit + syntax + DOM suite (BirdLogic, index.html inline
+  # scripts, and a jsdom boot of the real app). Gates the iOS build below so a
+  # logic regression, a stray brace, or a broken/unwired section fails CI before
+  # we spend ~2 min compiling on macOS.
   test:
-    name: Unit tests (BirdLogic + syntax)
+    name: Unit tests (BirdLogic + syntax + DOM)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,8 +27,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
-      - name: Run unit + syntax tests
+      # The DOM suite needs jsdom from devDependencies.
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Run unit + syntax + DOM tests
         run: npm test
 
   build:
