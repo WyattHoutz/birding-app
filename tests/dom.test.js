@@ -304,3 +304,57 @@ test("the app's LAST_NEW_RE parses the leaderboard newest-species column", () =>
     'White Wagtail (Black-backed)', 'subspecies parentheses are not eaten');
   assert.equal(RE.exec('no parenthetical here'), null, 'junk is rejected');
 });
+
+// --- Bird icons -------------------------------------------------------------
+// The seed exists so an arbitrary region's report is mostly illustrated with no
+// network at all. That guarantee is a property of the FILES on disk, not of the
+// rendering code, so it gets its own check: a silently-missed copy step would
+// otherwise only show up as blank thumbnails on a sideloaded device.
+test('the bundled icon seed is present, well-named, and attributed', () => {
+  const dir = path.join(WWW, 'assets', 'birds');
+  assert.ok(fs.existsSync(dir), 'www/assets/birds must ship with the app');
+  const files = fs.readdirSync(dir).filter((f) => /\.(jpg|png)$/i.test(f));
+  assert.ok(files.length > 500,
+    `seed too small (${files.length}) — did the copy from birding/assets/birds run?`);
+  // Tier 1 resolves <speciesCode>.<ext> by convention, so a stray filename is
+  // simply invisible to the app.
+  for (const f of files) {
+    assert.match(f, /^[a-z0-9]+\.(jpg|png)$/, `unreachable icon filename: ${f}`);
+  }
+  // Wikimedia's CC licences permit shipping these copies only WITH credit.
+  assert.ok(fs.existsSync(path.join(dir, 'CREDITS.md')),
+    'CREDITS.md is a licence requirement, not documentation');
+});
+
+test('bird icons: a seeded species renders from the bundle with no network', async () => {
+  const app = await boot();
+  const w = app.window;
+  const before = app.state.fetches.length;
+  const host = w.document.createElement('div');
+  host.innerHTML = w.BirdIcons.photoSlot('Gray Catbird', 'grycat');
+  w.document.body.appendChild(host);
+  const slot = host.querySelector('.thumb');
+  assert.equal(slot.getAttribute('data-code'), 'grycat',
+    'the species code must reach the slot — it is what makes tier 1 hit');
+  w.BirdIcons.hydratePhotos(host);
+  const img = host.querySelector('img.birdpic');
+  assert.ok(img, 'a seeded species must render an <img>');
+  assert.match(img.getAttribute('src'), /^assets\/birds\/grycat\.(jpg|png)$/,
+    'must load the bundled file, not a remote URL');
+  assert.equal(app.state.fetches.length, before,
+    'a bundled icon must cost zero network requests');
+});
+
+test('bird icons: a slot with no species code falls back to the lookup path', async () => {
+  const app = await boot();
+  const w = app.window;
+  const host = w.document.createElement('div');
+  host.innerHTML = w.BirdIcons.photoSlot('Some Unbundled Bird', '');
+  w.document.body.appendChild(host);
+  assert.equal(host.querySelector('.thumb').hasAttribute('data-code'), false);
+  w.BirdIcons.hydratePhotos(host);
+  // No bundled path to try, so nothing may render synchronously; the slot is
+  // handed to the queue/observer instead.
+  assert.equal(host.querySelector('img.birdpic'), null,
+    'an uncoded slot must not invent a bundled path');
+});
