@@ -335,9 +335,9 @@
     </section>
 
     <section class="panel">
-      <h2>🔭 Last new bird on the leaderboard</h2>
+      <h2>🔭 Latest ticks on the leaderboard</h2>
       <div class="row">
-        <button id="lastNewBtn">Load last new birds</button>
+        <button id="lastNewBtn">Load latest ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
       <ul id="lastNewResults" class="obs"></ul>
@@ -1951,7 +1951,7 @@
         out.appendChild(foot);
       }
 
-      // --- Last new bird on the leaderboard ---------------------------------
+      // --- Latest ticks on the leaderboard -----------------------------------
       // Mirrors report.py::section_leaderboard_last_new. eBird's top100 page
       // prints each birder's most recently added species; grouping that column
       // by bird turns the leaderboard into a chase board, because a species
@@ -3106,7 +3106,7 @@
       var MENU = [
         { at: 'wxBtn',         label: '🌤 Conditions for chasing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings' },
-        { at: 'lastNewBtn',    label: '🔭 Last new bird on the leaderboard' },
+        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard' },
         { at: 'newBtn',        label: '🌟 New arrivals today' },
         { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports' },
         { at: 'activeBtn',     label: '🚨 Active rarities' },
