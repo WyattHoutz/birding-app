@@ -358,3 +358,35 @@ test('bird icons: a slot with no species code falls back to the lookup path', as
   assert.equal(host.querySelector('img.birdpic'), null,
     'an uncoded slot must not invent a bundled path');
 });
+
+test('bird icons: a species with no photo gets the generic silhouette', async () => {
+  const app = await boot();
+  const w = app.window;
+  const host = w.document.createElement('div');
+  host.innerHTML = w.BirdIcons.photoSlot('Mystery Bird', '');
+  w.document.body.appendChild(host);
+  const slot = host.querySelector('.thumb');
+  w.BirdIcons.showFallback(slot);
+  const img = slot.querySelector('img.birdpic');
+  assert.ok(img, 'a bird with no photo must still occupy the slot');
+  assert.equal(img.getAttribute('src'), 'assets/birds/' + w.BirdIcons.fallback);
+  assert.equal(slot.classList.contains('nopic'), false,
+    'the slot must not collapse — a ragged column is the thing icons fix');
+  // A real photo must always win: the fallback is a floor, not an overwrite.
+  const host2 = w.document.createElement('div');
+  host2.innerHTML = w.BirdIcons.photoSlot('Gray Catbird', 'grycat');
+  w.document.body.appendChild(host2);
+  w.BirdIcons.hydratePhotos(host2);
+  w.BirdIcons.showFallback(host2.querySelector('.thumb'));
+  assert.equal(host2.querySelectorAll('img.birdpic').length, 1,
+    'fallback must not stack on top of a resolved icon');
+  assert.match(host2.querySelector('img.birdpic').getAttribute('src'), /grycat/);
+});
+
+test('the fallback icon ships with the app', () => {
+  const p = path.join(WWW, 'assets', 'birds', 'fallback.svg');
+  assert.ok(fs.existsSync(p), 'fallback.svg must ship — it is the floor for every miss');
+  const svg = fs.readFileSync(p, 'utf8');
+  assert.match(svg, /<svg[^>]*viewBox/, 'must be a real SVG');
+  assert.ok(svg.length < 4096, 'fallback should stay tiny');
+});

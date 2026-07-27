@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generic bird silhouette, drawn for this project: a fallback icon must not
+     itself carry a licence obligation, so nothing here is borrowed. Kept to
+     five chunky shapes — this is read at 28px, where thin detail (legs, feet,
+     feather lines) turns to mush, so there deliberately isn't any. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="bird">
+  <rect width="64" height="64" rx="10" fill="#eceff3"/>
+  <g fill="#7d91a6">
+    <path d="M3 19 L24 33 L22 47 L7 32 Z"/>
+    <ellipse cx="31" cy="38" rx="16" ry="13"/>
+    <circle cx="43" cy="25" r="10.5"/>
+  </g>
+  <path d="M52.5 22 L63 26.5 L52.5 31 Z" fill="#e0a04b"/>
+  <ellipse cx="29" cy="38" rx="9" ry="5.5" fill="#65798e" transform="rotate(-12 29 38)"/>
+  <circle cx="46" cy="23" r="2.5" fill="#fff"/>
+</svg>
