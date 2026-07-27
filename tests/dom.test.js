@@ -267,9 +267,9 @@ test('swiping right on the Contents menu is a no-op', async () => {
   app.window.close();
 });
 
-test('Last new bird section is wired and auto-loads from the leaderboard', async () => {
+test('Latest ticks section is wired and auto-loads from the leaderboard', async () => {
   const app = await boot();
-  app.open(/Last new bird/);
+  app.open(/Latest ticks/);
   assert.equal(app.$('lastNewResults').closest('section').hidden, false,
     'the section is the one on screen');
   assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,

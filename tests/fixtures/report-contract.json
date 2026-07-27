@@ -20,9 +20,9 @@
     {
       "at": "wxBtn",
       "label": "🌤 Conditions for chasing",
-      "report": null,
+      "report": "## 🌤 Conditions for chasing",
       "map": null,
-      "why": "app-only: live NOAA conditions, no report equivalent"
+      "why": "heading is rendered by weather.py, not report.py"
     },
     {
       "at": "rankBtn",
@@ -32,8 +32,8 @@
     },
     {
       "at": "lastNewBtn",
-      "label": "🔭 Last new bird on the leaderboard",
-      "report": "## 🔭 Last new bird on the leaderboard",
+      "label": "🔭 Latest ticks on the leaderboard",
+      "report": "## 🔭 Latest ticks on the leaderboard",
       "map": null
     },
     {
