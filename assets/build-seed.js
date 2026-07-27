@@ -40,7 +40,8 @@ if (!fs.existsSync(srcRoot)) {
 function normName(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
 
 // Parse one birdlist-*.md export → { codes:Set, codeToName:{code:name},
-// nameToCode:{normName:code} }. Mirrors analyze._parse_birdlist link shapes.
+// nameToCode:{normName:code}, entries:[...] }. Mirrors analyze._parse_birdlist
+// link shapes.
 function parseBirdlist(text) {
   const codes = Object.create(null), codeToName = Object.create(null), nameToCode = Object.create(null);
   let m;
@@ -54,7 +55,62 @@ function parseBirdlist(text) {
     if (name && !codeToName[code]) codeToName[code] = name;
     if (name && !nameToCode[normName(name)]) nameToCode[normName(name)] = code;
   }
-  return { codes: codes, codeToName: codeToName, nameToCode: nameToCode };
+  return {
+    codes: codes, codeToName: codeToName, nameToCode: nameToCode,
+    entries: parseYearEntries(text)
+  };
+}
+
+// Pull the per-species year-list rows out of an export. Each numbered entry
+// looks like:
+//
+//   1.  ##### [Terek Sandpiper](/species/tersan/US-WA)
+//       [19 Jul 2026](/checklist/S374073865)
+//       [Stanwood Water Treatment Plant](/lifelist?r=L343249&…) | [Washington](/lifelist?r=US-WA&…)
+//
+// which carries everything the report's "🐦 {year} Year List" section shows.
+// Mirrors report.py::_parse_lower48_year_list exactly: entries are scoped to
+// their `### <Section>` heading (ignoring `### Date: …` sort headers) and only
+// the "Native…" sections count, which is what section_year_list renders and
+// counts. Export order is eBird's "Date: Newest First" and the report renders
+// newest-first too, so entry order is preserved as-is.
+function parseYearEntries(text) {
+  const src = String(text);
+  const secRe = /^###[ \t]+(?!Date:)([^\n]+)$/gm;
+  const bounds = [];
+  let s;
+  while ((s = secRe.exec(src))) bounds.push({ at: s.index, label: s[1].trim().replace(/\s*\(\d+\)\s*$/, '') });
+  bounds.push({ at: src.length, label: '' });
+
+  const out = [];
+  const seen = Object.create(null);
+  for (let i = 0; i < bounds.length - 1; i++) {
+    if (!/^native/i.test(bounds[i].label)) continue;
+    const chunk = src.slice(bounds[i].at, bounds[i + 1].at);
+    const entryRe = /^(\d+)\.[ \t]+#####[ \t]+(.+?)$/gm;
+    const heads = [];
+    let e;
+    while ((e = entryRe.exec(chunk))) heads.push({ at: e.index, n: +e[1], head: e[2].trim() });
+    heads.forEach(function (h, j) {
+      const block = chunk.slice(h.at, j + 1 < heads.length ? heads[j + 1].at : chunk.length);
+      const sp = /^\[([^\]]+)\]\(\/species\/([a-z0-9]+)\//.exec(h.head);
+      if (!sp) return;                 // sp./hybrid groups have no species link
+      const code = sp[2];
+      if (seen[code]) return;          // an export can repeat a species; keep the first (newest)
+      seen[code] = 1;
+      const ck = /\[(\d+\s+\w+\s+\d{4})\]\(\/checklist\/([^)]+)\)/.exec(block);
+      const lc = /\[([^\]]+)\]\((\/lifelist\?r=L[^)]+)\)\s*\|\s*\[([^\]]+)\]\((\/lifelist\?r=[^)]+)\)/.exec(block);
+      out.push({
+        code: code,
+        name: sp[1].trim(),
+        date: ck ? ck[1].trim() : '',
+        subId: ck ? ck[2] : '',
+        loc: lc ? lc[1].trim() : '',
+        locUrl: lc ? ('https://ebird.org' + lc[2]) : ''
+      });
+    });
+  }
+  return out;
 }
 
 // --- parse every birdlist-<slug>.md, keyed by its file slug -----------------
@@ -115,12 +171,19 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   if (reportSlug === 'wa') Object.keys(scCodes).forEach(function (c) { set[c] = 1; }); // WA-only
   Object.keys(nvCodes).forEach(function (c) { delete set[c]; });                       // watchlist resurfaces
   // Display names come from the report's OWN year list (birdlistSlug).
-  const ownList = listBySlug[profile.birdlistSlug] || { codeToName: {} };
+  const ownList = listBySlug[profile.birdlistSlug] || { codeToName: {}, entries: [] };
   const names = Object.keys(ownList.codeToName)
     .map(function (c) { return ownList.codeToName[c]; })
     .filter(function (v, i, a) { return a.indexOf(v) === i; })
     .sort(function (a, b) { return a.localeCompare(b); });
-  seenByReport[reportSlug] = { codes: Object.keys(set).sort(), names: names };
+  // The full year list (newest first, with first-seen date + checklist), so
+  // "My year" can show what the report's Year List section shows instead of
+  // just a total.
+  seenByReport[reportSlug] = {
+    codes: Object.keys(set).sort(),
+    names: names,
+    yearList: (ownList.entries || []).slice()
+  };
 });
 
 // Combined union (backwards-compatible "seen anywhere" fallback for applySeed).
@@ -161,5 +224,7 @@ console.log('  codes:  ' + codeList.length + ' (combined union)');
 console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length);
 console.log('  seenByReport:');
 BirdLogic.REGION_ORDER.forEach(function (slug) {
-  console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' + seenByReport[slug].names.length + ' names');
+  console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' +
+    seenByReport[slug].names.length + ' names · ' +
+    seenByReport[slug].yearList.length + ' year-list entries');
 });

@@ -81,11 +81,12 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🌅 Today's rarity reports / 🚨 Active rarities | **Notable sightings** | ✅ | `…/recent/notable` feed, live via CapacitorHttp. |
+| 🌅 Today's rarity reports | **Notable sightings** | ✅ | `…/recent/notable` feed, live via CapacitorHttp; species/checklist/hotspot links + photos. |
+| 🚨 Active rarities | **Active rarities** | ✅ | Own section (v1.0.7). Notable feed grouped by species with reports / observers / latest, scoped by `regions.py` rarity exclusions. Ports `section_rarities`. |
 | 📋 All unseen reports | **Targets near you** | ✅ | Region `recent` minus your imported seen-list. |
 | 🔍 Watchlist (verification chases) | — | ➖ | "Needs-verification" is a report-only concept; the app has no NV list. |
-| 🦅 ABA Code 3+ rarities | **ABA rare-bird alert** | ✅ | In-app eBird login + scrape of the ABA Rarities needs alert (`sid` configurable); each record flagged seen/need against your list. Ports `aba_rba.py`. |
-| 🌟 New arrivals today | **Fresh targets** | ✅ | Targets whose most-recent report is within 2 days (approximates arrivals — eBird API has no first-seen date). |
+| 🦅 ABA Code 3+ rarities | **ABA Code 3+ rarities** | ✅ | Direct (keyless) read of the public ABA Rarities alert page; for county reports it filters to the active state and groups by species (Reports / Observers / Latest) exactly like `section_state_aba_rarities`. In-app login is only a fallback. Ports `aba_rba.py` incl. `_resolve_subnational1`. |
+| 🌟 New arrivals today | **New arrivals today** | ✅ | `BirdLogic.computeChaseViews().newArrivals` (today's near birds absent the prior day), nearest-first, uncapped, with ⭐/🆕 flags, species/checklist/hotspot links and photos. |
 
 ## Destinations & routing
 
@@ -112,8 +113,8 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled sample list on first run. Top-100 rank now in **My eBird rankings** (login-gated). |
-| 🐦 Year List | **My year** list | ✅ | Expandable current-year (and all-time, for CSV) species lists, from the imported CSV or the bundled sample data. |
+| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled seed on first run. Top-100 rank in **My eBird rankings**. |
+| 🐦 {year} Year List | **My year** list | ✅ | Full per-report year list (v1.0.7): the same rows the report prints — oldest numbered 1, newest first, species → `/species/{code}/{state}`, date → `/checklist/{subId}`, location link, "all obs" lifelist link, plus a thumbnail per entry. Built by `assets/build-seed.js`, whose parser now mirrors `report.py::_parse_lower48_year_list` exactly (section-aware, native-only) — cross-checked against the report in CI. |
 
 ## Environmental (non-eBird sources)
 
@@ -123,11 +124,11 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🛬 Migration outlook | **Migration outlook** | ✅ | User-triggered one-time bootstrap fetches ~2 years of weekly (`historic/{y}/{m}/{d}`) checklists **per county** (merged into one sample per week), cached in localStorage (resumable). Derives per-species weekly phenology and flags arrivals (unseen targets whose first-presence week is within 2 weeks) + departures (report year-list species whose last week is near) — ports `migration.py`'s `_detect_run`/`expected_soon` (year-round ≥40 wk or gap ≤4; window 2 wk). |
 | 🌙 Nightly migration — BirdCast | **Nightly migration** | ✅ | Season-aware **per-county** deep links to BirdCast's live radar dashboards (`dashboard.birdcast.org/region/<county>` for each report county); knows the live-forecast windows (Mar 1–Jun 15, Aug 1–Nov 15) and shows the next active date between seasons — same season logic as the report's `section_birdcast`. No API (BirdCast has none). |
 
-## Leaderboards (website-scraped in report; in-app via eBird login)
+## Leaderboards (website-scraped in report; read directly on device)
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🏆 eBird Rankings | **My eBird rankings** | ✅ | In-app eBird login → scrape of `top100`; shows your rank + species + checklists + recent. Ports `rankings.py`. |
+| 🏆 eBird Rankings | **My eBird rankings** (summary) | ✅ | Direct keyless read of `ebird.org/top100`, cached once per day like `rankings.py`. Lists your rank in **every** region `rankings.py::_regions_for()` marks active for the current report — not just one. |
 | 🥇 Top 25 eBirders | **My eBird rankings** (list) | ✅ | Renders the top-25 leaderboard rows, highlighting your row. |
 | 🏅 Your state / Lower 48 / ABA rankings | **My eBird rankings** (scope) | ✅ | Scope selector — your region, Lower 48, or ABA Area — mirrors `rankings.py` REGIONS query construction. |
 
@@ -154,13 +155,32 @@ Fully replaceable: importing a *Download My Data* CSV overrides it, *Clear*
 removes it, and *Load sample data* brings it back. Regenerate from the private
 report pipeline's `birdlist-*.md` exports with `node assets/build-seed.js`.
 
-**In-app eBird login (P11).** The two leaderboard/ABA features above hit eBird
-pages that redirect to Cornell SSO, so the REST key can't reach them. The app
-opens the target page in an in-app browser (`@capgo/capacitor-inappbrowser`),
-lets you log in once (the session cookie persists on device — no GitHub, no
-proxy), then injects a parser into the eBird page that scrapes the
-server-rendered HTML and posts a small JSON payload back over the bridge (never
-piping eBird's multi-MB HTML across). The parsers are 1:1 ports of the
-pipeline's `rankings.py` / `aba_rba.py` regexes. *Sign out of eBird* in Settings
-clears the browsing data. The flow can only be exercised on-device with real
-credentials; offline it's covered by parser unit tests + the CI compile.
+**In-app eBird login (P11) — now only a fallback.** The leaderboard and ABA
+alert pages the report scrapes turn out to be **public**: `rankings.py` and
+`aba_rba.py` both read them with a bare cookiejar and no credentials. Because
+`CapacitorHttp` patches `fetch` natively (no CORS), the app reads the same HTML
+directly and runs 1:1 ports of those regexes — so both sections show the
+report's content with no sign-in. The in-app-browser login flow
+(`@capgo/capacitor-inappbrowser`) is retained only as a fallback for when the
+direct read fails: it opens the page, lets you log in once (the cookie persists
+on device — no GitHub, no proxy), injects the same parser, and posts a small
+JSON payload back over the bridge. *Sign out of eBird* in Settings clears the
+browsing data.
+
+**Bird photos.** Every species row carries a thumbnail. eBird/Macaulay has no
+free photo API, so the app looks each common name up in the keyless,
+CORS-enabled Wikipedia REST summary endpoint and caches hits *and* misses in
+localStorage; a serial queue hydrates slots so a long list never fans out.
+Misses simply hide the slot.
+
+**External links.** The Markdown report links species, checklists, and hotspots
+throughout; the app now emits the same three link shapes everywhere
+(`/species/{code}/{state}`, `/checklist/{subId}`, `/hotspot/{locId}`, plus
+`?/maps` for personal locations) and routes them to the system browser / Maps.
+
+**Background history.** `migration.py`'s ~2-year weekly checklist bootstrap now
+also runs unattended: a rate-limited background lane mirroring `ebird.py`
+(1.2 s minimum interval ≈ 50 calls/min, `2**attempt` backoff on
+429/500/502/503/504, max 4 retries) fills the cache 12 weeks at a time,
+persists after every date so it resumes across launches, and yields to any
+foreground request so the two never compete for the key.
