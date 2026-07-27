@@ -76,13 +76,13 @@
       "at": "targetsBtn",
       "label": "📍 Closest spots with unseen birds",
       "report": "## 📍 Closest spots with unseen birds",
-      "map": null
+      "map": "closeMap"
     },
     {
       "at": "quickBtn",
       "label": "🚶 Quick outing",
       "report": "## 🚶 Quick outing",
-      "map": null
+      "map": "quickMap"
     },
     {
       "at": "excBtn",
