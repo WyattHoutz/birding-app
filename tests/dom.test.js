@@ -392,31 +392,80 @@ test('the fallback icon ships with the app', () => {
 });
 
 
-test('rankings: changing the scope reloads that scope (v1.0.10 bug)', async () => {
-  // Shipped bug: #rankScope had no change listener and the heading was bound to
-  // the report, so picking "Lower 48" left the previous board on screen under a
-  // "Washington" title. Both halves are asserted here.
+test('rankings: the board is scoped to the active report and includes Top 25', async () => {
+  // Two shipped bugs live here. v1.0.10: the scope control had no change
+  // listener, so a stale board sat under the wrong heading. v1.0.12 removed the
+  // control entirely — rankings and Top 25 are one section scoped to the region
+  // you picked — so the guard is now "the board follows the report".
   const app = await boot();
   app.open(/eBird Rankings/);
   await new Promise((r) => setTimeout(r, 40));
-  const top100 = () => app.state.fetches.filter((u) => /top100/.test(u));
-  const before = top100();
-  assert.ok(before.some((u) => /US-WA/.test(u)),
-    '"My region" must load the report region board, not a national one');
-  assert.match(app.$('rankScopeLabel').textContent, /Washington/,
-    'the heading names the selected scope, not the raw region code');
+  const top100 = app.state.fetches.filter((u) => /top100/.test(u));
+  assert.ok(top100.length, 'opening the section loads a leaderboard');
+  assert.ok(top100.every((u) => /US-WA/.test(u)),
+    'a Washington report must load ONLY the Washington board');
+  assert.match(app.$('rankRegionLabel').textContent, /Washington/,
+    'the heading names the region, not the raw region code');
+  assert.ok(!app.$('rankScope'), 'the scope selector is gone — region comes from the report');
+  const src = HTML.slice(HTML.indexOf('function renderRankings('),
+    HTML.indexOf('function loadLastNew('));
+  assert.match(src, /Top 25 eBirders/, 'the merged section labels its Top 25 board');
+  assert.match(src, /slice\(0,\s*25\)/, 'the Top 25 board is capped at 25 like the report');
+  app.window.close();
+});
 
-  const sel = app.$('rankScope');
+test('rankings follow the region: a Lower 48 report loads the Lower 48 board', async () => {
+  const app = await boot({ report: 'lower48' });
+  app.open(/eBird Rankings/);
+  await new Promise((r) => setTimeout(r, 40));
+  const top100 = app.state.fetches.filter((u) => /top100/.test(u));
+  assert.ok(top100.length, 'the rarity tracker still has a leaderboard');
+  assert.ok(top100.every((u) => /lower48/.test(u)),
+    'switching the report re-scopes the board — no US-WA rows under a Lower 48 title');
+  assert.match(app.$('rankRegionLabel').textContent, /Lower 48/);
+  app.window.close();
+});
+
+test('region nav: switching region rewrites the menu, the home and the storage', async () => {
+  const app = await boot();
+  const sel = app.$('menuRegion');
+  assert.ok(sel, 'the Contents header carries a region picker');
+  assert.ok(app.$('navRegion'), 'so does the section navbar, so you can switch without going back');
+  assert.equal(sel.value, 'wa', 'the picker opens on the remembered report');
+  const waLinks = app.links().length;
+  const waHome = app.window.localStorage.getItem('ebird_home_lat:wa');
+  assert.equal(waHome, '47.75', 'a home saved before per-region homes migrates to the active region');
+
   sel.value = 'lower48';
   sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
   await new Promise((r) => setTimeout(r, 40));
-  const after = top100();
-  assert.ok(after.length > before.length,
-    'changing the scope must reload — it silently did nothing before');
-  assert.ok(after.slice(before.length).some((u) => /lower48/.test(u)),
-    'the reload is scoped to the newly chosen region');
-  assert.match(app.$('rankScopeLabel').textContent, /Lower 48/,
-    'the heading follows the scope so rows and title can never disagree');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), 'lower48',
+    'the choice is persisted, so the app reopens on it');
+  assert.equal(app.$('navRegion').value, 'lower48', 'both pickers stay in sync');
+  assert.ok(app.links().length < waLinks,
+    'a rarity tracker has no counties and no home: its report emits fewer sections, ' +
+    'so the menu must shrink instead of listing dead ends');
+  assert.ok(!app.links().some((a) => /Birder convoys|BirdCast|Migration outlook/.test(a.textContent)),
+    'county-only sections disappear for a report that has no counties');
+  assert.ok(app.links().some((a) => /eBird Rankings/.test(a.textContent)),
+    'sections the rarity report does emit stay');
+  assert.deepEqual(app.state.errors, [], 'no uncaught errors while switching region');
+  app.window.close();
+});
+
+test('each region keeps its own home location', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const wa = A.getHome();
+  assert.equal(wa.lat, 47.75, 'WA uses the saved home');
+  assert.equal(wa.lng, -122.16);
+  app.window.localStorage.setItem('ebird_report', 'waikoloa');
+  const hi = A.getHome();
+  assert.notEqual(hi.lat, 47.75,
+    'a home saved for Washington must not be used to chase birds on the Big Island');
+  assert.ok(hi.lat > 15 && hi.lat < 25,
+    'the trip report falls back to its own regions.py home');
+  assert.equal(A.homeKey('lat'), 'ebird_home_lat:waikoloa', 'storage is keyed per report');
   app.window.close();
 });
 
