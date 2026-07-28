@@ -11,14 +11,32 @@ hotspots, and the migration outlook.
 
 ## Multi-report selector
 
-The app ships all 9 reports. **Settings → "Default report"** switches between
-Washington, Missouri, Kansas, Arizona, California, Lower 48, ABA Area, Fort
-Casey, and Waikoloa. Each report carries its own counties, home base, geo
-radius, and bundled year-list seen set (`seed-birdlist.js` →
-`seenByReport[slug]`, generated to equal `analyze.py`'s exact seen formula).
-The two rarity-tracker reports (Lower 48, ABA Area) have no county feeds, so
-their chase tabs redirect to the ABA rare-bird alert + rankings — matching the
-Markdown report, which builds those two from the same SN10489 scrape.
+The app ships all 9 reports. A **region picker sits in the Contents header and
+in the section navbar** (v1.0.12), so you can switch without opening Settings;
+Settings → "Default report" is the same setting and stays in sync. The choice
+is persisted, so the app reopens on the last region you used.
+
+Switching region rebuilds the report rather than just relabelling it: the
+cached chase data and rendered lists are cleared, and **the Contents list is
+regenerated from the sections that region's report builder actually emits**.
+A rarity tracker has no counties and runs `report.py::build_rarity_report`, so
+its county-only sections (birdiest checklists, hot/cold hotspots, convoys,
+migration outlook, BirdCast, time-of-day) and its geo sections (trip planner,
+destinations, closest spots, quick outing, excursions, conditions, new
+arrivals) are absent from the menu instead of listed as dead ends.
+
+**Home is per region** (v1.0.12). `ebird_home_{lat,lng,place}` and the tide
+station are keyed by report slug, falling back to that report's `regions.py`
+home coord — a home saved for Washington no longer decides chase distances on
+the Big Island. Values saved before this migrate once into the region that was
+active at the time.
+
+Each report carries its own counties, home base, geo radius, and bundled
+year-list seen set (`seed-birdlist.js` → `seenByReport[slug]`, generated to
+equal `analyze.py`'s exact seen formula). The two rarity-tracker reports
+(Lower 48, ABA Area) have no county feeds, so their chase tabs redirect to the
+ABA rare-bird alert + rankings — matching the Markdown report, which builds
+those two from the same SN10489 scrape.
 
 ## Automated parity guarantee (same APIs · same inputs · same outputs)
 
@@ -128,9 +146,9 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🏆 eBird Rankings | **My eBird rankings** (summary) | ✅ | Direct keyless read of `ebird.org/top100`, cached once per day like `rankings.py`. Lists your rank in **every** region `rankings.py::_regions_for()` marks active for the current report — not just one. |
-| 🥇 Top 25 eBirders | **My eBird rankings** (list) | ✅ | Renders the top-25 leaderboard rows, highlighting your row. |
-| 🏅 Your state / Lower 48 / ABA rankings | **My eBird rankings** (scope) | ✅ | Scope selector — your region, Lower 48, or ABA Area — mirrors `rankings.py` REGIONS query construction. |
+| 🏆 eBird Rankings — <region> | **eBird Rankings & Top 25** (standing) | ✅ | Direct keyless read of `ebird.org/top100`, cached once per day like `rankings.py`. Scoped to the selected region’s own board via `rankings.py::primary_region_for()`, mirrored by the app’s `rankPrimaryRegion()`. |
+| ↳ Top 25 eBirders (same section) | **eBird Rankings & Top 25** (board) | ✅ | v1.0.12 folded the report’s separate `## 🥇 Top 25` headings into the rankings section in BOTH repos — one region, one standing, one board. Highlights your row. |
+| 🏅 Your state rankings | — | ➖ | Rarity-tracker-only cross-region table (`section_state_leaderboards`). The app scopes to one region by design — switch regions in the nav to see another. |
 
 ## App structure
 

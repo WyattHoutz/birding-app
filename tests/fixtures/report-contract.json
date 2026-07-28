@@ -26,9 +26,10 @@
     },
     {
       "at": "rankBtn",
-      "label": "🏆 eBird Rankings",
+      "label": "🏆 eBird Rankings & Top 25",
       "report": "## 🏆 eBird Rankings",
-      "map": null
+      "map": null,
+      "why": "your standing plus the Top 25 board you're ranked on — one section, one region"
     },
     {
       "at": "lastNewBtn",
@@ -158,7 +159,6 @@
     "## Run this on another computer",
     "## 📋 All unseen reports in",
     "## 🔍 Watchlist",
-    "## 🥇 Top 25",
     "## 🏅 Your state rankings",
     "## 🥚 Easy misses",
     "## 🗺️ * unseen — closest first",

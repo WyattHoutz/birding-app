@@ -132,6 +132,10 @@
     #navbar[hidden] { display: none; }
     #navbar button { padding: 8px 12px; font-size: 14px; }
     #navTitle { font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #navRegion { width: auto; max-width: 42%; margin-left: auto; padding: 7px 8px; font-size: 13px; font-weight: 700; border-radius: 8px; }
+    .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
+    .regionpick label { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .regionpick select { flex: 1; font-weight: 700; }
     #menuPanel h2 { font-size: 19px; margin-bottom: 4px; }
     .toc { list-style: none; padding: 0; margin: 8px 0 0; }
     .toc li { border-top: 1px solid var(--line); }
@@ -197,6 +201,7 @@
   <div id="navbar" hidden>
     <button id="navBack" class="secondary" type="button">‹ Contents</button>
     <span id="navTitle"></span>
+    <select id="navRegion" aria-label="Report region"></select>
   </div>
   <header>
     <p class="kicker">Personal eBird tracker</p>
@@ -323,16 +328,11 @@
     </section>
 
     <section class="panel">
-      <h2>🏅 My eBird rankings <span class="dim" id="rankScopeLabel"></span></h2>
+      <h2>🏅 My eBird rankings <span class="dim" id="rankRegionLabel"></span></h2>
       <div class="row">
-        <select id="rankScope" aria-label="Leaderboard scope">
-          <option value="region">My region</option>
-          <option value="lower48">Lower 48</option>
-          <option value="aba">ABA Area</option>
-        </select>
         <button id="rankBtn">Load rankings</button>
       </div>
-      <div id="rankStatus" class="status">Your Top-100 rank in each region the report tracks, plus the leaderboard.</div>
+      <div id="rankStatus" class="status">Your Top-100 standing and the Top 25 board for the region you're birding. Switch regions from the nav.</div>
       <div id="rankSummary"></div>
       <div id="rankResults"></div>
     </section>
@@ -423,7 +423,7 @@
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
       <p class="hint">Rankings and the ABA alert need an eBird login. The in-app browser keeps you signed in on this device until you sign out.</p>
-      <label for="homePlace">Home location (optional)</label>
+      <label for="homePlace">Home location (optional) <span id="homeRegionLabel"></span></label>
       <div class="row">
         <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
@@ -490,7 +490,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.11';
+      var APP_VERSION = '1.0.12';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -503,6 +503,26 @@
         return (BL && BL.REPORTS && BL.REPORTS[s]) ? s : 'wa';
       }
       function getReport() { return BL.profileFor(getReportSlug()); }
+      // Home coordinate and tide station are PER REPORT: chasing from
+      // Woodinville is meaningless on the Big Island, and every regions.py
+      // profile already ships its own home coord as the fallback. Values saved
+      // before this was per-region migrate once, into whichever report was
+      // active at the time.
+      function homeKey(field) { return 'ebird_home_' + field + ':' + getReportSlug(); }
+      function tideKey() { return 'ebird_tide_station:' + getReportSlug(); }
+      function migrateHomeKeys() {
+        ['lat', 'lng', 'place'].forEach(function (f) {
+          var v = localStorage.getItem('ebird_home_' + f);
+          if (v === null) return;
+          if (localStorage.getItem(homeKey(f)) === null) localStorage.setItem(homeKey(f), v);
+          localStorage.removeItem('ebird_home_' + f);
+        });
+        var t = localStorage.getItem('ebird_tide_station');
+        if (t !== null) {
+          if (localStorage.getItem(tideKey()) === null) localStorage.setItem(tideKey(), t);
+          localStorage.removeItem('ebird_tide_station');
+        }
+      }
       // eBird region code for the active report (US-WA, lower48, aba, …), used by
       // the state-wide feeds (notable, rankings, hotspots, migration, convoys).
       function getRegion() { return (getReport().stateCode || 'US-WA').toString(); }
@@ -916,7 +936,7 @@
       }
 
       function getHome() {
-        var la = parseFloat(localStorage.getItem('ebird_home_lat')), lo = parseFloat(localStorage.getItem('ebird_home_lng'));
+        var la = parseFloat(localStorage.getItem(homeKey('lat'))), lo = parseFloat(localStorage.getItem(homeKey('lng')));
         if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
         // Default to the active report's home (regions.py home coord) so chase
         // distances match the Markdown report even before the user sets one.
@@ -1990,27 +2010,27 @@
         if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
       }
 
-      // Mirrors rankings.py::REGIONS + _regions_for(): the report lists your
-      // rank in every region active for the current report, not just one.
+      // Mirrors rankings.py::REGIONS. `activeFor` is what the report FETCHES
+      // (WA still reads Lower 48 so My year can show "seen elsewhere in the
+      // US"); `primaryFor` is the one board a report is actually about and the
+      // only one this section renders.
       var RANK_REGIONS = [
-        { key: 'wa', label: 'Washington', region: 'US-WA', max: 500, activeFor: ['wa'] },
-        { key: 'mo', label: 'Missouri', region: 'US-MO', max: 500, activeFor: ['mo'] },
-        { key: 'ks', label: 'Kansas', region: 'US-KS', max: 500, activeFor: ['ks'] },
-        { key: 'lower48', label: 'Lower 48', region: 'lower48', max: 10000, activeFor: ['wa', 'lower48'] },
-        { key: 'aba', label: 'ABA Area', region: 'aba', max: 10000, activeFor: ['aba'] }
+        { key: 'wa', label: 'Washington', region: 'US-WA', max: 500, activeFor: ['wa', 'fort-casey'], primaryFor: ['wa', 'fort-casey'] },
+        { key: 'mo', label: 'Missouri', region: 'US-MO', max: 500, activeFor: ['mo'], primaryFor: ['mo'] },
+        { key: 'ks', label: 'Kansas', region: 'US-KS', max: 500, activeFor: ['ks'], primaryFor: ['ks'] },
+        { key: 'az', label: 'Arizona', region: 'US-AZ', max: 500, activeFor: ['az'], primaryFor: ['az'] },
+        { key: 'ca', label: 'California', region: 'US-CA', max: 500, activeFor: ['ca'], primaryFor: ['ca'] },
+        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['waikoloa'], primaryFor: ['waikoloa'] },
+        { key: 'lower48', label: 'Lower 48', region: 'lower48', max: 10000, activeFor: ['wa', 'lower48'], primaryFor: ['lower48'] },
+        { key: 'aba', label: 'ABA Area', region: 'aba', max: 10000, activeFor: ['aba'], primaryFor: ['aba'] }
       ];
-      function rankRegionsFor(slug) {
-        var out = RANK_REGIONS.filter(function (r) { return r.activeFor.indexOf(slug) >= 0; });
-        if (out.length) return out;
-        // Reports rankings.py doesn't enumerate (az/ca/trips) still get their
-        // own state leaderboard so the section is never empty.
-        var reg = getRegion();
-        return [{ key: slug, label: (getReport() && getReport().label) || getRegion(), region: reg, max: 500, activeFor: [slug] }];
-      }
-      // Which leaderboard a scope choice actually reads. loadRankings and the
-      // heading MUST derive the region the same way, or the two disagree.
-      function rankScopeRegion(scope) {
-        return scope === 'lower48' ? 'lower48' : (scope === 'aba' ? 'aba' : getRegion());
+      // The single leaderboard the active report is ranked on. Anything the
+      // report doesn't enumerate still gets its own state board, so switching
+      // regions never lands on an empty section.
+      function rankPrimaryRegion() {
+        var slug = getReportSlug();
+        var hit = RANK_REGIONS.filter(function (r) { return r.primaryFor.indexOf(slug) >= 0; })[0];
+        return hit || { key: slug, label: (getReport() && getReport().label) || getRegion(), region: getRegion(), max: 500 };
       }
       // Human name for a leaderboard region ('US-WA' -> 'Washington'), so the
       // heading and the results header read like the report's rankings section
@@ -2023,17 +2043,13 @@
         if (m) for (var k in _US_STATES) if (_US_STATES[k] === m[1]) return k;
         return reg;
       }
-      // The <h2> suffix and the "My region" option have to name the leaderboard
-      // that is on screen. They named the active REPORT, so picking Lower 48 or
-      // ABA Area left a heading still saying "Washington" over other people's
-      // numbers.
-      function syncRankScopeUI() {
-        var sel = $('rankScope');
-        if (!sel) return;
-        var own = sel.querySelector('option[value="region"]');
-        if (own) own.textContent = 'My region · ' + rankRegionName(getRegion());
-        if ($('rankScopeLabel')) {
-          $('rankScopeLabel').textContent = '· ' + rankRegionName(rankScopeRegion(sel.value));
+      // The <h2> suffix names the board on screen. It used to name the active
+      // REPORT while a scope selector could point the rows somewhere else, so
+      // Lower-48 numbers could sit under a "Washington" heading. There is no
+      // scope selector anymore: one report, one region, one board.
+      function syncRankRegionUI() {
+        if ($('rankRegionLabel')) {
+          $('rankRegionLabel').textContent = '· ' + rankPrimaryRegion().label;
         }
       }
       // rankings.py caches the scrape once per day (the Lower-48 page is huge);
@@ -2089,7 +2105,8 @@
         el.innerHTML = h;
       }
       function loadRankSummary(year, name) {
-        var regs = rankRegionsFor(getReportSlug()), out = [];
+        // One region, so this is your standing on the board rendered below it.
+        var regs = [rankPrimaryRegion()], out = [];
         return regs.reduce(function (p, rr) {
           return p.then(function () {
             return fetchRank(rr, year, name)
@@ -2101,11 +2118,11 @@
       }
 
       function loadRankings() {
-        var scope = $('rankScope') ? $('rankScope').value : 'region';
-        var region = rankScopeRegion(scope);
-        syncRankScopeUI();
+        var rr = rankPrimaryRegion();
+        var region = rr.region;
+        syncRankRegionUI();
         var year = new Date().getFullYear();
-        var max = scope === 'region' ? 500 : 10000;
+        var max = rr.max || 500;
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var btn = $('rankBtn'), st = $('rankStatus');
@@ -2114,20 +2131,20 @@
         // and only fall back to the in-app login flow if the public page can't
         // be read. Goes through fetchRank so the day-cache is shared with the
         // multi-region summary below and the same page is never fetched twice.
-        fetchRank({ key: scope === 'region' ? 'sel-' + region : scope, region: region, max: max }, year, name)
+        fetchRank({ key: rr.key, region: region, max: max }, year, name)
           .catch(function (e) {
             dbg('warn', 'rankings direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
             return captureEbird({ url: url, buildInject: function () { return buildRankInject(name); }, onStatus: function (m) { st.textContent = m; } });
           })
-          .then(function (data) { renderRankings(data, scope, region, url, name); st.textContent = 'Updated ' + nowTime(); })
+          .then(function (data) { renderRankings(data, region, url, name); st.textContent = 'Updated ' + nowTime(); })
           .catch(function (e) { st.innerHTML = esc(e.message || 'Could not load rankings.') + ' ' + extA(url, 'View on eBird'); })
           .then(function () { return loadRankSummary(year, name); })
           .finally(function () { btn.disabled = false; });
       }
 
-      function renderRankings(data, scope, region, url, name) {
+      function renderRankings(data, region, url, name) {
         var out = $('rankResults'); out.innerHTML = '';
         data = data || {}; var rows = data.rows || [], me = data.me;
         var label = rankRegionName(region);
@@ -2139,8 +2156,14 @@
           head.innerHTML = '<div class="bignum">—</div><div class="meta">' + esc(name) + ' isn’t in the top ' + esc(data.checkedToRank || rows.length) + ' for ' + esc(label) + '. Set your exact eBird display name in Settings.</div>';
         }
         out.appendChild(head);
+        // The Top 25 board, in the same section as the standing it explains --
+        // the report used to park it in a separate section pages away.
+        var cap = document.createElement('div');
+        cap.className = 'hint';
+        cap.innerHTML = '🥇 <b>Top 25 eBirders — ' + esc(label) + ' (' + new Date().getFullYear() + ')</b>';
+        out.appendChild(cap);
         var ul = document.createElement('ul'); ul.className = 'obs dest';
-        rows.forEach(function (r) {
+        rows.slice(0, 25).forEach(function (r) {
           var li = document.createElement('li');
           var mark = (me && r.rank === me.rank) ? ' <span class="star">◄ you</span>' : '';
           li.innerHTML = '<div><span class="rank">' + esc(r.rank) + '</span><span class="name">' + esc(r.name) + '</span>' + mark + '</div>' +
@@ -3186,7 +3209,7 @@
         // User override wins; otherwise use the active report's tide station
         // (report.section_weather uses analyze.REGION.tide_station). Inland
         // reports have none -> station '' -> section hidden, same as the report.
-        var station = (localStorage.getItem('ebird_tide_station') || '').trim() || (getReport().tideStation || '').trim();
+        var station = (localStorage.getItem(tideKey()) || '').trim() || (getReport().tideStation || '').trim();
         if (!station) { el.innerHTML = ''; return; }
         el.innerHTML = '<div class="wxline dim2">Loading tides…</div>';
         var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
@@ -3314,30 +3337,43 @@
       // entry anchors on a unique element already inside its <section>, so no
       // section markup has to move — only the navigation model changes. Tapping
       // a Contents entry shows that one section; the rest stay hidden.
+      //
+      // `needs` mirrors which report BUILDER emits the section, so the menu is
+      // the selected region's table of contents rather than a fixed list with
+      // dead entries:
+      //   'county' — report.py build_report + analyze.REGION.counties
+      //   'geo'    — report.py build_report (rarity trackers use
+      //              build_rarity_report, which emits far fewer sections)
+      //   omitted  — every report has it
       var MENU = [
-        { at: 'wxBtn',         label: '🌤 Conditions for chasing' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings' },
-        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard' },
-        { at: 'newBtn',        label: '🌟 New arrivals today' },
-        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports' },
+        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 25' },
+        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo' },
+        { at: 'newBtn',        label: '🌟 New arrivals today', needs: 'geo' },
+        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo' },
         { at: 'activeBtn',     label: '🚨 Active rarities' },
-        { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities' },
-        { at: 'tripBtn',       label: '🧭 Trip planner' },
-        { at: 'destBtn',       label: '🥇 Top destinations' },
-        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds' },
-        { at: 'quickBtn',      label: '🚶 Quick outing' },
-        { at: 'excBtn',        label: '🚗 Top excursions' },
-        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges' },
-        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems' },
-        { at: 'cklBtn',        label: '🦜 Birdiest checklists' },
-        { at: 'convoyBtn',     label: '👥 Birder convoys' },
-        { at: 'favResults',    label: '📍 Favorite hotspots' },
-        { at: 'migBtn',        label: '🛬 Migration outlook' },
-        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast' },
-        { at: 'todBtn',        label: '⏰ Time-of-day specialists' },
+        { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo' },
+        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo' },
+        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo' },
+        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo' },
+        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo' },
+        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo' },
+        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county' },
+        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county' },
+        { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
+        { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
+        { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
+        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county' },
+        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county' },
+        { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county' },
         { at: 'myYearBody',    label: '📅 My year' },
         { at: 'settingsPanel', label: '⚙️ Settings' }
       ];
+      function menuApplies(m) {
+        if (m.needs === 'county') return hasCounties();
+        if (m.needs === 'geo') return !getReport().isRarityTracker;
+        return true;
+      }
       // First time a section is opened, load its content automatically (no button
       // tap). Keyed by anchor id. needsKey/needsHome gate the eBird/geo loaders so
       // auto-open never redirects to Settings; the heavy migration build stays
@@ -3388,10 +3424,11 @@
         var menu = document.createElement('nav');
         menu.id = 'menuPanel'; menu.className = 'panel';
         menu.innerHTML = '<h2>📑 Contents</h2>' +
+          '<div class="regionpick"><label for="menuRegion">Region</label>' +
+          '<select id="menuRegion"></select></div>' +
           '<p class="hint" id="menuReport">Tap a section to open it — this menu mirrors your Markdown report.</p>' +
           '<ul id="menuList" class="toc"></ul>';
         main.insertBefore(menu, main.firstChild);
-        var list = menu.querySelector('#menuList');
         _sections = [];
         MENU.forEach(function (m) {
           var anchor = document.getElementById(m.at);
@@ -3399,16 +3436,29 @@
           if (!sec) { dbg('warn', 'menu: no section for ' + m.at); return; }
           if (!sec.id) sec.id = 'sec-' + m.at;
           sec._loader = LOADERS[m.at] || null;
-          sec._at = m.at; sec._label = m.label;
+          sec._at = m.at; sec._label = m.label; sec._needs = m.needs || '';
           _setH2(sec, m.label);
           _sections.push(sec);
+        });
+        bindRegionPickers();
+        renderMenuList();
+        showMenu();
+      }
+      // The Contents list is rebuilt whenever the region changes, because the
+      // menu is that region's table of contents: a rarity tracker has no
+      // counties and no home, so the sections its Markdown report never emits
+      // are absent here too rather than sitting in the list as dead ends.
+      function renderMenuList() {
+        var list = $('menuList'); if (!list) return;
+        list.innerHTML = '';
+        _sections.forEach(function (sec) {
+          if (!menuApplies({ needs: sec._needs })) return;
           var li = document.createElement('li');
           var a = document.createElement('a');
-          a.className = 'toclink'; a.textContent = m.label;
+          a.className = 'toclink'; a.textContent = sec._label;
           (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
           li.appendChild(a); list.appendChild(li);
         });
-        showMenu();
       }
       function showSection(id) {
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
@@ -3417,6 +3467,7 @@
         var nav = $('navbar'); if (nav) nav.hidden = false;
         var target = $(id), t = $('navTitle');
         if (t) { var h = target && target.querySelector('h2'); t.textContent = h ? h.textContent.trim() : ''; }
+        syncRegionNav();
         try { window.scrollTo(0, 0); } catch (e) {}
         autoLoad(target);
         refreshVisibleMaps();
@@ -3427,6 +3478,7 @@
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
         var nav = $('navbar'); if (nav) nav.hidden = true;
         var mr = $('menuReport'); if (mr) { try { mr.textContent = getReport().label + ' · tap a section to open it (mirrors your Markdown report).'; } catch (e) {} }
+        syncRegionNav();
         try { window.scrollTo(0, 0); } catch (e) {}
       }
       // Settings is now just another section in the Contents menu.
@@ -3480,7 +3532,15 @@
         }, { passive: true });
       }
       function populateReportSelect() {
-        var sel = $('reportSelect'); if (!sel || sel.dataset.filled) return;
+        fillRegionSelect($('reportSelect'));
+      }
+      // --- region switcher ---------------------------------------------------
+      // The project publishes nine reports; the picker in the Contents header
+      // and in the section navbar is the same setting as Settings → "Default
+      // report", so switching from anywhere sticks and is what the app opens
+      // on next launch.
+      function fillRegionSelect(sel) {
+        if (!sel || sel.dataset.filled) return;
         (BL.reports() || []).forEach(function (r) {
           var o = document.createElement('option');
           o.value = r.slug;
@@ -3488,6 +3548,42 @@
           sel.appendChild(o);
         });
         sel.dataset.filled = '1';
+      }
+      function bindRegionPickers() {
+        ['menuRegion', 'navRegion'].forEach(function (id) {
+          var sel = $(id); if (!sel || sel.dataset.bound) return;
+          fillRegionSelect(sel);
+          sel.addEventListener('change', function () { setActiveReport(this.value); });
+          sel.dataset.bound = '1';
+        });
+        syncRegionNav();
+      }
+      function syncRegionNav() {
+        var slug = getReportSlug();
+        ['menuRegion', 'navRegion', 'reportSelect'].forEach(function (id) {
+          var sel = $(id);
+          if (sel && sel.options.length && sel.value !== slug) sel.value = slug;
+        });
+      }
+      // Switching region rebuilds the report: the cached chase data, the
+      // rendered lists and the once-only auto-load flags all belong to the
+      // region being left. The Contents list is regenerated too, because each
+      // region's report emits a different set of sections.
+      var RESET_ON_REPORT_CHANGE = ['results', 'targetResults', 'destResults', 'excResults',
+        'tripResults', 'newResults', 'activeResults', 'myYearList', 'rankResults', 'rankSummary',
+        'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults'];
+      function setActiveReport(slug) {
+        slug = (slug || 'wa').toLowerCase();
+        if (slug === getReportSlug()) { syncRegionNav(); return; }
+        localStorage.setItem(K.report, slug);
+        clearChaseCache();
+        _autoLoaded = {};
+        RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
+        loadSettings();
+        renderMenuList();
+        var open = _sections.filter(function (s) { return !s.hidden; })[0];
+        if (open && menuApplies({ needs: open._needs })) showSection(open.id); else showMenu();
+        startBackgroundHistory(3000);
       }
       function loadSettings() {
         populateReportSelect();
@@ -3503,14 +3599,16 @@
         $('cklRegionLabel').textContent = reg;
         $('newRegionLabel').textContent = reg;
         $('quickRegionLabel').textContent = reg;
-        var hla = parseFloat(localStorage.getItem('ebird_home_lat')), hlo = parseFloat(localStorage.getItem('ebird_home_lng'));
+        var hla = parseFloat(localStorage.getItem(homeKey('lat'))), hlo = parseFloat(localStorage.getItem(homeKey('lng')));
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
-        $('homePlace').value = localStorage.getItem('ebird_home_place') || '';
-        $('tideStation').value = localStorage.getItem('ebird_tide_station') || '';
+        $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
+        $('tideStation').value = localStorage.getItem(tideKey()) || '';
+        if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('ebirdName').value = getDisplayName();
         $('abaSid').value = getAbaSid();
-        syncRankScopeUI();
+        syncRankRegionUI();
+        syncRegionNav();
         renderBirdcast();
         renderTimeOfDay();
         renderMigration();
@@ -3733,14 +3831,7 @@
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
       $('navBack').addEventListener('click', function () { showMenu(); });
       bindSwipeBack();
-      $('reportSelect').addEventListener('change', function () {
-        localStorage.setItem(K.report, (this.value || 'wa').toLowerCase());
-        clearChaseCache();
-        _autoLoaded = {};
-        loadSettings();
-        ['results', 'targetResults', 'destResults', 'excResults', 'tripResults', 'newResults', 'activeResults', 'myYearList'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
-        startBackgroundHistory(3000);
-      });
+      $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);
       $('destBtn').addEventListener('click', loadDestinations);
@@ -3751,9 +3842,6 @@
       $('quickBtn').addEventListener('click', loadQuickOuting);
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
-      // Picking a scope must reload. Without this the list kept whatever board
-      // was loaded last, so switching to Lower 48 or ABA Area looked inert.
-      $('rankScope').addEventListener('change', loadRankings);
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
@@ -3853,12 +3941,12 @@
           localStorage.setItem(K.report, getReportSlug());
           var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
           if (isFinite(hla) && isFinite(hlo)) {
-            localStorage.setItem('ebird_home_lat', hla); localStorage.setItem('ebird_home_lng', hlo);
-            localStorage.setItem('ebird_home_place', ($('homePlace').value || '').trim());
+            localStorage.setItem(homeKey('lat'), hla); localStorage.setItem(homeKey('lng'), hlo);
+            localStorage.setItem(homeKey('place'), ($('homePlace').value || '').trim());
           } else {
-            localStorage.removeItem('ebird_home_lat'); localStorage.removeItem('ebird_home_lng'); localStorage.removeItem('ebird_home_place');
+            localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
           }
-          localStorage.setItem('ebird_tide_station', ($('tideStation').value || '').trim());
+          localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
           localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           clearChaseCache();
@@ -3894,6 +3982,13 @@
         } catch (e) { el.textContent = 'Running in web preview'; }
       })();
 
+      // Test seam: the app is one big IIFE, so CI has no other way to drive the
+      // per-region storage helpers directly (see tests/dom.test.js).
+      window.__app = {
+        getHome: getHome, homeKey: homeKey, tideKey: tideKey,
+        getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport
+      };
+      migrateHomeKeys();
       buildNav();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       loadSettings();
