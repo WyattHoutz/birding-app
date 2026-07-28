@@ -14,9 +14,22 @@
     "dynamic tails, e.g. county names or a year); '*' stands for an f-string slot.",
     "null = app-only section.",
     "'map' is the app's map container id, non-null only where the report embeds",
-    "a rendered map (report.py _render_destinations_map call sites)."
+    "a rendered map (report.py _render_destinations_map call sites).",
+    "",
+    "reportSectionsAppOmits is a map of heading prefix -> WHY the app omits it.",
+    "It used to be a bare list, which made it an unaudited escape hatch: adding",
+    "a heading to it silently dropped that section from the app forever and the",
+    "TOC test still went green. Every entry now needs a reason, and PARITY.md",
+    "must carry a matching row - both repos assert it."
   ],
   "menu": [
+    {
+      "at": "surgeBtn",
+      "label": "🔴 Happening now",
+      "report": "## 🔴 Happening now",
+      "map": null,
+      "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake"
+    },
     {
       "at": "wxBtn",
       "label": "🌤 Conditions for chasing",
@@ -26,16 +39,10 @@
     },
     {
       "at": "rankBtn",
-      "label": "🏆 eBird Rankings & Top 25",
+      "label": "🏆 eBird Rankings & Top 100",
       "report": "## 🏆 eBird Rankings",
       "map": null,
-      "why": "your standing plus the Top 25 board you're ranked on — one section, one region"
-    },
-    {
-      "at": "lastNewBtn",
-      "label": "🔭 Latest ticks on the leaderboard",
-      "report": "## 🔭 Latest ticks on the leaderboard",
-      "map": null
+      "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve"
     },
     {
       "at": "refreshBtn",
@@ -54,6 +61,13 @@
       "label": "🦅 ABA Code 3+ rarities",
       "report": "## 🦅 ABA Code 3+ rarities in",
       "map": null
+    },
+    {
+      "at": "lastNewBtn",
+      "label": "🔭 Latest ticks on the leaderboard",
+      "report": "## 🔭 Latest ticks on the leaderboard",
+      "map": null,
+      "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them"
     },
     {
       "at": "tripBtn",
@@ -117,6 +131,13 @@
       "map": null
     },
     {
+      "at": "easyBtn",
+      "label": "🥚 Easy misses",
+      "report": "## 🥚 Easy misses",
+      "map": null,
+      "why": "common birds you should already have - the highest hit-rate chase list in the report"
+    },
+    {
       "at": "migBtn",
       "label": "🛬 Migration outlook",
       "report": "## 🛬 Migration outlook",
@@ -148,16 +169,15 @@
       "why": "app-only: API key / home / report picker"
     }
   ],
-  "reportSectionsAppOmits": [
-    "## Contents",
-    "## Reports",
-    "## Run this on another computer",
-    "## 📋 All unseen reports in",
-    "## 🔍 Watchlist",
-    "## 🏅 Your state rankings",
-    "## 🥚 Easy misses",
-    "## 🗺️ * unseen — closest first",
-    "## 🔬 iNaturalist unseen",
-    "## 📅 Year-to-date ABA rarities"
-  ]
+  "reportSectionsAppOmits": {
+    "## Contents": "navigation furniture; the app has its own Contents menu",
+    "## Reports": "index of published Markdown files - meaningless on device",
+    "## Run this on another computer": "setup instructions for the pipeline repo",
+    "## 📋 All unseen reports in": "the app shows the same targets ranked by distance in \"Closest spots with unseen birds\"; an unranked dump of every unseen report is a scroll, not a plan",
+    "## 🔍 Watchlist": "\"needs verification\" is a report-only concept - the app has no NV list",
+    "## 🏅 Your state rankings": "rarity-tracker-only cross-region table; the app scopes to one region by design - switch regions in the nav instead",
+    "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
+    "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
+    "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead"
+  }
 }

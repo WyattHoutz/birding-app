@@ -66,7 +66,11 @@ function boot(opts = {}) {
         if (opts.fetch) {
           const body = opts.fetch(String(url));
           if (body != null) {
-            return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(body) });
+            return Promise.resolve({
+              ok: true, status: 200,
+              text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
+              json: () => Promise.resolve(typeof body === 'string' ? JSON.parse(body) : body),
+            });
           }
         }
         return new Promise(() => {});   // never settles: offline + deterministic
@@ -274,6 +278,82 @@ test('swiping right on the Contents menu is a no-op', async () => {
   app.window.close();
 });
 
+/* The surge section exists because ~20 birders saw a Tufted Puffin at the
+ * Edmonds waterfront and neither the report nor the app said a word until the
+ * next day. logic.test.js and tests/parity/test_surge.py already prove the
+ * detector fires on that event in BOTH languages — but a correct detector
+ * nobody wired up is exactly the v1.0.14 bug (notableToday was a proven port
+ * that refresh() simply never called, and the golden could not see it). This
+ * guards the wiring: the loader runs, drives all three lanes, and the results
+ * reach the DOM.
+ */
+test('Happening now is wired and renders every lane it detects', async () => {
+  const app = await boot();
+  app.open(/Happening now/);
+  assert.equal(app.$('surgeResults').closest('section').hidden, false,
+    'the section is the one on screen');
+
+  const A = app.window.__app;
+  const BL = app.window.BirdLogic;
+  const now = new Date(2026, 6, 27, 18, 0).getTime();
+  const at = (n, hh) => {
+    const d = new Date(2026, 6, 27 - n, hh == null ? 9 : hh);
+    const p = (x) => String(x).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:00`;
+  };
+  const events = [];
+  for (let i = 0; i < 20; i++) {
+    events.push({
+      code: 'tufpuf', name: 'Tufted Puffin', kind: 'Rarity', dateStr: at(0, 7 + i % 10),
+      observer: 'birder' + i, subId: 'S' + i, locId: 'L1', loc: 'Edmonds Waterfront',
+      lat: 47.811, lon: -122.394,
+    });
+  }
+  const detected = BL.surgeEvents(events, { now });
+  assert.equal(detected.length, 1, 'the fixture really is a surge');
+
+  A.renderSurge(detected,
+    BL.tickCascades([
+      { name: 'Brian Pendleton', rank: 3, recent: 'Terek Sandpiper (Jul 19, 2026)' },
+      { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
+      { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
+    ], A.parseRecentTick),
+    [{ locId: 'L2', loc: 'Stanwood STP', observers: 9, baseline: 1, ratio: 9 }]);
+
+  const txt = app.$('surgeResults').textContent;
+  assert.match(txt, /Tufted Puffin/, 'lane 1: the species drawing the crowd');
+  assert.match(txt, /20 birders/, 'lane 1: observers, which is the whole signal');
+  assert.match(txt, /Terek Sandpiper/, 'lane 2: the leaderboard cascade');
+  assert.match(txt, /Stanwood STP/, 'lane 3: the species-blind hotspot convergence');
+  assert.ok(/ebird\.org\/hotspot\/L1/.test(app.$('surgeResults').innerHTML),
+    'the place is a link you can act on, not just a name');
+  assert.deepEqual(app.state.errors, [], 'no uncaught errors');
+  app.window.close();
+});
+
+/* A zero baseline means the ratio is UNDEFINED, not infinite. The two repos
+ * disagreed on exactly this — JS called Infinity >= MIN_RATIO a "crowd" while
+ * Python called it "novel" — and the cross-language parity test caught it. A
+ * rendered "Infinity×" or "NaN×" is the visible symptom, so guard the render
+ * too and not just the detector.
+ */
+test('a surge with no baseline reads as "new here", never as an infinite ratio', async () => {
+  const app = await boot();
+  app.open(/Happening now/);
+  const A = app.window.__app;
+  A.renderSurge([{
+    code: 'tersan', name: 'Terek Sandpiper', locId: 'L9', loc: 'Stanwood STP',
+    lat: 48.24, lon: -122.37, observers: 2, checklists: 2, baseline: 0,
+    ratio: null, novel: true, reason: 'novel', rarity: true, seen: false,
+    perHour: 1, latest: '2026-07-27 11:00', distMi: 31.2, subId: 'S123',
+  }], [], []);
+  const txt = app.$('surgeResults').textContent;
+  assert.match(txt, /new here/, 'says there is no norm to compare against');
+  assert.doesNotMatch(txt, /Infinity|NaN/, 'and never invents a number');
+  assert.match(txt, /🆕/, 'flags the "drop everything" case');
+  app.window.close();
+});
+
 test('Latest ticks section is wired and auto-loads from the leaderboard', async () => {
   const app = await boot();
   app.open(/Latest ticks/);
@@ -399,11 +479,11 @@ test('the fallback icon ships with the app', () => {
 });
 
 
-test('rankings: the board is scoped to the active report and includes Top 25', async () => {
+test('rankings: the board is scoped to the active report and includes the Top 100', async () => {
   // Two shipped bugs live here. v1.0.10: the scope control had no change
   // listener, so a stale board sat under the wrong heading. v1.0.12 removed the
-  // control entirely — rankings and Top 25 are one section scoped to the region
-  // you picked — so the guard is now "the board follows the report".
+  // control entirely — rankings and the board are one section scoped to the
+  // region you picked — so the guard is now "the board follows the report".
   const app = await boot();
   app.open(/eBird Rankings/);
   await new Promise((r) => setTimeout(r, 40));
@@ -416,8 +496,11 @@ test('rankings: the board is scoped to the active report and includes Top 25', a
   assert.ok(!app.$('rankScope'), 'the scope selector is gone — region comes from the report');
   const src = HTML.slice(HTML.indexOf('function renderRankings('),
     HTML.indexOf('function loadLastNew('));
-  assert.match(src, /Top 25 eBirders/, 'the merged section labels its Top 25 board');
-  assert.match(src, /slice\(0,\s*25\)/, 'the Top 25 board is capped at 25 like the report');
+  assert.match(src, /Top ' \+ TOP_BOARD_N \+ ' eBirders/,
+    'the merged section labels its board from the shared board size');
+  assert.match(src, /slice\(0, TOP_BOARD_N\)/,
+    'the board is capped at TOP_BOARD_N, like rankings.TOP_BOARD_N in the report');
+  assert.match(HTML, /var TOP_BOARD_N = 100;/, 'and that size is eBird\'s published top 100');
   app.window.close();
 });
 
@@ -594,18 +677,47 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
     'species and checklists are labelled stats, not a run-on sentence');
 
   const rows = [...app.document.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
-  assert.ok(rows.length && rows.length <= 25,
-    'the board renders and is capped at the Top 25 the report prints');
+  assert.ok(rows.length && rows.length <= 100,
+    'the board renders and is capped at the Top 100 the report prints');
   assert.equal(rows[0].querySelector('.rk').textContent.trim(), '1');
   assert.match(rows[0].querySelector('.who').textContent, /sally frandsen/);
   assert.deepEqual([...rows[0].querySelectorAll('.n')].map((e) => e.textContent.trim()),
-    ['337', '464'],
-    'species and checklists get their own aligned columns, like the report table');
+    ['337'],
+    'rank/birder/species only — checklists is effort, not standing, and cost a ' +
+    'quarter of the width on a phone');
   assert.ok(app.document.querySelector('.rankhdr'),
-    'the columns are headed, so the two numbers are not ambiguous');
+    'the column is headed, so the number is not ambiguous');
   const named = rows[0].querySelector('.who a');
   assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
     'each birder deep-links to their own row on the board, as the report does');
+  app.window.close();
+});
+
+
+test('rankings: each board read is recorded, because eBird cannot re-serve a past standing', async () => {
+  // ebird.org/top100 has no "as of date" endpoint - ?year= is year-to-date - so
+  // a rank you did not record is gone. The Markdown report archives a dated
+  // board per run; the app has no GitHub access by design, so it keeps its own
+  // forward-only history and can never backfill.
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  app.open(/eBird Rankings/);
+  await new Promise((r) => setTimeout(r, 150));
+  const raw = app.window.localStorage.getItem('ebird_rankhist:US-WA');
+  assert.ok(raw, 'reading the board writes a history entry for the region');
+  const hist = JSON.parse(raw);
+  assert.equal(hist.length, 1, 'one entry per day, not one per render');
+  assert.equal(hist[0].rank, 211, 'and it records the rank actually shown');
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(hist[0].d), 'stamped with the day it was read');
+
+  // A second read on the same day must overwrite, not append: the report caches
+  // its board daily too, so two opens in one afternoon are one data point.
+  app.window.__app.renderRankings(
+    { rows: [], me: { name: 'Birder Wyatt', rank: 208, species: 199 } }, 'US-WA', '', 'Birder Wyatt');
+  const after = JSON.parse(app.window.localStorage.getItem('ebird_rankhist:US-WA'));
+  assert.equal(after.length, 1, 'still one entry for today');
+  assert.equal(after[0].rank, 208, 'and it is the latest read of the day');
+  assert.ok(app.document.querySelector('.ranktrend'),
+    'the standing card shows the trend that history feeds');
   app.window.close();
 });
 
@@ -779,8 +891,7 @@ test('quick outing: capped to an impulse detour and sorted by distance', async (
   app.window.close();
 });
 
-test('rankings: the rank is shown out of the number of eBirders', async () => {
-  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+test('rankings: the rank is shown out of the number of eBirders', async () => {  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
   const A = app.window.__app;
   A.renderRankings(A.parseRankingsHTML(FIX('top100-wa.html'), 'sally frandsen'),
     'US-WA', 'https://ebird.org/top100', 'sally frandsen');
@@ -793,3 +904,113 @@ test('rankings: the rank is shown out of the number of eBirders', async () => {
   assert.equal(key, 'jfekjedvescr',
     'the token is resolved by parameter NAME, so eBird can reorder its args');
 });
+
+test('easy misses: ranked by location-days, excluding birds on your year list', async () => {
+  // Ports report.section_common_missing. The two things that make this list
+  // worth chasing are (a) it never suggests a bird you already have and
+  // (b) it ranks by how many DIFFERENT PLACES reported a bird, not by how
+  // many reports it got - eight reports from one feeder is one lucky yard.
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1 }));
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  // The bundled seed IS the WA year list, which of course has robins on it.
+  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Dark-eyed Junco']));
+
+  const obs = [];
+  const add = (code, name, day, loc) => obs.push({
+    speciesCode: code, comName: name, obsDt: '2026-07-' + day + ' 08:00',
+    locId: loc, locName: loc, lat: 47.6, lng: -122.3, subId: 'S' + day + loc,
+  });
+  const DAYS = ['21', '22', '23', '24'];
+  // Song Sparrow first, so the ordering below is the sort's doing, not the
+  // insertion order. Present on the same 4 days as the robin - identical
+  // frequency - but always at the SAME spot, so it is one place you know
+  // about rather than a bird that is everywhere.
+  DAYS.forEach((d) => add('sonspa', 'Song Sparrow', d, 'L9'));
+  // Same 4 days, three different places each day = 12 location-days.
+  DAYS.forEach((d) => ['L0', 'L1', 'L2'].forEach((l) => add('amerob', 'American Robin', d, l)));
+  // One lucky day out of ten - under the 40% floor.
+  add('rebnut', 'Red-breasted Nuthatch', '25', 'L1');
+  // Already on the year list: must never appear however common it is.
+  DAYS.forEach((d, i) => add('daejun', 'Dark-eyed Junco', d, 'L' + i));
+
+  const rows = A.computeEasyMisses(obs, 10, {});
+  assert.deepEqual(Array.from(rows, (r) => r.code), ['amerob', 'sonspa'],
+    'seen birds and sub-40% birds are both excluded; spread beats repetition');
+  assert.equal(rows[0].siteDays, 12, 'location-days: 4 days x 3 places');
+  assert.equal(rows[1].siteDays, 4, 'same 4 days at one spot is 4 location-days');
+  assert.ok(Math.abs(rows[0].freq - rows[1].freq) < 1e-9,
+    'the two are tied on frequency, so ONLY location-days can order them');
+  assert.equal(rows[0].days, 4);
+  assert.ok(Math.abs(rows[0].freq - 0.4) < 1e-9, 'frequency is days / sampled days');
+  assert.equal(rows[0].spots.length, 3, 'the report offers the nearest 3 spots');
+
+  // A subspecies of a bird you have must resolve through reportAs, exactly as
+  // it does in the convoy lists - otherwise the "easy" list is full of birds
+  // you already ticked under the parent name.
+  const forms = [];
+  DAYS.forEach((d, i) =>
+    forms.push({ speciesCode: 'daejun5', comName: 'Dark-eyed Junco (Oregon)',
+      obsDt: '2026-07-' + d + ' 08:00', locId: 'L' + i, lat: 47.6, lng: -122.3 }));
+  assert.equal(A.computeEasyMisses(forms, 10, { daejun5: 'daejun' }).length, 0,
+    'a form of a bird on your year list is not a miss');
+  app.window.close();
+});
+
+test('easy misses: a fetched day is cached, because a past day never changes', async () => {
+  // The report reads 75 days of committed snapshots; the app has none, so it
+  // samples 30 days live. That is only affordable once - re-fetching a month
+  // of history on every open would be 60 calls per visit on a shared key.
+  let calls = 0;
+  const day = [{ speciesCode: 'amerob', comName: 'American Robin',
+    obsDt: '2026-07-21 08:00', locId: 'L1', locName: 'Marymoor',
+    lat: 47.6, lng: -122.3, subId: 'S1' }];
+  const app = await boot({ fetch: (u) => (/maxResults=1000/.test(u) ? (calls++, day) : null) });
+  const A = app.window.__app;
+  const d = new Date('2026-07-21T12:00:00');
+
+  const first = await A.easyFetch(['US-WA-033'], [d]);
+  assert.equal(calls, 1, 'the first pass fetches the day');
+  assert.equal(first.length, 1);
+
+  const second = await A.easyFetch(['US-WA-033'], [d]);
+  assert.equal(calls, 1, 'the second pass reads the cache, not the network');
+  assert.deepEqual(Array.from(second, (o) => o.speciesCode), ['amerob']);
+  assert.equal(second[0].locName, 'Marymoor',
+    'the cache keeps the fields the section renders, not just the code');
+  app.window.close();
+});
+
+test('convoy checklists load concurrently, with a hard cap on in-flight calls', async () => {
+  // Serial + a 170 ms gap meant ~9 s of mostly-idle key for a ten-convoy day.
+  // Unbounded parallelism is the other failure: it would swamp the single
+  // eBird key that every other section shares.
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  assert.match(HTML, /var CONVOY_FETCH_CONC = \d+;/, 'the cap is a named constant');
+  const cap = +/var CONVOY_FETCH_CONC = (\d+);/.exec(HTML)[1];
+  assert.ok(cap > 1 && cap <= 8, `cap is concurrent but polite (got ${cap})`);
+
+  let live = 0, peak = 0, done = 0;
+  const items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  await A.pool(items, cap, () => {
+    peak = Math.max(peak, ++live);
+    return new Promise((res) => setTimeout(res, 1)).then(() => { live--; done++; });
+  });
+  assert.equal(done, 10, 'every item ran');
+  assert.equal(peak, cap, `pool keeps exactly ${cap} in flight, no more and no fewer`);
+
+  // A rejection must not strand the pool - one bad checklist used to be enough
+  // to leave a convoy stuck on "Loading species...".
+  let ran = 0;
+  await A.pool(items, cap, (i) => { ran++; return i === 3 ? Promise.reject(new Error('x')) : null; });
+  assert.equal(ran, 10, 'a rejected job does not stop the remaining ones');
+
+  const load = HTML.slice(HTML.indexOf('function loadConvoySpecies('),
+    HTML.indexOf('function loadConvoys('));
+  assert.match(load, /pool\(list, CONVOY_FETCH_CONC/, 'the convoy loader uses the pool');
+  assert.ok(!/todDelay/.test(load), 'and no longer sleeps between checklists');
+  app.window.close();
+});
+

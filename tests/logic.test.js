@@ -258,3 +258,222 @@ test('CONST: thresholds the app + report share are present and sane', () => {
   assert.equal(c.CONVOY_MIN_STOPS, 2);
   assert.equal(c.CUTOFF_DAYS, 2);
 });
+
+// --- surge detection -------------------------------------------------------
+// Reproduces the two events that motivated this: ~20 birders on a Tufted
+// Puffin at the Edmonds waterfront in one day, and a Terek Sandpiper mega at
+// the Stanwood treatment ponds that cascaded through the WA leaderboard.
+const REC = (o) => ({
+  code: o.code, name: o.name || o.code, kind: o.kind || 'Rarity',
+  dateStr: o.dateStr, observer: o.observer, subId: o.subId || ('S' + Math.random()),
+  locId: o.locId || 'L1', loc: o.loc || 'Edmonds Waterfront',
+  lat: o.lat == null ? 47.811 : o.lat, lon: o.lon == null ? -122.394 : o.lon,
+});
+// 2026-07-27 12:00 local, the day of the puffin twitch.
+const NOW = new Date(2026, 6, 27, 18, 0).getTime();
+const DAY = (n, hh) => {
+  const d = new Date(2026, 6, 27 - n, hh == null ? 9 : hh);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:00`;
+};
+
+test('surgeEvents: 20 birders on one puffin in a day fires; a lone daily regular does not', () => {
+  const recs = [];
+  for (let i = 0; i < 20; i++) {
+    recs.push(REC({ code: 'tufpuf', name: 'Tufted Puffin', dateStr: DAY(0, 7 + (i % 10)), observer: 'birder' + i }));
+  }
+  // The puffin is locally REGULAR here — that is the whole point of the crowd
+  // gate, since no rarity feed would surface it. Give it the trailing norm a
+  // regular bird has, or it fires as "novel" and proves nothing about crowds.
+  for (let d = 2; d < 14; d++) {
+    recs.push(REC({ code: 'tufpuf', name: 'Tufted Puffin', kind: 'Need', dateStr: DAY(d), observer: 'ferry regular' }));
+  }
+  // A bird one person reports every single day is normal, not news.
+  for (let d = 0; d < 14; d++) {
+    recs.push(REC({ code: 'gbhher', name: 'Great Blue Heron', kind: 'Need', dateStr: DAY(d), observer: 'same person', locId: 'L2', lat: 47.9, lon: -122.2 }));
+  }
+  const ev = BL.surgeEvents(recs, { now: NOW });
+  assert.equal(ev.length, 1, 'exactly one event fires');
+  assert.equal(ev[0].code, 'tufpuf');
+  assert.equal(ev[0].observers, 20, 'counts distinct observers');
+  assert.equal(ev[0].reason, 'crowd', 'a bird with a norm fires by blowing past it');
+  assert.match(ev[0].loc, /Edmonds/);
+});
+
+test('surgeEvents: counts observers, not checklists — one birder cannot fake a crowd', () => {
+  const recs = [];
+  // Same person, ten checklists at the stakeout in one day.
+  for (let i = 0; i < 10; i++) {
+    recs.push(REC({ code: 'tufpuf', name: 'Tufted Puffin', dateStr: DAY(0, 7 + i), observer: 'Solo Birder' }));
+  }
+  assert.deepEqual(BL.surgeEvents(recs, { now: NOW }), [],
+    'ten lists from one observer is one person, so nothing fires');
+});
+
+test('surgeEvents: a mega fires on its SECOND independent report, not its twentieth', () => {
+  // Terek Sandpiper: nothing in the trailing window, then two observers.
+  const recs = [
+    REC({ code: 'tersan', name: 'Terek Sandpiper', dateStr: DAY(0, 8), observer: 'Ryan Merrill', locId: 'L9', loc: 'Stanwood STP', lat: 48.24, lon: -122.37 }),
+    REC({ code: 'tersan', name: 'Terek Sandpiper', dateStr: DAY(0, 11), observer: 'Bruce LaBar', locId: 'L9', loc: 'Stanwood STP', lat: 48.24, lon: -122.37 }),
+  ];
+  const ev = BL.surgeEvents(recs, { now: NOW });
+  assert.equal(ev.length, 1, 'two observers of an otherwise-absent species is enough');
+  assert.equal(ev[0].reason, 'novel');
+  assert.equal(ev[0].novel, true);
+  // ...but a single observer is not: one report is a claim, not an event.
+  assert.deepEqual(BL.surgeEvents([recs[0]], { now: NOW }), []);
+});
+
+test('surgeEvents: two names on ONE shared checklist is one observation, not two', () => {
+  // eBird returns a row per participant, so a couple birding together looks
+  // like two independent reports of everything they saw. On real data this
+  // fired "novel" for Fox Sparrow, Cassin's Finch, Mountain Chickadee and
+  // American Goshawk simultaneously — all from a single dawn walk up a
+  // mountain, all from checklist S377184798 at 6:46 am. Four bogus alerts
+  // from one outing is how a chase detector teaches you to ignore it.
+  const shared = [
+    REC({ code: 'moucha', name: 'Mountain Chickadee', dateStr: DAY(0, 6), observer: 'Ann', subId: 'S377184798', locId: 'L77', loc: 'Windy Gap' }),
+    REC({ code: 'moucha', name: 'Mountain Chickadee', dateStr: DAY(0, 6), observer: 'Bob', subId: 'S377184798', locId: 'L77', loc: 'Windy Gap' }),
+  ];
+  assert.deepEqual(BL.surgeEvents(shared, { now: NOW }), [],
+    'both observers filed the same list, so there is only one sighting');
+
+  // Split them onto their own checklists at the same spot and it is a real
+  // second report — two people who independently found the bird.
+  const split = [
+    REC({ ...shared[0], subId: 'S1' }),
+    REC({ ...shared[1], subId: 'S2' }),
+  ];
+  assert.equal(BL.surgeEvents(split, { now: NOW }).length, 1,
+    'independent checklists corroborate; a shared one only echoes');
+});
+
+test('surgeEvents: six people at six lakes is a movement, not a stakeout you can drive to', () => {
+  const recs = [];
+  for (let i = 0; i < 6; i++) {
+    recs.push(REC({
+      code: 'rednec', name: 'Red-necked Phalarope', dateStr: DAY(0, 8 + i),
+      observer: 'birder' + i, locId: 'L' + i, loc: 'Lake ' + i,
+      lat: 47.5 + i * 0.4, lon: -122.3 - i * 0.4,
+    }));
+  }
+  assert.deepEqual(BL.surgeEvents(recs, { now: NOW }), [],
+    'spatially scattered reports never form one cluster, so no chaseable event');
+});
+
+test('surgeEvents: stale reports outside the window do not fire', () => {
+  const recs = [];
+  for (let i = 0; i < 20; i++) {
+    recs.push(REC({ code: 'tufpuf', name: 'Tufted Puffin', dateStr: DAY(6, 7 + (i % 10)), observer: 'birder' + i }));
+  }
+  assert.deepEqual(BL.surgeEvents(recs, { now: NOW }), [],
+    'a crowd six days ago is history, not a chase');
+});
+
+test('surgeEvents: reports whether you still need the bird, without filtering on it', () => {
+  const recs = [];
+  for (let i = 0; i < 6; i++) {
+    recs.push(REC({ code: 'tufpuf', name: 'Tufted Puffin', dateStr: DAY(0, 7 + i), observer: 'birder' + i }));
+  }
+  const ev = BL.surgeEvents(recs, { now: NOW, seen: { tufpuf: 1 } });
+  assert.equal(ev.length, 1, 'a mob on a bird you already have is still an event');
+  assert.equal(ev[0].seen, true, 'but it says so, so the caller can rank it down');
+});
+
+test('tickCascades: three of the top 100 adding the same bird in days is a mega', () => {
+  const parse = (s) => {
+    const m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s).trim());
+    if (!m) return null;
+    const d = new Date(m[2].replace('.', '') + ' 00:00:00');
+    return { species: m[1].trim(), date: isNaN(d) ? '' : d.toISOString().slice(0, 10) };
+  };
+  const rows = [
+    { name: 'Brian Pendleton', rank: 3, recent: 'Terek Sandpiper (Jul 19, 2026)' },
+    { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
+    { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
+    { name: 'Calvin Bobek', rank: 10, recent: 'Terek Sandpiper (Jul 19, 2026)' },
+    // Two birders, so below the threshold.
+    { name: 'Greg Harrington', rank: 6, recent: 'American Three-toed Woodpecker (Jul 27, 2026)' },
+    { name: 'Peter Erickson', rank: 93, recent: 'American Three-toed Woodpecker (Jul 26, 2026)' },
+  ];
+  const out = BL.tickCascades(rows, parse);
+  assert.equal(out.length, 1, 'only the four-birder species is a cascade');
+  assert.equal(out[0].species, 'Terek Sandpiper');
+  assert.equal(out[0].birders.length, 4);
+  assert.equal(out[0].birders[0].rank, 3, 'birders are listed best-ranked first');
+});
+
+test('tickCascades: the same bird added months apart is not a cascade', () => {
+  const parse = (s) => {
+    const m = /^(.*?)\s*\((\d{4}-\d{2}-\d{2})\)$/.exec(s);
+    return m ? { species: m[1], date: m[2] } : null;
+  };
+  const rows = [
+    { name: 'A', rank: 1, recent: 'Gray Catbird (2026-05-01)' },
+    { name: 'B', rank: 2, recent: 'Gray Catbird (2026-06-15)' },
+    { name: 'C', rank: 3, recent: 'Gray Catbird (2026-07-22)' },
+  ];
+  assert.deepEqual(BL.tickCascades(rows, parse), [],
+    'ticks spread over months are a common bird, not a twitch');
+});
+
+test('tickCascades: one birder listed twice counts once', () => {
+  const parse = (s) => ({ species: s, date: '2026-07-19' });
+  const rows = [
+    { name: 'Birder Wyatt', rank: 211, recent: 'Terek Sandpiper' },
+    { name: 'Birder Wyatt', rank: 211, recent: 'Terek Sandpiper' },
+    { name: 'Someone Else', rank: 4, recent: 'Terek Sandpiper' },
+  ];
+  assert.deepEqual(BL.tickCascades(rows, parse), [],
+    'the board appends your own row after the hundredth; it is still one person');
+});
+
+test('surgeEvents: the baseline divisor is measured from the data, not assumed', () => {
+  // The regression this guards: dividing by the CONFIGURED 14 days when the
+  // feed only carries 7 understates the baseline ~2.3x, so an ordinary busy
+  // day clears MIN_RATIO and the section fills with non-events.
+  // Seven days of data in which a common bird is seen by 3 people a day.
+  const recs = [];
+  for (let d = 2; d < 7; d++) {
+    for (let i = 0; i < 3; i++) {
+      recs.push(REC({ code: 'norfli', name: 'Northern Flicker', kind: 'Need', dateStr: DAY(d, 8 + i), observer: 'b' + d + '-' + i }));
+    }
+  }
+  // ...and 5 people today. Busier, but nothing like a twitch.
+  for (let i = 0; i < 5; i++) {
+    recs.push(REC({ code: 'norfli', name: 'Northern Flicker', kind: 'Need', dateStr: DAY(0, 8 + i), observer: 'today' + i }));
+  }
+  assert.equal(BL.baselineDays(new Date(2026, 6, 27 - 6, 9).getTime(), NOW, BL.SURGE).toFixed(1), '4.9',
+    'divisor is the span actually present (6.4 d) minus the hot window, not 12.5');
+  assert.deepEqual(BL.surgeEvents(recs, { now: NOW }), [],
+    'five observers against a real baseline of ~3.3/day is ratio 1.5 — not a surge');
+});
+
+test('surgeEvents: a longer feed cannot dilute the baseline past the config', () => {
+  // The cap matters in the other direction: 60 days of history divided by 60
+  // would make any species look absent, so novelty is judged over BASELINE_DAYS.
+  const old = new Date(2026, 6, 27 - 60, 9).getTime();
+  assert.equal(BL.baselineDays(old, NOW, BL.SURGE), 14 - 1.5);
+});
+
+test('hotspotConvergence: a crowd at one spot flags the twitch before you know the bird', () => {
+  const rows = [];
+  for (let i = 0; i < 8; i++) {
+    rows.push({ locId: 'L1', locName: 'Edmonds Waterfront', userDisplayName: 'birder' + i, subId: 'S' + i, obsDt: DAY(0, 7 + i) });
+  }
+  // Its own norm: one regular, once a day. Starts at d=2 because the hot
+  // window is 36 h and would otherwise reach back into yesterday's visit.
+  for (let d = 2; d < 14; d++) {
+    rows.push({ locId: 'L1', locName: 'Edmonds Waterfront', userDisplayName: 'local patcher', subId: 'P' + d, obsDt: DAY(d) });
+  }
+  // A busy park that is always busy must NOT fire.
+  for (let d = 0; d < 14; d++) {
+    for (let i = 0; i < 8; i++) {
+      rows.push({ locId: 'L2', locName: 'Discovery Park', userDisplayName: 'p' + d + '-' + i, subId: 'D' + d + i, obsDt: DAY(d, 8) });
+    }
+  }
+  const out = BL.hotspotConvergence(rows, { now: NOW });
+  assert.equal(out.length, 1, 'only the spot that broke its own norm fires');
+  assert.equal(out[0].locId, 'L1');
+  assert.equal(out[0].observers, 8);
+});

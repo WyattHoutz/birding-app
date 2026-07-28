@@ -612,6 +612,279 @@
     return out;
   }
 
+  // ---- surge detection (report.section_surge) ------------------------------
+  // computeStakeoutLocids above answers "is this bird STILL there?" — three
+  // checklists clustered within 300 m, at any pace, over the whole feed window.
+  // It cannot answer "is this bird being TWITCHED right now?", and that is the
+  // event worth interrupting someone for: ~20 observers converged on a Tufted
+  // Puffin at the Edmonds waterfront in a single day and the only signal the
+  // pipeline emitted was a routine rarity row, read the following morning.
+  //
+  // A twitch has a shape that a stakeout does not: distinct OBSERVERS, packed
+  // into hours rather than days, far above what that species normally draws in
+  // the region. So score each species x 300 m cluster on
+  //
+  //     ratio = observers in the last SURGE_WINDOW_H hours
+  //             ------------------------------------------
+  //             that species' mean observers/day over the trailing window
+  //
+  // and fire on either of two gates:
+  //
+  //   * CROWD  — SURGE_MIN_OBSERVERS distinct observers AND ratio >= SURGE_MIN_RATIO.
+  //              Catches a bird that is locally regular but suddenly mobbed
+  //              (the Edmonds puffin: ~20 vs a baseline near zero).
+  //   * NOVEL  — SURGE_NOVEL_OBSERVERS observers of a species with NO prior
+  //              report in the window at all. Catches a mega on its second
+  //              independent report rather than its twentieth (Terek Sandpiper,
+  //              Red-necked Stint, Ruff, White Wagtail), which is the whole
+  //              point: by report #20 everyone already knows.
+  //
+  // Observers, not checklists: one birder filing three lists at a stakeout is
+  // one person, and counting lists is exactly how a quiet spot fakes a crowd.
+  // Deliberately NOT filtered to unseen birds — a mob on a bird you already
+  // have is still real news; ranking (not detection) is where "do I need it"
+  // belongs, so the caller decides.
+  var SURGE = {
+    WINDOW_H: 36,          // "now" — long enough to survive an overnight gap
+    BASELINE_DAYS: 14,     // what "normal" means for this species here
+    MIN_OBSERVERS: 4,      // crowd gate
+    MIN_RATIO: 4,          // ...and it must be well above normal
+    NOVEL_OBSERVERS: 2,    // novelty gate: nothing else in the window
+    CLUSTER_M: 300         // same radius as a stakeout
+  };
+
+  // 'YYYY-MM-DD HH:MM' / ISO -> epoch ms. Feeds carry local time with no zone,
+  // so parse the parts rather than trusting Date's zone guessing.
+  function recTime(rec) {
+    var s = String((rec && rec.dateStr) || '');
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(s);
+    if (!m) return NaN;
+    return new Date(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0).getTime();
+  }
+  // Who filed it. Falls back to the checklist id so an anonymous row still
+  // counts once instead of collapsing every anonymous report into one person.
+  function observerKey(rec) {
+    var who = String((rec && (rec.observer || rec.userDisplayName)) || '').trim().toLowerCase();
+    return who || ('sub:' + ((rec && rec.subId) || Math.random()));
+  }
+
+  // How many days of NON-hot history the input actually carries.
+  //
+  // This looks like a detail and is not. Dividing the trailing observer-days by
+  // the CONFIGURED baseline length assumes the feed goes back that far. It does
+  // not: planFeeds asks for back=7, so a 14-day divisor understates every
+  // baseline by ~2.3x and inflates every ratio by the same factor — which turns
+  // MIN_RATIO 4 into an effective gate of ~1.7x and makes "a slightly busier
+  // Saturday" read as a twitch. A detector that cries wolf is worse than no
+  // detector, so the divisor is measured from the data, capped at the config so
+  // a longer feed cannot dilute the baseline instead.
+  function baselineDays(earliestT, now, cfg) {
+    var spanD = isFinite(earliestT) ? (now - earliestT) / 86400000 : cfg.BASELINE_DAYS;
+    return Math.max(1, Math.min(cfg.BASELINE_DAYS, spanD) - cfg.WINDOW_H / 24);
+  }
+
+  // records = merged snapshot rows (same shape computeChaseViews consumes).
+  // opts.now = epoch ms (defaults to Date.now()), opts.seen = seen-code set.
+  // Returns fired events, strongest first.
+  function surgeEvents(records, opts) {
+    opts = opts || {};
+    var now = opts.now == null ? Date.now() : opts.now;
+    var cfg = opts.cfg || SURGE;
+    var hotFrom = now - cfg.WINDOW_H * 3600 * 1000;
+    var baseFrom = now - cfg.BASELINE_DAYS * 86400 * 1000;
+
+    var byCode = {}, order = [], earliest = Infinity;
+    (records || []).forEach(function (r) {
+      if (!r || !r.code) return;
+      var t = recTime(r);
+      if (!isFinite(t) || t < baseFrom || t > now + 86400000) return;
+      if (t < earliest) earliest = t;
+      if (!byCode[r.code]) { byCode[r.code] = []; order.push(r.code); }
+      byCode[r.code].push({ rec: r, t: t });
+    });
+    var coldDays = baselineDays(earliest, now, cfg);
+
+    var out = [];
+    order.forEach(function (code) {
+      var all = byCode[code];
+      var hot = all.filter(function (x) { return x.t >= hotFrom; });
+      if (!hot.length) return;
+
+      // Baseline is everything OUTSIDE the hot window, as observers/day, so a
+      // bird reported daily by one person does not read as a surge.
+      var coldObs = {};
+      all.forEach(function (x) { if (x.t < hotFrom) coldObs[observerKey(x.rec) + '|' + dayStr(x.rec.dateStr)] = 1; });
+      var baseline = Object.keys(coldObs).length / coldDays;
+
+      // Cluster the hot reports spatially: a species seen by six people at six
+      // different lakes is a movement, not a stakeout you can drive to.
+      clusterByProximity(hot.map(function (x) { return x.rec; }), cfg.CLUSTER_M).forEach(function (cluster) {
+        var obs = {}, subs = {}, newest = null, newestT = -Infinity, oldestT = Infinity;
+        cluster.forEach(function (r) {
+          obs[observerKey(r)] = 1;
+          if (r.subId) subs[r.subId] = 1;
+          var t = recTime(r);
+          if (t > newestT) { newestT = t; newest = r; }
+          if (t < oldestT) oldestT = t;
+        });
+        var nObs = Object.keys(obs).length;
+        var nSubs = Object.keys(subs).length;
+        // No baseline means the ratio is UNDEFINED, not infinite. Treating it
+        // as infinite made every novel bird also satisfy the crowd gate, so
+        // `reason` stopped partitioning and the two repos disagreed on the
+        // label for the same event. novel = nothing here for two weeks;
+        // crowd = there IS a norm and this blew past it.
+        var novel = baseline === 0;
+        var ratio = novel ? null : (nObs / baseline);
+        var crowdFires = !novel && nObs >= cfg.MIN_OBSERVERS && ratio >= cfg.MIN_RATIO;
+        // The novelty gate also needs the reports to be INDEPENDENT. Two
+        // birders on one shared checklist are two names on a single
+        // observation, and eBird returns a row per participant — which is how
+        // one couple's dawn walk up a mountain fired "novel" for every montane
+        // species at once. Independence is what makes a second report
+        // corroboration instead of an echo.
+        var novelFires = novel && nObs >= cfg.NOVEL_OBSERVERS && nSubs >= cfg.NOVEL_OBSERVERS;
+        if (!crowdFires && !novelFires) return;
+
+        var canon = pickCanonicalLoc(cluster) || newest;
+        // Observers per hour over the span the cluster actually covers, floored
+        // at an hour so a 10-minute burst does not report an absurd rate.
+        var spanH = Math.max(1, (newestT - oldestT) / 3600000);
+        out.push({
+          code: code,
+          name: newest.name || code,
+          locId: canon.locId || newest.locId || '',
+          loc: canon.loc || newest.loc || '',
+          lat: canon.lat, lon: canon.lon,
+          observers: nObs,
+          checklists: Object.keys(subs).length,
+          baseline: baseline,
+          ratio: ratio,
+          novel: novel,
+          reason: novel ? 'novel' : 'crowd',
+          rarity: cluster.some(function (r) { return r.kind === 'Rarity'; }),
+          seen: opts.seen ? isSeen(code, opts.seen) : null,
+          perHour: nObs / spanH,
+          latest: newest.dateStr || '',
+          distMi: (newest.distMi != null && newest.distMi !== Infinity) ? newest.distMi : null,
+          subId: newest.subId || ''
+        });
+      });
+    });
+
+    // Strongest first: a novel mega outranks a merely busy regular, then raw
+    // crowd size, then how far above normal it is.
+    out.sort(function (a, b) {
+      if (a.novel !== b.novel) return a.novel ? -1 : 1;
+      if (b.observers !== a.observers) return b.observers - a.observers;
+      var ra = a.ratio == null ? Infinity : a.ratio, rb = b.ratio == null ? Infinity : b.ratio;
+      if (rb !== ra) return rb - ra;
+      return a.latest < b.latest ? 1 : -1;
+    });
+    return out;
+  }
+
+  // ---- leaderboard tick cascade (report.section_surge, second lane) --------
+  // The top-100 board prints each birder's most recent addition. When several
+  // of the hundred best birders in a region add the SAME species within days,
+  // that species is a mega being twitched — a completely independent signal
+  // from the observation feeds, and one that sees birds outside your counties.
+  // Lagging by up to a day (the board caches daily) but very high precision.
+  //
+  // rows = [{name, rank, recent}] as rankings._top_rows returns them.
+  // parse(recent) -> {species, date} | null, supplied by the caller because the
+  // two repos already own that regex.
+  var CASCADE_MIN_BIRDERS = 3, CASCADE_WINDOW_DAYS = 3;
+  function tickCascades(rows, parse, opts) {
+    opts = opts || {};
+    var minB = opts.minBirders || CASCADE_MIN_BIRDERS;
+    var windowDays = opts.windowDays || CASCADE_WINDOW_DAYS;
+    var groups = {}, order = [];
+    (rows || []).forEach(function (r) {
+      var p = r && r.recent ? parse(r.recent) : null;
+      if (!p || !p.species || !r.name) return;
+      var g = groups[p.species];
+      if (!g) { g = groups[p.species] = { species: p.species, birders: [], latest: '', earliest: '' }; order.push(p.species); }
+      // One birder counts once even if the board lists them twice (your own
+      // row is appended after the hundredth).
+      if (g.birders.some(function (b) { return b.name === r.name; })) return;
+      g.birders.push({ name: r.name, rank: r.rank, date: p.date });
+      if (!g.latest || p.date > g.latest) g.latest = p.date;
+      if (!g.earliest || p.date < g.earliest) g.earliest = p.date;
+    });
+    var out = [];
+    order.forEach(function (sp) {
+      var g = groups[sp];
+      if (g.birders.length < minB) return;
+      // All the ticks must fall inside one window, or this is just a common
+      // bird that people happen to add at different times of year.
+      var a = new Date(g.earliest).getTime(), b = new Date(g.latest).getTime();
+      if (isFinite(a) && isFinite(b) && (b - a) > windowDays * 86400000) return;
+      g.birders.sort(function (x, y) { return (x.rank || 9999) - (y.rank || 9999); });
+      out.push(g);
+    });
+    out.sort(function (x, y) {
+      if (y.birders.length !== x.birders.length) return y.birders.length - x.birders.length;
+      return x.latest < y.latest ? 1 : -1;
+    });
+    return out;
+  }
+
+  // ---- hotspot convergence (report.section_surge, third lane) --------------
+  // Species-blind: when distinct observers at one hotspot jump above that
+  // hotspot's own norm, birders are converging on something before you know
+  // what. Catches the event when the bird itself is not flagged notable (the
+  // Tufted Puffin is locally regular; eBird may not flag it at all).
+  //
+  // rows = recent checklist rows [{locId, locName, userDisplayName, obsDt}]
+  // (eBird product/lists shape).
+  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;
+  function hotspotConvergence(rows, opts) {
+    opts = opts || {};
+    var now = opts.now == null ? Date.now() : opts.now;
+    var cfg = opts.cfg || SURGE;
+    var minObs = opts.minObservers || CONVERGE_MIN_OBSERVERS;
+    var minRatio = opts.minRatio || CONVERGE_MIN_RATIO;
+    var hotFrom = now - cfg.WINDOW_H * 3600 * 1000;
+    var baseFrom = now - cfg.BASELINE_DAYS * 86400 * 1000;
+    var byLoc = {}, order = [], earliest = Infinity;
+    (rows || []).forEach(function (r) {
+      if (!r || !r.locId) return;
+      var t = recTime({ dateStr: r.obsDt || r.dateStr });
+      if (!isFinite(t) || t < baseFrom || t > now + 86400000) return;
+      if (t < earliest) earliest = t;
+      if (!byLoc[r.locId]) { byLoc[r.locId] = []; order.push(r.locId); }
+      byLoc[r.locId].push({ row: r, t: t });
+    });
+    var coldDays = baselineDays(earliest, now, cfg);
+    var out = [];
+    order.forEach(function (locId) {
+      var all = byLoc[locId];
+      var hotObs = {}, coldObs = {}, name = '';
+      all.forEach(function (x) {
+        var who = observerKey({ observer: x.row.userDisplayName, subId: x.row.subId });
+        if (!name) name = x.row.locName || x.row.loc || '';
+        if (x.t >= hotFrom) hotObs[who] = 1;
+        else coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
+      });
+      var n = Object.keys(hotObs).length;
+      if (n < minObs) return;
+      var baseline = Object.keys(coldObs).length / coldDays;
+      var ratio = baseline > 0 ? n / baseline : Infinity;
+      if (ratio < minRatio) return;
+      out.push({
+        locId: locId, loc: name, observers: n,
+        baseline: baseline, ratio: ratio === Infinity ? null : ratio
+      });
+    });
+    out.sort(function (a, b) {
+      if (b.observers !== a.observers) return b.observers - a.observers;
+      var ra = a.ratio == null ? Infinity : a.ratio, rb = b.ratio == null ? Infinity : b.ratio;
+      return rb - ra;
+    });
+    return out;
+  }
+
   // ---- time of day (mirror time_of_day.py) ---------------------------------
   // Build {code:[hour,...]} + {code:name} from observation rows, deduped by
   // (subId, speciesCode). Rows are raw eBird objs (speciesCode, subId, obsDt,
@@ -869,6 +1142,13 @@
     destinations: destinations,
     excursions: excursions,
     notableToday: notableToday,
+    SURGE: SURGE,
+    surgeEvents: surgeEvents,
+    tickCascades: tickCascades,
+    hotspotConvergence: hotspotConvergence,
+    recTime: recTime,
+    observerKey: observerKey,
+    baselineDays: baselineDays,
     todBuildHours: todBuildHours,
     todProfile: todProfile,
     todSpecialists: todSpecialists,

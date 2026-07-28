@@ -221,9 +221,16 @@
     .rankrecent { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
     .rankrecent span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .rankrecent b { font-size: 14px; }
+    .ranktrend { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+    .ranktrend span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .ranktrend b { font-size: 14px; font-weight: 800; }
+    .ranktrend b.up { color: var(--accent); }
+    .ranktrend b.down { color: #e5484d; }
+    .ranktrend b.dim { font-weight: 600; font-size: 12px; color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
+    .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
     .rankcap { font-size: 13px; font-weight: 700; margin: 18px 0 2px; }
     .ranktable { font-variant-numeric: tabular-nums; }
-    .rankrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 54px 54px; gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
+    .rankrow { display: grid; grid-template-columns: 34px minmax(0, 1fr) 60px; gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
     .rankrow .rk { color: var(--muted); font-size: 12px; font-weight: 700; text-align: right; }
     .rankrow .who { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rankrow .n { text-align: right; font-size: 14px; }
@@ -327,6 +334,15 @@
     </section>
 
     <section class="panel">
+      <h2>🔴 Happening now <span class="dim" id="surgeRegionLabel"></span></h2>
+      <div class="row">
+        <button id="surgeBtn">Check for twitches</button>
+      </div>
+      <div id="surgeStatus" class="status">Birds a crowd is chasing right now — distinct observers converging on one spot within 36 hours, far above what that species normally draws there. Three independent lanes: observation surges, leaderboard cascades, and species-blind hotspot convergence.</div>
+      <div id="surgeResults"></div>
+    </section>
+
+    <section class="panel">
       <h2>🌤 Conditions for chasing</h2>
       <div class="row">
         <button id="wxBtn">Load conditions</button>
@@ -362,7 +378,7 @@
       <div class="row">
         <button id="rankBtn">Load rankings</button>
       </div>
-      <div id="rankStatus" class="status">Your Top-100 standing and the Top 25 board for the region you're birding. Switch regions from the nav.</div>
+      <div id="rankStatus" class="status">Your standing plus the full Top 100 board for the region you’re birding, and how your rank has moved since you started tracking. Switch regions from the nav.</div>
       <div id="rankSummary"></div>
       <div id="rankResults"></div>
     </section>
@@ -392,6 +408,15 @@
       </div>
       <div id="todStatus" class="status">Finds dawn-only and dusk/night species from recent checklist times — grows richer each time you sample.</div>
       <div id="todResults"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🥚 Easy misses <span class="dim" id="easyRegionLabel"></span></h2>
+      <div class="row">
+        <button id="easyBtn">Find easy misses</button>
+      </div>
+      <div id="easyStatus" class="status">Common birds in your counties that aren’t on your year list yet — ranked by how many different places reported them (≥40% of the last 30 sampled days). First run samples a month of checklists in the background; each day is cached, so later runs are instant.</div>
+      <div id="easyResults"></div>
     </section>
 
     <section class="panel" id="hotPanel">
@@ -520,7 +545,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.15';
+      var APP_VERSION = '1.0.16';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1956,7 +1981,10 @@
         var me = null, dn = (displayName || '').trim();
         if (dn) for (var j = 0; j < rows.length; j++) if (rows[j].name === dn) { me = rows[j]; break; }
         var maxRank = 0; for (var k = 0; k < marks.length; k++) if (marks[k].rank > maxRank) maxRank = marks[k].rank;
-        return { rows: rows.slice(0, 25), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
+        // Slice to the board size, never to rows.length: eBird appends YOUR row
+        // after the hundredth even when you are ranked #211, so an unsliced list
+        // renders a stray 101st entry that is not on the board.
+        return { rows: rows.slice(0, TOP_BOARD_N), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
       }
 
       // Ported from aba_rba.py (_BLOCK_START_RE, _SPECIES_RE, _DATE_RE, _LOC_RE,
@@ -2356,6 +2384,72 @@
         return (n == null || n === '') ? '?' : Number(n).toLocaleString();
       }
 
+      // eBird publishes the top 100; mirrors rankings.TOP_BOARD_N.
+      var TOP_BOARD_N = 100;
+
+      // --- rank history (forward-only) ---------------------------------------
+      // eBird's top100 page has no "as of date" endpoint — ?year= is
+      // year-to-date, so a past standing cannot be re-fetched and cannot be
+      // backfilled. The Markdown report archives a dated board on every run;
+      // the app has no GitHub access by design, so it records its own snapshot
+      // each time it successfully reads a board. One entry per region per day
+      // (the last read of the day wins, matching the report's daily cache).
+      var RANKHIST_NS = 'ebird_rankhist:', RANKHIST_MAX = 180;
+      function rankHistKey(region) { return RANKHIST_NS + String(region || ''); }
+      function rankHistRead(region) {
+        try {
+          var v = JSON.parse(localStorage.getItem(rankHistKey(region)) || '[]');
+          return Array.isArray(v) ? v : [];
+        } catch (e) { return []; }
+      }
+      function rankHistRecord(region, me) {
+        if (!region || !me || me.rank == null) return rankHistRead(region);
+        var hist = rankHistRead(region), day = todayStr();
+        var entry = { d: day, rank: me.rank, species: me.species == null ? null : me.species };
+        if (hist.length && hist[hist.length - 1].d === day) hist[hist.length - 1] = entry;
+        else hist.push(entry);
+        if (hist.length > RANKHIST_MAX) hist = hist.slice(hist.length - RANKHIST_MAX);
+        try { localStorage.setItem(rankHistKey(region), JSON.stringify(hist)); } catch (e) {}
+        return hist;
+      }
+      // A rank TREND is inverted: rank 211 -> 208 is an improvement, so the
+      // arrow follows the species line, not the raw delta.
+      function rankTrendHTML(hist) {
+        if (!hist || hist.length < 2) {
+          return '<div class="ranktrend"><span>Trend</span><b class="dim">recording from today — ' +
+            'eBird publishes no historical board, so this fills in as you open the app</b></div>';
+        }
+        var first = hist[0], last = hist[hist.length - 1];
+        var dRank = first.rank - last.rank;
+        var dSpp = (last.species != null && first.species != null) ? last.species - first.species : null;
+        var arrow = dRank > 0 ? '▲' : (dRank < 0 ? '▼' : '＝');
+        var cls = dRank > 0 ? 'up' : (dRank < 0 ? 'down' : 'flat');
+        var bits = [arrow + ' ' + (dRank === 0 ? 'no change' : rankNum(Math.abs(dRank)) + ' place' + (Math.abs(dRank) === 1 ? '' : 's'))];
+        if (dSpp) bits.push('+' + rankNum(dSpp) + ' species');
+        return '<div class="ranktrend"><span>Since ' + esc(fmtDate(first.d)) + ' · ' + hist.length + ' snapshots</span>' +
+          '<b class="' + cls + '">' + esc(bits.join(' · ')) + '</b>' + rankSparkHTML(hist) + '</div>';
+      }
+      // Inline sparkline of your rank over time. Y is inverted (lower rank =
+      // higher on the chart) because "up" must read as "better".
+      function rankSparkHTML(hist) {
+        if (!hist || hist.length < 2) return '';
+        var W = 240, H = 34, pad = 3;
+        var rs = hist.map(function (h) { return h.rank; });
+        var lo = Math.min.apply(null, rs), hi = Math.max.apply(null, rs);
+        var span = (hi - lo) || 1;
+        var pts = hist.map(function (h, i) {
+          var x = pad + (hist.length === 1 ? 0 : i / (hist.length - 1)) * (W - 2 * pad);
+          var y = pad + (h.rank - lo) / span * (H - 2 * pad);
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        });
+        var lastPt = pts[pts.length - 1].split(',');
+        return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
+          'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rank over time">' +
+          '<polyline points="' + pts.join(' ') + '" fill="none" stroke="currentColor" ' +
+          'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>' +
+          '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="3" fill="currentColor"/></svg>';
+      }
+
       function loadRankings() {
         var rr = rankPrimaryRegion();
         var region = rr.region;
@@ -2427,18 +2521,25 @@
           ebirderCount(region).then(function (n) {
             if (slot && n) slot.textContent = ' of ' + rankNum(n) + ' eBirders';
           });
+          var trend = document.createElement('div');
+          trend.innerHTML = rankTrendHTML(rankHistRecord(region, me));
+          card.appendChild(trend.firstChild);
         }
 
-        // The Top 25 board, in the same section as the standing it explains --
-        // the report used to park it in a separate section pages away.
+        // The full board, in the same section as the standing it explains — the
+        // report used to park it in a separate section pages away.
+        //
+        // Three columns, not four: rank/birder/species answer "who is ahead of
+        // me and by how much". Checklists is effort, not standing, and it cost a
+        // quarter of the width on a phone. Same three columns the report shows.
         var cap = document.createElement('div');
         cap.className = 'rankcap';
-        cap.textContent = '🥇 Top 25 eBirders — ' + label + ' (' + year + ')';
+        cap.textContent = '🥇 Top ' + TOP_BOARD_N + ' eBirders — ' + label + ' (' + year + ')';
         out.appendChild(cap);
         var tbl = document.createElement('div'); tbl.className = 'ranktable';
         var h = '<div class="rankrow rankhdr"><span class="rk">#</span>' +
-          '<span class="who">Birder</span><span class="n">Species</span><span class="n">Lists</span></div>';
-        rows.slice(0, 25).forEach(function (r) {
+          '<span class="who">Birder</span><span class="n">Species</span></div>';
+        rows.slice(0, TOP_BOARD_N).forEach(function (r) {
           // The report deep-links each birder to their own row on the board
           // (their <h5> id is the display name), so the app does too.
           var who = board ? extA(board + '#' + encodeURIComponent(r.name), r.name) : esc(r.name);
@@ -2446,8 +2547,7 @@
           h += '<div class="rankrow' + (mine ? ' rankme' : '') + '">' +
             '<span class="rk">' + esc(r.rank) + '</span>' +
             '<span class="who">' + who + (mine ? ' <span class="star">you</span>' : '') + '</span>' +
-            '<span class="n">' + esc(rankNum(r.species)) + '</span>' +
-            '<span class="n">' + esc(rankNum(r.checklists)) + '</span></div>';
+            '<span class="n">' + esc(rankNum(r.species)) + '</span></div>';
         });
         tbl.innerHTML = h;
         out.appendChild(tbl);
@@ -2508,7 +2608,7 @@
               var p = lastNewParse(r.recent);
               if (!p || !r.name) return;
               // `me` is appended above and is also in rows once you crack the
-              // top 25, which would list you twice against your own bird.
+              // top 100, which would list you twice against your own bird.
               var rk = r.name + '|' + r.rank;
               if (seen[rk]) return;
               seen[rk] = 1;
@@ -2525,7 +2625,9 @@
             return;
           }
           st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
-          return lastNewChecklists(species, region).then(function (byName) {
+          return lastNewChecklists(species, region, function (done, total) {
+            st.textContent = 'Matching ' + done + ' of ' + total + ' birds to recent checklists…';
+          }).then(function (byName) {
             renderLastNew(groups, byName, region);
             st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
           });
@@ -2536,7 +2638,15 @@
 
       // One region-wide feed gives comName -> speciesCode for everything
       // reported lately; only then can we ask for a species' own checklists.
-      function lastNewChecklists(speciesNames, region) {
+      //
+      // Reading the full top 100 rather than the top 25 roughly tripled the
+      // distinct-species count (~15 -> ~45 on a WA board), and these used to run
+      // strictly one after another via .reduce — about a minute of staring at a
+      // status line. They are independent GETs, so run them through the shared
+      // pool with the same in-flight cap the convoy loader uses, and report
+      // progress: a bounded fan-out is fast without stampeding the key.
+      var LAST_NEW_FETCH_CONC = 4;
+      function lastNewChecklists(speciesNames, region, onProgress) {
         if (!/^US-[A-Z]{2}/.test(region)) return Promise.resolve({});
         return ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&includeProvisional=true&maxResults=10000')
           .catch(function () { return []; })
@@ -2546,14 +2656,17 @@
               if (o.comName && o.speciesCode) code[String(o.comName).toLowerCase()] = o.speciesCode;
             });
             var wanted = speciesNames.filter(function (n) { return code[n.toLowerCase()]; });
-            var byName = {};
-            return wanted.reduce(function (chain, n) {
-              return chain.then(function () {
-                return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' + encodeURIComponent(code[n.toLowerCase()]) + '?back=' + LAST_NEW_BACK_DAYS + '&detail=full&includeProvisional=true&maxResults=200')
-                  .catch(function () { return []; })
-                  .then(function (rows) { byName[n] = { code: code[n.toLowerCase()], obs: rows || [] }; });
-              });
-            }, Promise.resolve()).then(function () { return byName; });
+            var byName = {}, done = 0;
+            return pool(wanted, LAST_NEW_FETCH_CONC, function (n) {
+              var sp = code[n.toLowerCase()];
+              return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' + encodeURIComponent(sp) + '?back=' + LAST_NEW_BACK_DAYS + '&detail=full&includeProvisional=true&maxResults=200')
+                .catch(function () { return []; })
+                .then(function (rows) {
+                  byName[n] = { code: sp, obs: rows || [] };
+                  done++;
+                  if (onProgress) { try { onProgress(done, wanted.length); } catch (e) {} }
+                });
+            }).then(function () { return byName; });
           });
       }
 
@@ -2884,6 +2997,175 @@
             st.textContent = sp.n + ' species in sample · ' + sp.dawn.length + ' dawn · ' + sp.night.length + ' night · ' + nowTime();
           })
           .catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+
+      // --- 🥚 Easy misses — common birds not on your year list -------------
+      // Ports report.section_common_missing. The report tallies the daily
+      // snapshots it has been committing since May; the app has no archive, so
+      // it samples the same kind of feed those snapshots are made of — one
+      // historic day per county — and derives the same prevalence from it.
+      //
+      // Ranked by LOCATION-DAYS, not raw report count, exactly as the report
+      // does: a bird reported from eight different places is one you can go
+      // and get, while eight reports from one feeder is one lucky yard.
+      var EASY_MISS_DAYS = 30, EASY_MISS_MIN_FREQ = 0.40, EASY_MISS_TOP = 25;
+      var EASY_CACHE_NS = 'easymiss_v1:';
+      // The report's window is its whole committed archive (75 days today); the
+      // app cannot fetch that on demand, so it samples 30 and CACHES EACH DAY.
+      // A past day's checklists never change, so a cached day is permanently
+      // valid: the first open pays ~60 background calls and every later open
+      // fetches only the days that have appeared since.
+      function easyCacheKey(county, d) {
+        return EASY_CACHE_NS + getReport().slug + ':' + todDayKey(county, d);
+      }
+      function easyCompact(rows) {
+        // Keep one row per (species, location) — that is all the section reads,
+        // and it is what keeps 30 days of two counties inside localStorage.
+        var seen = {}, out = [];
+        (rows || []).forEach(function (o) {
+          var k = (o.speciesCode || '') + '|' + (o.locId || '');
+          if (!o.speciesCode || seen[k]) return;
+          seen[k] = 1;
+          out.push([o.speciesCode, o.comName || o.speciesCode, o.locId || '',
+                    o.locName || '', +o.lat, +o.lng, o.obsDt || '', o.subId || '']);
+        });
+        return out;
+      }
+      function easyExpand(rows) {
+        return (rows || []).map(function (r) {
+          return { speciesCode: r[0], comName: r[1], locId: r[2], locName: r[3],
+                   lat: r[4], lng: r[5], obsDt: r[6], subId: r[7] };
+        });
+      }
+      function easyFetch(codes, dates, onProg) {
+        var jobs = [];
+        codes.forEach(function (c) { dates.forEach(function (d) { jobs.push([c, d]); }); });
+        var acc = [], done = 0;
+        return jobs.reduce(function (p, j) {
+          return p.then(function () {
+            var c = j[0], d = j[1], key = easyCacheKey(c, d);
+            var hit = null;
+            try { hit = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { hit = null; }
+            if (Array.isArray(hit)) {
+              acc.push.apply(acc, easyExpand(hit));
+              if (onProg) onProg(++done, jobs.length);
+              return;
+            }
+            // detail=full carries locName/lat/lng/subId, which the section needs
+            // to offer nearby spots; cat=species drops sp./slash/hybrid/domestic
+            // server-side, which is what report._non_countable_codes strips.
+            var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
+            return ebirdBg(path)
+              .then(function (r) {
+                if (!Array.isArray(r)) return;
+                var small = easyCompact(r);
+                acc.push.apply(acc, easyExpand(small));
+                // A full cache is not a failure: the section still works, it
+                // just re-fetches next time.
+                try { localStorage.setItem(key, JSON.stringify(small)); } catch (e) {}
+              })
+              .catch(function () {})
+              .then(function () { if (onProg) onProg(++done, jobs.length); });
+          });
+        }, Promise.resolve()).then(function () { return acc; });
+      }
+      function computeEasyMisses(obs, totalDays, parentOf) {
+        var per = {};
+        (obs || []).forEach(function (o) {
+          var code = o.speciesCode, day = String(o.obsDt || '').slice(0, 10);
+          if (!code || !day) return;
+          var loc = o.locId || '';
+          var d = per[code] || (per[code] = { name: o.comName || code, days: {}, siteDays: {}, spots: {}, latest: '' });
+          d.days[day] = 1;
+          d.siteDays[day + '|' + loc] = 1;
+          if ((o.obsDt || '') > d.latest) d.latest = o.obsDt || '';
+          if (loc) {
+            var s = d.spots[loc] || (d.spots[loc] = { locId: loc, name: o.locName || loc, lat: +o.lat, lng: +o.lng, when: '', sub: '' });
+            if ((o.obsDt || '') > s.when) { s.when = o.obsDt || ''; s.sub = o.subId || ''; }
+          }
+        });
+        var home = getHome(), rows = [];
+        Object.keys(per).forEach(function (code) {
+          var d = per[code];
+          if (isSpeciesSeen(code, d.name, parentOf)) return;
+          var days = Object.keys(d.days).length, freq = totalDays ? days / totalDays : 0;
+          if (freq < EASY_MISS_MIN_FREQ) return;
+          var spots = Object.keys(d.spots).map(function (k) { return d.spots[k]; });
+          spots.forEach(function (s) {
+            s.mi = (home && isFinite(s.lat) && isFinite(s.lng)) ? haversineMi(home.lat, home.lng, s.lat, s.lng) : null;
+          });
+          spots.sort(function (a, b) { return (a.mi == null ? 1e9 : a.mi) - (b.mi == null ? 1e9 : b.mi); });
+          rows.push({
+            code: code, name: d.name, days: days, totalDays: totalDays, freq: freq,
+            siteDays: Object.keys(d.siteDays).length, locs: spots.length,
+            spots: spots.slice(0, 3), latest: d.latest
+          });
+        });
+        rows.sort(function (a, b) { return (b.siteDays - a.siteDays) || (b.freq - a.freq); });
+        return rows.slice(0, EASY_MISS_TOP);
+      }
+      function renderEasyMisses(rows, totalDays) {
+        var box = $('easyResults');
+        if (!rows || !rows.length) {
+          box.innerHTML = '<div class="status">Nothing common is missing — every bird reported on at least '
+            + Math.round(EASY_MISS_MIN_FREQ * 100) + '% of the last ' + totalDays
+            + ' sampled days near you is already on your year list. Nicely done.</div>';
+          return;
+        }
+        box.innerHTML = '<ul class="obs big">' + rows.map(function (r, i) {
+          var spots = r.spots.map(function (s) {
+            var when = s.when ? fmtDateTime(s.when) : '';
+            var lbl = s.sub ? checklistLink(s.sub, when || s.sub) : esc(when);
+            return '<div class="dim">' + esc(s.name)
+              + (s.mi == null ? '' : ' · ' + s.mi.toFixed(1) + ' mi')
+              + (lbl ? ' · ' + lbl : '') + '</div>';
+          }).join('');
+          return '<li>'
+            + '<div class="name">' + photoSlot(r.name, r.code) + speciesLink(r.name, r.code)
+            + '<span class="count">#' + (i + 1) + '</span></div>'
+            + '<div class="dim">' + r.days + '/' + r.totalDays + ' days · '
+            + Math.round(r.freq * 100) + '% · ' + r.locs + ' spot' + (r.locs === 1 ? '' : 's') + '</div>'
+            + spots + '</li>';
+        }).join('') + '</ul>';
+        hydratePhotos(box);
+      }
+      function loadEasyMisses() {
+        if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if ($('easyRegionLabel')) $('easyRegionLabel').textContent = '· ' + countyLabelStr();
+        var btn = $('easyBtn'), st = $('easyStatus');
+        $('easyResults').innerHTML = '';
+        if (!hasCounties()) {
+          $('easyResults').innerHTML = '<div class="status">Easy misses is built from county checklist history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        var dates = todDates(EASY_MISS_DAYS);
+        btn.disabled = true;
+        st.textContent = 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
+        easyFetch(countyCodes(), dates, function (i, n) {
+          st.textContent = 'Sampling recent days… ' + i + '/' + n;
+        }).then(function (all) {
+          var codes = {};
+          all.forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; });
+          var keys = Object.keys(codes);
+          if (!keys.length) return [all, {}];
+          // The same reportAs map the convoy section needs: without it a
+          // subspecies report of a bird you already have reads as a miss.
+          return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(keys.join(',')))
+            .catch(function () { return []; })
+            .then(function (tax) {
+              var parentOf = {};
+              (Array.isArray(tax) ? tax : []).forEach(function (t) {
+                if (t.speciesCode && t.reportAs) parentOf[t.speciesCode] = t.reportAs;
+              });
+              return [all, parentOf];
+            });
+        }).then(function (pair) {
+          var rows = computeEasyMisses(pair[0], dates.length, pair[1]);
+          renderEasyMisses(rows, dates.length);
+          st.textContent = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
+            + ' from ' + dates.length + ' sampled days · ' + nowTime();
+        }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
 
@@ -3365,9 +3647,14 @@
         });
         hydrateConvoySpecies(el);
       }
-      // Walk the rendered convoys one at a time: each box needs one
-      // product/checklist/view call per checklist, so firing them all at once
-      // would swamp the key the rest of the app shares.
+      // Walk the rendered convoys one at a time so they fill in top-to-bottom
+      // in reading order, but fetch each one's checklists CONCURRENTLY: the
+      // old code awaited one product/checklist/view per checklist with a
+      // 170 ms gap between them, so a ten-convoy day spent ~9 s with the key
+      // idle almost the whole time. Boxes stay serial so the in-flight cap is
+      // CONVOY_FETCH_CONC no matter how many convoys are on screen - firing
+      // everything at once would swamp the key the rest of the app shares.
+      var CONVOY_FETCH_CONC = 4;
       function hydrateConvoySpecies(root) {
         var boxes = [].slice.call(root.querySelectorAll('.convoysppbox[data-subs]'));
         if (!getKey()) {
@@ -3380,16 +3667,32 @@
           });
         }, Promise.resolve());
       }
+      // Run fn over items with at most `limit` in flight. Each worker pulls the
+      // next index when its own job settles, so one slow checklist never blocks
+      // the others and a rejection can't strand the pool.
+      function pool(items, limit, fn) {
+        var n = items.length;
+        if (!n) return Promise.resolve();
+        var idx = 0, done = 0;
+        return new Promise(function (resolve) {
+          function run() {
+            if (idx >= n) return;
+            var my = idx++;
+            Promise.resolve().then(function () { return fn(items[my], my); })
+              .catch(function () {})
+              .then(function () { if (++done === n) resolve(); else run(); });
+          }
+          for (var k = 0; k < Math.min(limit, n); k++) run();
+        });
+      }
       function loadConvoySpecies(subs, box) {
         box.innerHTML = '<span class="dim">Loading species…</span>';
         var list = (subs || '').split(',').filter(Boolean), codes = {};
-        return list.reduce(function (p, sub) {
-          return p.then(function () {
-            return ebird('product/checklist/view/' + encodeURIComponent(sub))
-              .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); return todDelay(null, 170); })
-              .catch(function () { return todDelay(null, 170); });
-          });
-        }, Promise.resolve()).then(function () {
+        return pool(list, CONVOY_FETCH_CONC, function (sub) {
+          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+            .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); })
+            .catch(function () {});
+        }).then(function () {
           var all = Object.keys(codes);
           if (!all.length) { box.innerHTML = '<span class="dim">No species detail available for this route.</span>'; return; }
           return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(all.join(',')))
@@ -3452,6 +3755,134 @@
           })
           .catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
+      }
+
+      // --- Happening now (mirror report.section_surge) -------------------
+      // The gap this closes: about twenty birders saw a Tufted Puffin at the
+      // Edmonds waterfront and this app said nothing until the next day. Every
+      // other section answers "what is here" or "what do I need"; none answers
+      // "what are people dropping everything for right now", which is the only
+      // question here with an expiry measured in hours.
+      //
+      // Three independent lanes so one failing does not blind the section:
+      //   1. observation surges  — getChase()'s merged feed (already fetched)
+      //   2. leaderboard cascades — the top-100 board (already fetched/cached)
+      //   3. hotspot convergence  — the convoy product/lists feed (ditto)
+      // Every lane reuses a feed some other section already pays for, so the
+      // whole section costs at most one extra board read.
+      function renderSurge(events, cascades, convergence) {
+        var box = $('surgeResults');
+        if (!events.length && !cascades.length && !convergence.length) {
+          box.innerHTML = '<div class="status">Nothing is drawing a crowd right now. '
+            + 'This fires when ' + BL.SURGE.MIN_OBSERVERS + '+ birders converge on one species at one spot '
+            + 'within ' + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO + '× its local norm, when a bird with '
+            + 'no recent reports at all draws ' + BL.SURGE.NOVEL_OBSERVERS + '+ independent observers, when several of '
+            + 'the top 100 add the same species within days, or when a hotspot far outdraws its own norm.</div>';
+          return;
+        }
+        var html = '';
+        if (events.length) {
+          html += '<div class="status"><b>🐦 ' + events.length + ' species drawing a crowd</b> — distinct observers '
+            + 'at one spot in the last ' + BL.SURGE.WINDOW_H + ' hours, against what that species normally draws there. '
+            + '🆕 = nothing reported in the trailing two weeks.</div>';
+          html += '<ul class="obs big">' + events.map(function (e) {
+            // "new" rather than "∞×": with no baseline there is no ratio, and
+            // printing one invents precision the data does not have.
+            var vs = e.ratio == null ? 'new here' : Math.round(e.ratio) + '× normal';
+            return '<li>'
+              + '<div class="name">' + photoSlot(e.name, e.code) + speciesLink(e.name, e.code)
+              + (e.seen ? ' <span class="dim">✅</span>' : ' 🔍')
+              + (e.novel ? ' 🆕' : '')
+              + '<span class="count">' + e.observers + '</span></div>'
+              + '<div class="dim">' + e.observers + ' birder' + (e.observers === 1 ? '' : 's')
+              + (e.checklists > e.observers ? ' · ' + e.checklists + ' lists' : '')
+              + ' · ' + esc(vs)
+              + (e.distMi == null ? '' : ' · ' + e.distMi.toFixed(1) + ' mi') + '</div>'
+              + '<div class="dim">' + locLink(e.loc || e.locId, e.lat, e.lon, e.locId)
+              + (e.latest ? ' · ' + esc(fmtDateTime(e.latest)) : '')
+              + (e.subId ? ' · ' + checklistLink(e.subId, e.subId) : '') + '</div>'
+              + '</li>';
+          }).join('') + '</ul>';
+        }
+        if (cascades.length) {
+          html += '<div class="status"><b>🏆 ' + cascades.length + ' species cascading through the leaderboard</b> — '
+            + 'several of the top 100 added the same bird within days. This lane sees the whole region, including '
+            + 'counties your feeds never cover, but the board caches daily so it can lag a day.</div>';
+          html += '<ul class="obs big">' + cascades.map(function (c) {
+            var who = c.birders.slice(0, 6).map(function (b) { return esc(b.name) + ' (#' + b.rank + ')'; }).join(' · ');
+            if (c.birders.length > 6) who += ' · +' + (c.birders.length - 6) + ' more';
+            return '<li><div class="name">' + esc(c.species)
+              + '<span class="count">' + c.birders.length + '</span></div>'
+              + '<div class="dim">' + who + '</div>'
+              + '<div class="dim">latest ' + esc(c.latest) + '</div></li>';
+          }).join('') + '</ul>';
+        }
+        if (convergence.length) {
+          html += '<div class="status"><b>📍 ' + convergence.length + ' hotspot'
+            + (convergence.length === 1 ? '' : 's') + ' unusually busy</b> — species-blind, so this fires even when '
+            + 'the bird everyone is looking at was never flagged notable. Compared against each spot\u2019s own norm: '
+            + 'an always-busy park is not news.</div>';
+          html += '<ul class="obs big">' + convergence.map(function (c) {
+            var vs = c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal';
+            return '<li><div class="name">' + (c.locId ? extA(hotspotUrl(c.locId), c.loc || c.locId) : esc(c.loc || ''))
+              + '<span class="count">' + c.observers + '</span></div>'
+              + '<div class="dim">' + c.observers + ' birders · ' + esc(vs) + '</div></li>';
+          }).join('') + '</ul>';
+        }
+        box.innerHTML = html;
+        hydratePhotos(box);
+      }
+      function loadSurge() {
+        if (!getKey()) { $('surgeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
+        var btn = $('surgeBtn'), st = $('surgeStatus');
+        $('surgeResults').innerHTML = '';
+        btn.disabled = true;
+        st.textContent = 'Looking for twitches in ' + getReport().label + '…';
+        var now = Date.now();
+        // Each lane resolves to [] on failure rather than rejecting: a dead
+        // leaderboard must not hide an active surge in the observation feed.
+        var pEvents = getChase().then(function (res) {
+          if (!res.cv) return [];
+          return BL.surgeEvents(res.cv.merged, { now: now, seen: getReportSeen() });
+        }).catch(function () { return []; });
+        var rr = rankPrimaryRegion();
+        var pCascades = fetchRank(rr, new Date().getFullYear(), getDisplayName())
+          .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
+          .catch(function () { return []; });
+        var pConverge = !hasCounties() ? Promise.resolve([])
+          : Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
+              return ebird(BL.requestUrl(f)).catch(function () { return []; });
+            })).then(function (results) {
+              var lists = [];
+              results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+              return BL.hotspotConvergence(lists.map(function (c) {
+                return {
+                  locId: c.locId || (c.loc && c.loc.locId),
+                  locName: (c.loc && c.loc.name) || c.locName || '',
+                  userDisplayName: c.userDisplayName, subId: c.subId || c.subID,
+                  obsDt: c.isoObsDate || c.obsDt
+                };
+              }), { now: now });
+            }).catch(function () { return []; });
+        Promise.all([pEvents, pCascades, pConverge]).then(function (r) {
+          renderSurge(r[0], r[1], r[2]);
+          var n = r[0].length + r[1].length + r[2].length;
+          st.textContent = (n ? n + ' active signal' + (n === 1 ? '' : 's') : 'Nothing chasing right now')
+            + ' · ' + nowTime();
+        }).catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+      // The board's "recent" column, parsed the same way report._LAST_NEW_RE
+      // does. Supplied to tickCascades rather than baked into it because both
+      // repos already own this regex and neither should own the other's.
+      function parseRecentTick(s) {
+        var m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s || '').trim());
+        if (!m) return null;
+        var d = new Date(m[2].replace('.', '') + ' 00:00:00');
+        if (isNaN(d)) return null;
+        var p = function (x) { return String(x).padStart(2, '0'); };
+        return { species: m[1].trim(), date: d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) };
       }
 
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
@@ -3726,12 +4157,13 @@
       //              build_rarity_report, which emits far fewer sections)
       //   omitted  — every report has it
       var MENU = [
+        { at: 'surgeBtn',      label: '🔴 Happening now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 25' },
-        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100' },
         { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo' },
         { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports' },
         { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo' },
+        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo' },
         { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo' },
         { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo' },
         { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo' },
@@ -3742,6 +4174,7 @@
         { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
         { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
+        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county' },
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county' },
         { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county' },
         { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county' },
@@ -3758,6 +4191,7 @@
       // auto-open never redirects to Settings; the heavy migration build stays
       // manual (no entry here).
       var LOADERS = {
+        surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
         lastNewBtn: { fn: loadLastNew,      needsKey: true },
@@ -3774,6 +4208,7 @@
         cklBtn:     { fn: loadBirdiest,     needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: renderFavs },
+        easyBtn:    { fn: loadEasyMisses,  needsKey: true },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
         myYearBody: { fn: updateMyYear }
@@ -4221,6 +4656,8 @@
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
+      $('easyBtn').addEventListener('click', loadEasyMisses);
+      $('surgeBtn').addEventListener('click', loadSurge);
       $('hotBtn').addEventListener('click', loadHotspots);
       $('coldBtn').addEventListener('click', loadColdspots);
       $('migBtn').addEventListener('click', migBootstrap);
@@ -4356,7 +4793,10 @@
         fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
-        extractWebKey: extractWebKey
+        extractWebKey: extractWebKey,
+        computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
+        pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
+        renderSurge: renderSurge, parseRecentTick: parseRecentTick
       };
       migrateHomeKeys();
       buildNav();
