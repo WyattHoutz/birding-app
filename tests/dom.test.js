@@ -651,3 +651,145 @@ test('convoys render one block per convoy: title, map, birds, checklists', () =>
   assert.match(spp, /<ul class="convoysppl">/,
     'both are plain lists, not collapsed toggles');
 });
+
+// ---------------------------------------------------------------------------
+// v1.0.15: seven "the app is not the report" follow-ups.
+// ---------------------------------------------------------------------------
+
+test('tides: one row per WINDOW, rising windows highlighted', async () => {
+  // The old table had one row per turning point ("High 3:11 am · Falling to
+  // 10:20 am"), which buried the only thing that decides whether to go out:
+  // when the tide is coming IN. weather.py::summarize now emits windows.
+  const app = await boot({ fetch: () => null });
+  const rows = app.window.__app.buildTideRows([
+    { t: '2026-07-27 03:11', v: '9.464', type: 'H' },
+    { t: '2026-07-27 10:20', v: '-1.021', type: 'L' },
+    { t: '2026-07-27 18:26', v: '11.223', type: 'H' },
+    { t: '2026-07-27 23:47', v: '7.401', type: 'L' },
+  ]);
+  assert.equal(rows.length, 4, 'three windows between four points, plus overnight');
+  assert.equal(rows[0].rising, false);
+  assert.equal(rows[1].rising, true, 'low -> high is the rising window');
+  assert.match(rows[1].window, /10:20 am .* 6:26 pm/, 'a window names both ends');
+  assert.equal(rows[1].span, '8h 6m', 'and how long it lasts');
+  assert.match(rows[3].window, /overnight/,
+    'the last turning point starts a window that runs past midnight');
+  assert.equal(rows[3].rising, true,
+    'and dropping it would hide an overnight incoming tide entirely');
+  app.window.close();
+});
+
+test('tides: the rising rows are visually marked, not just labelled', async () => {
+  const app = await boot({ fetch: () => null });
+  app.window.__app.renderTides([
+    { t: '2026-07-27 03:11', v: '9.4', type: 'H' },
+    { t: '2026-07-27 10:20', v: '-1.0', type: 'L' },
+    { t: '2026-07-27 18:26', v: '11.2', type: 'H' },
+    { t: '2026-07-27 23:47', v: '7.4', type: 'L' },
+  ], 'Seattle');
+  const marked = app.document.querySelectorAll('#wxTides tr.tiderise');
+  assert.equal(marked.length, 2,
+    'the daytime rising window and the overnight one both carry the highlight');
+  assert.match(marked[0].textContent, /\u{1F440}/u, 'and the binocular marker the report prints');
+  app.window.close();
+});
+
+test('convoys: a subspecies of a bird on your year list is NOT unseen', async () => {
+  // Reported bug: "Dark-eyed Junco (Oregon)" showed as unseen although a
+  // Dark-eyed Junco is on the year list. isSpeciesSeen only ever compared the
+  // RAW code and an exact name, so every form observation was a false
+  // positive. analyze.py has always followed reportAs; the app now does too.
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1 }));
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Dark-eyed Junco']));
+  assert.equal(A.isSpeciesSeen('daejun', 'Dark-eyed Junco'), true, 'the parent itself');
+  // Named nothing like the parent, so ONLY the reportAs chain can answer this.
+  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1, norfli: 1 }));
+  assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker', { yeflic1: 'norfli' }),
+    true, 'the form resolves to its parent via reportAs');
+  assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker'), false,
+    'and with no taxonomy loaded there is nothing to resolve it to');
+  assert.equal(A.isSpeciesSeen('daejun5', 'Dark-eyed Junco (Oregon)'), true,
+    'and falls back to the name with the parenthetical group stripped');
+  assert.equal(A.isSpeciesSeen('rebnut', 'Red-breasted Nuthatch'), false,
+    'a bird you have not seen is still unseen');
+  app.window.close();
+});
+
+test('a checklist link is labelled by its subId, never the word "checklist"', () => {
+  assert.ok(!/checklistLink\([^)]*'checklist'\)/.test(HTML),
+    'every call site passes the id: "checklist" names nothing you can look up');
+});
+
+test('the three species sections use the large icon + title treatment', () => {
+  ['results', 'targetResults', 'lastNewResults'].forEach((id) => {
+    const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
+    assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
+  });
+  assert.match(HTML, /\.obs\.big \.thumb\s*\{[^}]*width: 64px/,
+    'the icon is actually bigger, not just a class name');
+});
+
+test('latest ticks: the bird links to its species page and shows fresh lists', () => {
+  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+    HTML.indexOf('function loadAbaAlert('));
+  assert.match(src, /speciesLink\(sp, info\.code/,
+    'the bird title is a link to ebird.org/species/<code>/<region>');
+  assert.match(src, /LAST_NEW_FRESH_DAYS/,
+    'checklists inside the fresh window are never hidden behind "and N more"');
+  assert.match(src, /Math\.max\(LAST_NEW_CHECKLISTS, nFresh\)/,
+    'the fresh window only ever ADDS rows to the 5-row floor');
+});
+
+test("today's rarities show the time of the latest report, not just the date", () => {
+  const src = HTML.slice(HTML.indexOf('function refresh()'),
+    HTML.indexOf('function loadTargets('));
+  assert.match(src, /fmtDateTime\(r\.dateStr\)/,
+    'a rarity is chased within hours, so the clock time is the deciding number');
+});
+
+test('closest spots: rows carry the distance in miles, closest first', () => {
+  const render = HTML.slice(HTML.indexOf('function renderList('),
+    HTML.indexOf('// --- eBird API'));
+  assert.match(render, /o\.distMi[\s\S]*toFixed\(1\) \+ ' mi/,
+    'the report prints miles on every row of this section');
+  const load = HTML.slice(HTML.indexOf('function loadTargets('),
+    HTML.indexOf('// --- shared chase pipeline'));
+  assert.match(load, /distMi:/, 'and the loader carries the distance through');
+  assert.match(load, /targets\.sort\(/, 'sorted closest first');
+});
+
+test('quick outing: capped to an impulse detour and sorted by distance', async () => {
+  const app = await boot({ fetch: () => null });
+  const home = { lat: 47.75, lng: -122.15 };
+  // Quality DEcreases with distance here, so a list ordered by score would come
+  // back 8, 4, 2, 1 - the reverse of what an impulse detour needs.
+  const far = (mi) => ({ locId: 'L' + mi, locName: mi + ' mi', lat: home.lat + mi / 69, lng: home.lng, numSpeciesAllTime: 200 + mi });
+  const rows = app.window.__app.buildQuickOuting(
+    [far(12), far(2), far(4), far(1), far(8)], home);
+  assert.equal(rows.radiusMi, 5, 'a 5-mile radius is about a five-minute drive');
+  const dists = rows.map((r) => Math.round(r.dist));
+  assert.deepEqual(dists, [1, 2, 4], 'only the near spots, closest first');
+  // ...but a rural region must not get an empty section.
+  const sparse = app.window.__app.buildQuickOuting([far(9), far(30)], home);
+  assert.ok(sparse.radiusMi > 5, 'the radius widens when nothing is that close');
+  assert.ok(sparse.length >= 1);
+  app.window.close();
+});
+
+test('rankings: the rank is shown out of the number of eBirders', async () => {
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const A = app.window.__app;
+  A.renderRankings(A.parseRankingsHTML(FIX('top100-wa.html'), 'sally frandsen'),
+    'US-WA', 'https://ebird.org/top100', 'sally frandsen');
+  assert.ok(app.document.querySelector('.rankcard #rankOf'),
+    'a rank with no field size is not a standing - the report prints "#210 of 13,303"');
+  // The count endpoint rejects a normal API key, so the app lifts eBird's own
+  // web token the way rankings.py does. Port check against a minimal page.
+  const key = A.extractWebKey(
+    'window.__NUXT__=(function(a,b,c){return {x:a,cfg:{ebirdApiKey:b}}}("zz","jfekjedvescr",1));');
+  assert.equal(key, 'jfekjedvescr',
+    'the token is resolved by parameter NAME, so eBird can reorder its args');
+});

@@ -179,11 +179,21 @@
     .thumb.nopic { display: none; }
     .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
     .obs li { overflow: hidden; }
+    /* Larger icon + title for the sections read as "which bird is this" rather
+       than "how many" — the thumbnail is the fastest way to recognise a bird. */
+    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 800; line-height: 1.25; }
+    .obs.big .thumb { float: none; flex: 0 0 auto; width: 64px; height: 64px; margin: 0; }
+    .obs.big .meta { margin-top: 6px; }
+    .obs.big .count { font-size: 13px; font-weight: 700; color: var(--ink); }
     .convoywrap { margin: 8px 0 14px; }
     .convoysppbox { font-size: 13px; margin-top: 4px; line-height: 1.45; }
     .convoyhead { font-size: 13px; font-weight: 800; margin: 10px 0 4px; }
     .convoysppl { list-style: none; padding: 0; margin: 0 0 6px; font-size: 13px; }
-    .convoysppl li { padding: 2px 0; }
+    /* A floated .thumb inside a plain <li> stacks each row diagonally (the
+       float from row N pushes row N+1 right). Flex clears it without needing
+       an overflow trick, and keeps the name on one baseline with the icon. */
+    .convoysppl li { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+    .convoysppl .thumb { float: none; flex: 0 0 auto; width: 34px; height: 34px; margin: 0; }
     .map:empty { display: none; }
     .convoymiss { color: var(--accent); font-weight: 600; }
     .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
@@ -191,11 +201,13 @@
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
     .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
     .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .seenflag, .needflag { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .rankhead { margin: 2px 0 4px; }
     .rankhead .bignum small { display: inline; }
+    .rankof { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 6px; }
     /* Rankings: one standing card, then a real aligned board. */
     .rankcard { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 8px 0 4px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
     .rankyou { display: flex; align-items: baseline; gap: 10px; }
@@ -244,7 +256,7 @@
         <button id="settingsToggle" class="secondary">Settings</button>
       </div>
       <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
-      <ul id="results" class="obs"></ul>
+      <ul id="results" class="obs big"></ul>
     </section>
 
     <section class="panel">
@@ -254,7 +266,7 @@
       </div>
       <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
       <div id="closeMap"></div>
-      <ul id="targetResults" class="obs"></ul>
+      <ul id="targetResults" class="obs big"></ul>
     </section>
 
     <section class="panel">
@@ -361,7 +373,7 @@
         <button id="lastNewBtn">Load latest ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
-      <ul id="lastNewResults" class="obs"></ul>
+      <ul id="lastNewResults" class="obs big"></ul>
     </section>
 
     <section class="panel">
@@ -508,7 +520,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.14';
+      var APP_VERSION = '1.0.15';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -591,6 +603,15 @@
         if (isNaN(d.getTime())) return s || '';
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       }
+      // Mirrors report._fmt_when: a rarity row is acted on within hours, so the
+      // clock time of the latest report is the part that decides whether to go.
+      function fmtDateTime(s) {
+        var d = new Date(String(s).replace(' ', 'T'));
+        if (isNaN(d.getTime())) return s || '';
+        var hasTime = /\d{1,2}:\d{2}/.test(String(s));
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+          (hasTime ? ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+      }
       function nowTime() { return new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
 
       // One observation row, carrying the same links the Markdown report puts on
@@ -600,14 +621,19 @@
         el.innerHTML = '';
         obs.forEach(function (o) {
           var li = document.createElement('li');
-          var count = (o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
+          // Distance leads when we have it: this section is "closest spots",
+          // and a flock size you can't reach is not the deciding number.
+          var count = (o.distMi != null && isFinite(o.distMi))
+            ? '<span class="count">' + o.distMi.toFixed(1) + ' mi</span>'
+            : ((o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '');
           var who = o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '';
           li.innerHTML = count +
             '<div class="name">' + photoSlot(o.comName, o.speciesCode) +
             speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + '</div>' +
             '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, o.locId, o.locationPrivate) +
             ' · ' + esc(fmtDate(o.obsDt)) + who +
-            (o.subId ? ' · ' + checklistLink(o.subId, 'checklist') : '') + '</div>';
+            (o.howMany != null && o.distMi != null ? ' · ×' + esc(o.howMany) : '') +
+            (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
           el.appendChild(li);
         });
         hydratePhotos(el);
@@ -760,8 +786,8 @@
             li.innerHTML = d +
               '<div class="name">' + photoSlot(r.name, r.code) +
               speciesLink(r.name || r.code || 'Unknown species', r.code) + needTag(r.code, r.name) + flock + stake + warn + '</div>' +
-              '<div class="meta">' + recLocLink(r) + ' · ' + esc(fmtDate(r.dateStr)) + who +
-              (r.subId ? ' · ' + checklistLink(r.subId, 'checklist') : '') + '</div>';
+              '<div class="meta">' + recLocLink(r) + ' · ' + esc(fmtDateTime(r.dateStr)) + who +
+              (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>';
             out.appendChild(li);
           });
           hydratePhotos(out);
@@ -785,10 +811,15 @@
               speciesCode: r.code, comName: r.name || r.code, howMany: r.count,
               locName: r.loc, locId: r.locId, lat: r.lat, lng: r.lon,
               locationPrivate: r.location_private, obsDt: r.dateStr,
-              subId: r.subId, userDisplayName: r.observer
+              subId: r.subId, userDisplayName: r.observer,
+              distMi: (r.distMi != null && r.distMi !== Infinity) ? r.distMi : null
             });
           });
           if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
+          targets.sort(function (a, b) {
+            var da = a.distMi == null ? Infinity : a.distMi, db = b.distMi == null ? Infinity : b.distMi;
+            return da - db;
+          });
           var shown = targets.slice(0, 100);
           st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
             (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
@@ -1054,7 +1085,7 @@
       }
       // 🔍 = not on the active report's year list; ★ = eBird-flagged rarity.
       // Both trail the species name so the photo icon and name stay adjacent.
-      function needTag(code, name) { return isSpeciesSeen(code, name) ? '' : '<span class="needflag">🔍</span>'; }
+      function needTag(code, name, parentOf) { return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>'; }
       function rareTag(kind) { return kind === 'Rarity' ? '<span class="star">⭐</span>' : ''; }
 
       // 🕒 = no fresh report in 48h+, so the bird may have moved on. Mirrors
@@ -1613,7 +1644,7 @@
               (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : '') +
               ' · ' + staleTag(r.latest) + span + '</div>' +
               '<div class="sp">closest: ' + recLocLink(r.closest) +
-              (r.closest.subId ? ' · ' + checklistLink(r.closest.subId, 'checklist') : '') + '</div>';
+              (r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '') + '</div>';
             el.appendChild(li);
           });
           hydratePhotos(el);
@@ -1649,16 +1680,37 @@
         });
       }
 
-      // --- Quick outing (richest hotspots near home) ---
+      // --- Quick outing (best hotspots within an impulse detour) ---
+      // Mirrors report.section_quick_outing: the section is for a spontaneous
+      // few-minute detour, so the radius is drive time (~5 mi at surface-street
+      // speeds) and the list READS closest-first. Quality still decides which
+      // spots make the cut; it just no longer decides the order.
+      var QUICK_OUTING_WIDEN_MI = [5, 10, 15], QUICK_OUTING_MIN_ROWS = 3, QUICK_OUTING_TOP = 10;
       function buildQuickOuting(hotspots, home) {
-        return (hotspots || []).map(function (h) {
+        var all = (hotspots || []).map(function (h) {
           var d = (home && h.lat != null && h.lng != null) ? haversineMi(home.lat, home.lng, +h.lat, +h.lng) : null;
           return { locId: h.locId, locName: h.locName || 'Unknown location', lat: +h.lat, lng: +h.lng, n: h.numSpeciesAllTime || 0, latest: h.latestObsDt || '', dist: d };
-        }).sort(function (a, b) {
+        });
+        // The radius is absolute but hotspot density is not, so widen rather
+        // than print an empty section in a rural region.
+        var radius = QUICK_OUTING_WIDEN_MI[0], near = [];
+        for (var i = 0; i < QUICK_OUTING_WIDEN_MI.length; i++) {
+          radius = QUICK_OUTING_WIDEN_MI[i];
+          near = all.filter(function (h) { return h.dist != null && h.dist <= radius; });
+          if (near.length >= QUICK_OUTING_MIN_ROWS) break;
+        }
+        if (!near.length) { near = all.slice(); radius = QUICK_OUTING_WIDEN_MI[QUICK_OUTING_WIDEN_MI.length - 1]; }
+        near.sort(function (a, b) {
           if (b.n !== a.n) return b.n - a.n;
           var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
           return da - db;
         });
+        var rows = near.slice(0, QUICK_OUTING_TOP).sort(function (a, b) {
+          var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
+          return da - db;
+        });
+        rows.radiusMi = radius;
+        return rows;
       }
 
       function loadQuickOuting() {
@@ -1668,9 +1720,10 @@
         var btn = $('quickBtn'), st = $('quickStatus');
         btn.disabled = true; $('quickResults').innerHTML = ''; $('quickMap').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
         ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
-          var top = buildQuickOuting(hs, home).slice(0, 15);
+          var top = buildQuickOuting(hs, home);
           if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of home.'; return; }
-          st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') + ' near home · updated ' + nowTime();
+          st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') +
+            ' within ' + top.radiusMi + ' mi · closest first · updated ' + nowTime();
           var el = $('quickResults'); el.innerHTML = '';
           renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), home, false);
           top.forEach(function (h, i) {
@@ -1810,16 +1863,42 @@
       function getDisplayName() { return (localStorage.getItem('ebird_display_name') || 'Birder Wyatt').trim(); }
       function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
 
-      function isSpeciesSeen(code, name) {
+      // Follow the eBird taxonomy's reportAs chain to the terminal parent
+      // species, mirroring analyze.py::_resolve_species. Without this a
+      // subspecies/form observation ("Dark-eyed Junco (Oregon)", daejun2) never
+      // matches the parent code on your year list (daejun) and is reported as
+      // an unseen bird you have in fact already seen.
+      function resolveSpecies(code, parentOf) {
+        var cur = String(code || ''), hops = {};
+        while (parentOf && parentOf[cur] && !hops[cur]) { hops[cur] = 1; cur = parentOf[cur]; }
+        return cur;
+      }
+      // "Dark-eyed Junco (Oregon)" -> "Dark-eyed Junco". Name-level fallback for
+      // when the taxonomy isn't available; eBird form names are always the
+      // parent common name plus one trailing parenthetical group.
+      function baseSpeciesName(name) {
+        return String(name || '').replace(/\s*\([^()]*\)\s*$/, '').trim();
+      }
+      function isSpeciesSeen(code, name, parentOf) {
         var seen = getSeen(), field = getField();
-        if (field === 'speciesCode' && code && seen[String(code).toLowerCase()]) return true;
+        if (field === 'speciesCode' && code) {
+          if (seen[String(code).toLowerCase()]) return true;
+          var parent = resolveSpecies(code, parentOf);
+          if (parent && parent !== code && seen[String(parent).toLowerCase()]) return true;
+        }
         if (!name) return false;
-        var lc = String(name).toLowerCase();
+        var names = [String(name).toLowerCase()], base = baseSpeciesName(name).toLowerCase();
+        if (base && names.indexOf(base) < 0) names.push(base);
         try {
           var ys = JSON.parse(localStorage.getItem('ebird_year_names') || '[]');
           var ls = JSON.parse(localStorage.getItem('ebird_life_names') || '[]');
-          for (var i = 0; i < ys.length; i++) if (String(ys[i]).toLowerCase() === lc) return true;
-          for (var j = 0; j < ls.length; j++) if (String(ls[j]).toLowerCase() === lc) return true;
+          var pool = ys.concat(ls);
+          for (var i = 0; i < pool.length; i++) {
+            var have = String(pool[i]).toLowerCase();
+            for (var k = 0; k < names.length; k++) {
+              if (have === names[k] || baseSpeciesName(have) === names[k]) return true;
+            }
+          }
         } catch (e) {}
         return false;
       }
@@ -2164,6 +2243,114 @@
         }
         return attempt(0);
       }
+      // The report prints "#210 of 13,303" — the rank alone says nothing about
+      // the size of the field it is a rank in. Ported from
+      // rankings.py::ebirder_count/_web_api_key: the count endpoint rejects a
+      // normal eBird API key (403), so the token is lifted from a public eBird
+      // region page exactly as the pipeline does. Every failure path resolves
+      // null and the denominator is omitted — the same graceful degradation
+      // the report has.
+      var EBIRDERS_CACHE_KEY = 'ebird_ebirders_count_v1';
+      var _webKeyPromise = null;
+      // Port of rankings.py::_extract_web_key. The page assigns
+      // `<obj>.ebirdApiKey=<var>`, where <var> is a minified parameter of the
+      // `__NUXT__=(function(<params>){...}(<args>))` wrapper — so the token is
+      // found by NAME, not by position, and survives eBird reordering its
+      // minified arguments between front-end builds.
+      function splitTopLevel(text) {
+        var out = [], depth = 0, instr = null, esc = false, cur = '';
+        for (var i = 0; i < text.length; i++) {
+          var c = text[i];
+          if (instr) {
+            cur += c;
+            if (esc) esc = false;
+            else if (c === '\\') esc = true;
+            else if (c === instr) instr = null;
+            continue;
+          }
+          if (c === '"' || c === "'" || c === '`') { instr = c; cur += c; }
+          else if ('([{'.indexOf(c) >= 0) { depth++; cur += c; }
+          else if (')]}'.indexOf(c) >= 0) { depth--; cur += c; }
+          else if (c === ',' && depth === 0) { out.push(cur); cur = ''; }
+          else cur += c;
+        }
+        out.push(cur);
+        return out;
+      }
+      function extractWebKey(html) {
+        var m = /(?:^|[^A-Za-z0-9_$])ebirdApiKey[=:]([A-Za-z0-9_$]+)/.exec(html || '');
+        if (!m) return null;
+        var v = m[1], s = html.indexOf('__NUXT__=(function(');
+        if (s < 0) return null;
+        var popen = html.indexOf('function(', s) + 'function'.length;
+        var pclose = html.indexOf(')', popen);
+        if (pclose < 0) return null;
+        var params = html.slice(popen + 1, pclose).split(',');
+        var idx = params.indexOf(v);
+        if (idx < 0) return null;
+        // Walk to the invocation's argument list: the LAST '(' at depth 0 in
+        // the wrapper body opens `}(<args>))`.
+        var body = html.slice(pclose + 1), depth = 0, instr = null, esc = false, lastOpen = -1;
+        for (var i = 0; i < body.length; i++) {
+          var c = body[i];
+          if (instr) {
+            if (esc) esc = false;
+            else if (c === '\\') esc = true;
+            else if (c === instr) instr = null;
+            continue;
+          }
+          if (c === '"' || c === "'" || c === '`') instr = c;
+          else if (c === '(') { if (depth === 0) lastOpen = i; depth++; }
+          else if (c === ')') depth--;
+        }
+        if (lastOpen < 0) return null;
+        var argsStr = body.slice(lastOpen + 1);
+        if (argsStr.charAt(argsStr.length - 1) === ')') argsStr = argsStr.slice(0, -1);
+        var args = splitTopLevel(argsStr);
+        if (idx >= args.length) return null;
+        var val = args[idx].trim();
+        if (val.length >= 2 && '"\'`'.indexOf(val.charAt(0)) >= 0 && val.charAt(val.length - 1) === val.charAt(0)) {
+          return val.slice(1, -1);
+        }
+        return null;
+      }
+      function ebirdWebKey() {
+        if (_webKeyPromise) return _webKeyPromise;
+        _webKeyPromise = fetchPublicHTML('https://ebird.org/region/US-WA')
+          .then(function (html) { return extractWebKey(html); })
+          .catch(function () { return null; });
+        return _webKeyPromise;
+      }
+      function ebirderCount(regionCode) {
+        if (!regionCode) return Promise.resolve(null);
+        var cache = {};
+        try { cache = JSON.parse(localStorage.getItem(EBIRDERS_CACHE_KEY) || '{}'); } catch (e) {}
+        var hit = cache[regionCode];
+        if (hit && hit.date === todayStr()) return Promise.resolve(hit.n);
+        var path = 'product/region/' + encodeURIComponent(regionCode) + '/ebirders/count?yr=cur';
+        function store(n) {
+          if (n == null) return null;
+          try {
+            cache[regionCode] = { date: todayStr(), n: n };
+            localStorage.setItem(EBIRDERS_CACHE_KEY, JSON.stringify(cache));
+          } catch (e) {}
+          return n;
+        }
+        function read(token) {
+          return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': token } })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+              var v = d && d.value;
+              return (typeof v === 'number' && isFinite(v)) ? store(Math.round(v)) : null;
+            });
+        }
+        return read(getKey())
+          .catch(function () {
+            return ebirdWebKey().then(function (k) { return k ? read(k) : null; });
+          })
+          .catch(function () { return null; });
+      }
+
       // Thousands separators, matching the report's `#{rank:,}` formatting.
       function rankNum(n) {
         return (n == null || n === '') ? '?' : Number(n).toLocaleString();
@@ -2218,7 +2405,8 @@
         card.className = 'rankcard';
         if (me) {
           card.innerHTML =
-            '<div class="rankyou"><div class="rankbig">#' + esc(rankNum(me.rank)) + '</div>' +
+            '<div class="rankyou"><div class="rankbig">#' + esc(rankNum(me.rank)) +
+            '<small class="rankof" id="rankOf"></small></div>' +
             '<div class="rankwho"><b>' + esc(label) + '</b><span>' + esc(name || 'You') + ' · ' + year + '</span></div></div>' +
             '<div class="rankstats">' +
             '<div><b>' + esc(rankNum(me.species)) + '</b><span>species</span></div>' +
@@ -2234,6 +2422,12 @@
             ' — set your exact eBird display name in Settings.</span></div>';
         }
         (sum || out).appendChild(card);
+        if (me) {
+          var slot = card.querySelector('#rankOf');
+          ebirderCount(region).then(function (n) {
+            if (slot && n) slot.textContent = ' of ' + rankNum(n) + ' eBirders';
+          });
+        }
 
         // The Top 25 board, in the same section as the standing it explains --
         // the report used to park it in a separate section pages away.
@@ -2271,7 +2465,7 @@
       // that is several birders' newest tick is demonstrably findable right
       // now. Same ONE leaderboard the report reads (this report's region),
       // same grouping, same 🔍 flagging, same in-state checklists.
-      var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5;
+      var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5, LAST_NEW_FRESH_DAYS = 3;
       var LAST_NEW_RE = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/;
 
       function lastNewParse(recent) {
@@ -2377,7 +2571,8 @@
           var who = people.map(function (b) {
             return esc(b.name) + (b.rank ? ' (#' + esc(b.rank) + ')' : '');
           }).join(', ');
-          var head = '<div class="name">' + photoSlot(sp, info.code || '') + esc(sp) + needTag(info.code || '', sp) +
+          var head = '<div class="name">' + photoSlot(sp, info.code || '') +
+            speciesLink(sp, info.code || '') + needTag(info.code || '', sp) +
             ' <span class="rank">×' + g.birders.length + '</span></div>';
           var meta = '<div class="meta">newest tick ' + esc(fmtDate(g.latest)) + ' · ' + who + '</div>';
           var obs = (info.obs || []).slice().sort(function (a, b) {
@@ -2391,13 +2586,21 @@
           } else if (!uniq.length) {
             ck = '<div class="sp">no checklists in the last ' + LAST_NEW_BACK_DAYS + ' days</div>';
           } else {
+            // Mirrors report._last_new_checklist_cell: at least
+            // LAST_NEW_CHECKLISTS rows, but every checklist from the last
+            // LAST_NEW_FRESH_DAYS days — a bird refound three times in three
+            // days is a different proposition from one seen once.
+            var freshCut = new Date(Date.now() - LAST_NEW_FRESH_DAYS * 86400000)
+              .toISOString().slice(0, 10);
+            var nFresh = uniq.filter(function (o) { return String(o.obsDt || '').slice(0, 10) >= freshCut; }).length;
+            var nShow = Math.max(LAST_NEW_CHECKLISTS, nFresh);
             ck = '<div class="sp">' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + ':<br>' +
-              uniq.slice(0, LAST_NEW_CHECKLISTS).map(function (o) {
+              uniq.slice(0, nShow).map(function (o) {
                 var when = esc(fmtDate(o.obsDt)) + (o.howMany ? ' (' + esc(o.howMany) + ')' : '');
                 var link = o.subId ? ' ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '';
                 return when + ' · ' + esc(o.locName || '') + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') + link;
               }).join('<br>') +
-              (uniq.length > LAST_NEW_CHECKLISTS ? '<br><em>…and ' + (uniq.length - LAST_NEW_CHECKLISTS) + ' more</em>' : '') +
+              (uniq.length > nShow ? '<br><em>…and ' + (uniq.length - nShow) + ' more</em>' : '') +
               '</div>';
           }
           li.innerHTML = head + meta + ck;
@@ -2471,7 +2674,7 @@
               '<div class="meta">' + g.rs.length + ' report' + (g.rs.length === 1 ? '' : 's') +
               ' · ' + g.observers + ' observer' + (g.observers === 1 ? '' : 's') +
               ' · latest ' + esc(fmtDate(o.obsDt)) + ' at ' + locLink(o.locName || '', o.lat, o.lng, '', true) +
-              (o.subId ? ' · ' + checklistLink(o.subId, 'checklist') : '') + '</div>';
+              (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
             el.appendChild(li);
           });
         } else {
@@ -2488,7 +2691,7 @@
               speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + conf + '</div>' +
               '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, '', true) + ' · ' +
               esc(fmtDate(o.obsDt)) + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') +
-              (o.subId ? ' · ' + checklistLink(o.subId, 'checklist') : '') + '</div>';
+              (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
             el.appendChild(li);
           });
         }
@@ -3133,8 +3336,8 @@
           });
           // Members are counted, never named — the checklist links below are
           // where a reader sees who filed what (mirrors the report).
-          var head = '<div class="rankhead"><div class="bignum">Convoy of ' +
-            r.members.length + ' on ' + esc(fmtDate(r.day)) + '</div></div>' +
+          var head = '<div class="rankhead"><div class="bignum">' +
+            esc(fmtDate(r.day)) + ' Convoy of ' + r.members.length + '</div></div>' +
             '<div class="status">' + r.stops.length + ' stops · ' +
             allSubs.length + ' checklist' + (allSubs.length === 1 ? '' : 's') + '</div>';
           var mapId = 'convoyMap' + i;
@@ -3192,10 +3395,18 @@
           return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(all.join(',')))
             .catch(function () { return []; })
             .then(function (tax) {
-              var nameByCode = {}; (Array.isArray(tax) ? tax : []).forEach(function (t) { if (t.speciesCode) nameByCode[t.speciesCode] = t.comName || t.speciesCode; });
+              // The taxonomy response already carries reportAs, so the
+              // form -> parent map is free here; without it every subspecies
+              // observation reads as an unseen bird (see resolveSpecies).
+              var nameByCode = {}, parentOf = {};
+              (Array.isArray(tax) ? tax : []).forEach(function (t) {
+                if (!t.speciesCode) return;
+                nameByCode[t.speciesCode] = t.comName || t.speciesCode;
+                if (t.reportAs) parentOf[t.speciesCode] = t.reportAs;
+              });
               var missing = [], have = [];
               all.forEach(function (c) {
-                (isSpeciesSeen(c, nameByCode[c]) ? have : missing).push(c);
+                (isSpeciesSeen(c, nameByCode[c], parentOf) ? have : missing).push(c);
               });
               function key(c) { return (nameByCode[c] || c).toLowerCase(); }
               missing.sort(function (a, b) { return key(a) < key(b) ? -1 : 1; });
@@ -3203,7 +3414,7 @@
               function items(codes) {
                 return '<ul class="convoysppl">' + codes.map(function (c) {
                   var nm = nameByCode[c] || c;
-                  return '<li>' + photoSlot(nm, c) + speciesLink(nm, c) + needTag(c, nm) + '</li>';
+                  return '<li>' + photoSlot(nm, c) + speciesLink(nm, c) + needTag(c, nm, parentOf) + '</li>';
                 }).join('') + '</ul>';
               }
               var html = '';
@@ -3289,15 +3500,44 @@
         if (!mm) return hhmm || '';
         var h = +mm[1]; return (h % 12 || 12) + ':' + mm[2] + ' ' + (h < 12 ? 'am' : 'pm');
       }
+      function tideSpan(a, b) {
+        var re = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/;
+        var pa = re.exec(a || ''), pb = re.exec(b || '');
+        if (!pa || !pb) return '';
+        var ta = new Date(+pa[1], +pa[2] - 1, +pa[3], +pa[4], +pa[5]);
+        var tb = new Date(+pb[1], +pb[2] - 1, +pb[3], +pb[4], +pb[5]);
+        var mins = Math.round((tb - ta) / 60000);
+        if (mins <= 0) return '';
+        return mins >= 60 ? (Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm') : (mins + 'm');
+      }
+      // Ported from weather.py::summarize. A turning-point table ("High 3:11 am,
+      // Falling to 10:20 am") buried the one thing that matters: when the tide
+      // is coming IN. Rows are the windows BETWEEN turning points instead, so a
+      // rising window is one highlighted line you can read at a glance.
       function buildTideRows(preds) {
         preds = preds || [];
-        return preds.map(function (p, i) {
-          var t = p.t || '', hhmm = t.length >= 16 ? t.slice(11, 16) : t;
-          var isHigh = p.type === 'H', v = parseFloat(p.v), ft = isFinite(v) ? v.toFixed(1) + ' ft' : '';
-          var nxt = preds[i + 1], nt = (nxt && nxt.t) || '', nhhmm = nt.length >= 16 ? nt.slice(11, 16) : nt;
-          var to = nhhmm ? (' to ' + to12(nhhmm)) : '';
-          return { kind: isHigh ? 'High' : 'Low', time: to12(hhmm), height: ft, trend: (isHigh ? '⬇ Falling' : '👀 ⬆ Rising') + to };
+        var RISE = '⬆ Rising ▁▂▃▅▆▇';
+        var FALL = '⬇ Falling ▇▆▅▃▂▁';
+        var ft = function (p) { var v = parseFloat(p && p.v); return isFinite(v) ? v.toFixed(1) : ''; };
+        var at = function (p) { var s = (p && p.t) || ''; return to12(s.length >= 16 ? s.slice(11, 16) : s); };
+        var out = preds.slice(0, -1).map(function (p, i) {
+          var nxt = preds[i + 1], rising = p.type !== 'H';
+          return {
+            window: at(p) + ' → ' + at(nxt),
+            span: tideSpan(p.t, nxt.t),
+            rising: rising,
+            trend: rising ? RISE : FALL,
+            height: ft(p) + ' → ' + ft(nxt) + ' ft'
+          };
         });
+        if (preds.length) {
+          var last = preds[preds.length - 1], up = last.type !== 'H';
+          out.push({
+            window: at(last) + ' → overnight', span: '', rising: up,
+            trend: up ? RISE : FALL, height: 'from ' + ft(last) + ' ft'
+          });
+        }
+        return out;
       }
       function renderSunMoon(home) {
         var el = $('wxSun'); if (!el) return;
@@ -3335,11 +3575,14 @@
         var rows = buildTideRows(preds);
         if (!rows.length) { el.innerHTML = ''; return; }
         var body = rows.map(function (r) {
-          return '<tr><td>' + esc(r.kind) + '</td><td>' + esc(r.time) + '</td><td>' + esc(r.height) + '</td><td>' + esc(r.trend) + '</td></tr>';
+          var w = r.rising ? '👀 <b>' + esc(r.window) + '</b>' : esc(r.window);
+          var sp = r.rising && r.span ? '<b>' + esc(r.span) + '</b>' : esc(r.span);
+          return '<tr' + (r.rising ? ' class="tiderise"' : '') + '><td>' + w + '</td><td>' + sp +
+            '</td><td>' + esc(r.trend) + '</td><td>' + esc(r.height) + '</td></tr>';
         }).join('');
         el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · station ' + esc(station) + '</div>' +
-          '<table class="wxtable"><thead><tr><th>Tide</th><th>Time</th><th>Height</th><th>Trend</th></tr></thead><tbody>' + body + '</tbody></table>' +
-          '<div class="wxline dim2">👀 ⬆ Rising (incoming) tides push waterfowl &amp; seafowl closer to shore — prime chase windows, go now.</div>';
+          '<table class="wxtable"><thead><tr><th>Window</th><th>For</th><th>Tide</th><th>Height</th></tr></thead><tbody>' + body + '</tbody></table>' +
+          '<div class="wxline dim2">👀 ⬆ <b>Rising (incoming) tides</b> push waterfowl &amp; seafowl closer to shore — the highlighted rows are your prime chase windows.</div>';
       }
       function loadTides() {
         var el = $('wxTides'); if (!el) return;
@@ -4111,7 +4354,9 @@
         getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
-        renderRankings: renderRankings
+        renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
+        buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
+        extractWebKey: extractWebKey
       };
       migrateHomeKeys();
       buildNav();
