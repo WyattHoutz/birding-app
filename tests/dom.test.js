@@ -62,6 +62,13 @@ function boot(opts = {}) {
       window.localStorage.setItem('ebird_report', opts.report || 'wa');
       window.fetch = function (url) {
         state.fetches.push(String(url));
+        // Tests that need a response supply opts.fetch(url) -> html string|null.
+        if (opts.fetch) {
+          const body = opts.fetch(String(url));
+          if (body != null) {
+            return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(body) });
+          }
+        }
         return new Promise(() => {});   // never settles: offline + deterministic
       };
       window.onerror = (msg) => { state.errors.push(String(msg)); };
@@ -477,5 +484,94 @@ test('birder convoys list checklists per stop and never name the members', async
     'convoy rows must not print member names — the checklist links show who filed');
   assert.match(src, /r\.members\.length/, 'the group is described by a birder count');
   assert.match(src, /s\._subs/, 'every member checklist at a stop gets a link, not just the first');
+  app.window.close();
+});
+
+/*
+ * The rankings section shipped broken TWICE: the heading said Washington while
+ * the rows were the Lower 48 board. Every label derives from the active report,
+ * so the labels were right and only the DATA was wrong - which means no test
+ * that checks the UI can catch it. The fix is to make the parser read the
+ * region eBird itself declares on the page and refuse anything else, so these
+ * tests drive that check directly.
+ */
+const FIX = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
+
+test('parseRankingsHTML reports which board eBird actually served', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const wa = A.parseRankingsHTML(FIX('top100-wa.html'), 'Birder Wyatt');
+  assert.equal(wa.region, 'US-WA', 'the WA page identifies itself as US-WA');
+  assert.equal(wa.rows[0].name, 'sally frandsen', 'rows still parse');
+  assert.equal(wa.me.rank, 211, 'and so does your own standing');
+  const l48 = A.parseRankingsHTML(FIX('top100-lower48.html'), 'Birder Wyatt');
+  assert.equal(l48.region, 'lower48',
+    'the two boards are the same markup with a different region - telling them ' +
+    'apart is the ONLY defence against rendering one under the other\'s heading');
+  app.window.close();
+});
+
+test('fetchRank rejects a leaderboard for the wrong region', async () => {
+  // Ask for Washington, have every URL form answer with the Lower 48 board:
+  // exactly the bug the user reported, reproduced offline.
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-lower48.html') : null) });
+  const A = app.window.__app;
+  let err = null;
+  await A.fetchRank({ key: 'wa', region: 'US-WA', max: 500 }, 2026, 'Birder Wyatt')
+    .then(() => {}, (e) => { err = e; });
+  assert.ok(err, 'a Lower 48 board must never satisfy a request for Washington');
+  assert.match(String(err.message), /Lower 48/,
+    'the error names the board eBird returned, so the failure is diagnosable on device');
+  const tried = app.state.fetches.filter((u) => /top100/.test(u));
+  assert.ok(tried.length > 1, 'the alternate URL forms are tried before giving up');
+  app.window.close();
+});
+
+test('fetchRank accepts the right board and caches it by region', async () => {
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const A = app.window.__app;
+  const d = await A.fetchRank({ key: 'wa', region: 'US-WA', max: 500 }, 2026, 'Birder Wyatt');
+  assert.equal(d.me.rank, 211);
+  assert.equal(d.region, 'US-WA');
+  const n = app.state.fetches.filter((u) => /top100/.test(u)).length;
+  assert.equal(n, 1, 'the first URL form matched, so no fallback was needed');
+  await A.fetchRank({ key: 'wa', region: 'US-WA', max: 500 }, 2026, 'Birder Wyatt');
+  assert.equal(app.state.fetches.filter((u) => /top100/.test(u)).length, n,
+    'a second read comes from the day cache');
+  app.window.close();
+});
+
+test('a cached board from the wrong region is treated as a miss', async () => {
+  // The phone had a poisoned cache entry that survived every reload; keying by
+  // URL alone made it undetectable. The entry must now prove what it holds.
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const A = app.window.__app;
+  A.rankCachePut('US-WA|2026|500|Birder Wyatt',
+    { rows: [{ rank: 1, name: 'David McQuade' }], me: { rank: 1 }, region: 'lower48' });
+  const d = await A.fetchRank({ key: 'wa', region: 'US-WA', max: 500 }, 2026, 'Birder Wyatt');
+  assert.equal(d.region, 'US-WA', 'the stale Lower 48 entry was discarded');
+  assert.equal(d.rows[0].name, 'sally frandsen', 'and refetched from eBird');
+  app.window.close();
+});
+
+test('Latest ticks reads ONE leaderboard: the active report\'s', async () => {
+  // It used to union this region + Lower 48, so a Washington chase board
+  // listed European Goldfinch, Yellow-headed Amazon and Palila - and, when
+  // both fetches returned the same board, every birder twice.
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const A = app.window.__app;
+  const src = HTML.slice(HTML.indexOf('function loadLastNew('),
+    HTML.indexOf('function lastNewChecklists('));
+  assert.ok(!/lower48/.test(src),
+    'the section must not reach for the Lower 48 board: a shared newest tick ' +
+    'only means "go get it" if those birders are birding where you are');
+  assert.match(src, /rankPrimaryRegion\(\)/,
+    'it follows the same one-report-one-board rule as the rankings section');
+
+  app.open(/Latest ticks/);
+  await new Promise((r) => setTimeout(r, 120));
+  const boards = app.state.fetches.filter((u) => /top100/.test(u));
+  assert.equal(boards.length, 1, 'exactly one leaderboard is fetched');
+  assert.match(boards[0], /US-WA/, 'and it is the active report\'s region');
   app.window.close();
 });

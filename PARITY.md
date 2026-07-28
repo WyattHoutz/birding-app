@@ -146,8 +146,9 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🏆 eBird Rankings — <region> | **eBird Rankings & Top 25** (standing) | ✅ | Direct keyless read of `ebird.org/top100`, cached once per day like `rankings.py`. Scoped to the selected region’s own board via `rankings.py::primary_region_for()`, mirrored by the app’s `rankPrimaryRegion()`. |
+| 🏆 eBird Rankings — <region> | **eBird Rankings & Top 25** (standing) | ✅ | Direct keyless read of `ebird.org/top100`, cached once per day like `rankings.py`. Scoped to the selected region’s own board via `rankings.py::primary_region_for()`, mirrored by the app’s `rankPrimaryRegion()`. v1.0.13 makes the app **verify the region eBird declares on the page it served** (canonical link / hidden input) and refuse a mismatch, retrying alternate URL forms first — on device the request crosses Capacitor’s native HTTP stack and a shared eBird session, either of which could hand back a different board that parsed perfectly under the wrong heading. |
 | ↳ Top 25 eBirders (same section) | **eBird Rankings & Top 25** (board) | ✅ | v1.0.12 folded the report’s separate `## 🥇 Top 25` headings into the rankings section in BOTH repos — one region, one standing, one board. Highlights your row. |
+| 🔭 Latest ticks on the leaderboard | **Latest ticks on the leaderboard** | ✅ | v1.0.13 scoped this to the report’s **own** board in BOTH repos. Both sides pooled every board they fetched (WA also fetches Lower 48 for `section_year_list`), so a Washington chase board listed Palila, California Gnatcatcher and Yellow-headed Amazon — 20 of 33 rows unchaseable — each flagged 🔍 as a WA target. Guards: `tests/parity/test_last_new.py` + a `dom.test.js` fetch-count check. |
 | 🏅 Your state rankings | — | ➖ | Rarity-tracker-only cross-region table (`section_state_leaderboards`). The app scopes to one region by design — switch regions in the nav to see another. |
 
 ## App structure
