@@ -58,13 +58,12 @@ and the app's JS `BirdLogic`, that they agree on 11 projections:
   it byte-for-byte.
 - **Same inputs** — both sides read the same fixture eBird rows.
 - **Same outputs** — `merged`, `unseen`, `near`, `destinations`, `excursions`,
-  `notable-today`, `new-arrivals`, `tod-hours-built`, `tod-specialists`,
-  `convoys`.
+  `notable-today`, `tod-hours-built`, `tod-specialists`, `convoys`.
 
-An app-side glue test, [`assets/smoke-wiring.js`](assets/smoke-wiring.js) (21
-checks), additionally proves `index.html`'s wired data layer (`getChase()`)
-reproduces the golden destinations / excursions / new-arrivals, and that
-`planFeeds` file names match the `mergePlan` map keys for all 9 reports.
+An app-side glue test, [`assets/smoke-wiring.js`](assets/smoke-wiring.js),
+additionally proves `index.html`'s wired data layer (`getChase()`) reproduces
+the golden destinations / excursions, and that `planFeeds` file names match the
+`mergePlan` map keys for all 9 reports.
 
 ## County-scoped auxiliary panels
 
@@ -99,12 +98,11 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🌅 Today's rarity reports | **Notable sightings** | ✅ | `…/recent/notable` feed, live via CapacitorHttp; species/checklist/hotspot links + photos. |
-| 🚨 Active rarities | **Active rarities** | ✅ | Own section (v1.0.7). Notable feed grouped by species with reports / observers / latest, scoped by `regions.py` rarity exclusions. Ports `section_rarities`. |
+| 🌅 Today's rarity reports | **Today's rarity reports** | ✅ | Renders `BirdLogic.computeChaseViews().notableToday` — the parity-tested port of `section_today` (today's `obsDt` only, one row per checklist, newest first). Before v1.0.14 it read a raw `recent/notable` feed, which is eBird's **14-day** window, so the app showed birds the report never listed. |
+| 🚨 Last 7-Days rarity reports | **Last 7-Days rarity reports** | ✅ | Own section (v1.0.7). Notable feed grouped by species with reports / observers / latest, scoped by `regions.py` rarity exclusions. Ports `section_rarities`. |
 | 📋 All unseen reports | **Targets near you** | ✅ | Region `recent` minus your imported seen-list. |
 | 🔍 Watchlist (verification chases) | — | ➖ | "Needs-verification" is a report-only concept; the app has no NV list. |
 | 🦅 ABA Code 3+ rarities | **ABA Code 3+ rarities** | ✅ | Direct (keyless) read of the public ABA Rarities alert page; for county reports it filters to the active state and groups by species (Reports / Observers / Latest) exactly like `section_state_aba_rarities`. In-app login is only a fallback. Ports `aba_rba.py` incl. `_resolve_subnational1`. |
-| 🌟 New arrivals today | **New arrivals today** | ✅ | `BirdLogic.computeChaseViews().newArrivals` (today's near birds absent the prior day), nearest-first, uncapped, with ⭐/🆕 flags, species/checklist/hotspot links and photos. |
 
 ## Destinations & routing
 
@@ -124,7 +122,7 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🦜 Birdiest recent checklists | **Birdiest checklists** | ✅ | Per-county `product/lists` merged, then mirrors `section_birdiest_checklists`: dedup by checklist, last 7 days, public hotspots only (skips restricted), best checklist per hotspot by `numSpecies`, within 40 mi of Home, top 25 — with observer + checklist link. |
 | 🔥 Hot hotspots — recent surges | **Hot hotspots** | ✅ | From each report county's 30-day hotspot recent feed (`recent?hotspot=true`), merged, buckets each species' freshest sighting by `locId`; joined with `ref/hotspot/{region}` metadata and ranked `fresh × (1 + fresh/all-time) ÷ (1 + dist/10)` within 35 mi of Home — same score as `section_hot_hotspots` (`HOT_MIN_FRESH=5`). |
 | 🥶 Cold hotspots — overlooked gems | **Cold hotspots** | ✅ | High all-time diversity (`≥100`), currently quiet hotspots within 35 mi of Home, ranked by the report's pre-refinement `upper_score = all-time × √(1 + min(silent days, 30)) ÷ (dist + 5)`; `latestObsDt` overridden by the recent feed. Shares the per-county hotspot fetch with Hot hotspots. (Report additionally refines the top ~30 with per-hotspot historic sampling; the app uses the metadata pre-rank to stay at 2 calls.) |
-| 👥 Birder convoys | **Birder convoys** | ✅ | Detects birding groups from the report's **per-county** `product/lists` feeds (merged, last 7 days): dedupes checklists by `subId`, skips your own, groups by shared `locId`+exact submitted time (eBird's shared-checklist signature). A convoy = ≥2 birders sharing ≥2 stops in one day; ranked by stops → group size → recency (top 10). Detection runs the parity-tested `BirdLogic.convoyDetect` — same as `section_birder_convoys` (`CONVOY_LOOKBACK_DAYS=7`, `CONVOY_MIN_STOPS=2`). Lazy per-route **combined species** expander pools each stop's `product/checklist/view/{sub}` obs and flags 🆕 species not on your list via one batched `ref/taxonomy` lookup (ports `_convoy_species_cell`). |
+| 👥 Birder convoys | **Birder convoys** | ✅ | Detects birding groups from the report's **per-county** `product/lists` feeds (merged, last 7 days): dedupes checklists by `subId`, skips your own, groups by shared `locId`+exact submitted time (eBird's shared-checklist signature). A convoy = ≥2 birders sharing ≥2 stops in one day; sorted by **date, newest first** (top 10). Detection runs the parity-tested `BirdLogic.convoyDetect` — same as `section_birder_convoys` (`CONVOY_LOOKBACK_DAYS=7`, `CONVOY_MIN_STOPS=2`). Since v1.0.14 each convoy renders as its own block — *Convoy of N on Mon D*, a map of its hotspots, an **unseen** species list, a **seen** species list, then the numbered stops with one checklist link per member labelled by `subId`. Nothing is collapsed and no member names are printed. Species are pooled from each stop's `product/checklist/view/{sub}` obs and hydrated automatically. Layout is guarded by `birding/tests/parity/test_convoys.py`. |
 | ⏰ Time-of-day specialists | **Time-of-day specialists** | ✅ | Accumulates **per-county** checklist observation hours (`historic/{y}/{m}/{d}` daily snapshots + each county's Notable feed); the dawn (≥50% before 7am) / dusk-night (≥30% after 7pm) split delegates to the parity-tested `BirdLogic.todSpecialists` (report `time_of_day.py` thresholds, `MIN_OBS=5`). Sample grows richer each run. |
 
 ## Personal stats

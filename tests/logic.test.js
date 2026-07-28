@@ -199,7 +199,7 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
     seen: { mallar3: 1 }, ownName: 'Nobody', snapshotDate: SNAP,
     home: wa.home, dailyDriveMi: wa.dailyDriveMi
   });
-  ['merged', 'unseen', 'near', 'destinations', 'excursions', 'notableToday', 'newArrivals']
+  ['merged', 'unseen', 'near', 'destinations', 'excursions', 'notableToday']
     .forEach((k) => assert.ok(Array.isArray(cv[k]), 'cv.' + k + ' is an array'));
   const unseenCodes = cv.unseen.map((r) => r.code);
   assert.ok(unseenCodes.includes('buffle'), 'unseen keeps the un-seen Need bird');
@@ -210,27 +210,23 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
 });
 
-test('computeChaseViews: newArrivals = today\'s near birds not present the prior day', () => {
+test('computeChaseViews: notableToday keeps one row per checklist, newest first', () => {
   const wa = BL.profileFor('wa');
   const SNAP = '2026-01-15';
   const today = waSnapshot({
-    'king-recent.json': [
-      OBS({ obsId: 'o-fresh', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: SNAP + ' 08:30' }),
-      OBS({ obsId: 'o-old', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: SNAP + ' 08:30' })
-    ]
-  });
-  const prior = waSnapshot({
-    'king-recent.json': [
-      OBS({ obsId: 'p-old', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-14 08:30' })
+    'king-notable.json': [
+      OBS({ obsId: 'o-a', subId: 'S1', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: SNAP + ' 08:30' }),
+      OBS({ obsId: 'o-b', subId: 'S2', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: SNAP + ' 11:00' }),
+      OBS({ obsId: 'o-c', subId: 'S3', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-14 08:30' })
     ]
   });
   const cv = BL.computeChaseViews(wa, {
-    rowsToday: today, rowsPrior: prior,
+    rowsToday: today, rowsPrior: waSnapshot({}),
     seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: wa.home, dailyDriveMi: wa.dailyDriveMi
   });
-  const arrivals = cv.newArrivals.map((r) => r.code);
-  assert.ok(arrivals.includes('buffle'), 'buffle is new today');
-  assert.ok(!arrivals.includes('gadwal'), 'gadwall present yesterday -> not a new arrival');
+  const subs = cv.notableToday.map((r) => r.subId);
+  assert.deepEqual(subs, ['S2', 'S1'], 'both of today\'s checklists kept, newest first');
+  assert.ok(!subs.includes('S3'), 'yesterday\'s rarity is not in today\'s report');
 });
 
 // --- render adapter --------------------------------------------------------

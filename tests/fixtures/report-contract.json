@@ -38,12 +38,6 @@
       "map": null
     },
     {
-      "at": "newBtn",
-      "label": "🌟 New arrivals today",
-      "report": "## 🌟 New arrivals today",
-      "map": null
-    },
-    {
       "at": "refreshBtn",
       "label": "🌅 Today’s rarity reports",
       "report": "## 🌅 Today's rarity reports",
@@ -51,8 +45,8 @@
     },
     {
       "at": "activeBtn",
-      "label": "🚨 Active rarities",
-      "report": "## 🚨 Active rarities",
+      "label": "🚨 Last 7-Days rarity reports",
+      "report": "## 🚨 Last 7-Days rarity reports",
       "map": null
     },
     {
@@ -113,7 +107,8 @@
       "at": "convoyBtn",
       "label": "👥 Birder convoys",
       "report": "## 👥 Birder convoys",
-      "map": null
+      "map": null,
+      "why": "the report draws one map PER convoy, so the app builds per-convoy containers dynamically rather than one static id"
     },
     {
       "at": "favResults",
