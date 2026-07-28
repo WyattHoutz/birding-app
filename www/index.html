@@ -490,7 +490,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.12';
+      var APP_VERSION = '1.0.13';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1825,6 +1825,17 @@
       // _parse_row, _find_user). Injected into the eBird page, so it must be
       // self-contained (no closure refs).
       function parseRankingsHTML(html, displayName) {
+        // eBird's top100 page names its own region in the canonical link (and in
+        // a hidden region input). Reading it back is the only way to be sure the
+        // rows are the board we asked for: a session redirect, a cached page or
+        // an in-app-browser capture can all hand back a DIFFERENT top100 page,
+        // and every row on it parses perfectly - just for the wrong region.
+        function pageRegion(h) {
+          var m = /<link[^>]+rel="canonical"[^>]+href="[^"]*regionCode=([^"&]+)"/i.exec(h);
+          if (!m) m = /<input[^>]+name="[^"]*[Rr]egion[^"]*"[^>]*value="([^"]+)"/.exec(h);
+          if (!m) m = /name="[^"]*[Rr]egionCode[^"]*"[^>]*value="([^"]+)"/.exec(h);
+          try { return m ? decodeURIComponent(m[1]).trim() : ''; } catch (e) { return m ? m[1].trim() : ''; }
+        }
         var rankRe = /<div id="rank-(\d+)" class="ResultsStats-index">[\d,]+\.<\/div>/g;
         var marks = [], m;
         while ((m = rankRe.exec(html))) marks.push({ idx: m.index, rank: parseInt(m[1], 10) });
@@ -1850,7 +1861,7 @@
         var me = null, dn = (displayName || '').trim();
         if (dn) for (var j = 0; j < rows.length; j++) if (rows[j].name === dn) { me = rows[j]; break; }
         var maxRank = 0; for (var k = 0; k < marks.length; k++) if (marks[k].rank > maxRank) maxRank = marks[k].rank;
-        return { rows: rows.slice(0, 25), me: me, checkedToRank: maxRank || null, total: rows.length };
+        return { rows: rows.slice(0, 25), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
       }
 
       // Ported from aba_rba.py (_BLOCK_START_RE, _SPECIES_RE, _DATE_RE, _LOC_RE,
@@ -1930,14 +1941,21 @@
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
       // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
-      function buildRankInject(displayName) {
+      function buildRankInject(displayName, expectRegion) {
         return '(function(){try{if(!window.mobileApp)return;' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
           'var onPage=/\\/top100/.test(location.pathname);' +
           parseRankingsHTML.toString() + ';' +
           'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ');' +
-          'var ok=!!(onPage&&R&&R.rows&&R.rows.length);' +
-          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:ok,data:R}});' +
+          'var want=' + JSON.stringify(String(expectRegion || '')) + ';' +
+          // Being ON a top100 page is not enough. eBird can land us on a
+          // different board than the URL asked for (session redirect, a
+          // client-side re-render, or a stale window), and every row on it
+          // parses fine - it is just the wrong region. Only accept a page that
+          // says it is the region we requested.
+          'var right=!want||(R&&R.region&&String(R.region).toLowerCase()===want.toLowerCase());' +
+          'var ok=!!(onPage&&right&&R&&R.rows&&R.rows.length);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:ok,region:R?R.region:"",data:R}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
       function buildAlertInject() {
@@ -1979,6 +1997,10 @@
           addH('messageFromWebview', function (ev) {
             if (done) return;
             var d = ev && ev.detail; if (!d || !d.__ebird) return;
+            // Listeners are registered on the plugin, not on one window, so a
+            // leftover eBird window could otherwise resolve this capture with
+            // its own page. Ignore anything that names a different window.
+            if (ev && ev.id && id && ev.id !== id) return;
             if (d.ok) finish(null, d.data);
           });
           addH('urlChangeEvent', function (ev) {
@@ -2054,7 +2076,14 @@
       }
       // rankings.py caches the scrape once per day (the Lower-48 page is huge);
       // do the same on device so re-opening the section is instant.
-      var RANK_CACHE_KEY = 'ebird_rank_cache_v1';
+      // _v2: v1 was keyed by URL alone and stored no region, so a poisoned entry
+      // was undetectable and unfixable. Starting a new namespace abandons it.
+      var RANK_CACHE_KEY = 'ebird_rank_cache_v2';
+      // eBird region codes are case-insensitive in URLs ('US-WA' vs 'us-wa'),
+      // so compare them the same way rather than by raw string equality.
+      function rankRegionMatches(want, got) {
+        return String(want || '').trim().toLowerCase() === String(got || '').trim().toLowerCase();
+      }
       function rankCacheGet(k) {
         try {
           var c = JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || '{}');
@@ -2070,20 +2099,54 @@
           localStorage.setItem(RANK_CACHE_KEY, JSON.stringify(c));
         } catch (e) {}
       }
+      // Ordered URL forms for one leaderboard. The first mirrors rankings.py
+      // exactly. The rest are tried ONLY when a page comes back labelled as a
+      // different region — on device the request crosses Capacitor's native
+      // HTTP stack and a shared eBird session, either of which can land us on
+      // another board, and eBird accepts the region code on its own.
+      // Only states get variants; the two huge national pages are fetched once.
+      function rankingsUrlVariants(region, year, maxResults) {
+        var reg = String(region || '').trim(), low = reg.toLowerCase();
+        var urls = [rankingsUrl(region, year, maxResults)];
+        if (low === 'lower48' || low === 'aba') return urls;
+        var tail = '&rankedBy=spp&year=' + year + '&maxResults=' + (maxResults || 500);
+        var pretty = rankRegionName(reg);
+        urls.push('https://ebird.org/top100?locInfo.regionCode=' + encodeURIComponent(reg) + tail);
+        if (pretty && pretty !== reg) {
+          urls.push('https://ebird.org/top100?region=' + encodeURIComponent(pretty) +
+            '&locInfo.regionCode=' + encodeURIComponent(reg) + tail);
+        }
+        return urls;
+      }
       function fetchRank(rr, year, name) {
-        var url = rankingsUrl(rr.region, year, rr.max);
-        // Key by URL so the selected-scope leaderboard and the multi-region
-        // summary share one fetch when they point at the same page.
-        var ck = url + '|' + name;
+        // Key by region (not just URL) so the key states what the rows must BE,
+        // and re-check the stored region on read: a cache entry that disagrees
+        // with the request is treated as a miss instead of silently rendering
+        // the wrong leaderboard under the right heading.
+        var ck = String(rr.region) + '|' + year + '|' + (rr.max || 500) + '|' + name;
         var hit = rankCacheGet(ck);
-        if (hit) return Promise.resolve(hit);
-        return fetchPublicHTML(url).then(function (html) {
-          var data = parseRankingsHTML(html, name) || {};
-          if (!data.rows || !data.rows.length) throw new Error('empty leaderboard');
-          data.url = url;
-          rankCachePut(ck, data);
-          return data;
-        });
+        if (hit && rankRegionMatches(rr.region, hit.region)) return Promise.resolve(hit);
+        var urls = rankingsUrlVariants(rr.region, year, rr.max), lastErr = null;
+        function attempt(i) {
+          if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
+          return fetchPublicHTML(urls[i]).then(function (html) {
+            var data = parseRankingsHTML(html, name) || {};
+            if (!data.rows || !data.rows.length) throw new Error('empty leaderboard');
+            if (!rankRegionMatches(rr.region, data.region)) {
+              var got = rankRegionName(data.region) || 'an unlabelled';
+              dbg('error', 'rankings: asked for ' + rr.region + ', eBird returned ' + (data.region || '?'));
+              throw new Error('eBird returned the ' + got + ' leaderboard instead of ' + rankRegionName(rr.region) + '.');
+            }
+            data.url = urls[i];
+            rankCachePut(ck, data);
+            return data;
+          }).catch(function (e) {
+            lastErr = e;
+            if (i + 1 < urls.length) dbg('warn', 'rankings ' + rr.region + ': form ' + (i + 1) + ' failed (' + (e && e.message) + ') — retrying');
+            return attempt(i + 1);
+          });
+        }
+        return attempt(0);
       }
       function renderRankSummary(entries, year) {
         var el = $('rankSummary');
@@ -2136,9 +2199,18 @@
             dbg('warn', 'rankings direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
-            return captureEbird({ url: url, buildInject: function () { return buildRankInject(name); }, onStatus: function (m) { st.textContent = m; } });
+            return captureEbird({ url: url, buildInject: function () { return buildRankInject(name, region); }, onStatus: function (m) { st.textContent = m; } });
           })
-          .then(function (data) { renderRankings(data, region, url, name); st.textContent = 'Updated ' + nowTime(); })
+          .then(function (data) {
+            // Last line of defence before painting: the captured page bypasses
+            // fetchRank's check, and rendering the wrong board under the right
+            // heading is worse than showing nothing.
+            if (data && data.region && !rankRegionMatches(region, data.region)) {
+              throw new Error('eBird returned the ' + (rankRegionName(data.region) || 'wrong') +
+                ' leaderboard instead of ' + rankRegionName(region) + '.');
+            }
+            renderRankings(data, region, url, name); st.textContent = 'Updated ' + nowTime();
+          })
           .catch(function (e) { st.innerHTML = esc(e.message || 'Could not load rankings.') + ' ' + extA(url, 'View on eBird'); })
           .then(function () { return loadRankSummary(year, name); })
           .finally(function () { btn.disabled = false; });
@@ -2172,7 +2244,7 @@
         });
         out.appendChild(ul);
         var foot = document.createElement('div');
-        foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(url) + '">View full leaderboard on eBird</a>';
+        foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(data.url || url) + '">View full leaderboard on eBird</a>';
         out.appendChild(foot);
       }
 
@@ -2181,7 +2253,7 @@
       // prints each birder's most recently added species; grouping that column
       // by bird turns the leaderboard into a chase board, because a species
       // that is several birders' newest tick is demonstrably findable right
-      // now. Same two leaderboards the report reads (this region + Lower 48),
+      // now. Same ONE leaderboard the report reads (this report's region),
       // same grouping, same 🔍 flagging, same in-state checklists.
       var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5;
       var LAST_NEW_RE = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/;
@@ -2200,29 +2272,36 @@
         var btn = $('lastNewBtn'), st = $('lastNewStatus');
         var out = $('lastNewResults');
         var year = new Date().getFullYear();
+        var rr = rankPrimaryRegion();
         var region = getRegion(), name = getDisplayName();
         btn.disabled = true; out.innerHTML = '';
-        st.textContent = 'Reading the leaderboards…';
+        st.textContent = 'Reading the leaderboard…';
 
-        // The report unions every leaderboard it tracks for this report, so a
-        // bird only Lower 48 birders ticked still shows (without in-state
-        // checklists). Failures on one board must not sink the other.
-        var boards = [{ key: 'sel-' + region, region: region, max: 500 }];
-        if (!getReport().isRarityTracker) boards.push({ key: 'lower48', region: 'lower48', max: 10000 });
+        // ONE board: this report's own region. Unioning Lower 48 (as this did)
+        // put European Goldfinch, Yellow-headed Amazon and Palila on a
+        // *Washington* chase board — birds no one can chase from here. A shared
+        // newest tick only means "go get it" if the birders are birding here.
+        var boards = [{ key: rr.key, region: rr.region, max: rr.max || 500 }];
         var jobs = boards.map(function (b) {
           return fetchRank(b, year, name)
             .then(function (d) { return { board: b, data: d }; })
-            .catch(function (e) { dbg('warn', 'last-new: board ' + b.region + ' failed: ' + (e && e.message)); return null; });
+            .catch(function (e) { dbg('warn', 'last-new: board ' + b.region + ' failed: ' + (e && e.message)); return { err: e }; });
         });
 
         Promise.all(jobs).then(function (got) {
-          var groups = {};
-          got.filter(Boolean).forEach(function (g) {
+          var groups = {}, failed = got.filter(function (g) { return g && g.err; });
+          got.filter(function (g) { return g && g.data; }).forEach(function (g) {
             var rows = (g.data.rows || []).slice();
             if (g.data.me && g.data.me.recent) rows.push(g.data.me);
+            var seen = {};
             rows.forEach(function (r) {
               var p = lastNewParse(r.recent);
               if (!p || !r.name) return;
+              // `me` is appended above and is also in rows once you crack the
+              // top 25, which would list you twice against your own bird.
+              var rk = r.name + '|' + r.rank;
+              if (seen[rk]) return;
+              seen[rk] = 1;
               var e = groups[p.species] || (groups[p.species] = { birders: [], latest: '' });
               e.birders.push({ name: r.name, rank: r.rank, url: g.data.url });
               if (p.date > e.latest) e.latest = p.date;
@@ -2230,7 +2309,9 @@
           });
           var species = Object.keys(groups);
           if (!species.length) {
-            st.textContent = 'No leaderboard entry carried a newest-species note.';
+            st.textContent = failed.length
+              ? (failed[0].err && failed[0].err.message) || 'Could not read the leaderboard.'
+              : 'No leaderboard entry carried a newest-species note.';
             return;
           }
           st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
@@ -3986,7 +4067,9 @@
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
-        getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport
+        getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport,
+        parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
+        fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY
       };
       migrateHomeKeys();
       buildNav();
