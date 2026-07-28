@@ -545,7 +545,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.16';
+      var APP_VERSION = '1.0.17';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2566,6 +2566,11 @@
       // now. Same ONE leaderboard the report reads (this report's region),
       // same grouping, same 🔍 flagging, same in-state checklists.
       var LAST_NEW_BACK_DAYS = 14, LAST_NEW_CHECKLISTS = 5, LAST_NEW_FRESH_DAYS = 3;
+      // Ceiling over the freshness floor — the floor itself has no bound, and
+      // a common bird refound by everybody makes nFresh enormous. The count is
+      // printed above the list regardless, so enumerating 200 deep links to
+      // prove "200" only costs scrolling.
+      var LAST_NEW_MAX_CHECKLISTS = 12;
       var LAST_NEW_RE = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/;
 
       function lastNewParse(recent) {
@@ -2706,7 +2711,8 @@
             var freshCut = new Date(Date.now() - LAST_NEW_FRESH_DAYS * 86400000)
               .toISOString().slice(0, 10);
             var nFresh = uniq.filter(function (o) { return String(o.obsDt || '').slice(0, 10) >= freshCut; }).length;
-            var nShow = Math.max(LAST_NEW_CHECKLISTS, nFresh);
+            var nShow = Math.min(Math.max(LAST_NEW_CHECKLISTS, nFresh),
+              LAST_NEW_MAX_CHECKLISTS);
             ck = '<div class="sp">' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + ':<br>' +
               uniq.slice(0, nShow).map(function (o) {
                 var when = esc(fmtDate(o.obsDt)) + (o.howMany ? ' (' + esc(o.howMany) + ')' : '');
