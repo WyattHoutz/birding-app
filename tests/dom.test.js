@@ -575,3 +575,79 @@ test('Latest ticks reads ONE leaderboard: the active report\'s', async () => {
   assert.match(boards[0], /US-WA/, 'and it is the active report\'s region');
   app.window.close();
 });
+
+
+test('rankings: your standing is painted ONCE, above an aligned board', async () => {
+  // Through v1.0.13 the section rendered the same four numbers twice - a
+  // summary list AND a big-number header - then a run-on "198 species / 337
+  // checklists / recent: ..." line per birder. That duplication is the
+  // readability bug, so the guard is structural rather than cosmetic.
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  app.open(/eBird Rankings/);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(app.document.querySelectorAll('.rankcard').length, 1,
+    'exactly one standing card - your rank is not printed twice');
+  const bigs = [...app.document.querySelectorAll('.rankbig, .bignum')]
+    .map((e) => e.textContent).filter((t) => /#/.test(t));
+  assert.deepEqual(bigs, ['#211'], 'your rank appears once, as one big number');
+  assert.equal(app.document.querySelectorAll('.rankcard .rankstats > div').length, 2,
+    'species and checklists are labelled stats, not a run-on sentence');
+
+  const rows = [...app.document.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
+  assert.ok(rows.length && rows.length <= 25,
+    'the board renders and is capped at the Top 25 the report prints');
+  assert.equal(rows[0].querySelector('.rk').textContent.trim(), '1');
+  assert.match(rows[0].querySelector('.who').textContent, /sally frandsen/);
+  assert.deepEqual([...rows[0].querySelectorAll('.n')].map((e) => e.textContent.trim()),
+    ['337', '464'],
+    'species and checklists get their own aligned columns, like the report table');
+  assert.ok(app.document.querySelector('.rankhdr'),
+    'the columns are headed, so the two numbers are not ambiguous');
+  const named = rows[0].querySelector('.who a');
+  assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
+    'each birder deep-links to their own row on the board, as the report does');
+  app.window.close();
+});
+
+test('rankings: your own row on the board is highlighted', async () => {
+  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const A = app.window.__app;
+  A.renderRankings(A.parseRankingsHTML(FIX('top100-wa.html'), 'sally frandsen'),
+    'US-WA', 'https://ebird.org/top100', 'sally frandsen');
+  const me = app.document.querySelectorAll('.ranktable .rankme');
+  assert.equal(me.length, 1, 'the birder you are gets exactly one highlighted row');
+  assert.match(me[0].textContent, /sally frandsen/);
+  assert.equal(me[0].querySelector('.rk').textContent.trim(), '1');
+  app.window.close();
+});
+
+test("Today's rarities render the report's section, not a raw notable feed", () => {
+  // The app read /recent/notable directly, which is eBird's 14-DAY window, so
+  // it listed birds the report never printed. BirdLogic.notableToday IS
+  // report.py::section_today and is covered by the cross-repo golden.
+  const src = HTML.slice(HTML.indexOf('function refresh()'),
+    HTML.indexOf('function loadTargets('));
+  assert.match(src, /cv\.notableToday/,
+    'the section must come from the parity-tested view, not its own fetch');
+  assert.ok(!/recent\/notable/.test(src),
+    'no raw notable read: that window is 14 days, the section is today only');
+  assert.ok(!/dedupeObs/.test(src),
+    'dedupe by checklist, as the report does - not by species+location');
+});
+
+test('convoys render one block per convoy: title, map, birds, checklists', () => {
+  const src = HTML.slice(HTML.indexOf('function renderConvoys('),
+    HTML.indexOf('function hydrateConvoySpecies('));
+  assert.match(src, /Convoy of/, 'each convoy is titled "Convoy of N on <date>"');
+  assert.match(src, /convoyMap/, 'and carries its own map of that convoy\'s hotspots');
+  assert.ok(!/<details|<summary/.test(src),
+    'nothing in the section collapses - the user asked for plain lists');
+  const spp = HTML.slice(HTML.indexOf('function loadConvoySpecies('),
+    HTML.indexOf('function loadConvoys('));
+  assert.ok(spp.indexOf('Unseen') > -1 && spp.indexOf('Already seen') > -1,
+    'species are split into an unseen list and a seen list');
+  assert.ok(spp.indexOf('Unseen') < spp.indexOf('Already seen'),
+    'unseen birds come first - they are the reason to chase the route');
+  assert.match(spp, /<ul class="convoysppl">/,
+    'both are plain lists, not collapsed toggles');
+});

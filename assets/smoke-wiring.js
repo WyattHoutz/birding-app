@@ -82,7 +82,6 @@ const cv = BL.computeChaseViews(profile, {
 
 // Compare against the golden expected projections directly.
 const expDest = load(path.join(FIX, '..', 'expected', 'destinations.json'));
-const expArr = load(path.join(FIX, '..', 'expected', 'new-arrivals.json'));
 
 function destProj(c) {
   return {
@@ -95,12 +94,6 @@ const gotDest = cv.destinations.map(destProj);
 ok(JSON.stringify(gotDest) === JSON.stringify(expDest),
   'wired destinations != golden\n  got=' + JSON.stringify(gotDest) + '\n  exp=' + JSON.stringify(expDest));
 
-const gotArr = cv.newArrivals.map(function (r) {
-  return { code: r.code, obsId: r.obsId, distMi: r.distMi, dateStr: r.dateStr };
-});
-ok(JSON.stringify(gotArr) === JSON.stringify(expArr),
-  'wired new-arrivals != golden\n  got=' + JSON.stringify(gotArr) + '\n  exp=' + JSON.stringify(expArr));
-
 // Every rendered destination is a fully-formed app render object.
 cv.destinations.map(BL.toRenderDest).forEach(function (d) {
   ok(d.locName && typeof d.lat === 'number' && typeof d.lng === 'number' &&
@@ -108,4 +101,5 @@ cv.destinations.map(BL.toRenderDest).forEach(function (d) {
 });
 
 console.log('smoke-wiring: OK (' + checks + ' checks; ' + cv.destinations.length +
-  ' destinations, ' + cv.excursions.length + ' excursions, ' + cv.newArrivals.length + ' new arrivals)');
+  ' destinations, ' + cv.excursions.length + ' excursions, ' +
+  cv.notableToday.length + ' notable today)');

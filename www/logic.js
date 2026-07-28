@@ -612,29 +612,6 @@
     return out;
   }
 
-  // ---- fresh targets (mirror report.section_new_today) ---------------------
-  // near records reported TODAY whose code is NOT in the prior-day snapshot
-  // code set; sorted (distMi, dateStr). Mirrors section_new_today: today-only
-  // records are considered first-per-code (in `near` order), then filtered to
-  // codes absent from the prior snapshot. priorCodes is a set of speciesCodes.
-  function newArrivals(nearRecords, priorCodes, snapshotDate) {
-    priorCodes = priorCodes || {};
-    var byCode = {}, order = [];
-    (nearRecords || []).forEach(function (r) {
-      if (!r.code) return;
-      if (snapshotDate && dayStr(r.dateStr) !== snapshotDate) return;
-      if (!byCode[r.code]) { byCode[r.code] = r; order.push(r.code); }
-    });
-    var fresh = order.filter(function (c) { return !priorCodes[c]; })
-      .map(function (c) { return byCode[c]; });
-    fresh.sort(function (a, b) {
-      var da = a.distMi == null ? Infinity : a.distMi, db = b.distMi == null ? Infinity : b.distMi;
-      if (da !== db) return da - db;
-      return a.dateStr < b.dateStr ? -1 : (a.dateStr > b.dateStr ? 1 : 0);
-    });
-    return fresh;
-  }
-
   // ---- time of day (mirror time_of_day.py) ---------------------------------
   // Build {code:[hour,...]} + {code:name} from observation rows, deduped by
   // (subId, speciesCode). Rows are raw eBird objs (speciesCode, subId, obsDt,
@@ -733,10 +710,12 @@
       g.stops.sort(function (a, b) { return String(a.isoObsDate).localeCompare(String(b.isoObsDate)); });
       routes.push(g);
     });
+    // Newest first, mirroring report.section_birder_convoys: date leads, then
+    // stop count and group size as tiebreakers within a day.
     routes.sort(function (a, b) {
+      if (a.day !== b.day) return a.day < b.day ? 1 : -1;
       if (b.stops.length !== a.stops.length) return b.stops.length - a.stops.length;
-      if (b.members.length !== a.members.length) return b.members.length - a.members.length;
-      return b.day.localeCompare(a.day);
+      return b.members.length - a.members.length;
     });
     return routes;
   }
@@ -767,8 +746,7 @@
   // duplicated in the app and the test harness) guarantees the app can never
   // silently diverge from the report — the parity suite drives this same code.
   //
-  // opts: { rowsToday:{file:rows[]}, rowsPrior:{file:rows[]}|null,
-  //         priorCodes:{code:1}|null, seen:{code:1}, ownName, snapshotDate,
+  // opts: { rowsToday:{file:rows[]}, seen:{code:1}, ownName, snapshotDate,
   //         home:{lat,lng}|null, dailyDriveMi }
   function computeChaseViews(profile, opts) {
     opts = opts || {};
@@ -811,17 +789,10 @@
     var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi });
     var notable = notableToday(unseenAll, snapshotDate);
 
-    var priorCodes = opts.priorCodes || null;
-    if (!priorCodes && opts.rowsPrior) {
-      priorCodes = {};
-      mergeFromFiles(profile, opts.rowsPrior).forEach(function (r) { if (r.code) priorCodes[r.code] = 1; });
-    }
-    var arrivals = newArrivals(near, priorCodes || {}, snapshotDate);
-
     return {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
       near: near, destinations: dest, excursions: exc,
-      notableToday: notable, newArrivals: arrivals
+      notableToday: notable
     };
   }
 
@@ -898,7 +869,6 @@
     destinations: destinations,
     excursions: excursions,
     notableToday: notableToday,
-    newArrivals: newArrivals,
     todBuildHours: todBuildHours,
     todProfile: todProfile,
     todSpecialists: todSpecialists,
