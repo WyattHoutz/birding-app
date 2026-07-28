@@ -870,17 +870,26 @@
       var n = Object.keys(hotObs).length;
       if (n < minObs) return;
       var baseline = Object.keys(coldObs).length / coldDays;
-      var ratio = baseline > 0 ? n / baseline : Infinity;
+      // No norm, no claim. This lane's assertion is COMPARATIVE — "busier
+      // than its own normal" — so a location with no trailing history has
+      // escaped measurement rather than cleared the bar. Treating a zero
+      // baseline as Infinity meant `Infinity < minRatio` was false and every
+      // such row passed: product/lists returns the most recent 200 checklists
+      // per county (~1.3 days in King), so the 36 h window swallows the feed
+      // and almost nothing has cold data. The lane fired for any hotspot with
+      // 5+ observers in a day and called it "new", listing Seattle's busiest
+      // parks as unprecedented under a heading that promises the opposite.
+      if (baseline <= 0) return;
+      var ratio = n / baseline;
       if (ratio < minRatio) return;
       out.push({
         locId: locId, loc: name, observers: n,
-        baseline: baseline, ratio: ratio === Infinity ? null : ratio
+        baseline: baseline, ratio: ratio
       });
     });
     out.sort(function (a, b) {
       if (b.observers !== a.observers) return b.observers - a.observers;
-      var ra = a.ratio == null ? Infinity : a.ratio, rb = b.ratio == null ? Infinity : b.ratio;
-      return rb - ra;
+      return b.ratio - a.ratio;
     });
     return out;
   }

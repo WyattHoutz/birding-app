@@ -477,3 +477,29 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
   assert.equal(out[0].locId, 'L1');
   assert.equal(out[0].observers, 8);
 });
+
+test('hotspotConvergence: no trailing history means no claim, not an infinite one', () => {
+  // The real feed is `product/lists`, which returns the most recent 200
+  // checklists per county — about 1.3 DAYS in King County. The 36 h hot
+  // window swallows nearly all of it, so almost no location has any cold
+  // data. Treating that as ratio=Infinity passed every busy park through and
+  // printed "new": Magnuson, Marymoor and Montlake Fill, three of Seattle's
+  // most heavily birded spots, were reported as unprecedented under a
+  // heading promising "an always-busy park is not news".
+  const rows = [];
+  for (let i = 0; i < 9; i++) {
+    rows.push({ locId: 'L9', locName: 'Marymoor Park', userDisplayName: 'birder' + i, subId: 'S' + i, obsDt: DAY(0, 7 + i) });
+  }
+  assert.deepEqual(BL.hotspotConvergence(rows, { now: NOW }), [],
+    'a busy day with nothing to compare it against is not an event');
+
+  // Give the same spot a real norm and it becomes measurable again — and
+  // then 9 observers against ~1/day is a genuine convergence.
+  for (let d = 2; d < 14; d++) {
+    rows.push({ locId: 'L9', locName: 'Marymoor Park', userDisplayName: 'regular', subId: 'R' + d, obsDt: DAY(d) });
+  }
+  const out = BL.hotspotConvergence(rows, { now: NOW });
+  assert.equal(out.length, 1, 'with a baseline it can fire');
+  assert.ok(out[0].ratio > 0 && isFinite(out[0].ratio),
+    'and the ratio it reports is a real number, never null or Infinity');
+});
