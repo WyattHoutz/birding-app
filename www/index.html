@@ -262,13 +262,13 @@
     .obs.xl .cklrows { font-size: calc(17px * var(--s)); }
     .obs.xl .cklrows .who { font-size: calc(16px * var(--s)); }
     .obs.xl .name .needflag, .obs.xl .name .stakeflag, .obs.xl .name .seenflag { font-size: calc(15px * var(--s)); }
-    /* Baseball cards. A rarity section holds 0-3 birds and each one is a bird
-       you have probably never seen, so the question is "what IS this and how
-       big a deal is it", not "which row do I scan next". Hence a full-bleed
-       photo, a headline name, the rarity evidence as numbers you can read at
-       arm's length, and a paragraph about the bird. */
-    .cards { list-style: none; margin: 10px 0 0; padding: 0; }
-    .cards > li { border: 1px solid var(--line); border-radius: 16px; margin: 0 0 16px;
+    /* LARGE (.cards / .card-lg) — the third of the three card templates: a
+       full-bleed photo, then the name, then the sub-header, then the evidence.
+       A rarity section holds 0-3 birds and each one is a bird you have probably
+       never seen, so the question is "what IS this and how big a deal is it",
+       not "which row do I scan next". */
+    .cards, .card-lg { list-style: none; margin: 10px 0 0; padding: 0; }
+    .cards > li, .card-lg > li { border: 1px solid var(--line); border-radius: 16px; margin: 0 0 16px;
                   overflow: hidden; background: var(--card); }
     /* Resets, not decoration: .bchero reuses .thumb for the shared photo
        hydration pipeline, and .thumb's fixed 46px height CANCELS aspect-ratio
@@ -292,6 +292,15 @@
       letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 3px; }
     .bcnow .when { font-weight: 800; color: var(--ink); }
     .bcnow .who { display: block; font-size: calc(15px * var(--s)); color: var(--muted); margin-top: 3px; }
+    /* Attribution is context, not a decision — sized below the latest report so
+       the line you act on still wins the card. */
+    .bcfirst { background: transparent; font-size: calc(15px * var(--s)); }
+    /* No prior state record is not a smaller number — it is a different kind of
+       event, so it does not render as one more grey line. */
+    .bchist { background: transparent; font-size: calc(16px * var(--s)); }
+    .bchist.mega { background: color-mix(in srgb, #c2331f 10%, transparent);
+                   border-color: color-mix(in srgb, #c2331f 45%, transparent); }
+    .bchist.mega .when { color: #c2331f; }
     /* Evidence, not prose: "how rare is this" is a number, and for a Code 3+
        bird it is often a single digit. */
     .bcstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
@@ -364,6 +373,51 @@
        so it carries its own label instead of floating unexplained. */
     .obs.xl .count.big { font-size: calc(30px * var(--s)); text-align: right; max-width: 42%; line-height: 1.1; }
     .obs.xl .count.big small { display: block; font-size: calc(13px * var(--s)); line-height: 1.2; margin-top: 2px; }
+    /* ================= THREE CARD TEMPLATES =================================
+       Every list of birds in this app is exactly one of three shapes, defined
+       once here and referenced by the sections, so a fix to a shape lands
+       everywhere at once instead of being re-tuned per section.
+
+         .card-sm  ONE row — small icon, name beside it, text box the same
+                   height as the icon. For scanning a long list when you
+                   already know what you are looking for.
+         .card-md  TWO columns — photo left; right column is the name over the
+                   details. For deciding: "which bird is this, and do I drive?"
+         .card-lg  THREE rows — full-width photo, then the name, then the
+                   sub-header. For reading about ONE bird rather than scanning.
+
+       The old per-section modifiers are kept as aliases (.obs.xl is .card-md,
+       .bcard is .card-lg) so no section had to be renamed to adopt this.
+       ======================================================================== */
+    .obs.card-sm .name { display: flex; align-items: center; gap: 10px;
+                         min-height: calc(46px * var(--s)); line-height: 1.25; }
+    .obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;
+                          width: calc(46px * var(--s)); height: calc(46px * var(--s)); }
+    .obs.card-sm .ntext { min-width: 0; overflow-wrap: anywhere; }
+    /* MEDIUM. The photo FLOATS rather than being a flex item of the name row:
+       as a flex item it pinned the details underneath the image and left the
+       name fighting the headline number for horizontal space, which is what
+       wrapped "Terek Sandpiper" onto three lines and stranded a two-line
+       detail run below a tall photo. */
+    .obs.xl li, .obs.card-md li { overflow: hidden; }
+    .obs.xl .name, .obs.card-md .name { display: block; }
+    .obs.xl .thumb, .obs.card-md .thumb { float: left; margin: 2px 14px 8px 0; }
+    /* The headline number moves onto its own line under the name for the same
+       reason: at 42% of the row it took more width than the thing it annotates. */
+    .obs.xl .count.big, .obs.card-md .count.big { float: none; display: block;
+                         max-width: none; text-align: left; margin: 6px 0 0; }
+    .obs.xl .count.big small, .obs.card-md .count.big small { display: inline; margin-left: 7px; }
+    .obs.xl .meta, .obs.card-md .meta { margin-top: 4px; }
+    /* A labelled break inside a row — "Where it is being reported" vs "Who
+       added it" — so two adjacent tables are not read as one. */
+    .lanesub { margin-top: 12px; font-size: calc(14px * var(--s)); font-weight: 800;
+               color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+    /* Three independent lanes run one after another, and the third was reading
+       as a footnote on the last bird of the second. A lane is a section, so it
+       is titled like one. */
+    .lanehead { margin: 26px 0 0; padding-top: 16px; border-top: 3px solid var(--line);
+                font-size: calc(22px * var(--s)); font-weight: 800; line-height: 1.25; }
+    .lanehead:first-child { margin-top: 6px; padding-top: 0; border-top: none; }
     /* Favorites: a saved list you MAINTAIN, so every row carries its own
        controls. Order is the whole point of a favorites list — it is the order
        you would drive them in — so it is editable rather than implied. */
@@ -373,7 +427,23 @@
     .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
     .favrow { display: flex; align-items: flex-start; gap: 8px; }
     .favrow .favmain { flex: 1 1 auto; min-width: 0; }
+    .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
+    .favspp { margin: 4px 0 6px; }
+    .favspp li { padding: 5px 0; border: none; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+    /* The ▲▼✕ column is three 40px targets tall, so an NV row is ~128px however
+       little it carries — a 46px thumb and a 16px name left two thirds of that
+       height blank. The photo grows to the full height of the controls beside
+       it and the name is sized to be recognised, not merely labelled. Favorite
+       hotspots keeps the compact row: a place has no photo and already fills
+       the height with its species line and two links. */
+    .nvrow { align-items: center; gap: 12px; min-height: calc(128px * var(--s)); }
+    .nvrow > .thumb { float: none; flex: 0 0 auto; margin: 0; border-radius: 12px;
+                      width: calc(128px * var(--s)); height: calc(128px * var(--s)); }
+    .nvrow .name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+                   font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.25; }
+    .nvrow .ntext { min-width: 0; overflow-wrap: anywhere; }
+    .nvrow .meta { font-size: calc(15px * var(--s)); margin-top: 6px; }
     /* 40px is the smallest comfortable touch target, and this app is used
        one-handed with binoculars in the other hand. */
     .favbtn { width: calc(40px * var(--s)); height: calc(40px * var(--s)); padding: 0; font-size: calc(17px * var(--s)); line-height: 1;
@@ -619,7 +689,7 @@
         <button id="lastNewBtn">Load latest ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
-      <ul id="lastNewResults" class="obs big"></ul>
+      <ul id="lastNewResults" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -807,7 +877,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.23';
+      var APP_VERSION = '1.0.24';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1197,6 +1267,8 @@
             // sits directly under the name at full size, ABOVE the evidence
             // numbers and the archive. Everything below it is context.
             (o.now ? '<div class="bcnow">' + o.now + '</div>' : '') +
+            (o.first ? '<div class="bcnow bcfirst">' + o.first + '</div>' : '') +
+            (o.hist || '') +
             (stats ? '<div class="bcstats">' + stats + '</div>' : '') +
             '<p class="bcextract" data-bird="' + esc(o.name || '') + '"></p>' +
             (o.where ? '<div class="bcwhere">' + o.where + '</div>' : '') +
@@ -1255,6 +1327,224 @@
           out.push({ n: Object.keys(regions).length, label: 'states/provinces' });
         }
         return out;
+      }
+      // Who found it. Chasing a continuing rarity carries an etiquette — and a
+      // data obligation — to credit the finder in your own checklist comments
+      // ("continuing bird, found by X on the 3rd"), and that name is otherwise
+      // buried at the bottom of a list sorted newest-first.
+      //
+      // The honest part is knowing when we may say "found by" at all. Coverage
+      // of a species starts at the earlier of the API's 30-day ceiling and the
+      // oldest record in the local archive. If the first report we hold sits
+      // strictly INSIDE that window there is a stretch of covered days carrying
+      // no report of this bird, so we watched it arrive and the first observer
+      // really is the finder. If it sits at or before the boundary the bird was
+      // already present when we started looking, and the card says exactly that
+      // rather than crediting whoever happens to be oldest in our slice.
+      function firstReport(rs, coverStart) {
+        var list = (rs || []).filter(function (r) { return r && r.obsDt; });
+        if (!list.length) return null;
+        var r = list.reduce(function (a, b) {
+          return String(b.obsDt) < String(a.obsDt) ? b : a;
+        }, list[0]);
+        return { r: r, found: !!(coverStart && String(r.obsDt).slice(0, 10) > coverStart) };
+      }
+      function coverageStart(region) {
+        var d = new Date(Date.now() - ABA_HIST_BACK * 86400000).toISOString().slice(0, 10);
+        var arc = abaArchiveSince(region);
+        return (arc && arc < d) ? arc : d;
+      }
+
+      // --- How big a deal is this, historically? (GBIF) ------------------------
+      // "Code 3+" is a continent-wide label, and it flattens the two questions a
+      // birder actually asks: has this EVER happened here, and how often? A
+      // Terek Sandpiper with no Washington record at all and a Ruff with
+      // thirty-odd years of them are both "Code 3", and only one is worth
+      // cancelling your day for.
+      //
+      // eBird's own API cannot answer it — MEASURED, not assumed: the region
+      // feed caps at `back=30` and returns HTTP 400 (`error.data.too_many_back`)
+      // for anything larger, the state-wide `historic` endpoint 500s on a state
+      // the size of Washington, and `barchartData` needs a logged-in web
+      // session and yields frequency rather than counts.
+      //
+      // GBIF publishes the whole of eBird as the "EOD - eBird Observation
+      // Dataset", keylessly and with no account. So this is still eBird's data,
+      // read from eBird's own publisher, and it goes direct from the device like
+      // every other feed here — no server, no GitHub at runtime.
+      //
+      // TWO honesty constraints, both load-bearing:
+      //   1. The snapshot STOPS short of today — as measured, at 2024. Washington
+      //      has 4.5M bird records for 2024 and zero for 2025-26, so this can
+      //      never be labelled "all time": a bird that first arrived in 2025
+      //      shows nothing at all. gbifSnapshotYear() measures that edge rather
+      //      than hard-coding it, so the card keeps telling the truth after
+      //      GBIF republishes.
+      //   2. A raw record count is one row per OBSERVER PER CHECKLIST, so one
+      //      staked-out bird that 200 people twitched reads as 200 "records".
+      //      Ruff in WA is 1,085 records but only 109 places across 36 years.
+      //      YEARS RECORDED is the number that matches how rare a bird feels,
+      //      and it is what the card leads with.
+      var GBIF_DS = '4fa7b334-ce0d-4e88-aaae-2e0c138d049e';
+      var GBIF_AVES = 212;
+      var GBIF_KEY = 'ebird_gbif_v1', _gbifMem = null;
+      var GBIF_TTL_MS = 30 * 86400 * 1000;
+      var GBIF_EDGE_TTL_MS = 7 * 86400 * 1000;
+      function gbifCache() {
+        if (_gbifMem) return _gbifMem;
+        try { _gbifMem = JSON.parse(localStorage.getItem(GBIF_KEY) || '{}') || {}; }
+        catch (e) { _gbifMem = {}; }
+        return _gbifMem;
+      }
+      function saveGbifCache() {
+        try { localStorage.setItem(GBIF_KEY, JSON.stringify(gbifCache())); } catch (e) {}
+      }
+      function gbifJson(url) {
+        dbg('net', 'GET(gbif) ' + url);
+        return fetch(url, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; });
+      }
+      function facetCounts(j, name) {
+        var f = (j && j.facets) || [];
+        for (var i = 0; i < f.length; i++) if (f[i].field === String(name).toUpperCase()) return f[i].counts || [];
+        return [];
+      }
+      // Common names do NOT match in GBIF's backbone taxonomy - "White Wagtail"
+      // resolves to nothing - so the scientific name is required, not preferred.
+      function gbifHistory(sci, stateName, country) {
+        var t = String(sci || '').trim();
+        if (!t || !stateName) return Promise.resolve(null);
+        var ck = t + '|' + stateName;
+        var c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson('https://api.gbif.org/v1/species/match?name=' + encodeURIComponent(t))
+          .then(function (m) {
+            var k = m && m.usageKey;
+            if (!k) return null;
+            var base = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS +
+              '&taxonKey=' + k + '&country=' + encodeURIComponent(country || 'US');
+            // One faceted request carries every per-state number, so a card
+            // costs three calls total however many facets it prints.
+            return Promise.all([
+              gbifJson(base + '&stateProvince=' + encodeURIComponent(stateName) +
+                '&limit=0&facet=year&facetLimit=200'),
+              gbifJson(base + '&limit=0&facet=stateProvince&facetLimit=100')
+            ]).then(function (r) {
+              var st = r[0], wide = r[1];
+              if (!st) return null;
+              var yrs = facetCounts(st, 'year').map(function (x) { return +x.name; })
+                .filter(function (n) { return n > 0; }).sort();
+              var ws = wide ? facetCounts(wide, 'stateProvince') : [];
+              return {
+                records: st.count || 0,
+                years: yrs.length,
+                first: yrs.length ? yrs[0] : null,
+                last: yrs.length ? yrs[yrs.length - 1] : null,
+                wide: wide ? (wide.count || 0) : null,
+                states: ws.length || null,
+                topState: ws.length ? ws[0].name : '',
+                topPct: (ws.length && wide.count) ? Math.round(100 * ws[0].count / wide.count) : null
+              };
+            });
+          })
+          .then(function (v) {
+            var cc = gbifCache();
+            cc[ck] = { at: Date.now(), v: v };
+            saveGbifCache();
+            return v;
+          });
+      }
+      // The snapshot's last year, measured rather than hard-coded. Without it a
+      // card reading "1,085 records, 1972–2023" implies the bird stopped
+      // appearing in 2023, when the truth may be that the DATA stops. Asking
+      // Aves-in-this-state for its year facet costs one keyless call per region
+      // per week and turns that ambiguity into a stated window.
+      function gbifSnapshotYear(stateName, country) {
+        if (!stateName) return Promise.resolve(null);
+        var ck = 'edge|' + stateName, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_EDGE_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson('https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS +
+          '&taxonKey=' + GBIF_AVES + '&country=' + encodeURIComponent(country || 'US') +
+          '&stateProvince=' + encodeURIComponent(stateName) + '&limit=0&facet=year&facetLimit=200')
+          .then(function (j) {
+            var yrs = facetCounts(j, 'year').map(function (x) { return +x.name; })
+              .filter(function (n) { return n > 1700 && n < 2200; });
+            var v = yrs.length ? Math.max.apply(null, yrs) : null;
+            var cc = gbifCache();
+            cc[ck] = { at: Date.now(), v: v };
+            saveGbifCache();
+            return v;
+          })
+          .catch(function () { return null; });
+      }
+      function histLine(h, stateName) {
+        if (!h) return '';
+        // "898 US records" reads as reassuringly common until you notice 69% of
+        // them are Alaska, where the bird is near-annual. The ABA code is a
+        // CONTINENTAL rating, so a species that is expected in one state still
+        // appears on the alert everywhere — naming the state that holds most of
+        // the records is what stops the national number misleading.
+        var nat = h.wide == null ? '' : '<span class="who">' + fmtInt(h.wide) + ' records in the USA' +
+          (h.states ? ' across ' + h.states + ' state' + (h.states === 1 ? '' : 's') : '') +
+          (h.topState ? ' · most in ' + esc(h.topState) +
+            (h.topPct != null ? ' (' + h.topPct + '%)' : '') : '') +
+          ' · data from GBIF (eBird Observation Dataset)</span>';
+        // The zero is the most useful thing this lookup produces: a bird with no
+        // prior state record is a different category of event from one with
+        // thirty years of them, and nothing else on the card separates them.
+        if (!h.years) {
+          return '<span class="lbl">State records · via GBIF</span>' +
+            '<span class="when">No ' + esc(stateName) + ' record</span> on file' + nat;
+        }
+        return '<span class="lbl">State records · via GBIF</span>' +
+          '<span class="when">' + fmtInt(h.records) + ' record' + (h.records === 1 ? '' : 's') +
+          ' in ' + esc(stateName) + '</span>' +
+          (h.first ? ', ' + h.first + '–' + h.last : '') +
+          ' · ' + h.years + ' year' + (h.years === 1 ? '' : 's') + ' with records' +
+          // A last-record year that IS the snapshot edge means "still current as
+          // far as this data goes"; one that falls short of it means the bird
+          // really was absent for those years. Same two numbers, opposite
+          // meanings, so the window is stated rather than left to be inferred.
+          (h.edge ? '<span class="who">Searched ' + h.edge + ' and earlier — the eBird ' +
+            'snapshot GBIF publishes ends there, so anything since is not counted.</span>' : '') +
+          nat;
+      }
+      function fmtInt(n) { return String(n == null ? '' : n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      // Filled after the cards paint, like the Wikipedia blurbs: history is
+      // context, and it must never delay the reports you drive on.
+      function hydrateHistory(root) {
+        if (!root || !root.querySelectorAll) return;
+        var slots = root.querySelectorAll('.bchist[data-sci]:not([data-q])');
+        var list = [];
+        for (var i = 0; i < slots.length; i++) { slots[i].setAttribute('data-q', '1'); list.push(slots[i]); }
+        list.reduce(function (p, el) {
+          return p.then(function () {
+            var st = el.getAttribute('data-state') || '';
+            return Promise.all([
+              gbifHistory(el.getAttribute('data-sci'), st, el.getAttribute('data-country') || 'US'),
+              gbifSnapshotYear(st, el.getAttribute('data-country') || 'US')
+            ])
+              .then(function (r) {
+                var h = r[0];
+                if (h && r[1]) h.edge = r[1];
+                var s = histLine(h, st);
+                if (!s) { el.style.display = 'none'; return; }
+                el.innerHTML = s;
+                if (h && !h.years) el.classList.add('mega');
+              }).catch(function () { el.style.display = 'none'; });
+          });
+        }, Promise.resolve());
+      }
+      // eBird ships sciName on every observation record, and the ABA card
+      // already holds the species-scoped state feed, so the name is there for
+      // free. The scraped alert carries only a common name — when that is all
+      // there is, the block is SKIPPED rather than paying an extra eBird call
+      // for it. GBIF cannot match a common name, so a lookup without a
+      // scientific name would be a wasted request anyway.
+      function sciFor(rs) {
+        for (var i = 0; i < (rs || []).length; i++) if (rs[i].sciName) return rs[i].sciName;
+        return '';
       }
 
       // --- ABA state history --------------------------------------------------
@@ -1873,11 +2163,36 @@
       //     never fires 200 requests on open.
       var ICON_DIR = 'assets/birds/', ICON_EXTS = ['.jpg', '.png'];
       var ICON_FALLBACK = 'fallback.svg';
-      var PHOTO_KEY = 'ebird_photos_v1', _photoMem = null, _photoQueue = [], _photoBusy = false;
+      // v2: a device upgraded from an earlier build can hold a permanent ''
+      // for a bird whose lookup has since been fixed — "Ruff" cached a miss
+      // before photoNames() learned to try "Ruff (bird)", and the card was
+      // stuck on the blurry 60px seed forever. Versioning drops those.
+      var PHOTO_KEY = 'ebird_photos_v2', _photoMem = null, _photoQueue = [], _photoBusy = false;
+      // Negatives expire; positives do not. A bird with no Wikipedia article
+      // today may have one next year, and a permanent '' is the one cache entry
+      // that can never correct itself.
+      var PHOTO_NEG_KEY = 'ebird_photos_neg_v1', PHOTO_NEG_TTL_MS = 30 * 86400 * 1000, _photoNegMem = null;
       function photoCache() {
         if (_photoMem) return _photoMem;
         try { _photoMem = JSON.parse(localStorage.getItem(PHOTO_KEY) || '{}'); } catch (e) { _photoMem = {}; }
         return _photoMem;
+      }
+      function photoNeg() {
+        if (_photoNegMem) return _photoNegMem;
+        try { _photoNegMem = JSON.parse(localStorage.getItem(PHOTO_NEG_KEY) || '{}') || {}; }
+        catch (e) { _photoNegMem = {}; }
+        return _photoNegMem;
+      }
+      // True when a cached miss is still worth trusting. An unrecorded miss is
+      // treated as stale so entries written before this existed get one retry.
+      function negFresh(name) {
+        var t = photoNeg()[name];
+        return !!t && (Date.now() - t) < PHOTO_NEG_TTL_MS;
+      }
+      function markNeg(name, miss) {
+        var n = photoNeg();
+        if (miss) n[name] = Date.now(); else delete n[name];
+        try { localStorage.setItem(PHOTO_NEG_KEY, JSON.stringify(n)); } catch (e) {}
       }
 
       // Byte cache. Every operation resolves rather than rejects — a device
@@ -1972,7 +2287,7 @@
           })
           .catch(function () { return null; });
       }
-      var INFO_KEY = 'ebird_birdinfo_v1', _infoMem = null;
+      var INFO_KEY = 'ebird_birdinfo_v2', _infoMem = null;
       function infoCache() {
         if (_infoMem) return _infoMem;
         try { _infoMem = JSON.parse(localStorage.getItem(INFO_KEY) || '{}'); }
@@ -1982,6 +2297,17 @@
       function saveInfoCache() {
         try { localStorage.setItem(INFO_KEY, JSON.stringify(infoCache())); } catch (e) {}
       }
+      // Validated on READ, not just on write. The disambiguation check above
+      // stops a bad blurb being STORED, but "Ruff may refer to:" was already on
+      // devices by the time it shipped, and a cache is read before it is
+      // written — so a fix that only guards the write path never reaches the
+      // installs that have the bug. Checking here makes the class of failure
+      // impossible regardless of how the value got in.
+      function usableInfo(v) {
+        if (!v || !v.extract) return null;
+        if (/\bmay refer to\b|\bmay stand for\b/i.test(String(v.extract))) return null;
+        return v;
+      }
       // Resolves to the encyclopedia blurb for a bird, trying the same
       // progressively broader names photoNames() uses so a subspecific eBird
       // name still lands on the species article.
@@ -1989,7 +2315,12 @@
         var cands = photoNames(name), c = infoCache();
         for (var i = 0; i < cands.length; i++) {
           if (Object.prototype.hasOwnProperty.call(c, cands[i])) {
-            return Promise.resolve(c[cands[i]]);
+            var hit = usableInfo(c[cands[i]]);
+            // A poisoned entry is deleted rather than skipped, so the next
+            // render re-asks instead of walking past it forever.
+            if (hit) return Promise.resolve(hit);
+            delete c[cands[i]];
+            saveInfoCache();
           }
         }
         if (!cands.length) return Promise.resolve(null);
@@ -1997,7 +2328,7 @@
           return p.then(function (got) {
             if (got) return got;
             return summaryFetch(title).then(function (j) {
-              return (j && j.extract) ? { extract: String(j.extract), title: String(j.title || title) } : null;
+              return usableInfo(j && j.extract ? { extract: String(j.extract), title: String(j.title || title) } : null);
             });
           });
         }, Promise.resolve(null));
@@ -2013,19 +2344,20 @@
         var t = String(name || '').trim();
         if (!t) return Promise.resolve('');
         var c = photoCache();
-        if (Object.prototype.hasOwnProperty.call(c, t)) return Promise.resolve(c[t] || '');
+        if (Object.prototype.hasOwnProperty.call(c, t) && (c[t] || negFresh(t))) return Promise.resolve(c[t] || '');
         var cands = photoNames(t);
         return cands.reduce(function (p, title) {
           return p.then(function (src) {
             if (src) return src;
-            if (title !== t && Object.prototype.hasOwnProperty.call(c, title)) return c[title] || '';
+            if (title !== t && Object.prototype.hasOwnProperty.call(c, title) && (c[title] || negFresh(title))) return c[title] || '';
             return photoFetch(title).then(function (s) {
-              if (title !== t) c[title] = s;
+              if (title !== t) { c[title] = s; markNeg(title, !s); }
               return s;
             });
           });
         }, Promise.resolve('')).then(function (src) {
           c[t] = src;
+          markNeg(t, !src);
           try { localStorage.setItem(PHOTO_KEY, JSON.stringify(c)); } catch (e) {}
           return src;
         });
@@ -2193,6 +2525,107 @@
         return '<a class="favlink" data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') +
           '" data-lat="' + esc(o.lat) + '" data-lng="' + esc(o.lng) + '">' + (isFav(favId(o)) ? '★ Saved' : '☆ Save') + '</a>';
       }
+      // The report's favorites section does not list what is AT a hotspot — it
+      // lists what is worth driving for: rarities (⭐), watchlist verifications
+      // (🔍) and species not on your year list. Common birds you have already
+      // seen are dropped on purpose, because a hotspot's own species list tells
+      // you nothing about whether to go today. The app showed only a name and a
+      // tap-to-load dump of every species including the ones you've seen, which
+      // is the opposite filter.
+      var FAV_BACK_DAYS = 7, FAV_ROWS = 12;
+      function favInteresting(obs, rarityCodes) {
+        var byCode = {}, nv = watchCodes(), n = 0;
+        var own = String(getDisplayName() || '').trim().toLowerCase();
+        (obs || []).forEach(function (o) {
+          var code = o.speciesCode;
+          if (!code) return;
+          // Your own checklists are not news at a spot you already visit.
+          if (own && String(o.userDisplayName || '').trim().toLowerCase() === own) return;
+          var ex = byCode[code];
+          if (!ex || (o.obsDt || '') > (ex.obsDt || '')) byCode[code] = o;
+        });
+        var scored = [];
+        for (var code in byCode) {
+          if (!Object.prototype.hasOwnProperty.call(byCode, code)) continue;
+          n++;
+          var o = byCode[code], lc = String(code).toLowerCase();
+          var isRare = !!(rarityCodes && rarityCodes[lc]);
+          var isWatch = !!nv[lc];
+          var isUnseen = !isSpeciesSeen(code, o.comName);
+          if (!isRare && !isWatch && !isUnseen) continue;
+          scored.push({ tier: isRare ? 0 : (isWatch ? 1 : 2), o: o, code: code,
+                        rare: isRare, watch: isWatch });
+        }
+        scored.sort(function (a, b) {
+          return a.tier - b.tier || String(b.o.obsDt || '').localeCompare(String(a.o.obsDt || ''));
+        });
+        return { rows: scored, species: n };
+      }
+      function favDetailHtml(f, obs, rarityCodes) {
+        var res = favInteresting(obs, rarityCodes);
+        var fresh = 0, cut = Date.now() - 24 * 3600 * 1000;
+        (obs || []).forEach(function (o) {
+          var t = Date.parse(String(o.obsDt || '').replace(' ', 'T'));
+          if (t && t >= cut) fresh++;
+        });
+        var head = '<div class="favmeta">' + res.species + ' species in ' + FAV_BACK_DAYS + 'd' +
+          ' · ' + (fresh ? '<b>' + fresh + ' report' + (fresh === 1 ? '' : 's') + ' in last 24h</b>'
+                         : 'no reports in last 24h') + '</div>';
+        if (!res.rows.length) {
+          return head + '<div class="favmeta">No rarities, watchlist hits, or ' +
+            'unseen-this-year species in the last week.</div>';
+        }
+        var out = head + '<ul class="obs card-sm favspp">';
+        res.rows.slice(0, FAV_ROWS).forEach(function (r) {
+          var o = r.o, tag = r.rare ? ' ⭐' : (r.watch ? ' 🔍' : '');
+          var name = o.comName || r.code;
+          out += '<li><div class="name">' + photoSlot(name, r.code) + '<span class="ntext">' +
+            (r.code ? '<a href="' + esc(speciesUrl(r.code)) + '" target="_blank" rel="noopener">' + esc(name) + '</a>' : esc(name)) +
+            tag + (o.howMany ? ' (' + esc(o.howMany) + ')' : '') +
+            ' <span class="dim">— ' + esc(fmtDateTime(o.obsDt)) +
+            (o.subId ? ' · <a href="https://ebird.org/checklist/' + esc(o.subId) + '" target="_blank" rel="noopener">' + esc(o.subId) + '</a>' : '') +
+            '</span></span></div></li>';
+        });
+        out += '</ul>';
+        if (res.rows.length > FAV_ROWS) {
+          out += '<div class="favmeta">…and ' + (res.rows.length - FAV_ROWS) + ' more.</div>';
+        }
+        return out;
+      }
+      // Detail is cached by hotspot, not by row, so reordering or deleting a
+      // favorite repaints instantly instead of refetching every spot.
+      var _favDetail = {};
+      function loadFavDetail(f, box, rarityCodes, force) {
+        if (!box) return Promise.resolve();
+        if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div>'; return Promise.resolve(); }
+        var hit = _favDetail[f.locId];
+        if (hit && !force && (Date.now() - hit.t) < 600000) { box.innerHTML = hit.html; hydratePhotos(box); return Promise.resolve(); }
+        box.innerHTML = '<div class="favmeta">Loading recent reports…</div>';
+        return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS)
+          .then(function (obs) {
+            var html = favDetailHtml(f, obs, rarityCodes);
+            _favDetail[f.locId] = { t: Date.now(), html: html };
+            if (box.isConnected !== false) { box.innerHTML = html; hydratePhotos(box); }
+          })
+          .catch(function (e) {
+            if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div>';
+          });
+      }
+      // One call per hotspot against the same throttled key every other section
+      // shares, so this runs serially and only when the section is opened —
+      // never on a reorder, which is a repaint, not new information.
+      function loadFavs() {
+        renderFavs();
+        if (!getKey()) return Promise.resolve();
+        var el = $('favResults');
+        if (!el) return Promise.resolve();
+        var favs = getFavs(), rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
+        var chain = Promise.resolve();
+        favs.forEach(function (f, i) {
+          chain = chain.then(function () { return loadFavDetail(f, boxes[i], rc); });
+        });
+        return chain;
+      }
       function renderFavs() {
         var favs = getFavs(), el = $('favResults'), st = $('favStatus');
         if (!el) return;
@@ -2202,16 +2635,22 @@
           return;
         }
         st.textContent = favs.length + ' saved hotspot' + (favs.length === 1 ? '' : 's') +
-          ' · in your order, first to last.';
+          ' · in your order, first to last. Showing last ' + FAV_BACK_DAYS +
+          '-day reports there: rarities (⭐), watchlist verifications (🔍), and species ' +
+          "you haven't logged this year — common birds you've already seen are skipped.";
+        var home = getHome();
         favs.forEach(function (f, i) {
           var li = document.createElement('li');
+          var d = (home && f.lat != null && f.lng != null)
+            ? haversineMi(home.lat, home.lng, +f.lat, +f.lng) : null;
           li.innerHTML =
             '<div class="favrow"><div class="favmain">' +
               '<div><span class="favrank">' + (i + 1) + '</span>' +
-              locLink(f.locName || f.id, f.locId, f.lat, f.lng) + '</div>' +
-              '<div class="sp recentbox"></div>' +
+              locLink(f.locName || f.id, f.lat, f.lng, f.locId) +
+              (d == null ? '' : ' <span class="dim">— ' + d.toFixed(1) + ' mi</span>') + '</div>' +
+              '<div class="recentbox"></div>' +
               '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">Open in Maps ↗</a>' +
-              (f.locId ? ' &nbsp; <a class="recentlink" data-locid="' + esc(f.locId) + '">Recent sightings ↧</a>' : '') +
+              (f.locId ? ' &nbsp; <a class="recentlink" data-i="' + i + '">Refresh ↻</a>' : '') +
             '</div><div class="favctl">' +
               '<button class="favbtn favup" data-i="' + i + '" aria-label="Move ' +
                 esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
@@ -2222,6 +2661,28 @@
             '</div></div>';
           el.appendChild(li);
         });
+        // Repaint any detail already in hand so a reorder does not blank the
+        // rows it moved.
+        var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
+        favs.forEach(function (f, i) {
+          var hit = f.locId && _favDetail[f.locId];
+          if (hit && boxes[i]) { boxes[i].innerHTML = hit.html; hydratePhotos(boxes[i]); }
+        });
+      }
+      // Reuses the merged snapshot the chase sections already fetched for this
+      // region — no favorites-specific notable call. A record is a rarity when
+      // it arrived on the notable feed, which is exactly how the report's
+      // rarity_codes set is built.
+      function favRarityCodes() {
+        var out = {};
+        try {
+          var c = _chase[getReport().slug];
+          var merged = (c && c.cv && c.cv.merged) || [];
+          merged.forEach(function (r) {
+            if (r && r.kind === 'Rarity' && r.code) out[String(r.code).toLowerCase()] = 1;
+          });
+        } catch (e) {}
+        return out;
       }
       // Order is stored, so a swap is the whole operation. Guarded at both ends
       // rather than relying on the disabled attribute alone — a stale index from
@@ -2526,8 +2987,9 @@
           if (r) withRec++;
           var li = document.createElement('li');
           li.innerHTML =
-            '<div class="favrow"><div class="favmain">' +
-              '<div class="name">' + photoSlot(e.name || e.code, e.code) +
+            '<div class="favrow nvrow">' + photoSlot(e.name || e.code, e.code) +
+            '<div class="favmain">' +
+              '<div class="name">' +
                 '<span class="favrank">' + (i + 1) + '</span>' +
                 '<span class="ntext">' + speciesLink(e.name || e.code, e.code) + '</span></div>' +
               (r
@@ -4053,6 +4515,20 @@
           var head = '<div class="name">' + photoSlot(sp, info.code || '') +
             speciesLink(sp, info.code || '') + needTag(info.code || '', sp) +
             ' <span class="rank">×' + g.birders.length + '</span></div>';
+          // How far you would have to drive is half the decision, and the
+          // section had every coordinate it needed to answer it. Measured to
+          // the CLOSEST recent report, not the newest, because the nearest one
+          // is the one you would actually go to.
+          var home = getHome(), near = null;
+          if (home) {
+            (info.obs || []).forEach(function (o) {
+              if (!isFinite(o.lat) || !isFinite(o.lng)) return;
+              var d = haversineMi(home.lat, home.lng, +o.lat, +o.lng);
+              if (near == null || d < near) near = d;
+            });
+          }
+          var dist = near == null ? ''
+            : '<span class="count big">' + near.toFixed(1) + ' mi<small>to the closest report</small></span>';
           var meta = '<div class="meta">newest tick ' + esc(fmtDate(g.latest)) + ' · ' + who + '</div>';
           var obs = (info.obs || []).slice().sort(function (a, b) {
             return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
@@ -4093,7 +4569,7 @@
               + (uniq.length > nShow ? '<em>…and ' + (uniq.length - nShow) + ' more</em>' : '')
               + '</div>';
           }
-          li.innerHTML = head + meta + ck;
+          li.innerHTML = head + dist + meta + ck;
           out.appendChild(li);
         });
         hydratePhotos(out);
@@ -4177,6 +4653,11 @@
             (byCode[o.speciesCode] = byCode[o.speciesCode] || []).push(o);
           });
           var region = getRegion();
+          // GBIF filters on eBird's own text field, which is the state NAME,
+          // not the US-WA code. Verified better than GBIF's spatial join
+          // (gadmGid), which silently drops records with imprecise coordinates.
+          var stateName = getReport().label || '';
+          var gbifCountry = String(region).split('-')[0] || 'US';
           // Merge what the alert holds into the archive BEFORE rendering, so a
           // card always reflects everything this device has ever seen.
           abaArchiveAdd(region, list);
@@ -4210,11 +4691,11 @@
             var more = g.rs.length > ABA_CARD_REPORTS
               ? '<div class="dim">…and ' + (g.rs.length - ABA_CARD_REPORTS) + ' more</div>' : '';
             var since = abaArchiveSince(region);
+            var fr = firstReport(g.rs, coverageStart(region));
             var stats = rarityStats(g.rs, 'reports in ' + (getReport().label || 'this region'),
                                     wideByCode[g.code] || []);
-            el.appendChild(birdCard({
-              code: g.code, name: o.comName,
-              badges: needTag(g.code, o.comName),
+            var card = birdCard({
+              code: g.code, name: o.comName,              badges: needTag(g.code, o.comName),
               sub: 'ABA Code 3+' + (since ? ' · state history since ' + esc(since) : ''),
               // The one line you act on: where the bird was last seen, when, and
               // by whom, at a size you can read while holding a steering wheel.
@@ -4224,10 +4705,35 @@
                 (o.howMany != null && o.howMany !== '' ? ' · ×' + esc(o.howMany) : '') +
                 (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') +
                 (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : ''),
+              // Credit for the find, and the checklist to cite it from.
+              first: fr && fr.r !== o ? '<span class="lbl">' +
+                (fr.found ? 'Found by' : 'Earliest report we hold') + '</span>' +
+                (fr.found && fr.r.userDisplayName
+                  ? '<span class="when">' + esc(fr.r.userDisplayName) + '</span> · ' +
+                    esc(fmtDateTime(fr.r.obsDt))
+                  : '<span class="when">' + esc(fmtDateTime(fr.r.obsDt)) + '</span>' +
+                    (fr.r.userDisplayName ? ' · ' + esc(fr.r.userDisplayName) : '')) +
+                ' · ' + locLink(fr.r.locName || '', fr.r.lat, fr.r.lng, '', true) +
+                (fr.r.subId ? ' · ' + checklistLink(fr.r.subId, fr.r.subId) : '') +
+                '<span class="who">' + (fr.found
+                  ? 'Credit the finder when you log it'
+                  : 'Already present when our records start — the true finder is earlier') +
+                '</span>' : '',
               stats: stats,
+              hist: '<div class="bcnow bchist" data-code="' + esc(g.code) +
+                '" data-state="' + esc(stateName) + '" data-country="' + esc(gbifCountry) + '"></div>',
               where: '<span class="lbl">Every report</span><ul class="cklrows">' + lines + '</ul>' + more
-            }));
+            });
+            el.appendChild(card);
+            // GBIF matches on scientific name only, so the slot stays inert
+            // unless one is already in hand — no lookup is worth an extra call.
+            var sci = sciFor(g.rs), slot = card.querySelector('.bchist');
+            if (slot) {
+              if (sci) { slot.setAttribute('data-sci', sci); }
+              else { slot.style.display = 'none'; }
+            }
           });
+          hydrateHistory(el);
           hydrateCards(el);
         } else {
           list.slice().sort(function (a, b) {
@@ -5315,6 +5821,7 @@
       // Enough names to see the shape of the cascade without turning one row
       // into a page; the remainder is stated as a count.
       var CASCADE_BIRDERS = 8;
+      var CASCADE_SPOTS = 3;
 
       function renderSurge(events, cascades, convergence) {
         var box = $('surgeResults');
@@ -5328,18 +5835,19 @@
         }
         var html = '';
         if (events.length) {
-          html += '<div class="status"><b>🐦 ' + events.length + ' species drawing a crowd</b> — distinct observers '
+          html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd</h3>';
+          html += '<div class="status">Distinct observers '
             + 'at one spot in the last ' + BL.SURGE.WINDOW_H + ' hours, against what that species normally draws there. '
             + '🆕 = nothing reported in the trailing two weeks.</div>';
-          html += '<ul class="obs big xl">' + events.map(function (e) {
+          html += '<ul class="obs big xl lanes">' + events.map(function (e) {
             // "new" rather than "∞×": with no baseline there is no ratio, and
             // printing one invents precision the data does not have.
             var vs = e.ratio == null ? 'new here' : Math.round(e.ratio) + '× normal';
             return '<li>'
-              + '<span class="count big">' + e.observers + '<small>birders</small></span>'
               + '<div class="name">' + photoSlot(e.name, e.code) + '<span class="ntext">' + speciesLink(e.name, e.code)
               + (e.seen ? ' <span class="dim">✅</span>' : ' 🔍')
               + (e.novel ? ' 🆕' : '') + '</span></div>'
+              + '<span class="count big">' + e.observers + '<small>birders</small></span>'
               + '<div class="meta">' + e.observers + ' birder' + (e.observers === 1 ? '' : 's')
               + (e.checklists > e.observers ? ' · ' + e.checklists + ' lists' : '')
               + ' · ' + esc(vs)
@@ -5357,10 +5865,12 @@
           }).join('') + '</ul>';
         }
         if (cascades.length) {
-          html += '<div class="status"><b>🏆 ' + cascades.length + ' species cascading through the leaderboard</b> — '
-            + 'several of the top 100 added the same bird within days. This lane sees the whole region, including '
-            + 'counties your feeds never cover, but the board caches daily so it can lag a day.</div>';
-          html += '<ul class="obs big xl">' + cascades.map(function (c) {
+          html += '<h3 class="lanehead">🏆 ' + cascades.length + ' species cascading through the leaderboard</h3>';
+          html += '<div class="status">Several of the top 100 added the same bird within days. This lane sees the whole '
+            + 'region, including counties your feeds never cover, but the board caches daily so it can lag a day. '
+            + 'The board names the bird and the date and nothing else, so the reports below come from a '
+            + 'species-scoped state feed — that is where to actually go.</div>';
+          html += '<ul class="obs big xl lanes">' + cascades.map(function (c) {
             // A dot-separated paragraph of names and parenthesised ranks was
             // unreadable at a glance. One birder per row, rank first, reads the
             // same way every other list in the app does.
@@ -5370,27 +5880,49 @@
             }).join('');
             var more = c.birders.length > CASCADE_BIRDERS
               ? '<div class="dim">…and ' + (c.birders.length - CASCADE_BIRDERS) + ' more of the top 100</div>' : '';
-            // The board prints a NAME, never a code; photoSlot's network tier
-            // resolves by name, so the row still gets its bird.
+            // A leaderboard row on its own is not actionable: it says a bird is
+            // gettable but never says where. These are the real reports behind
+            // it, so the row ends in somewhere to drive and a list to cite.
+            var spots = (c.recent || []).slice(0, CASCADE_SPOTS).map(function (r) {
+              return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>'
+                + '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>'
+                + '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, r.locId)
+                + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>';
+            }).join('');
             return '<li>'
-              + '<span class="count big">' + c.birders.length + '<small>top-100 birders</small></span>'
+              // The board prints a NAME, never a code; photoSlot's network tier
+              // resolves by name, so the row still gets its bird.
               + '<div class="name">' + photoSlot(c.species, c.code || '')
-              + '<span class="ntext">' + esc(c.species) + '</span></div>'
+              + '<span class="ntext">' + (c.code ? speciesLink(c.species, c.code) : esc(c.species)) + '</span></div>'
+              + '<span class="count big">' + c.birders.length + '<small>top-100 birders</small></span>'
               + '<div class="meta">' + c.birders.length + ' of the top 100 added it · latest ' + esc(c.latest) + '</div>'
-              + '<ul class="cklrows">' + who + '</ul>' + more + '</li>';
+              + (spots
+                ? '<div class="lanesub">Where it is being reported</div><ul class="cklrows">' + spots + '</ul>'
+                  + ((c.recent || []).length > CASCADE_SPOTS
+                    ? '<div class="dim">…and ' + (c.recent.length - CASCADE_SPOTS) + ' more reports</div>' : '')
+                : '<div class="lanesub">' + (c.code
+                    ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
+                    : 'Could not resolve this name to an eBird species code, so there is nowhere to link to.') + '</div>')
+              + (c.code ? '<div>' + extA(speciesUrl(c.code), 'All recent ' + esc(c.species)
+                  + ' reports in ' + esc(getReport().label || 'this region') + ' ↗') + '</div>' : '')
+              + '<div class="lanesub">Who added it</div><ul class="cklrows">' + who + '</ul>' + more + '</li>';
           }).join('') + '</ul>';
         }
         if (convergence.length) {
-          html += '<div class="status"><b>📍 ' + convergence.length + ' hotspot'
-            + (convergence.length === 1 ? '' : 's') + ' unusually busy</b> — species-blind, so this fires even when '
-            + 'the bird everyone is looking at was never flagged notable. Compared against each spot\u2019s own norm: '
-            + 'an always-busy park is not news.</div>';
-          html += '<ul class="obs big xl">' + convergence.map(function (c) {
+          html += '<h3 class="lanehead">📍 ' + convergence.length + ' hotspot'
+            + (convergence.length === 1 ? '' : 's') + ' unusually busy</h3>';
+          html += '<div class="status">These are places, not birds — the lane is <b>species-blind</b>, so it fires even '
+            + 'when the bird everyone is looking at was never flagged notable. That is the one signal the two lanes '
+            + 'above cannot produce: a locally common bird draws no rarity alert however big the crowd gets. '
+            + 'Each spot is measured against <b>its own</b> trailing norm, so an always-busy park is not news — a quiet '
+            + 'one suddenly filling up is. The feed carries no coordinates, so these link the hotspot page rather than '
+            + 'pretending they can drop a pin.</div>';
+          html += '<ul class="obs big xl lanes">' + convergence.map(function (c) {
             var vs = c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal';
             return '<li>'
-              + '<span class="count big">' + c.observers + '<small>birders</small></span>'
               + '<div class="name"><span class="ntext">'
               + (c.locId ? extA(hotspotUrl(c.locId), c.loc || c.locId) : esc(c.loc || '')) + '</span></div>'
+              + '<span class="count big">' + c.observers + '<small>birders</small></span>'
               + '<div class="meta">' + c.observers + ' birders · ' + esc(vs) + '</div>'
               + (c.locId
                 ? '<ul class="cklrows"><li><span class="when">Checklists</span><span class="howmany"></span>'
@@ -5414,13 +5946,19 @@
         var now = Date.now();
         // Each lane resolves to [] on failure rather than rejecting: a dead
         // leaderboard must not hide an active surge in the observation feed.
+        var _merged = [];
         var pEvents = getChase().then(function (res) {
           if (!res.cv) return [];
+          _merged = res.cv.merged || [];
           return BL.surgeEvents(res.cv.merged, { now: now, seen: getReportSeen() });
         }).catch(function () { return []; });
         var rr = rankPrimaryRegion();
-        var pCascades = fetchRank(rr, new Date().getFullYear(), getDisplayName())
-          .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
+        var pCascades = Promise.all([
+          fetchRank(rr, new Date().getFullYear(), getDisplayName())
+            .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
+            .catch(function () { return []; }),
+          pEvents
+        ]).then(function (r) { return cascadeSpots(r[0], _merged); })
           .catch(function () { return []; });
         var pConverge = !hasCounties() ? Promise.resolve([])
           : Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
@@ -5452,8 +5990,45 @@
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
-      // The board's "recent" column, parsed the same way report._LAST_NEW_RE
-      // does. Supplied to tickCascades rather than baked into it because both
+      // The leaderboard says a bird is gettable and never says where — it
+      // carries a species name, a date, and nothing else. That makes the lane
+      // the only one in this section you could not act on.
+      //
+      // Codes are resolved from the merged observations this section ALREADY
+      // fetched for the surge lane, so name→code costs nothing. The region
+      // species index would also answer it, but it is a spplist call plus a
+      // taxonomy chunk per 100 species, and this lane does not justify that.
+      // A bird that appears in no local feed simply keeps no code and says so —
+      // seeing counties our feeds never cover is this lane's whole purpose, so
+      // that outcome is expected rather than a failure.
+      //
+      // Each resolved species then costs ONE species-scoped state feed, which
+      // is not collapsed to one observation per species and so turns a name
+      // into somewhere to stand. The lane typically holds 2-3 species.
+      function cascadeSpots(cascades, merged) {
+        var list = cascades || [];
+        if (!list.length) return Promise.resolve(list);
+        var byName = {};
+        (merged || []).forEach(function (r) {
+          if (r && r.comName && r.speciesCode) byName[String(r.comName).toLowerCase()] = r.speciesCode;
+        });
+        list.forEach(function (c) {
+          if (!c.code) c.code = byName[String(c.species || '').toLowerCase()] || '';
+        });
+        var known = list.filter(function (c) { return c.code; });
+        if (!known.length) return Promise.resolve(list);
+        var region = getRegion();
+        return pool(known, 2, function (c) {
+          return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
+              encodeURIComponent(c.code) + '?back=30&detail=full')
+            .then(function (obs) {
+              c.recent = (obs || []).slice().sort(function (a, b) {
+                return String(b.obsDt).localeCompare(String(a.obsDt));
+              });
+            }).catch(function () {});
+        }).then(function () { return list; }).catch(function () { return list; });
+      }
+      // The board's "recent" column, parsed the same way report._LAST_NEW_RE      // does. Supplied to tickCascades rather than baked into it because both
       // repos already own this regex and neither should own the other's.
       function parseRecentTick(s) {
         var m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s || '').trim());
@@ -5843,7 +6418,7 @@
         coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadBirdiest,     needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
-        favResults: { fn: renderFavs },
+        favResults: { fn: loadFavs, needsKey: true },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true },
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
@@ -6495,16 +7070,14 @@
         }
         var rec = ev.target.closest('.recentlink');
         if (rec) {
+          // The detail this used to load on tap now renders inline with the
+          // report's filter applied, so the link only survives as a way to
+          // refresh one row.
           ev.preventDefault();
           if (!getKey()) { showSettings(true); return; }
-          var locId = rec.getAttribute('data-locid'), li = rec.closest('li');
-          var box = li ? li.querySelector('.recentbox') : null;
-          if (box) box.textContent = 'Loading…';
-          ebird('data/obs/' + encodeURIComponent(locId) + '/recent?detail=simple&back=14').then(function (obs) {
-            var seenN = {}, names = [];
-            (obs || []).forEach(function (o) { var k = o.comName || ''; if (k && !seenN[k]) { seenN[k] = 1; names.push(k); } });
-            if (box) box.textContent = names.length ? (names.length + ' species (14d): ' + names.slice(0, 40).join(', ')) : 'No recent reports.';
-          }).catch(function (e) { if (box) box.textContent = netErr(e); });
+          var li = rec.closest('li'), idx = +rec.getAttribute('data-i');
+          var favsNow = getFavs();
+          if (li && favsNow[idx]) loadFavDetail(favsNow[idx], li.querySelector('.recentbox'), favRarityCodes());
           return;
         }
       });
@@ -6620,12 +7193,16 @@
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
+        firstReport: firstReport, coverageStart: coverageStart,
+        histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
+        renderLastNew: renderLastNew, favInteresting: favInteresting, favDetailHtml: favDetailHtml,
+        birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
         getWork: getWork, workKey: workKey, getAnchors: getAnchors,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         buildClosestSpots: buildClosestSpots,
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav,
-        moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs,
+        moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs, loadFavs: loadFavs,
         searchHotspots: searchHotspots, runFavSearch: runFavSearch,
         clearFavSearch: clearFavSearch,
         getMapProvider: getMapProvider, setMapProvider: setMapProvider,

@@ -525,7 +525,7 @@ test("today's rarities and the ABA alert share ONE card renderer", () => {
   const today = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
   const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
-    HTML.indexOf('function renderAbaAlert(') + 4000);
+    HTML.indexOf('function birdcastSeason('));
   for (const [name, src] of [["today's rarities", today], ['the ABA alert', aba]]) {
     assert.match(src, /birdCard\(\{/, name + ' builds cards');
     assert.match(src, /rarityStats\(/, name + ' shows the rarity evidence');
@@ -1949,4 +1949,239 @@ test('map pins scale in lockstep with the text-size setting', () => {
     'and Leaflet is told the same number, from the same source');
   assert.doesNotMatch(body, /iconSize:\s*\[24, 24\]/,
     'a hard-coded iconSize desyncs from the CSS the moment the scale changes');
+});
+
+// --- v1.0.24: finder attribution, GBIF state records, shared row template ---
+
+test('the first report is credited only when we watched the bird arrive', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rs = [
+    { obsDt: '2026-07-20 08:00', userDisplayName: 'Finder', subId: 'S1' },
+    { obsDt: '2026-07-28 09:00', userDisplayName: 'Chaser', subId: 'S2' },
+  ];
+  // Coverage opened well before the first report, so there is a stretch of
+  // watched days with nothing: the earliest observer really is the finder.
+  const inside = A.firstReport(rs, '2026-07-01');
+  assert.equal(inside.r.userDisplayName, 'Finder', 'picks the EARLIEST, not the latest');
+  assert.equal(inside.found, true, 'inside coverage => a real find');
+  // Coverage opened after the bird was already being reported, so whoever is
+  // oldest in our slice is not the finder and must not be credited as one.
+  const strad = A.firstReport(rs, '2026-07-20');
+  assert.equal(strad.found, false, 'at the boundary the true finder is earlier');
+  assert.equal(A.firstReport([], '2026-07-01'), null, 'no records, no claim');
+});
+
+test('coverage never starts later than the API window we always have', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const s = A.coverageStart('US-WA');
+  const thirty = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  assert.ok(s <= thirty, 'a device with no archive still covers the last 30 days');
+});
+
+test('GBIF state history states its window and never says "all time"', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const some = A.histLine({ records: 1085, years: 36, first: 1972, last: 2023,
+    wide: 22409, states: 50, topState: 'California', topPct: 28 }, 'Washington');
+  assert.match(some, /1,085 records in Washington/, 'leads with the state count');
+  assert.match(some, /1972–2023/, 'and the years it covers');
+  assert.match(some, /22,409 records in the USA/, 'national context');
+  assert.doesNotMatch(some, /all[- ]time/i, 'the snapshot is bounded, so never "all time"');
+  assert.match(some, /GBIF/, 'the source is named');
+  // The ABA code is CONTINENTAL: a bird that is near-annual in Alaska still
+  // appears on the alert in Washington. 898 US records reads as common until
+  // you know 69% of them are one state, so the top state must be named.
+  assert.match(some, /most in California \(28%\)/, 'names where the records actually are');
+  const none = A.histLine({ records: 0, years: 0, first: null, last: null,
+    wide: 898, states: 6, topState: 'Alaska', topPct: 69 }, 'Washington');
+  assert.match(none, /No Washington record/, 'zero is reported as a category, not a count');
+  assert.match(none, /most in Alaska \(69%\)/, 'and explains why the US number looks big');
+  assert.equal(A.histLine(null, 'Washington'), '', 'no data renders nothing at all');
+});
+
+test('the GBIF lookup needs a scientific name and asks for no eBird quota', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Common names do not resolve in GBIF's backbone taxonomy, so a lookup
+  // without a scientific name would be a guaranteed-miss request.
+  assert.equal(await A.gbifHistory('', 'Washington', 'US'), null, 'no name, no request');
+  assert.equal(await A.gbifHistory('Calidris pugnax', '', 'US'), null, 'no state, no request');
+  const html = HTML.slice(HTML.indexOf('function gbifHistory('),
+    HTML.indexOf('function histLine('));
+  assert.match(html, /api\.gbif\.org/, 'reads GBIF directly from the device');
+  assert.doesNotMatch(html, /ebird\(/, 'and spends no eBird API call doing it');
+});
+
+test('Happening now titles all three lanes so the last is not a footnote', async () => {
+  const app = await boot();
+  const A = app.window.__app, d = app.window.document;
+  A.renderSurge(
+    [{ name: 'Tufted Puffin', code: 'tuf', observers: 10, checklists: 10,
+      ratio: 10, loc: 'Marina Beach', lat: 47, lon: -122 }],
+    [{ species: 'Terek Sandpiper', code: 'tersan', latest: '2026-07-20',
+      birders: [{ rank: 3, name: 'Brian' }],
+      recent: [{ obsDt: '2026-07-28 10:00', locName: 'Stanwood STP',
+        lat: 48, lng: -122, subId: 'S9' }] }],
+    [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }]);
+  const heads = [].map.call(d.querySelectorAll('#surgeResults .lanehead'), e => e.textContent);
+  assert.equal(heads.length, 3, 'every lane gets its own heading');
+  assert.ok(heads[2].includes('hotspot'), 'including the hotspot lane that was buried');
+  const box = d.getElementById('surgeResults').innerHTML;
+  // A leaderboard row on its own says a bird is gettable but never where.
+  assert.match(box, /Where it is being reported/, 'the cascade lane became actionable');
+  assert.match(box, /Stanwood STP/, 'with a real place');
+  assert.match(box, /S9/, 'and a checklist to cite');
+  assert.match(box, /species-blind/, 'the hotspot lane explains why it is notable');
+});
+
+test('every bird row uses one template: photo left, name, then details', async () => {
+  const app = await boot();
+  const css = HTML.slice(HTML.indexOf('.obs.xl li, .obs.card-md li {'), HTML.indexOf('.lanesub {'));
+  // As a flex ITEM of the name row the photo pinned the details underneath it
+  // and left the name fighting the headline number for width, which wrapped
+  // "Terek Sandpiper" onto three lines. Floating it is what makes the name and
+  // the details share the right column.
+  assert.match(css, /\.obs\.xl \.name, \.obs\.card-md \.name \{ display: block/, 'the name row is not a flex box');
+  assert.match(css, /\.obs\.xl \.thumb, \.obs\.card-md \.thumb \{ float: left/, 'so the photo owns the left column');
+  assert.match(css, /\.obs\.xl \.count\.big, \.obs\.card-md \.count\.big \{ float: none/, 'the number stops stealing 42% of the row');
+  const d = app.window.document;
+  for (const id of ['activeResults', 'lastNewResults']) {
+    assert.ok(d.getElementById(id).className.includes('xl'),
+      id + ' shares the template rather than styling itself');
+  }
+});
+
+test('Latest ticks answers how far away the bird is', async () => {
+  const app = await boot({ storage: { 'ebird_home_lat:wa': '47.75', 'ebird_home_lng:wa': '-122.15' } });
+  const A = app.window.__app, d = app.window.document;
+  const groups = {}, byName = {};
+  groups['Terek Sandpiper'] = { latest: '2026-07-20', birders: [{ rank: 3, name: 'Brian' }] };
+  byName['Terek Sandpiper'] = { code: 'tersan', obs: [
+    { obsDt: '2026-07-28 10:00', locName: 'Far', lat: 46.0, lng: -122.15, subId: 'S1' },
+    { obsDt: '2026-07-27 10:00', locName: 'Near', lat: 47.70, lng: -122.15, subId: 'S2' },
+  ] };
+  A.renderLastNew(groups, byName, 'US-WA');
+  const txt = d.getElementById('lastNewResults').textContent;
+  // The CLOSEST report, not the newest: the nearest one is where you would go.
+  assert.match(txt, /3\.\d mi/, 'measures to the closest report, not the latest');
+  assert.match(txt, /to the closest report/, 'and says which one it measured');
+});
+
+test('Favorite hotspots shows what is worth driving for, not a species dump', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // A hotspot list that includes birds you have already seen answers "what
+  // lives here", which is not the question. The report drops them.
+  const obs = [
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: '2026-07-28 08:00', subId: 'S1', userDisplayName: 'Ann' },
+    { speciesCode: 'amerob', comName: 'American Robin', obsDt: '2026-07-28 09:00', subId: 'S2', userDisplayName: 'Ann' },
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: '2026-07-20 08:00', subId: 'S0', userDisplayName: 'Ann' },
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-07-27 08:00', subId: 'S3', userDisplayName: 'Birder Wyatt' },
+  ];
+  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['American Robin']));
+  const res = A.favInteresting(obs, { ruff: 1 });
+  const codes = res.rows.map((r) => r.code);
+  assert.ok(codes.indexOf('amerob') < 0, 'a bird already on your year list is not a reason to drive');
+  assert.equal(codes[0], 'ruff', 'rarities outrank plain unseen birds');
+  assert.ok(codes.indexOf('tersan') < 0, 'your own checklist is not news at your own hotspot');
+  assert.equal(res.rows[0].o.subId, 'S1', 'keeps the NEWEST report of each species');
+  const html = A.favDetailHtml({ name: 'x' }, obs, { ruff: 1 });
+  assert.match(html, /card-sm/, 'uses the small one-row card template');
+  assert.match(html, /⭐/, 'and flags the rarity the way the report does');
+  assert.match(html, /species in 7d/, 'header states the window it counted');
+  const quiet = A.favDetailHtml({ name: 'x' }, [obs[1]], {});
+  assert.match(quiet, /No rarities, watchlist hits, or unseen/, 'says nothing is here rather than going blank');
+});
+test('there are exactly three card templates and each one is really used', () => {
+  // The templates are a system, not three coincidences. Defining a shape in one
+  // place is only worth doing if the sections opt IN to it rather than
+  // re-tuning a fourth variant of the same row.
+  for (const cls of ['.obs.card-sm .name', '.obs.card-md .name', '.card-lg > li']) {
+    assert.ok(HTML.includes(cls), cls + ' is defined');
+  }
+  // SMALL is one row: the text box matches the icon height so a long list
+  // scans as evenly spaced lines rather than a ragged stack.
+  assert.match(HTML, /\.obs\.card-sm \.name \{ display: flex;[^}]*min-height: calc\(46px \* var\(--s\)\)/,
+    'small card ties its row height to its icon');
+  assert.match(HTML, /\.obs\.card-sm \.thumb \{ float: none/,
+    'and the icon sits beside the name instead of floating out of the row');
+  // LARGE stacks: photo, then name, then sub-header.
+  assert.match(HTML, /\.bchero \{ width: 100%;[^}]*aspect-ratio: 3 \/ 2/, 'large card photo is full width');
+  assert.ok(HTML.indexOf('.bcname') < HTML.indexOf('.bcsub'), 'name row precedes the sub-header row');
+  assert.ok(HTML.includes('class="obs card-sm favspp"'), 'favorites use the small template');
+  assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
+  assert.ok(HTML.includes('class="cards"'), 'the ABA section uses the large template');
+});
+
+// Wikipedia REST stub: "Ruff" is a disambiguation page (the real behaviour that
+// caused the bug); "Ruff (bird)" is the article we actually want.
+const wiki = (url) => {
+  if (!/wikipedia\.org/.test(url)) return null;
+  if (/summary\/Ruff_\(bird\)/.test(url)) {
+    return { type: 'standard', title: 'Ruff (bird)', extract: 'The ruff is a medium-sized wader.',
+      thumbnail: { source: 'https://upload.wikimedia.org/x/330px-Ruff.jpg' } };
+  }
+  if (/summary\/Ruff/.test(url)) return { type: 'disambiguation', title: 'Ruff', extract: 'Ruff may refer to:' };
+  if (/summary\/Nonesuch/.test(url)) {
+    return { type: 'standard', title: 'Nonesuch', extract: 'A bird that later gained an article.',
+      thumbnail: { source: 'https://upload.wikimedia.org/x/330px-None.jpg' } };
+  }
+  return null;
+};
+
+test('a cached disambiguation blurb is discarded, not served forever', async () => {
+  // "Ruff may refer to:" shipped to devices before the write-side guard
+  // existed. A cache is read BEFORE it is written, so a fix that only guards
+  // the write path never reaches the installs that actually have the bug.
+  const poisoned = JSON.stringify({ Ruff: { extract: 'Ruff may refer to: a collar', title: 'Ruff' } });
+  const app = await boot({ storage: { ebird_birdinfo_v2: poisoned }, fetch: wiki });
+  const A = app.window.__app;
+  assert.equal(A.usableInfo({ extract: 'Ruff may refer to: a collar' }), null, 'rejected on read');
+  assert.ok(A.usableInfo({ extract: 'The ruff is a medium-sized wader.' }), 'a real blurb still passes');
+  const got = await A.birdInfo('Ruff');
+  assert.match(got.extract, /medium-sized wader/, 'falls through to the real article instead of the stub');
+  const now = JSON.parse(app.window.localStorage.getItem('ebird_birdinfo_v2') || '{}');
+  assert.ok(!(now.Ruff && /may refer to/.test(now.Ruff.extract)),
+    'and the poisoned entry is gone, so it cannot be served again');
+});
+
+test('the caches that could hold a bad value are versioned past it', async () => {
+  // Read-side validation fixes blurbs, but a cached EMPTY photo string is
+  // indistinguishable from a legitimate miss, so those installs need the key
+  // to move instead.
+  assert.match(HTML, /PHOTO_KEY = 'ebird_photos_v2'/, 'photo cache versioned past the bad misses');
+  assert.match(HTML, /INFO_KEY = 'ebird_birdinfo_v2'/, 'blurb cache versioned past the disambiguations');
+});
+
+test('a photo miss expires so a bird can gain an article later', async () => {
+  const fresh = await boot({ fetch: wiki, storage: {
+    ebird_photos_v2: JSON.stringify({ Nonesuch: '' }),
+    ebird_photos_neg_v1: JSON.stringify({ Nonesuch: Date.now() }),
+  } });
+  assert.equal(await fresh.window.__app.photoLookup('Nonesuch'), '',
+    'a recent miss is answered from cache rather than refetched');
+  // An OLD miss is retried rather than believed forever — a permanent '' is the
+  // one cache entry that can never correct itself.
+  const stale = await boot({ fetch: wiki, storage: {
+    ebird_photos_v2: JSON.stringify({ Nonesuch: '' }),
+    ebird_photos_neg_v1: JSON.stringify({ Nonesuch: Date.now() - 40 * 86400000 }),
+  } });
+  assert.match(await stale.window.__app.photoLookup('Nonesuch'), /330px-None\.jpg/,
+    'an expired miss is retried, and the bird gets its photo');
+});
+
+test('GBIF states the window it searched instead of implying the bird vanished', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // "1,085 records, 1972-2023" reads as "not seen since 2023". If the DATA
+  // stops in 2024, that is a different claim, and the card must not leave the
+  // reader to guess which one it is making.
+  const s = A.histLine({ records: 1085, years: 36, first: 1972, last: 2023, edge: 2024,
+    wide: 22409, states: 50, topState: 'California', topPct: 28 }, 'Washington');
+  assert.match(s, /Searched 2024 and earlier/, 'names the last year the snapshot covers');
+  assert.match(s, /not counted/, 'and says what that excludes');
+  const noEdge = A.histLine({ records: 5, years: 2, first: 2001, last: 2003 }, 'Washington');
+  assert.doesNotMatch(noEdge, /Searched/, 'no measured edge means no claim about one');
 });
