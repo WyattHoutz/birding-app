@@ -168,8 +168,8 @@
     .toc .toclink::after { content: none; }
     .tileicon { font-size: 26px; line-height: 1; }
     .tilelabel { display: block; }
-    /* The first tile is the whole point of the app, so it spans the row and
-       says what it is for rather than sharing a slot with Settings. */
+    /* The first tile is what the app opens on, so it spans the row and says
+       what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
     .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
                             gap: 12px; font-size: 17px;
@@ -224,6 +224,15 @@
     .obs.big .thumb { float: none; flex: 0 0 auto; width: 64px; height: 64px; margin: 0; }
     .obs.big .meta { margin-top: 6px; }
     .obs.big .count { font-size: 13px; font-weight: 700; color: var(--ink); }
+    /* Last 7-Days rarity: read one row at a time ("what IS that bird, and do I
+       drive?"), not scanned like a leaderboard, so the photo is sized to be
+       identified rather than merely present. .ntext keeps the name and its
+       badges in ONE flex item so a long name wraps beside the photo instead of
+       dropping onto a second flex line underneath it. */
+    .obs.xl .name { font-size: 28px; gap: 14px; }
+    .obs.xl .thumb { width: 92px; height: 92px; border-radius: 12px; }
+    .obs.xl .ntext { min-width: 0; overflow-wrap: anywhere; }
+    .obs.xl .meta { font-size: 15px; }
     .convoywrap { margin: 8px 0 14px; }
     .convoysppbox { font-size: 13px; margin-top: 4px; line-height: 1.45; }
     .convoyhead { font-size: 13px; font-weight: 800; margin: 10px 0 4px; }
@@ -250,16 +259,6 @@
     .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .seenflag, .needflag { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
-    /* 🧭 Where to go next — the answer screen, so rows are big and the reason
-       is on its own line rather than buried in the metadata run. */
-    .obs.leads { counter-reset: lead; }
-    .obs.leads li { list-style: none; padding: 14px 0; }
-    .obs.leads .name { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 800; line-height: 1.25; }
-    .obs.leads .thumb { float: none; flex: 0 0 auto; width: 56px; height: 56px; margin: 0; }
-    .obs.leads .leadicon { font-size: 20px; }
-    .obs.leads .count { font-size: 14px; font-weight: 800; color: var(--ink); }
-    .obs.leads .why { font-size: 14px; margin-top: 6px; color: var(--ink); }
-    .obs.leads .meta { font-size: 14px; }
     /* Hot hotspots: the bird list behind a summary, so a 60-species spot does
        not push the next hotspot off the screen. */
     .spx { margin-top: 8px; font-size: 14px; }
@@ -280,7 +279,7 @@
        each field lands in the same place on every row. */
     .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: 14px; }
     .cklrows li { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px;
-                  padding: 6px 0; border-top: 1px solid var(--line); align-items: baseline; }
+                  padding: 6px 0; border-top: 1px solid var(--line); align-items: start; }
     .cklrows .when { font-weight: 700; color: var(--ink); white-space: nowrap; }
     .cklrows .howmany { font-variant-numeric: tabular-nums; color: var(--muted); }
     .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
@@ -437,15 +436,6 @@
     </section>
 
     <section class="panel">
-      <h2>🧭 Where to go next <span class="dim" id="leadsRegionLabel"></span></h2>
-      <div class="row">
-        <button id="leadsBtn">Find me a bird</button>
-      </div>
-      <div id="leadsStatus" class="status">Every chase lane merged into one ranked list — twitches in progress, rare birds you need, what the leaderboard is finding, and the closest spot holding something unseen. Everything below is a source; this is the answer.</div>
-      <div id="leadsResults"></div>
-    </section>
-
-    <section class="panel">
       <h2>🔴 Happening now <span class="dim" id="surgeRegionLabel"></span></h2>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
@@ -476,7 +466,7 @@
         <button id="activeBtn">Load rarity reports</button>
       </div>
       <div id="activeStatus" class="status">Every rare species currently being reported — one row per species, closest report first.</div>
-      <ul id="activeResults" class="obs"></ul>
+      <ul id="activeResults" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -615,7 +605,7 @@
         <div style="flex:1 1 auto"><input id="workLabel" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="label, e.g. Redmond" /></div>
         <button id="clearWorkBtn" class="secondary" type="button">Clear</button>
       </div>
-      <p class="hint">Closest spots, Quick outing, Cold hotspots and Where to go next measure from whichever anchor is nearer, and say which one. Everything else stays measured from home, matching the report.</p>
+      <p class="hint">Closest spots, Quick outing and Cold hotspots measure from whichever anchor is nearer, and say which one. Everything else stays measured from home, matching the report.</p>
       <label for="tideStation">NOAA tide station ID (optional)</label>
       <input id="tideStation" type="text" inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="e.g. 9447130" />
       <p class="hint">For coastal tides in Conditions. Find yours at <code>tidesandcurrents.noaa.gov</code>. Leave blank inland.</p>
@@ -1263,6 +1253,19 @@
         // distances match the Markdown report even before the user sets one.
         var h = getReport().home;
         return (h && isFinite(h.lat) && isFinite(h.lng)) ? { lat: +h.lat, lng: +h.lng } : null;
+      }
+
+      // getHome() deliberately falls back to the report's built-in coordinate so
+      // distance math matches the Markdown report before the user configures
+      // anything. That fallback is wrong for Conditions: weather, tides and
+      // sun/moon are questions about where you actually ARE, and the rarity
+      // trackers' coordinate is a placeholder in the middle of Kansas. So they
+      // ask a stricter question than "do we have a number to subtract".
+      function hasRealHome() {
+        var la = parseFloat(localStorage.getItem(homeKey('lat'))), lo = parseFloat(localStorage.getItem(homeKey('lng')));
+        if (isFinite(la) && isFinite(lo)) return true;
+        var p = getReport();
+        return !!(p.home && isFinite(p.home.lat) && isFinite(p.home.lng) && !p.homeIsPlaceholder);
       }
 
       // A saved work anchor of "" is meaningful: it means the user explicitly
@@ -1958,8 +1961,8 @@
               ? ' <span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = (r.closest && r.closest.valid === false) ? ' ⚠️' : '';
             li.innerHTML = dist +
-              '<div class="name">' + photoSlot(r.name, r.code) + speciesLink(r.name, r.code) +
-              needTag(r.code, r.name) + stake + warn + '</div>' +
+              '<div class="name">' + photoSlot(r.name, r.code) + '<span class="ntext">' +
+              speciesLink(r.name, r.code) + needTag(r.code, r.name) + stake + warn + '</span></div>' +
               '<div class="meta">' + r.reports + ' report' + (r.reports === 1 ? '' : 's') +
               (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : '') +
               ' · ' + staleTag(r.latest) + span + '</div>' +
@@ -4260,161 +4263,6 @@
         box.innerHTML = html;
         hydratePhotos(box);
       }
-      // --- 🧭 Where to go next (BirdLogic.leadBoard) -----------------------
-      // Every chase lane merged into one ranked answer. Reads ONLY work the
-      // other sections already did — the board must never add a network call
-      // of its own, or the app's first screen becomes its slowest.
-      function leadInputs(cv, cascades) {
-        var seen = getReportSeen();
-        var surge = cv ? BL.surgeEvents(cv.merged, { now: Date.now(), seen: seen }) : [];
-        // Today's unseen rarities, freshest report per species+place — the
-        // same pool Today's rarity reports prints.
-        var best = {};
-        (cv && cv.notableToday || []).forEach(function (r) {
-          if (!r.code || isSpeciesSeen(r.code, r.name)) return;
-          var k = r.code + '|' + (r.locId || r.loc || '');
-          var ms = obsMs(r.dateStr);
-          if (!best[k] || ms > best[k]._ms) { best[k] = r; best[k]._ms = ms; }
-        });
-        var rarities = Object.keys(best).map(function (k) {
-          var r = best[k];
-          return { comName: r.name || '', speciesCode: r.code, locName: r.loc || '',
-            locId: r.locId || '', lat: r.lat, lng: r.lon, whenMs: r._ms, observers: 1 };
-        });
-        // Closest spots: cluster the unseen records to 250 m, exactly as
-        // loadTargets' source section does, so the board never names a place
-        // differently from the section it came from.
-        var byLoc = {};
-        (cv && cv.unseen || []).forEach(function (r) {
-          if (!r.code) return;
-          var k = r.locId || (r.loc || '') + '|' + r.lat + ',' + r.lon;
-          var s = byLoc[k] || (byLoc[k] = { loc: r.loc || '', locId: r.locId || '',
-            lat: r.lat, lng: r.lon, whenMs: 0, rare: false, species: [], _codes: {} });
-          if (!s._codes[r.code]) { s._codes[r.code] = 1; s.species.push({ code: r.code, name: r.name || '' }); }
-          if (r.kind === 'Rarity') s.rare = true;
-          var ms = obsMs(r.dateStr); if (ms > s.whenMs) s.whenMs = ms;
-        });
-        var closest = Object.keys(byLoc).map(function (k) {
-          var s = byLoc[k];
-          s.species.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
-          return s;
-        });
-        return { surge: surge, rarities: rarities, cascades: cascades || [], closest: closest };
-      }
-      function obsMs(s) {
-        if (!s) return 0;
-        var d = new Date(String(s).replace(' ', 'T'));
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-      }
-      function loadLeads() {
-        if (!getKey()) { $('leadsStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        if ($('leadsRegionLabel')) $('leadsRegionLabel').textContent = '· ' + getReport().label;
-        var btn = $('leadsBtn'), st = $('leadsStatus');
-        $('leadsResults').innerHTML = '';
-        btn.disabled = true;
-        st.textContent = 'Working out where to go in ' + getReport().label + '…';
-        var rr = rankPrimaryRegion();
-        var pCascades = fetchRank(rr, new Date().getFullYear(), getDisplayName())
-          .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
-          .catch(function () { return []; });
-        Promise.all([getChase().catch(function () { return {}; }), pCascades])
-          .then(function (r) {
-            var cv = r[0] && r[0].cv;
-            var inputs = leadInputs(cv, r[1]);
-            var anchors = getAnchors();
-            var board = BL.leadBoard(inputs, { seen: getReportSeen(), anchors: anchors });
-            if (!board.leads.length) {
-              // Quiet day. Only NOW is the fallback worth its network cost.
-              return leadIdeas().then(function (extra) {
-                inputs.cold = extra.cold; inputs.quick = extra.quick;
-                return BL.leadBoard(inputs, { seen: getReportSeen(), anchors: anchors });
-              }, function () { return board; });
-            }
-            return board;
-          })
-          .then(function (board) {
-            renderLeads(board);
-            st.textContent = (board.total
-              ? board.total + ' unseen bird' + (board.total === 1 ? '' : 's') + ' chaseable'
-              : 'Nothing unseen in range — standing ideas instead') + ' · ' + nowTime();
-          })
-          .catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
-      }
-      function leadIdeas() {
-        if (!hasCounties() || !getKey()) return Promise.resolve({ cold: [], quick: [] });
-        return scanHotspots().then(function (r) {
-          return {
-            cold: r.cold.slice(0, 20).map(function (h) {
-              return { locName: h.name, locId: h.locId, lat: h.lat, lng: h.lng,
-                numSpeciesAllTime: h.alltime };
-            }),
-            quick: r.hot.filter(function (h) { return h.dist != null && h.dist <= 5; })
-              .slice(0, 20).map(function (h) {
-                return { locName: h.name, locId: h.locId, lat: h.lat, lng: h.lng,
-                  numSpeciesAllTime: h.alltime };
-              })
-          };
-        }, function () { return { cold: [], quick: [] }; });
-      }
-      function renderLeads(board) {
-        var box = $('leadsResults'); if (!box) return;
-        var rows = board.leads.length ? board.leads : board.ideas;
-        if (!rows.length) {
-          box.innerHTML = '<div class="status">No leads right now — nothing unseen has been '
-            + 'reported anywhere in range, and no hotspot is overdue for a visit.</div>';
-          return;
-        }
-        var wl = getWorkLabel();
-        var html = '<div class="status">' + (board.leads.length
-          ? '<b>' + board.total + ' unseen bird' + (board.total === 1 ? '' : 's')
-            + ' are chaseable right now.</b> Ranked by how good the lead is, how fresh it is '
-            + 'and how far you would drive — from home or from ' + esc(wl) + ', whichever is closer.'
-          : '<b>Nothing unseen is being reported in range.</b> These are standing ideas instead — '
-            + 'spots nobody has checked lately, and spots close enough that a quiet morning costs nothing.')
-          + '</div>';
-        html += '<ol class="obs leads">';
-        rows.forEach(function (l) {
-          var name = l.code ? speciesLink(l.title, l.code) : '<b>' + esc(l.title) + '</b>';
-          var where = l.where
-            ? (l.locId ? extA(hotspotUrl(l.locId), l.where) : esc(l.where))
-            : '';
-          var why = esc(l.why);
-          if (l.alsoIn && l.alsoIn.length) {
-            why += ' · also in ' + l.alsoIn.map(function (k) {
-              return esc(BL.LEAD_LANE_LABEL[k] || k);
-            }).join(', ');
-          }
-          var dist = '';
-          if (l.distMi != null) {
-            dist = '<span class="count">' + Math.round(l.distMi) + ' mi</span>';
-          }
-          var sub = [];
-          if (where) {
-            var w = where;
-            if (l.alsoAt && l.alsoAt.length) {
-              w += ' <span class="dim">· also at ' + l.alsoAt.length + ' other spot'
-                + (l.alsoAt.length === 1 ? '' : 's') + '</span>';
-            }
-            if (l.anchor === 'work') w += anchorNote(l.anchor);
-            sub.push(w);
-          }
-          if (l.subtitle) sub.push(esc(l.subtitle));
-          html += '<li>' + dist
-            + '<div class="name">' + (l.code ? photoSlot(l.title, l.code) : '')
-            + '<span class="leadicon">' + l.icon + '</span> ' + name
-            + (l.unseen ? ' <span class="needflag">🔍</span>' : '') + '</div>'
-            + (sub.length ? '<div class="meta">' + sub.join(' · ') + '</div>' : '')
-            + '<div class="why">' + why + '</div>'
-            + (l.lat != null && l.lng != null
-              ? '<div class="meta"><a class="maplink" data-q="' + esc(l.lat + ',' + l.lng) + '">🗺 directions</a></div>'
-              : '')
-            + '</li>';
-        });
-        html += '</ol>';
-        box.innerHTML = html;
-        hydratePhotos(box);
-      }
 
       function loadSurge() {
         if (!getKey()) { $('surgeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
@@ -4592,7 +4440,7 @@
         el.innerHTML = '<div class="wxline dim2">NOAA forecast at Home · 🐦 = southerly winds (spring-migration arrivals)</div>' +
           '<table class="wxtable"><thead><tr><th>When</th><th>Forecast</th><th>Temp</th><th>Wind</th></tr></thead><tbody>' + rows + '</tbody></table>';
       }
-      function renderTides(preds, station) {
+      function renderTides(preds, st) {
         var el = $('wxTides'); if (!el) return;
         var rows = buildTideRows(preds);
         if (!rows.length) { el.innerHTML = ''; return; }
@@ -4602,27 +4450,81 @@
           return '<tr' + (r.rising ? ' class="tiderise"' : '') + '><td>' + w + '</td><td>' + sp +
             '</td><td>' + esc(r.trend) + '</td><td>' + esc(r.height) + '</td></tr>';
         }).join('');
-        el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · station ' + esc(station) + '</div>' +
+        // Name the station rather than only its id: "9447427" is unverifiable at
+        // a glance, "Edmonds · nearest to home, 11.6 mi" is checkable.
+        var who = esc(st.name || ('station ' + st.id)) + (st.why ? ' <span class="dim2">· ' + esc(st.why) + '</span>' : '');
+        el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · ' + who + '</div>' +
           '<table class="wxtable"><thead><tr><th>Window</th><th>For</th><th>Tide</th><th>Height</th></tr></thead><tbody>' + body + '</tbody></table>' +
           '<div class="wxline dim2">👀 ⬆ <b>Rising (incoming) tides</b> push waterfowl &amp; seafowl closer to shore — the highlighted rows are your prime chase windows.</div>';
       }
+      // NOAA publishes every station that HAS tide predictions, which is by
+      // construction the tidal (salt) ones — the list carries no Great Lakes
+      // entries at all (Michigan: 0), so "nearest" needs no water-type filter.
+      // 2 MB for 3,499 stations is far too much to re-fetch per visit, so the
+      // RESULT is cached per home coordinate rather than the list.
+      var TIDE_STATIONS_URL = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
+      var TIDE_NEAR_MI = 60;
+      function tideAutoKey(home) {
+        return 'ebird_tide_auto:' + home.lat.toFixed(2) + ',' + home.lng.toFixed(2);
+      }
+      // Resolve the station to show tides for, in priority order:
+      //   1. the user's explicit override — always wins
+      //   2. the nearest NOAA station to HOME, when one is close enough
+      //   3. the report's curated station
+      // Step 3 is also the gate: a report with no curated station is inland and
+      // has no tides in the Markdown either, so we never go looking. Without
+      // that gate an "inland" report finds a station hundreds of miles off
+      // (Parkville -> Lake Charles, 626 mi) and invents a section.
+      function resolveTideStation() {
+        var manual = (localStorage.getItem(tideKey()) || '').trim();
+        if (manual) return Promise.resolve({ id: manual, why: 'set by you' });
+        var curated = (getReport().tideStation || '').trim();
+        if (!curated) return Promise.resolve(null);
+        var home = getHome();
+        if (!home) return Promise.resolve({ id: curated, why: '' });
+        var ck = tideAutoKey(home);
+        try {
+          var hit = JSON.parse(localStorage.getItem(ck) || 'null');
+          if (hit && hit.id) return Promise.resolve(hit);
+        } catch (e) {}
+        return wxGet(TIDE_STATIONS_URL).then(function (data) {
+          var list = (data && data.stations) || [], best = null;
+          for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            if (!s || !isFinite(s.lat) || !isFinite(s.lng)) continue;
+            var mi = haversineMi(home.lat, home.lng, +s.lat, +s.lng);
+            if (!best || mi < best.mi) best = { id: String(s.id || ''), name: s.name || '', mi: mi };
+          }
+          if (!best || !best.id || best.mi > TIDE_NEAR_MI) return { id: curated, why: '' };
+          var out = { id: best.id, name: best.name, mi: Math.round(best.mi * 10) / 10,
+                      why: 'nearest to home, ' + (Math.round(best.mi * 10) / 10) + ' mi' };
+          try { localStorage.setItem(ck, JSON.stringify(out)); } catch (e) {}
+          return out;
+        }).catch(function () {
+          // Offline, or NOAA's directory is down. The curated station is still
+          // the right answer, so tides must not disappear over it.
+          return { id: curated, why: '' };
+        });
+      }
       function loadTides() {
         var el = $('wxTides'); if (!el) return;
-        // User override wins; otherwise use the active report's tide station
-        // (report.section_weather uses analyze.REGION.tide_station). Inland
-        // reports have none -> station '' -> section hidden, same as the report.
-        var station = (localStorage.getItem(tideKey()) || '').trim() || (getReport().tideStation || '').trim();
-        if (!station) { el.innerHTML = ''; return; }
         el.innerHTML = '<div class="wxline dim2">Loading tides…</div>';
-        var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
-        var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=' + d8 + '&end_date=' + d8 +
-          '&station=' + encodeURIComponent(station) + '&product=predictions&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json';
-        wxGet(url).then(function (data) { renderTides((data && data.predictions) || [], station); })
-          .catch(function (e) { el.innerHTML = '<div class="wxline dim2">Tides unavailable — ' + esc(e.message || 'error') + '</div>'; });
+        resolveTideStation().then(function (st) {
+          if (!st || !st.id) { el.innerHTML = ''; return; }
+          var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
+          var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=' + d8 + '&end_date=' + d8 +
+            '&station=' + encodeURIComponent(st.id) + '&product=predictions&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json';
+          return wxGet(url).then(function (data) { renderTides((data && data.predictions) || [], st); });
+        }).catch(function (e) { el.innerHTML = '<div class="wxline dim2">Tides unavailable — ' + esc(e.message || 'error') + '</div>'; });
       }
       function loadConditions() {
+        // Weather, tides and sun/moon are all "where am I" questions, so a
+        // placeholder region centroid is not an acceptable stand-in for a home.
+        if (!hasRealHome()) {
+          $('wxStatus').textContent = 'Set your Home location in Settings — weather, tides and sun times are all measured from it.';
+          showSettings(true); return;
+        }
         var home = getHome();
-        if (!home) { $('wxStatus').textContent = 'Set your Home location in Settings to load conditions.'; showSettings(true); return; }
         var btn = $('wxBtn'), st = $('wxStatus');
         btn.disabled = true; st.textContent = 'Loading conditions…';
         renderSunMoon(home);
@@ -4748,7 +4650,6 @@
       //              build_rarity_report, which emits far fewer sections)
       //   omitted  — every report has it
       var MENU = [
-        { at: 'leadsBtn',      label: '🧭 Where to go next' },
         { at: 'surgeBtn',      label: '🔴 Happening now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100' },
@@ -4784,7 +4685,6 @@
       // auto-open never redirects to Settings; the heavy migration build stays
       // manual (no entry here).
       var LOADERS = {
-        leadsBtn:   { fn: loadLeads,        needsKey: true },
         allUnseenBtn: { fn: loadAllUnseen,  needsKey: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
@@ -4856,7 +4756,7 @@
       // menu is that region's table of contents: a rarity tracker has no
       // counties and no home, so the sections its Markdown report never emits
       // are absent here too rather than sitting in the list as dead ends.
-      // Split "🧭 Where to go next" into its leading glyph and the rest so a
+      // Split "🔴 Happening now" into its leading glyph and the rest so a
       // tile can set the two at different sizes. Every MENU label is
       // "<emoji> <words>"; a label without a space keeps its whole text and
       // simply gets no glyph rather than losing a character to a bad guess.
@@ -5278,7 +5178,6 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
-      $('leadsBtn').addEventListener('click', loadLeads);
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('surgeBtn').addEventListener('click', loadSurge);
       $('hotBtn').addEventListener('click', loadHotspots);
