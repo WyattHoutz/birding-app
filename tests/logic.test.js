@@ -503,3 +503,89 @@ test('hotspotConvergence: no trailing history means no claim, not an infinite on
   assert.ok(out[0].ratio > 0 && isFinite(out[0].ratio),
     'and the ratio it reports is a real number, never null or Infinity');
 });
+
+test('a section never claims a window its feed cannot cover', () => {
+  // product/lists is capped at CONVOY_MAX_RESULTS *per county*, so it is not
+  // a date range at all — it is "however far back 200 checklists happen to
+  // reach". Measured on live data that is 2 days in King County, under
+  // sections that announce 7. The window has to be measured, not assumed.
+  const shallow = [
+    { subId: 'S1', isoObsDate: '2026-07-27 08:00' },
+    { subId: 'S2', isoObsDate: '2026-07-28 09:00' }
+  ];
+  const deep = [
+    { subId: 'S1', isoObsDate: '2026-07-21 08:00' },
+    { subId: 'S2', isoObsDate: '2026-07-28 09:00' }
+  ];
+
+  assert.equal(BL.feedSpanDays(shallow), 2, 'Jul 27-28 is 2 days, inclusive');
+  assert.equal(BL.feedSpanDays(deep), 8, 'Jul 21-28 is 8 days');
+  assert.equal(BL.feedSpanDays([]), null, 'an empty feed has no span');
+  assert.equal(BL.feedSpanDays([{ subId: 'S1' }]), null, 'nor an undated one');
+
+  assert.equal(BL.feedWindow(shallow, 7).days, 2,
+    'a 7-day section on a 2-day feed is a 2-day section');
+  assert.ok(/2 days, not 7/.test(BL.feedWindow(shallow, 7).warning),
+    'and it says so, naming both the real window and the claimed one');
+
+  // Just as important: a feed that DOES cover its window must stay silent,
+  // or the banner becomes wallpaper and stops being read.
+  assert.equal(BL.feedWindow(deep, 7).days, 7, 'a deep feed keeps its claim');
+  assert.equal(BL.feedWindow(deep, 7).warning, '', 'and raises no warning');
+
+  // An empty feed is its own visible symptom ("none found"); reporting it as
+  // truncation as well would point at the wrong cause.
+  assert.equal(BL.feedWindow([], 7).warning, '',
+    'an empty feed is not reported as a truncated one');
+});
+
+test('a hotspot norm is remembered across sessions, not re-derived each run', () => {
+  // The feed cannot supply this baseline: product/lists is capped at 200
+  // checklists per county, so it reaches back 2-3 days and the 36 h hot window
+  // eats most of that. Only 32 of 229 live locations had ANY trailing data.
+  // The hourly job already reads this feed every hour — the history was simply
+  // being discarded between runs, so remembering it costs no extra API calls.
+  const rows = [];
+  for (let i = 0; i < 9; i++) {
+    rows.push({ locId: 'L9', locName: 'Marymoor Park', userDisplayName: 'birder' + i, subId: 'S' + i, obsDt: DAY(0, 7 + i) });
+  }
+  assert.deepEqual(BL.hotspotConvergence(rows, { now: NOW }), [],
+    'with no memory there is still nothing to compare against');
+
+  const hist = {};
+  hist.L9 = {};
+  for (let d = 2; d < 14; d++) hist.L9[DAY(d).slice(0, 10)] = ['regular' + d];
+  const out = BL.hotspotConvergence(rows, { now: NOW, history: hist });
+  assert.equal(out.length, 1, 'a remembered norm makes the spot measurable');
+
+  // 12 observer-days over 12 days is a norm of ~1/day. Divided by the feed's
+  // own 1-day span it would read as 12/day and the ratio would collapse from
+  // 9x to 0.75x — so a remembered baseline would fire LESS than none at all.
+  assert.ok(Math.abs(out[0].baseline - 1) < 0.35,
+    'and the divisor grows with the memory (got ' + out[0].baseline + ')');
+
+  // Settled days arrive as a plain count; both storage forms must agree.
+  const counts = { L9: {} };
+  Object.keys(hist.L9).forEach((d) => { counts.L9[d] = hist.L9[d].length; });
+  const out2 = BL.hotspotConvergence(rows, { now: NOW, history: counts });
+  assert.ok(Math.abs(out2[0].baseline - out[0].baseline) < 1e-9,
+    'named days and settled counts give the same answer');
+
+  // The hourly job re-reads an overlapping feed, so merging must be
+  // idempotent: a birder seen in three runs counts once, not three times.
+  const feed = [{ locId: 'L9', userDisplayName: 'ann', subId: 'S1', obsDt: DAY(0, 8) }];
+  const m1 = BL.mergeHotspotHistory({}, feed, NOW);
+  const m2 = BL.mergeHotspotHistory(m1, feed, NOW);
+  assert.deepEqual(m2.L9[DAY(0).slice(0, 10)], ['ann'],
+    're-running the same feed does not duplicate an observer');
+
+  // Merging must not mutate the tally it was handed.
+  assert.deepEqual(m1.L9[DAY(0).slice(0, 10)], ['ann'], 'the input is not mutated');
+
+  const old = BL.mergeHotspotHistory({}, [{ locId: 'L8', userDisplayName: 'x', subId: 'S8', obsDt: DAY(40) }], NOW);
+  assert.equal(old.L8, undefined, 'days past the retention window are pruned');
+
+  const settled = BL.mergeHotspotHistory({}, [{ locId: 'L7', userDisplayName: 'x', subId: 'S7', obsDt: DAY(9) }], NOW);
+  assert.equal(settled.L7[DAY(9).slice(0, 10)], 1,
+    'a settled day collapses from names to a count');
+});
