@@ -254,10 +254,14 @@
        surrounding text read as fine print, so everything here steps up with it.
        The distance is a decision — "is this worth the drive" — so it is sized
        and coloured like an answer, not like a footnote. */
-    .obs.xl .name { font-size: calc(32px * var(--s)); gap: 14px; }
+    /* 32px wrapped "Terek Sandpiper" onto two lines beside a 92px photo, which
+       is the one thing the name must not do — it is the row's subject. At 22px
+       a two-word species name fits the remaining column on a phone, and the
+       detail line below it reads as a sub-header rather than a second title. */
+    .obs.xl .name { font-size: calc(22px * var(--s)); gap: 14px; }
     .obs.xl .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }
     .obs.xl .ntext { min-width: 0; overflow-wrap: anywhere; }
-    .obs.xl .meta { font-size: calc(18px * var(--s)); }
+    .obs.xl .meta { font-size: calc(16px * var(--s)); }
     .obs.xl .count { font-size: calc(21px * var(--s)); font-weight: 800; color: var(--ink); }
     .obs.xl .cklrows { font-size: calc(17px * var(--s)); }
     .obs.xl .cklrows .who { font-size: calc(16px * var(--s)); }
@@ -277,9 +281,13 @@
     .bchero { width: 100%; height: auto; aspect-ratio: 3 / 2; float: none; margin: 0;
       border-radius: 0; background: #eceff3; display: block; overflow: hidden; }
     .bchero .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
-    /* A 60px seed stretched across the card is a smear. Contain it on a dark
-       mat instead so it reads as a small picture rather than a broken big one. */
-    .bchero .birdpic.isseed, .bchero .birdpic.isfallback { object-fit: contain; background: #eceff3; padding: 18px; box-sizing: border-box; }
+    /* The photo fills the frame edge to edge and lets the card's own
+       overflow:hidden clip the corners. A contained image on a grey mat reads
+       as a thumbnail someone forgot to finish, and the inset made an already
+       soft rendition look softer by shrinking it further. The generic
+       silhouette is the one exception: it is not a photo OF this bird, so
+       cropping it to fill would be dishonest as well as ugly. */
+    .bchero .birdpic.isfallback { object-fit: contain; background: #eceff3; padding: 18px; box-sizing: border-box; }
     .bchero.nopic { display: none; }
     .bcbody { padding: 14px 16px 16px; }
     .bcname { font-size: calc(30px * var(--s)); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
@@ -309,12 +317,17 @@
               background: color-mix(in srgb, var(--accent) 5%, transparent); }
     .bcstat b { display: block; font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.05;
                 font-variant-numeric: tabular-nums; color: var(--ink); }
+    /* "states/provinces" is a single unbreakable token that ran straight past
+       the tile border at every text scale. */
     .bcstat small { display: block; font-size: calc(11px * var(--s)); font-weight: 600; color: var(--muted);
-                    margin-top: 3px; line-height: 1.25; }
+                    margin-top: 3px; line-height: 1.25; overflow-wrap: anywhere; hyphens: auto; }
     .bcstat.hot b { color: var(--accent); }
     .bcextract { font-size: calc(15px * var(--s)); line-height: 1.5; margin: 12px 0 0; color: var(--ink); }
     .bcextract .src { display: block; margin-top: 4px; font-size: calc(12px * var(--s)); color: var(--muted); }
     .bcwhere { margin-top: 12px; }
+    /* The archive window, stated where it actually applies. It bounds the list
+       of reports below it and nothing else on the card. */
+    .bcsince { font-size: calc(12px * var(--s)); color: var(--muted); margin-top: 3px; line-height: 1.35; }
     .bcwhere .lbl { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted);
                     text-transform: uppercase; letter-spacing: .04em; }
     .convoywrap { margin: 8px 0 14px; }
@@ -347,9 +360,15 @@
        not push the next hotspot off the screen. */
     .spx { margin-top: 8px; font-size: calc(14px * var(--s)); }
     .spx summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+    /* `.sppl` is a LONG species list nested inside another row (a hotspot's
+       birds, a convoy stop's birds). It used to hand-roll its own flex row and
+       34px thumb, which was .card-sm at a second, slightly different size —
+       the exact duplication the three-template block exists to stop. It is now
+       .card-sm plus only the things that are genuinely different: no row
+       divider (these sit inside a parent row that already has one) and tighter
+       vertical padding, because 80 species at full row spacing is a scroll. */
     .obs.sppl { margin-top: 6px; }
-    .obs.sppl li { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: none; font-size: calc(15px * var(--s)); }
-    .obs.sppl .thumb { float: none; flex: 0 0 auto; width: calc(34px * var(--s)); height: calc(34px * var(--s)); margin: 0; }
+    .obs.sppl li { padding: 2px 0; border-top: none; }
     .obs.sppl .need { color: var(--accent); font-weight: 800; }
     /* Birdiest checklists: the species count IS the ranking, so it reads as a
        number rather than a footnote, and an unseen bird on the list is the
@@ -394,6 +413,12 @@
     .obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;
                           width: calc(46px * var(--s)); height: calc(46px * var(--s)); }
     .obs.card-sm .ntext { min-width: 0; overflow-wrap: anywhere; }
+    /* The small card's optional SECOND line: what the row is (the name) stays
+       on top, and what backs it up (count, time, checklist) drops below at
+       caption weight. The icon box is 46px, which two lines of this size fit
+       inside, so the template's one-row height is preserved. */
+    .obs.card-sm .ntext .sub { display: block; font-size: calc(13px * var(--s));
+                          font-weight: 500; color: var(--muted); margin-top: 1px; line-height: 1.3; }
     /* MEDIUM. The photo FLOATS rather than being a flex item of the name row:
        as a flex item it pinned the details underneath the image and left the
        name fighting the headline number for horizontal space, which is what
@@ -415,9 +440,20 @@
     /* Three independent lanes run one after another, and the third was reading
        as a footnote on the last bird of the second. A lane is a section, so it
        is titled like one. */
-    .lanehead { margin: 26px 0 0; padding-top: 16px; border-top: 3px solid var(--line);
+    /* A lane is a section, not a footnote on the last row of the lane above it,
+       and "species" and "hotspots" answer different questions. The rule is
+       full-strength and the gap is wide enough that the boundary is read before
+       the heading is. */
+    .lanehead { margin: 34px 0 0; padding-top: 20px; border-top: 3px solid var(--accent);
                 font-size: calc(22px * var(--s)); font-weight: 800; line-height: 1.25; }
     .lanehead:first-child { margin-top: 6px; padding-top: 0; border-top: none; }
+    /* The convergence lane rows are PLACES, so they have no photo — which left
+       them structurally different from the bird rows directly above them in the
+       same section. A pin at the same size as the photo it stands in for keeps
+       both lanes on one template instead of two. */
+    .placeicon { display: flex; align-items: center; justify-content: center;
+                 font-size: calc(44px * var(--s)); line-height: 1;
+                 background: color-mix(in srgb, var(--accent) 10%, transparent); }
     /* Favorites: a saved list you MAINTAIN, so every row carries its own
        controls. Order is the whole point of a favorites list — it is the order
        you would drive them in — so it is editable rather than implied. */
@@ -428,6 +464,12 @@
     .favrow { display: flex; align-items: flex-start; gap: 8px; }
     .favrow .favmain { flex: 1 1 auto; min-width: 0; }
     .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
+    /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
+       the title outranks them. It was previously unstyled, which left it at
+       body size under 17px bold species links — the row read as a list of birds
+       with a caption rather than a place with a reason to drive there. */
+    .favtitle { font-size: calc(19px * var(--s)); font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+    .favtitle .dim { font-weight: 600; }
     .favspp { margin: 4px 0 6px; }
     .favspp li { padding: 5px 0; border: none; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
@@ -877,7 +919,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.24';
+      var APP_VERSION = '1.0.25';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1618,14 +1660,60 @@
       // Failure is non-fatal: the card still renders from the alert records.
       function abaStateHistory(region, code) {
         if (!/^[A-Z]{2}(-[A-Z0-9]+)*$/i.test(String(region || '')) || !code) return Promise.resolve([]);
+        // detail=full is LOAD-BEARING, not a nicety. eBird's default
+        // detail=simple collapses the feed to ONE observation per location and
+        // omits userDisplayName and sciName, which is three separate bugs on
+        // one card: a mega twitched by hundreds reported "2 observers", the
+        // "Found by" line had a date and no name, and the GBIF state-history
+        // block hid itself entirely because sciFor() could not find a
+        // scientific name to match on. Measured on a real feed: detail=full
+        // returns 79 observations at a SINGLE location for one species.
+        // maxResults defaults to 100, which a staked-out rarity blows through.
         return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
-          encodeURIComponent(code) + '?back=' + ABA_HIST_BACK + '&includeProvisional=true')
+          encodeURIComponent(code) + '?back=' + ABA_HIST_BACK +
+          '&detail=full&includeProvisional=true&maxResults=10000')
           .then(function (rows) {
             var list = Array.isArray(rows) ? rows : [];
             abaArchiveAdd(region, list);
             return list;
           })
           .catch(function () { return []; });
+      }
+
+      // The alert is the ABA-CODE FILTER, never a census. MEASURED across 234
+      // stored snapshots: the unfiltered continent-wide feed has NEVER returned
+      // more than 497 observations, and all six unfiltered days sit at 493-497
+      // — a hard 500-row budget shared by ~50 species. Terek Sandpiper's slice
+      // of it read 26, 34, 34, 29, 36, 37 on consecutive days while the bird sat
+      // in one place, so "37 reports ABA-wide" was measuring the cap, not the
+      // bird. Any stat derived from alert row counts is therefore a floor
+      // wearing a total's clothing.
+      //
+      // The species-scoped COUNTRY feed carries no such cap. Two calls buy a
+      // real continent-wide count and real subnational1Codes for the
+      // states/provinces stat, and they only run for the 2-4 species on screen.
+      var ABA_WIDE_COUNTRIES = ['US', 'CA'];
+      function abaWideHistory(code) {
+        if (!code) return Promise.resolve(null);
+        return Promise.all(ABA_WIDE_COUNTRIES.map(function (c) {
+          return ebird('data/obs/' + c + '/recent/' + encodeURIComponent(code) +
+            '?back=' + ABA_HIST_BACK + '&detail=full&includeProvisional=true&maxResults=10000')
+            .catch(function () { return null; });
+        })).then(function (res) {
+          // A country that failed is not a country with no birds. Reporting a
+          // partial continent as a total repeats the exact error the cap was
+          // making, so the whole stat stands down instead.
+          if (res.some(function (r) { return r == null; })) return null;
+          var seen = {}, out = [];
+          res.forEach(function (rows) {
+            (Array.isArray(rows) ? rows : []).forEach(function (r) {
+              var k = abaArchiveKey(r);
+              if (seen[k]) return;
+              seen[k] = 1; out.push(r);
+            });
+          });
+          return out;
+        });
       }
 
       function refresh() {
@@ -2055,11 +2143,16 @@
       }
       // The two anchors in report.py's iteration order, so a tie goes to home
       // exactly as section_closest_spots does.
+      //
+      // Deliberately delegated rather than rebuilt: logic.js is the half of the
+      // app that is proven equal to report.py, so "which anchors do I have, and
+      // in what order" must have exactly ONE definition. This function only
+      // resolves where the coordinates COME FROM (localStorage overrides, then
+      // the report profile) and hands them to the shared builder. Rebuilding
+      // the list here is how the tie-break rule drifts from the report without
+      // any test noticing.
       function getAnchors() {
-        var out = [], h = getHome(), w = getWork();
-        if (h) out.push({ name: 'home', lat: h.lat, lng: h.lng });
-        if (w) out.push({ name: 'work', lat: w.lat, lng: w.lng });
-        return out;
+        return BL.anchorsFor(null, { home: getHome(), work: getWork() });
       }
       function anchorNote(a) {
         return a === 'work' ? ' from ' + getWorkLabel() : '';
@@ -2340,16 +2433,21 @@
       function widenThumb(src, px) {
         return /\/\d+px-/.test(src || '') ? src.replace(/\/\d+px-/, '/' + px + 'px-') : src;
       }
-      function photoLookup(name) {
+      var _heroRetried = {};
+      // retryMiss re-asks the network for a name whose lookup previously failed,
+      // bypassing the negative cache but NOT a positive one — a hit is still a hit.
+      function photoLookup(name, retryMiss) {
         var t = String(name || '').trim();
         if (!t) return Promise.resolve('');
         var c = photoCache();
-        if (Object.prototype.hasOwnProperty.call(c, t) && (c[t] || negFresh(t))) return Promise.resolve(c[t] || '');
+        if (Object.prototype.hasOwnProperty.call(c, t) && c[t]) return Promise.resolve(c[t]);
+        if (!retryMiss && Object.prototype.hasOwnProperty.call(c, t) && negFresh(t)) return Promise.resolve('');
         var cands = photoNames(t);
         return cands.reduce(function (p, title) {
           return p.then(function (src) {
             if (src) return src;
-            if (title !== t && Object.prototype.hasOwnProperty.call(c, title) && (c[title] || negFresh(title))) return c[title] || '';
+            if (title !== t && Object.prototype.hasOwnProperty.call(c, title) && c[title]) return c[title];
+            if (title !== t && !retryMiss && Object.prototype.hasOwnProperty.call(c, title) && negFresh(title)) return '';
             return photoFetch(title).then(function (s) {
               if (title !== t) { c[title] = s; markNeg(title, !s); }
               return s;
@@ -2379,7 +2477,10 @@
         return '<span class="thumb hero bchero" data-hero="1" data-bird="' + esc(name || '') + '"' +
           (code ? ' data-code="' + esc(code) + '"' : '') + '></span>';
       }
-      var HERO_PX = 640;
+      // 640px is a soft upscale on a 3x phone, where a full-bleed card photo is
+      // ~1170 device pixels wide. Wikimedia serves this width from the same
+      // fixed ladder, so asking for it costs a rendition that already exists.
+      var HERO_PX = 1024;
       function putImg(el, src, name, onErr, extraClass) {
         var img = document.createElement('img');
         img.className = 'birdpic' + (extraClass ? ' ' + extraClass : '');
@@ -2450,9 +2551,12 @@
         var name = el.getAttribute('data-bird') || '', code = el.getAttribute('data-code') || '';
         var hero = el.hasAttribute('data-hero');
         // Hero bytes are cached under their own key: the same species has a
-        // 60px list icon and a 640px card photo, and one must not serve as the
-        // other.
-        var key = (hero ? 'h:' : '') + (code || ('n:' + name));
+        // 60px list icon and a full-width card photo, and one must not serve as
+        // the other. The WIDTH is part of the key because raising HERO_PX is
+        // otherwise a silent no-op — every device holding the narrower
+        // rendition keeps serving it forever, which is exactly how a "photos
+        // are blurry" fix ships and changes nothing on the phone that reported it.
+        var key = (hero ? 'h' + HERO_PX + ':' : '') + (code || ('n:' + name));
         var cached = Object.prototype.hasOwnProperty.call(photoCache(), name);
         var done = function (fast) {
           _photoBusy = false;
@@ -2465,11 +2569,17 @@
           if (hero && code) trySeed(el, code, name, 0, function () { showFallback(el); });
           else showFallback(el);
         };
+        // A hero is ONE lookup per card, not one per row, so a negative result
+        // inherited from the list tier is worth re-testing once per session.
+        // Otherwise a single failed Wikipedia call pins a 60px seed across a
+        // full-width card for the 30 days the negative entry lives.
+        var retryMiss = hero && !_heroRetried[name];
+        if (retryMiss) _heroRetried[name] = 1;
         // Tier 2 before tier 3: bytes already on the device beat any request,
         // and are the only tier that works with no connection at all.
         idbGet(key).then(function (blob) {
           if (blob) { putImg(el, URL.createObjectURL(blob), name); done(true); return; }
-          return photoLookup(name).then(function (src) {
+          return photoLookup(name, retryMiss).then(function (src) {
             if (!src) { giveUp(); done(cached); return; }
             if (hero) src = widenThumb(src, HERO_PX);
             putImg(el, src, name, giveUp);
@@ -2581,8 +2691,12 @@
           var name = o.comName || r.code;
           out += '<li><div class="name">' + photoSlot(name, r.code) + '<span class="ntext">' +
             (r.code ? '<a href="' + esc(speciesUrl(r.code)) + '" target="_blank" rel="noopener">' + esc(name) + '</a>' : esc(name)) +
-            tag + (o.howMany ? ' (' + esc(o.howMany) + ')' : '') +
-            ' <span class="dim">— ' + esc(fmtDateTime(o.obsDt)) +
+            tag +
+            // Count, time and checklist are evidence for the name above them,
+            // not part of it — on one line they out-shouted the hotspot title
+            // and the bird name lost the row it was the subject of.
+            '<span class="sub">' + (o.howMany ? '×' + esc(o.howMany) + ' · ' : '') +
+            esc(fmtDateTime(o.obsDt)) +
             (o.subId ? ' · <a href="https://ebird.org/checklist/' + esc(o.subId) + '" target="_blank" rel="noopener">' + esc(o.subId) + '</a>' : '') +
             '</span></span></div></li>';
         });
@@ -2645,7 +2759,7 @@
             ? haversineMi(home.lat, home.lng, +f.lat, +f.lng) : null;
           li.innerHTML =
             '<div class="favrow"><div class="favmain">' +
-              '<div><span class="favrank">' + (i + 1) + '</span>' +
+              '<div class="favtitle"><span class="favrank">' + (i + 1) + '</span>' +
               locLink(f.locName || f.id, f.lat, f.lng, f.locId) +
               (d == null ? '' : ' <span class="dim">— ' + d.toFixed(1) + ' mi</span>') + '</div>' +
               '<div class="recentbox"></div>' +
@@ -3054,11 +3168,12 @@
         // there", and a bare name list is the hardest form to scan.
         var lis = d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
           .map(function (x) {
-            return '<li>' + photoSlot(x.comName, x.code)
-              + '<span class="bn">' + speciesLink(x.comName, x.code) + '</span>'
-              + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : '') + '</li>';
+            return '<li><div class="name">' + photoSlot(x.comName, x.code)
+              + '<span class="ntext">' + speciesLink(x.comName, x.code)
+              + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : '')
+              + '</span></div></li>';
           }).join('');
-        return '<ul class="obs sppl">' + lis + '</ul>';
+        return '<ul class="obs card-sm sppl">' + lis + '</ul>';
       }
       function destNameHtml(d) {
         return d.locId ? extA(hotspotUrl(d.locId), d.locName) : esc(d.locName);
@@ -4602,10 +4717,13 @@
             // trackers (lower48/aba) have no state, so they keep the full feed.
             var region = getRegion(), scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);
             var rows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;
-            // The unscoped continent-wide feed is the free rarity yardstick: it
-            // is the SAME alert, so "4 here, 27 ABA-wide across 5 states" costs
-            // no extra call and is the number that says how big a deal this is.
-            renderAbaAlert(rows, url, scoped, list);
+            // First paint carries the STATE evidence only. The unscoped alert
+            // used to double as a free "N ABA-wide across M states" yardstick,
+            // and that was wrong: the alert is capped at 500 observations
+            // continent-wide, so a species' row count there is its slice of a
+            // shared budget, not its report count. The real ABA-wide numbers
+            // arrive in the deepening pass below.
+            renderAbaAlert(rows, url, scoped);
             var species = {}; rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
             var n = Object.keys(species).length;
             var unseen = Object.keys(species).filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
@@ -4614,15 +4732,20 @@
               : ('None — no ABA Code 3+ rarities currently reported in ' + (getReport().label || 'this region') + ' · ' + nowTime());
             // Then deepen it. The alert gives the ABA-code filter but a
             // truncated report count, so pull each species' real state history
-            // and re-render. Rendering twice is deliberate: the first paint is
-            // immediate, and 0-3 extra calls must not hold it up.
+            // AND its real continent-wide history, then re-render. Rendering
+            // twice is deliberate: the first paint is immediate, and the extra
+            // calls must not hold it up.
             if (!scoped || !n || !getKey()) return;
             return Promise.all(Object.keys(species).map(function (c) {
-              return abaStateHistory(region, c);
+              return Promise.all([abaStateHistory(region, c), abaWideHistory(c)])
+                .then(function (pair) {
+                  if (pair[1]) _abaWide[c] = pair[1];
+                  return pair[0];
+                });
             })).then(function (hist) {
               var extra = [].concat.apply([], hist);
-              if (!extra.length) return;
-              renderAbaAlert(rows, url, scoped, list);
+              if (!extra.length && !Object.keys(_abaWide).length) return;
+              renderAbaAlert(rows, url, scoped);
               st.textContent = n + ' ABA Code 3+ species · ' +
                 Object.keys(species).reduce(function (t, c) {
                   return t + abaArchiveFor(region, c).length;
@@ -4640,14 +4763,16 @@
       // the ABA-wide report is hundreds of birds, and hundreds of cards is a
       // scroll, not a section.
       var ABA_CARD_REPORTS = 12;
-      function renderAbaAlert(list, url, grouped, wideList) {
+      // Real continent-wide history per species, filled by abaWideHistory. Kept
+      // out of the alert feed on purpose: an alert row count is capped at 500
+      // continent-wide, so mixing the two would put a measured number and a
+      // budget slice under the same label.
+      var _abaWide = {};
+      function renderAbaAlert(list, url, grouped) {
         var el = $('abaResults'); el.innerHTML = '';
         el.className = grouped ? 'cards' : 'obs';
         if (grouped) {
-          var byCode = {}, wideByCode = {};
-          (wideList || []).forEach(function (o) {
-            if (o.speciesCode) (wideByCode[o.speciesCode] = wideByCode[o.speciesCode] || []).push(o);
-          });
+          var byCode = {};
           list.forEach(function (o) {
             if (!o.speciesCode) return;
             (byCode[o.speciesCode] = byCode[o.speciesCode] || []).push(o);
@@ -4693,10 +4818,15 @@
             var since = abaArchiveSince(region);
             var fr = firstReport(g.rs, coverageStart(region));
             var stats = rarityStats(g.rs, 'reports in ' + (getReport().label || 'this region'),
-                                    wideByCode[g.code] || []);
+                                    _abaWide[g.code] || null);
             var card = birdCard({
               code: g.code, name: o.comName,              badges: needTag(g.code, o.comName),
-              sub: 'ABA Code 3+' + (since ? ' · state history since ' + esc(since) : ''),
+              // NOT "state history since <date>" — that date is when THIS
+              // DEVICE started keeping records, which said nothing about the
+              // bird and read as though the species arrived in the state that
+              // day. Real state history is the GBIF block below; the archive
+              // window belongs with the reports it actually bounds.
+              sub: 'ABA Code 3+',
               // The one line you act on: where the bird was last seen, when, and
               // by whom, at a size you can read while holding a steering wheel.
               now: '<span class="lbl">Latest report</span>' +
@@ -4722,7 +4852,10 @@
               stats: stats,
               hist: '<div class="bcnow bchist" data-code="' + esc(g.code) +
                 '" data-state="' + esc(stateName) + '" data-country="' + esc(gbifCountry) + '"></div>',
-              where: '<span class="lbl">Every report</span><ul class="cklrows">' + lines + '</ul>' + more
+              where: '<span class="lbl">Every report we hold</span>' +
+                (since ? '<div class="bcsince">Kept on this device since ' + esc(fmtDate(since)) +
+                  ' — earlier sightings are not missing, they are simply before we started.</div>' : '') +
+                '<ul class="cklrows">' + lines + '</ul>' + more
             });
             el.appendChild(card);
             // GBIF matches on scientific name only, so the slot stays inert
@@ -5277,12 +5410,14 @@
       function hotspotBirdList(h) {
         var birds = h.birds || []; if (!birds.length) return '';
         var lis = birds.map(function (b) {
-          return '<li>' + photoSlot(b.name, b.code) + '<span class="bn">' + esc(b.name) + '</span>'
-            + (b.unseen ? ' <span class="need">🔍</span>' : '') + '</li>';
+          return '<li><div class="name">' + photoSlot(b.name, b.code)
+            + '<span class="ntext">' + esc(b.name)
+            + (b.unseen ? ' <span class="need">🔍</span>' : '')
+            + '</span></div></li>';
         }).join('');
         return '<details class="spx"><summary>' + birds.length + ' species'
           + (h.unseenN ? ' · <b>' + h.unseenN + ' unseen 🔍</b>' : '') + '</summary>'
-          + '<ul class="obs sppl">' + lis + '</ul></details>';
+          + '<ul class="obs card-sm sppl">' + lis + '</ul></details>';
       }
       function renderCold(r) {
         var el = $('coldResults'); if (!el) return;
@@ -5847,7 +5982,6 @@
               + '<div class="name">' + photoSlot(e.name, e.code) + '<span class="ntext">' + speciesLink(e.name, e.code)
               + (e.seen ? ' <span class="dim">✅</span>' : ' 🔍')
               + (e.novel ? ' 🆕' : '') + '</span></div>'
-              + '<span class="count big">' + e.observers + '<small>birders</small></span>'
               + '<div class="meta">' + e.observers + ' birder' + (e.observers === 1 ? '' : 's')
               + (e.checklists > e.observers ? ' · ' + e.checklists + ' lists' : '')
               + ' · ' + esc(vs)
@@ -5894,13 +6028,12 @@
               // resolves by name, so the row still gets its bird.
               + '<div class="name">' + photoSlot(c.species, c.code || '')
               + '<span class="ntext">' + (c.code ? speciesLink(c.species, c.code) : esc(c.species)) + '</span></div>'
-              + '<span class="count big">' + c.birders.length + '<small>top-100 birders</small></span>'
               + '<div class="meta">' + c.birders.length + ' of the top 100 added it · latest ' + esc(c.latest) + '</div>'
               + (spots
                 ? '<div class="lanesub">Where it is being reported</div><ul class="cklrows">' + spots + '</ul>'
                   + ((c.recent || []).length > CASCADE_SPOTS
                     ? '<div class="dim">…and ' + (c.recent.length - CASCADE_SPOTS) + ' more reports</div>' : '')
-                : '<div class="lanesub">' + (c.code
+                : '<div class="dim">' + (c.code
                     ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
                     : 'Could not resolve this name to an eBird species code, so there is nowhere to link to.') + '</div>')
               + (c.code ? '<div>' + extA(speciesUrl(c.code), 'All recent ' + esc(c.species)
@@ -5920,9 +6053,8 @@
           html += '<ul class="obs big xl lanes">' + convergence.map(function (c) {
             var vs = c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal';
             return '<li>'
-              + '<div class="name"><span class="ntext">'
+              + '<div class="name"><span class="thumb placeicon" aria-hidden="true">📍</span><span class="ntext">'
               + (c.locId ? extA(hotspotUrl(c.locId), c.loc || c.locId) : esc(c.loc || '')) + '</span></div>'
-              + '<span class="count big">' + c.observers + '<small>birders</small></span>'
               + '<div class="meta">' + c.observers + ' birders · ' + esc(vs) + '</div>'
               + (c.locId
                 ? '<ul class="cklrows"><li><span class="when">Checklists</span><span class="howmany"></span>'

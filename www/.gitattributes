@@ -1,0 +1,6 @@
+# section-docs.json is AUTHORED ONCE AND SHIPPED TWICE: this copy and
+# birding/section-docs.json must stay BYTE-IDENTICAL, which the parity suite
+# enforces. Pinning the line ending keeps that a property of the file rather
+# than of whichever machine checked it out (Windows autocrlf would otherwise
+# convert one twin and not the other).
+section-docs.json text eol=lf

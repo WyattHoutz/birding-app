@@ -534,6 +534,39 @@ test("today's rarities and the ABA alert share ONE card renderer", () => {
   assert.match(today, /hydrateCards\(/, "and so do today's");
 });
 
+// MEASURED, not assumed: across 234 stored ABA alert snapshots the unfiltered
+// continent-wide feed has NEVER returned more than 497 observations, and every
+// unfiltered day sits at 493-497 — a hard 500-row budget shared by ~50 species.
+// Terek Sandpiper's slice of it read 26, 34, 34, 29, 36, 37 on consecutive days
+// while the bird sat in one place, so a stat built from alert row counts was
+// measuring the cap and calling it a total. The fix is a species-scoped COUNTRY
+// feed, which carries no such cap; this guard exists because the cheap wrong
+// number is always one refactor away from coming back.
+test('the ABA-wide count is measured, never taken from the capped alert', () => {
+  const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
+    HTML.indexOf('function birdcastSeason('));
+  assert.doesNotMatch(aba, /wideByCode/,
+    'counting rows of a 500-capped continent-wide alert reports the cap, not the bird');
+  assert.match(aba, /rarityStats\([\s\S]{0,160}_abaWide\[/,
+    'the ABA-wide stat must come from the uncapped species-scoped country feed');
+
+  const wide = HTML.slice(HTML.indexOf('function abaWideHistory('),
+    HTML.indexOf('function refresh()'));
+  assert.match(wide, /ABA_WIDE_COUNTRIES/, 'it queries whole countries, not the alert');
+  assert.match(wide, /data\/obs\/'\s*\+\s*c\s*\+\s*'\/recent\//,
+    'a species-scoped region feed is the only ABA-wide source with no row cap');
+  assert.match(wide, /detail=full/,
+    'detail=simple collapses to one observation per location, which under-counts a twitch');
+  // A country that failed to answer is not a country with no birds. Reporting a
+  // partial continent as a total repeats the exact error the cap was making.
+  assert.match(wide, /r == null; \}\)\) return null/,
+    'a partial continent must stand the stat down rather than publish a floor as a total');
+  const countries = /var ABA_WIDE_COUNTRIES = (\[[^\]]*\])/.exec(HTML);
+  assert.ok(countries, 'the ABA area must name the countries it covers');
+  assert.deepEqual(JSON.parse(countries[1].replace(/'/g, '"')), ['US', 'CA'],
+    'the ABA area is the US and Canada — one country alone is not "ABA-wide"');
+});
+
 // --- Favorite hotspots ------------------------------------------------------
 
 test('favorites can be searched for, reordered and removed', async () => {
@@ -1898,12 +1931,30 @@ test('Happening now labels every count and lists names as rows', async () => {
     [{ species: 'Terek Sandpiper', code: '', birders, latest: '2026-07-28' }],
     [{ loc: 'Marina Beach Park', locId: 'L123', observers: 16, ratio: 10 }]);
   const box = app.$('surgeResults');
-  const counts = [...box.querySelectorAll('.count.big')];
-  assert.equal(counts.length, 3, 'one headline number per lane');
-  counts.forEach((c) => assert.ok(c.querySelector('small'),
-    'a bare number explains nothing — every count carries its unit: ' + c.textContent));
-  assert.match(counts[1].textContent, /top-100 birders/,
+  // Each lane used to print its headline number TWICE — once as a big
+  // `.count.big` and again, immediately below, inside `.meta`. Two renderings of
+  // one number read as two facts. The surviving invariant is not "how many
+  // headline numbers are there" but "every number is stated once, with its
+  // unit", so the assertion moved onto the line that carries the meaning.
+  assert.equal(box.querySelectorAll('.count.big').length, 0,
+    'a headline number that only restates the sub-header below it is a duplicate, not emphasis');
+  const metas = [...box.querySelectorAll('.meta')].map((m) => m.textContent);
+  assert.equal(metas.length, 3, 'one sub-header per lane');
+  assert.match(metas[0], /\b10 birders\b/,
+    'the observation lane counts distinct BIRDERS, and says so');
+  assert.match(metas[1], /\b12 of the top 100 added it\b/,
     'the cascade count is a slice of the leaderboard, not a count of sightings');
+  assert.match(metas[2], /\b16 birders\b/,
+    'the convergence lane counts birders at the spot, and says so');
+  metas.forEach((m) => assert.ok(/\d/.test(m) && /[a-z]/i.test(m),
+    'a bare number explains nothing — every count carries its unit: ' + m));
+
+  // Convergence rows are PLACES, so they have no photo. Without a stand-in they
+  // rendered structurally unlike the bird rows directly above them.
+  const pin = box.querySelector('.placeicon');
+  assert.ok(pin, 'a place row still needs something in the photo slot');
+  assert.ok(pin.classList.contains('thumb'),
+    'the pin must be sized by the same rule as the photos it stands in for, or the headers do not line up');
 
   // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph.
   const cascade = box.querySelectorAll('ul.obs')[1];
@@ -2184,4 +2235,62 @@ test('GBIF states the window it searched instead of implying the bird vanished',
   assert.match(s, /not counted/, 'and says what that excludes');
   const noEdge = A.histLine({ records: 5, years: 2, first: 2001, last: 2003 }, 'Washington');
   assert.doesNotMatch(noEdge, /Searched/, 'no measured edge means no claim about one');
+});
+
+// One shape, one definition. `.sppl` (a hotspot's bird list, a convoy stop's
+// birds) used to hand-roll its own flex row and 34px thumb -- which was
+// `.card-sm` at a second, slightly different size. That is exactly the drift
+// the three-template block exists to prevent: two definitions of one shape
+// means a fix to the card lands in one list and not the other.
+test('the small species list uses the shared card template, not its own copy', () => {
+  // Every `.sppl` list must opt into the template rather than restyling itself.
+  const uls = HTML.match(/<ul class="obs[^"]*\bsppl\b[^"]*"/g) || [];
+  assert.ok(uls.length >= 2, 'the small species list is used in more than one section');
+  for (const u of uls) {
+    assert.match(u, /\bcard-sm\b/,
+      `every .sppl list must adopt .card-sm; found ${u}`);
+  }
+  // …and must NOT redeclare the parts the template owns.
+  const rules = HTML.match(/\.obs\.sppl[^{]*\{[^}]*\}/g) || [];
+  for (const r of rules) {
+    for (const owned of ['display:', 'font-size:', 'width:', 'height:']) {
+      assert.ok(!r.includes(owned),
+        `.sppl must not redeclare "${owned}" -- .card-sm owns the shape. Found: ${r}`);
+    }
+  }
+  assert.match(HTML, /\.obs\.card-sm \.thumb \{[^}]*width:\s*calc\(46px \* var\(--s\)\)/,
+    '.card-sm is the one place the small icon size is set');
+});
+
+// A species row is only scannable if the name is a real heading, not the 15px
+// caption `.sppl` used to render. Adopting `.card-sm` also means these names
+// inherit `.obs .name`, so they get the same weight and colour as every other
+// species name in the app.
+test('small species rows render their name through .name, not a bare span', () => {
+  for (const marker of ['destSpeciesHtml', 'hotspotBirdList']) {
+    const i = HTML.indexOf('function ' + marker + '(');
+    assert.ok(i > -1, `${marker} must exist`);
+    const body = HTML.slice(i, HTML.indexOf('</ul>', i));
+    assert.match(body, /<div class="name">/,
+      `${marker} must wrap its row in .name so the shared card styles apply`);
+    assert.match(body, /class="ntext"/,
+      `${marker} must put the text in .ntext so a long name wraps as one block`);
+    assert.ok(!/class="bn"/.test(body),
+      `${marker} must not use the old unstyled .bn span`);
+  }
+});
+
+// getAnchors() resolves WHERE the coordinates come from; logic.js decides which
+// anchors exist and in what order, because that ordering is the tie-break rule
+// report.py's section_closest_spots relies on. Rebuilding the list in the app is
+// how the two silently diverge.
+test('the app does not rebuild the anchor list that logic.js already defines', () => {
+  const i = HTML.indexOf('function getAnchors(');
+  assert.ok(i > -1, 'getAnchors must exist');
+  const body = HTML.slice(i, HTML.indexOf('\n      }', i));
+  assert.match(body, /anchorsFor\(/,
+    'getAnchors must delegate to BirdLogic.anchorsFor, the shared definition');
+  assert.ok(!/name:\s*'home'/.test(body) && !/name:\s*'work'/.test(body),
+    'getAnchors must not hand-roll the anchor objects -- that is a second '
+    + 'definition of the home/work ordering the report ranks on');
 });
