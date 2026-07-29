@@ -23,6 +23,7 @@ const WWW = path.join(__dirname, '..', 'www');
 const HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
+const BL = require(path.join(WWW, 'logic.js'));
 
 const MIME = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
@@ -115,11 +116,21 @@ test('app boots: Leaflet loads and the Contents menu is built', async () => {
 
 test('Contents menu matches the report section contract (labels + order)', async () => {
   const app = await boot();
+  // Tiles split the label into a glyph span and a text span, so textContent
+  // loses the space between them. The accessible name is the label a
+  // screen-reader user actually hears, so that is what the contract pins.
   assert.deepEqual(
-    app.links().map((a) => a.textContent.trim()),
+    app.links().map((a) => (a.getAttribute('aria-label') || a.textContent).trim()),
     CONTRACT.menu.map((m) => m.label),
     'menu labels/order drifted from tests/fixtures/report-contract.json — update ' +
     'both the app and the contract (and report.py if the report changed)');
+  const tiles = app.links();
+  assert.ok(tiles.every((a) => a.tagName === 'BUTTON'),
+    'Contents entries are real buttons (tiles), not bare anchors');
+  assert.ok(tiles.every((a) => a.querySelector('.tilelabel')),
+    'every tile carries its label in its own element, separate from the glyph');
+  assert.equal(tiles.filter((a) => a.querySelector('.tileicon')).length, tiles.length,
+    'every tile shows a glyph - that is what makes the grid scannable');
   app.window.close();
 });
 
@@ -750,7 +761,20 @@ test("Today's rarities render the report's section, not a raw notable feed", () 
 test('convoys render one block per convoy: title, map, birds, checklists', () => {
   const src = HTML.slice(HTML.indexOf('function renderConvoys('),
     HTML.indexOf('function hydrateConvoySpecies('));
-  assert.match(src, /Convoy of/, 'each convoy is titled "Convoy of N on <date>"');
+  // The title comes from the SHARED helper, not a local string: two groups out
+  // on the same day both rendered as "Jul 28 Convoy of 2", so the second read
+  // as a duplicate of the first and the section looked like it had lost a
+  // route. report._convoy_title is the other half of this pair.
+  assert.match(src, /BL\.convoyTitle\(/,
+    'the heading is built by the shared helper the report also uses');
+  assert.equal(
+    BL.convoyTitle('Jul 28', 2, 3, 16, 1) === BL.convoyTitle('Jul 28', 2, 2, 6, 0),
+    false,
+    'two same-day, same-size convoys do not collapse into one title');
+  assert.match(BL.convoyTitle('Jul 28', 2, 3, 16, 1), /3 stops · 16 species · 🔍 1 unseen/,
+    'the title says stops, species and how many birds you still need');
+  assert.ok(BL.convoyTitle('Jul 28', 2, 3, 0, 0).indexOf('species') < 0,
+    'no loaded detail omits the species clause rather than printing 0');
   assert.match(src, /convoyMap/, 'and carries its own map of that convoy\'s hotspots');
   assert.ok(!/<details|<summary/.test(src),
     'nothing in the section collapses - the user asked for plain lists');
@@ -762,6 +786,12 @@ test('convoys render one block per convoy: title, map, birds, checklists', () =>
     'unseen birds come first - they are the reason to chase the route');
   assert.match(spp, /<ul class="convoysppl">/,
     'both are plain lists, not collapsed toggles');
+  // "Nothing here for you" is the whole answer for a convoy, so it is sized
+  // like an answer instead of a dim aside the eye slides past.
+  assert.match(spp, /class="allseen"/,
+    'a route with no unseen birds says so in a full-size label');
+  assert.match(spp, /retitleConvoy\(/,
+    'and the species counts are folded back into the heading once loaded');
 });
 
 // ---------------------------------------------------------------------------
@@ -882,7 +912,10 @@ test('quick outing: capped to an impulse detour and sorted by distance', async (
   const rows = app.window.__app.buildQuickOuting(
     [far(12), far(2), far(4), far(1), far(8)], home);
   assert.equal(rows.radiusMi, 5, 'a 5-mile radius is about a five-minute drive');
-  const dists = rows.map((r) => Math.round(r.dist));
+  // Array.from: rows are built inside the jsdom realm, so their prototype is
+  // not this realm's Array.prototype and deepStrictEqual would reject them on
+  // identity alone.
+  const dists = Array.from(rows).map((r) => Math.round(r.dist));
   assert.deepEqual(dists, [1, 2, 4], 'only the near spots, closest first');
   // ...but a rural region must not get an empty section.
   const sparse = app.window.__app.buildQuickOuting([far(9), far(30)], home);
@@ -1014,3 +1047,106 @@ test('convoy checklists load concurrently, with a hard cap on in-flight calls', 
   app.window.close();
 });
 
+
+// ---------------------------------------------------------------------------
+// v1.0.19: branding, the tile menu, and the two sections the app was missing.
+// ---------------------------------------------------------------------------
+
+test('branding: one brand mark, defined once and reused offline', async () => {
+  const app = await boot();
+  const d = app.document;
+  const sym = d.getElementById('bcMark');
+  assert.ok(sym, 'the brand mark is an inline <symbol>, not a fetched image');
+  assert.equal(sym.tagName.toLowerCase(), 'symbol');
+  const uses = [...d.querySelectorAll('use')]
+    .filter((u) => (u.getAttribute('href') || '') === '#bcMark');
+  assert.ok(uses.length >= 2,
+    'the mark is reused (header + navbar), not pasted per site');
+  // A remote logo would break the "no runtime GitHub dependency" rule and would
+  // render as a hole on a phone with no signal - the whole point of inlining.
+  assert.ok(!/<img[^>]+src="https?:/i.test(HTML),
+    'no branding image is fetched over the network');
+  assert.match(d.querySelector('header h1').textContent, /Bird Chaser/,
+    'the wordmark is real text, so it is searchable and scales');
+  app.window.close();
+});
+
+test('Contents is a grid of tiles, and the lead board leads it', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const parts = A.splitLabel('🧭 Where to go next');
+  assert.equal(parts.icon, '🧭', 'a label splits off its glyph');
+  assert.equal(parts.text, 'Where to go next', 'and keeps the rest as words');
+  const plain = A.splitLabel('Settings');
+  assert.equal(plain.icon, '', 'a label with no glyph claims none');
+  assert.equal(plain.text, 'Settings',
+    'and keeps all of its text rather than losing a letter to a bad guess');
+  const first = app.document.querySelector('#menuList li');
+  assert.ok(first.classList.contains('wide'),
+    'the first tile spans the row - "where do I go next" is the whole app');
+  assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
+    /Where to go next/, 'and it is the lead board, not whatever sorts first');
+  app.window.close();
+});
+
+test('All unseen reports: one row per species per place, nearest first', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Four raw rows: three observers on one stakeout inside 250 m (which is ONE
+  // errand) plus a farther bird. Printing four lines makes the list look four
+  // times as busy as the day actually was.
+  const rows = A.buildAllUnseen([
+    { code: 'tufpuf', name: 'Tufted Puffin', lat: 47.80, lon: -122.39,
+      dateStr: '2026-07-28 07:10', distMi: 12.4, loc: 'Marina Beach Park',
+      locId: 'L1', observer: 'A', subId: 'S1' },
+    { code: 'tufpuf', name: 'Tufted Puffin', lat: 47.8008, lon: -122.3902,
+      dateStr: '2026-07-28 09:30', distMi: 12.4, loc: 'Edmonds waterfront',
+      locId: 'L2', observer: 'B', subId: 'S2' },
+    { code: 'tufpuf', name: 'Tufted Puffin', lat: 47.8004, lon: -122.3898,
+      dateStr: '2026-07-28 11:05', distMi: 12.4, loc: 'Marina Beach Park',
+      locId: 'L1', observer: 'A', subId: 'S3', valid: false },
+    { code: 'rufhum', name: 'Rufous Hummingbird', lat: 47.70, lon: -122.15,
+      dateStr: '2026-07-27 08:00', distMi: 2.1, loc: 'Home pond',
+      locId: 'L9', observer: 'C', subId: 'S4' },
+  ]);
+  assert.equal(rows.length, 2, 'the stakeout collapses to one row, not three');
+  assert.equal(rows[0].code, 'rufhum', 'nearest first, mirroring the report');
+  const puffin = rows[1];
+  assert.equal(puffin.nReports, 3, 'but the report count is kept - it is the signal');
+  assert.equal(puffin.nObservers, 2,
+    'observers are counted distinctly: one birder filing twice is not two people');
+  assert.equal(puffin.dateStr, '2026-07-28 11:05',
+    'the newest observation represents the group');
+  assert.equal(puffin.anyUnconfirmed, true,
+    'an unconfirmed report in the group is surfaced, not averaged away');
+  app.window.close();
+});
+
+test('work anchor: a second waypoint ranks, it never widens coverage', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // regions.py ships a work waypoint for WA, so the default is already two
+  // anchors; the setting overrides it rather than creating it.
+  assert.equal(A.getAnchors().length, 2,
+    'the region default supplies home and work');
+  app.window.localStorage.setItem(A.workKey('lat'), '47.674');
+  app.window.localStorage.setItem(A.workKey('lng'), '-122.1215');
+  const anchors = A.getAnchors();
+  assert.equal(anchors.length, 2, 'a saved work waypoint replaces the default');
+  assert.equal(anchors[1].lat, 47.674, 'and it is the saved one that is used');
+  assert.equal(anchors[0].name, 'home',
+    'home is first, so a tie in distance resolves to home');
+  // Clearing work stores an empty string rather than removing the key: a
+  // removed key would silently fall back to the regions.py default, so
+  // "I do not have a work location" would be un-expressible.
+  app.window.localStorage.setItem(A.workKey('lat'), '');
+  assert.equal(A.getAnchors().length, 1,
+    'clearing work really removes the second anchor, not resets it');
+  // The anchors must not reach the feed planner: a work-centred circle would
+  // change WHICH birds the app knows about, and the report would then be
+  // answering a different question than the app.
+  const planner = HTML.slice(HTML.indexOf('BL.planFeeds('), HTML.indexOf('BL.planFeeds(') + 200);
+  assert.ok(!/anchor/i.test(planner),
+    'planFeeds is never handed anchors - the second waypoint ranks only');
+  app.window.close();
+});

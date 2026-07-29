@@ -24,6 +24,13 @@
   ],
   "menu": [
     {
+      "at": "leadsBtn",
+      "label": "🧭 Where to go next",
+      "report": "## 🧭 Where to go next",
+      "map": null,
+      "why": "the answer, not a source — every chase lane merged into one ranked list; mapless on purpose because each row already links its own hotspot and a 12-pin static map would repeat the sections it draws from"
+    },
+    {
       "at": "surgeBtn",
       "label": "🔴 Happening now",
       "report": "## 🔴 Happening now",
@@ -131,6 +138,13 @@
       "map": null
     },
     {
+      "at": "allUnseenBtn",
+      "label": "📋 All unseen reports",
+      "report": "## 📋 All unseen reports in",
+      "map": null,
+      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"
+    },
+    {
       "at": "easyBtn",
       "label": "🥚 Easy misses",
       "report": "## 🥚 Easy misses",
@@ -173,7 +187,6 @@
     "## Contents": "navigation furniture; the app has its own Contents menu",
     "## Reports": "index of published Markdown files - meaningless on device",
     "## Run this on another computer": "setup instructions for the pipeline repo",
-    "## 📋 All unseen reports in": "the app shows the same targets ranked by distance in \"Closest spots with unseen birds\"; an unranked dump of every unseen report is a scroll, not a plan",
     "## 🔍 Watchlist": "\"needs verification\" is a report-only concept - the app has no NV list",
     "## 🏅 Your state rankings": "rarity-tracker-only cross-region table; the app scopes to one region by design - switch regions in the nav instead",
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",

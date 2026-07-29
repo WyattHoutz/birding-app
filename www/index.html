@@ -95,6 +95,16 @@
       background: linear-gradient(160deg, var(--accent), #0b5a3c);
       color: var(--accent-ink);
     }
+    /* Brand lockup. The mark is the SAME binoculars geometry the home-screen
+       icon is drawn from (assets/generate.js), redrawn as inline SVG so the
+       app looks like its own icon with zero network and zero extra bytes over
+       the wire. One <symbol>, reused wherever the mark appears. */
+    .brandsprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brandmark { width: 58px; height: 58px; flex: 0 0 auto;
+                 filter: drop-shadow(0 2px 6px rgba(0,0,0,.28)); }
+    .brandtext { min-width: 0; }
+    .brandmark.small { width: 26px; height: 26px; filter: none; }
     header .kicker { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
     header h1 { font-size: 30px; margin: 0; font-weight: 800; letter-spacing: -0.02em; }
     header p { margin: 8px 0 0; font-size: 15px; opacity: .9; max-width: 34ch; }
@@ -137,11 +147,32 @@
     .regionpick label { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .regionpick select { flex: 1; font-weight: 700; }
     #menuPanel h2 { font-size: 19px; margin-bottom: 4px; }
-    .toc { list-style: none; padding: 0; margin: 8px 0 0; }
-    .toc li { border-top: 1px solid var(--line); }
-    .toc li:first-child { border-top: 0; }
-    .toc .toclink { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 2px; font-size: 16px; font-weight: 700; color: var(--ink); cursor: pointer; }
-    .toc .toclink::after { content: "\203a"; color: var(--muted); font-weight: 700; font-size: 20px; }
+    /* Contents is a grid of tiles, not a list of links: 25 rows of text all
+       set at the same weight is a wall to scan, while a glyph per tile lets
+       the eye jump straight to the section it wants. Labels keep the .toclink
+       hook so routing (and the DOM contract test) is unchanged. */
+    .toc { list-style: none; padding: 0; margin: 10px 0 0; display: grid;
+           grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .toc li { border-top: 0; display: flex; }
+    .toc .toclink { display: flex; flex-direction: column; align-items: flex-start;
+                    justify-content: flex-start; gap: 8px; flex: 1 1 auto;
+                    padding: 14px 12px; border: 1px solid var(--line);
+                    border-radius: 14px; background: var(--card);
+                    font-size: 14px; font-weight: 700; line-height: 1.25;
+                    color: var(--ink); cursor: pointer; text-align: left;
+                    min-height: 92px; box-shadow: 0 1px 2px rgba(0,0,0,.16); }
+    .toc .toclink:active { transform: scale(.97); }
+    .toc .toclink::after { content: none; }
+    .tileicon { font-size: 26px; line-height: 1; }
+    .tilelabel { display: block; }
+    /* The first tile is the whole point of the app, so it spans the row and
+       says what it is for rather than sharing a slot with Settings. */
+    .toc li.wide { grid-column: 1 / -1; }
+    .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
+                            gap: 12px; font-size: 17px;
+                            background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
+                            border-color: rgba(46,160,67,.45); }
+    .toc li.wide .tileicon { font-size: 30px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -154,9 +185,14 @@
     .destfoot { margin: 8px 0 2px; }
     .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .status { font-size: 13px; color: var(--muted); padding: 10px 0 2px; }
+    .feedwarn { color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
+                border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
     .obs { list-style: none; margin: 6px 0 0; padding: 0; }
     .obs li { padding: 12px 0; border-top: 1px solid var(--line); overflow: hidden; }
-    .obs .name { font-weight: 700; font-size: 15px; color: var(--accent); }
+    /* Bird names are what these lists are FOR — they were set at 15px, smaller
+       than the section intro text above them. Everything that names a species
+       reads at 17px or larger. */
+    .obs .name { font-weight: 700; font-size: 17px; color: var(--accent); line-height: 1.3; }
     .obs .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
     .obs .count { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .filebtn { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
@@ -181,14 +217,14 @@
     .obs li { overflow: hidden; }
     /* Larger icon + title for the sections read as "which bird is this" rather
        than "how many" — the thumbnail is the fastest way to recognise a bird. */
-    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 800; line-height: 1.25; }
+    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 800; line-height: 1.25; }
     .obs.big .thumb { float: none; flex: 0 0 auto; width: 64px; height: 64px; margin: 0; }
     .obs.big .meta { margin-top: 6px; }
     .obs.big .count { font-size: 13px; font-weight: 700; color: var(--ink); }
     .convoywrap { margin: 8px 0 14px; }
     .convoysppbox { font-size: 13px; margin-top: 4px; line-height: 1.45; }
     .convoyhead { font-size: 13px; font-weight: 800; margin: 10px 0 4px; }
-    .convoysppl { list-style: none; padding: 0; margin: 0 0 6px; font-size: 13px; }
+    .convoysppl { list-style: none; padding: 0; margin: 0 0 6px; font-size: 15px; }
     /* A floated .thumb inside a plain <li> stacks each row diagonally (the
        float from row N pushes row N+1 right). Flex clears it without needing
        an overflow trick, and keeps the name on one baseline with the icon. */
@@ -196,6 +232,14 @@
     .convoysppl .thumb { float: none; flex: 0 0 auto; width: 34px; height: 34px; margin: 0; }
     .map:empty { display: none; }
     .convoymiss { color: var(--accent); font-weight: 600; }
+    /* "Nothing here for you" is the whole answer for a convoy, so it is sized
+       like an answer instead of buried in a dim one-liner. */
+    .allseen { margin: 10px 0 6px; padding: 12px 14px; border-radius: 12px;
+               background: rgba(46,160,67,.13); border: 1px solid rgba(46,160,67,.35);
+               font-size: 18px; font-weight: 800; line-height: 1.25; }
+    .allseen small { display: block; margin-top: 4px; font-size: 13px;
+                     font-weight: 500; color: var(--muted); }
+    .convoytitle { font-size: 17px; line-height: 1.3; }
     .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
     .wxline.dim2 { color: var(--muted); font-size: 12px; }
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
@@ -203,6 +247,45 @@
     .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .seenflag, .needflag { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+    /* 🧭 Where to go next — the answer screen, so rows are big and the reason
+       is on its own line rather than buried in the metadata run. */
+    .obs.leads { counter-reset: lead; }
+    .obs.leads li { list-style: none; padding: 14px 0; }
+    .obs.leads .name { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 800; line-height: 1.25; }
+    .obs.leads .thumb { float: none; flex: 0 0 auto; width: 56px; height: 56px; margin: 0; }
+    .obs.leads .leadicon { font-size: 20px; }
+    .obs.leads .count { font-size: 14px; font-weight: 800; color: var(--ink); }
+    .obs.leads .why { font-size: 14px; margin-top: 6px; color: var(--ink); }
+    .obs.leads .meta { font-size: 14px; }
+    /* Hot hotspots: the bird list behind a summary, so a 60-species spot does
+       not push the next hotspot off the screen. */
+    .spx { margin-top: 8px; font-size: 14px; }
+    .spx summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+    .obs.sppl { margin-top: 6px; }
+    .obs.sppl li { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: none; font-size: 15px; }
+    .obs.sppl .thumb { float: none; flex: 0 0 auto; width: 34px; height: 34px; margin: 0; }
+    .obs.sppl .need { color: var(--accent); font-weight: 800; }
+    /* Birdiest checklists: the species count IS the ranking, so it reads as a
+       number rather than a footnote, and an unseen bird on the list is the
+       only thing that turns a good list into a place to drive to. */
+    .obs .count.big { font-size: 22px; font-weight: 800; color: var(--ink); }
+    .obs .count.big small { font-size: 12px; font-weight: 700; color: var(--muted); }
+    .cklneed { font-size: 14px; margin-top: 6px; }
+    .cklneed.hit { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+                   border-radius: 8px; padding: 6px 9px; display: inline-block; }
+    /* Latest ticks / rarity rows: a checklist list is scanned, not read, so
+       each field lands in the same place on every row. */
+    .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: 14px; }
+    .cklrows li { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px;
+                  padding: 6px 0; border-top: 1px solid var(--line); align-items: baseline; }
+    .cklrows .when { font-weight: 700; color: var(--ink); white-space: nowrap; }
+    .cklrows .howmany { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
+    .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+    .cklrows .maplink, .cklrows .extlink { margin-top: 0; }
+    .stakeflag { font-size: 12px; font-weight: 800; color: #0f7a52;
+                 background: color-mix(in srgb, #0f7a52 14%, transparent);
+                 border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .rankhead { margin: 2px 0 4px; }
@@ -244,15 +327,47 @@
   </style>
 </head>
 <body>
+  <!-- Brand mark, defined once and reused. Geometry mirrors the binoculars in
+       assets/generate.js (cx 50, cy 52, u 38) so the in-app logo and the
+       home-screen icon are recognisably the same object. -->
+  <svg class="brandsprite" aria-hidden="true" focusable="false">
+    <symbol id="bcMark" viewBox="0 0 100 100">
+      <rect x="4" y="4" width="92" height="92" rx="22" fill="url(#bcMarkBg)"/>
+      <rect x="29.1" y="36.8" width="41.8" height="11.4" rx="3.8" fill="#eef3ef"/>
+      <rect x="11.62" y="26.92" width="34.96" height="47.12" rx="15.2" fill="#eef3ef"/>
+      <rect x="53.42" y="26.92" width="34.96" height="47.12" rx="15.2" fill="#eef3ef"/>
+      <rect x="45.82" y="35.28" width="8.36" height="14.44" rx="2.28" fill="#082c1e"/>
+      <circle cx="29.1" cy="63.4" r="12.92" fill="#082c1e"/>
+      <circle cx="70.9" cy="63.4" r="12.92" fill="#082c1e"/>
+      <circle cx="29.1" cy="63.4" r="9.12" fill="#37d391"/>
+      <circle cx="70.9" cy="63.4" r="9.12" fill="#37d391"/>
+      <circle cx="29.1" cy="27.68" r="11.4" fill="#082c1e"/>
+      <circle cx="70.9" cy="27.68" r="11.4" fill="#082c1e"/>
+    </symbol>
+    <linearGradient id="bcMarkBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#129664"/>
+      <stop offset="1" stop-color="#084630"/>
+    </linearGradient>
+  </svg>
   <div id="navbar" hidden>
     <button id="navBack" class="secondary" type="button">‹ Contents</button>
+    <svg class="brandmark small" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <use href="#bcMark"></use>
+    </svg>
     <span id="navTitle"></span>
     <select id="navRegion" aria-label="Report region"></select>
   </div>
   <header>
-    <p class="kicker">Personal eBird tracker</p>
-    <h1>🦉 Bird Chaser</h1>
-    <p>Your live target list, straight from the eBird API — no server, no account sync.</p>
+    <div class="brand">
+      <svg class="brandmark" viewBox="0 0 100 100" role="img" aria-label="Bird Chaser">
+        <use href="#bcMark"></use>
+      </svg>
+      <div class="brandtext">
+        <p class="kicker">Personal eBird tracker</p>
+        <h1>Bird Chaser</h1>
+      </div>
+    </div>
+    <p>Find the birds you haven’t seen — live from the eBird API, no server, no account sync.</p>
   </header>
 
   <main>
@@ -274,6 +389,15 @@
       <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
       <div id="closeMap"></div>
       <ul id="targetResults" class="obs big"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>📋 All unseen reports <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <div class="row">
+        <button id="allUnseenBtn">List every report</button>
+      </div>
+      <div id="allUnseenStatus" class="status">Every unseen-species report in range, nearest first. Duplicate observers of the same bird at the same spot on the same day are merged into one row; ⚠️ = unconfirmed.</div>
+      <ul id="allUnseenResults" class="obs big"></ul>
     </section>
 
     <section class="panel">
@@ -313,6 +437,7 @@
         <button id="cklBtn">Load checklists</button>
       </div>
       <div id="cklStatus" class="status">Recent regional checklists ranked by species count.</div>
+      <div id="cklWarn"></div>
       <div id="cklMap"></div>
       <ul id="cklResults" class="obs dest"></ul>
     </section>
@@ -331,6 +456,15 @@
       <h2>⭐ Favorite hotspots</h2>
       <div id="favStatus" class="status">Save hotspots from the lists above to pin them here.</div>
       <ul id="favResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🧭 Where to go next <span class="dim" id="leadsRegionLabel"></span></h2>
+      <div class="row">
+        <button id="leadsBtn">Find me a bird</button>
+      </div>
+      <div id="leadsStatus" class="status">Every chase lane merged into one ranked list — twitches in progress, rare birds you need, what the leaderboard is finding, and the closest spot holding something unseen. Everything below is a source; this is the answer.</div>
+      <div id="leadsResults"></div>
     </section>
 
     <section class="panel">
@@ -489,6 +623,21 @@
         <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
       </div>
       <p class="hint">Adds distances and a home marker to Top destinations. Also drives the Conditions forecast (US only).</p>
+      <label for="workPlace">Work / second anchor (optional) <span id="workRegionLabel"></span></label>
+      <div class="row">
+        <div style="flex:1 1 auto"><input id="workPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.66, -122.14" /></div>
+        <button id="geocodeWorkBtn" class="secondary" type="button">Find</button>
+      </div>
+      <p class="hint" id="geocodeWorkStatus">A spot by the office should rank on its short lunch-break hop, not on its longer drive from home.</p>
+      <div class="row">
+        <div><input id="workLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.66" /></div>
+        <div><input id="workLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.14" /></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><input id="workLabel" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="label, e.g. Redmond" /></div>
+        <button id="clearWorkBtn" class="secondary" type="button">Clear</button>
+      </div>
+      <p class="hint">Closest spots, Quick outing, Cold hotspots and Where to go next measure from whichever anchor is nearer, and say which one. Everything else stays measured from home, matching the report.</p>
       <label for="tideStation">NOAA tide station ID (optional)</label>
       <input id="tideStation" type="text" inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="e.g. 9447130" />
       <p class="hint">For coastal tides in Conditions. Find yours at <code>tidesandcurrents.noaa.gov</code>. Leave blank inland.</p>
@@ -545,7 +694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.18';
+      var APP_VERSION = '1.0.19';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -564,6 +713,11 @@
       // before this was per-region migrate once, into whichever report was
       // active at the time.
       function homeKey(field) { return 'ebird_home_' + field + ':' + getReportSlug(); }
+      // A second anchor, stored per region exactly like home. The report has
+      // had a work waypoint since regions.py existed (WA = Redmond); the app
+      // never did, which is why its Closest spots and Quick outing rows never
+      // matched the Markdown report's.
+      function workKey(field) { return 'ebird_work_' + field + ':' + getReportSlug(); }
       function tideKey() { return 'ebird_tide_station:' + getReportSlug(); }
       function migrateHomeKeys() {
         ['lat', 'lng', 'place'].forEach(function (f) {
@@ -656,6 +810,7 @@
             '<div class="name">' + photoSlot(o.comName, o.speciesCode) +
             speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + '</div>' +
             '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, o.locId, o.locationPrivate) +
+            (o.anchor ? anchorNote(o.anchor) : '') +
             ' · ' + esc(fmtDate(o.obsDt)) + who +
             (o.howMany != null && o.distMi != null ? ' · ×' + esc(o.howMany) : '') +
             (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
@@ -828,16 +983,22 @@
           if (c.rarity) { rarityRedirect(st); return; }
           // Unseen species across the report's counties/geo (report scope + seen
           // set), collapsed to one row per species — newest, closest first.
-          var seenSp = {}, targets = [];
+          var seenSp = {}, targets = [], anchors = getAnchors();
           c.cv.unseen.forEach(function (r) {
             if (!r.code || seenSp[r.code]) return;
             seenSp[r.code] = 1;
+            // Closest spots ranks on the NEAREST anchor (home OR work), matching
+            // report.section_closest_spots. The report's GLOBAL distMi stays
+            // home-only, so this is a local override, not a pipeline change.
+            var na = BL.nearestAnchor(anchors, r.lat, r.lon);
             targets.push({
               speciesCode: r.code, comName: r.name || r.code, howMany: r.count,
               locName: r.loc, locId: r.locId, lat: r.lat, lng: r.lon,
               locationPrivate: r.location_private, obsDt: r.dateStr,
               subId: r.subId, userDisplayName: r.observer,
-              distMi: (r.distMi != null && r.distMi !== Infinity) ? r.distMi : null
+              anchor: na ? na.name : null,
+              distMi: na ? na.dist
+                : ((r.distMi != null && r.distMi !== Infinity) ? r.distMi : null)
             });
           });
           if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
@@ -861,6 +1022,84 @@
           renderMap($('closeMap'), pts.slice(0, 25), getHome(), false);
           renderList(out, shown);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // --- 📋 All unseen reports (report.section_all_unseen) ---------------
+      // Mirrors report._group_unseen: bucket by (species, date), cluster each
+      // bucket to 250 m, and keep the cleanest location name — so a stakeout
+      // whose observers each picked a different micro-hotspot is ONE row with
+      // a report count, not fifteen near-identical lines.
+      function buildAllUnseen(records) {
+        var buckets = {};
+        (records || []).forEach(function (r) {
+          var k = (r.code || r.name || '') + '|' + String(r.dateStr || '').slice(0, 10);
+          (buckets[k] || (buckets[k] = [])).push(r);
+        });
+        var groups = [];
+        Object.keys(buckets).forEach(function (k) {
+          BL.clusterByProximity(buckets[k], 250).forEach(function (items) {
+            items = items.slice().sort(function (a, b) {
+              return String(a.dateStr || '').localeCompare(String(b.dateStr || ''));
+            });
+            var rep = items[items.length - 1];
+            var canon = BL.pickCanonicalLoc(items) || rep;
+            var obs = {};
+            items.forEach(function (r) { if (r.observer) obs[r.observer] = 1; });
+            groups.push({
+              code: rep.code, name: rep.name || rep.code,
+              loc: canon.loc || rep.loc, locId: canon.locId || rep.locId,
+              lat: canon.lat != null ? canon.lat : rep.lat,
+              lon: canon.lon != null ? canon.lon : rep.lon,
+              locationPrivate: canon.location_private,
+              distMi: canon.distMi != null ? canon.distMi : rep.distMi,
+              dateStr: rep.dateStr, subId: rep.subId, observer: rep.observer,
+              count: rep.count,
+              nReports: items.length, nObservers: Object.keys(obs).length,
+              anyUnconfirmed: items.some(function (r) { return r.valid === false; })
+            });
+          });
+        });
+        groups.sort(function (a, b) {
+          var ad = (a.distMi == null || !isFinite(a.distMi)) ? Infinity : a.distMi;
+          var bd = (b.distMi == null || !isFinite(b.distMi)) ? Infinity : b.distMi;
+          if (ad !== bd) return ad - bd;
+          return String(a.dateStr || '').localeCompare(String(b.dateStr || ''));
+        });
+        return groups;
+      }
+      function loadAllUnseen() {
+        if (!getKey()) { $('allUnseenStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if ($('allUnseenRegionLabel')) $('allUnseenRegionLabel').textContent = '· ' + getReport().label;
+        var btn = $('allUnseenBtn'), st = $('allUnseenStatus'), el = $('allUnseenResults');
+        btn.disabled = true; el.innerHTML = '';
+        st.textContent = 'Collecting every unseen report in ' + getReport().label + '…';
+        getChase().then(function (c) {
+          if (c.rarity) { rarityRedirect(st); return; }
+          var rows = buildAllUnseen(c.cv.unseen || []);
+          if (!rows.length) { st.textContent = 'No unseen-species reports in range right now.'; return; }
+          var raw = rows.reduce(function (a, g) { return a + g.nReports; }, 0);
+          st.textContent = rows.length + ' species×location'
+            + (rows.length === 1 ? '' : 's') + ' (' + raw + ' raw reports collapsed)'
+            + ' · nearest first · ' + nowTime();
+          el.innerHTML = rows.map(function (g, i) {
+            var d = (g.distMi != null && isFinite(g.distMi))
+              ? '<span class="count">' + g.distMi.toFixed(1) + ' mi</span>' : '';
+            return '<li>' + d
+              + '<div class="name">' + photoSlot(g.name, g.code)
+              + '<span class="rank">' + (i + 1) + '</span>'
+              + speciesLink(g.name, g.code) + needTag(g.code, g.name)
+              + (g.count != null && g.count !== '' ? ' <span class="dim">(' + esc(g.count) + ')</span>' : '')
+              + (g.anyUnconfirmed ? ' ⚠️' : '') + '</div>'
+              + '<div class="meta">' + locLink(g.loc || '', g.lat, g.lon, g.locId, g.locationPrivate)
+              + ' · ' + esc(fmtDateTime(g.dateStr))
+              + (g.subId ? ' · ' + checklistLink(g.subId, g.subId) : '')
+              + ' · ' + g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
+              + (g.nObservers ? ' · ' + g.nObservers + ' observer' + (g.nObservers === 1 ? '' : 's') : '')
+              + '</div></li>';
+          }).join('');
+          hydratePhotos(el);
+        }).catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
       }
 
       // --- shared chase pipeline (BirdLogic.computeChaseViews), cached ~10 min -
@@ -1046,6 +1285,34 @@
         // distances match the Markdown report even before the user sets one.
         var h = getReport().home;
         return (h && isFinite(h.lat) && isFinite(h.lng)) ? { lat: +h.lat, lng: +h.lng } : null;
+      }
+
+      // A saved work anchor of "" is meaningful: it means the user explicitly
+      // cleared the region default, so it must NOT fall back to regions.py.
+      function getWork() {
+        var raw = localStorage.getItem(workKey('lat'));
+        if (raw === '') return null;
+        var la = parseFloat(raw), lo = parseFloat(localStorage.getItem(workKey('lng')));
+        if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
+        if (raw !== null) return null;
+        var w = getReport().work;
+        return (w && isFinite(w.lat) && isFinite(w.lng)) ? { lat: +w.lat, lng: +w.lng } : null;
+      }
+      function getWorkLabel() {
+        var s = localStorage.getItem(workKey('label'));
+        if (s) return s;
+        return getReport().workLabel || 'work';
+      }
+      // The two anchors in report.py's iteration order, so a tie goes to home
+      // exactly as section_closest_spots does.
+      function getAnchors() {
+        var out = [], h = getHome(), w = getWork();
+        if (h) out.push({ name: 'home', lat: h.lat, lng: h.lng });
+        if (w) out.push({ name: 'work', lat: w.lat, lng: w.lng });
+        return out;
+      }
+      function anchorNote(a) {
+        return a === 'work' ? ' from ' + getWorkLabel() : '';
       }
 
       // Geocode a free-text place (city / address / waypoint name) OR parse a
@@ -1403,8 +1670,15 @@
         return d;
       }
       function destSpeciesHtml(d) {
-        return d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
-          .map(function (x) { return speciesLink(x.comName, x.code) + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : ''); }).join(', ');
+        // Icons, not a comma run: these rows are read as "which birds are
+        // there", and a bare name list is the hardest form to scan.
+        var lis = d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
+          .map(function (x) {
+            return '<li>' + photoSlot(x.comName, x.code)
+              + '<span class="bn">' + speciesLink(x.comName, x.code) + '</span>'
+              + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : '') + '</li>';
+          }).join('');
+        return '<ul class="obs sppl">' + lis + '</ul>';
       }
       function destNameHtml(d) {
         return d.locId ? extA(hotspotUrl(d.locId), d.locName) : esc(d.locName);
@@ -1423,6 +1697,7 @@
             ' &nbsp; ' + favLink(d);
           listEl.appendChild(li);
         });
+        hydratePhotos(listEl);
       }
 
       // Shared status for reports where hotspot chasing doesn't apply (Lower 48 /
@@ -1583,6 +1858,9 @@
           var lists = [];
           results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
           var top = buildBirdiest(lists, home).slice(0, 25);
+          var fw = BL.feedWindow(lists, 7);
+          $('cklWarn').innerHTML = fw.warning
+            ? '<div class="status feedwarn">⚠️ <b>' + esc(fw.warning) + '</b></div>' : '';
           if (!top.length) { st.textContent = 'No recent hotspot checklists within 40 mi in ' + countyLabelStr() + '.'; return; }
           st.textContent = top.length + ' checklist' + (top.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           var el = $('cklResults');
@@ -1593,10 +1871,11 @@
             var loc = lc.name || lc.locName || l.locName || '';
             var locId = l.locId || lc.locId || '';
             var sub = l.subId || l.subID || '';
-            li.innerHTML = '<span class="count">' + (l.numSpecies || 0) + ' sp.</span>' +
+            li.innerHTML = '<span class="count big">' + (l.numSpecies || 0) + '<small> sp.</small></span>' +
               '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(l.userDisplayName || 'eBirder') + '</span></div>' +
               '<div class="meta">' + (loc ? locLink(loc, lc.latitude, lc.longitude, locId, !lc.isHotspot) : 'Location hidden') +
               ' · ' + esc(l.obsDt || '') + '</div>' +
+              '<div class="cklneed" data-sub="' + esc(sub) + '"></div>' +
               (sub ? extA(checklistUrl(sub), 'View checklist ↗') : '');
             el.appendChild(li);
           });
@@ -1605,7 +1884,34 @@
             var loc = l.loc || {};
             return { lat: +loc.latitude, lng: +loc.longitude, name: loc.name || loc.locName || '' };
           }), home, false);
+          // A 90-species list is only interesting if it holds something you
+          // need, so resolve each list's unseen birds behind a bounded pool.
+          markBirdiestUnseen(el);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // Resolve each birdiest checklist's species and mark the ones you still
+      // need. Bounded concurrency: 25 checklists at full fan-out would spend
+      // the API key's whole per-minute budget on one section.
+      function markBirdiestUnseen(root) {
+        var slots = [].slice.call(root.querySelectorAll('.cklneed[data-sub]'))
+          .filter(function (s) { return s.getAttribute('data-sub'); });
+        if (!slots.length) return Promise.resolve();
+        return pool(slots, CONVOY_FETCH_CONC, function (slot) {
+          var sub = slot.getAttribute('data-sub');
+          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+            .then(function (d) {
+              var obs = (d && d.obs) || [], need = [];
+              obs.forEach(function (o) {
+                if (o.speciesCode && !isSpeciesSeen(o.speciesCode, '')) need.push(o.speciesCode);
+              });
+              if (!need.length) return;
+              slot.className = 'cklneed hit';
+              slot.innerHTML = '🔍 <b>' + need.length + ' unseen bird'
+                + (need.length === 1 ? '' : 's') + ' on this list</b>';
+            })
+            .catch(function () {});
+        });
       }
 
       // --- Last 7-Days rarity reports (report.section_rarities) ---------------------------
@@ -1653,7 +1959,14 @@
           // builds this section from the ABA alert filtered to unseen species,
           // so do the same rather than showing nothing.
           if (c.rarity) return abaActiveRarities();
-          return buildActiveRarities(c.cv.merged || [], getHome());
+          var rows = buildActiveRarities(c.cv.merged || [], getHome());
+          // 📍 Day N is measured over the whole merged snapshot, not this
+          // section's grouped rows, exactly as report.section_rarities reads
+          // _compute_stakeouts. Without it the app dropped the one marker that
+          // separates "still there" from "seen once last Tuesday".
+          var days = stakeoutDays(c.cv.merged || []);
+          rows.forEach(function (r) { r.stakeDays = days[stakeoutKey(r.closest)] || 0; });
+          return rows;
         }).then(function (rows) {
           if (!rows) return;
           if (!rows.length) { st.textContent = 'No rarities currently reported in ' + label + '.'; return; }
@@ -1663,13 +1976,25 @@
             var dist = (r.distMi != null) ? '<span class="count">' + r.distMi.toFixed(1) + ' mi</span>' : '';
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
+            var stake = r.stakeDays >= 2
+              ? ' <span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
+            var warn = (r.closest && r.closest.valid === false) ? ' ⚠️' : '';
             li.innerHTML = dist +
-              '<div class="name">' + photoSlot(r.name, r.code) + speciesLink(r.name, r.code) + needTag(r.code, r.name) + '</div>' +
+              '<div class="name">' + photoSlot(r.name, r.code) + speciesLink(r.name, r.code) +
+              needTag(r.code, r.name) + stake + warn + '</div>' +
               '<div class="meta">' + r.reports + ' report' + (r.reports === 1 ? '' : 's') +
               (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : '') +
               ' · ' + staleTag(r.latest) + span + '</div>' +
-              '<div class="sp">closest: ' + recLocLink(r.closest) +
-              (r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '') + '</div>';
+              // Two facts decide the chase — where the nearest bird is and when
+              // it was last seen — so each gets a labelled line of its own
+              // instead of being run together behind "closest:".
+              '<ul class="cklrows"><li><span class="when">Closest</span>' +
+              (r.distMi != null ? '<span class="howmany">' + r.distMi.toFixed(1) + ' mi</span>' : '<span class="howmany"></span>') +
+              '<span class="where">' + recLocLink(r.closest) + '</span></li>' +
+              '<li><span class="when">Latest</span><span class="howmany"></span>' +
+              '<span class="where">' + staleTag(r.latest) + esc(fmtDateTime(r.latest)) +
+              (r.closest && r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '') +
+              '</span></li></ul>';
             el.appendChild(li);
           });
           hydratePhotos(el);
@@ -1711,11 +2036,28 @@
       // speeds) and the list READS closest-first. Quality still decides which
       // spots make the cut; it just no longer decides the order.
       var QUICK_OUTING_WIDEN_MI = [5, 10, 15], QUICK_OUTING_MIN_ROWS = 3, QUICK_OUTING_TOP = 10;
-      function buildQuickOuting(hotspots, home) {
+      function buildQuickOuting(hotspots, anchors) {
+        // Nearest of home/work, not home alone. A hotspot two minutes from the
+        // office is a real quick outing; measuring it from home buried it
+        // behind places you would actually drive further to reach. This is the
+        // same nearest-anchor rule report.py::section_quick_outing applies, and
+        // its absence here is why this section never matched the report.
+        anchors = (anchors && anchors.length) ? anchors
+          : (function () { var h = getHome(); return h ? [{ name: 'home', lat: h.lat, lng: h.lng }] : []; })();
         var all = (hotspots || []).map(function (h) {
-          var d = (home && h.lat != null && h.lng != null) ? haversineMi(home.lat, home.lng, +h.lat, +h.lng) : null;
-          return { locId: h.locId, locName: h.locName || 'Unknown location', lat: +h.lat, lng: +h.lng, n: h.numSpeciesAllTime || 0, latest: h.latestObsDt || '', dist: d };
+          var la = +h.lat, ln = +h.lng;
+          var n = (h.lat != null && h.lng != null)
+            ? BirdLogic.nearestAnchor(anchors, la, ln) : null;
+          return { locId: h.locId, locName: h.locName || 'Unknown location', lat: la, lng: ln, n: h.numSpeciesAllTime || 0, latest: h.latestObsDt || '', dist: n ? n.dist : null, anchor: n ? n.name : null };
         });
+        // One row per hotspot: two geo scans (home + a distant work) overlap.
+        var byId = {}, uniq = [];
+        all.forEach(function (h) {
+          var k = h.locId || (h.lat + ',' + h.lng);
+          if (byId[k]) return;
+          byId[k] = 1; uniq.push(h);
+        });
+        all = uniq;
         // The radius is absolute but hotspot density is not, so widen rather
         // than print an empty section in a rural region.
         var radius = QUICK_OUTING_WIDEN_MI[0], near = [];
@@ -1742,20 +2084,32 @@
         if (!getKey()) { $('quickStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var home = getHome();
         if (!home) { $('quickStatus').textContent = 'Set a Home location in Settings to find hotspots near you.'; showSettings(true); return; }
+        var anchors = getAnchors(), work = getWork();
         var btn = $('quickBtn'), st = $('quickStatus');
         btn.disabled = true; $('quickResults').innerHTML = ''; $('quickMap').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
-        ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
-          var top = buildQuickOuting(hs, home);
+        var scans = [ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json')];
+        // A second scan only when work is far enough that the home circle
+        // cannot already contain its neighbourhood. For the WA anchors (7 mi
+        // apart) a work-centred circle adds 2 of 138 locations, which is not
+        // worth doubling the fetch.
+        if (work && haversineMi(home.lat, home.lng, work.lat, work.lng) > 15)
+          scans.push(ebird('ref/hotspot/geo?lat=' + work.lat + '&lng=' + work.lng + '&dist=32&back=30&fmt=json'));
+        Promise.all(scans).then(function (parts) {
+          var hs = [].concat.apply([], parts.map(function (p) { return p || []; }));
+          var top = buildQuickOuting(hs, anchors);
           if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of home.'; return; }
           st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') +
-            ' within ' + top.radiusMi + ' mi · closest first · updated ' + nowTime();
+            ' within ' + top.radiusMi + ' mi · closest first' +
+            (work ? ' · from home or ' + getWorkLabel() + ' (\uD83C\uDFE2 = closest to work)' : '') +
+            ' · updated ' + nowTime();
           var el = $('quickResults'); el.innerHTML = '';
           renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), home, false);
           top.forEach(function (h, i) {
             var li = document.createElement('li');
             var dist = (h.dist != null) ? '<span class="count">' + h.dist.toFixed(1) + ' mi</span>' : '';
+            var marker = h.anchor === 'work' ? '\uD83C\uDFE2 ' : '';
             li.innerHTML = dist +
-              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + (h.locId ? extA(hotspotUrl(h.locId), h.locName) : esc(h.locName)) + '</span></div>' +
+              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + marker + (h.locId ? extA(hotspotUrl(h.locId), h.locName) : esc(h.locName)) + '</span></div>' +
               '<div class="meta">' + h.n + ' species all-time' + (h.latest ? ' · latest ' + esc(fmtDate(h.latest)) : '') + '</div>' +
               '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>' +
               ' &nbsp; ' + favLink(h);
@@ -2713,14 +3067,24 @@
             var nFresh = uniq.filter(function (o) { return String(o.obsDt || '').slice(0, 10) >= freshCut; }).length;
             var nShow = Math.min(Math.max(LAST_NEW_CHECKLISTS, nFresh),
               LAST_NEW_MAX_CHECKLISTS);
-            ck = '<div class="sp">' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + ':<br>' +
-              uniq.slice(0, nShow).map(function (o) {
-                var when = esc(fmtDate(o.obsDt)) + (o.howMany ? ' (' + esc(o.howMany) + ')' : '');
-                var link = o.subId ? ' ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '';
-                return when + ' · ' + esc(o.locName || '') + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') + link;
-              }).join('<br>') +
-              (uniq.length > nShow ? '<br><em>…and ' + (uniq.length - nShow) + ' more</em>' : '') +
-              '</div>';
+            // One row per checklist rather than a <br>-joined run: date, count,
+            // place and observer each land in the same column every time, so
+            // the list can be scanned instead of read.
+            ck = '<div class="sp"><b>' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + '</b>'
+              + '<ul class="cklrows">' + uniq.slice(0, nShow).map(function (o) {
+                var when = esc(fmtDate(o.obsDt));
+                var where = o.locName
+                  ? locLink(o.locName, o.lat, o.lng, o.locId, o.locationPrivate)
+                  : '';
+                return '<li><span class="when">' + when + '</span>'
+                  + (o.howMany ? '<span class="howmany">×' + esc(o.howMany) + '</span>' : '')
+                  + '<span class="where">' + where + '</span>'
+                  + '<span class="who">' + (o.userDisplayName ? esc(o.userDisplayName) : '')
+                  + (o.subId ? ' · ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '')
+                  + '</span></li>';
+              }).join('') + '</ul>'
+              + (uniq.length > nShow ? '<em>…and ' + (uniq.length - nShow) + ' more</em>' : '')
+              + '</div>';
           }
           li.innerHTML = head + meta + ck;
           out.appendChild(li);
@@ -3196,14 +3560,20 @@
           return [recent, meta];
         });
       }
-      function computeHotspots(recent, meta, home) {
+      function computeHotspots(recent, meta, home, anchors) {
         recent = Array.isArray(recent) ? recent : []; meta = Array.isArray(meta) ? meta : [];
+        anchors = anchors || (home ? [{ name: 'home', lat: home.lat, lng: home.lng }] : []);
         var metaById = {};
         meta.forEach(function (h) { if (h.locId && !metaById[h.locId]) metaById[h.locId] = h; });
-        var freshPerLoc = {}, lastPerLoc = {}, total = 0;
+        var freshPerLoc = {}, lastPerLoc = {}, subsPerLoc = {}, total = 0;
         recent.forEach(function (o) {
           var lid = o.locId, sp = o.speciesCode; if (!lid || !sp) return;
-          var b = freshPerLoc[lid] = freshPerLoc[lid] || {}; if (!b[sp]) { b[sp] = 1; total++; }
+          var b = freshPerLoc[lid] = freshPerLoc[lid] || {};
+          if (!b[sp]) { b[sp] = o.comName || sp; total++; }
+          // Distinct checklists, not observation rows: eBird returns one row
+          // per participant, so a couple birding together would otherwise look
+          // like twice the coverage.
+          if (o.subId) (subsPerLoc[lid] = subsPerLoc[lid] || {})[o.subId] = 1;
           var dt = (o.obsDt || '').trim(); if (dt && dt > (lastPerLoc[lid] || '')) lastPerLoc[lid] = dt;
         });
         var today = new Date(); today.setHours(0, 0, 0, 0);
@@ -3223,36 +3593,52 @@
           var alltime = parseInt(h.numSpeciesAllTime || 0, 10) || 0;
           var intensity = alltime ? fresh / Math.max(alltime, fresh) : 1;
           var d = dist == null ? 0 : dist;
+          // The bird list is the reason to drive there, so carry it on the row.
+          // Unseen first: they are the only ones that change the decision.
+          var birds = Object.keys(freshPerLoc[lid]).map(function (c) {
+            return { code: c, name: freshPerLoc[lid][c], unseen: !isSpeciesSeen(c, freshPerLoc[lid][c]) };
+          }).sort(function (a, b) {
+            if (a.unseen !== b.unseen) return a.unseen ? -1 : 1;
+            return String(a.name).localeCompare(String(b.name));
+          });
           hot.push({ locId: lid, name: name, lat: lat, lng: lng, dist: dist, fresh: fresh,
             share: total ? fresh / total * 100 : 0, alltime: alltime, silent: silentDays(lid, h),
+            checklists: Object.keys(subsPerLoc[lid] || {}).length, birds: birds,
+            unseenN: birds.filter(function (b) { return b.unseen; }).length,
             score: fresh * (1 + intensity) / (1 + d / 10) });
         });
         hot.sort(function (a, b) { return (b.score - a.score) || ((a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist)); });
-        var cold = [], seen = {};
+        var cold = [], seenLoc = {};
         meta.forEach(function (h) {
-          var lid = h.locId; if (!lid || seen[lid]) return; seen[lid] = 1;
+          var lid = h.locId; if (!lid || seenLoc[lid]) return; seenLoc[lid] = 1;
           var name = h.locName || lid; if (COLD_SKIP_RE.test(name)) return;
           var alltime = parseInt(h.numSpeciesAllTime || 0, 10) || 0; if (alltime < COLD_MIN_ALLTIME) return;
           var lat = parseFloat(h.lat), lng = parseFloat(h.lng); if (!isFinite(lat) || !isFinite(lng)) return;
-          var dist = home ? haversineMi(home.lat, home.lng, lat, lng) : null;
+          // Cold hotspots rank on the NEAREST anchor, matching the report's
+          // section_cold_hotspots — a quiet pond by the office is as chaseable
+          // as one by the house.
+          var na = BL.nearestAnchor(anchors, lat, lng);
+          var dist = na ? na.dist : (home ? haversineMi(home.lat, home.lng, lat, lng) : null);
           if (dist != null && dist > HOTSPOT_MAX_DIST_MI) return;
           var sd = silentDays(lid, h), silent = sd == null ? 365 : sd;
           var eff = Math.min(silent, COLD_SILENT_CAP_DAYS), factor = Math.sqrt(1 + eff);
           var d = dist == null ? 0 : dist;
           cold.push({ locId: lid, name: name, lat: lat, lng: lng, dist: dist, alltime: alltime,
+            anchor: na ? na.name : null,
             silent: silent, score: alltime * factor / (d + 5) });
         });
         cold.sort(function (a, b) { return (b.score - a.score) || ((a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist)); });
         return { hot: hot, cold: cold, total: total };
       }
-      function hotspotRow(h, extra) {
+      function hotspotRow(h, extra, tail) {
         var d = h.dist == null ? '' : (h.dist.toFixed(1) + ' mi · ');
         var eb = 'https://ebird.org/hotspot/' + encodeURIComponent(h.locId || '');
         var q = h.lat.toFixed(6) + ',' + h.lng.toFixed(6);
         var saved = isFav(h.locId || '');
         var fav = '<a class="favlink" data-locid="' + esc(h.locId || '') + '" data-locname="' + esc(h.name) + '" data-lat="' + h.lat + '" data-lng="' + h.lng + '">' + (saved ? '★ Saved' : '☆ Save') + '</a>';
         return '<li><div class="name"><a class="extlink" data-href="' + esc(eb) + '">' + esc(h.name) + '</a></div>' +
-          '<div class="sp">' + d + extra + ' · <a class="maplink" data-q="' + esc(q) + '">🗺 directions</a> · ' + fav + '</div></li>';
+          '<div class="sp">' + d + extra + ' · <a class="maplink" data-q="' + esc(q) + '">🗺 directions</a> · ' + fav + '</div>' +
+          (tail || '') + '</li>';
       }
       var _hotspotCache = null, _hotspotPromise = null;
       function resetHotspotCache() { _hotspotCache = null; _hotspotPromise = null; }
@@ -3260,9 +3646,9 @@
         if (force) resetHotspotCache();
         if (_hotspotCache) return Promise.resolve(_hotspotCache);
         if (_hotspotPromise) return _hotspotPromise;
-        var home = getHome(), codes = countyCodes();
+        var home = getHome(), anchors = getAnchors(), codes = countyCodes();
         _hotspotPromise = hotspotFeeds(codes).then(function (res) {
-          _hotspotCache = computeHotspots(res[0], res[1], home);
+          _hotspotCache = computeHotspots(res[0], res[1], home, anchors);
           _hotspotPromise = null;
           return _hotspotCache;
         }, function (e) { _hotspotPromise = null; throw e; });
@@ -3274,13 +3660,29 @@
         if (top.length) {
           html += '<ul class="obs dest">';
           top.forEach(function (h) {
-            html += hotspotRow(h, h.fresh + ' fresh species · ' + h.share.toFixed(0) + '% of region' + (h.silent != null ? ' · last obs ' + h.silent + 'd ago' : ''));
+            var bits = h.fresh + ' species';
+            if (h.checklists) bits += ' · ' + h.checklists + ' recent checklist' + (h.checklists === 1 ? '' : 's');
+            bits += ' · ' + h.share.toFixed(0) + '% of region';
+            if (h.silent != null) bits += ' · last obs ' + h.silent + 'd ago';
+            html += hotspotRow(h, bits, hotspotBirdList(h));
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
         el.innerHTML = html;
+        hydratePhotos(el);
         // Numbered pins match the list ranks, mirroring the report's section map.
         renderMap($('hotMap'), top, getHome(), false);
+      }
+      // Which birds are actually there is the reason to go; a bare count is not.
+      function hotspotBirdList(h) {
+        var birds = h.birds || []; if (!birds.length) return '';
+        var lis = birds.map(function (b) {
+          return '<li>' + photoSlot(b.name, b.code) + '<span class="bn">' + esc(b.name) + '</span>'
+            + (b.unseen ? ' <span class="need">🔍</span>' : '') + '</li>';
+        }).join('');
+        return '<details class="spx"><summary>' + birds.length + ' species'
+          + (h.unseenN ? ' · <b>' + h.unseenN + ' unseen 🔍</b>' : '') + '</summary>'
+          + '<ul class="obs sppl">' + lis + '</ul></details>';
       }
       function renderCold(r) {
         var el = $('coldResults'); if (!el) return;
@@ -3289,7 +3691,7 @@
           html += '<ul class="obs dest">';
           top.forEach(function (h) {
             var s = h.silent >= 365 ? '1y+' : h.silent + 'd';
-            html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s);
+            html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s + anchorNote(h.anchor));
           });
           html += '</ul>';
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
@@ -3601,12 +4003,16 @@
         var isHotspot = s.loc ? (s.loc.isHotspot !== false) : true;
         return locLink(convoyLocName(s), isHotspot ? id : '', lat, lng);
       }
-      function renderConvoys(routes) {
+      function renderConvoys(routes, lists) {
         var el = $('convoyResults'); el.innerHTML = '';
+        var w = BL.feedWindow(lists || [], CONVOY_LOOKBACK_DAYS);
+        var banner = w.warning
+          ? '<div class="status feedwarn">⚠️ <b>' + esc(w.warning) + '</b></div>' : '';
         if (!routes.length) {
-          el.innerHTML = '<div class="status">No group routes detected in the last ' + CONVOY_LOOKBACK_DAYS + ' days — convoys need 2+ birders sharing 2+ hotspots on one day.</div>';
+          el.innerHTML = banner + '<div class="status">No group routes detected in the last ' + w.days + ' day' + (w.days === 1 ? '' : 's') + ' — convoys need 2+ birders sharing 2+ hotspots on one day.</div>';
           return;
         }
+        el.innerHTML = banner;
         // Newest first, mirroring report.section_birder_convoys: the section is
         // read as "what happened lately", so date leads and stop count / group
         // size only break ties within a day.
@@ -3623,15 +4029,22 @@
               .forEach(function (x) { if (x && allSubs.indexOf(x) < 0) allSubs.push(x); });
           });
           // Members are counted, never named — the checklist links below are
-          // where a reader sees who filed what (mirrors the report).
-          var head = '<div class="rankhead"><div class="bignum">' +
-            esc(fmtDate(r.day)) + ' Convoy of ' + r.members.length + '</div></div>' +
-            '<div class="status">' + r.stops.length + ' stops · ' +
-            allSubs.length + ' checklist' + (allSubs.length === 1 ? '' : 's') + '</div>';
+          // where a reader sees who filed what (mirrors the report). The title
+          // carries date + party size + stops + species so two groups out on
+          // the same day can't render as the same card; the species half is
+          // filled in by loadConvoySpecies once the checklists resolve.
+          var head = '<div class="rankhead"><div class="bignum convoytitle" id="' +
+            'convoyTitle' + i + '">' +
+            esc(BL.convoyTitle(fmtDate(r.day), r.members.length, r.stops.length, 0, 0)) +
+            '</div></div>' +
+            '<div class="status">' + allSubs.length + ' checklist' +
+            (allSubs.length === 1 ? '' : 's') + ' filed</div>';
           var mapId = 'convoyMap' + i;
           // Species lists are loaded and shown outright — the report does not
           // hide them behind a disclosure widget, so neither does the app.
           var spp = '<div class="convoysppbox" data-subs="' + esc(allSubs.join(',')) +
+            '" data-title="convoyTitle' + i + '" data-day="' + esc(fmtDate(r.day)) +
+            '" data-members="' + r.members.length + '" data-stops="' + r.stops.length +
             '"><span class="dim">Loading species…</span></div>';
           var ul = '<div class="convoyhead">Stops (' + r.stops.length + ')</div><ul class="obs dest">';
           r.stops.forEach(function (s, n) {
@@ -3691,10 +4104,18 @@
           for (var k = 0; k < Math.min(limit, n); k++) run();
         });
       }
+      function retitleConvoy(box, nSpecies, nUnseen) {
+        var t = $(box.getAttribute('data-title') || '');
+        if (!t) return;
+        t.textContent = BL.convoyTitle(
+          box.getAttribute('data-day') || '',
+          +box.getAttribute('data-members') || 0,
+          +box.getAttribute('data-stops') || 0,
+          nSpecies, nUnseen);
+      }
       function loadConvoySpecies(subs, box) {
         box.innerHTML = '<span class="dim">Loading species…</span>';
-        var list = (subs || '').split(',').filter(Boolean), codes = {};
-        return pool(list, CONVOY_FETCH_CONC, function (sub) {
+        var list = (subs || '').split(',').filter(Boolean), codes = {};        return pool(list, CONVOY_FETCH_CONC, function (sub) {
           return ebird('product/checklist/view/' + encodeURIComponent(sub))
             .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); })
             .catch(function () {});
@@ -3730,11 +4151,16 @@
               if (missing.length) {
                 html += '<div class="convoyhead convoymiss">🔍 Unseen — not on your year list (' + missing.length + ')</div>' + items(missing);
               } else {
-                html += '<div class="dim">Every species on this route is already on your year list ✓</div>';
+                // The whole answer for this convoy, so it is stated as a
+                // finding rather than a dim aside — it decides whether the
+                // rest of the card is worth reading at all.
+                html += '<div class="allseen">✅ Nothing unseen here<small>All '
+                  + all.length + ' species on this route are already on your year list</small></div>';
               }
               if (have.length) html += '<div class="convoyhead">Already seen this year (' + have.length + ')</div>' + items(have);
               box.innerHTML = html;
               hydratePhotos(box);
+              retitleConvoy(box, all.length, missing.length);
             });
         });
       }
@@ -3756,7 +4182,7 @@
             var lists = [];
             results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
             var routes = BL.convoyDetect(lists, new Date(), getDisplayName());
-            renderConvoys(routes);
+            renderConvoys(routes, lists);
             st.textContent = routes.length ? (routes.length + ' group route' + (routes.length === 1 ? '' : 's') + ' · ' + nowTime()) : ('No convoys detected right now · ' + nowTime());
           })
           .catch(function (e) { st.textContent = netErr(e); })
@@ -3764,6 +4190,22 @@
       }
 
       // --- Happening now (mirror report.section_surge) -------------------
+
+      // Per-region so a hotspot's norm never leaks across reports. Stored raw
+      // (not via the generic cache) because it must NOT expire — it is the
+      // memory that makes the convergence lane measurable at all.
+      function hotspotHistoryKey() { return 'bc_hotspot_hist:' + getReport().slug; }
+      function loadHotspotHistory() {
+        try {
+          var raw = localStorage.getItem(hotspotHistoryKey());
+          var v = raw ? JSON.parse(raw) : null;
+          return v && typeof v === 'object' ? v : {};
+        } catch (e) { return {}; }
+      }
+      function saveHotspotHistory(h) {
+        try { localStorage.setItem(hotspotHistoryKey(), JSON.stringify(h)); }
+        catch (e) { /* quota: a shallower baseline beats a broken section */ }
+      }
       // The gap this closes: about twenty birders saw a Tufted Puffin at the
       // Edmonds waterfront and this app said nothing until the next day. Every
       // other section answers "what is here" or "what do I need"; none answers
@@ -3817,7 +4259,9 @@
           html += '<ul class="obs big">' + cascades.map(function (c) {
             var who = c.birders.slice(0, 6).map(function (b) { return esc(b.name) + ' (#' + b.rank + ')'; }).join(' · ');
             if (c.birders.length > 6) who += ' · +' + (c.birders.length - 6) + ' more';
-            return '<li><div class="name">' + esc(c.species)
+            // The board prints a NAME, never a code; photoSlot's network tier
+            // resolves by name, so the row still gets its bird.
+            return '<li><div class="name">' + photoSlot(c.species, c.code || '') + esc(c.species)
               + '<span class="count">' + c.birders.length + '</span></div>'
               + '<div class="dim">' + who + '</div>'
               + '<div class="dim">latest ' + esc(c.latest) + '</div></li>';
@@ -3838,6 +4282,162 @@
         box.innerHTML = html;
         hydratePhotos(box);
       }
+      // --- 🧭 Where to go next (BirdLogic.leadBoard) -----------------------
+      // Every chase lane merged into one ranked answer. Reads ONLY work the
+      // other sections already did — the board must never add a network call
+      // of its own, or the app's first screen becomes its slowest.
+      function leadInputs(cv, cascades) {
+        var seen = getReportSeen();
+        var surge = cv ? BL.surgeEvents(cv.merged, { now: Date.now(), seen: seen }) : [];
+        // Today's unseen rarities, freshest report per species+place — the
+        // same pool Today's rarity reports prints.
+        var best = {};
+        (cv && cv.notableToday || []).forEach(function (r) {
+          if (!r.code || isSpeciesSeen(r.code, r.name)) return;
+          var k = r.code + '|' + (r.locId || r.loc || '');
+          var ms = obsMs(r.dateStr);
+          if (!best[k] || ms > best[k]._ms) { best[k] = r; best[k]._ms = ms; }
+        });
+        var rarities = Object.keys(best).map(function (k) {
+          var r = best[k];
+          return { comName: r.name || '', speciesCode: r.code, locName: r.loc || '',
+            locId: r.locId || '', lat: r.lat, lng: r.lon, whenMs: r._ms, observers: 1 };
+        });
+        // Closest spots: cluster the unseen records to 250 m, exactly as
+        // loadTargets' source section does, so the board never names a place
+        // differently from the section it came from.
+        var byLoc = {};
+        (cv && cv.unseen || []).forEach(function (r) {
+          if (!r.code) return;
+          var k = r.locId || (r.loc || '') + '|' + r.lat + ',' + r.lon;
+          var s = byLoc[k] || (byLoc[k] = { loc: r.loc || '', locId: r.locId || '',
+            lat: r.lat, lng: r.lon, whenMs: 0, rare: false, species: [], _codes: {} });
+          if (!s._codes[r.code]) { s._codes[r.code] = 1; s.species.push({ code: r.code, name: r.name || '' }); }
+          if (r.kind === 'Rarity') s.rare = true;
+          var ms = obsMs(r.dateStr); if (ms > s.whenMs) s.whenMs = ms;
+        });
+        var closest = Object.keys(byLoc).map(function (k) {
+          var s = byLoc[k];
+          s.species.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+          return s;
+        });
+        return { surge: surge, rarities: rarities, cascades: cascades || [], closest: closest };
+      }
+      function obsMs(s) {
+        if (!s) return 0;
+        var d = new Date(String(s).replace(' ', 'T'));
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+      function loadLeads() {
+        if (!getKey()) { $('leadsStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if ($('leadsRegionLabel')) $('leadsRegionLabel').textContent = '· ' + getReport().label;
+        var btn = $('leadsBtn'), st = $('leadsStatus');
+        $('leadsResults').innerHTML = '';
+        btn.disabled = true;
+        st.textContent = 'Working out where to go in ' + getReport().label + '…';
+        var rr = rankPrimaryRegion();
+        var pCascades = fetchRank(rr, new Date().getFullYear(), getDisplayName())
+          .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
+          .catch(function () { return []; });
+        Promise.all([getChase().catch(function () { return {}; }), pCascades])
+          .then(function (r) {
+            var cv = r[0] && r[0].cv;
+            var inputs = leadInputs(cv, r[1]);
+            var anchors = getAnchors();
+            var board = BL.leadBoard(inputs, { seen: getReportSeen(), anchors: anchors });
+            if (!board.leads.length) {
+              // Quiet day. Only NOW is the fallback worth its network cost.
+              return leadIdeas().then(function (extra) {
+                inputs.cold = extra.cold; inputs.quick = extra.quick;
+                return BL.leadBoard(inputs, { seen: getReportSeen(), anchors: anchors });
+              }, function () { return board; });
+            }
+            return board;
+          })
+          .then(function (board) {
+            renderLeads(board);
+            st.textContent = (board.total
+              ? board.total + ' unseen bird' + (board.total === 1 ? '' : 's') + ' chaseable'
+              : 'Nothing unseen in range — standing ideas instead') + ' · ' + nowTime();
+          })
+          .catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btn.disabled = false; });
+      }
+      function leadIdeas() {
+        if (!hasCounties() || !getKey()) return Promise.resolve({ cold: [], quick: [] });
+        return scanHotspots().then(function (r) {
+          return {
+            cold: r.cold.slice(0, 20).map(function (h) {
+              return { locName: h.name, locId: h.locId, lat: h.lat, lng: h.lng,
+                numSpeciesAllTime: h.alltime };
+            }),
+            quick: r.hot.filter(function (h) { return h.dist != null && h.dist <= 5; })
+              .slice(0, 20).map(function (h) {
+                return { locName: h.name, locId: h.locId, lat: h.lat, lng: h.lng,
+                  numSpeciesAllTime: h.alltime };
+              })
+          };
+        }, function () { return { cold: [], quick: [] }; });
+      }
+      function renderLeads(board) {
+        var box = $('leadsResults'); if (!box) return;
+        var rows = board.leads.length ? board.leads : board.ideas;
+        if (!rows.length) {
+          box.innerHTML = '<div class="status">No leads right now — nothing unseen has been '
+            + 'reported anywhere in range, and no hotspot is overdue for a visit.</div>';
+          return;
+        }
+        var wl = getWorkLabel();
+        var html = '<div class="status">' + (board.leads.length
+          ? '<b>' + board.total + ' unseen bird' + (board.total === 1 ? '' : 's')
+            + ' are chaseable right now.</b> Ranked by how good the lead is, how fresh it is '
+            + 'and how far you would drive — from home or from ' + esc(wl) + ', whichever is closer.'
+          : '<b>Nothing unseen is being reported in range.</b> These are standing ideas instead — '
+            + 'spots nobody has checked lately, and spots close enough that a quiet morning costs nothing.')
+          + '</div>';
+        html += '<ol class="obs leads">';
+        rows.forEach(function (l) {
+          var name = l.code ? speciesLink(l.title, l.code) : '<b>' + esc(l.title) + '</b>';
+          var where = l.where
+            ? (l.locId ? extA(hotspotUrl(l.locId), l.where) : esc(l.where))
+            : '';
+          var why = esc(l.why);
+          if (l.alsoIn && l.alsoIn.length) {
+            why += ' · also in ' + l.alsoIn.map(function (k) {
+              return esc(BL.LEAD_LANE_LABEL[k] || k);
+            }).join(', ');
+          }
+          var dist = '';
+          if (l.distMi != null) {
+            dist = '<span class="count">' + Math.round(l.distMi) + ' mi</span>';
+          }
+          var sub = [];
+          if (where) {
+            var w = where;
+            if (l.alsoAt && l.alsoAt.length) {
+              w += ' <span class="dim">· also at ' + l.alsoAt.length + ' other spot'
+                + (l.alsoAt.length === 1 ? '' : 's') + '</span>';
+            }
+            if (l.anchor === 'work') w += anchorNote(l.anchor);
+            sub.push(w);
+          }
+          if (l.subtitle) sub.push(esc(l.subtitle));
+          html += '<li>' + dist
+            + '<div class="name">' + (l.code ? photoSlot(l.title, l.code) : '')
+            + '<span class="leadicon">' + l.icon + '</span> ' + name
+            + (l.unseen ? ' <span class="needflag">🔍</span>' : '') + '</div>'
+            + (sub.length ? '<div class="meta">' + sub.join(' · ') + '</div>' : '')
+            + '<div class="why">' + why + '</div>'
+            + (l.lat != null && l.lng != null
+              ? '<div class="meta"><a class="maplink" data-q="' + esc(l.lat + ',' + l.lng) + '">🗺 directions</a></div>'
+              : '')
+            + '</li>';
+        });
+        html += '</ol>';
+        box.innerHTML = html;
+        hydratePhotos(box);
+      }
+
       function loadSurge() {
         if (!getKey()) { $('surgeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
@@ -3862,14 +4462,21 @@
             })).then(function (results) {
               var lists = [];
               results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
-              return BL.hotspotConvergence(lists.map(function (c) {
+              var norm = lists.map(function (c) {
                 return {
                   locId: c.locId || (c.loc && c.loc.locId),
                   locName: (c.loc && c.loc.name) || c.locName || '',
                   userDisplayName: c.userDisplayName, subId: c.subId || c.subID,
                   obsDt: c.isoObsDate || c.obsDt
                 };
-              }), { now: now });
+              });
+              // The feed reaches back 2-3 days, so a hotspot's own norm has to
+              // be remembered across sessions or almost nothing is measurable.
+              // The report keeps the same tally in data/; the app keeps its own
+              // because it must never depend on GitHub at runtime.
+              var hist = BL.mergeHotspotHistory(loadHotspotHistory(), norm, now);
+              saveHotspotHistory(hist);
+              return BL.hotspotConvergence(norm, { now: now, history: hist });
             }).catch(function () { return []; });
         Promise.all([pEvents, pCascades, pConverge]).then(function (r) {
           renderSurge(r[0], r[1], r[2]);
@@ -4163,6 +4770,7 @@
       //              build_rarity_report, which emits far fewer sections)
       //   omitted  — every report has it
       var MENU = [
+        { at: 'leadsBtn',      label: '🧭 Where to go next' },
         { at: 'surgeBtn',      label: '🔴 Happening now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100' },
@@ -4180,6 +4788,7 @@
         { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
         { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
+        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county' },
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county' },
         { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county' },
@@ -4197,6 +4806,8 @@
       // auto-open never redirects to Settings; the heavy migration build stays
       // manual (no entry here).
       var LOADERS = {
+        leadsBtn:   { fn: loadLeads,        needsKey: true },
+        allUnseenBtn: { fn: loadAllUnseen,  needsKey: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
@@ -4245,7 +4856,7 @@
         menu.innerHTML = '<h2>📑 Contents</h2>' +
           '<div class="regionpick"><label for="menuRegion">Region</label>' +
           '<select id="menuRegion"></select></div>' +
-          '<p class="hint" id="menuReport">Tap a section to open it — this menu mirrors your Markdown report.</p>' +
+          '<p class="hint" id="menuReport">Tap a tile to open that section — this menu mirrors your Markdown report.</p>' +
           '<ul id="menuList" class="toc"></ul>';
         main.insertBefore(menu, main.firstChild);
         _sections = [];
@@ -4267,14 +4878,34 @@
       // menu is that region's table of contents: a rarity tracker has no
       // counties and no home, so the sections its Markdown report never emits
       // are absent here too rather than sitting in the list as dead ends.
+      // Split "🧭 Where to go next" into its leading glyph and the rest so a
+      // tile can set the two at different sizes. Every MENU label is
+      // "<emoji> <words>"; a label without a space keeps its whole text and
+      // simply gets no glyph rather than losing a character to a bad guess.
+      function splitLabel(label) {
+        var s = String(label || ''), i = s.indexOf(' ');
+        return i > 0 ? { icon: s.slice(0, i), text: s.slice(i + 1) }
+                     : { icon: '', text: s };
+      }
       function renderMenuList() {
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
         _sections.forEach(function (sec) {
           if (!menuApplies({ needs: sec._needs })) return;
           var li = document.createElement('li');
-          var a = document.createElement('a');
-          a.className = 'toclink'; a.textContent = sec._label;
+          if (!list.children.length) li.className = 'wide';
+          var a = document.createElement('button');
+          a.type = 'button';
+          a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
+          var parts = splitLabel(sec._label);
+          if (parts.icon) {
+            var ic = document.createElement('span');
+            ic.className = 'tileicon'; ic.setAttribute('aria-hidden', 'true');
+            ic.textContent = parts.icon; a.appendChild(ic);
+          }
+          var tx = document.createElement('span');
+          tx.className = 'tilelabel'; tx.textContent = parts.text;
+          a.appendChild(tx);
           (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
           li.appendChild(a); list.appendChild(li);
         });
@@ -4421,6 +5052,12 @@
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
         $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
+        var w = getWork();
+        $('workLat').value = w ? w.lat : '';
+        $('workLng').value = w ? w.lng : '';
+        $('workPlace').value = localStorage.getItem(workKey('place')) || '';
+        $('workLabel').value = localStorage.getItem(workKey('label')) || (w ? (getReport().workLabel || '') : '');
+        if ($('workRegionLabel')) $('workRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('tideStation').value = localStorage.getItem(tideKey()) || '';
         if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('ebirdName').value = getDisplayName();
@@ -4663,6 +5300,8 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
+      $('leadsBtn').addEventListener('click', loadLeads);
+      $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('surgeBtn').addEventListener('click', loadSurge);
       $('hotBtn').addEventListener('click', loadHotspots);
       $('coldBtn').addEventListener('click', loadColdspots);
@@ -4742,6 +5381,26 @@
           .finally(function () { btn.disabled = false; });
       });
 
+      $('geocodeWorkBtn').addEventListener('click', function () {
+        var q = ($('workPlace').value || '').trim(), st = $('geocodeWorkStatus'), btn = this;
+        if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
+        btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
+        geocodePlace(q).then(function (res) {
+          $('workLat').value = res.lat.toFixed(5);
+          $('workLng').value = res.lng.toFixed(5);
+          $('workPlace').value = res.label;
+          if (!($('workLabel').value || '').trim())
+            $('workLabel').value = String(res.label).split(',')[0].trim();
+          st.textContent = '\ud83d\udcbc ' + res.label + ' \u2192 ' + res.lat.toFixed(4) + ', ' + res.lng.toFixed(4) + '. Tap Save to keep.';
+        }).catch(function (e) { st.textContent = (e && e.message) ? e.message : 'Lookup failed.'; })
+          .finally(function () { btn.disabled = false; });
+      });
+      $('clearWorkBtn').addEventListener('click', function () {
+        $('workLat').value = ''; $('workLng').value = '';
+        $('workPlace').value = ''; $('workLabel').value = '';
+        $('geocodeWorkStatus').textContent = 'Cleared. Tap Save to drop the second anchor.';
+      });
+
       $('saveBtn').addEventListener('click', function () {
         var btn = this;
         function persist() {
@@ -4755,6 +5414,19 @@
             localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
           }
           localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
+          var wla = parseFloat($('workLat').value), wlo = parseFloat($('workLng').value);
+          if (isFinite(wla) && isFinite(wlo)) {
+            localStorage.setItem(workKey('lat'), wla); localStorage.setItem(workKey('lng'), wlo);
+            localStorage.setItem(workKey('place'), ($('workPlace').value || '').trim());
+            localStorage.setItem(workKey('label'), ($('workLabel').value || '').trim() || 'work');
+          } else {
+            // Empty string, not removeItem: an explicitly cleared work anchor
+            // must stay cleared instead of silently reverting to the region
+            // default on the next launch.
+            localStorage.setItem(workKey('lat'), '');
+            localStorage.setItem(workKey('lng'), '');
+            localStorage.removeItem(workKey('place')); localStorage.removeItem(workKey('label'));
+          }
           localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           clearChaseCache();
@@ -4802,7 +5474,9 @@
         extractWebKey: extractWebKey,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
-        renderSurge: renderSurge, parseRecentTick: parseRecentTick
+        renderSurge: renderSurge, parseRecentTick: parseRecentTick,
+        getWork: getWork, workKey: workKey, getAnchors: getAnchors,
+        splitLabel: splitLabel, buildAllUnseen: buildAllUnseen
       };
       migrateHomeKeys();
       buildNav();
