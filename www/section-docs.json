@@ -330,6 +330,24 @@
         "The app and the report measure prevalence over different windows: the report uses every daily snapshot it has committed for the region, the app samples the last 30 days live, so the two can pick different bars on the same day."
       ]
     },
+    "nvResults": {
+      "report": "## 🔍 Watchlist",
+      "summary": "Tentative IDs you still owe a confirmation sighting - and the one list that changes what counts as \"seen\".",
+      "inputs": [
+        "birdlist-needsverification.md - a hand-maintained numbered list of common names",
+        "the same merged county + geo observation feeds every other chase section reads"
+      ],
+      "how": [
+        "Each name is resolved to an eBird species code against your birdlists first, then against the full eBird taxonomy, so a bird you have never recorded anywhere still resolves. A name that resolves to nothing is reported rather than dropped.",
+        "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Closest spots, Easy misses and everywhere else - it is deliberately not counted as seen.",
+        "The section then shows the nearest report of each tracked species in the current window, closest first, with the checklist it came from. Species with no report in range are still listed, so the list is a complete inventory rather than only the ones that happen to be showing."
+      ],
+      "limits": [
+        "The list is authored in the private pipeline repo. The app bundles it at build time and edits made in the app are stored on the device only - the app has no runtime GitHub dependency and cannot write the file back. Use the copy button and paste over birdlist-needsverification.md to make an edit stick in the Markdown report.",
+        "One list is shared by every region, because a tentative ID is tentative wherever you made it. A species you drop returns to your seen set only in reports whose year list actually contained it.",
+        "The species lookup searches birds recorded in the active region, so a bird never reported there will not appear in the picker."
+      ]
+    },
     "migBtn": {
       "report": "## 🛬 Migration outlook",
       "summary": "What is arriving or leaving now, from multi-year history for these counties.",

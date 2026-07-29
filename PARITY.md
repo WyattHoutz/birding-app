@@ -110,7 +110,7 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🗺️ &lt;region&gt; unseen — closest first | — | ➖ | Overlaps three sections the app already carries (**Targets near you**, **Closest spots**, **Easy misses**). Merging the four "what haven't I seen?" views is a product decision about which axis you actually chase by — see the backlog before porting one of them in isolation. |
 | 🔬 iNaturalist unseen | — | ➖ | Beta section reading a **non-eBird** source (iNaturalist). The app has no iNaturalist client, and adding one buys a second taxonomy to reconcile for a section that is still experimental in the report. |
 | 📅 Year-to-date ABA rarities | — | ➖ | Rarity-tracker-only archive of every ABA rarity so far this year, accumulated from committed daily snapshots the app doesn't have. The app shows the **live** ABA alert instead, which is what you'd chase. |
-| 🔍 Watchlist (verification chases) | — | ➖ | "Needs-verification" is a report-only concept; the app has no NV list. |
+| 🔍 Watchlist (verification chases) | **Needs verification** | ✅ | New in v1.0.23. The list is the one input that changes what "seen" MEANS: `seen = (year list ∪ imported codes) − watchlist`, so a tentative ID keeps surfacing as a target in Closest spots, Easy misses and everywhere else until you confirm it. The app ports that subtraction exactly (`getReportSeen`) and renders the same chase view the report does — nearest recent report per tracked species, closest first, silent species still listed so the inventory is complete. **It also MANAGES the list, which the report cannot:** search the region's species, ▲ ▼ reorder, ✕ remove — same controls and same layout as Favorite hotspots. **One deliberate divergence, and it is a hard constraint rather than a shortcut:** `birdlist-needsverification.md` lives in the PRIVATE pipeline repo and the app has **no runtime GitHub dependency**, so app edits are device-local. A 📋 button emits the exact `N. Common Name` shape `analyze.py` parses back, and the UI says so instead of pretending the edit round-trips. Un-tracking a species restores it to the seen set **only where that report actually held it back** (`watchHeld`, computed in `build-seed.js` before the subtraction) — otherwise dropping a bird you never recorded would invent a year tick. |
 | 🦅 ABA Code 3+ rarities | **ABA Code 3+ rarities** | ✅ | Direct (keyless) read of the public ABA Rarities alert page; for county reports it filters to the active state and groups by species exactly like `section_state_aba_rarities`. In-app login is only a fallback. Ports `aba_rba.py` incl. `_resolve_subnational1`. **v1.0.22 renders each species as a card, not a row** — the section normally holds 0–3 birds you have most likely never seen, so the questions are "what does it look like", "how rare is this really" and "what IS it", in that order. Both repos print Reports · Observers · Places · Days. **One deliberate divergence:** the app also shows *reports ABA-wide* and *states/provinces*, because on device it holds the unfiltered continent alert; `section_state_aba_rarities` is state-scoped by construction and shows the local numbers only. |
 
 ## Destinations & routing
@@ -185,6 +185,20 @@ Leaflet's container measurement and hit-testing, so the maps would have gone
 subtly wrong at every size but 1.0. Changing the scale re-runs
 `refreshVisibleMaps()` so Leaflet re-measures. There is no report equivalent —
 Markdown inherits the reader's own browser or GitHub text size.
+
+**Map provider (v1.0.23).** Settings → *Maps app* picks Google, Apple, Bing or
+OpenStreetMap, and every outbound map link in the app — every pin, every
+"Directions", and the Trip planner route — is built from that choice. The
+report hard-codes Google (`_route_maps_url`), which is correct for a Markdown
+file: it is read on whatever device happens to open it, so it cannot know what
+is installed. **The one honest wrinkle is waypoint support, which is not
+uniform:** Google takes `&waypoints=a|b`, Apple chains `daddr=a+to:b`, Bing
+takes `rtp=pos.a~pos.b~pos.c`, and **OpenStreetMap's directions URL accepts
+exactly two points**. Rather than silently drop the middle of a six-stop route,
+each provider declares whether it carries stops and the route link says
+"(first → last stop only — OpenStreetMap cannot carry waypoints)" when it
+cannot. A route link that quietly loses four of its six stops is worse than one
+that admits it.
 
 **Bundled sample data.** The app ships a snapshot of the owner's eBird 2026
 year lists (`www/seed-birdlist.js`, ~330 species codes) and loads it on first

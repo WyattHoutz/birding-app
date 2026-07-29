@@ -145,6 +145,10 @@ if (fs.existsSync(scPath)) {
 // SUBTRACTS these from every region's seen set so they resurface as targets.
 // Resolve each name to a code via the union of all birdlist name→code maps.
 const nvCodes = Object.create(null);
+// The ORDER is the user's — it is a hand-maintained numbered list, not a set —
+// so it ships as a sequence, and a name that resolves to no code ships too
+// rather than disappearing between the report and the app.
+const nvEntries = [];
 const nvPath = path.join(srcRoot, 'birdlist-needsverification.md');
 if (fs.existsSync(nvPath)) {
   fs.readFileSync(nvPath, 'utf8').split(/\r?\n/).forEach(function (line) {
@@ -152,6 +156,7 @@ if (fs.existsSync(nvPath)) {
     if (!m) return;
     const code = nameToCodeAll[normName(m[1])];
     if (code) nvCodes[code] = 1;
+    nvEntries.push({ code: code || '', name: m[1] });
   });
   usedFiles.push('birdlist-needsverification.md');
 }
@@ -169,6 +174,12 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   const set = Object.create(null);
   Object.keys(srcList.codes).forEach(function (c) { set[c] = 1; });
   if (reportSlug === 'wa') Object.keys(scCodes).forEach(function (c) { set[c] = 1; }); // WA-only
+  // Which watchlist codes this report actually HOLDS back — i.e. birds that
+  // would be "seen" here if they were not awaiting verification. Editing the
+  // watchlist on device has to be able to put them back, and only these are
+  // eligible: dropping a species you have never recorded must not invent a
+  // tick.
+  const watchHeld = Object.keys(nvCodes).filter(function (c) { return set[c]; }).sort();
   Object.keys(nvCodes).forEach(function (c) { delete set[c]; });                       // watchlist resurfaces
   // Display names come from the report's OWN year list (birdlistSlug).
   const ownList = listBySlug[profile.birdlistSlug] || { codeToName: {}, entries: [] };
@@ -182,6 +193,7 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   seenByReport[reportSlug] = {
     codes: Object.keys(set).sort(),
     names: names,
+    watchHeld: watchHeld,
     yearList: (ownList.entries || []).slice()
   };
 });
@@ -205,6 +217,7 @@ const seed = {
   seenField: 'speciesCode',
   codes: codeList,
   names: nameList,
+  watchlist: nvEntries,
   seenByReport: seenByReport
 };
 
@@ -221,7 +234,7 @@ console.log('Wrote ' + outPath);
 console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
 console.log('  codes:  ' + codeList.length + ' (combined union)');
-console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length);
+console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length + ' of ' + nvEntries.length + ' entries');
 console.log('  seenByReport:');
 BirdLogic.REGION_ORDER.forEach(function (slug) {
   console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' +

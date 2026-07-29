@@ -671,8 +671,8 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows size the photo up and keep name+badges together', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(HTML, /\.obs\.xl \.thumb \{[^}]*width:\s*92px/,
-    'the rarity thumbnail is double the 46px default');
+  assert.match(HTML, /\.obs\.xl \.thumb \{[^}]*width:\s*calc\(92px \* var\(--s\)\)/,
+    'the rarity thumbnail is double the 46px default, and scales with the text-size setting');
   const fn = HTML.slice(HTML.indexOf('function loadActiveRarities('));
   const row = fn.slice(0, fn.indexOf('el.appendChild(li)'));
   assert.match(row, /class="ntext"/,
@@ -1674,4 +1674,279 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
   }
   assert.equal(compute(rich, days, {}).minFreq, 0.4,
     'the bar only moves when it has to');
+});
+// --- v1.0.23: Needs verification, map provider, Happening-now legibility -----
+
+// The watchlist is the one list that changes what "seen" MEANS, so "never
+// edited" and "deliberately emptied" must be distinguishable: localStorage
+// returning null falls back to the bundled seed, but a stored [] stays empty.
+test('the watchlist tells "never edited" apart from "emptied"', async () => {
+  const fresh = await boot();
+  const seeded = arr(fresh.window.__app.getWatchlist(), (e) => e.code);
+  assert.ok(seeded.length > 0, 'a fresh install starts from the authored list');
+  assert.ok(seeded.includes('amedip'),
+    'the bundled seed carries birdlist-needsverification.md');
+  fresh.window.close();
+
+  const emptied = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  assert.deepEqual(arr(emptied.window.__app.getWatchlist()), [],
+    'an emptied list must not snap back to the seed');
+  emptied.window.close();
+
+  // Corrupt storage is not an instruction to erase the list.
+  const junk = await boot({ storage: { ebird_watchlist_v1: 'not json' } });
+  assert.ok(arr(junk.window.__app.getWatchlist()).length > 0,
+    'unparseable storage falls back to the seed rather than emptying');
+  junk.window.close();
+});
+
+// analyze.py computes seen = (birdlist union seen_codes) - watchlist, and the
+// bundled seed already has the AUTHORED list subtracted. Device edits are a
+// delta on top, and the delta has to be right in BOTH directions.
+test('editing the watchlist moves species in and out of the seen set', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const held = app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld;
+  assert.ok(held.includes('amedip'), 'fixture assumption: WA really holds amedip back');
+
+  assert.equal(A.getReportSeen().amedip, undefined,
+    'a tracked species is deliberately NOT seen — that is what makes it resurface');
+
+  A.setWatchlist([]);
+  assert.equal(A.getReportSeen().amedip, 1,
+    'dropping it restores the tick the report was holding back');
+
+  A.setWatchlist([{ code: 'amedip', name: 'American Dipper' }]);
+  assert.equal(A.getReportSeen().amedip, undefined, 'and re-tracking holds it off again');
+
+  // The guard that matters: a bird you never recorded must not become a tick
+  // just because you stopped tracking it. Only codes this report ACTUALLY held
+  // back are eligible to come back.
+  A.setWatchlist([]);
+  app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld = ['amedip'];
+  const seen = A.getReportSeen();
+  assert.equal(seen.amedip, 1, 'a species this report held back returns when untracked');
+  assert.equal(seen.amepip, undefined,
+    'a species it never held back must NOT be invented as a year tick');
+
+  A.setWatchlist([{ code: 'zzznope', name: 'Imaginary Bird' }]);
+  assert.equal(A.getReportSeen().zzznope, undefined, 'tracking an unrecorded bird changes nothing');
+  A.setWatchlist([]);
+  assert.equal(A.getReportSeen().zzznope, undefined,
+    'and un-tracking it must not invent a year tick either');
+  app.window.close();
+});
+
+test('the watchlist is reorderable, de-duplicated, and exportable', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  const A = app.window.__app;
+  assert.equal(A.addWatch('aaa', 'Alpha Bird'), true);
+  assert.equal(A.addWatch('bbb', 'Beta Bird'), true);
+  assert.equal(A.addWatch('aaa', 'Alpha Bird'), false, 'the same species cannot be tracked twice');
+
+  A.moveWatch(1, -1);
+  assert.deepEqual(arr(A.getWatchlist(), (e) => e.code), ['bbb', 'aaa'],
+    'the order is the user\'s own, so it is stored rather than derived');
+  A.moveWatch(0, -1);
+  assert.deepEqual(arr(A.getWatchlist(), (e) => e.code), ['bbb', 'aaa'],
+    'moving the first row up is a no-op, not a wrap-around');
+
+  // The whole point of the export: analyze.py parses "N. Common Name" back.
+  const md = A.watchlistMarkdown();
+  assert.match(md, /^1\. Beta Bird$/m);
+  assert.match(md, /^2\. Alpha Bird$/m);
+
+  A.removeWatchAt(0);
+  assert.deepEqual(arr(A.getWatchlist(), (e) => e.code), ['aaa']);
+  app.window.close();
+});
+
+test('the Needs-verification section renders the tracked list with controls', async () => {
+  const app = await boot({
+    storage: { ebird_watchlist_v1: JSON.stringify([
+      { code: 'aaa', name: 'Alpha Bird' },
+      { code: 'bbb', name: 'Beta Bird' },
+      { code: '', name: 'Unresolvable Bird' },
+    ]) },
+  });
+  app.open(/Needs verification/);
+  const rows = [...app.$('nvResults').querySelectorAll('li')];
+  assert.equal(rows.length, 3, 'every tracked species gets a row, resolved or not');
+  // A name that resolves to no eBird code still ships, because silently
+  // dropping it hides a typo in the authored file forever.
+  assert.match(rows[2].textContent, /Not resolved to an eBird species code/);
+  assert.equal(app.$('nvResults').querySelectorAll('.nvup').length, 3);
+  assert.equal(app.$('nvResults').querySelectorAll('.nvdown').length, 3);
+  assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 3);
+  assert.equal(rows[0].querySelector('.nvup').disabled, true, 'the first row cannot move up');
+  assert.equal(rows[2].querySelector('.nvdown').disabled, true, 'the last row cannot move down');
+
+  app.click(rows[0].querySelector('.nvdown'));
+  assert.deepEqual(arr(app.window.__app.getWatchlist(), (e) => e.code), ['bbb', 'aaa', ''],
+    'the reorder button really reorders the stored list');
+  app.click([...app.$('nvResults').querySelectorAll('.nvdel')][0]);
+  assert.deepEqual(arr(app.window.__app.getWatchlist(), (e) => e.code), ['aaa', ''],
+    'and delete really deletes');
+  app.window.close();
+});
+
+// Word-prefix, the same rule the hotspot picker uses: typing "black th" has to
+// find "Black-throated Gray Warbler" without matching every name that happens
+// to contain those letters mid-word.
+test('species search matches on word prefixes, not substrings', async () => {
+  const app = await boot();
+  const rows = [
+    { code: 'btywar', name: 'Black-throated Gray Warbler' },
+    { code: 'bkbwar', name: 'Blackburnian Warbler' },
+    { code: 'amerob', name: 'American Robin' },
+    { code: 'rethaw', name: 'Red-tailed Hawk' },
+  ];
+  const S = app.window.__app.searchSpecies;
+  assert.deepEqual(arr(S(rows, 'black th'), (r) => r.code), ['btywar'],
+    'hyphens are word breaks, and both terms must hit a word start');
+  assert.deepEqual(arr(S(rows, 'warbler'), (r) => r.code).sort(), ['bkbwar', 'btywar']);
+  assert.deepEqual(arr(S(rows, 'obin')), [], 'a mid-word substring is not a match');
+  assert.deepEqual(arr(S(rows, 'r')), [], 'one letter is too broad to be useful');
+  app.window.close();
+});
+
+// A search result list with no way out is a dead end on a phone: the results
+// replace the section you came to read, and there is no browser chrome.
+test('both pick-lists can be dismissed once they have results', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  [['favSearch', 'favFound', 'favSearchClear'],
+   ['nvSearch', 'nvFound', 'nvSearchClear']].forEach(([inputId, listId, btnId]) => {
+    const input = app.$(inputId), list = app.$(listId), btn = app.$(btnId);
+    assert.ok(input && list && btn, inputId + ' needs an input, a result list and a way out');
+    assert.equal(btn.hidden, true, 'nothing to dismiss before a search runs: ' + btnId);
+    // Simulate a result landing, then take the only exit the user has.
+    input.value = 'heron';
+    list.innerHTML = '<li>a result</li>';
+    app.click(btn);
+    assert.equal(list.children.length, 0, btnId + ' must clear the results');
+    assert.equal(input.value, '', btnId + ' must also clear the query it came from');
+    assert.equal(btn.hidden, true, 'and hide itself again');
+  });
+  app.window.close();
+});
+
+// Every outbound map link follows the setting, and the schemes are genuinely
+// different per provider — so each one is checked against its own shape.
+test('map links are built by the selected provider', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.getMapProvider(), 'google', 'Google is the default');
+  assert.equal(A.setMapProvider('nonsense'), 'google',
+    'an unknown provider falls back rather than producing broken links');
+
+  const stops = [{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }, { lat: 5, lng: 6 }];
+  const home = { lat: 0, lng: 0 };
+  const cases = {
+    google: [/google\.com\/maps\/dir/, /waypoints=/, true],
+    apple: [/maps\.apple\.com/, /\+to:/, true],
+    bing: [/bing\.com\/maps\/directions/, /rtp=pos\./, true],
+    osm: [/openstreetmap\.org\/directions/, null, false],
+  };
+  Object.keys(cases).forEach((p) => {
+    const [host, waypoints, carries] = cases[p];
+    assert.equal(A.setMapProvider(p), p, p + ' round-trips through storage');
+    assert.equal(A.getMapProvider(), p);
+    const r = A.routeMapsUrl(stops, home);
+    assert.match(r.url, host, p + ' builds its own URL scheme');
+    if (waypoints) assert.match(r.url, waypoints, p + ' carries the intermediate stops');
+    assert.equal(r.allStops, carries,
+      p + ' must declare honestly whether the link really contains every stop');
+    assert.match(A.mapPointUrl('47.75,-122.16'), new RegExp(host.source.split('\\/')[0]),
+      p + ' also owns the single-pin links');
+  });
+
+  // A route with nothing in the middle loses nothing, so even the two-point
+  // provider is complete — the warning must not cry wolf.
+  assert.equal(A.routeMapsUrl([{ lat: 1, lng: 2 }], home).allStops, true);
+  assert.equal(A.routeMapsUrl([], home), null, 'no usable stops means no link at all');
+  assert.equal(A.routeMapsUrl([{ lat: 1, lng: 2 }], null), null,
+    'one stop and no home is a destination, not a route');
+  app.window.close();
+});
+
+test('the map-provider setting is reachable and lists every provider', async () => {
+  const app = await boot();
+  const sel = app.$('mapProvider');
+  assert.ok(sel, 'Settings must expose the provider choice');
+  assert.deepEqual(arr(sel.options, (o) => o.value).sort(),
+    Object.keys(app.window.__app.MAP_PROVIDERS).sort(),
+    'every provider the app can build links for is offered');
+  sel.value = 'apple';
+  sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(app.window.__app.getMapProvider(), 'apple',
+    'the control is wired — an unwired select is the exact bug that hid the rankings scope for a release');
+  app.window.close();
+});
+
+// "19" on its own is not information. Every number in Happening now says what
+// it counts, and the supporting names/links are rows rather than a run-on line.
+test('Happening now labels every count and lists names as rows', async () => {
+  const app = await boot();
+  const birders = [];
+  for (let i = 0; i < 12; i++) birders.push({ name: 'Birder ' + i, rank: i + 1 });
+  app.window.__app.renderSurge(
+    [{
+      code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11, ratio: 10,
+      novel: false, seen: false, loc: 'Marina Beach Park', locId: 'L123',
+      lat: 47.8, lon: -122.4, latest: '2026-07-29 08:00', subId: 'S999', distMi: 12.3,
+    }],
+    [{ species: 'Terek Sandpiper', code: '', birders, latest: '2026-07-28' }],
+    [{ loc: 'Marina Beach Park', locId: 'L123', observers: 16, ratio: 10 }]);
+  const box = app.$('surgeResults');
+  const counts = [...box.querySelectorAll('.count.big')];
+  assert.equal(counts.length, 3, 'one headline number per lane');
+  counts.forEach((c) => assert.ok(c.querySelector('small'),
+    'a bare number explains nothing — every count carries its unit: ' + c.textContent));
+  assert.match(counts[1].textContent, /top-100 birders/,
+    'the cascade count is a slice of the leaderboard, not a count of sightings');
+
+  // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph.
+  const cascade = box.querySelectorAll('ul.obs')[1];
+  const who = cascade.querySelectorAll('.cklrows li');
+  assert.equal(who.length, 8, 'names are rows, capped so one row cannot become a page');
+  assert.match(cascade.textContent, /and 4 more of the top 100/,
+    'the remainder is stated rather than silently dropped');
+
+  // The place and the checklist are what you act on, so they must be findable.
+  const surge = box.querySelectorAll('ul.obs')[0];
+  assert.match(surge.textContent, /Where/);
+  assert.match(surge.textContent, /S999/, 'the checklist is named by its subId, never "checklist"');
+  // Convergence carries no coordinates, so it links the hotspot page instead of
+  // pretending it can put a pin on a map.
+  const conv = box.querySelectorAll('ul.obs')[2];
+  assert.match(conv.innerHTML, /ebird\.org\/hotspot\/L123/);
+  assert.match(conv.textContent, /Recent visits at Marina Beach Park/);
+  app.window.close();
+});
+
+// The a11y scale is only honest if EVERY sized box multiplies through it. A
+// fixed px box holding scaled text clips at Huge, which is exactly the reader
+// the setting exists for.
+test('no fixed-size box holds text that scales', () => {
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  const offenders = [];
+  css.split('\n').forEach((line) => {
+    if (!/font-size:\s*calc\(\d+px \* var\(--s\)\)/.test(line)) return;
+    if (/(^|[^-])(min-)?(width|height):\s*\d+px/.test(line)) offenders.push(line.trim());
+  });
+  assert.deepEqual(offenders, [],
+    'these boxes stay fixed while their text grows, so the text clips at large scales');
+});
+
+// Leaflet is told the marker's pixel size in JS while CSS draws it; if the two
+// disagree the pin anchors off the coordinate it is marking.
+test('map pins scale in lockstep with the text-size setting', () => {
+  assert.match(HTML, /\.pinbubble \{[^}]*width:\s*calc\(24px \* var\(--s\)\)/,
+    'the bubble box scales');
+  const fn = HTML.slice(HTML.indexOf('function pinIcon('));
+  const body = fn.slice(0, fn.indexOf('function renderMap('));
+  assert.match(body, /24 \* getUiScale\(\)/,
+    'and Leaflet is told the same number, from the same source');
+  assert.doesNotMatch(body, /iconSize:\s*\[24, 24\]/,
+    'a hard-coded iconSize desyncs from the CSS the moment the scale changes');
 });

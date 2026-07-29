@@ -145,6 +145,13 @@
       "why": "common birds you should already have - the highest hit-rate chase list in the report"
     },
     {
+      "at": "nvResults",
+      "label": "🔍 Needs verification",
+      "report": "## 🔍 Watchlist",
+      "map": null,
+      "why": "the report renders the watchlist as a chase list; the app also MANAGES it (search to add, reorder, remove) because the authored file lives in the private pipeline repo the app cannot write to"
+    },
+    {
       "at": "migBtn",
       "label": "🛬 Migration outlook",
       "report": "## 🛬 Migration outlook",
@@ -180,7 +187,6 @@
     "## Contents": "navigation furniture; the app has its own Contents menu",
     "## Reports": "index of published Markdown files - meaningless on device",
     "## Run this on another computer": "setup instructions for the pipeline repo",
-    "## 🔍 Watchlist": "\"needs verification\" is a report-only concept - the app has no NV list",
     "## 🏅 Your state rankings": "rarity-tracker-only cross-region table; the app scopes to one region by design - switch regions in the nav instead",
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
