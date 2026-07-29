@@ -403,6 +403,51 @@ test("the app's LAST_NEW_RE parses the leaderboard newest-species column", () =>
   assert.equal(RE.exec('no parenthetical here'), null, 'junk is rejected');
 });
 
+test('Closest spots never lists a place the report would not go', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const anchors = [{ name: 'home', lat: 47.75, lng: -122.15 },
+                   { name: 'work', lat: 47.67, lng: -122.12 }];
+  // The exact row that shipped: a private "nearby yard" holding ONE Great
+  // Horned Owl on ONE checklist. It is 1.5 mi from work, so it sorts to #1 —
+  // but report._is_reachable drops a private location unless it hosts a
+  // stakeout (>=3 checklists), and the report never printed it.
+  const cv = {
+    stakeout: { L_STAKE: 1 },
+    near: [
+      { code: 'grhowl', name: 'Great Horned Owl', lat: 47.68, lon: -122.13,
+        loc: 'nearby yard', locId: 'L_YARD', location_private: true,
+        dateStr: '2026-07-27 21:00', subId: 'S377221269', count: 1 },
+      { code: 'tufpuf', name: 'Tufted Puffin', lat: 47.81, lon: -122.39,
+        loc: 'Edmonds waterfront', locId: 'L_STAKE',
+        location_private: true, dateStr: '2026-07-28 09:00', subId: 'S2' },
+      { code: 'manshe', name: 'Manx Shearwater', lat: 47.80, lon: -122.50,
+        loc: 'Edmonds-Kingston Ferry', locId: 'L_FERRY',
+        dateStr: '2026-07-28 08:00', subId: 'S3' },
+      { code: 'comloo', name: 'Common Loon', lat: 47.90, lon: -122.30,
+        loc: 'Far Park', locId: 'L_FAR', dateStr: '2026-07-28 07:00', subId: 'S4' },
+      { code: 'comloo', name: 'Common Loon', lat: 47.755, lon: -122.16,
+        loc: 'Near Park', locId: 'L_NEAR', dateStr: '2026-07-26 07:00', subId: 'S5' },
+    ],
+  };
+  const rows = A.buildClosestSpots(cv, anchors);
+  const names = rows.map(r => r.locName);
+  assert.ok(!names.includes('nearby yard'),
+    'a private location on a single checklist is not a place you can go');
+  assert.ok(!names.includes('Edmonds-Kingston Ferry'),
+    'a bird off a moving ferry belongs to Excursions, not a quick outing');
+  assert.ok(names.some(n => n === 'Edmonds waterfront'),
+    'but a private location hosting a stakeout stays - that is the rule that ' +
+    'kept the Rose-breasted Grosbeak chaseable');
+  const loon = rows.filter(r => r.speciesCode === 'comloo');
+  assert.equal(loon.length, 1, 'one row per species');
+  assert.equal(loon[0].locName, 'Near Park',
+    'and it is the NEAREST report of that species, not whichever the feed listed first');
+  const dists = Array.from(rows, r => r.distMi);
+  assert.deepEqual(dists, Array.from(dists).sort((a, b) => a - b), 'closest first');
+  app.window.close();
+});
+
 // --- Bird icons -------------------------------------------------------------
 
 // A `.thumb` is `float: left` by default. A float overhangs whatever follows it,
@@ -938,10 +983,10 @@ test('closest spots: rows carry the distance in miles, closest first', () => {
     HTML.indexOf('// --- eBird API'));
   assert.match(render, /o\.distMi[\s\S]*toFixed\(1\) \+ ' mi/,
     'the report prints miles on every row of this section');
-  const load = HTML.slice(HTML.indexOf('function loadTargets('),
-    HTML.indexOf('// --- shared chase pipeline'));
-  assert.match(load, /distMi:/, 'and the loader carries the distance through');
-  assert.match(load, /targets\.sort\(/, 'sorted closest first');
+  const build = HTML.slice(HTML.indexOf('function buildClosestSpots('),
+    HTML.indexOf('function loadTargets('));
+  assert.match(build, /distMi:/, 'and the builder carries the distance through');
+  assert.match(build, /targets\.sort\(/, 'sorted closest first');
 });
 
 test('quick outing: capped to an impulse detour and sorted by distance', async () => {
