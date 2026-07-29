@@ -205,12 +205,52 @@ function drawPhoto(cv, img, crop, size, ox, oy, circle) {
   }
 }
 
-// ICON is nearly the full frame: iOS masks the corners to a squircle itself, so
-// a full-bleed photo is correct and built-in padding would be cropped twice.
-const CROP_ICON = { x: 0.03, y: 0.005, s: 0.94 };
-// MARK is tighter, because at 26px in the navbar a whole-frame photo reads as a
-// smudge. Framed on the eye and the beak, which is what makes it a bald eagle.
-const CROP_MARK = { x: 0.10, y: 0.06, s: 0.72 };
+// Crops are solved against the mask each output actually gets, not eyeballed.
+// ICON sits under the iOS squircle, which only bites the corners, so it can
+// hold the whole profile plus the dark body that gives the mark weight.
+const CROP_ICON = { x: 0.148, y: 0.090, s: 0.820 };
+// MARK is masked by CSS to a circle INSCRIBED in the square, so the usable area
+// is 79% of the crop and the corners are gone. Sized so the hooked beak tip —
+// the furthest-left thing that makes this bird a bald eagle — clears the arc:
+// it lands 0.46 from centre against a 0.5 radius. A crop that merely "looks
+// centred" clips it, which is exactly what the previous one did.
+const CROP_MARK = { x: 0.165, y: 0.105, s: 0.645 };
+
+// Where the bird is in the master, in the master's own normalised coordinates.
+// Read off a grid overlay, not guessed. These exist so a crop can be CHECKED
+// rather than admired: the first pass at this photo looked fine as a square and
+// lost the beak the moment CSS made it round, which is invisible until it ships.
+const LANDMARKS = {
+  'beak tip': [0.195, 0.375],
+  'beak hook': [0.225, 0.465],
+  'crown': [0.440, 0.235],
+  'eye': [0.530, 0.330],
+  'nape': [0.905, 0.450],
+};
+// What each output OWES, which is not the same as what is in the photo. The
+// mark is a deliberately tight face, so losing the trailing nape feathers is
+// the crop working; losing the beak is the crop broken.
+const FACE = ['beak tip', 'beak hook', 'crown', 'eye'];
+const PROFILE = [...FACE, 'nape'];
+
+// A landmark must survive the mask its output actually gets. The circle is
+// inscribed, so it discards the corners; the iOS squircle only bites them.
+function assertFramed(crop, label, mask, required) {
+  for (const name of required) {
+    const [mx, my] = LANDMARKS[name];
+    const u = (mx - crop.x) / crop.s - 0.5;
+    const v = (my - crop.y) / crop.s - 0.5;
+    const inside = mask === 'circle'
+      ? Math.hypot(u, v) <= 0.5
+      : Math.abs(u * 2) ** 5 + Math.abs(v * 2) ** 5 <= 1;
+    if (!inside) {
+      throw new Error(
+        `${label}: "${name}" falls outside the ${mask} mask `
+        + `(${u.toFixed(3)}, ${v.toFixed(3)}). Widen or recentre the crop, or `
+        + `update LANDMARKS if the master photo changed.`);
+    }
+  }
+}
 
 const GREEN_TOP = [18, 150, 100], GREEN_BOT = [8, 70, 48];
 const DARK_TOP = [10, 32, 24], DARK_BOT = [4, 16, 12];
@@ -228,6 +268,9 @@ function renderSplash(img, size, top, bot) {
 
 const out = __dirname;
 const master = decodePNG(fs.readFileSync(path.join(out, 'brand', 'eagle.png')));
+
+assertFramed(CROP_ICON, 'CROP_ICON', 'squircle', PROFILE);
+assertFramed(CROP_MARK, 'CROP_MARK', 'circle', FACE);
 
 const icon = new Canvas(1024, 1024);
 drawPhoto(icon, master, CROP_ICON, 1024, 0, 0, false);
