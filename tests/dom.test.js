@@ -404,6 +404,47 @@ test("the app's LAST_NEW_RE parses the leaderboard newest-species column", () =>
 });
 
 // --- Bird icons -------------------------------------------------------------
+
+// A `.thumb` is `float: left` by default. A float overhangs whatever follows it,
+// and `.cklrows li` is a GRID, which refuses to overlap floats — so a row whose
+// name+meta is SHORTER than the 46px thumbnail had its detail grid shoved and
+// clipped by the overhang. It showed up as "Stanwood Water" sliced through by
+// the divider above it, and only on the short rows ("1 report"), which is why
+// it read as random. `.obs.big` sets `float: none` and lays the row out with
+// flex, which removes the overhang entirely. jsdom cannot lay out, so this
+// guards the STRUCTURAL precondition instead of the pixels.
+test('rarity/tick lists that render a .cklrows grid must clear the thumb float', () => {
+  for (const id of ['activeResults', 'lastNewResults']) {
+    const m = new RegExp(`<ul id="${id}" class="([^"]*)"`).exec(HTML);
+    assert.ok(m, `${id} must exist as a class-carrying list`);
+    assert.ok(m[1].split(/\s+/).includes('big'),
+      `${id} renders .cklrows under a .thumb, so it needs the float-clearing `
+      + `"big" layout; it has class="${m[1]}"`);
+  }
+  assert.match(HTML, /\.obs\.big \.thumb \{[^}]*float:\s*none/,
+    '.obs.big is the float-clearing layout — if it stops clearing, the guard above means nothing');
+  // Baseline alignment on a grid row whose cell wraps to 3 lines is the other
+  // half of the clipping; `start` grows the row downward predictably.
+  assert.doesNotMatch(HTML, /\.cklrows li \{[^}]*align-items:\s*baseline/,
+    '.cklrows rows must not be baseline-aligned — a wrapped place name overflows the row');
+});
+
+// The bird photo is the answer to "what IS that", so the rarity list sizes it to
+// be identified. The name and its badges must stay in ONE flex item, or a long
+// name wraps onto a second flex line and lands UNDER the 92px photo.
+test('Last 7-Days rarity rows size the photo up and keep name+badges together', () => {
+  assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
+    'the rarity list opts into the enlarged treatment');
+  assert.match(HTML, /\.obs\.xl \.thumb \{[^}]*width:\s*92px/,
+    'the rarity thumbnail is double the 46px default');
+  const fn = HTML.slice(HTML.indexOf('function loadActiveRarities('));
+  const row = fn.slice(0, fn.indexOf('el.appendChild(li)'));
+  assert.match(row, /class="ntext"/,
+    'the species link and its badges must be wrapped in .ntext so they wrap as one block');
+  assert.ok(row.indexOf('photoSlot(') < row.indexOf('class="ntext"'),
+    'the photo is the first flex item, the text block the second');
+});
+
 // The seed exists so an arbitrary region's report is mostly illustrated with no
 // network at all. That guarantee is a property of the FILES on disk, not of the
 // rendering code, so it gets its own check: a silently-missed copy step would
@@ -1084,21 +1125,21 @@ test('branding: the app icon photo is the in-app mark, bundled offline', async (
   app.window.close();
 });
 
-test('Contents is a grid of tiles, and the lead board leads it', async () => {
+test('Contents is a grid of tiles, and the first one leads it', async () => {
   const app = await boot();
   const A = app.window.__app;
-  const parts = A.splitLabel('🧭 Where to go next');
-  assert.equal(parts.icon, '🧭', 'a label splits off its glyph');
-  assert.equal(parts.text, 'Where to go next', 'and keeps the rest as words');
+  const parts = A.splitLabel('🔴 Happening now');
+  assert.equal(parts.icon, '🔴', 'a label splits off its glyph');
+  assert.equal(parts.text, 'Happening now', 'and keeps the rest as words');
   const plain = A.splitLabel('Settings');
   assert.equal(plain.icon, '', 'a label with no glyph claims none');
   assert.equal(plain.text, 'Settings',
     'and keeps all of its text rather than losing a letter to a bad guess');
   const first = app.document.querySelector('#menuList li');
   assert.ok(first.classList.contains('wide'),
-    'the first tile spans the row - "where do I go next" is the whole app');
+    'the first tile spans the row rather than sharing a slot');
   assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
-    /Where to go next/, 'and it is the lead board, not whatever sorts first');
+    /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
   app.window.close();
 });
 

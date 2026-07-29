@@ -116,6 +116,10 @@
     lower48: {
       slug: 'lower48', label: 'Lower 48', kind: 'region', stateCode: 'lower48',
       counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'Lower 48',
+      // Not a place anyone lives — the geographic centre of the contiguous US,
+      // used only to centre maps. Conditions must ask for a real home rather
+      // than report the weather in a field near Lebanon, Kansas.
+      homeIsPlaceholder: true,
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'lower48', seenFromRegion: '',
       // eBird subnational1 codes dropped from the rarity feed (non-CONUS).
@@ -125,6 +129,7 @@
     aba: {
       slug: 'aba', label: 'ABA Area', kind: 'region', stateCode: 'aba',
       counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'ABA Area',
+      homeIsPlaceholder: true,
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'aba', seenFromRegion: '',
       // Inclusive companion to Lower 48: keeps HI + Canada, drops only US territories.
@@ -1304,285 +1309,6 @@
     return rows;
   }
 
-  // ---- lead board ("where do I go next?") ----------------------------------
-  // The app exists to find UNSEEN birds, but that answer was spread across a
-  // dozen sections that each had to be opened and read. leadBoard() collapses
-  // every lane that can produce a chase into one ranked list of next actions.
-  //
-  // It is a PURE function over already-computed section output -- it fetches
-  // nothing -- so the Markdown report can mirror it exactly and the two can be
-  // compared fixture-for-fixture (tests/parity/test_leads.py).
-  //
-  // Scoring is deliberately INTEGER-ONLY. The cross-language bridge requires
-  // Python and JS to agree on the ORDER, and accumulated float error is the
-  // one way two correct implementations drift apart on identical input.
-  var LEADS = {
-    MAX: 12,
-    BASE: { surge: 22, rarity: 18, cascade: 16, closest: 12, destination: 12,
-            excursion: 8, cold: 6, quick: 6 },
-    HALFLIFE_H: { surge: 36, rarity: 72, cascade: 96, closest: 168,
-                  destination: 168, excursion: 168, cold: 720, quick: 720 },
-    UNSEEN_BONUS: 14,
-    RARE_BONUS: 6,
-    OBS_CAP: 5,
-    PROX_FLOOR: 20,
-    PROX_FULL_MI: 50
-  };
-
-  // Which lane's icon and reason a merged row shows. A puffin that a crowd is
-  // twitching should not render as "nearest spot with a bird you need" just
-  // because the closest-spots lane happened to score highest.
-  var LEAD_ICON = {
-    surge: '\uD83D\uDD34', cascade: '\uD83C\uDFC6', rarity: '\uD83D\uDEA8',
-    closest: '\uD83D\uDCCD', destination: '\uD83D\uDCCD',
-    excursion: '\uD83D\uDE97', cold: '\u2744\uFE0F', quick: '\uD83D\uDEB6'
-  };
-  var LEAD_LANE_RANK = ['surge', 'cascade', 'rarity', 'closest',
-                        'destination', 'excursion', 'cold', 'quick'];
-  // Reader-facing names for the corroborating lanes. 'closest' is an internal
-  // key; 'the closest-spots list' is a place the reader can actually go look.
-  var LEAD_LANE_LABEL = {
-    surge: 'the crowd', cascade: 'the leaderboard',
-    rarity: 'the rarity reports', closest: 'the closest-spots list',
-    destination: 'the top destinations', excursion: 'the excursions',
-    cold: 'the cold hotspots', quick: 'the quick outing'
-  };
-
-  // floor(x*10+0.5)/10 -- half-up in BOTH languages. Python's round() is
-  // banker's rounding and JS Math.round() is half-up; they disagree on exactly
-  // .05, which is enough to flip a sort order.
-  function round1(x) {
-    if (x === null || x === undefined || !isFinite(x)) return null;
-    return Math.floor(x * 10 + 0.5) / 10;
-  }
-
-  function leadScore(kind, o) {
-    o = o || {};
-    var base = LEADS.BASE[kind] || 5;
-    var obs = Math.max(0, Math.min(LEADS.OBS_CAP, o.observers || 0));
-    var value = base + 2 * obs
-      + (o.rare ? LEADS.RARE_BONUS : 0)
-      + (o.unseen ? LEADS.UNSEEN_BONUS : 0);
-    var half = LEADS.HALFLIFE_H[kind] || 168;
-    var ageH = (o.ageHours === null || o.ageHours === undefined)
-      ? 0 : Math.max(0, Math.floor(o.ageHours));
-    var decay = Math.max(0, 100 - Math.floor(100 * ageH / half));
-    var d = o.distMi;
-    var prox = (d === null || d === undefined || !isFinite(d))
-      ? 100
-      : Math.max(LEADS.PROX_FLOOR,
-                 100 - Math.floor(100 * round1(d) / LEADS.PROX_FULL_MI));
-    return Math.floor(value * decay * prox / 1000);
-  }
-
-  function leadBoard(input, opts) {
-    input = input || {};
-    opts = opts || {};
-    var seen = opts.seen || {};
-    var nowMs = (opts.nowMs === null || opts.nowMs === undefined)
-      ? Date.now() : opts.nowMs;
-    var anchors = opts.anchors || [];
-    var max = opts.max || LEADS.MAX;
-
-    function ageHours(ms) {
-      if (!ms || !isFinite(ms)) return null;
-      return Math.max(0, (nowMs - ms) / 3600000);
-    }
-    // isFinite(null) is TRUE in JS (null coerces to 0), which would silently
-    // place a coordinate-less row at 0,0 in the Gulf of Guinea and score it as
-    // very far away rather than as unknown. Reject null explicitly.
-    function num(v) {
-      return (v === null || v === undefined || v === '' || !isFinite(v))
-        ? null : +v;
-    }
-    function place(lat, lng) {
-      var a = num(lat), b = num(lng);
-      var n = (a === null || b === null) ? null : nearestAnchor(anchors, a, b);
-      return { distMi: n ? round1(n.dist) : null, anchor: n ? n.name : null };
-    }
-
-    var leads = [];
-    function push(kind, o) {
-      var p = place(o.lat, o.lng);
-      leads.push({
-        kind: kind, icon: o.icon, title: o.title || '', code: o.code || '',
-        subtitle: o.subtitle || '', where: o.where || '', locId: o.locId || '',
-        lat: o.lat, lng: o.lng, distMi: p.distMi, anchor: p.anchor,
-        whenMs: o.whenMs || null, unseen: !!o.unseen, rare: !!o.rare,
-        observers: o.observers || 0, why: o.why || '', section: o.section || '',
-        score: leadScore(kind, {
-          observers: o.observers, rare: o.rare, unseen: o.unseen,
-          ageHours: ageHours(o.whenMs), distMi: p.distMi
-        })
-      });
-    }
-
-    // 1. A twitch in progress -- the only lane whose contents expire in hours.
-    (input.surge || []).forEach(function (e) {
-      push('surge', {
-        icon: '\uD83D\uDD34', title: e.comName || '', code: e.speciesCode || '',
-        where: e.locName || '', locId: e.locId || '', lat: e.lat, lng: e.lng,
-        whenMs: e.latestMs, observers: e.observers || 0,
-        unseen: !isSeen(e.speciesCode, seen), rare: true, section: 'surge',
-        why: (e.observers || 0) + ' birders on it right now'
-      });
-    });
-
-    // 2. Rare bird reported nearby that you still need.
-    (input.rarities || []).forEach(function (r) {
-      if (isSeen(r.speciesCode, seen)) return;
-      push('rarity', {
-        icon: '\uD83D\uDEA8', title: r.comName || '', code: r.speciesCode || '',
-        where: r.locName || '', locId: r.locId || '',
-        lat: r.lat, lng: (r.lng !== undefined ? r.lng : r.lon),
-        whenMs: r.whenMs, observers: r.observers || 1, unseen: true, rare: true,
-        section: 'rarity', why: 'rare here and not on your year list'
-      });
-    });
-
-    // 3. The leaderboard is finding it -- demonstrably gettable right now.
-    (input.cascades || []).forEach(function (c) {
-      if (isSeen(c.speciesCode, seen)) return;
-      push('cascade', {
-        icon: '\uD83C\uDFC6', title: c.comName || '', code: c.speciesCode || '',
-        where: c.locName || '', locId: c.locId || '',
-        lat: c.lat, lng: c.lng, whenMs: c.latestMs, observers: c.birders || 0,
-        unseen: true, rare: false, section: 'cascade',
-        why: (c.birders || 0) + ' of the top 100 just added it'
-      });
-    });
-
-    // 4. Closest place holding something you need.
-    (input.closest || []).forEach(function (s) {
-      var sp = (s.species || [])[0] || {};
-      if (!sp.code || isSeen(sp.code, seen)) return;
-      var n = (s.species || []).length;
-      push('closest', {
-        icon: '\uD83D\uDCCD', title: sp.name || sp.comName || '', code: sp.code,
-        where: s.loc || s.locName || '', locId: s.locId || '',
-        lat: s.lat, lng: (s.lng !== undefined ? s.lng : s.lon),
-        whenMs: s.whenMs, observers: 1, unseen: true, rare: !!s.rare,
-        section: 'closest',
-        subtitle: n > 1 ? '+' + (n - 1) + ' more needed here' : '',
-        why: 'nearest spot with a bird you need'
-      });
-    });
-
-    // 5. Best scored destination / excursion clusters.
-    [['destination', input.destinations, 'highest-scoring spot close to home'],
-     ['excursion', input.excursions, 'worth the drive for the haul']
-    ].forEach(function (t) {
-      (t[1] || []).forEach(function (d) {
-        var n = (d.species || []).length;
-        push(t[0], {
-          icon: t[0] === 'excursion' ? '\uD83D\uDE97' : '\uD83D\uDCCD',
-          title: d.locName || d.loc || '', where: d.locName || d.loc || '',
-          locId: d.locId || '', lat: d.lat, lng: d.lng, whenMs: d.whenMs,
-          observers: n, unseen: n > 0, rare: !!d.rare, section: t[0] + 's',
-          subtitle: n + ' needed birds', why: t[2]
-        });
-      });
-    });
-
-    function byScore(a, b) {
-      if (b.score !== a.score) return b.score - a.score;
-      var ad = a.distMi === null ? 1e9 : a.distMi;
-      var bd = b.distMi === null ? 1e9 : b.distMi;
-      if (ad !== bd) return ad - bd;
-      if ((a.title || '') < (b.title || '')) return -1;
-      if ((a.title || '') > (b.title || '')) return 1;
-      return 0;
-    }
-    leads.sort(byScore);
-
-    // One row per SPECIES, not per species+place. The same bird reported at
-    // four spots is ONE errand -- you drive to the best one -- and four rows of
-    // Tufted Puffin crowd eleven other birds off a twelve-row board. The
-    // alternate lanes and spots are kept on the winning row so the
-    // corroboration is not lost.
-    var byKey = {}, out = [];
-    function absorb(l) {
-      var k = l.code || l.title;
-      var prev = byKey[k];
-      if (prev) {
-        if (prev.alsoIn.indexOf(l.kind) < 0) prev.alsoIn.push(l.kind);
-        if (!prev.whyBy[l.kind]) prev.whyBy[l.kind] = l.why;
-        var w = l.where || '';
-        if (w && w !== prev.where && prev.alsoAt.indexOf(w) < 0)
-          prev.alsoAt.push(w);
-        return;
-      }
-      l.alsoIn = []; l.alsoAt = []; l.whyBy = {};
-      l.whyBy[l.kind] = l.why;
-      byKey[k] = l;
-      out.push(l);
-    }
-    // Placed rows first. A lead with no location cannot be acted on, so it
-    // must never win the species and leave a row that says "go -- somewhere".
-    // The cascade lane has no coordinates by construction: the leaderboard
-    // reports WHO added a bird, never where, so its value is corroboration of
-    // a place some other lane found.
-    leads.forEach(function (l) { if (l.where) absorb(l); });
-    leads.forEach(function (l) { if (!l.where) absorb(l); });
-    out.forEach(function (l) {
-      var lanes = [l.kind].concat(l.alsoIn).filter(function (k, i, arr) {
-        return arr.indexOf(k) === i;
-      });
-      for (var i = 0; i < LEAD_LANE_RANK.length; i++) {
-        if (lanes.indexOf(LEAD_LANE_RANK[i]) >= 0) {
-          l.topLane = LEAD_LANE_RANK[i];
-          break;
-        }
-      }
-      l.topLane = l.topLane || l.kind;
-      l.icon = LEAD_ICON[l.topLane] || l.icon;
-      l.why = l.whyBy[l.topLane] || l.why;
-      // Everything EXCEPT the lane now being shown -- listing the lane whose
-      // reason is already printed reads as a duplicate.
-      l.alsoIn = lanes.filter(function (k) { return k !== l.topLane; });
-    });
-    out.sort(byScore);
-
-    var chases = out.filter(function (l) { return l.unseen; });
-    var ideas = [];
-    if (!chases.length) {
-      // Nothing is happening. Rather than print an empty board, fall back to
-      // standing ideas -- an overlooked hotspot, or somewhere close enough
-      // that a blank trip costs nothing.
-      [['cold', input.cold, '\u2744\uFE0F', 'overlooked spot nobody has checked lately'],
-       ['quick', input.quick, '\uD83D\uDEB6', 'close enough that a quiet morning costs nothing']
-      ].forEach(function (t) {
-        (t[1] || []).forEach(function (h) {
-          var p = place(h.lat, h.lng);
-          ideas.push({
-            kind: t[0], icon: t[2], title: h.locName || h.loc || '', code: '',
-            where: h.locName || h.loc || '', locId: h.locId || '',
-            lat: h.lat, lng: h.lng, distMi: p.distMi, anchor: p.anchor,
-            whenMs: null, unseen: false, rare: false, observers: 0,
-            alsoIn: [], alsoAt: [], whyBy: {}, topLane: t[0],
-            section: t[0], subtitle: (h.numSpeciesAllTime || 0) + ' species all-time',
-            why: t[3], score: leadScore(t[0], { distMi: p.distMi })
-          });
-        });
-      });
-      ideas.sort(function (a, b) {
-        if (b.score !== a.score) return b.score - a.score;
-        var ad = a.distMi === null ? 1e9 : a.distMi;
-        var bd = b.distMi === null ? 1e9 : b.distMi;
-        if (ad !== bd) return ad - bd;
-        if ((a.title || '') < (b.title || '')) return -1;
-        if ((a.title || '') > (b.title || '')) return 1;
-        return 0;
-      });
-    }
-
-    return {
-      leads: chases.slice(0, max),
-      ideas: chases.length ? [] : ideas.slice(0, max),
-      total: chases.length
-    };
-  }
-
   return {
     CONST: CONST,
     PROFILES: PROFILES,
@@ -1646,13 +1372,6 @@
     anchorsFor: anchorsFor,
     nearestAnchor: nearestAnchor,
     annotateAnchorDistance: annotateAnchorDistance,
-    LEADS: LEADS,
-    LEAD_ICON: LEAD_ICON,
-    LEAD_LANE_RANK: LEAD_LANE_RANK,
-    LEAD_LANE_LABEL: LEAD_LANE_LABEL,
-    round1: round1,
-    leadScore: leadScore,
-    leadBoard: leadBoard,
     dedupeObs: dedupeObs
   };
 }));
