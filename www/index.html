@@ -166,7 +166,7 @@
                     min-height: 92px; box-shadow: 0 1px 2px rgba(0,0,0,.16); }
     .toc .toclink:active { transform: scale(.97); }
     .toc .toclink::after { content: none; }
-    .tileicon { font-size: 26px; line-height: 1; }
+    .tileicon { font-size: 44px; line-height: 1; }
     .tilelabel { display: block; }
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
@@ -175,7 +175,7 @@
                             gap: 12px; font-size: 17px;
                             background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
                             border-color: rgba(46,160,67,.45); }
-    .toc li.wide .tileicon { font-size: 30px; }
+    .toc li.wide .tileicon { font-size: 42px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -943,37 +943,65 @@
           .finally(function () { btn.disabled = false; });
       }
 
+      // Closest spots: one row per unseen species, at the NEAREST place it has
+      // been reported. Pure so it can be tested without a network.
+      //
+      // Scope has to match report.section_closest_spots exactly: that function
+      // is fed `near` (unseen AND inside the target counties) and then keeps
+      // only _is_chaseable records. Reading cv.unseen instead skipped BOTH
+      // gates, so the app listed spots the report never would — most visibly a
+      // private "nearby yard" holding a single Great Horned Owl, which cannot
+      // clear the 3-checklist stakeout exemption but sorted to #1 because the
+      // yard happens to sit near the work anchor.
+      function buildClosestSpots(cv, anchors) {
+        var chaseable = (cv.near || []).filter(function (r) {
+          return BL.isChaseable(r, cv.stakeout);
+        });
+        // Keep the nearest report of each species rather than whichever the
+        // feed happened to list first — the section is called "Closest spots",
+        // so picking by feed order can print a 30 mi row while a 2 mi report of
+        // the same bird sits in the same list.
+        var bySpecies = {};
+        chaseable.forEach(function (r) {
+          if (!r.code) return;
+          var na = BL.nearestAnchor(anchors, r.lat, r.lon);
+          var d = na ? na.dist
+            : ((r.distMi != null && r.distMi !== Infinity) ? r.distMi : null);
+          var prev = bySpecies[r.code];
+          if (!prev || (d == null ? Infinity : d) < (prev.d == null ? Infinity : prev.d)) {
+            bySpecies[r.code] = { rec: r, d: d, anchor: na ? na.name : null };
+          }
+        });
+        var targets = Object.keys(bySpecies).map(function (code) {
+          var pick = bySpecies[code], r = pick.rec;
+          // Closest spots ranks on the NEAREST anchor (home OR work), matching
+          // report.section_closest_spots. The report's GLOBAL distMi stays
+          // home-only, so this is a local override, not a pipeline change.
+          return {
+            speciesCode: r.code, comName: r.name || r.code, howMany: r.count,
+            locName: r.loc, locId: r.locId, lat: r.lat, lng: r.lon,
+            locationPrivate: r.location_private, obsDt: r.dateStr,
+            subId: r.subId, userDisplayName: r.observer,
+            anchor: pick.anchor, distMi: pick.d
+          };
+        });
+        targets.sort(function (a, b) {
+          var da = a.distMi == null ? Infinity : a.distMi;
+          var db = b.distMi == null ? Infinity : b.distMi;
+          if (da !== db) return da - db;
+          return String(a.comName).localeCompare(String(b.comName));
+        });
+        return targets;
+      }
+
       function loadTargets() {
         if (!getKey()) { $('targetStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults'), label = getReport().label;
         btn.disabled = true; out.innerHTML = ''; $('closeMap').innerHTML = ''; st.textContent = 'Finding targets for ' + label + '…';
         getChase().then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          // Unseen species across the report's counties/geo (report scope + seen
-          // set), collapsed to one row per species — newest, closest first.
-          var seenSp = {}, targets = [], anchors = getAnchors();
-          c.cv.unseen.forEach(function (r) {
-            if (!r.code || seenSp[r.code]) return;
-            seenSp[r.code] = 1;
-            // Closest spots ranks on the NEAREST anchor (home OR work), matching
-            // report.section_closest_spots. The report's GLOBAL distMi stays
-            // home-only, so this is a local override, not a pipeline change.
-            var na = BL.nearestAnchor(anchors, r.lat, r.lon);
-            targets.push({
-              speciesCode: r.code, comName: r.name || r.code, howMany: r.count,
-              locName: r.loc, locId: r.locId, lat: r.lat, lng: r.lon,
-              locationPrivate: r.location_private, obsDt: r.dateStr,
-              subId: r.subId, userDisplayName: r.observer,
-              anchor: na ? na.name : null,
-              distMi: na ? na.dist
-                : ((r.distMi != null && r.distMi !== Infinity) ? r.distMi : null)
-            });
-          });
+          var targets = buildClosestSpots(c.cv, getAnchors());
           if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
-          targets.sort(function (a, b) {
-            var da = a.distMi == null ? Infinity : a.distMi, db = b.distMi == null ? Infinity : b.distMi;
-            return da - db;
-          });
           var shown = targets.slice(0, 100);
           st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
             (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
@@ -5353,7 +5381,8 @@
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
         getWork: getWork, workKey: workKey, getAnchors: getAnchors,
-        splitLabel: splitLabel, buildAllUnseen: buildAllUnseen
+        splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
+        buildClosestSpots: buildClosestSpots
       };
       migrateHomeKeys();
       buildNav();
