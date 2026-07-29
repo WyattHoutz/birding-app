@@ -1,13 +1,24 @@
 /*
- * Dependency-free generator for the app icon + splash source images.
+ * Dependency-free generator for the app icon, launch images and in-app mark.
  *
- * Draws a birding emblem (binoculars) on a green gradient and writes three
- * PNGs that @capacitor/assets fans out into the iOS project during CI:
- *   assets/icon.png        1024x1024  app icon source
- *   assets/splash.png      2732x2732  light launch image
- *   assets/splash-dark.png 2732x2732  dark launch image
+ * The brand is a photograph -- a bald eagle shot by the app's author -- so the
+ * icon you tap, the splash you wait on and the mark in the header are all
+ * literally the same picture. Everything is derived from ONE master here, so
+ * they cannot drift apart the way a hand-drawn logo and a separate icon do.
  *
- * No external packages: PNG is hand-encoded with Node's built-in zlib.
+ * Input:
+ *   assets/brand/eagle.png     1024x1024 lossless master (the archival source)
+ *
+ * Output:
+ *   assets/icon.png            1024x1024  app icon source  (capacitor-assets)
+ *   assets/splash.png          2732x2732  light launch image
+ *   assets/splash-dark.png     2732x2732  dark launch image
+ *   www/assets/brand/mark.png  176x176    in-app header + navbar mark
+ *
+ * The master is PNG rather than the original JPEG for one reason: Node decodes
+ * PNG with built-in zlib and cannot decode JPEG without a package. Keeping the
+ * pipeline dependency-free is why it runs anywhere with nothing installed.
+ *
  * Run:  node assets/generate.js
  */
 'use strict';
@@ -16,6 +27,8 @@ const fs = require('fs');
 const path = require('path');
 
 // ---- PNG encoding (8-bit RGB, no alpha) ----
+// iOS rejects an app icon that has an alpha channel, so RGB here is not just a
+// size saving -- an RGBA icon fails validation outright.
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -59,6 +72,62 @@ function encodePNG(w, h, rgb) {
   ]);
 }
 
+// ---- PNG decoding (8-bit RGB/RGBA, all five filter types) ----
+function decodePNG(buf) {
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
+  let pos = 8, w = 0, h = 0, depth = 0, color = 0;
+  const idat = [];
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IHDR') {
+      w = data.readUInt32BE(0); h = data.readUInt32BE(4);
+      depth = data[8]; color = data[9];
+      if (data[12] !== 0) throw new Error('interlaced PNG not supported');
+    } else if (type === 'IDAT') idat.push(data);
+    else if (type === 'IEND') break;
+    pos += 12 + len;
+  }
+  if (depth !== 8 || (color !== 2 && color !== 6)) {
+    throw new Error(`need an 8-bit RGB/RGBA master, got depth ${depth} color ${color}`);
+  }
+  const ch = color === 6 ? 4 : 3;
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = w * ch;
+  const out = Buffer.alloc(w * h * 3);
+  const line = Buffer.alloc(stride);
+  const prev = Buffer.alloc(stride);
+  let rp = 0;
+  for (let y = 0; y < h; y++) {
+    const filter = raw[rp++];
+    raw.copy(line, 0, rp, rp + stride);
+    rp += stride;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= ch ? line[i - ch] : 0;
+      const b = prev[i];
+      const c = i >= ch ? prev[i - ch] : 0;
+      let v = line[i];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      line[i] = v & 0xff;
+    }
+    for (let x = 0; x < w; x++) {
+      out[(y * w + x) * 3] = line[x * ch];
+      out[(y * w + x) * 3 + 1] = line[x * ch + 1];
+      out[(y * w + x) * 3 + 2] = line[x * ch + 2];
+    }
+    line.copy(prev);
+  }
+  return { w, h, d: out };
+}
+
 // ---- tiny AA raster canvas ----
 function Canvas(w, h) { this.w = w; this.h = h; this.d = Buffer.alloc(w * h * 3); }
 Canvas.prototype.set = function (x, y, c, cov) {
@@ -85,59 +154,95 @@ Canvas.prototype.circle = function (cx, cy, r, color) {
       this.set(x, y, color, Math.max(0, Math.min(1, r + 0.5 - d)));
     }
 };
-Canvas.prototype.roundRect = function (x0, y0, x1, y1, r, color) {
-  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  const hx = (x1 - x0) / 2 - r, hy = (y1 - y0) / 2 - r;
-  const bx0 = Math.max(0, Math.floor(x0 - 1)), bx1 = Math.min(this.w - 1, Math.ceil(x1 + 1));
-  const by0 = Math.max(0, Math.floor(y0 - 1)), by1 = Math.min(this.h - 1, Math.ceil(y1 + 1));
-  for (let y = by0; y <= by1; y++)
-    for (let x = bx0; x <= bx1; x++) {
-      const qx = Math.abs(x + 0.5 - cx) - hx, qy = Math.abs(y + 0.5 - cy) - hy;
-      const dOut = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
-      const dIn = Math.min(Math.max(qx, qy), 0);
-      const sd = dOut + dIn - r;
-      this.set(x, y, color, Math.max(0, Math.min(1, 0.5 - sd)));
+
+// ---- photo sampling ----
+function sample(img, u, v) {
+  const fx = Math.min(img.w - 1, Math.max(0, u * (img.w - 1)));
+  const fy = Math.min(img.h - 1, Math.max(0, v * (img.h - 1)));
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(img.w - 1, x0 + 1), y1 = Math.min(img.h - 1, y0 + 1);
+  const tx = fx - x0, ty = fy - y0;
+  const out = [0, 0, 0];
+  for (let k = 0; k < 3; k++) {
+    const p00 = img.d[(y0 * img.w + x0) * 3 + k], p10 = img.d[(y0 * img.w + x1) * 3 + k];
+    const p01 = img.d[(y1 * img.w + x0) * 3 + k], p11 = img.d[(y1 * img.w + x1) * 3 + k];
+    out[k] = (p00 * (1 - tx) + p10 * tx) * (1 - ty) + (p01 * (1 - tx) + p11 * tx) * ty;
+  }
+  return out;
+}
+
+/* Draw the crop box of `img` into a square of `size`, optionally circle-masked.
+ *
+ * Crops are given in NORMALISED master coordinates so the framing survives any
+ * future change of master resolution.
+ *
+ * Downscaling a 1024px photo to 176px with one bilinear tap per output pixel
+ * aliases badly on feather detail, so each output pixel averages an ss x ss
+ * grid -- a box filter over the source footprint it actually covers. */
+function drawPhoto(cv, img, crop, size, ox, oy, circle) {
+  const ss = Math.max(1, Math.min(4, Math.round((img.w * crop.s) / size)));
+  const r = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let cov = 1;
+      if (circle) {
+        const d = Math.hypot(x + 0.5 - r, y + 0.5 - r);
+        cov = Math.max(0, Math.min(1, r - d + 0.5));
+        if (cov <= 0) continue;
+      }
+      const acc = [0, 0, 0];
+      for (let sy = 0; sy < ss; sy++) {
+        for (let sx = 0; sx < ss; sx++) {
+          const u = crop.x + ((x + (sx + 0.5) / ss) / size) * crop.s;
+          const v = crop.y + ((y + (sy + 0.5) / ss) / size) * crop.s;
+          const p = sample(img, u, v);
+          acc[0] += p[0]; acc[1] += p[1]; acc[2] += p[2];
+        }
+      }
+      const n = ss * ss;
+      cv.set(ox + x, oy + y, [acc[0] / n, acc[1] / n, acc[2] / n], cov);
     }
-};
-
-const LIGHT = [238, 243, 239];
-const MINT = [55, 211, 145];
-const DARK = [8, 44, 30];
-
-// Binoculars emblem centered at (cx,cy); u = size unit.
-function binoculars(cv, cx, cy, u) {
-  const bhw = 0.46 * u;               // barrel half width
-  const top = cy - 0.66 * u, bot = cy + 0.58 * u;
-  const lx = cx - 0.55 * u, rx = cx + 0.55 * u;
-  // connecting bridge (draw first so barrels sit on top)
-  cv.roundRect(lx, cy - 0.40 * u, rx, cy - 0.10 * u, 0.10 * u, LIGHT);
-  // barrels
-  cv.roundRect(lx - bhw, top, lx + bhw, bot, 0.40 * u, LIGHT);
-  cv.roundRect(rx - bhw, top, rx + bhw, bot, 0.40 * u, LIGHT);
-  // focus wheel on the bridge
-  cv.roundRect(cx - 0.11 * u, cy - 0.44 * u, cx + 0.11 * u, cy - 0.06 * u, 0.06 * u, DARK);
-  // objective lenses (front glass) at the bottom of each barrel
-  cv.circle(lx, cy + 0.30 * u, 0.34 * u, DARK);
-  cv.circle(rx, cy + 0.30 * u, 0.34 * u, DARK);
-  cv.circle(lx, cy + 0.30 * u, 0.24 * u, MINT);
-  cv.circle(rx, cy + 0.30 * u, 0.24 * u, MINT);
-  // eyecups at the top
-  cv.circle(lx, top + 0.02 * u, 0.30 * u, DARK);
-  cv.circle(rx, top + 0.02 * u, 0.30 * u, DARK);
+  }
 }
 
-function render(size, u, top, bot) {
-  const cv = new Canvas(size, size);
-  cv.gradient(top, bot);
-  binoculars(cv, size / 2, size * 0.52, u);
-  return encodePNG(size, size, cv.d);
-}
+// ICON is nearly the full frame: iOS masks the corners to a squircle itself, so
+// a full-bleed photo is correct and built-in padding would be cropped twice.
+const CROP_ICON = { x: 0.03, y: 0.005, s: 0.94 };
+// MARK is tighter, because at 26px in the navbar a whole-frame photo reads as a
+// smudge. Framed on the eye and the beak, which is what makes it a bald eagle.
+const CROP_MARK = { x: 0.10, y: 0.06, s: 0.72 };
 
 const GREEN_TOP = [18, 150, 100], GREEN_BOT = [8, 70, 48];
 const DARK_TOP = [10, 32, 24], DARK_BOT = [4, 16, 12];
+const RING = [238, 243, 239];
+
+function renderSplash(img, size, top, bot) {
+  const cv = new Canvas(size, size);
+  cv.gradient(top, bot);
+  const d = Math.round(size * 0.42);
+  const o = Math.round((size - d) / 2);
+  cv.circle(size / 2, size / 2, d / 2 + size * 0.012, RING);
+  drawPhoto(cv, img, CROP_MARK, d, o, o, true);
+  return encodePNG(size, size, cv.d);
+}
 
 const out = __dirname;
-fs.writeFileSync(path.join(out, 'icon.png'), render(1024, 300, GREEN_TOP, GREEN_BOT));
-fs.writeFileSync(path.join(out, 'splash.png'), render(2732, 460, GREEN_TOP, GREEN_BOT));
-fs.writeFileSync(path.join(out, 'splash-dark.png'), render(2732, 460, DARK_TOP, DARK_BOT));
-console.log('wrote icon.png, splash.png, splash-dark.png');
+const master = decodePNG(fs.readFileSync(path.join(out, 'brand', 'eagle.png')));
+
+const icon = new Canvas(1024, 1024);
+drawPhoto(icon, master, CROP_ICON, 1024, 0, 0, false);
+fs.writeFileSync(path.join(out, 'icon.png'), encodePNG(1024, 1024, icon.d));
+
+fs.writeFileSync(path.join(out, 'splash.png'), renderSplash(master, 2732, GREEN_TOP, GREEN_BOT));
+fs.writeFileSync(path.join(out, 'splash-dark.png'), renderSplash(master, 2732, DARK_TOP, DARK_BOT));
+
+// The in-app mark. 176px covers the 58px header logo at 3x and the navbar's
+// 26px many times over. It is masked to a circle by CSS rather than baked in,
+// so the file stays alpha-free and one asset serves both sites.
+const markDir = path.join(out, '..', 'www', 'assets', 'brand');
+fs.mkdirSync(markDir, { recursive: true });
+const mark = new Canvas(176, 176);
+drawPhoto(mark, master, CROP_MARK, 176, 0, 0, false);
+fs.writeFileSync(path.join(markDir, 'mark.png'), encodePNG(176, 176, mark.d));
+
+console.log('wrote icon.png, splash.png, splash-dark.png, www/assets/brand/mark.png');

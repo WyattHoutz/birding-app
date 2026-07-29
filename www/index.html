@@ -99,12 +99,15 @@
        icon is drawn from (assets/generate.js), redrawn as inline SVG so the
        app looks like its own icon with zero network and zero extra bytes over
        the wire. One <symbol>, reused wherever the mark appears. */
-    .brandsprite { position: absolute; width: 0; height: 0; overflow: hidden; }
     .brand { display: flex; align-items: center; gap: 14px; }
-    .brandmark { width: 58px; height: 58px; flex: 0 0 auto;
-                 filter: drop-shadow(0 2px 6px rgba(0,0,0,.28)); }
+    /* The mark is the app icon photograph, masked to a circle here rather than
+       baked in, so one alpha-free file serves both sites and the iOS icon. */
+    .brandmark { width: 58px; height: 58px; flex: 0 0 auto; border-radius: 50%;
+                 object-fit: cover; background: #dfe6e2;
+                 box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 2px rgba(255,255,255,.85); }
     .brandtext { min-width: 0; }
-    .brandmark.small { width: 26px; height: 26px; filter: none; }
+    .brandmark.small { width: 26px; height: 26px;
+                       box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
     header .kicker { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
     header h1 { font-size: 30px; margin: 0; font-weight: 800; letter-spacing: -0.02em; }
     header p { margin: 8px 0 0; font-size: 15px; opacity: .9; max-width: 34ch; }
@@ -327,41 +330,16 @@
   </style>
 </head>
 <body>
-  <!-- Brand mark, defined once and reused. Geometry mirrors the binoculars in
-       assets/generate.js (cx 50, cy 52, u 38) so the in-app logo and the
-       home-screen icon are recognisably the same object. -->
-  <svg class="brandsprite" aria-hidden="true" focusable="false">
-    <symbol id="bcMark" viewBox="0 0 100 100">
-      <rect x="4" y="4" width="92" height="92" rx="22" fill="url(#bcMarkBg)"/>
-      <rect x="29.1" y="36.8" width="41.8" height="11.4" rx="3.8" fill="#eef3ef"/>
-      <rect x="11.62" y="26.92" width="34.96" height="47.12" rx="15.2" fill="#eef3ef"/>
-      <rect x="53.42" y="26.92" width="34.96" height="47.12" rx="15.2" fill="#eef3ef"/>
-      <rect x="45.82" y="35.28" width="8.36" height="14.44" rx="2.28" fill="#082c1e"/>
-      <circle cx="29.1" cy="63.4" r="12.92" fill="#082c1e"/>
-      <circle cx="70.9" cy="63.4" r="12.92" fill="#082c1e"/>
-      <circle cx="29.1" cy="63.4" r="9.12" fill="#37d391"/>
-      <circle cx="70.9" cy="63.4" r="9.12" fill="#37d391"/>
-      <circle cx="29.1" cy="27.68" r="11.4" fill="#082c1e"/>
-      <circle cx="70.9" cy="27.68" r="11.4" fill="#082c1e"/>
-    </symbol>
-    <linearGradient id="bcMarkBg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#129664"/>
-      <stop offset="1" stop-color="#084630"/>
-    </linearGradient>
-  </svg>
   <div id="navbar" hidden>
     <button id="navBack" class="secondary" type="button">‹ Contents</button>
-    <svg class="brandmark small" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-      <use href="#bcMark"></use>
-    </svg>
+    <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
     <span id="navTitle"></span>
     <select id="navRegion" aria-label="Report region"></select>
   </div>
   <header>
     <div class="brand">
-      <svg class="brandmark" viewBox="0 0 100 100" role="img" aria-label="Bird Chaser">
-        <use href="#bcMark"></use>
-      </svg>
+      <img class="brandmark" src="assets/brand/mark.png" width="58" height="58"
+           alt="Bird Chaser">
       <div class="brandtext">
         <p class="kicker">Personal eBird tracker</p>
         <h1>Bird Chaser</h1>
@@ -694,7 +672,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.19';
+      var APP_VERSION = '1.0.20';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
