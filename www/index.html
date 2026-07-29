@@ -60,6 +60,10 @@
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <style>
     :root {
+      /* Text-size scale for low-vision readers. Set from Settings; every px
+         font-size and picture box in this sheet is multiplied by it. Deliberately
+         NOT CSS zoom -- zoom breaks Leaflet's coordinate and hit-testing math. */
+      --s: 1;
       --bg: #f6f7f5;
       --card: #ffffff;
       --ink: #16211b;
@@ -108,9 +112,9 @@
     .brandtext { min-width: 0; }
     .brandmark.small { width: 26px; height: 26px;
                        box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
-    header .kicker { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
-    header h1 { font-size: 30px; margin: 0; font-weight: 800; letter-spacing: -0.02em; }
-    header p { margin: 8px 0 0; font-size: 15px; opacity: .9; max-width: 34ch; }
+    header .kicker { font-size: calc(13px * var(--s)); letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
+    header h1 { font-size: calc(30px * var(--s)); margin: 0; font-weight: 800; letter-spacing: -0.02em; }
+    header p { margin: 8px 0 0; font-size: calc(15px * var(--s)); opacity: .9; max-width: 34ch; }
     main { padding: 18px 16px 40px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .card {
@@ -123,33 +127,33 @@
       display: flex; flex-direction: column; justify-content: space-between;
     }
     .card.wide { grid-column: 1 / -1; }
-    .card .emoji { font-size: 26px; }
-    .card h2 { font-size: 16px; margin: 10px 0 2px; font-weight: 700; }
-    .card .sub { font-size: 13px; color: var(--muted); margin: 0; }
+    .card .emoji { font-size: calc(26px * var(--s)); }
+    .card h2 { font-size: calc(16px * var(--s)); margin: 10px 0 2px; font-weight: 700; }
+    .card .sub { font-size: calc(13px * var(--s)); color: var(--muted); margin: 0; }
     .badge {
       align-self: flex-start; margin-top: 10px;
-      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      font-size: calc(11px * var(--s)); font-weight: 700; letter-spacing: .04em;
       color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
       padding: 3px 8px; border-radius: 999px; text-transform: uppercase;
     }
     footer {
-      text-align: center; color: var(--muted); font-size: 12px;
+      text-align: center; color: var(--muted); font-size: calc(12px * var(--s));
       padding: 8px 16px calc(env(safe-area-inset-bottom) + 24px);
     }
     footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
-    .panel h2 { font-size: 15px; margin: 0 0 12px; font-weight: 700; }
+    .panel h2 { font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { color: var(--muted); font-weight: 600; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
     #navbar[hidden] { display: none; }
-    #navbar button { padding: 8px 12px; font-size: 14px; }
-    #navTitle { font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #navRegion { width: auto; max-width: 42%; margin-left: auto; padding: 7px 8px; font-size: 13px; font-weight: 700; border-radius: 8px; }
+    #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
+    #navTitle { font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #navRegion { width: auto; max-width: 42%; margin-left: auto; padding: 7px 8px; font-size: calc(13px * var(--s)); font-weight: 700; border-radius: 8px; }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
-    .regionpick label { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .regionpick label { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .regionpick select { flex: 1; font-weight: 700; }
-    #menuPanel h2 { font-size: 19px; margin-bottom: 4px; }
+    #menuPanel h2 { font-size: calc(19px * var(--s)); margin-bottom: 4px; }
     /* Contents is a grid of tiles, not a list of links: 25 rows of text all
        set at the same weight is a wall to scan, while a glyph per tile lets
        the eye jump straight to the section it wants. Labels keep the .toclink
@@ -161,33 +165,50 @@
                     justify-content: flex-start; gap: 8px; flex: 1 1 auto;
                     padding: 14px 12px; border: 1px solid var(--line);
                     border-radius: 14px; background: var(--card);
-                    font-size: 14px; font-weight: 700; line-height: 1.25;
+                    font-size: calc(14px * var(--s)); font-weight: 700; line-height: 1.25;
                     color: var(--ink); cursor: pointer; text-align: left;
                     min-height: 92px; box-shadow: 0 1px 2px rgba(0,0,0,.16); }
     .toc .toclink:active { transform: scale(.97); }
     .toc .toclink::after { content: none; }
-    .tileicon { font-size: 44px; line-height: 1; }
+    .tileicon { font-size: calc(44px * var(--s)); line-height: 1; }
+    /* "How is this calculated?" — an info affordance on every section heading.
+       Sized as a real 34px touch target rather than a decorative glyph: a help
+       control you cannot hit is not help. */
+    .docbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
+              min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));
+              padding: 0; margin-left: 8px; vertical-align: middle;
+              border-radius: 999px; border: 1px solid var(--line);
+              background: var(--bg); color: var(--muted); }
+    .docbtn[aria-expanded=true] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    .sectiondoc { border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+                  padding: 12px 14px; margin: 10px 0 14px; }
+    .sectiondoc[hidden] { display: none; }
+    .docsum { margin: 0 0 8px; font-weight: 700; font-size: calc(14px * var(--s)); }
+    .doch { margin: 10px 0 4px; font-size: calc(11px * var(--s)); font-weight: 700;
+            letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+    .doclist { margin: 0; padding-left: 18px; font-size: calc(13px * var(--s)); line-height: 1.45; }
+    .doclist li { margin: 3px 0; }
     .tilelabel { display: block; }
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
     .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
-                            gap: 12px; font-size: 17px;
+                            gap: 12px; font-size: calc(17px * var(--s));
                             background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
                             border-color: rgba(46,160,67,.45); }
-    .toc li.wide .tileicon { font-size: 42px; }
-    label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
-    input[type=text], input[type=password] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
+    .toc li.wide .tileicon { font-size: calc(42px * var(--s)); }
+    label { display: block; font-size: calc(12px * var(--s)); color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
+    input[type=text], input[type=password], input[type=search] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
     .row { display: flex; gap: 10px; align-items: center; }
     button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
-    .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    .hint { font-size: calc(12px * var(--s)); color: var(--muted); margin: 8px 0 0; }
     .destfoot { margin: 8px 0 2px; }
     .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .status { font-size: 13px; color: var(--muted); padding: 10px 0 2px; }
+    .status { font-size: calc(13px * var(--s)); color: var(--muted); padding: 10px 0 2px; }
     .feedwarn { color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
                 border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
     .obs { list-style: none; margin: 6px 0 0; padding: 0; }
@@ -195,48 +216,83 @@
     /* Bird names are what these lists are FOR — they were set at 15px, smaller
        than the section intro text above them. Everything that names a species
        reads at 17px or larger. */
-    .obs .name { font-weight: 700; font-size: 17px; color: var(--accent); line-height: 1.3; }
-    .obs .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
-    .obs .count { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .obs .name { font-weight: 700; font-size: calc(17px * var(--s)); color: var(--accent); line-height: 1.3; }
+    .obs .meta { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 2px; }
+    .obs .count { float: right; font-size: calc(12px * var(--s)); color: var(--muted); font-variant-numeric: tabular-nums; }
     .filebtn { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
-    .bignum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
-    .bignum small { font-size: 13px; font-weight: 600; color: var(--muted); }
+    .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
+    .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
     #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
     #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
-    .pinbubble { width: 24px; height: 24px; border-radius: 50%; background: #e5484d; color: #fff; font-weight: 800; font-size: 12px; line-height: 22px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
+    .pinbubble { width: 24px; height: 24px; border-radius: 50%; background: #e5484d; color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: 22px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
     .pinbubble.home { background: #0f7a52; }
-    .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 12px; font-weight: 800; margin-right: 8px; vertical-align: middle; }
+    .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: #e5484d; color: #fff; font-size: calc(12px * var(--s)); font-weight: 800; margin-right: 8px; vertical-align: middle; }
     .dest .name { vertical-align: middle; }
-    .dest .sp { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .dest .sp { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
-    .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; }
-    .thumb { float: left; width: 46px; height: 46px; margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
+    .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
+    .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
     .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
     .obs li { overflow: hidden; }
     /* Larger icon + title for the sections read as "which bird is this" rather
        than "how many" — the thumbnail is the fastest way to recognise a bird. */
-    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 800; line-height: 1.25; }
-    .obs.big .thumb { float: none; flex: 0 0 auto; width: 64px; height: 64px; margin: 0; }
+    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: calc(20px * var(--s)); font-weight: 800; line-height: 1.25; }
+    .obs.big .thumb { float: none; flex: 0 0 auto; width: calc(64px * var(--s)); height: calc(64px * var(--s)); margin: 0; }
     .obs.big .meta { margin-top: 6px; }
-    .obs.big .count { font-size: 13px; font-weight: 700; color: var(--ink); }
+    .obs.big .count { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); }
     /* Last 7-Days rarity: read one row at a time ("what IS that bird, and do I
        drive?"), not scanned like a leaderboard, so the photo is sized to be
        identified rather than merely present. .ntext keeps the name and its
        badges in ONE flex item so a long name wraps beside the photo instead of
        dropping onto a second flex line underneath it. */
-    .obs.xl .name { font-size: 28px; gap: 14px; }
+    .obs.xl .name { font-size: calc(28px * var(--s)); gap: 14px; }
     .obs.xl .thumb { width: 92px; height: 92px; border-radius: 12px; }
     .obs.xl .ntext { min-width: 0; overflow-wrap: anywhere; }
-    .obs.xl .meta { font-size: 15px; }
+    .obs.xl .meta { font-size: calc(15px * var(--s)); }
+    /* Baseball cards. A rarity section holds 0-3 birds and each one is a bird
+       you have probably never seen, so the question is "what IS this and how
+       big a deal is it", not "which row do I scan next". Hence a full-bleed
+       photo, a headline name, the rarity evidence as numbers you can read at
+       arm's length, and a paragraph about the bird. */
+    .cards { list-style: none; margin: 10px 0 0; padding: 0; }
+    .cards > li { border: 1px solid var(--line); border-radius: 16px; margin: 0 0 16px;
+                  overflow: hidden; background: var(--card); }
+    .bchero { width: 100%; aspect-ratio: 3 / 2; background: #eceff3; display: block; overflow: hidden; }
+    .bchero .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* A 60px seed stretched across the card is a smear. Contain it on a dark
+       mat instead so it reads as a small picture rather than a broken big one. */
+    .bchero .birdpic.isseed, .bchero .birdpic.isfallback { object-fit: contain; background: #eceff3; padding: 18px; box-sizing: border-box; }
+    .bchero.nopic { display: none; }
+    .bcbody { padding: 14px 16px 16px; }
+    .bcname { font-size: calc(30px * var(--s)); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
+              color: var(--accent); margin: 0; overflow-wrap: anywhere; }
+    .bcname .needflag, .bcname .stakeflag, .bcname .seenflag { font-size: calc(13px * var(--s)); vertical-align: middle; }
+    .bcsub { font-size: calc(14px * var(--s)); color: var(--muted); margin-top: 4px; }
+    /* Evidence, not prose: "how rare is this" is a number, and for a Code 3+
+       bird it is often a single digit. */
+    .bcstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+               gap: 8px; margin: 14px 0 4px; }
+    .bcstat { border: 1px solid var(--line); border-radius: 10px; padding: 8px 9px;
+              background: color-mix(in srgb, var(--accent) 5%, transparent); }
+    .bcstat b { display: block; font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.05;
+                font-variant-numeric: tabular-nums; color: var(--ink); }
+    .bcstat small { display: block; font-size: calc(11px * var(--s)); font-weight: 600; color: var(--muted);
+                    margin-top: 3px; line-height: 1.25; }
+    .bcstat.hot b { color: var(--accent); }
+    .bcextract { font-size: calc(15px * var(--s)); line-height: 1.5; margin: 12px 0 0; color: var(--ink); }
+    .bcextract .src { display: block; margin-top: 4px; font-size: calc(12px * var(--s)); color: var(--muted); }
+    .bcwhere { margin-top: 12px; }
+    .bcwhere .lbl { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted);
+                    text-transform: uppercase; letter-spacing: .04em; }
     .convoywrap { margin: 8px 0 14px; }
-    .convoysppbox { font-size: 13px; margin-top: 4px; line-height: 1.45; }
-    .convoyhead { font-size: 13px; font-weight: 800; margin: 10px 0 4px; }
-    .convoysppl { list-style: none; padding: 0; margin: 0 0 6px; font-size: 15px; }
+    .convoysppbox { font-size: calc(13px * var(--s)); margin-top: 4px; line-height: 1.45; }
+    .convoyhead { font-size: calc(13px * var(--s)); font-weight: 800; margin: 10px 0 4px; }
+    .convoysppl { list-style: none; padding: 0; margin: 0 0 6px; font-size: calc(15px * var(--s)); }
     /* A floated .thumb inside a plain <li> stacks each row diagonally (the
        float from row N pushes row N+1 right). Flex clears it without needing
        an overflow trick, and keeps the name on one baseline with the icon. */
@@ -248,84 +304,105 @@
        like an answer instead of buried in a dim one-liner. */
     .allseen { margin: 10px 0 6px; padding: 12px 14px; border-radius: 12px;
                background: rgba(46,160,67,.13); border: 1px solid rgba(46,160,67,.35);
-               font-size: 18px; font-weight: 800; line-height: 1.25; }
-    .allseen small { display: block; margin-top: 4px; font-size: 13px;
+               font-size: calc(18px * var(--s)); font-weight: 800; line-height: 1.25; }
+    .allseen small { display: block; margin-top: 4px; font-size: calc(13px * var(--s));
                      font-weight: 500; color: var(--muted); }
-    .convoytitle { font-size: 17px; line-height: 1.3; }
-    .wxline { font-size: 13px; margin: 7px 0; line-height: 1.4; }
-    .wxline.dim2 { color: var(--muted); font-size: 12px; }
-    .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; }
+    .convoytitle { font-size: calc(17px * var(--s)); line-height: 1.3; }
+    .wxline { font-size: calc(13px * var(--s)); margin: 7px 0; line-height: 1.4; }
+    .wxline.dim2 { color: var(--muted); font-size: calc(12px * var(--s)); }
+    .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: calc(13px * var(--s)); }
     .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
-    .wxtable th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .wxtable th { color: var(--muted); font-weight: 600; font-size: calc(12px * var(--s)); }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-    .seenflag, .needflag { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+    .seenflag, .needflag { font-size: calc(11px * var(--s)); font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
     /* Hot hotspots: the bird list behind a summary, so a 60-species spot does
        not push the next hotspot off the screen. */
-    .spx { margin-top: 8px; font-size: 14px; }
+    .spx { margin-top: 8px; font-size: calc(14px * var(--s)); }
     .spx summary { cursor: pointer; font-weight: 700; color: var(--accent); }
     .obs.sppl { margin-top: 6px; }
-    .obs.sppl li { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: none; font-size: 15px; }
+    .obs.sppl li { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: none; font-size: calc(15px * var(--s)); }
     .obs.sppl .thumb { float: none; flex: 0 0 auto; width: 34px; height: 34px; margin: 0; }
     .obs.sppl .need { color: var(--accent); font-weight: 800; }
     /* Birdiest checklists: the species count IS the ranking, so it reads as a
        number rather than a footnote, and an unseen bird on the list is the
        only thing that turns a good list into a place to drive to. */
-    .obs .count.big { font-size: 22px; font-weight: 800; color: var(--ink); }
-    .obs .count.big small { font-size: 12px; font-weight: 700; color: var(--muted); }
-    .cklneed { font-size: 14px; margin-top: 6px; }
+    .obs .count.big { font-size: calc(22px * var(--s)); font-weight: 800; color: var(--ink); }
+    .obs .count.big small { font-size: calc(12px * var(--s)); font-weight: 700; color: var(--muted); }
+    .cklneed { font-size: calc(14px * var(--s)); margin-top: 6px; }
     .cklneed.hit { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
                    border-radius: 8px; padding: 6px 9px; display: inline-block; }
     /* Latest ticks / rarity rows: a checklist list is scanned, not read, so
        each field lands in the same place on every row. */
-    .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: 14px; }
+    .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: calc(14px * var(--s)); }
     .cklrows li { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px;
                   padding: 6px 0; border-top: 1px solid var(--line); align-items: start; }
     .cklrows .when { font-weight: 700; color: var(--ink); white-space: nowrap; }
     .cklrows .howmany { font-variant-numeric: tabular-nums; color: var(--muted); }
     .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
-    .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+    .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: calc(13px * var(--s)); }
     .cklrows .maplink, .cklrows .extlink { margin-top: 0; }
-    .stakeflag { font-size: 12px; font-weight: 800; color: #0f7a52;
+    /* Favorites: a saved list you MAINTAIN, so every row carries its own
+       controls. Order is the whole point of a favorites list — it is the order
+       you would drive them in — so it is editable rather than implied. */
+    .picklist { margin: 8px 0 0; }
+    .picklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+    .picklist .pname { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: calc(16px * var(--s)); overflow-wrap: anywhere; }
+    .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .favrow { display: flex; align-items: flex-start; gap: 8px; }
+    .favrow .favmain { flex: 1 1 auto; min-width: 0; }
+    .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+    /* 40px is the smallest comfortable touch target, and this app is used
+       one-handed with binoculars in the other hand. */
+    .favbtn { width: 40px; height: 40px; padding: 0; font-size: calc(17px * var(--s)); line-height: 1;
+              border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+              color: var(--ink); cursor: pointer; }
+    .favbtn[disabled] { opacity: .35; cursor: default; }
+    .favbtn.del { color: #c2331f; }
+    .favrank { display: inline-flex; align-items: center; justify-content: center;
+               min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+               background: color-mix(in srgb, var(--accent) 18%, transparent);
+               color: var(--accent); font-size: calc(12px * var(--s)); font-weight: 800; margin-right: 8px; }
+    .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: #0f7a52;
                  background: color-mix(in srgb, #0f7a52 14%, transparent);
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .rankhead { margin: 2px 0 4px; }
     .rankhead .bignum small { display: inline; }
-    .rankof { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 6px; }
+    .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
     /* Rankings: one standing card, then a real aligned board. */
     .rankcard { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 8px 0 4px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
     .rankyou { display: flex; align-items: baseline; gap: 10px; }
-    .rankbig { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+    .rankbig { font-size: calc(34px * var(--s)); font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
     .rankwho { display: flex; flex-direction: column; min-width: 0; }
-    .rankwho b { font-size: 15px; }
-    .rankwho span { font-size: 12px; color: var(--muted); }
+    .rankwho b { font-size: calc(15px * var(--s)); }
+    .rankwho span { font-size: calc(12px * var(--s)); color: var(--muted); }
     .rankstats { display: flex; gap: 26px; margin-top: 12px; }
-    .rankstats b { display: block; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .rankstats span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .rankstats b { display: block; font-size: calc(20px * var(--s)); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .rankstats span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .rankrecent { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
-    .rankrecent span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .rankrecent b { font-size: 14px; }
+    .rankrecent span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .rankrecent b { font-size: calc(14px * var(--s)); }
     .ranktrend { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
-    .ranktrend span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .ranktrend b { font-size: 14px; font-weight: 800; }
+    .ranktrend span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .ranktrend b { font-size: calc(14px * var(--s)); font-weight: 800; }
     .ranktrend b.up { color: var(--accent); }
     .ranktrend b.down { color: #e5484d; }
-    .ranktrend b.dim { font-weight: 600; font-size: 12px; color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
+    .ranktrend b.dim { font-weight: 600; font-size: calc(12px * var(--s)); color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
     .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
-    .rankcap { font-size: 13px; font-weight: 700; margin: 18px 0 2px; }
+    .rankcap { font-size: calc(13px * var(--s)); font-weight: 700; margin: 18px 0 2px; }
     .ranktable { font-variant-numeric: tabular-nums; }
     .rankrow { display: grid; grid-template-columns: 34px minmax(0, 1fr) 60px; gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
-    .rankrow .rk { color: var(--muted); font-size: 12px; font-weight: 700; text-align: right; }
-    .rankrow .who { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rankrow .n { text-align: right; font-size: 14px; }
-    .rankhdr { border-top: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
-    .rankhdr .who, .rankhdr .n { font-size: 11px; }
+    .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s)); font-weight: 700; text-align: right; }
+    .rankrow .who { font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rankrow .n { text-align: right; font-size: calc(14px * var(--s)); }
+    .rankhdr { border-top: 0; font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
+    .rankhdr .who, .rankhdr .n { font-size: calc(11px * var(--s)); }
     .rankme { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 700; }
     .rankme .rk, .rankme .n { color: var(--ink); }
-    .rankme .star { font-size: 10px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+    .rankme .star { font-size: calc(10px * var(--s)); font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
     .obs .sp .star { color: var(--accent); font-weight: 800; }
-    select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
+    select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
   </style>
 </head>
 <body>
@@ -355,7 +432,7 @@
         <button id="settingsToggle" class="secondary">Settings</button>
       </div>
       <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
-      <ul id="results" class="obs big"></ul>
+      <ul id="results" class="cards"></ul>
     </section>
 
     <section class="panel">
@@ -422,7 +499,13 @@
     <section class="panel">
       <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
       <div class="row">
-        <button id="quickBtn">Hotspots near home</button>
+        <button id="quickBtn">🏠 Home</button>
+        <button id="quickWorkBtn" class="secondary" type="button">🏢 Work</button>
+        <button id="quickHereBtn" class="secondary" type="button">📍 Here</button>
+      </div>
+      <div class="row" id="quickHereRow" hidden>
+        <div style="flex:1 1 auto"><input id="quickHerePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
+        <button id="quickHereFind" class="secondary" type="button">Find</button>
       </div>
       <div id="quickStatus" class="status">The richest eBird hotspots within ~20 mi of Home (needs Home set).</div>
       <div id="quickMap"></div>
@@ -431,7 +514,12 @@
 
     <section class="panel">
       <h2>⭐ Favorite hotspots</h2>
-      <div id="favStatus" class="status">Save hotspots from the lists above to pin them here.</div>
+      <div class="row">
+        <input id="favSearch" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
+        <button id="favSearchBtn" class="secondary">Search</button>
+      </div>
+      <ul id="favFound" class="obs picklist"></ul>
+      <div id="favStatus" class="status">Search above, or save hotspots from the other lists to pin them here.</div>
       <ul id="favResults" class="obs dest"></ul>
     </section>
 
@@ -561,6 +649,15 @@
 
     <section class="panel" id="settingsPanel" hidden>
       <h2>⚙️ Settings</h2>
+      <label for="uiScale">Text size</label>
+      <select id="uiScale">
+        <option value="1">Normal</option>
+        <option value="1.15">Large</option>
+        <option value="1.3">Larger</option>
+        <option value="1.5">Largest</option>
+        <option value="1.75">Huge</option>
+      </select>
+      <p class="hint">Scales every label, list and bird photo in the app. Applies immediately — no need to save.</p>
       <label for="apiKey">eBird API key</label>
       <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
       <p class="hint">Free key from <code>ebird.org/api/keygen</code>. Stored only on this device.</p>
@@ -662,12 +759,38 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.21';
+      var APP_VERSION = '1.0.22';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
 
       function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
+      // Text scale for low-vision readers. Applied to <html> as a CSS custom
+      // property, which every px font-size and picture box in the stylesheet
+      // multiplies through. Read and applied before first paint of any section
+      // so nothing renders at the wrong size and reflows.
+      var UI_SCALE_KEY = 'ebird_ui_scale';
+      var UI_SCALE_MIN = 1, UI_SCALE_MAX = 2;
+      function getUiScale() {
+        var v = parseFloat(localStorage.getItem(UI_SCALE_KEY) || '');
+        if (!isFinite(v) || v < UI_SCALE_MIN || v > UI_SCALE_MAX) return 1;
+        return v;
+      }
+      function applyUiScale(v) {
+        document.documentElement.style.setProperty('--s', String(v));
+      }
+      function setUiScale(v) {
+        var n = parseFloat(v);
+        if (!isFinite(n)) n = 1;
+        n = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, n));
+        localStorage.setItem(UI_SCALE_KEY, String(n));
+        applyUiScale(n);
+        // Leaflet caches the pixel size of its container; a text-size change
+        // resizes every panel around it, so any live map must be told.
+        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
+        return n;
+      }
+      applyUiScale(getUiScale());
       // Active report (one of BirdLogic's 9 report slugs). Selecting a report
       // scopes every chase section to exactly what the Markdown report computes.
       function getReportSlug() {
@@ -900,6 +1023,80 @@
           '|' + (isFinite(ln) ? ln.toFixed(4) : '0');
       }
 
+      // --- Baseball cards -----------------------------------------------------
+      // A rarity section holds a handful of birds you have most likely never
+      // seen, so a table row is the wrong shape: the questions are "what does it
+      // look like", "how rare is this really", and "what IS it" — in that order.
+      // Shared by the ABA Code 3+ section and Today's rarity reports so the two
+      // cannot drift apart.
+      function birdCard(o) {
+        var li = document.createElement('li');
+        li.className = 'bcard';
+        var stats = (o.stats || []).filter(function (s) { return s && s.n != null && s.n !== ''; })
+          .map(function (s) {
+            return '<div class="bcstat' + (s.hot ? ' hot' : '') + '"><b>' + esc(String(s.n)) +
+              '</b><small>' + esc(s.label) + '</small></div>';
+          }).join('');
+        li.innerHTML =
+          heroSlot(o.name, o.code) +
+          '<div class="bcbody">' +
+            '<h3 class="bcname">' + speciesLink(o.name || o.code || 'Unknown species', o.code) +
+              (o.badges || '') + '</h3>' +
+            (o.sub ? '<div class="bcsub">' + o.sub + '</div>' : '') +
+            (stats ? '<div class="bcstats">' + stats + '</div>' : '') +
+            '<p class="bcextract" data-bird="' + esc(o.name || '') + '"></p>' +
+            (o.where ? '<div class="bcwhere">' + o.where + '</div>' : '') +
+          '</div>';
+        return li;
+      }
+      // Fills the card backs. Deliberately serial and lazy for the same reason
+      // photo hydration is: a rarity card's blurb is nice to have, and it must
+      // never compete with the feed reads that decide whether you drive.
+      function hydrateCards(root) {
+        if (!root || !root.querySelectorAll) return;
+        var slots = root.querySelectorAll('.bcextract[data-bird]:not([data-q])');
+        var list = [];
+        for (var i = 0; i < slots.length; i++) { slots[i].setAttribute('data-q', '1'); list.push(slots[i]); }
+        list.reduce(function (p, el) {
+          return p.then(function () {
+            return birdInfo(el.getAttribute('data-bird') || '').then(function (info) {
+              if (!info || !info.extract) { el.style.display = 'none'; return; }
+              el.innerHTML = esc(info.extract) +
+                '<span class="src">' + extA('https://en.wikipedia.org/wiki/' +
+                  encodeURIComponent(String(info.title).replace(/\s+/g, '_')),
+                  'Wikipedia: ' + info.title) + '</span>';
+            }).catch(function () { el.style.display = 'none'; });
+          });
+        }, Promise.resolve());
+      }
+      // "How rare is this, really" as numbers rather than an adjective. Every
+      // one is counted from feed data the section already holds — a Code 3+
+      // bird often has a single-digit total, and that is the whole point.
+      function rarityStats(rs, firstLabel, wide) {
+        var obs = {}, days = {}, locs = {}, regions = {};
+        (rs || []).forEach(function (r) {
+          var who = r.userDisplayName || r.observer;
+          if (who) obs[who] = 1;
+          var d = String(r.obsDt || r.dateStr || '');
+          if (d.length >= 10) days[d.slice(0, 10)] = 1;
+          if (r.locId) locs[r.locId] = 1;
+        });
+        (wide || []).forEach(function (r) {
+          if (r.subnational1Code) regions[r.subnational1Code] = 1;
+        });
+        var out = [
+          { n: (rs || []).length, label: firstLabel, hot: true },
+          { n: Object.keys(obs).length, label: 'observers' },
+          { n: Object.keys(locs).length, label: 'locations' },
+          { n: Object.keys(days).length, label: 'days seen' }
+        ];
+        if (wide) {
+          out.push({ n: wide.length, label: 'reports ABA-wide' });
+          out.push({ n: Object.keys(regions).length, label: 'states/provinces' });
+        }
+        return out;
+      }
+
       function refresh() {
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
@@ -922,23 +1119,32 @@
           st.textContent = rows.length + ' rarity report' + (rows.length === 1 ? '' : 's') +
             ' so far today · newest first · updated ' + nowTime();
           var days = stakeoutDays(c.cv.merged || []);
+          // Cards, not rows: today's rarities are the same kind of bird as the
+          // ABA section — usually two or three, usually unfamiliar — so the
+          // section answers "what is it and how big a deal is it" first.
+          var bySpp = {};
+          (c.cv.merged || []).forEach(function (r) {
+            if (r.code) (bySpp[r.code] = bySpp[r.code] || []).push(r);
+          });
           rows.forEach(function (r) {
-            var li = document.createElement('li');
-            var d = (r.distMi != null && r.distMi !== Infinity)
-              ? '<span class="count">' + r.distMi.toFixed(1) + ' mi</span>' : '';
-            var flock = (r.count != null && r.count !== '') ? ' (' + esc(r.count) + ')' : '';
+            var flock = (r.count != null && r.count !== '') ? ' <span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
-            var stake = n >= 2 ? ' <span class="dim">📍 Day ' + n + '</span>' : '';
-            var warn = (r.valid === false) ? ' ⚠️' : '';
+            var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
+            var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
             var who = r.observer ? ' · ' + esc(r.observer) : '';
-            li.innerHTML = d +
-              '<div class="name">' + photoSlot(r.name, r.code) +
-              speciesLink(r.name || r.code || 'Unknown species', r.code) + needTag(r.code, r.name) + flock + stake + warn + '</div>' +
-              '<div class="meta">' + recLocLink(r) + ' · ' + esc(fmtDateTime(r.dateStr)) + who +
-              (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>';
-            out.appendChild(li);
+            var d = (r.distMi != null && r.distMi !== Infinity) ? r.distMi.toFixed(1) + ' mi away' : '';
+            out.appendChild(birdCard({
+              code: r.code, name: r.name,
+              badges: needTag(r.code, r.name) + flock + stake + warn,
+              sub: d,
+              stats: rarityStats(bySpp[r.code] || [r], 'reports nearby'),
+              where: '<span class="lbl">Latest report</span><div class="meta">' +
+                recLocLink(r) + ' · ' + esc(fmtDateTime(r.dateStr)) + who +
+                (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>'
+            }));
           });
           hydratePhotos(out);
+          hydrateCards(out);
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
@@ -1486,12 +1692,66 @@
         return out;
       }
       function photoFetch(title) {
+        return summaryFetch(title).then(function (j) {
+          return (j && j.thumbnail && j.thumbnail.source) || '';
+        });
+      }
+      // The REST summary already carries the lead paragraph alongside the
+      // thumbnail, so the card back costs nothing extra once a bird's photo has
+      // been looked up — one response, two uses.
+      function summaryFetch(title) {
         var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' +
           encodeURIComponent(title.replace(/\s+/g, '_')) + '?redirect=true';
         return fetch(url, { headers: { 'Accept': 'application/json' } })
           .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (j) { return (j && j.thumbnail && j.thumbnail.source) || ''; })
-          .catch(function () { return ''; });
+          .then(function (j) {
+            if (j && j.extract && j.title) {
+              var c = infoCache();
+              if (!Object.prototype.hasOwnProperty.call(c, title)) {
+                c[title] = { extract: String(j.extract), title: String(j.title) };
+                saveInfoCache();
+              }
+            }
+            return j;
+          })
+          .catch(function () { return null; });
+      }
+      var INFO_KEY = 'ebird_birdinfo_v1', _infoMem = null;
+      function infoCache() {
+        if (_infoMem) return _infoMem;
+        try { _infoMem = JSON.parse(localStorage.getItem(INFO_KEY) || '{}'); }
+        catch (e) { _infoMem = {}; }
+        return _infoMem;
+      }
+      function saveInfoCache() {
+        try { localStorage.setItem(INFO_KEY, JSON.stringify(infoCache())); } catch (e) {}
+      }
+      // Resolves to the encyclopedia blurb for a bird, trying the same
+      // progressively broader names photoNames() uses so a subspecific eBird
+      // name still lands on the species article.
+      function birdInfo(name) {
+        var cands = photoNames(name), c = infoCache();
+        for (var i = 0; i < cands.length; i++) {
+          if (Object.prototype.hasOwnProperty.call(c, cands[i])) {
+            return Promise.resolve(c[cands[i]]);
+          }
+        }
+        if (!cands.length) return Promise.resolve(null);
+        return cands.reduce(function (p, title) {
+          return p.then(function (got) {
+            if (got) return got;
+            return summaryFetch(title).then(function (j) {
+              return (j && j.extract) ? { extract: String(j.extract), title: String(j.title || title) } : null;
+            });
+          });
+        }, Promise.resolve(null));
+      }
+      // Wikimedia serves a fixed set of thumbnail widths; the REST summary hands
+      // back a ~320px one, which is a postage stamp across a phone-wide card.
+      // Rewriting the width segment asks for a rendition that already exists —
+      // fetching originalimage instead can mean several megabytes.
+      function widenThumb(src, px) {
+        return /\/\d+px-/.test(src || '') ? src.replace(/\/\d+px-/, '/' + px + 'px-') : src;
       }
       function photoLookup(name) {
         var t = String(name || '').trim();
@@ -1522,9 +1782,20 @@
         return '<span class="thumb" data-bird="' + esc(name || '') + '"' +
           (code ? ' data-code="' + esc(code) + '"' : '') + '></span>';
       }
-      function putImg(el, src, name, onErr) {
+      // The card photo. Same pipeline, opposite tier order: the bundled seed is
+      // 60px wide, which is fine at 46px in a list and a smear across a card, so
+      // a hero asks the network for a wide rendition FIRST and only falls back
+      // to the seed when there is nothing better to show.
+      function heroSlot(name, code) {
+        if (!name && !code) return '';
+        return '<span class="thumb hero bchero" data-hero="1" data-bird="' + esc(name || '') + '"' +
+          (code ? ' data-code="' + esc(code) + '"' : '') + '></span>';
+      }
+      var HERO_PX = 640;
+      function putImg(el, src, name, onErr, extraClass) {
         var img = document.createElement('img');
-        img.className = 'birdpic'; img.alt = name || ''; img.src = src;
+        img.className = 'birdpic' + (extraClass ? ' ' + extraClass : '');
+        img.alt = name || ''; img.src = src;
         img.addEventListener('error', function () {
           if (el.firstChild) el.removeChild(img);
           if (onErr) onErr(); else showFallback(el);
@@ -1568,14 +1839,17 @@
         // (<code>.jpg, a few .png) instead of a manifest — a miss just falls
         // through to the network path, which is what a manifest lookup would
         // have done anyway, and one fewer file has to stay in sync.
-        if (code) { trySeed(el, code, nm, 0); return; }
+        if (code && !el.hasAttribute('data-hero')) { trySeed(el, code, nm, 0); return; }
         enqueue(el, nm);
       }
-      function trySeed(el, code, nm, i) {
-        if (i >= ICON_EXTS.length) { enqueue(el, nm); pumpPhotos(); return; }
+      function trySeed(el, code, nm, i, onMiss) {
+        if (i >= ICON_EXTS.length) {
+          if (onMiss) { onMiss(); return; }
+          enqueue(el, nm); pumpPhotos(); return;
+        }
         putImg(el, ICON_DIR + code + ICON_EXTS[i], nm, function () {
-          trySeed(el, code, nm, i + 1);
-        });
+          trySeed(el, code, nm, i + 1, onMiss);
+        }, el.hasAttribute('data-hero') ? 'isseed' : '');
       }
       function enqueue(el, nm) {
         if (!_photoObs || Object.prototype.hasOwnProperty.call(photoCache(), nm)) _photoQueue.push(el);
@@ -1586,25 +1860,38 @@
         _photoBusy = true;
         var el = _photoQueue.shift();
         var name = el.getAttribute('data-bird') || '', code = el.getAttribute('data-code') || '';
-        var key = code || ('n:' + name), cached = Object.prototype.hasOwnProperty.call(photoCache(), name);
+        var hero = el.hasAttribute('data-hero');
+        // Hero bytes are cached under their own key: the same species has a
+        // 60px list icon and a 640px card photo, and one must not serve as the
+        // other.
+        var key = (hero ? 'h:' : '') + (code || ('n:' + name));
+        var cached = Object.prototype.hasOwnProperty.call(photoCache(), name);
         var done = function (fast) {
           _photoBusy = false;
           setTimeout(pumpPhotos, fast ? 0 : 120);
+        };
+        // A hero that finds nothing online drops back to the bundled seed
+        // rather than straight to the silhouette — a small real photo of the
+        // right bird beats a generic outline of no bird.
+        var giveUp = function () {
+          if (hero && code) trySeed(el, code, name, 0, function () { showFallback(el); });
+          else showFallback(el);
         };
         // Tier 2 before tier 3: bytes already on the device beat any request,
         // and are the only tier that works with no connection at all.
         idbGet(key).then(function (blob) {
           if (blob) { putImg(el, URL.createObjectURL(blob), name); done(true); return; }
           return photoLookup(name).then(function (src) {
-            if (!src) { showFallback(el); done(cached); return; }
-            putImg(el, src, name);
+            if (!src) { giveUp(); done(cached); return; }
+            if (hero) src = widenThumb(src, HERO_PX);
+            putImg(el, src, name, giveUp);
             // Keep the bytes so the next launch doesn't need the network.
             return fetch(src).then(function (r) { return r.ok ? r.blob() : null; })
               .then(function (b) { if (b) return idbPut(key, b); })
               .catch(function () {})
               .then(function () { done(cached); });
           });
-        }).catch(function () { showFallback(el); done(cached); });
+        }).catch(function () { giveUp(); done(cached); });
       }
 
       // Test seam. Every other icon entry point runs inside a section that
@@ -1654,18 +1941,128 @@
         var favs = getFavs(), el = $('favResults'), st = $('favStatus');
         if (!el) return;
         el.innerHTML = '';
-        if (!favs.length) { st.textContent = 'Save hotspots from the lists above to pin them here.'; return; }
-        st.textContent = favs.length + ' saved hotspot' + (favs.length === 1 ? '' : 's') + '.';
-        favs.forEach(function (f) {
+        if (!favs.length) {
+          st.textContent = 'Search above, or save hotspots from the other lists to pin them here.';
+          return;
+        }
+        st.textContent = favs.length + ' saved hotspot' + (favs.length === 1 ? '' : 's') +
+          ' · in your order, first to last.';
+        favs.forEach(function (f, i) {
           var li = document.createElement('li');
           li.innerHTML =
-            '<div>' + locLink(f.locName || f.id, f.locId, f.lat, f.lng) + '</div>' +
-            '<div class="sp recentbox"></div>' +
-            '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">Open in Maps ↗</a>' +
-            (f.locId ? ' &nbsp; <a class="recentlink" data-locid="' + esc(f.locId) + '">Recent sightings ↧</a>' : '') +
-            ' &nbsp; ' + favLink(f);
+            '<div class="favrow"><div class="favmain">' +
+              '<div><span class="favrank">' + (i + 1) + '</span>' +
+              locLink(f.locName || f.id, f.locId, f.lat, f.lng) + '</div>' +
+              '<div class="sp recentbox"></div>' +
+              '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">Open in Maps ↗</a>' +
+              (f.locId ? ' &nbsp; <a class="recentlink" data-locid="' + esc(f.locId) + '">Recent sightings ↧</a>' : '') +
+            '</div><div class="favctl">' +
+              '<button class="favbtn favup" data-i="' + i + '" aria-label="Move ' +
+                esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+              '<button class="favbtn favdown" data-i="' + i + '" aria-label="Move ' +
+                esc(f.locName || 'hotspot') + ' down"' + (i === favs.length - 1 ? ' disabled' : '') + '>▼</button>' +
+              '<button class="favbtn del favdel" data-i="' + i + '" aria-label="Remove ' +
+                esc(f.locName || 'hotspot') + ' from favorites">✕</button>' +
+            '</div></div>';
           el.appendChild(li);
         });
+      }
+      // Order is stored, so a swap is the whole operation. Guarded at both ends
+      // rather than relying on the disabled attribute alone — a stale index from
+      // a list that re-rendered underneath must not silently rotate the list.
+      function moveFav(i, delta) {
+        var favs = getFavs(), j = i + delta;
+        if (i < 0 || i >= favs.length || j < 0 || j >= favs.length) return;
+        var tmp = favs[i]; favs[i] = favs[j]; favs[j] = tmp;
+        setFavs(favs); renderFavs();
+      }
+      function removeFavAt(i) {
+        var favs = getFavs();
+        if (i < 0 || i >= favs.length) return;
+        favs.splice(i, 1);
+        setFavs(favs); renderFavs();
+      }
+      function addFav(o) {
+        var id = favId(o), favs = getFavs();
+        if (favs.some(function (f) { return f.id === id; })) return false;
+        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '', lat: o.lat, lng: o.lng });
+        setFavs(favs); return true;
+      }
+
+      // --- Hotspot lookup ---------------------------------------------------
+      // eBird has no hotspot *search* endpoint, but ref/hotspot/{region} returns
+      // every hotspot in a region in one call, so the search is done on device:
+      // one request per region per day, then instant typing with no network at
+      // all. Trimmed to four fields before caching — the raw WA payload is well
+      // over a megabyte and localStorage is a ~5 MB budget shared with the photo
+      // and ranking caches.
+      var HOTSPOT_TTL_MS = 24 * 3600 * 1000;
+      function hotspotCacheKey(region) { return 'ebird_hotspots_v1:' + region; }
+      function loadHotspotIndex(region) {
+        var key = hotspotCacheKey(region);
+        try {
+          var c = JSON.parse(localStorage.getItem(key) || 'null');
+          if (c && c.at && (Date.now() - c.at) < HOTSPOT_TTL_MS && Array.isArray(c.rows)) {
+            return Promise.resolve(c.rows);
+          }
+        } catch (e) {}
+        return fetch('https://api.ebird.org/v2/ref/hotspot/' + encodeURIComponent(region) + '?fmt=json',
+                     { headers: { 'X-eBirdApiToken': getKey() } })
+          .then(function (r) {
+            if (!r.ok) throw new Error('eBird returned ' + r.status);
+            return r.json();
+          })
+          .then(function (rows) {
+            var out = (rows || []).map(function (h) {
+              return { locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng, n: h.numSpeciesAllTime || 0 };
+            }).filter(function (h) { return h.locId && h.locName; });
+            try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), rows: out })); } catch (e) {}
+            return out;
+          });
+      }
+      // Word-prefix matching, not substring: typing "edm" should find "Edmonds
+      // Marina" but not every name containing those letters mid-word. Ranked by
+      // all-time species count, which is the closest thing eBird gives to
+      // "which of these did you mean".
+      function searchHotspots(rows, q) {
+        var t = String(q || '').trim().toLowerCase();
+        if (t.length < 2) return [];
+        var terms = t.split(/\s+/);
+        return (rows || []).filter(function (h) {
+          var words = String(h.locName).toLowerCase().split(/[^a-z0-9]+/);
+          return terms.every(function (term) {
+            return words.some(function (w) { return w.indexOf(term) === 0; });
+          });
+        }).sort(function (a, b) { return (b.n || 0) - (a.n || 0); }).slice(0, HOTSPOT_HITS);
+      }
+      var HOTSPOT_HITS = 12;
+      function runFavSearch() {
+        var q = ($('favSearch') || {}).value || '', out = $('favFound'), st = $('favStatus');
+        if (!out) return;
+        out.innerHTML = '';
+        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to search hotspots.'; return; }
+        if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
+        st.textContent = 'Searching hotspots in ' + (getReport().label || getRegion()) + '…';
+        loadHotspotIndex(getRegion()).then(function (rows) {
+          var hits = searchHotspots(rows, q);
+          if (!hits.length) {
+            st.textContent = 'No hotspot in ' + (getReport().label || getRegion()) + ' matches “' + q + '”.';
+            return;
+          }
+          st.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es') + ' · tap ✚ to pin.';
+          hits.forEach(function (h) {
+            var already = isFav(h.locId);
+            var li = document.createElement('li');
+            li.innerHTML =
+              '<span class="pname">' + esc(h.locName) +
+                '<span class="pmeta">' + (h.n ? h.n + ' species all-time' : 'hotspot') + '</span></span>' +
+              '<button class="favbtn favadd" data-locid="' + esc(h.locId) + '" data-locname="' + esc(h.locName) +
+                '" data-lat="' + esc(h.lat) + '" data-lng="' + esc(h.lng) + '" aria-label="' +
+                (already ? 'Already saved: ' : 'Add ') + esc(h.locName) + '"' +
+                (already ? ' disabled' : '') + '>' + (already ? '★' : '✚') + '</button>';
+            out.appendChild(li);
+          });
+        }).catch(function (e) { st.textContent = netErr(e); });
       }
 
       // BL.toRenderDest is the parity-tested display projection; it intentionally
@@ -2089,42 +2486,118 @@
         return rows;
       }
 
-      function loadQuickOuting() {
-        if (!getKey()) { $('quickStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var home = getHome();
-        if (!home) { $('quickStatus').textContent = 'Set a Home location in Settings to find hotspots near you.'; showSettings(true); return; }
-        var anchors = getAnchors(), work = getWork();
-        var btn = $('quickBtn'), st = $('quickStatus');
-        btn.disabled = true; $('quickResults').innerHTML = ''; $('quickMap').innerHTML = ''; st.textContent = 'Finding hotspots near home…';
-        var scans = [ebird('ref/hotspot/geo?lat=' + home.lat + '&lng=' + home.lng + '&dist=32&back=30&fmt=json')];
-        // A second scan only when work is far enough that the home circle
-        // cannot already contain its neighbourhood. For the WA anchors (7 mi
-        // apart) a work-centred circle adds 2 of 138 locations, which is not
-        // worth doubling the fetch.
-        if (work && haversineMi(home.lat, home.lng, work.lat, work.lng) > 15)
-          scans.push(ebird('ref/hotspot/geo?lat=' + work.lat + '&lng=' + work.lng + '&dist=32&back=30&fmt=json'));
-        Promise.all(scans).then(function (parts) {
-          var hs = [].concat.apply([], parts.map(function (p) { return p || []; }));
-          var top = buildQuickOuting(hs, anchors);
-          if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of home.'; return; }
+      // Quick outing is an IMPULSE detour, so the one thing it has to get right
+      // is where you are standing: near home on a Saturday, near the office on a
+      // Tuesday, near wherever you parked on a road trip. The report can only
+      // ever rank from a fixed anchor; the app can ask. Home is the default so
+      // the section still matches the report on first open.
+      var QUICK_ORIGINS = { home: 1, work: 1, here: 1 };
+      var quickOrigin = 'home';
+      var quickHere = null;   // resolved current location for this session only
+
+      function quickAnchor(which) {
+        if (which === 'work') {
+          var w = getWork();
+          return w ? { name: 'work', lat: w.lat, lng: w.lng, label: getWorkLabel() } : null;
+        }
+        if (which === 'here') {
+          return quickHere ? { name: 'here', lat: quickHere.lat, lng: quickHere.lng,
+                               label: quickHere.label || 'your location' } : null;
+        }
+        var h = getHome();
+        return h ? { name: 'home', lat: h.lat, lng: h.lng, label: 'home' } : null;
+      }
+
+      // An anchor that is not set says how to set it instead of failing on tap —
+      // a dead button teaches nothing.
+      function syncQuickButtons() {
+        var hb = $('quickBtn'), wb = $('quickWorkBtn'), eb = $('quickHereBtn');
+        if (!hb || !wb || !eb) return;
+        hb.textContent = getHome() ? '\uD83C\uDFE0 Home' : '\uD83C\uDFE0 Set home';
+        wb.textContent = getWork() ? '\uD83C\uDFE2 ' + getWorkLabel() : '\uD83C\uDFE2 Set work';
+        eb.textContent = quickHere ? '\uD83D\uDCCD Here' : '\uD83D\uDCCD Current location';
+        [['home', hb], ['work', wb], ['here', eb]].forEach(function (p) {
+          p[1].classList.toggle('secondary', p[0] !== quickOrigin);
+          p[1].setAttribute('aria-pressed', p[0] === quickOrigin ? 'true' : 'false');
+        });
+      }
+
+      function quickAskPlace(msg) {
+        $('quickStatus').textContent = msg;
+        $('quickHereRow').hidden = false;
+        try { $('quickHerePlace').focus(); } catch (e) { /* jsdom / no focus */ }
+      }
+
+      // Location services can be absent, denied, or simply time out, and all
+      // three leave you standing somewhere you can still name — so every failure
+      // path lands on the same typed-place fallback rather than an error.
+      function quickUseHere() {
+        if (!navigator.geolocation) {
+          quickAskPlace('This device has no location services. Type where you are instead.');
+          return;
+        }
+        $('quickStatus').textContent = 'Asking for your location\u2026';
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          quickHere = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'your location' };
+          $('quickHereRow').hidden = true;
+          loadQuickOuting('here');
+        }, function (err) {
+          quickAskPlace('Location unavailable (' + ((err && err.message) || 'permission denied') +
+            '). Type where you are instead.');
+        }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+      }
+
+      function quickFindPlace() {
+        var q = ($('quickHerePlace').value || '').trim();
+        $('quickStatus').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
+        geocodePlace(q).then(function (r) {
+          quickHere = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
+          $('quickHereRow').hidden = true;
+          loadQuickOuting('here');
+        }).catch(function (e) { $('quickStatus').textContent = e.message || String(e); });
+      }
+
+      function loadQuickOuting(which) {
+        var st = $('quickStatus');
+        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        which = QUICK_ORIGINS[which] ? which : quickOrigin;
+        var a = quickAnchor(which);
+        if (!a) {
+          if (which === 'here') { quickUseHere(); return; }
+          st.textContent = which === 'work'
+            ? 'No work anchor yet. Add one in Settings and this button measures from there.'
+            : 'Set a Home location in Settings to find hotspots near you.';
+          showSettings(true);
+          return;
+        }
+        quickOrigin = which;
+        syncQuickButtons();
+        var btns = [$('quickBtn'), $('quickWorkBtn'), $('quickHereBtn')];
+        btns.forEach(function (b) { if (b) b.disabled = true; });
+        $('quickResults').innerHTML = ''; $('quickMap').innerHTML = '';
+        st.textContent = 'Finding hotspots near ' + a.label + '\u2026';
+        // ONE scan, centred on the chosen anchor. The old two-anchor union
+        // existed only because both ranked at once; picking an origin makes the
+        // second circle a fetch nobody reads.
+        ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
+          var top = buildQuickOuting(hs || [], [{ name: a.name, lat: a.lat, lng: a.lng }]);
+          if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of ' + a.label + '.'; return; }
           st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') +
-            ' within ' + top.radiusMi + ' mi · closest first' +
-            (work ? ' · from home or ' + getWorkLabel() + ' (\uD83C\uDFE2 = closest to work)' : '') +
-            ' · updated ' + nowTime();
+            ' within ' + top.radiusMi + ' mi of ' + a.label + ' · closest first · updated ' + nowTime();
           var el = $('quickResults'); el.innerHTML = '';
-          renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), home, false);
+          renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), a, false);
           top.forEach(function (h, i) {
             var li = document.createElement('li');
             var dist = (h.dist != null) ? '<span class="count">' + h.dist.toFixed(1) + ' mi</span>' : '';
-            var marker = h.anchor === 'work' ? '\uD83C\uDFE2 ' : '';
             li.innerHTML = dist +
-              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + marker + (h.locId ? extA(hotspotUrl(h.locId), h.locName) : esc(h.locName)) + '</span></div>' +
+              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + (h.locId ? extA(hotspotUrl(h.locId), h.locName) : esc(h.locName)) + '</span></div>' +
               '<div class="meta">' + h.n + ' species all-time' + (h.latest ? ' · latest ' + esc(fmtDate(h.latest)) : '') + '</div>' +
               '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>' +
               ' &nbsp; ' + favLink(h);
             el.appendChild(li);
           });
-        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+        }).catch(function (e) { st.textContent = netErr(e); })
+          .finally(function () { btns.forEach(function (b) { if (b) b.disabled = false; }); });
       }
 
       // --- CSV import (quote/newline-aware) ---
@@ -3128,7 +3601,10 @@
             // trackers (lower48/aba) have no state, so they keep the full feed.
             var region = getRegion(), scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);
             var rows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;
-            renderAbaAlert(rows, url, scoped);
+            // The unscoped continent-wide feed is the free rarity yardstick: it
+            // is the SAME alert, so "4 here, 27 ABA-wide across 5 states" costs
+            // no extra call and is the number that says how big a deal this is.
+            renderAbaAlert(rows, url, scoped, list);
             var species = {}; rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
             var n = Object.keys(species).length;
             var unseen = Object.keys(species).filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
@@ -3140,13 +3616,20 @@
           .finally(function () { btn.disabled = false; });
       }
 
-      // Mirrors report.py::section_state_aba_rarities — one row per species with
-      // Reports / Observers / Latest, newest first, 🔍 when it's not on the year
-      // list. Rarity trackers show the ungrouped continent-wide feed instead.
-      function renderAbaAlert(list, url, grouped) {
+      // Mirrors report.py::section_state_aba_rarities — one card per species with
+      // the rarity evidence, newest first, 🔍 when it's not on the year list.
+      // Rarity trackers show the ungrouped continent-wide feed as a plain list:
+      // the ABA-wide report is hundreds of birds, and hundreds of cards is a
+      // scroll, not a section.
+      var ABA_CARD_REPORTS = 12;
+      function renderAbaAlert(list, url, grouped, wideList) {
         var el = $('abaResults'); el.innerHTML = '';
+        el.className = grouped ? 'cards' : 'obs';
         if (grouped) {
-          var byCode = {};
+          var byCode = {}, wideByCode = {};
+          (wideList || []).forEach(function (o) {
+            if (o.speciesCode) (wideByCode[o.speciesCode] = wideByCode[o.speciesCode] || []).push(o);
+          });
           list.forEach(function (o) {
             if (!o.speciesCode) return;
             (byCode[o.speciesCode] = byCode[o.speciesCode] || []).push(o);
@@ -3154,21 +3637,34 @@
           Object.keys(byCode).map(function (code) {
             var rs = byCode[code];
             var latest = rs.reduce(function (a, b) { return String(b.obsDt) > String(a.obsDt) ? b : a; }, rs[0]);
-            var obs = {}; rs.forEach(function (r) { if (r.userDisplayName) obs[r.userDisplayName] = 1; });
-            return { code: code, rs: rs, latest: latest, observers: Object.keys(obs).length };
+            return { code: code, rs: rs, latest: latest };
           }).sort(function (a, b) {
             return String(b.latest.obsDt).localeCompare(String(a.latest.obsDt));
           }).forEach(function (g) {
-            var o = g.latest, li = document.createElement('li');
-            li.innerHTML = '<span class="count">' + g.rs.length + '</span>' +
-              '<div class="name">' + photoSlot(o.comName, g.code) +
-              speciesLink(o.comName || g.code, g.code) + needTag(g.code, o.comName) + '</div>' +
-              '<div class="meta">' + g.rs.length + ' report' + (g.rs.length === 1 ? '' : 's') +
-              ' · ' + g.observers + ' observer' + (g.observers === 1 ? '' : 's') +
-              ' · latest ' + esc(fmtDate(o.obsDt)) + ' at ' + locLink(o.locName || '', o.lat, o.lng, '', true) +
-              (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
-            el.appendChild(li);
+            var o = g.latest;
+            // The report's own rows, one per line, so the card still carries
+            // every report the table cell would have listed.
+            var lines = g.rs.slice().sort(function (a, b) {
+              return String(b.obsDt).localeCompare(String(a.obsDt));
+            }).slice(0, ABA_CARD_REPORTS).map(function (r) {
+              return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>' +
+                '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>' +
+                '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, '', true) +
+                (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span>' +
+                (r.userDisplayName ? '<span class="who">' + esc(r.userDisplayName) + '</span>' : '') + '</li>';
+            }).join('');
+            var more = g.rs.length > ABA_CARD_REPORTS
+              ? '<div class="dim">…and ' + (g.rs.length - ABA_CARD_REPORTS) + ' more</div>' : '';
+            el.appendChild(birdCard({
+              code: g.code, name: o.comName,
+              badges: needTag(g.code, o.comName),
+              sub: 'ABA Code 3+ · latest ' + esc(fmtDate(o.obsDt)),
+              stats: rarityStats(g.rs, 'reports in ' + (getReport().label || 'this region'),
+                                 wideByCode[g.code] || []),
+              where: '<span class="lbl">Every report</span><ul class="cklrows">' + lines + '</ul>' + more
+            }));
           });
+          hydrateCards(el);
         } else {
           list.slice().sort(function (a, b) {
             var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
@@ -3389,6 +3885,13 @@
       // does: a bird reported from eight different places is one you can go
       // and get, while eight reports from one feeder is one lucky yard.
       var EASY_MISS_DAYS = 30, EASY_MISS_MIN_FREQ = 0.40, EASY_MISS_TOP = 25;
+      // The 40% bar is right in January and wrong in August: by mid-year the
+      // common birds ARE on your year list, so an absolute threshold quietly
+      // turns the highest hit-rate section in the report into two rows. Widen
+      // it until the section is worth reading -- and report WHICH bar was used,
+      // because ">=15% of days" is a materially different claim from ">=40%".
+      var EASY_MISS_WIDEN_FREQ = [0.40, 0.25, 0.15, 0.08];
+      var EASY_MISS_MIN_ROWS = 10;
       var EASY_CACHE_NS = 'easymiss_v1:';
       // The report's window is its whole committed archive (75 days today); the
       // app cannot fetch that on demand, so it samples 30 and CACHES EACH DAY.
@@ -3469,7 +3972,6 @@
           var d = per[code];
           if (isSpeciesSeen(code, d.name, parentOf)) return;
           var days = Object.keys(d.days).length, freq = totalDays ? days / totalDays : 0;
-          if (freq < EASY_MISS_MIN_FREQ) return;
           var spots = Object.keys(d.spots).map(function (k) { return d.spots[k]; });
           spots.forEach(function (s) {
             s.mi = (home && isFinite(s.lat) && isFinite(s.lng)) ? haversineMi(home.lat, home.lng, s.lat, s.lng) : null;
@@ -3482,17 +3984,35 @@
           });
         });
         rows.sort(function (a, b) { return (b.siteDays - a.siteDays) || (b.freq - a.freq); });
-        return rows.slice(0, EASY_MISS_TOP);
+        // Lower the bar only as far as it takes to have a section worth reading.
+        var bar = EASY_MISS_WIDEN_FREQ[0], kept = [];
+        for (var bi = 0; bi < EASY_MISS_WIDEN_FREQ.length; bi++) {
+          bar = EASY_MISS_WIDEN_FREQ[bi];
+          kept = rows.filter(function (r) { return r.freq >= bar; });
+          if (kept.length >= EASY_MISS_MIN_ROWS) break;
+        }
+        kept = kept.slice(0, EASY_MISS_TOP);
+        kept.minFreq = bar;
+        return kept;
       }
       function renderEasyMisses(rows, totalDays) {
         var box = $('easyResults');
         if (!rows || !rows.length) {
           box.innerHTML = '<div class="status">Nothing common is missing — every bird reported on at least '
-            + Math.round(EASY_MISS_MIN_FREQ * 100) + '% of the last ' + totalDays
+            + Math.round(EASY_MISS_WIDEN_FREQ[EASY_MISS_WIDEN_FREQ.length - 1] * 100) + '% of the last ' + totalDays
             + ' sampled days near you is already on your year list. Nicely done.</div>';
           return;
         }
-        box.innerHTML = '<ul class="obs big">' + rows.map(function (r, i) {
+        var bar = Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100);
+        box.innerHTML = '<div class="status">Reported on <b>' + bar + '%+</b> of the last ' + totalDays
+          + ' sampled days near you, ranked by how many location-days had them.'
+          + (bar < Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
+             ? ' The bar starts at ' + Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
+               + '% and drops until at least ' + EASY_MISS_MIN_ROWS
+               + ' birds qualify — at this point in the year you already have the truly common ones.'
+             : '')
+          + '</div>'
+          + '<ul class="obs big">' + rows.map(function (r, i) {
           var spots = r.spots.map(function (s) {
             var when = s.when ? fmtDateTime(s.when) : '';
             var lbl = s.sub ? checklistLink(s.sub, when || s.sub) : esc(when);
@@ -3543,7 +4063,8 @@
           var rows = computeEasyMisses(pair[0], dates.length, pair[1]);
           renderEasyMisses(rows, dates.length);
           st.textContent = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
-            + ' from ' + dates.length + ' sampled days · ' + nowTime();
+            + ' reported on ' + Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100)
+            + '%+ of ' + dates.length + ' sampled days · ' + nowTime();
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
@@ -4749,11 +5270,66 @@
         try { spec.fn(); } catch (e) { try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {} }
       }
       var _sections = [];
+      // --- "How is this calculated?" ------------------------------------------
+      // A section that looks thin ("why is Easy misses two rows?") or surprising
+      // ("why is the nearest spot a private yard?") is usually correct and just
+      // opaque. The answer ships as data, bundled so it works with no network,
+      // and the SAME file is vendored into the report repo — the explanation
+      // cannot drift from the Markdown report because there is only one of it.
+      var _sectionDocs = null;
+      function loadSectionDocs() {
+        if (_sectionDocs) return Promise.resolve(_sectionDocs);
+        return fetch('section-docs.json')
+          .then(function (r) { return r.json(); })
+          .then(function (j) { _sectionDocs = (j && j.docs) || {}; return _sectionDocs; })
+          .catch(function (e) { dbg('warn', 'section docs: ' + e.message); _sectionDocs = {}; return _sectionDocs; });
+      }
+      function renderSectionDoc(box, d) {
+        if (!d) { box.innerHTML = '<p class="hint">No calculation notes for this section yet.</p>'; return; }
+        var h = '';
+        if (d.summary) h += '<p class="docsum">' + esc(d.summary) + '</p>';
+        function list(title, items, cls) {
+          if (!items || !items.length) return '';
+          return '<p class="doch">' + title + '</p><ul class="' + cls + '">' +
+            items.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+        }
+        h += list('Data it reads', d.inputs, 'doclist');
+        h += list('How it is calculated', d.how, 'doclist');
+        h += list('What it cannot tell you', d.limits, 'doclist doclimits');
+        box.innerHTML = h;
+      }
+      function toggleSectionDoc(sec) {
+        var box = sec.querySelector('.sectiondoc'), btn = sec.querySelector('.docbtn');
+        if (!box) return;
+        var open = box.hidden;
+        box.hidden = !open;
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open && !box.dataset.filled) {
+          box.dataset.filled = '1';
+          loadSectionDocs().then(function (docs) { renderSectionDoc(box, docs[sec._at]); });
+        }
+      }
+      function addSectionDoc(sec) {
+        var h2 = sec.querySelector('h2');
+        if (!h2 || sec.querySelector('.docbtn')) return;
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'docbtn'; btn.textContent = '\u2139';
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-label', 'How ' + (sec._label || 'this section') + ' is calculated');
+        btn.addEventListener('click', function () { toggleSectionDoc(sec); });
+        h2.appendChild(btn);
+        var box = document.createElement('div');
+        box.className = 'sectiondoc'; box.hidden = true;
+        h2.parentNode.insertBefore(box, h2.nextSibling);
+      }
+
       function _setH2(sec, label) {
         var h2 = sec.querySelector('h2'); if (!h2) return;
         var span = h2.querySelector('span');
+        var doc = h2.querySelector('.docbtn');
         h2.textContent = label + ' ';
         if (span) h2.appendChild(span);
+        if (doc) h2.appendChild(doc);
       }
       function buildNav() {
         var main = document.querySelector('main'); if (!main) return;
@@ -4774,6 +5350,7 @@
           sec._loader = LOADERS[m.at] || null;
           sec._at = m.at; sec._label = m.label; sec._needs = m.needs || '';
           _setH2(sec, m.label);
+          addSectionDoc(sec);
           _sections.push(sec);
         });
         bindRegionPickers();
@@ -4944,6 +5521,7 @@
       function loadSettings() {
         populateReportSelect();
         $('apiKey').value = getKey();
+        if ($('uiScale')) $('uiScale').value = String(getUiScale());
         $('reportSelect').value = getReportSlug();
         $('region').value = getRegion();
         var reg = '· ' + getReport().label;
@@ -4954,6 +5532,7 @@
         $('tripRegionLabel').textContent = reg;
         $('cklRegionLabel').textContent = reg;
         $('quickRegionLabel').textContent = reg;
+        syncQuickButtons();
         var hla = parseFloat(localStorage.getItem(homeKey('lat'))), hlo = parseFloat(localStorage.getItem(homeKey('lng')));
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
@@ -5193,13 +5772,23 @@
       $('navBack').addEventListener('click', function () { showMenu(); });
       bindSwipeBack();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
+      $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
+      $('favSearchBtn').addEventListener('click', runFavSearch);
+      $('favSearch').addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); runFavSearch(); }
+      });
       $('refreshBtn').addEventListener('click', refresh);
-      $('targetsBtn').addEventListener('click', loadTargets);
-      $('destBtn').addEventListener('click', loadDestinations);
+      $('targetsBtn').addEventListener('click', loadTargets);      $('destBtn').addEventListener('click', loadDestinations);
       $('excBtn').addEventListener('click', loadExcursions);
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadBirdiest);
-      $('quickBtn').addEventListener('click', loadQuickOuting);
+      $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
+      $('quickWorkBtn').addEventListener('click', function () { loadQuickOuting('work'); });
+      $('quickHereBtn').addEventListener('click', function () { loadQuickOuting('here'); });
+      $('quickHereFind').addEventListener('click', quickFindPlace);
+      $('quickHerePlace').addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); quickFindPlace(); }
+      });
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
       $('lastNewBtn').addEventListener('click', loadLastNew);
@@ -5253,6 +5842,23 @@
           var nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
           fav.textContent = nowFav ? '★ Saved' : '☆ Save';
           renderFavs();
+          return;
+        }
+        var favBtn = ev.target.closest('.favup, .favdown, .favdel, .favadd');
+        if (favBtn) {
+          ev.preventDefault();
+          if (favBtn.classList.contains('favadd')) {
+            addFav({
+              locId: favBtn.getAttribute('data-locid'), locName: favBtn.getAttribute('data-locname'),
+              lat: parseFloat(favBtn.getAttribute('data-lat')), lng: parseFloat(favBtn.getAttribute('data-lng'))
+            });
+            favBtn.textContent = '★'; favBtn.disabled = true;
+            renderFavs();
+            return;
+          }
+          var idx = parseInt(favBtn.getAttribute('data-i'), 10);
+          if (favBtn.classList.contains('favdel')) removeFavAt(idx);
+          else moveFav(idx, favBtn.classList.contains('favup') ? -1 : 1);
           return;
         }
         var rec = ev.target.closest('.recentlink');
@@ -5371,18 +5977,24 @@
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
+        getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
         getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
+        loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
         getWork: getWork, workKey: workKey, getAnchors: getAnchors,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
-        buildClosestSpots: buildClosestSpots
+        buildClosestSpots: buildClosestSpots,
+        birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
+        getFavs: getFavs, setFavs: setFavs, addFav: addFav,
+        moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs,
+        searchHotspots: searchHotspots, runFavSearch: runFavSearch
       };
       migrateHomeKeys();
       buildNav();
