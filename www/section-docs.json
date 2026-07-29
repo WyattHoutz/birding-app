@@ -320,12 +320,14 @@
         "the accumulated history of daily report snapshots for this region"
       ],
       "how": [
-        "A species qualifies if it appeared on at least 40% of the snapshot days on record, and there are at least 3 days of history.",
-        "Anything already on your year list is removed."
+        "A species qualifies if it appeared on at least 40% of the sampled days and is not already on your year list, ranked by location-days: a bird reported from eight places is one you can go and get, while eight reports from one feeder is one lucky yard.",
+        "If fewer than 10 species clear that bar, the bar DROPS - 40%, then 25%, 15%, 8% - rather than print a two-row section. The intro always names the bar actually used, because '>=15% of days' is a materially different claim from '>=40%'.",
+        "Anything already on your year list is removed before the bar is applied, so widening can never resurrect a bird you have."
       ],
       "limits": [
-        "This section SHRINKS as your year list grows, and that is the correct behaviour: by mid-year you have already got the common birds, so two rows means you are doing well, not that the section is broken.",
-        "The 40% threshold is absolute, so a region with sparse snapshot history qualifies fewer species."
+        "This section naturally shrinks as your year list grows, and that is correct: by mid-year you have already got the common birds. The widening ladder exists so a shrinking section degrades into a longer-shot list rather than into nothing.",
+        "A lower bar means a lower hit rate. A bird reported on 8% of days is a real target, but it is not the near-certainty a 40% bird is - read the stated threshold before driving.",
+        "The app and the report measure prevalence over different windows: the report uses every daily snapshot it has committed for the region, the app samples the last 30 days live, so the two can pick different bars on the same day."
       ]
     },
     "migBtn": {
