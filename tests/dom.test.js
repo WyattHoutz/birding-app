@@ -1052,20 +1052,33 @@ test('convoy checklists load concurrently, with a hard cap on in-flight calls', 
 // v1.0.19: branding, the tile menu, and the two sections the app was missing.
 // ---------------------------------------------------------------------------
 
-test('branding: one brand mark, defined once and reused offline', async () => {
+test('branding: the app icon photo is the in-app mark, bundled offline', async () => {
   const app = await boot();
   const d = app.document;
-  const sym = d.getElementById('bcMark');
-  assert.ok(sym, 'the brand mark is an inline <symbol>, not a fetched image');
-  assert.equal(sym.tagName.toLowerCase(), 'symbol');
-  const uses = [...d.querySelectorAll('use')]
-    .filter((u) => (u.getAttribute('href') || '') === '#bcMark');
-  assert.ok(uses.length >= 2,
-    'the mark is reused (header + navbar), not pasted per site');
+  const marks = [...d.querySelectorAll('img.brandmark')];
+  assert.ok(marks.length >= 2,
+    'the mark appears in the header AND the navbar, not just once');
+  const srcs = new Set(marks.map((m) => m.getAttribute('src')));
+  // One file, referenced twice. Two separately-cropped files would drift the
+  // moment either is regenerated, which is the whole reason generate.js emits
+  // the icon, the splash and this mark from a single master.
+  assert.equal(srcs.size, 1, 'both sites use the SAME file as the app icon source');
+  const src = [...srcs][0];
+  assert.match(src, /^assets\/brand\/mark\.png$/,
+    'the mark is a bundled relative path');
+  assert.ok(fs.existsSync(path.join(WWW, src)),
+    'and that file is actually shipped in www/, not a broken link');
   // A remote logo would break the "no runtime GitHub dependency" rule and would
-  // render as a hole on a phone with no signal - the whole point of inlining.
-  assert.ok(!/<img[^>]+src="https?:/i.test(HTML),
-    'no branding image is fetched over the network');
+  // render as a hole on a phone with no signal - the whole point of bundling.
+  assert.ok(!/<img[^>]+src="(https?:)?\/\//i.test(HTML),
+    'no image anywhere in the shell is fetched over the network');
+  // The header mark carries the name; the navbar copy is decorative beside a
+  // title that already says it, so announcing it twice is noise.
+  const header = d.querySelector('header img.brandmark');
+  assert.equal(header.getAttribute('alt'), 'Bird Chaser',
+    'the header mark names the app for screen readers');
+  assert.equal(d.querySelector('#navbar img.brandmark').getAttribute('alt'), '',
+    'the navbar copy is decorative and stays silent');
   assert.match(d.querySelector('header h1').textContent, /Bird Chaser/,
     'the wordmark is real text, so it is searchable and scales');
   app.window.close();
