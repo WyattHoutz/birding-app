@@ -1,0 +1,394 @@
+{
+  "_comment": [
+    "How every report section is CALCULATED, in one place.",
+    "",
+    "Sections that look thin ('why is Easy misses only two rows?') or surprising",
+    "('why is the top spot a private yard?') are usually correct and just opaque.",
+    "This file is the answer, and it is shared so the answer cannot differ",
+    "between the Markdown report and the app:",
+    "  - birding-app/www/section-docs.json  is the canonical copy (bundled, so",
+    "    the in-app info button works with no network).",
+    "  - birding/section-docs.json          is a vendored copy report.py reads",
+    "    at generation time.",
+    "  - birding/tests/parity/test_section_docs.py asserts the two files are",
+    "    byte-identical AND that every section in report-contract.json has an",
+    "    entry, so a new section cannot ship undocumented.",
+    "",
+    "Keys are the 'at' ids in tests/fixtures/report-contract.json.",
+    "'inputs' names the feeds. 'how' is the ordered calculation. 'limits' is what",
+    "the section CANNOT tell you - the most useful half, and the half a reader",
+    "can never infer from the output."
+  ],
+  "docs": {
+    "surgeBtn": {
+      "report": "## 🔴 Happening now",
+      "summary": "Detects a crowd forming right now, rather than a bird merely being present.",
+      "inputs": [
+        "county recent + notable feeds",
+        "the region's Top 100 board",
+        "hotspot activity in the same feeds"
+      ],
+      "how": [
+        "Three independent lanes run over feeds other sections already pay for, so this costs no extra fetching.",
+        "Observation surge: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
+        "Leaderboard cascade: 3+ of the region's top 100 adding the same species within 3 days. Sees counties our feeds never cover, lags up to a day.",
+        "Hotspot convergence: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable — which is how a locally-regular bird like Tufted Puffin draws twenty birders without tripping a rarity alert.",
+        "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
+      ],
+      "limits": [
+        "The baseline is measured from the data actually fetched (7 days), capped at the configured window, so a short feed cannot inflate every ratio.",
+        "With no trailing history at all the row reads \"new here\" and prints no ratio — a ratio over a zero denominator invents precision."
+      ]
+    },
+    "wxBtn": {
+      "report": "## 🌤 Conditions for chasing",
+      "summary": "Whether today's weather and tide favour going out, for the region's home coordinate.",
+      "inputs": [
+        "NOAA forecast (US only)",
+        "NOAA tides for the region's station"
+      ],
+      "how": [
+        "Sunrise, sunset and civil twilight are computed for the home coordinate, in the region's local time.",
+        "Tides are listed one row per WINDOW, not per turning point, because the fact that decides whether you leave the house is when the water is coming IN — reconstructing that from two adjacent turning points is work the reader should not do.",
+        "Rising windows are marked 👀: an incoming tide pushes waterfowl and shorebirds closer in.",
+        "The last window of the day runs past midnight and is kept — an overnight incoming tide is exactly when the good shorebird chases happen."
+      ],
+      "limits": [
+        "Tides need a NOAA station id; inland regions leave it blank and get no tide table."
+      ]
+    },
+    "rankBtn": {
+      "report": "## 🏆 eBird Rankings",
+      "summary": "Your standing on the region's eBird Top 100, plus the board itself.",
+      "inputs": [
+        "ebird.org/top100 for the region (public HTML, no API key)"
+      ],
+      "how": [
+        "The board is fetched for the report's primary region only — one report, one region, one board.",
+        "eBird's default top100 ordering is already by species, so no explicit sort is requested.",
+        "The page self-identifies its region in a canonical link; a board that does not match is rejected and refetched rather than rendered under the wrong heading.",
+        "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle."
+      ],
+      "limits": [
+        "eBird runs a proof-of-work bot filter on some region pages. When the token cannot be resolved the field size is omitted rather than failing the section — so a missing \"of N\" means degraded, not zero.",
+        "Each published day is a dated snapshot; eBird cannot re-serve yesterday's board."
+      ]
+    },
+    "refreshBtn": {
+      "report": "## 🌅 Today's rarity reports",
+      "summary": "Rarities reported TODAY in the report's counties, one card per species.",
+      "inputs": [
+        "/data/obs/{county}/recent/notable for each county",
+        "geo notable feed around home"
+      ],
+      "how": [
+        "Filtered to today's date in the region's local time, then grouped by species.",
+        "Each card carries the evidence for how rare it is: number of reports, distinct observers, distinct locations and days in the fetched window.",
+        "Cards show the clock time of the latest report — a rarity is chased within hours, so a bare date decides nothing.",
+        "Notable feeds are NOT collapsed to one observation per species, so a bird reported from six places shows all six."
+      ],
+      "limits": [
+        "\"Notable\" is eBird's own review flag for the region; a bird that is rare to YOU but common locally will not appear here."
+      ]
+    },
+    "activeBtn": {
+      "report": "## 🚨 Last 7-Days rarity reports",
+      "summary": "Every notable report in the last 7 days, not just today's.",
+      "inputs": [
+        "the same county + geo notable feeds, over the full 7-day window"
+      ],
+      "how": [
+        "Grouped by species, then by location, most recent first.",
+        "A multi-day presence is marked, because a bird seen on three separate days is a stakeout you can plan around rather than a fly-by."
+      ],
+      "limits": [
+        "This is the largest section in the report. Ten checklists at one pond is still one place to drive to; deduping it by location is open backlog work."
+      ]
+    },
+    "abaBtn": {
+      "report": "## 🦅 ABA Code 3+ rarities in",
+      "summary": "ABA Code 3+ birds — continental-scale rarities, normally 0-3 of them.",
+      "inputs": [
+        "the ABA Rarities needs alert (SN10489)",
+        "a rolling local archive of that alert",
+        "the region's own notable feed"
+      ],
+      "how": [
+        "Three complementary sources are UNIONED. The alert page caps at 500 observations continent-wide and is a shifting window, so a state bird can fall off it entirely; the archive supplies memory and the region feed supplies scope.",
+        "Species are kept only if the ABA checklist codes them 3 or higher.",
+        "Because these are strange birds you may never have seen, each gets a full card: a large photo, the name at headline size, a description, and the rarity evidence — how many reports, observers, distinct places and days it has, which for a Code 3+ bird is often a single digit. The app also counts reports ABA-wide and how many states or provinces have it at all, because it holds the unfiltered alert; the report is already state-scoped and shows the local numbers only."
+      ],
+      "limits": [
+        "Review status changes; a record shown here may later be reclassified."
+      ]
+    },
+    "lastNewBtn": {
+      "report": "## 🔭 Latest ticks on the leaderboard",
+      "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
+      "inputs": [
+        "the region's Top 100 board (each row prints that birder's most recent year tick)"
+      ],
+      "how": [
+        "The 'most recent addition' column is grouped BY SPECIES. When nine of the top hundred share the same newest bird, it is demonstrably findable now.",
+        "Sorted most-shared first, then freshest.",
+        "One board only — the region's own. Pooling a national board recommends birds you cannot drive to.",
+        "Each species expands to recent in-region checklists: five, or more if there are more inside the 3-day fresh window, capped so a bird everybody refinds cannot emit hundreds of links."
+      ],
+      "limits": [
+        "The board updates roughly daily, so a tick can be up to a day old."
+      ]
+    },
+    "tripBtn": {
+      "report": "## 🧭 Trip planner",
+      "summary": "A chained route of up to 4 stops that maximises NEW unseen birds per hop.",
+      "inputs": [
+        "unseen reports from the last 7 days"
+      ],
+      "how": [
+        "An anchor hotspot must hold at least 2 unseen species.",
+        "Each additional stop must be within 15 mi of the previous one AND add at least 2 species new to the route, or 1 new rarity — otherwise the hop is not worth driving.",
+        "Up to 10 target birds are listed per stop, and the whole route links out as a Google Maps itinerary."
+      ],
+      "limits": [
+        "Greedy, not optimal: it chains the best next hop rather than solving the whole route."
+      ]
+    },
+    "destBtn": {
+      "report": "## 🥇 Top destinations",
+      "summary": "The places holding the most unseen birds, ranked by how many you would gain.",
+      "inputs": [
+        "county recent + notable feeds",
+        "geo feeds around home"
+      ],
+      "how": [
+        "Reports are clustered to a single place, then scored on unseen species count with rarities weighted up.",
+        "Distance is measured from home, matching the report."
+      ],
+      "limits": [
+        "Ranked by birds, not by drive time — the top row can be an hour away."
+      ]
+    },
+    "targetsBtn": {
+      "report": "## 📍 Closest spots with unseen birds",
+      "summary": "The nearest place holding a bird you still need.",
+      "inputs": [
+        "/data/obs/{county}/recent for each county in the report",
+        "the notable feeds",
+        "the geo feeds around home"
+      ],
+      "how": [
+        "Start from every observation in the report's own county and geo feeds — this is county-scoped, not statewide.",
+        "Drop anything you have already seen this year, using the taxonomy parent chain so a subspecies of a bird you have seen does not read as unseen.",
+        "Apply the chaseability gate (see limits) — a bird you cannot legally go and look at is not a target.",
+        "Cluster what remains to 250 m so ten reports from one pond become one place.",
+        "Measure each cluster to the NEAREST anchor, home or work, so a spot by the office ranks on its short hop rather than its long drive from home, and say which anchor it was measured from.",
+        "Keep one record per species per cluster (the most recent), sort rarities first, then sort the clusters closest-first.",
+        "Show everything within 30 mi, at least the 10 nearest, never more than 40."
+      ],
+      "limits": [
+        "The chaseability gate rejects a location whose NAME says it is closed — a parenthesised 'private', 'restricted', 'no public access' and similar. That is checked before anything else, so even a well-attested stakeout at such a place is dropped.",
+        "A location eBird marks private is still shown when it qualifies as a stakeout: 3+ distinct checklists within 300 m, which is what a roadside viewing point outside someone's yard looks like in the data. That is why a residential address can legitimately appear.",
+        "THE BIG ONE: the per-county 'recent' feed returns exactly ONE observation per species. So a needed bird has at most a handful of known locations in the whole dataset, and the nearest of those may be far from the nearest place it actually is. This section is sparse by construction, not by accident."
+      ]
+    },
+    "quickBtn": {
+      "report": "## 🚶 Quick outing",
+      "summary": "An impulse detour: the richest hotspots a few minutes from where you are.",
+      "inputs": [
+        "ref/hotspot/geo around the chosen anchor"
+      ],
+      "how": [
+        "Pick the anchor — home, work, or your current location. Home is the default, which is what the Markdown report uses.",
+        "Hotspots are scored on all-time species with a distance decay, so a 40-species puddle two minutes away does not beat a real site.",
+        "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
+        "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
+        "Hotspots birded in the last 10 days are penalised but not removed."
+      ],
+      "limits": [
+        "This is about places, not birds — it does not know what is being seen there today.",
+        "In the app the origin is yours to choose, so the rows can differ from the Markdown report, which can only ever rank from a fixed anchor."
+      ]
+    },
+    "excBtn": {
+      "report": "## 🚗 Top excursions",
+      "summary": "Longer drives that are worth it — the best unseen-bird haul per mile.",
+      "inputs": [
+        "the same clustered unseen reports as Top destinations"
+      ],
+      "how": [
+        "Scored on unseen species relative to drive distance, so a distant site has to earn its mileage."
+      ],
+      "limits": [
+        "Uses straight-line distance, not road distance."
+      ]
+    },
+    "hotBtn": {
+      "report": "## 🔥 Hot hotspots — recent surges",
+      "summary": "Hotspots getting unusually busy in the last 30 days.",
+      "inputs": [
+        "a bulk 30-day observation feed for the region"
+      ],
+      "how": [
+        "A hotspot qualifies on at least 5 fresh sightings inside the 30-day window.",
+        "Ranked on the surge relative to that hotspot's own normal activity, so a famously busy site does not permanently occupy the list.",
+        "Each row lists the birds actually being reported there with species counts and recent checklists."
+      ],
+      "limits": [
+        "Bounded to about 35 mi from home by default."
+      ]
+    },
+    "coldBtn": {
+      "report": "## 🥶 Cold hotspots — overlooked gems",
+      "summary": "Good hotspots nobody is watching — where a find is yours to make.",
+      "inputs": [
+        "hotspot reference data",
+        "a 30-day recent-activity probe per hotspot",
+        "historic samples from up to 3 previous years"
+      ],
+      "how": [
+        "A hotspot needs at least 100 all-time species to qualify — an overlooked gem has to be a gem first.",
+        "Scored on days of silence (with diminishing returns past 30) against its historic productivity for this time of year, sampled around the 5th, 15th and 25th of the month across up to 3 years.",
+        "A hotspot with no historic sample is reported as UNMEASURED, not as new: absence of a norm is not evidence of neglect."
+      ],
+      "limits": [
+        "Bounded to about 35 mi from home by default."
+      ]
+    },
+    "cklBtn": {
+      "report": "## 🦜 Birdiest recent checklists",
+      "summary": "The single best recent checklist at each nearby hotspot.",
+      "inputs": [
+        "checklist feeds for public hotspots in the region"
+      ],
+      "how": [
+        "Last 7 days, public hotspots only, within 40 mi of home, best checklist per hotspot, top 25.",
+        "Birds you still need are flagged inside each checklist."
+      ],
+      "limits": [
+        "One checklist per hotspot, so a site with two great lists appears once."
+      ]
+    },
+    "convoyBtn": {
+      "report": "## 👥 Birder convoys",
+      "summary": "Groups of birders who moved between the same places together — a route you can copy.",
+      "inputs": [
+        "checklists from the region's feeds, plus the taxonomy for species resolution"
+      ],
+      "how": [
+        "Birders filing checklists at the same places within a short window on the same day are detected as a convoy.",
+        "Every member's checklist at every stop is pooled. Two birders standing together file different lists, so reading only one drops birds the other wrote down.",
+        "Each convoy is titled with its date, party size, stop count, species count and unseen count — two convoys on the same day are otherwise indistinguishable.",
+        "Unseen birds are listed before seen ones, and 'nothing unseen here' is stated plainly: that is a direct answer to 'should I drive this route?'"
+      ],
+      "limits": [
+        "Names are never printed — open a checklist to see who. The species count is omitted rather than shown as 0 when detail has not loaded."
+      ]
+    },
+    "favResults": {
+      "report": "## 📍 Favorite hotspots",
+      "summary": "Your own pinned hotspots, in your own order.",
+      "inputs": [
+        "the region's hotspot reference list, cached on device for a day"
+      ],
+      "how": [
+        "Search matches on word starts across the hotspot name, requires every term to match, and ranks by all-time species count.",
+        "Order is yours: each pin has up/down controls and is never re-sorted behind your back."
+      ],
+      "limits": [
+        "Stored on this device only — pins do not sync."
+      ]
+    },
+    "allUnseenBtn": {
+      "report": "## 📋 All unseen reports in",
+      "summary": "Every unseen report in the region, collapsed but not filtered.",
+      "inputs": [
+        "all county and geo feeds"
+      ],
+      "how": [
+        "Bucketed by (species, DAY) first, then clustered to 250 m.",
+        "The day key is load-bearing: clustering without it merges Tuesday's bird into Saturday's pin and reports a stale sighting as current.",
+        "Sorted nearest first."
+      ],
+      "limits": [
+        "No chaseability gate — this is the full dump, including places you cannot go."
+      ]
+    },
+    "easyBtn": {
+      "report": "## 🥚 Easy misses",
+      "summary": "Common birds you should already have — the highest hit-rate chase list.",
+      "inputs": [
+        "the accumulated history of daily report snapshots for this region"
+      ],
+      "how": [
+        "A species qualifies if it appeared on at least 40% of the snapshot days on record, and there are at least 3 days of history.",
+        "Anything already on your year list is removed."
+      ],
+      "limits": [
+        "This section SHRINKS as your year list grows, and that is the correct behaviour: by mid-year you have already got the common birds, so two rows means you are doing well, not that the section is broken.",
+        "The 40% threshold is absolute, so a region with sparse snapshot history qualifies fewer species."
+      ]
+    },
+    "migBtn": {
+      "report": "## 🛬 Migration outlook",
+      "summary": "What is arriving or leaving now, from multi-year history for these counties.",
+      "inputs": [
+        "about two years of weekly historic observations, built up in the background"
+      ],
+      "how": [
+        "Species are compared against their own arrival and departure weeks in previous years to flag the ones due now."
+      ],
+      "limits": [
+        "Needs the historic cache to be built; a fresh region has little to say until it fills."
+      ]
+    },
+    "bcBody": {
+      "report": "## 🌙 Nightly migration — BirdCast",
+      "summary": "Tonight's predicted migration intensity from BirdCast.",
+      "inputs": [
+        "BirdCast forecast maps, per county"
+      ],
+      "how": [
+        "Links straight to the per-county radar forecast rather than re-hosting an interpretation of it."
+      ],
+      "limits": [
+        "US only; BirdCast runs seasonally."
+      ]
+    },
+    "todBtn": {
+      "report": "## ⏰ Time-of-day specialists",
+      "summary": "Birds most likely at the hour you are actually going out.",
+      "inputs": [
+        "timestamps on the region's recent observations"
+      ],
+      "how": [
+        "Observations are bucketed by hour of day, and species whose reports concentrate in one bucket are called out as specialists for that window."
+      ],
+      "limits": [
+        "Reflects when BIRDERS are out as much as when birds are active; dawn is over-represented in every dataset."
+      ]
+    },
+    "myYearBody": {
+      "report": "## 🐦 * Year List",
+      "summary": "Your year list for the region, exactly as the report prints it.",
+      "inputs": [
+        "your eBird year-list export for this region"
+      ],
+      "how": [
+        "Oldest is numbered 1; newest is listed first. Each entry links its species page, its checklist, and its location."
+      ],
+      "limits": [
+        "Pasted from an eBird export, so it is as current as the last export — it does not update itself."
+      ]
+    },
+    "settingsPanel": {
+      "report": null,
+      "summary": "App-only: API key, region, anchors, text size and seen list.",
+      "inputs": [],
+      "how": [
+        "Everything here is stored on this device only.",
+        "Home, work and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island."
+      ],
+      "limits": []
+    }
+  }
+}

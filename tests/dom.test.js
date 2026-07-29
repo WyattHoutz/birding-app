@@ -27,6 +27,11 @@ const BL = require(path.join(WWW, 'logic.js'));
 
 const MIME = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
+// Arrays built inside jsdom have jsdom's Array prototype, and assert/strict's
+// deepEqual compares prototypes — so a same-valued array from the app fails
+// against a literal written here. Map through the Node-realm Array first.
+const arr = (x, f) => Array.from(x || [], f);
+
 // Serve www/ off the virtual origin so <script src>/<link href> resolve to the
 // real vendored Leaflet and logic.js rather than hitting the network.
 const localFiles = requestInterceptor((request) => {
@@ -61,8 +66,24 @@ function boot(opts = {}) {
       window.localStorage.setItem('ebird_home_lat', '47.75');
       window.localStorage.setItem('ebird_home_lng', '-122.16');
       window.localStorage.setItem('ebird_report', opts.report || 'wa');
+      Object.entries(opts.storage || {}).forEach(([k, v]) => window.localStorage.setItem(k, v));
       window.fetch = function (url) {
         state.fetches.push(String(url));
+        // Bundled assets are part of the app, not the network: a relative path
+        // that exists in www/ is served from disk so offline-by-default tests
+        // still exercise the real file the phone would read.
+        try {
+          const rel = decodeURIComponent(new URL(String(url), 'https://localhost/').pathname).replace(/^\//, '');
+          const file = path.join(WWW, rel);
+          if (rel && file.startsWith(WWW) && fs.existsSync(file) && fs.statSync(file).isFile()) {
+            const body = fs.readFileSync(file, 'utf8');
+            return Promise.resolve({
+              ok: true, status: 200,
+              text: () => Promise.resolve(body),
+              json: () => Promise.resolve(JSON.parse(body)),
+            });
+          }
+        } catch (e) { /* not a bundled file: fall through to the stub */ }
         // Tests that need a response supply opts.fetch(url) -> html string|null.
         if (opts.fetch) {
           const body = opts.fetch(String(url));
@@ -445,6 +466,176 @@ test('Closest spots never lists a place the report would not go', async () => {
     'and it is the NEAREST report of that species, not whichever the feed listed first');
   const dists = Array.from(rows, r => r.distMi);
   assert.deepEqual(dists, Array.from(dists).sort((a, b) => a - b), 'closest first');
+  app.window.close();
+});
+
+// --- Rarity cards -----------------------------------------------------------
+
+test('a rarity card leads with a big photo, a headline name and the evidence', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const li = A.birdCard({
+    code: 'tersan', name: 'Terek Sandpiper', badges: '<span class="needflag">X</span>',
+    sub: 'ABA Code 3+', stats: A.rarityStats([
+      { userDisplayName: 'a', obsDt: '2026-07-28 09:00', locId: 'L1' },
+      { userDisplayName: 'b', obsDt: '2026-07-28 10:00', locId: 'L1' },
+      { userDisplayName: 'b', obsDt: '2026-07-29 10:00', locId: 'L2' },
+    ], 'reports in Washington', [
+      { subnational1Code: 'US-WA' }, { subnational1Code: 'US-WA' }, { subnational1Code: 'US-OR' },
+    ]),
+    where: '<div class="meta">somewhere</div>',
+  });
+  // The photo has to be a HERO slot, not the 46px list thumb: the whole point
+  // of the card is that you can identify a bird you have never seen.
+  const hero = li.querySelector('.bchero[data-hero]');
+  assert.ok(hero, 'the card carries a hero photo slot');
+  assert.equal(hero.getAttribute('data-code'), 'tersan',
+    'and it is keyed by species code, so the bundled seed can back it up');
+  assert.ok(li.querySelector('.bcname'), 'the name is a headline, not a row label');
+  assert.match(li.querySelector('.bcname').textContent, /Terek Sandpiper/);
+  const stats = [...li.querySelectorAll('.bcstat')].map(
+    (s) => s.querySelector('b').textContent + ' ' + s.querySelector('small').textContent);
+  // "How rare" is the reason this section exists, so it is counted, not adjectival.
+  assert.deepEqual(stats, [
+    '3 reports in Washington',
+    '2 observers',
+    '2 locations',
+    '2 days seen',
+    '3 reports ABA-wide',
+    '2 states/provinces',
+  ]);
+  assert.ok(li.querySelector('.bcextract'), 'and a card back to fill with the blurb');
+  app.window.close();
+});
+
+test('the hero photo asks Wikimedia for a wide rendition, not the 320px default', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/320px-X.jpg';
+  assert.equal(A.widenThumb(src, 640),
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/640px-X.jpg');
+  // A URL with no width segment is a full-size original; rewriting it would
+  // produce a 404, so it has to pass through untouched.
+  const plain = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/X.jpg';
+  assert.equal(A.widenThumb(plain, 640), plain);
+  app.window.close();
+});
+
+test("today's rarities and the ABA alert share ONE card renderer", () => {
+  const today = HTML.slice(HTML.indexOf('function refresh()'),
+    HTML.indexOf('function buildClosestSpots('));
+  const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
+    HTML.indexOf('function renderAbaAlert(') + 4000);
+  for (const [name, src] of [["today's rarities", today], ['the ABA alert', aba]]) {
+    assert.match(src, /birdCard\(\{/, name + ' builds cards');
+    assert.match(src, /rarityStats\(/, name + ' shows the rarity evidence');
+  }
+  assert.match(aba, /hydrateCards\(/, 'and the ABA cards get their blurbs');
+  assert.match(today, /hydrateCards\(/, "and so do today's");
+});
+
+// --- Favorite hotspots ------------------------------------------------------
+
+test('favorites can be searched for, reordered and removed', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setFavs([]);
+  ['A Park', 'B Marsh', 'C Point'].forEach((n, i) => {
+    A.addFav({ locId: 'L' + i, locName: n, lat: 47 + i, lng: -122 });
+  });
+  assert.equal(A.addFav({ locId: 'L0', locName: 'A Park', lat: 47, lng: -122 }), false,
+    'the same hotspot cannot be pinned twice');
+  const names = () => arr(A.getFavs(), (f) => f.locName);
+  assert.deepEqual(names(), ['A Park', 'B Marsh', 'C Point']);
+  A.moveFav(2, -1);
+  assert.deepEqual(names(), ['A Park', 'C Point', 'B Marsh'], 'up moves it up');
+  A.moveFav(0, 1);
+  assert.deepEqual(names(), ['C Point', 'A Park', 'B Marsh'], 'down moves it down');
+  // A stale index from a list that re-rendered underneath must be a no-op, not
+  // a silent rotation of the list.
+  A.moveFav(0, -1); A.moveFav(2, 1); A.moveFav(99, -1);
+  assert.deepEqual(names(), ['C Point', 'A Park', 'B Marsh'], 'out-of-range moves do nothing');
+  A.removeFavAt(1);
+  assert.deepEqual(names(), ['C Point', 'B Marsh'], 'delete removes exactly one');
+  A.removeFavAt(9);
+  assert.deepEqual(names(), ['C Point', 'B Marsh'], 'and an out-of-range delete removes none');
+  app.window.close();
+});
+
+test('every saved hotspot carries its own move and delete controls', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setFavs([]);
+  ['A Park', 'B Marsh', 'C Point'].forEach((n, i) => {
+    A.addFav({ locId: 'L' + i, locName: n, lat: 47 + i, lng: -122 });
+  });
+  A.renderFavs();
+  const rows = [...app.$('favResults').querySelectorAll('li')];
+  assert.equal(rows.length, 3);
+  rows.forEach((li, i) => {
+    for (const cls of ['favup', 'favdown', 'favdel']) {
+      const b = li.querySelector('.' + cls);
+      assert.ok(b, 'row ' + i + ' has a .' + cls);
+      // The control has to say which hotspot it acts on: three identical "▲"
+      // buttons are unusable with a screen reader.
+      assert.match(b.getAttribute('aria-label') || '', /A Park|B Marsh|C Point/);
+    }
+  });
+  assert.ok(rows[0].querySelector('.favup').disabled, 'the first row cannot move up');
+  assert.ok(rows[2].querySelector('.favdown').disabled, 'the last row cannot move down');
+  assert.ok(!rows[1].querySelector('.favup').disabled);
+  // Clicking is the path the user actually takes, so drive it through the DOM.
+  app.click(rows[2].querySelector('.favup'));
+  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['A Park', 'C Point', 'B Marsh']);
+  app.click(app.$('favResults').querySelectorAll('li')[0].querySelector('.favdel'));
+  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['C Point', 'B Marsh']);
+  app.window.close();
+});
+
+test('hotspot search matches on word starts and ranks by species count', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [
+    { locId: 'L1', locName: 'Edmonds Marina Beach Park', n: 210 },
+    { locId: 'L2', locName: 'Edmonds Waterfront', n: 260 },
+    { locId: 'L3', locName: 'Redmonds Ridge', n: 90 },
+    { locId: 'L4', locName: 'Marymoor Park', n: 300 },
+  ];
+  const hit = (q) => arr(A.searchHotspots(rows, q), (h) => h.locName);
+  // Substring matching would drag "Redmonds Ridge" in on "edm", which is how a
+  // lookup field stops being trusted.
+  assert.deepEqual(hit('edm'), ['Edmonds Waterfront', 'Edmonds Marina Beach Park']);
+  assert.deepEqual(hit('edmonds marina'), ['Edmonds Marina Beach Park'],
+    'multiple words all have to match, in any order');
+  assert.deepEqual(hit('marina edmonds'), ['Edmonds Marina Beach Park']);
+  assert.deepEqual(hit('e'), [], 'one letter is not a search');
+  assert.deepEqual(hit('  '), []);
+  app.window.close();
+});
+
+test('the hotspot list is fetched once per region per day, then searched offline', async () => {
+  const rows = [{ locId: 'L1', locName: 'Edmonds Waterfront', lat: 47.8, lng: -122.4, numSpeciesAllTime: 260 }];
+  const app = await boot({
+    fetch: (url) => (/ref\/hotspot\//.test(url) ? rows : null),
+  });
+  const A = app.window.__app;
+  app.$('favSearch').value = 'edmonds';
+  A.runFavSearch();
+  await new Promise((r) => setTimeout(r, 30));
+  const calls = () => app.state.fetches.filter((u) => /ref\/hotspot\//.test(u));
+  assert.equal(calls().length, 1, 'one region read');
+  assert.match(calls()[0], /ref\/hotspot\/US-WA\?fmt=json/, 'scoped to the active report');
+  const found = [...app.$('favFound').querySelectorAll('li')];
+  assert.equal(found.length, 1);
+  assert.match(found[0].textContent, /Edmonds Waterfront/);
+  // Typing is not a network activity: a second search must hit the cache.
+  app.$('favSearch').value = 'waterfront';
+  A.runFavSearch();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(calls().length, 1, 'the second search reuses the cached region');
+  // And the add button pins it.
+  app.click(app.$('favFound').querySelector('.favadd'));
+  assert.deepEqual(arr(A.getFavs(), (f) => f.locId), ['L1']);
   app.window.close();
 });
 
@@ -952,12 +1143,17 @@ test('a checklist link is labelled by its subId, never the word "checklist"', ()
 });
 
 test('the three species sections use the large icon + title treatment', () => {
-  ['results', 'targetResults', 'lastNewResults'].forEach((id) => {
+  ['targetResults', 'lastNewResults'].forEach((id) => {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
   });
-  assert.match(HTML, /\.obs\.big \.thumb\s*\{[^}]*width: 64px/,
+  assert.match(HTML, /\.obs\.big \.thumb\s*\{[^}]*width: calc\(64px \* var\(--s\)\)/,
     'the icon is actually bigger, not just a class name');
+  // Today's rarities went further than .big: it is the card treatment now, so
+  // the invariant is that it never falls BACK to a plain row.
+  const rare = /<ul id="results"[^>]*class="([^"]*)"/.exec(HTML);
+  assert.ok(rare && /\bcards\b/.test(rare[1]),
+    "today's rarities render as baseball cards");
 });
 
 test('latest ticks: the bird links to its species page and shows fresh lists', () => {
@@ -1055,8 +1251,13 @@ test('easy misses: ranked by location-days, excluding birds on your year list', 
   DAYS.forEach((d, i) => add('daejun', 'Dark-eyed Junco', d, 'L' + i));
 
   const rows = A.computeEasyMisses(obs, 10, {});
-  assert.deepEqual(Array.from(rows, (r) => r.code), ['amerob', 'sonspa'],
-    'seen birds and sub-40% birds are both excluded; spread beats repetition');
+  // Only two birds clear the 40% bar here, so the section lowers it rather than
+  // print two rows — the nuthatch is admitted BY THAT RULE, not by accident.
+  assert.ok(rows.minFreq < 0.4, 'a two-row section lowers its bar');
+  assert.deepEqual(Array.from(rows, (r) => r.code), ['amerob', 'sonspa', 'rebnut'],
+    'birds already on your year list are excluded; spread beats repetition');
+  assert.ok(!Array.from(rows, (r) => r.code).includes('daejun'),
+    'a seen bird never returns however common it is, at any bar');
   assert.equal(rows[0].siteDays, 12, 'location-days: 4 days x 3 places');
   assert.equal(rows[1].siteDays, 4, 'same 4 days at one spot is 4 location-days');
   assert.ok(Math.abs(rows[0].freq - rows[1].freq) < 1e-9,
@@ -1248,4 +1449,229 @@ test('work anchor: a second waypoint ranks, it never widens coverage', async () 
   assert.ok(!/anchor/i.test(planner),
     'planFeeds is never handed anchors - the second waypoint ranks only');
   app.window.close();
+});
+
+/*
+ * Accessibility: one control scales the whole app.
+ *
+ * "Many birders are older and have bad vision." The scale is a CSS custom
+ * property rather than CSS zoom on purpose -- zoom silently breaks Leaflet's
+ * container-size and hit-testing math, so maps would misplace pins at any
+ * setting but 1.
+ */
+test('every px font size in the stylesheet is multiplied by the --s scale', () => {
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  const raw = arr(css.matchAll(/font-size:\s*\d+(?:\.\d+)?px/g), (m) => m[0]);
+  assert.deepEqual(raw, [],
+    'these font sizes ignore the accessibility scale: ' + raw.join(', '));
+  assert.ok(/font-size: calc\(\d+(?:\.\d+)?px \* var\(--s\)\)/.test(css),
+    'font sizes go through calc(Npx * var(--s))');
+  assert.ok(/--s:\s*1;/.test(css), ':root declares the default scale');
+  // Pictures have to grow with the text beside them, or a "Largest" list is
+  // big type wrapped around a postage stamp.
+  assert.ok(/\.thumb \{[^}]*width: calc\(46px \* var\(--s\)\)/.test(css),
+    'the list thumbnail scales too');
+});
+
+test('the text-size control persists and drives the document scale', async () => {
+  const app = await boot();
+  const html = app.document.documentElement;
+  assert.equal(app.window.__app.getUiScale(), 1, 'defaults to normal');
+
+  const sel = app.$('uiScale');
+  assert.ok(sel, 'Settings has a text-size control');
+  assert.equal(sel.value, '1', 'the control shows the stored value');
+
+  sel.value = '1.5';
+  sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(html.style.getPropertyValue('--s'), '1.5', 'changing it applies immediately');
+  assert.equal(app.window.localStorage.getItem('ebird_ui_scale'), '1.5', 'and is persisted');
+
+  // Out-of-range values are clamped, not trusted: a corrupt entry that renders
+  // the app at 40x is unrecoverable without clearing storage on the device.
+  assert.equal(app.window.__app.setUiScale('99'), 2, 'clamped to the maximum');
+  assert.equal(app.window.__app.setUiScale('nonsense'), 1, 'garbage falls back to normal');
+});
+
+test('a stored text size is applied before anything renders', async () => {
+  const app = await boot({ storage: { ebird_ui_scale: '1.3' } });
+  assert.equal(app.document.documentElement.style.getPropertyValue('--s'), '1.3',
+    'the scale is live on boot, not only after opening Settings');
+  assert.equal(app.$('uiScale').value, '1.3', 'and Settings reflects it');
+});
+/*
+ * Quick outing anchors.
+ *
+ * The section is an impulse detour, so the anchor is the whole answer: hotspots
+ * near home on a Saturday are the wrong list on a Tuesday lunch break. Home
+ * stays the default so the first open still matches the Markdown report.
+ */
+test('quick outing offers home, work and current location, defaulting to home', async () => {
+  const app = await boot();
+  const ids = ['quickBtn', 'quickWorkBtn', 'quickHereBtn'];
+  ids.forEach((id) => assert.ok(app.$(id), id + ' exists'));
+  assert.equal(app.$('quickBtn').getAttribute('aria-pressed'), 'true', 'home is the default anchor');
+  assert.equal(app.$('quickWorkBtn').getAttribute('aria-pressed'), 'false');
+  assert.equal(app.$('quickHereBtn').getAttribute('aria-pressed'), 'false');
+  assert.match(app.$('quickBtn').textContent, /Home/);
+  assert.ok(app.$('quickHereRow').hidden, 'the type-a-place fallback stays out of the way');
+});
+
+test('an unset anchor advertises how to set it instead of dying on tap', async () => {
+  const app = await boot();
+  const w = app.window;
+  // Clear the work anchor the way Settings does (empty string, not removeItem —
+  // removeItem falls back to the regions.py default and un-clears it).
+  w.localStorage.setItem('ebird_work_lat:wa', '');
+  w.localStorage.setItem('ebird_work_lng:wa', '');
+  w.__app.syncQuickButtons();
+  assert.match(app.$('quickWorkBtn').textContent, /Set work/,
+    'with no work anchor the button says how to get one');
+  assert.equal(w.__app.quickAnchor('work'), null);
+
+  const before = app.state.fetches.length;
+  app.click(app.$('quickWorkBtn'));
+  assert.equal(app.state.fetches.length, before, 'and taps no feed it cannot centre');
+  assert.match(app.$('quickStatus').textContent, /Settings/, 'it points at Settings');
+});
+
+test('current location falls back to a typed place when geolocation is refused', async () => {
+  const app = await boot();
+  const w = app.window;
+  let asked = 0;
+  w.navigator.geolocation = {
+    getCurrentPosition(ok, fail) { asked++; fail({ code: 1, message: 'User denied Geolocation' }); },
+  };
+  app.click(app.$('quickHereBtn'));
+  assert.equal(asked, 1, 'it asks the device first');
+  assert.equal(app.$('quickHereRow').hidden, false, 'refusal reveals the place input');
+  assert.match(app.$('quickStatus').textContent, /User denied Geolocation/,
+    'and says WHY, so "nothing happened" is never the outcome');
+
+  // A granted fix re-anchors the section and scans around the new point.
+  w.navigator.geolocation.getCurrentPosition = (ok) => ok({ coords: { latitude: 48.5, longitude: -122.6 } });
+  const before = app.state.fetches.length;
+  app.click(app.$('quickHereBtn'));
+  const scan = app.state.fetches.slice(before).find((u) => /ref\/hotspot\/geo/.test(u));
+  assert.ok(scan, 'a granted fix triggers a hotspot scan');
+  assert.match(scan, /lat=48\.5&lng=-122\.6/, 'centred on where you actually are');
+  assert.equal(app.$('quickHereBtn').getAttribute('aria-pressed'), 'true', 'and Here becomes the active anchor');
+});
+
+test('quick outing scans exactly one circle — the anchor you picked', async () => {
+  const app = await boot();
+  const before = app.state.fetches.length;
+  app.click(app.$('quickBtn'));
+  const scans = app.state.fetches.slice(before).filter((u) => /ref\/hotspot\/geo/.test(u));
+  assert.equal(scans.length, 1, 'one origin means one scan, not a union nobody reads');
+  assert.match(scans[0], /lat=47\.75&lng=-122\.16/, 'centred on home');
+});
+/*
+ * "How is this calculated?"
+ *
+ * Sections that look thin or surprising are usually correct and just opaque.
+ * The explanation is DATA, bundled with the app and vendored into the report
+ * repo, so the two can never give different answers.
+ */
+const DOCS = JSON.parse(
+  fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs;
+
+test('every section in the contract is documented', () => {
+  const missing = CONTRACT.menu.map((m) => m.at).filter((at) => !DOCS[at]);
+  assert.deepEqual(missing, [], 'undocumented sections: ' + missing.join(', '));
+  const stray = Object.keys(DOCS).filter((at) => !CONTRACT.menu.some((m) => m.at === at));
+  assert.deepEqual(stray, [], 'docs for sections that do not exist: ' + stray.join(', '));
+  Object.entries(DOCS).forEach(([at, d]) => {
+    assert.ok(d.summary && d.summary.length > 20, at + ' has a real summary');
+    assert.ok(Array.isArray(d.how) && d.how.length, at + ' says how it is calculated');
+    assert.ok(Array.isArray(d.limits), at + ' declares its limits (may be empty)');
+  });
+});
+
+test('the closest-spots doc names the gates that make it look sparse', () => {
+  const d = DOCS.targetsBtn;
+  const all = [d.summary].concat(d.inputs, d.how, d.limits).join(' ');
+  // These four are exactly the questions the section provokes and cannot answer
+  // from its own output.
+  assert.match(all, /250 m/, 'the clustering radius');
+  assert.match(all, /NEAREST anchor|nearest anchor/, 'ranking is from home OR work');
+  assert.match(all, /private/i, 'why a residential address can legitimately appear');
+  assert.match(all, /ONE observation per species|one observation per species/,
+    'the feed limit that makes the section sparse by construction');
+});
+
+test('every section carries an info button that opens its calculation notes', async () => {
+  const app = await boot();
+  const secs = [...app.document.querySelectorAll('main section')]
+    .filter((s) => s.querySelector('h2') && s.id && s.id !== 'menuPanel');
+  assert.ok(secs.length >= 15, 'found the report sections (got ' + secs.length + ')');
+  secs.forEach((s) => {
+    const b = s.querySelector('.docbtn');
+    assert.ok(b, s.id + ' has an info button');
+    assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
+    assert.match(b.getAttribute('aria-label') || '', /is calculated/,
+      s.id + ' names what the button explains');
+  });
+
+  const sec = app.document.getElementById('sec-targetsBtn');
+  const box = sec.querySelector('.sectiondoc');
+  assert.ok(box.hidden, 'notes start hidden');
+  app.click(sec.querySelector('.docbtn'));
+  assert.equal(box.hidden, false, 'tapping opens them');
+  assert.equal(sec.querySelector('.docbtn').getAttribute('aria-expanded'), 'true');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.match(box.textContent, /250 m/, 'and they are the real notes, read from the bundle');
+  // Bundled, not fetched over the network — the app has no runtime GitHub
+  // dependency and help has to work on a phone with no signal.
+  assert.ok(!app.state.fetches.some((u) => /section-docs\.json/.test(u) && /^https?:\/\/(?!localhost)/.test(u)),
+    'the notes are read from the app bundle, never from a remote host');
+});
+/*
+ * Easy misses widens its bar rather than shrinking to nothing.
+ *
+ * The section was reported as "only two entries". It was right: the 40% bar is
+ * absolute, and by mid-year the genuinely common birds are already on your year
+ * list. An honest section that nobody can use is still a section nobody can use.
+ */
+test('easy misses lowers its threshold until the section is worth reading', async () => {
+  const app = await boot();
+  const compute = app.window.__app.computeEasyMisses;
+  const days = 20;
+  // 12 species, each on a different number of the 20 sampled days: one at 90%,
+  // the rest between 10% and 45%. At a fixed 40% bar this yields 2 rows.
+  const obs = [];
+  const freqs = [18, 9, 8, 7, 6, 5, 5, 4, 4, 3, 3, 2];
+  freqs.forEach((n, s) => {
+    for (let d = 0; d < n; d++) {
+      obs.push({
+        speciesCode: 'sp' + s, comName: 'Species ' + s,
+        obsDt: '2026-06-' + String(d + 1).padStart(2, '0') + ' 08:00',
+        locId: 'L' + (d % 3), locName: 'Spot ' + (d % 3), lat: 47.7, lng: -122.2, subId: 'S' + s + d,
+      });
+    }
+  });
+  const rows = compute(obs, days, {});
+  assert.ok(rows.length >= 10,
+    'the bar drops until at least ten birds qualify (got ' + rows.length + ')');
+  assert.ok(rows.minFreq < 0.4, 'and the section says it lowered the bar');
+  assert.ok(rows.every((r) => r.freq >= rows.minFreq),
+    'every row really clears the bar that was reported');
+  // Still ranked by location-days, not by the relaxed frequency: a bird
+  // reported from eight places is one you can go and get.
+  const sd = arr(rows, (r) => r.siteDays);
+  assert.deepEqual(sd, Array.from(sd).sort((a, b) => b - a), 'prevalence order survives');
+
+  // A region where plenty clears 40% must NOT be relaxed.
+  const rich = [];
+  for (let s = 0; s < 15; s++) {
+    for (let d = 0; d < 19; d++) {
+      rich.push({
+        speciesCode: 'r' + s, comName: 'Rich ' + s,
+        obsDt: '2026-06-' + String(d + 1).padStart(2, '0') + ' 08:00',
+        locId: 'L' + (d % 4), locName: 'Spot', lat: 47.7, lng: -122.2, subId: 'S' + s + d,
+      });
+    }
+  }
+  assert.equal(compute(rich, days, {}).minFreq, 0.4,
+    'the bar only moves when it has to');
 });
