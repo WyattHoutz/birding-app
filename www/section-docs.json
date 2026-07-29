@@ -286,16 +286,24 @@
     },
     "favResults": {
       "report": "## 📍 Favorite hotspots",
-      "summary": "Your own pinned hotspots, in your own order.",
+      "summary": "Your own pinned hotspots, in your own order, each showing what is worth driving for right now.",
       "inputs": [
-        "the region's hotspot reference list, cached on device for a day"
+        "the region's hotspot reference list, cached on device for a day",
+        "the last 7 days of reports at each pinned hotspot",
+        "the merged rarity snapshot the chase sections already fetched, so no extra notable call is made"
       ],
       "how": [
         "Search matches on word starts across the hotspot name, requires every term to match, and ranks by all-time species count.",
-        "Order is yours: each pin has up/down controls and is never re-sorted behind your back."
+        "Order is yours: each pin has up/down controls and is never re-sorted behind your back.",
+        "Each pin lists only what would make you go: rarities (⭐), watchlist verifications (🔍), and species you have not logged this year — sorted in that order, newest first.",
+        "Common birds you have already seen are dropped on purpose: a hotspot's own species list answers 'what lives here', not 'should I drive there today'.",
+        "Your own checklists are excluded, so the list is what OTHERS are finding at your regular spots.",
+        "The header counts species seen in the last 7 days and reports filed in the last 24 hours, so a quiet spot reads as quiet rather than as a loading failure."
       ],
       "limits": [
-        "Stored on this device only — pins do not sync."
+        "Stored on this device only — pins do not sync.",
+        "One hotspot feed per pin, loaded serially when the section opens; reordering or deleting a pin repaints from cache rather than refetching.",
+        "A hotspot saved by coordinates rather than an eBird hotspot ID has no feed to read, and says so."
       ]
     },
     "allUnseenBtn": {

@@ -122,7 +122,7 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🚗 Top excursions | **Top excursions** | ✅ | Far-from-home clusters with soft distance penalty `score/(1+extra/30)`; needs Home set. |
 | 🧭 Trip planner — half-day route | **Trip planner** | ✅ | Nearest-neighbour route through the top ≤6 nearby target hotspots; SVG map with route path + per-leg / round-trip miles. |
 | 🚶 Quick outing — best hotspots close by | **Quick outing** | ✅ | `ref/hotspot/geo` hotspots within **5 mi** — an impulse detour of about five minutes (v1.0.15, both repos; was 15 mi). Quality (all-time diversity + recent activity) still decides *which* spots make the cut, but the table is **read closest-first**. The radius widens to 10 then 15 mi rather than print an empty section in a sparse region, and says so. **v1.0.22 makes the anchor a choice — the one deliberate divergence in this section.** The app offers 🏠 Home · 🏢 Work · 📍 Current location (unset anchors relabel to "Set home"/"Set work"; current location falls back to a typed place if location services are refused) and scans **one** circle around whichever you pick. A Markdown report is generated hours before you read it and cannot ask, so it keeps ranking from the fixed configured anchors. Same scoring, same widening ladder, same closest-first order — only the centre differs. |
-| 📍 Favorite hotspots | **Favorite hotspots** | ✅ | Pin any hotspot from the lists (⭐); per-hotspot recent sightings via `data/obs/{locId}/recent`. **v1.0.22 makes the list editable in place**: a lookup field adds a hotspot by name (`ref/hotspot/{region}` scoped to the report's counties) without having to find it in another section first, and every row carries ▲ ▼ reorder and ✕ delete controls. Order is the user's, so it is stored, not derived — the report reads the same saved order. |
+| 📍 Favorite hotspots | **Favorite hotspots** | ✅ | Pin any hotspot from the lists (⭐); per-hotspot recent sightings via `data/obs/{locId}/recent`. **v1.0.22 makes the list editable in place**: a lookup field adds a hotspot by name (`ref/hotspot/{region}` scoped to the report's counties) without having to find it in another section first, and every row carries ▲ ▼ reorder and ✕ delete controls. Order is the user's, so it is stored, not derived — the report reads the same saved order. **v1.0.24 brings the CONTENT to parity, which is the part that was actually missing.** The app showed a name, a Maps link and a tap-to-load dump of every species at the spot — including the ones already on your year list, which answers "what lives here" rather than "should I drive there today". It now ports `section_favorites`' filter exactly: rarities (⭐) → watchlist verifications (🔍) → species not on your year list, newest first within tier, capped at 12, with the same header (distance from home · species in 7d · **reports in last 24h**) and the same empty-state sentence rather than a blank row. Your own checklists are dropped in both repos — favorites surface what OTHERS are finding at your regular spots. **One deliberate divergence, in the rarity input:** the report holds `rarity_codes` from the day's snapshot, while the app reuses the merged feed the chase sections already fetched (`kind === 'Rarity'`), so the section costs one hotspot feed per pin and **no** extra notable call. Detail is cached per `locId`, so ▲ ▼ ✕ repaint from memory instead of refetching. |
 
 ## Hotspot intelligence
 
@@ -200,7 +200,39 @@ each provider declares whether it carries stops and the route link says
 cannot. A route link that quietly loses four of its six stops is worse than one
 that admits it.
 
-**Bundled sample data.** The app ships a snapshot of the owner's eBird 2026
+**Historic state records via GBIF (v1.0.24).** App-only, on the ABA rarity cards.
+The ABA code is a *continental* rating, so the alert cannot tell you whether a
+bird is a first state record or merely uncommon here — and that is the whole
+difference between "drive now" and "note it". GBIF publishes eBird's own data as
+the **EOD – eBird Observation Dataset** (`4fa7b334-…`), keyless and with no
+account, so the card reads it directly from the device and spends **no eBird
+quota**. Three cached calls per card (taxon match → state year facet → national
+state facet), 30 days in `ebird_gbif_v1`. Two findings drive how it renders, both
+measured rather than assumed:
+- **A "record" is one row per observer per checklist**, so one staked-out bird
+  twitched by 200 people reads as 200 records. Ruff in Washington is 1,085
+  records but only 109 places across **36 years**. Years-with-records is the
+  number that matches how rare a bird feels, and it orders the test species the
+  way a birder would: Terek Sandpiper 0 < Red-necked Stint 8 < White Wagtail 12
+  < Ruff 36.
+- **A bare national count misleads.** 69% of the Terek Sandpiper's 898 US records
+  are Alaska, where it is near-annual, across just 6 states. So the line names
+  the top state and its share.
+The snapshot stops short of today — as measured, at 2024 — so the card states the
+window it searched instead of letting "1972–2023" imply the bird vanished.
+`gbifSnapshotYear()` derives that edge from an Aves year facet (one call per
+region per week) rather than hard-coding a year that would rot. The report has no
+equivalent: it would need the same lookup per rarity per run, and its rarity
+sections are already state-scoped by construction.
+
+**Finder attribution (v1.0.24).** App-only. On an ABA card the earliest report in
+the feed is credited as the finder — but **only when coverage opened before it**.
+If the oldest record we hold sits at the edge of the window, the true finder is
+someone earlier that we simply cannot see, so the card says "earliest report we
+hold" rather than inventing a discovery. Useful for citing the original observer
+in a follow-up checklist.
+
+
 year lists (`www/seed-birdlist.js`, ~330 species codes) and loads it on first
 launch so Targets / Destinations / My year / etc. have real data before any
 CSV is imported. It matches by eBird `speciesCode` (exact and locale-proof).
