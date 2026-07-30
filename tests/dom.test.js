@@ -501,7 +501,7 @@ test('a rarity card leads with a big photo, a headline name and the evidence', a
     '2 observers',
     '2 locations',
     '2 days seen',
-    '3 reports ABA-wide',
+    '3 locations ABA-wide',
     '2 states/provinces',
   ]);
   assert.ok(li.querySelector('.bcextract'), 'and a card back to fill with the blurb');
@@ -534,21 +534,36 @@ test("today's rarities and the ABA alert share ONE card renderer", () => {
   assert.match(today, /hydrateCards\(/, "and so do today's");
 });
 
-// MEASURED, not assumed: across 234 stored ABA alert snapshots the unfiltered
-// continent-wide feed has NEVER returned more than 497 observations, and every
-// unfiltered day sits at 493-497 — a hard 500-row budget shared by ~50 species.
-// Terek Sandpiper's slice of it read 26, 34, 34, 29, 36, 37 on consecutive days
-// while the bird sat in one place, so a stat built from alert row counts was
-// measuring the cap and calling it a total. The fix is a species-scoped COUNTRY
-// feed, which carries no such cap; this guard exists because the cheap wrong
-// number is always one refactor away from coming back.
-test('the ABA-wide count is measured, never taken from the capped alert', () => {
+// MEASURED, not assumed. Two separate live measurements, and the second one
+// corrects the first:
+//   1. The ABA alert page returns EXACTLY 500 observations, with no pagination,
+//      no stated total and no truncation notice. Terek Sandpiper's slice read
+//      26, 34, 34, 29, 36, 37 on consecutive days while the bird sat in one
+//      place, so a stat built from alert row counts measured the cap.
+//   2. The species-scoped region endpoint that replaced it returns exactly ONE
+//      observation PER LOCATION -- max 1 row at any single location for every
+//      species tested, where recent/notable returned 78 rows at one location
+//      over the same window. So its length is a LOCATION count. Shipping it as
+//      "reports ABA-wide" swapped a number that was too big for one that is too
+//      small, which is worse: confidently precise and wrong.
+// The label must therefore say locations, and this guard exists so it cannot
+// drift back into claiming reports.
+test('the ABA-wide stat counts locations, and says so', () => {
   const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
     HTML.indexOf('function birdcastSeason('));
   assert.doesNotMatch(aba, /wideByCode/,
-    'counting rows of a 500-capped continent-wide alert reports the cap, not the bird');
+    'counting rows of a 500-capped alert reports the cap, not the bird');
   assert.match(aba, /rarityStats\([\s\S]{0,160}_abaWide\[/,
-    'the ABA-wide stat must come from the uncapped species-scoped country feed');
+    'the ABA-wide stat must come from the species-scoped country feed');
+
+  const stats = HTML.slice(HTML.indexOf('function rarityStats('),
+    HTML.indexOf('function firstReport('));
+  assert.match(stats, /label: 'locations ABA-wide'/,
+    'the species endpoint returns one row per LOCATION — calling that a report count is wrong');
+  assert.doesNotMatch(stats, /reports ABA-wide/,
+    'a continent-wide REPORT count is not cheaply obtainable, so it must not be claimed');
+  assert.match(stats, /label: 'states\/provinces'/,
+    'subnational1Code across every location is accurate and worth stating');
 
   const wide = HTML.slice(HTML.indexOf('function abaWideHistory('),
     HTML.indexOf('function refresh()'));
@@ -556,9 +571,13 @@ test('the ABA-wide count is measured, never taken from the capped alert', () => 
   assert.match(wide, /data\/obs\/'\s*\+\s*c\s*\+\s*'\/recent\//,
     'a species-scoped region feed is the only ABA-wide source with no row cap');
   assert.match(wide, /detail=full/,
-    'detail=simple collapses to one observation per location, which under-counts a twitch');
-  // A country that failed to answer is not a country with no birds. Reporting a
-  // partial continent as a total repeats the exact error the cap was making.
+    'detail=simple drops userDisplayName and sciName, which the card needs');
+  // Keyed by LOCATION so the number and its label cannot drift apart.
+  assert.match(wide, /var k = r\.locId \|\|/,
+    'dedupe by location, matching what the feed returns and what the stat claims');
+  assert.doesNotMatch(wide, /abaArchiveKey\(r\)/,
+    'a checklist key would let one location count twice and quietly restore a report count');
+  // A country that failed to answer is not a country with no birds.
   assert.match(wide, /r == null; \}\)\) return null/,
     'a partial continent must stand the stat down rather than publish a floor as a total');
   const countries = /var ABA_WIDE_COUNTRIES = (\[[^\]]*\])/.exec(HTML);
