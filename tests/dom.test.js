@@ -508,12 +508,39 @@ test('a rarity card leads with a big photo, a headline name and the evidence', a
   app.window.close();
 });
 
-test('the hero photo asks Wikimedia for a wide rendition, not the 320px default', async () => {
+// Wikimedia's thumbnail widths are a WHITELIST, not a resizer: anything off the
+// ladder answers HTTP 400. Measured by HEAD against three files with different
+// originals (1200/2280/3849px) — all three returned 200 on exactly
+// [250, 330, 500, 960, 1280, 1920] and 400 on every other width tried.
+//
+// This is the bug that made card photos blurry for three releases and survived a
+// "fix": HERO_PX was 1024, which is off the ladder, so every hero request 400'd,
+// the <img> error handler fired, and the card fell back to the 60px bundled seed
+// stretched across a full-width frame. It filled the panel and showed the right
+// bird, so it read as a bad PHOTO rather than a failed REQUEST — and raising the
+// constant 640 -> 1024 moved it from one off-ladder value to another.
+//
+// So the guard is not "HERO_PX equals N". It is that no width can ever leave the
+// app without being snapped onto a rung.
+test('every Wikimedia width the app asks for is on the served ladder', async () => {
   const app = await boot();
   const A = app.window.__app;
   const src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/320px-X.jpg';
-  assert.equal(A.widenThumb(src, 640),
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/640px-X.jpg');
+  assert.ok(A.WIKI_THUMB_LADDER.includes(A.HERO_PX),
+    'HERO_PX must be a width Wikimedia actually serves — off-ladder 400s silently');
+  // Snapping UP is what makes a future tweak safe: an arbitrary constant lands
+  // on a rung that exists instead of 400ing.
+  assert.equal(A.ladderWidth(1024), 1280, 'an off-ladder request snaps up to the next rung');
+  assert.equal(A.ladderWidth(640), 960, 'including the value this shipped with before');
+  assert.equal(A.ladderWidth(250), 250, 'a width already on the ladder is left alone');
+  assert.equal(A.ladderWidth(99999), 1920, 'and nothing can ask past the top rung');
+  // widenThumb is the only caller, so it must route through the snap rather than
+  // pasting the raw number into the URL.
+  assert.equal(A.widenThumb(src, 1024),
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/1280px-X.jpg',
+    'widenThumb rewrites through ladderWidth, not with the caller’s number');
+  assert.equal(A.widenThumb(src, A.HERO_PX),
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/' + A.HERO_PX + 'px-X.jpg');
   // A URL with no width segment is a full-size original; rewriting it would
   // produce a 404, so it has to pass through untouched.
   const plain = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/X.jpg';
@@ -521,17 +548,36 @@ test('the hero photo asks Wikimedia for a wide rendition, not the 320px default'
   app.window.close();
 });
 
-test("today's rarities and the ABA alert share ONE card renderer", () => {
+// These two sections answer DIFFERENT questions and now use different templates
+// on purpose, which is a change from when they shared birdCard().
+//   Today's rarities = the DAY'S LIST, one row per checklist. Medium card.
+//   The ABA alert    = read about ONE continental rarity. Large card.
+// Rendering the day's list as 13 full-screen baseball cards buried the next
+// report under evidence nobody asked for. What must NOT drift is that the ABA
+// card keeps its evidence, and that today's list keeps the same columns the
+// markdown table prints.
+test("today's rarities lists checklists; the ABA alert profiles one bird", () => {
   const today = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
   const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
     HTML.indexOf('function birdcastSeason('));
-  for (const [name, src] of [["today's rarities", today], ['the ABA alert', aba]]) {
-    assert.match(src, /birdCard\(\{/, name + ' builds cards');
-    assert.match(src, /rarityStats\(/, name + ' shows the rarity evidence');
-  }
+  assert.match(aba, /birdCard\(\{/, 'the ABA alert builds large cards');
+  assert.match(aba, /rarityStats\(/, 'and shows the rarity evidence');
   assert.match(aba, /hydrateCards\(/, 'and the ABA cards get their blurbs');
-  assert.match(today, /hydrateCards\(/, "and so do today's");
+
+  assert.doesNotMatch(today, /birdCard\(\{/,
+    "today's rarities is a list, not 13 profiles — the large card is the wrong template");
+  assert.doesNotMatch(today, /rarityStats\(/,
+    'how rare each species is across the snapshot is what Last 7-Days answers');
+  // The columns of the markdown table it mirrors: species, distance+place,
+  // observer, time, checklist. Losing any of them makes the row undecidable.
+  assert.match(today, /photoSlot\(/, 'the row is illustrated');
+  assert.match(today, /class="ntext"/, 'the species name is the header cell');
+  assert.match(today, /distMi/, 'how far away it is');
+  assert.match(today, /recLocLink\(/, 'where');
+  assert.match(today, /r\.observer/, 'who saw it');
+  assert.match(today, /fmtDateTime\(/, 'and at what time — a bare date decides nothing');
+  assert.match(today, /checklistLink\(/, 'with the checklist to cite');
 });
 
 // MEASURED, not assumed. Two separate live measurements, and the second one
@@ -648,12 +694,23 @@ test('a capped ABA alert is stated, and measured before the state filter', () =>
 
   // The notice needs its own element: #abaResults is a <ul> whose class flips
   // to `cards` (a grid), so a warning appended there would be laid out as a card.
-  assert.match(HTML, /<div id="abaCapWarn"><\/div>/,
-    'the warning needs a container outside the results list');
+  // It ships `hidden`: a full-height warning above the results pushed the cards
+  // off the first screen every single day, since the alert is capped every day.
+  assert.match(HTML, /<div id="abaCapWarn" hidden><\/div>/,
+    'the warning needs a container outside the results list, collapsed by default');
   const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
     HTML.indexOf('function birdcastSeason('));
-  assert.match(render, /abaCapWarn[\s\S]{0,120}abaAlertWarning\(/,
+  assert.match(render, /setAbaWarn\(abaAlertWarning\(/,
     'every repaint must refresh the warning, including the deepening pass');
+  const setWarn = HTML.slice(HTML.indexOf('function setAbaWarn('),
+    HTML.indexOf('function hydrateFinders('));
+  assert.match(setWarn, /\$\('abaCapWarn'\)/, 'and it must write into that container');
+  // The icon's PRESENCE is the signal. An always-visible ⚠ that is sometimes
+  // inert is worse than none, so an empty warning must remove the button.
+  assert.match(setWarn, /if \(!html\)[\s\S]{0,200}removeChild\(btn\)/,
+    'nothing to warn about means no warning icon at all');
+  assert.match(setWarn, /'warnbtn'/, 'the notice collapses behind a ⚠ button');
+  assert.match(setWarn, /aria-expanded/, 'and the button states whether it is open');
 });
 
 // --- Favorite hotspots ------------------------------------------------------
@@ -787,19 +844,19 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 });
 
 // The bird photo is the answer to "what IS that", so the rarity list sizes it to
-// be identified. The name and its badges must stay in ONE flex item, or a long
-// name wraps onto a second flex line and lands UNDER the 92px photo.
+// be identified. The name and its badges must stay in ONE grid cell, or a long
+// name wraps into the sub-header's row and the two rows collide.
 test('Last 7-Days rarity rows size the photo up and keep name+badges together', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(HTML, /\.obs\.xl \.thumb \{[^}]*width:\s*calc\(92px \* var\(--s\)\)/,
+  assert.match(HTML, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
     'the rarity thumbnail is double the 46px default, and scales with the text-size setting');
   const fn = HTML.slice(HTML.indexOf('function loadActiveRarities('));
   const row = fn.slice(0, fn.indexOf('el.appendChild(li)'));
   assert.match(row, /class="ntext"/,
     'the species link and its badges must be wrapped in .ntext so they wrap as one block');
   assert.ok(row.indexOf('photoSlot(') < row.indexOf('class="ntext"'),
-    'the photo is the first flex item, the text block the second');
+    'the photo is the first grid cell, the text block the second');
 });
 
 // The seed exists so an arbitrary region's report is mostly illustrated with no
@@ -1268,13 +1325,16 @@ test('the three species sections use the large icon + title treatment', () => {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
   });
-  assert.match(HTML, /\.obs\.big \.thumb\s*\{[^}]*width: calc\(64px \* var\(--s\)\)/,
+  assert.match(HTML, /\.obs\.big \.thumb \{[^}]*width: calc\(64px \* var\(--s\)\)/,
     'the icon is actually bigger, not just a class name');
-  // Today's rarities went further than .big: it is the card treatment now, so
-  // the invariant is that it never falls BACK to a plain row.
+  // Today's rarities is a LIST of today's rare-bird checklists — one row per
+  // report — so it uses the medium card, not the large one. The large card is
+  // for reading about ONE bird; using it here made 13 checklists into 13 full
+  // screens of stats and forced the reader to scroll past evidence they did not
+  // ask for to find the next report.
   const rare = /<ul id="results"[^>]*class="([^"]*)"/.exec(HTML);
-  assert.ok(rare && /\bcards\b/.test(rare[1]),
-    "today's rarities render as baseball cards");
+  assert.ok(rare && /\bxl\b/.test(rare[1]),
+    "today's rarities render as medium cards, one per checklist");
 });
 
 test('latest ticks: the bird links to its species page and shows fresh lists', () => {
@@ -1296,10 +1356,13 @@ test("today's rarities show the time of the latest report, not just the date", (
 });
 
 test('closest spots: rows carry the distance in miles, closest first', () => {
-  const render = HTML.slice(HTML.indexOf('function renderList('),
+  const render = HTML.slice(HTML.indexOf('function groupTargetsByPlace('),
     HTML.indexOf('// --- eBird API'));
-  assert.match(render, /o\.distMi[\s\S]*toFixed\(1\) \+ ' mi/,
+  assert.ok(render.length > 0, 'the closest-spots renderer must exist');
+  assert.match(render, /distMi[\s\S]*toFixed\(1\) \+ ' mi/,
     'the report prints miles on every row of this section');
+  assert.match(render, /a\.distMi == null \? Infinity/,
+    'places are ranked by their NEAREST target, closest first');
   const build = HTML.slice(HTML.indexOf('function buildClosestSpots('),
     HTML.indexOf('function loadTargets('));
   assert.match(build, /distMi:/, 'and the builder carries the distance through');
@@ -1804,8 +1867,12 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
 test('the watchlist tells "never edited" apart from "emptied"', async () => {
   const fresh = await boot();
   const seeded = arr(fresh.window.__app.getWatchlist(), (e) => e.code);
+  const authored = arr(fresh.window.__SEED_BIRDLIST__.watchlist, (e) => e.code);
   assert.ok(seeded.length > 0, 'a fresh install starts from the authored list');
-  assert.ok(seeded.includes('amedip'),
+  // Named species make this guard fail the day one is verified and removed,
+  // which says nothing about the code. The invariant is that an unedited
+  // install shows EXACTLY birdlist-needsverification.md, whatever is on it.
+  assert.deepEqual(seeded, authored,
     'the bundled seed carries birdlist-needsverification.md');
   fresh.window.close();
 
@@ -1828,26 +1895,29 @@ test('editing the watchlist moves species in and out of the seen set', async () 
   const app = await boot();
   const A = app.window.__app;
   const held = app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld;
-  assert.ok(held.includes('amedip'), 'fixture assumption: WA really holds amedip back');
+  // Two codes THIS report actually held back, read from the seed rather than
+  // named here: the authored list is user data and a verified bird leaves it.
+  assert.ok(held.length >= 2, 'fixture assumption: WA really holds watchlist codes back');
+  const tracked = held[0], other = held[1];
 
-  assert.equal(A.getReportSeen().amedip, undefined,
+  assert.equal(A.getReportSeen()[tracked], undefined,
     'a tracked species is deliberately NOT seen — that is what makes it resurface');
 
   A.setWatchlist([]);
-  assert.equal(A.getReportSeen().amedip, 1,
+  assert.equal(A.getReportSeen()[tracked], 1,
     'dropping it restores the tick the report was holding back');
 
-  A.setWatchlist([{ code: 'amedip', name: 'American Dipper' }]);
-  assert.equal(A.getReportSeen().amedip, undefined, 'and re-tracking holds it off again');
+  A.setWatchlist([{ code: tracked, name: 'Tracked Bird' }]);
+  assert.equal(A.getReportSeen()[tracked], undefined, 'and re-tracking holds it off again');
 
   // The guard that matters: a bird you never recorded must not become a tick
   // just because you stopped tracking it. Only codes this report ACTUALLY held
   // back are eligible to come back.
   A.setWatchlist([]);
-  app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld = ['amedip'];
+  app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld = [tracked];
   const seen = A.getReportSeen();
-  assert.equal(seen.amedip, 1, 'a species this report held back returns when untracked');
-  assert.equal(seen.amepip, undefined,
+  assert.equal(seen[tracked], 1, 'a species this report held back returns when untracked');
+  assert.equal(seen[other], undefined,
     'a species it never held back must NOT be invented as a year tick');
 
   A.setWatchlist([{ code: 'zzznope', name: 'Imaginary Bird' }]);
@@ -2175,21 +2245,45 @@ test('Happening now titles all three lanes so the last is not a footnote', async
   assert.match(box, /species-blind/, 'the hotspot lane explains why it is notable');
 });
 
-test('every bird row uses one template: photo left, name, then details', async () => {
+// The MEDIUM card is a 2x2 table, and that is the whole point of it. The float
+// it replaced made the sub-header's position depend on how many lines the title
+// took: a short name let .meta ride UP beside the photo, a long one pushed it
+// below, so no two rows in a list ever lined up. That is the "wrapping odd" that
+// was reported four separate times against four different sections.
+//
+//   col 1  the photo, spanning BOTH rows
+//   col 2  row 1 = header (what this is) · row 2 = sub-header (what you decide on)
+//   anything after those two cells starts a new FULL-WIDTH row underneath
+test('the medium card is a real 2x2 grid, not a float', async () => {
   const app = await boot();
-  const css = HTML.slice(HTML.indexOf('.obs.xl li, .obs.card-md li {'), HTML.indexOf('.lanesub {'));
-  // As a flex ITEM of the name row the photo pinned the details underneath it
-  // and left the name fighting the headline number for width, which wrapped
-  // "Terek Sandpiper" onto three lines. Floating it is what makes the name and
-  // the details share the right column.
-  assert.match(css, /\.obs\.xl \.name, \.obs\.card-md \.name \{ display: block/, 'the name row is not a flex box');
-  assert.match(css, /\.obs\.xl \.thumb, \.obs\.card-md \.thumb \{ float: left/, 'so the photo owns the left column');
-  assert.match(css, /\.obs\.xl \.count\.big, \.obs\.card-md \.count\.big \{ float: none/, 'the number stops stealing 42% of the row');
+  const css = HTML.slice(HTML.indexOf('.obs.xl > li, .obs.card-md > li {'),
+    HTML.indexOf('.stopnum {'));
+  assert.match(css, /display: grid;/, 'the row is a grid');
+  assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\)/,
+    'photo column sized to the photo, text column takes the rest and may shrink');
+  // display:contents is load-bearing: .thumb and .ntext are nested INSIDE .name
+  // in the markup, so .name's own box has to disappear for them to become cells
+  // of the row grid. Inherited typography still passes through it.
+  assert.match(css, /> \.name, \.obs\.card-md > li > \.name \{ display: contents/,
+    '.name must dissolve so its children can be grid cells');
+  assert.match(css, /> \.thumb[^}]*grid-row: 1 \/ span 2/, 'the photo spans both rows');
+  assert.match(css, /> \.ntext[^}]*grid-column: 2; grid-row: 1/, 'the header is row 1');
+  assert.match(css, /> \.meta, \.obs\.card-md > li > \.meta \{[\s\S]{0,60}grid-row: 2/,
+    'the sub-header is row 2, always, whatever the title did');
+  assert.match(css, /> li > \*, \.obs\.card-md > li > \* \{ grid-column: 1 \/ -1/,
+    'everything else spans the full width on its own row');
+  // A medium card CONTAINS a small-card species list (a hotspot's unseen birds).
+  // A descendant selector would hand those nested rows display:contents and the
+  // 26px title, which is exactly how the two templates would silently merge.
+  const scoped = css.match(/\.obs\.(xl|card-md) [.a-z]/g);
+  assert.equal(scoped, null,
+    'every medium-card rule must be child-scoped (>) or it leaks into nested small cards');
   const d = app.window.document;
-  for (const id of ['activeResults', 'lastNewResults']) {
+  for (const id of ['activeResults', 'lastNewResults', 'results']) {
     assert.ok(d.getElementById(id).className.includes('xl'),
       id + ' shares the template rather than styling itself');
   }
+  app.window.close();
 });
 
 test('Latest ticks answers how far away the bird is', async () => {
@@ -2237,7 +2331,7 @@ test('there are exactly three card templates and each one is really used', () =>
   // The templates are a system, not three coincidences. Defining a shape in one
   // place is only worth doing if the sections opt IN to it rather than
   // re-tuning a fourth variant of the same row.
-  for (const cls of ['.obs.card-sm .name', '.obs.card-md .name', '.card-lg > li']) {
+  for (const cls of ['.obs.card-sm .name', '.obs.card-md > li > .name', '.card-lg > li']) {
     assert.ok(HTML.includes(cls), cls + ' is defined');
   }
   // SMALL is one row: the text box matches the icon height so a long list
@@ -2251,7 +2345,127 @@ test('there are exactly three card templates and each one is really used', () =>
   assert.ok(HTML.indexOf('.bcname') < HTML.indexOf('.bcsub'), 'name row precedes the sub-header row');
   assert.ok(HTML.includes('class="obs card-sm favspp"'), 'favorites use the small template');
   assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
-  assert.ok(HTML.includes('class="cards"'), 'the ABA section uses the large template');
+  // The ABA list takes its class at render time, because the same <ul> holds a
+  // grouped card grid or a flat observation list depending on the region.
+  assert.match(HTML, /grouped \? 'cards' : 'obs'/,
+    'the ABA section uses the large template when it groups by species');
+});
+
+// The shared card is fed by five different record shapes. A missing slot must be
+// OMITTED, not rendered — "score 42 · undefined rarities · 2 targets" is what a
+// template that trusts every caller produces the first time one of them changes.
+test('the hotspot card omits facts it was not given', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const li = A.hotspotCard({
+    n: 3, locId: 'L1', locName: 'Marina Beach Park', lat: 47.8, lng: -122.39,
+    facts: ['12.0 mi', null, '', undefined + ' rarities', 'score ' + NaN, '2 targets'],
+    species: [{ code: 'tufpuf', comName: 'Tufted Puffin', rare: 1 }],
+  });
+  const meta = li.querySelector('.meta').textContent;
+  assert.equal(meta, '12.0 mi · 2 targets', 'unknown facts vanish rather than printing junk');
+  assert.equal(li.querySelector('.thumb.stopnum').textContent, '3', 'the stop number is the icon');
+  assert.match(li.querySelector('.ntext').textContent, /Marina Beach Park/, 'name is the header');
+  // Tier 1 of the icon pipeline is the bundled seed, which is keyed by species
+  // CODE. A species list carrying only names silently downgrades every row to a
+  // network lookup and loses the /species/{code} link with it.
+  assert.match(li.innerHTML, /tufpuf/, 'nested species rows carry the code, not just the name');
+  app.window.close();
+});
+
+// Measured: toRenderDest dropped the code, so every Top destinations / Top
+// excursions species row fell through to a Wikipedia lookup even though the bird
+// was already in the bundled seed.
+test('destination clusters carry the species code into the render shape', () => {
+  const logic = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+  const fn = logic.slice(logic.indexOf('function toRenderDest('),
+    logic.indexOf('function dedupeObs('));
+  assert.match(fn, /code: s\.code/,
+    'the code buys the offline icon, the species link and taxonomy-aware seen resolution');
+});
+
+// The five sections that answer "where do I go, and what is there" — Top
+// destinations, Top excursions, Closest spots, Quick outing, Trip planner — are
+// ONE template with fixed slots. They used to be five hand-rolled row builders,
+// and they drifted every time one was touched: the trip planner had silently
+// lost its photo hydration entirely, which is why its species icons rendered as
+// blank grey squares while the structurally identical Top destinations was fine.
+// Standardising is only worth anything if the sections cannot opt back out.
+test('every hotspot list is built by the one shared card', () => {
+  const fns = {
+    'Top destinations / excursions': ['function renderDestinations(', 'function renderRoute('],
+    'the trip planner': ['function renderRoute(', 'function loadTripPlanner('],
+    'closest spots': ['function renderTargetPlaces(', 'function refresh()'],
+    'quick outing': ['function loadQuickOuting(', 'function parseCSV('],
+  };
+  for (const [name, [from, to]] of Object.entries(fns)) {
+    const i = HTML.indexOf(from), j = HTML.indexOf(to);
+    assert.ok(i > -1, name + ': ' + from + ' must exist');
+    assert.ok(j > i, name + ': ' + to + ' must follow it');
+    const src = HTML.slice(i, j);
+    assert.match(src, /hotspotCard\(\{/, name + ' must build its rows with hotspotCard');
+    assert.doesNotMatch(src, /<div class="name">/,
+      name + ' must not hand-roll a row — that is how the five drifted apart');
+  }
+  // The shared card is what makes the standardisation real: one place to fix.
+  const card = HTML.slice(HTML.indexOf('function hotspotCard('),
+    HTML.indexOf('function renderDestinations('));
+  assert.match(card, /class="thumb stopnum"/, 'the rank/stop number occupies the photo slot');
+  assert.match(card, /class="ntext"/, 'the hotspot name is the header cell');
+  assert.match(card, /class="meta"/, 'distance/score/targets are the sub-header');
+  assert.match(card, /speciesListHtml\(/, 'the birds are listed under the card');
+  assert.match(card, /class="hsact"/, 'and the actions come last, on their own line');
+  // All five lists must actually opt into the medium template.
+  for (const id of ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults']) {
+    const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
+    assert.ok(m && /\bxl\b/.test(m[1]), id + ' renders as a medium card list');
+  }
+});
+
+// This is the bug the shared card exists to prevent, pinned directly: the trip
+// planner appended rows carrying photoSlot() placeholders and never asked for
+// them to be filled, so every species icon stayed a grey box. Nothing about the
+// markup was wrong — the hydration CALL was simply missing, which no markup
+// assertion could ever see.
+test('a section that renders photo slots must also hydrate them', () => {
+  for (const [name, from, to] of [
+    ['the trip planner', 'function renderRoute(', 'function loadTripPlanner('],
+    ['top destinations', 'function renderDestinations(', 'function renderRoute('],
+    ['closest spots', 'function renderTargetPlaces(', 'function refresh()'],
+    ['latest ticks', 'function renderLastNew(', 'function loadAbaAlert('],
+    ["today's rarities", 'function refresh()', 'function buildClosestSpots('],
+  ]) {
+    const src = HTML.slice(HTML.indexOf(from), HTML.indexOf(to));
+    assert.match(src, /hydratePhotos\(/,
+      name + ' renders photo slots, so it must hydrate them or they stay grey squares');
+  }
+});
+
+// The sub-header is what you decide on, so it must not be a run-on of names.
+test('latest ticks: names are a list sorted newest first, not a run-on', () => {
+  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+    HTML.indexOf('function loadAbaAlert('));
+  assert.doesNotMatch(src, /birders[\s\S]{0,80}\.join\(' · '\)/,
+    'a paragraph of "Name (#4) · Name (#7) · …" is unreadable on a phone');
+  assert.match(src, /b\.date \|\| ''\)\.localeCompare\(String\(a\.date/,
+    'sorted most recent first — yesterday’s tick says more than the highest rank');
+  assert.match(src, /Who added it[\s\S]{0,80}class="cklrows"/,
+    'the birders render as a labelled list');
+  assert.match(src, /recent checklist[\s\S]{0,120}class="cklrows"/,
+    'and the checklists carrying the bird follow as their own list');
+});
+
+// The expander mirrors report._rarity_reports_cell: a section whose rows ARE the
+// rarities cannot be truncated (that drops chase targets), but 40 checklist
+// links per row is what made it the largest section in the report.
+test('Last 7-Days rarities can expand the full checklist list', () => {
+  const src = HTML.slice(HTML.indexOf('function rarityChecklistDetails('),
+    HTML.indexOf('function loadQuickOuting('));
+  assert.match(src, /<details class="ckall">/, 'the full list is behind an expander');
+  assert.match(src, /<summary/, 'with a summary that states the total');
+  // A <details> holding one row is a control that does nothing.
+  assert.match(src, /< 2|<= 1|length < 2/,
+    'a single checklist needs no expander — that is a control that does nothing');
 });
 
 // Wikipedia REST stub: "Ruff" is a disambiguation page (the real behaviour that
@@ -2355,7 +2569,7 @@ test('the small species list uses the shared card template, not its own copy', (
 // inherit `.obs .name`, so they get the same weight and colour as every other
 // species name in the app.
 test('small species rows render their name through .name, not a bare span', () => {
-  for (const marker of ['destSpeciesHtml', 'hotspotBirdList']) {
+  for (const marker of ['speciesListHtml', 'hotspotBirdList']) {
     const i = HTML.indexOf('function ' + marker + '(');
     assert.ok(i > -1, `${marker} must exist`);
     const body = HTML.slice(i, HTML.indexOf('</ul>', i));
