@@ -180,6 +180,19 @@
               border-radius: 999px; border: 1px solid var(--line);
               background: var(--bg); color: var(--muted); }
     .docbtn[aria-expanded=true] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    /* The truncation notice is important but it is CONTEXT, not content: it says
+       how to read the list, and it says the same thing every day. At full length
+       it pushed the birds themselves below the fold, which inverts the section —
+       a caveat that costs you the thing it is a caveat about. Collapsed to a
+       peer of the ℹ button it stays one tap away and always visible as a signal.
+       Amber rather than accent so it reads as a warning at a glance. */
+    .warnbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
+               min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));
+               padding: 0; margin-left: 6px; vertical-align: middle;
+               border-radius: 999px; border: 1px solid #d97706;
+               background: color-mix(in srgb, #d97706 14%, transparent); color: #b45309; }
+    .warnbtn[aria-expanded=true] { background: #d97706; color: #fff; border-color: transparent; }
+    #abaCapWarn[hidden] { display: none; }
     .sectiondoc { border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
                   padding: 12px 14px; margin: 10px 0 14px; }
     .sectiondoc[hidden] { display: none; }
@@ -258,14 +271,22 @@
        is the one thing the name must not do — it is the row's subject. At 22px
        a two-word species name fits the remaining column on a phone, and the
        detail line below it reads as a sub-header rather than a second title. */
-    .obs.xl .name { font-size: calc(22px * var(--s)); gap: 14px; }
-    .obs.xl .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }
-    .obs.xl .ntext { min-width: 0; overflow-wrap: anywhere; }
-    .obs.xl .meta { font-size: calc(16px * var(--s)); }
-    .obs.xl .count { font-size: calc(21px * var(--s)); font-weight: 800; color: var(--ink); }
-    .obs.xl .cklrows { font-size: calc(17px * var(--s)); }
-    .obs.xl .cklrows .who { font-size: calc(16px * var(--s)); }
-    .obs.xl .name .needflag, .obs.xl .name .stakeflag, .obs.xl .name .seenflag { font-size: calc(15px * var(--s)); }
+    /* Child combinators throughout: a medium card can CONTAIN a small-card
+       species list (the trip planner's unseen birds), and a descendant
+       selector would restyle those nested rows as titles. */
+    .obs.xl > li > .name { font-size: calc(26px * var(--s)); gap: 14px; }
+    .obs.xl > li > .name > .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }
+    /* break-word, NOT anywhere: `anywhere` breaks inside a word the moment the
+       line is tight, which is what split "Sandpiper" across two lines. A
+       species name should wrap between its words or not at all. */
+    .obs.xl > li > .name > .ntext { min-width: 0; overflow-wrap: break-word; word-break: normal;
+                     hyphens: none; line-height: 1.15; }
+    .obs.xl > li > .meta { font-size: calc(16px * var(--s)); }
+    .obs.xl > li > .count { font-size: calc(21px * var(--s)); font-weight: 800; color: var(--ink); }
+    .obs.xl > li > .cklrows { font-size: calc(17px * var(--s)); }
+    .obs.xl > li > .cklrows .who { font-size: calc(16px * var(--s)); }
+    .obs.xl > li > .name .needflag, .obs.xl > li > .name .stakeflag,
+    .obs.xl > li > .name .seenflag { font-size: calc(15px * var(--s)); }
     /* LARGE (.cards / .card-lg) — the third of the three card templates: a
        full-bleed photo, then the name, then the sub-header, then the evidence.
        A rarity section holds 0-3 birds and each one is a bird you have probably
@@ -288,6 +309,15 @@
        silhouette is the one exception: it is not a photo OF this bird, so
        cropping it to fill would be dishonest as well as ugly. */
     .bchero .birdpic.isfallback { object-fit: contain; background: #eceff3; padding: 18px; box-sizing: border-box; }
+    /* The bundled seed is 60px wide — a list icon. Stretched across a full-bleed
+       card that is a ~6x upscale, which is exactly the "blurry photo" the hero
+       path exists to avoid, and it looks like a bad photo rather than a missing
+       one. Render it at its natural size instead: never upscaled, centred on the
+       mat, honestly small. A card that says "we only have a thumbnail" is more
+       useful than one that shows a smear. */
+    .bchero .birdpic.isseed { width: auto; height: auto; max-width: 100%; max-height: 100%;
+      margin: auto; object-fit: none; image-rendering: auto; }
+    .bchero:has(.isseed) { display: flex; align-items: center; justify-content: center; }
     .bchero.nopic { display: none; }
     .bcbody { padding: 14px 16px 16px; }
     .bcname { font-size: calc(30px * var(--s)); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
@@ -303,6 +333,14 @@
     /* Attribution is context, not a decision — sized below the latest report so
        the line you act on still wins the card. */
     .bcfirst { background: transparent; font-size: calc(15px * var(--s)); }
+    /* The caveat belongs ON the claim, not in a footnote — "Found by" is the one
+       line a reader is likely to repeat to someone else, so its uncertainty has
+       to travel with it. */
+    .bcguess { display: block; margin-top: 4px; font-size: calc(12px * var(--s));
+               font-weight: 500; line-height: 1.4; color: var(--muted); }
+    /* An empty name slot collapses so the row never renders a stray separator
+       while the checklist lookup is in flight. */
+    .fbwho:empty { display: none; }
     /* No prior state record is not a smaller number — it is a different kind of
        event, so it does not render as one more grey line. */
     .bchist { background: transparent; font-size: calc(16px * var(--s)); }
@@ -360,6 +398,12 @@
        not push the next hotspot off the screen. */
     .spx { margin-top: 8px; font-size: calc(14px * var(--s)); }
     .spx summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+    /* Every report behind the counts, folded away. A rarity with forty reports
+       would otherwise bury the next bird, but the full list is exactly what you
+       want when you are deciding whether a bird is still there. */
+    .ckall { margin-top: 10px; }
+    .ckall summary { cursor: pointer; font-weight: 700; color: var(--accent);
+                     font-size: calc(15px * var(--s)); padding: 4px 0; }
     /* `.sppl` is a LONG species list nested inside another row (a hotspot's
        birds, a convoy stop's birds). It used to hand-roll its own flex row and
        34px thumb, which was .card-sm at a second, slightly different size —
@@ -419,20 +463,55 @@
        inside, so the template's one-row height is preserved. */
     .obs.card-sm .ntext .sub { display: block; font-size: calc(13px * var(--s));
                           font-weight: 500; color: var(--muted); margin-top: 1px; line-height: 1.3; }
-    /* MEDIUM. The photo FLOATS rather than being a flex item of the name row:
-       as a flex item it pinned the details underneath the image and left the
-       name fighting the headline number for horizontal space, which is what
-       wrapped "Terek Sandpiper" onto three lines and stranded a two-line
-       detail run below a tall photo. */
-    .obs.xl li, .obs.card-md li { overflow: hidden; }
-    .obs.xl .name, .obs.card-md .name { display: block; }
-    .obs.xl .thumb, .obs.card-md .thumb { float: left; margin: 2px 14px 8px 0; }
-    /* The headline number moves onto its own line under the name for the same
-       reason: at 42% of the row it took more width than the thing it annotates. */
-    .obs.xl .count.big, .obs.card-md .count.big { float: none; display: block;
+    /* MEDIUM — a real two-column table, not a float.
+         col 1  the photo, spanning BOTH rows
+         col 2  row 1 = the header (what bird this is)
+                row 2 = the sub-header (what you need to decide)
+       Everything the row carries after those two cells is ADDITIONAL
+       INFORMATION and starts a new full-width row underneath.
+       The float this replaces made the sub-header slide up beside the photo
+       on a short name and drop below it on a long one, so no two rows in a
+       list ever lined up — the "wrapping odd" that kept being reported. */
+    /* Every selector here is CHILD-scoped: a medium card can CONTAIN a small
+       card list (a hotspot's unseen birds), and a descendant selector would
+       hand those nested rows the outer row's grid and turn their .name into
+       display:contents. */
+    .obs.xl > li, .obs.card-md > li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-rows: auto auto;
+      align-items: center;
+      overflow: hidden;
+    }
+    /* display:contents lifts the photo and the title OUT of .name so each can
+       be a cell of the row grid, while .name still supplies their typography —
+       inherited properties pass through a contents box even though its own
+       box is gone. */
+    .obs.xl > li > .name, .obs.card-md > li > .name { display: contents; }
+    /* The gutter is the photo's margin rather than the grid's column-gap so a
+       row whose photo failed to resolve (.thumb.nopic is display:none) closes
+       up completely instead of keeping an empty 14px indent. */
+    .obs.xl > li > .name > .thumb, .obs.card-md > li > .name > .thumb {
+      float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+    .obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {
+      grid-column: 2; grid-row: 1; align-self: end; }
+    .obs.xl > li > .meta, .obs.card-md > li > .meta {
+      grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }
+    .obs.xl > li > *, .obs.card-md > li > * { grid-column: 1 / -1; min-width: 0; }
+    .obs.xl > li > .count.big, .obs.card-md > li > .count.big { float: none; display: block;
                          max-width: none; text-align: left; margin: 6px 0 0; }
-    .obs.xl .count.big small, .obs.card-md .count.big small { display: inline; margin-left: 7px; }
-    .obs.xl .meta, .obs.card-md .meta { margin-top: 4px; }
+    .obs.xl > li > .count.big small, .obs.card-md > li > .count.big small { display: inline; margin-left: 7px; }
+    /* The numbered badge that stands in for a photo when the row is a PLACE.
+       Same 92px box as the bird photo it replaces, so a hotspot list and a bird
+       list are visibly the same template rather than two lookalikes. */
+    .stopnum { display: flex; align-items: center; justify-content: center;
+               font-size: calc(38px * var(--s)); font-weight: 800; line-height: 1;
+               color: var(--accent); font-variant-numeric: tabular-nums;
+               background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    /* Actions are the last thing in the row and read as a pair, not as two
+       more facts, so they get their own line with breathing room above. */
+    .hsact { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
+    .hsact .maplink, .hsact .favlink { margin-top: 0; }
     /* A labelled break inside a row — "Where it is being reported" vs "Who
        added it" — so two adjacent tables are not read as one. */
     .lanesub { margin-top: 12px; font-size: calc(14px * var(--s)); font-weight: 800;
@@ -576,7 +655,7 @@
         <button id="settingsToggle" class="secondary">Settings</button>
       </div>
       <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
-      <ul id="results" class="cards"></ul>
+      <ul id="results" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -586,7 +665,7 @@
       </div>
       <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
       <div id="closeMap"></div>
-      <ul id="targetResults" class="obs big"></ul>
+      <ul id="targetResults" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -605,7 +684,7 @@
       </div>
       <div id="destStatus" class="status">Hotspots with the most species you still need, ranked by score (rarities ×3).</div>
       <div id="destMap"></div>
-      <ul id="destResults" class="obs dest"></ul>
+      <ul id="destResults" class="obs big xl dest"></ul>
     </section>
 
     <section class="panel">
@@ -615,7 +694,7 @@
       </div>
       <div id="excStatus" class="status">Target-rich hotspots beyond a day-trip radius (needs Home set).</div>
       <div id="excMap"></div>
-      <ul id="excResults" class="obs dest"></ul>
+      <ul id="excResults" class="obs big xl dest"></ul>
     </section>
 
     <section class="panel">
@@ -626,7 +705,7 @@
       <div id="tripStatus" class="status">A nearest-neighbour route through your best nearby target hotspots.</div>
       <div id="tripMap"></div>
       <div id="tripRouteLink" class="hint"></div>
-      <ul id="tripResults" class="obs dest route"></ul>
+      <ul id="tripResults" class="obs big xl dest route"></ul>
     </section>
 
     <section class="panel">
@@ -653,7 +732,7 @@
       </div>
       <div id="quickStatus" class="status">The richest eBird hotspots within ~20 mi of Home (needs Home set).</div>
       <div id="quickMap"></div>
-      <ul id="quickResults" class="obs dest"></ul>
+      <ul id="quickResults" class="obs big xl dest"></ul>
     </section>
 
     <section class="panel">
@@ -749,7 +828,7 @@
         <button id="abaBtn">Load ABA alert</button>
       </div>
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
-      <div id="abaCapWarn"></div>
+      <div id="abaCapWarn" hidden></div>
       <ul id="abaResults" class="obs"></ul>
     </section>
 
@@ -929,7 +1008,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.27';
+      var APP_VERSION = '1.0.28';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1159,25 +1238,58 @@
       // One observation row, carrying the same links the Markdown report puts on
       // every row: species page, location (hotspot page + map, or map only for a
       // personal location), the checklist, and the 🔍 not-on-year-list tag.
-      function renderList(el, obs) {
+      // Closest spots is a list of PLACES with birds — the same shape as Top
+      // destinations, Excursions, Quick outing and the Trip planner — so it
+      // groups its per-species targets by location instead of printing the
+      // same spot once per bird. Same content, one row per place.
+      function groupTargetsByPlace(targets) {
+        var byLoc = {}, order = [];
+        (targets || []).forEach(function (t) {
+          var id = t.locId || (t.lat + ',' + t.lng);
+          if (!byLoc[id]) {
+            byLoc[id] = {
+              locId: t.locId, locName: t.locName, lat: t.lat, lng: t.lng,
+              locationPrivate: t.locationPrivate, anchor: t.anchor,
+              distMi: t.distMi, latest: '', species: []
+            };
+            order.push(id);
+          }
+          var g = byLoc[id];
+          // The place is as close as its NEAREST target and as fresh as its
+          // newest one; picking whichever species happened to sort first would
+          // mis-rank a spot that also holds something nearer or newer.
+          if (t.distMi != null && (g.distMi == null || t.distMi < g.distMi)) g.distMi = t.distMi;
+          if (String(t.obsDt || '') > String(g.latest || '')) g.latest = t.obsDt;
+          var who = t.userDisplayName ? ' · ' + esc(t.userDisplayName) : '';
+          g.species.push({
+            comName: t.comName, code: t.speciesCode, rare: false,
+            sub: esc(fmtDate(t.obsDt)) + who
+              + (t.howMany != null ? ' · ×' + esc(t.howMany) : '')
+              + (t.subId ? ' · ' + checklistLink(t.subId, t.subId) : '')
+          });
+        });
+        var out = order.map(function (id) { return byLoc[id]; });
+        out.sort(function (a, b) {
+          var da = a.distMi == null ? Infinity : a.distMi;
+          var db = b.distMi == null ? Infinity : b.distMi;
+          if (da !== db) return da - db;
+          return String(a.locName).localeCompare(String(b.locName));
+        });
+        return out;
+      }
+      function renderTargetPlaces(el, places) {
         el.innerHTML = '';
-        obs.forEach(function (o) {
-          var li = document.createElement('li');
-          // Distance leads when we have it: this section is "closest spots",
-          // and a flock size you can't reach is not the deciding number.
-          var count = (o.distMi != null && isFinite(o.distMi))
-            ? '<span class="count">' + o.distMi.toFixed(1) + ' mi</span>'
-            : ((o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '');
-          var who = o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '';
-          li.innerHTML = count +
-            '<div class="name">' + photoSlot(o.comName, o.speciesCode) +
-            speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + '</div>' +
-            '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, o.locId, o.locationPrivate) +
-            (o.anchor ? anchorNote(o.anchor) : '') +
-            ' · ' + esc(fmtDate(o.obsDt)) + who +
-            (o.howMany != null && o.distMi != null ? ' · ×' + esc(o.howMany) : '') +
-            (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
-          el.appendChild(li);
+        places.forEach(function (p, i) {
+          el.appendChild(hotspotCard({
+            n: i + 1, locId: p.locId, locName: p.locName, lat: p.lat, lng: p.lng,
+            facts: [
+              p.distMi != null && isFinite(p.distMi) ? p.distMi.toFixed(1) + ' mi' : '',
+              p.anchor ? anchorNote(p.anchor).trim() : '',
+              p.species.length + ' unseen bird' + (p.species.length === 1 ? '' : 's'),
+              p.latest ? 'latest ' + esc(fmtDate(p.latest)) : ''
+            ],
+            species: p.species
+          }));
         });
         hydratePhotos(el);
       }
@@ -1764,32 +1876,32 @@
           st.textContent = rows.length + ' rarity report' + (rows.length === 1 ? '' : 's') +
             ' so far today · newest first · updated ' + nowTime();
           var days = stakeoutDays(c.cv.merged || []);
-          // Cards, not rows: today's rarities are the same kind of bird as the
-          // ABA section — usually two or three, usually unfamiliar — so the
-          // section answers "what is it and how big a deal is it" first.
-          var bySpp = {};
-          (c.cv.merged || []).forEach(function (r) {
-            if (r.code) (bySpp[r.code] = bySpp[r.code] || []).push(r);
-          });
+          // Medium cards, not full bird cards: this section is the DAY'S LIST of
+          // rare-bird reports — one row per checklist — so it carries exactly
+          // the columns the markdown table does (species, closest, observer,
+          // latest) and stops there. How rare each species is across the whole
+          // snapshot is what Last 7-Days rarity reports answers.
           rows.forEach(function (r) {
+            var li = document.createElement('li');
             var flock = (r.count != null && r.count !== '') ? ' <span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
             var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
-            var who = r.observer ? ' · ' + esc(r.observer) : '';
-            var d = (r.distMi != null && r.distMi !== Infinity) ? r.distMi.toFixed(1) + ' mi away' : '';
-            out.appendChild(birdCard({
-              code: r.code, name: r.name,
-              badges: needTag(r.code, r.name) + flock + stake + warn,
-              sub: d,
-              stats: rarityStats(bySpp[r.code] || [r], 'reports nearby'),
-              where: '<span class="lbl">Latest report</span><div class="meta">' +
-                recLocLink(r) + ' · ' + esc(fmtDateTime(r.dateStr)) + who +
-                (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>'
-            }));
+            var d = (r.distMi != null && r.distMi !== Infinity) ? r.distMi.toFixed(1) + ' mi' : '';
+            li.innerHTML =
+              '<div class="name">' + photoSlot(r.name, r.code) + '<span class="ntext">' +
+              speciesLink(r.name, r.code) + '</span></div>' +
+              '<div class="meta">' + (d ? d + ' · ' : '') + recLocLink(r) +
+              needTag(r.code, r.name) + flock + stake + warn + '</div>' +
+              '<ul class="cklrows"><li>' +
+              '<span class="when">' + esc(fmtDateTime(r.dateStr)) + '</span>' +
+              '<span class="howmany"></span>' +
+              '<span class="where">' + (r.observer ? esc(r.observer) : '') +
+              (r.subId ? (r.observer ? ' · ' : '') + checklistLink(r.subId, r.subId) : '') +
+              '</span></li></ul>';
+            out.appendChild(li);
           });
           hydratePhotos(out);
-          hydrateCards(out);
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
@@ -1854,8 +1966,11 @@
           var targets = buildClosestSpots(c.cv, getAnchors());
           if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
           var shown = targets.slice(0, 100);
+          var places = groupTargetsByPlace(shown);
           st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
-            (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') + ' · updated ' + nowTime();
+            (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') +
+            ' at ' + places.length + ' spot' + (places.length === 1 ? '' : 's') +
+            ' · updated ' + nowTime();
           // The report maps this section, so the app must too. Rows are one per
           // species but several can share a spot, so pin the distinct locations.
           var atLoc = {}, pts = [];
@@ -1867,7 +1982,7 @@
             pts.push({ lat: la, lng: ln, locName: t.locName });
           });
           renderMap($('closeMap'), pts.slice(0, 25), getHome(), false);
-          renderList(out, shown);
+          renderTargetPlaces(out, places);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -2452,12 +2567,39 @@
           });
         }, Promise.resolve(null));
       }
+      // Wikimedia serves a FIXED LADDER of thumbnail widths and returns HTTP 400
+      // for anything else — it is a whitelist, not a resizer. MEASURED by HEAD
+      // against three files with different originals (1200px, 2280px, 3849px):
+      // all three answered 200 on exactly these widths and 400 on every other
+      // width tried (220, 300, 320, 400, 440, 512, 600, 640, 660, 700, 768, 800,
+      // 1000, 1024, 1100, 1200, 1500, 2000, 2560). The ladder does not depend on
+      // the original size — 1280 and 1920 are served even for the 1200px file.
+      //
+      // This is why card photos were blurry for so long. HERO_PX was 1024, which
+      // is NOT on the ladder, so every hero request 400'd, the <img> error
+      // handler fired, and the card fell back to the 60px bundled seed stretched
+      // across a full-width frame. The photo "worked" — it filled the panel and
+      // showed the right bird — so it read as a bad photo rather than a failed
+      // request, and raising the constant (640 -> 1024) moved it from one
+      // off-ladder value to another and changed nothing.
+      var WIKI_THUMB_LADDER = [250, 330, 500, 960, 1280, 1920];
+      // Snap UP to the next real rung. Taking an arbitrary number and asking for
+      // it is what broke: any future tweak of HERO_PX now lands on a width that
+      // exists instead of silently 400ing.
+      function ladderWidth(px) {
+        for (var i = 0; i < WIKI_THUMB_LADDER.length; i++) {
+          if (WIKI_THUMB_LADDER[i] >= px) return WIKI_THUMB_LADDER[i];
+        }
+        return WIKI_THUMB_LADDER[WIKI_THUMB_LADDER.length - 1];
+      }
       // Wikimedia serves a fixed set of thumbnail widths; the REST summary hands
-      // back a ~320px one, which is a postage stamp across a phone-wide card.
+      // back a ~330px one, which is a postage stamp across a phone-wide card.
       // Rewriting the width segment asks for a rendition that already exists —
       // fetching originalimage instead can mean several megabytes.
       function widenThumb(src, px) {
-        return /\/\d+px-/.test(src || '') ? src.replace(/\/\d+px-/, '/' + px + 'px-') : src;
+        return /\/\d+px-/.test(src || '')
+          ? src.replace(/\/\d+px-/, '/' + ladderWidth(px) + 'px-')
+          : src;
       }
       var _heroRetried = {};
       // retryMiss re-asks the network for a name whose lookup previously failed,
@@ -2503,10 +2645,11 @@
         return '<span class="thumb hero bchero" data-hero="1" data-bird="' + esc(name || '') + '"' +
           (code ? ' data-code="' + esc(code) + '"' : '') + '></span>';
       }
-      // 640px is a soft upscale on a 3x phone, where a full-bleed card photo is
-      // ~1170 device pixels wide. Wikimedia serves this width from the same
-      // fixed ladder, so asking for it costs a rendition that already exists.
-      var HERO_PX = 1024;
+      // A full-bleed card photo is ~1170 device pixels on a 3x phone. 1280 is the
+      // first ladder rung at or above that, so it covers the widest case without
+      // paying for 1920. The value is snapped through ladderWidth() anyway, so
+      // this cannot go off-ladder again.
+      var HERO_PX = 1280;
       function putImg(el, src, name, onErr, extraClass) {
         var img = document.createElement('img');
         img.className = 'birdpic' + (extraClass ? ' ' + extraClass : '');
@@ -2607,8 +2750,16 @@
           if (blob) { putImg(el, URL.createObjectURL(blob), name); done(true); return; }
           return photoLookup(name, retryMiss).then(function (src) {
             if (!src) { giveUp(); done(cached); return; }
+            // Keep the rendition the API actually handed us. If the widened URL
+            // fails for any reason, a real 330px photo of the right bird beats
+            // the 60px seed by a mile — dropping straight to the seed is what
+            // made a failed request look like a bad photo.
+            var narrow = src;
             if (hero) src = widenThumb(src, HERO_PX);
-            putImg(el, src, name, giveUp);
+            var wideFailed = (hero && src !== narrow)
+              ? function () { putImg(el, narrow, name, giveUp); }
+              : giveUp;
+            putImg(el, src, name, wideFailed);
             // Keep the bytes so the next launch doesn't need the network.
             return fetch(src).then(function (r) { return r.ok ? r.blob() : null; })
               .then(function (b) { if (b) return idbPut(key, b); })
@@ -3189,34 +3340,74 @@
         });
         return d;
       }
-      function destSpeciesHtml(d) {
+      // ── THE HOTSPOT CARD ────────────────────────────────────────────────
+      // Top destinations, Top excursions, Closest spots, Quick outing and the
+      // Trip planner all answer the same two questions — WHERE do I go, and
+      // WHAT is there — so they are one template with fixed slots rather than
+      // five hand-rolled row builders that drifted apart every time one of
+      // them was touched (the trip planner had quietly lost its photo
+      // hydration entirely, which is why its icons were blank grey squares).
+      //
+      //   icon    the rank / stop number, in the photo's slot
+      //   header  the hotspot name
+      //   sub     distance · score · targets — whatever the section knows
+      //   below   the birds worth the drive, then the actions
+      function speciesListHtml(species) {
         // Icons, not a comma run: these rows are read as "which birds are
         // there", and a bare name list is the hardest form to scan.
-        var lis = d.species.slice().sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
+        var lis = (species || []).slice()
+          .sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
           .map(function (x) {
             return '<li><div class="name">' + photoSlot(x.comName, x.code)
               + '<span class="ntext">' + speciesLink(x.comName, x.code)
               + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : '')
+              + (x.sub ? '<span class="sub">' + x.sub + '</span>' : '')
               + '</span></div></li>';
           }).join('');
         return '<ul class="obs card-sm sppl">' + lis + '</ul>';
       }
-      function destNameHtml(d) {
-        return d.locId ? extA(hotspotUrl(d.locId), d.locName) : esc(d.locName);
+      function hotspotCard(o) {
+        var li = document.createElement('li');
+        var name = o.locId ? extA(hotspotUrl(o.locId), o.locName || o.locId)
+                           : esc(o.locName || 'Unnamed spot');
+        // A fact the section does not know is OMITTED, never printed as
+        // "undefined rarities". Five feeds with five record shapes now share this
+        // one template, so the template has to tolerate a missing slot rather
+        // than trust every caller to check first.
+        var facts = (o.facts || []).filter(function (f) {
+          return f != null && f !== '' && String(f).indexOf('undefined') < 0
+            && String(f).indexOf('NaN') < 0;
+        }).join(' · ');
+        var sp = (o.species && o.species.length)
+          ? '<div class="lanesub">' + esc(o.speciesLabel || 'Unseen birds here') + '</div>'
+            + speciesListHtml(o.species)
+          : '';
+        var la = parseFloat(o.lat), ln = parseFloat(o.lng);
+        var acts = (isFinite(la) && isFinite(ln)
+          ? '<a class="maplink" data-q="' + esc(la + ',' + ln) + '">Open in Maps ↗</a>' : '')
+          + favLink({ locId: o.locId, locName: o.locName, lat: o.lat, lng: o.lng });
+        li.innerHTML =
+          '<div class="name"><span class="thumb stopnum" aria-hidden="true">' + esc(String(o.n)) + '</span>'
+          + '<span class="ntext">' + name + '</span></div>'
+          + '<div class="meta">' + facts + '</div>'
+          + sp
+          + '<div class="hsact">' + acts + '</div>';
+        return li;
       }
       function renderDestinations(list, mapEl, listEl) {
         renderMap(mapEl, list, getHome(), false);
         listEl.innerHTML = '';
         list.forEach(function (d, i) {
-          var li = document.createElement('li');
-          var dist = (d.dist != null) ? '<span class="count">' + d.dist.toFixed(1) + ' mi</span>' : '';
-          li.innerHTML = dist +
-            '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + destNameHtml(d) + '</span></div>' +
-            '<div class="meta">score ' + d.score + ' · ' + d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
-            '<div class="sp">' + destSpeciesHtml(d) + '</div>' +
-            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>' +
-            ' &nbsp; ' + favLink(d);
-          listEl.appendChild(li);
+          listEl.appendChild(hotspotCard({
+            n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
+            facts: [
+              d.dist != null ? d.dist.toFixed(1) + ' mi' : '',
+              d.score != null ? 'score ' + d.score : '',
+              d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
+              d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
+            ],
+            species: d.species
+          }));
         });
         hydratePhotos(listEl);
       }
@@ -3314,16 +3505,19 @@
         refreshRouteLink();
         listEl.innerHTML = '';
         plan.stops.forEach(function (d, i) {
-          var li = document.createElement('li');
-          var leg = '<span class="count">' + d.leg.toFixed(1) + ' mi</span>';
-          li.innerHTML = leg +
-            '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + destNameHtml(d) + '</span></div>' +
-            '<div class="meta">score ' + d.score + ' · ' + d.species.length + ' target' + (d.species.length === 1 ? '' : 's') + '</div>' +
-            '<div class="sp">' + destSpeciesHtml(d) + '</div>' +
-            '<a class="maplink" data-q="' + esc(d.lat + ',' + d.lng) + '">Open in Maps ↗</a>' +
-            ' &nbsp; ' + favLink(d);
-          listEl.appendChild(li);
+          listEl.appendChild(hotspotCard({
+            n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
+            facts: [
+              d.leg.toFixed(1) + ' mi leg',
+              'score ' + d.score,
+              d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
+            ],
+            species: d.species
+          }));
         });
+        // This call was simply missing, so every icon in the planner stayed an
+        // empty grey box while the identical rows in Top destinations resolved.
+        hydratePhotos(listEl);
         var roundTrip = home ? plan.total + (plan.stops.length ? haversineMi(plan.stops[plan.stops.length - 1].lat, plan.stops[plan.stops.length - 1].lng, home.lat, home.lng) : 0) : plan.total;
         statusEl.textContent = plan.stops.length + ' stops · ' + roundTrip.toFixed(0) + ' mi' + (home ? ' round trip' : '') + ' est. · updated ' + nowTime();
       }
@@ -3477,7 +3671,10 @@
             reports: Object.keys(subs).length || rs.length,
             observers: Object.keys(obs).length,
             closest: closest.rec, distMi: closest.distMi,
-            first: first, latest: latest
+            first: first, latest: latest,
+            // Every report behind the counts, so the card can expand into the
+            // same full checklist list report._rarity_reports_cell renders.
+            recs: rs
           };
         });
         out.sort(function (a, b) { return String(b.latest).localeCompare(String(a.latest)); });
@@ -3507,18 +3704,23 @@
           st.textContent = rows.length + ' rare species reported recently · most recent first · ' + nowTime();
           rows.forEach(function (r) {
             var li = document.createElement('li');
-            var dist = (r.distMi != null) ? '<span class="count">' + r.distMi.toFixed(1) + ' mi</span>' : '';
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
             var stake = r.stakeDays >= 2
               ? ' <span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = (r.closest && r.closest.valid === false) ? ' ⚠️' : '';
-            li.innerHTML = dist +
+            // The header is the bird and nothing else. Day count, flags and the
+            // drive are what you weigh AFTER you know which bird it is, so they
+            // are the sub-header — and they no longer crowd the title.
+            li.innerHTML =
               '<div class="name">' + photoSlot(r.name, r.code) + '<span class="ntext">' +
-              speciesLink(r.name, r.code) + needTag(r.code, r.name) + stake + warn + '</span></div>' +
-              '<div class="meta">' + r.reports + ' report' + (r.reports === 1 ? '' : 's') +
+              speciesLink(r.name, r.code) + '</span></div>' +
+              '<div class="meta">' +
+              (r.distMi != null ? r.distMi.toFixed(1) + ' mi · ' : '') +
+              staleTag(r.latest) + span +
+              ' · ' + r.reports + ' report' + (r.reports === 1 ? '' : 's') +
               (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : '') +
-              ' · ' + staleTag(r.latest) + span + '</div>' +
+              needTag(r.code, r.name) + stake + warn + '</div>' +
               // Two facts decide the chase — where the nearest bird is and when
               // it was last seen — so each gets a labelled line of its own
               // instead of being run together behind "closest:".
@@ -3528,11 +3730,42 @@
               '<li><span class="when">Latest</span><span class="howmany"></span>' +
               '<span class="where">' + staleTag(r.latest) + esc(fmtDateTime(r.latest)) +
               (r.closest && r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '') +
-              '</span></li></ul>';
+              '</span></li></ul>' +
+              rarityChecklistDetails(r);
             el.appendChild(li);
           });
           hydratePhotos(el);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+      }
+
+      // Mirrors report._rarity_reports_cell: the distinct checklist count as a
+      // summary, expanding to every report newest-first with time, distance,
+      // place, observer and a direct checklist link. The markdown report makes
+      // this a <details> cell; the app uses the same element so "tap the count
+      // to see them all" means the same thing in both.
+      function rarityChecklistDetails(r) {
+        var seen = {}, items = [];
+        (r.recs || []).slice().sort(function (a, b) {
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+        }).forEach(function (x) {
+          var sub = x.subId || ('__nosub__' + items.length);
+          if (seen[sub]) return;
+          seen[sub] = 1;
+          items.push(x);
+        });
+        if (items.length < 2) return '';
+        var rows = items.map(function (x) {
+          var dm = (x.distMi != null && isFinite(x.distMi)) ? x.distMi.toFixed(1) + ' mi' : '';
+          return '<li><span class="when">' + esc(fmtDateTime(x.dateStr)) + '</span>'
+            + '<span class="howmany">' + (x.count != null && x.count !== '' ? '×' + esc(x.count) : dm) + '</span>'
+            + '<span class="where">' + recLocLink(x)
+            + '<span class="who">' + (x.observer ? esc(x.observer) : '')
+            + (x.subId ? (x.observer ? ' · ' : '') + checklistLink(x.subId, x.subId) : '')
+            + '</span></span></li>';
+        }).join('');
+        return '<details class="ckall"><summary>' + items.length + ' checklist'
+          + (items.length === 1 ? '' : 's') + ' — show every report</summary>'
+          + '<ul class="cklrows">' + rows + '</ul></details>';
       }
 
       // Last 7-Days rarity reports for the rare-bird-tracker reports: the public ABA alert,
@@ -3715,14 +3948,14 @@
           var el = $('quickResults'); el.innerHTML = '';
           renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), a, false);
           top.forEach(function (h, i) {
-            var li = document.createElement('li');
-            var dist = (h.dist != null) ? '<span class="count">' + h.dist.toFixed(1) + ' mi</span>' : '';
-            li.innerHTML = dist +
-              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + (h.locId ? extA(hotspotUrl(h.locId), h.locName) : esc(h.locName)) + '</span></div>' +
-              '<div class="meta">' + h.n + ' species all-time' + (h.latest ? ' · latest ' + esc(fmtDate(h.latest)) : '') + '</div>' +
-              '<a class="maplink" data-q="' + esc(h.lat + ',' + h.lng) + '">Open in Maps ↗</a>' +
-              ' &nbsp; ' + favLink(h);
-            el.appendChild(li);
+            el.appendChild(hotspotCard({
+              n: i + 1, locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
+              facts: [
+                h.dist != null ? h.dist.toFixed(1) + ' mi' : '',
+                h.n + ' species all-time',
+                h.latest ? 'latest ' + esc(fmtDate(h.latest)) : ''
+              ]
+            }));
           });
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btns.forEach(function (b) { if (b) b.disabled = false; }); });
@@ -4582,7 +4815,7 @@
               if (seen[rk]) return;
               seen[rk] = 1;
               var e = groups[p.species] || (groups[p.species] = { birders: [], latest: '' });
-              e.birders.push({ name: r.name, rank: r.rank, url: g.data.url });
+              e.birders.push({ name: r.name, rank: r.rank, url: g.data.url, date: p.date });
               if (p.date > e.latest) e.latest = p.date;
             });
           });
@@ -4649,13 +4882,16 @@
         });
         keys.forEach(function (sp) {
           var g = groups[sp], info = byName[sp] || {}, li = document.createElement('li');
-          var people = g.birders.slice().sort(function (a, b) { return (a.rank || 9999) - (b.rank || 9999); });
-          var who = people.map(function (b) {
-            return esc(b.name) + (b.rank ? ' (#' + esc(b.rank) + ')' : '');
-          }).join(', ');
+          // Most recent first: this section is a chase board, and the birder who
+          // ticked it yesterday says more about whether it is still gettable
+          // than the one who happens to sit highest on the leaderboard.
+          var people = g.birders.slice().sort(function (a, b) {
+            var d = String(b.date || '').localeCompare(String(a.date || ''));
+            return d || ((a.rank || 9999) - (b.rank || 9999));
+          });
           var head = '<div class="name">' + photoSlot(sp, info.code || '') +
-            speciesLink(sp, info.code || '') + needTag(info.code || '', sp) +
-            ' <span class="rank">×' + g.birders.length + '</span></div>';
+            '<span class="ntext">' + speciesLink(sp, info.code || '') +
+            needTag(info.code || '', sp) + '</span></div>';
           // How far you would have to drive is half the decision, and the
           // section had every coordinate it needed to answer it. Measured to
           // the CLOSEST recent report, not the newest, because the nearest one
@@ -4668,9 +4904,22 @@
               if (near == null || d < near) near = d;
             });
           }
-          var dist = near == null ? ''
-            : '<span class="count big">' + near.toFixed(1) + ' mi<small>to the closest report</small></span>';
-          var meta = '<div class="meta">newest tick ' + esc(fmtDate(g.latest)) + ' · ' + who + '</div>';
+          // Count, distance and date are the three numbers that decide this
+          // row, so they ARE the sub-header. The birder names that used to run
+          // on here are a list, and are rendered as one below.
+          //
+          // The distance keeps its qualifier even in a compact sub-header: a
+          // bare "3.5 mi" beside a species does not say 3.5 mi to WHAT, and
+          // this one is measured to the closest report, not the newest.
+          var meta = '<div class="meta">' + people.length + ' of the top 100'
+            + (near == null ? '' : ' · ' + near.toFixed(1) + ' mi to the closest report')
+            + ' · newest tick ' + esc(fmtDate(g.latest)) + '</div>';
+          var who = '<div class="lanesub">Who added it</div><ul class="cklrows">'
+            + people.map(function (b) {
+              return '<li><span class="when">' + (b.rank ? '#' + esc(b.rank) : '') + '</span>'
+                + '<span class="howmany">' + (b.date ? esc(fmtDate(b.date)) : '') + '</span>'
+                + '<span class="where">' + esc(b.name) + '</span></li>';
+            }).join('') + '</ul>';
           var obs = (info.obs || []).slice().sort(function (a, b) {
             return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
           });
@@ -4694,7 +4943,8 @@
             // One row per checklist rather than a <br>-joined run: date, count,
             // place and observer each land in the same column every time, so
             // the list can be scanned instead of read.
-            ck = '<div class="sp"><b>' + uniq.length + ' recent checklist' + (uniq.length === 1 ? '' : 's') + '</b>'
+            ck = '<div class="lanesub">' + uniq.length + ' recent checklist'
+              + (uniq.length === 1 ? '' : 's') + '</div>'
               + '<ul class="cklrows">' + uniq.slice(0, nShow).map(function (o) {
                 var when = esc(fmtDate(o.obsDt));
                 var where = o.locName
@@ -4707,10 +4957,9 @@
                   + (o.subId ? ' · ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '')
                   + '</span></li>';
               }).join('') + '</ul>'
-              + (uniq.length > nShow ? '<em>…and ' + (uniq.length - nShow) + ' more</em>' : '')
-              + '</div>';
+              + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '');
           }
-          li.innerHTML = head + dist + meta + ck;
+          li.innerHTML = head + meta + who + ck;
           out.appendChild(li);
         });
         hydratePhotos(out);
@@ -4836,9 +5085,66 @@
         }
         return '';
       }
+      // The notice lives behind a ⚠ button next to the section's ℹ button. It is
+      // created on demand and REMOVED when there is nothing to say, so the icon's
+      // mere presence is the signal — an always-visible warning that is sometimes
+      // inert teaches you to ignore it.
+      function setAbaWarn(html) {
+        var box = $('abaCapWarn');
+        if (!box) return;
+        var sec = box.closest ? box.closest('section') : null;
+        var h2 = sec && sec.querySelector('h2');
+        var btn = h2 && h2.querySelector('.warnbtn');
+        if (!html) {
+          box.hidden = true; box.innerHTML = '';
+          if (btn) btn.parentNode.removeChild(btn);
+          return;
+        }
+        box.innerHTML = html;
+        if (!btn && h2) {
+          btn = document.createElement('button');
+          btn.type = 'button'; btn.className = 'warnbtn'; btn.textContent = '\u26A0';
+          btn.setAttribute('aria-expanded', 'false');
+          btn.setAttribute('aria-label', 'Why some species may be missing');
+          btn.addEventListener('click', function () {
+            var open = box.hidden;
+            box.hidden = !open;
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          });
+          // After the ℹ button so the pair reads "explain, then caveat".
+          h2.appendChild(btn);
+        }
+        // Re-rendering must not silently reopen or reclose the box; leave the
+        // user's choice alone and only sync the button to it.
+        if (btn) btn.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+      }
+      // Fills the "Found by" name when the species feed left it blank. Bounded
+      // and lazy: one checklist lookup per card, only for cards that actually
+      // lack a name, and a failure just leaves the slot empty rather than
+      // inventing a finder.
+      function hydrateFinders(root) {
+        if (!root || !root.querySelectorAll || !getKey()) return Promise.resolve();
+        var slots = [].slice.call(root.querySelectorAll('.fbwho[data-sub]'))
+          .filter(function (s) { return !s.textContent.trim(); });
+        if (!slots.length) return Promise.resolve();
+        return pool(slots, CONVOY_FETCH_CONC, function (slot) {
+          var sub = slot.getAttribute('data-sub');
+          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+            .then(function (d) {
+              var who = d && d.userDisplayName;
+              if (!who) return;
+              slot.textContent = who;
+              // The separator is only correct once there is a name to separate.
+              if (slot.nextSibling && slot.nextSibling.nodeType === 3 &&
+                  !/^\s*·/.test(slot.nextSibling.nodeValue || '')) {
+                slot.nextSibling.nodeValue = ' · ' + (slot.nextSibling.nodeValue || '');
+              }
+            })
+            .catch(function () {});
+        });
+      }
       function renderAbaAlert(list, url, grouped) {
-        var warn = $('abaCapWarn');
-        if (warn) warn.innerHTML = abaAlertWarning((list || []).length);
+        setAbaWarn(abaAlertWarning((list || []).length));
         var el = $('abaResults'); el.innerHTML = '';
         el.className = grouped ? 'cards' : 'obs';
         if (grouped) {
@@ -4906,19 +5212,44 @@
                 (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') +
                 (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : ''),
               // Credit for the find, and the checklist to cite it from.
+              //
+              // This is a BEST GUESS and now says so, for two measured reasons
+              // that both push the same way — the real find is always at or
+              // before what we can see, never after:
+              //
+              //  1. The species feed returns ONE observation per LOCATION, so an
+              //     earlier checklist at a place we already hold is invisible to
+              //     us. White Wagtail, Neah Bay: we held 2026-07-02 16:24
+              //     (S367196525) while the actual find was 2026-07-02 13:11
+              //     (S366733185, Stefan Sremac) — same day, three hours earlier,
+              //     logged under a different location marker. Close enough to
+              //     look right, which is exactly what makes it worth labelling.
+              //  2. Coverage starts at the API's 30-day ceiling or the archive,
+              //     whichever is earlier, and `found` already tests that edge.
+              //
+              // The blank name is a SEPARATE gap: `recent/{speciesCode}` with
+              // detail=full returns userDisplayName EMPTY (verified on all six
+              // whiwag rows for US-WA), unlike the alert scrape which carries it.
+              // So the name is hydrated per card from the checklist itself.
               first: fr && fr.r !== o ? '<span class="lbl">' +
                 (fr.found ? 'Found by' : 'Earliest report we hold') + '</span>' +
-                (fr.found && fr.r.userDisplayName
-                  ? '<span class="when">' + esc(fr.r.userDisplayName) + '</span> · ' +
-                    esc(fmtDateTime(fr.r.obsDt))
+                (fr.found
+                  ? '<span class="when fbwho"' +
+                      (fr.r.subId && !fr.r.userDisplayName ? ' data-sub="' + esc(fr.r.subId) + '"' : '') +
+                      '>' + (fr.r.userDisplayName ? esc(fr.r.userDisplayName) : '') + '</span>' +
+                    (fr.r.userDisplayName ? ' · ' : '') + esc(fmtDateTime(fr.r.obsDt))
                   : '<span class="when">' + esc(fmtDateTime(fr.r.obsDt)) + '</span>' +
                     (fr.r.userDisplayName ? ' · ' + esc(fr.r.userDisplayName) : '')) +
                 ' · ' + locLink(fr.r.locName || '', fr.r.lat, fr.r.lng, '', true) +
                 (fr.r.subId ? ' · ' + checklistLink(fr.r.subId, fr.r.subId) : '') +
                 '<span class="who">' + (fr.found
-                  ? 'Credit the finder when you log it'
+                  ? 'Best guess — open the checklist before you credit anyone'
                   : 'Already present when our records start — the true finder is earlier') +
-                '</span>' : '',
+                '</span>' +
+                (fr.found ? '<span class="bcguess">A guess, not a record: eBird returns only the ' +
+                  'most recent report per location, so an earlier checklist at the same place is ' +
+                  'invisible here. The true find is at or before this one, never after.</span>' : '')
+                : '',
               stats: stats,
               hist: '<div class="bcnow bchist" data-code="' + esc(g.code) +
                 '" data-state="' + esc(stateName) + '" data-country="' + esc(gbifCountry) + '"></div>',
@@ -4938,6 +5269,7 @@
           });
           hydrateHistory(el);
           hydrateCards(el);
+          hydrateFinders(el);
         } else {
           list.slice().sort(function (a, b) {
             var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
@@ -6697,9 +7029,14 @@
         var h2 = sec.querySelector('h2'); if (!h2) return;
         var span = h2.querySelector('span');
         var doc = h2.querySelector('.docbtn');
+        // The ⚠ button is added at render time rather than at boot, so it has to
+        // be carried across a relabel like the ℹ button — otherwise switching
+        // region silently drops the only route to the truncation notice.
+        var warn = h2.querySelector('.warnbtn');
         h2.textContent = label + ' ';
         if (span) h2.appendChild(span);
         if (doc) h2.appendChild(doc);
+        if (warn) h2.appendChild(warn);
       }
       function buildNav() {
         var main = document.querySelector('main'); if (!main) return;
@@ -7403,6 +7740,10 @@
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         buildClosestSpots: buildClosestSpots,
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
+        ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
+        hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
+        renderDestinations: renderDestinations, renderRoute: renderRoute,
+        groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav,
         moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs, loadFavs: loadFavs,
         searchHotspots: searchHotspots, runFavSearch: runFavSearch,

@@ -1231,13 +1231,19 @@
   }
 
   // Adapt a scored cluster (destinations/excursions) to the app's render shape:
-  //   { locId, locName, lat, lng, species:[{comName,rare}], score, rare, dist }
+  //   { locId, locName, lat, lng, species:[{code,comName,rare}], score, rare, dist }
+  //
+  // The species CODE has to survive this hop. Without it the shared species list
+  // loses all three things a code buys: the bundled icon seed (tier 1, zero
+  // network — every destination row fell through to a Wikipedia lookup), the
+  // /species/{code} deep link, and code-based seen resolution, which is the only
+  // one that follows the taxonomy parent chain.
   function toRenderDest(cluster) {
     return {
       locId: cluster.locId || '', locName: cluster.loc || 'Unknown location',
       lat: cluster.lat, lng: cluster.lon,
       species: (cluster.species || []).map(function (s) {
-        return { comName: s.name || s.code || 'Unknown species', rare: s.kind === 'Rarity' };
+        return { code: s.code || '', comName: s.name || s.code || 'Unknown species', rare: s.kind === 'Rarity' };
       }),
       score: cluster.score, rare: cluster.rareCount,
       dist: cluster.distMi == null || cluster.distMi === Infinity ? null : cluster.distMi

@@ -76,16 +76,16 @@
     },
     "refreshBtn": {
       "report": "## 🌅 Today's rarity reports",
-      "summary": "Rarities reported TODAY in the report's counties, one card per species.",
+      "summary": "Every rare-bird checklist filed TODAY in the report's counties, one row per report.",
       "inputs": [
         "/data/obs/{county}/recent/notable for each county",
         "geo notable feed around home"
       ],
       "how": [
-        "Filtered to today's date in the region's local time, then grouped by species.",
-        "Each card carries the evidence for how rare it is: number of reports, distinct observers, distinct locations and days in the fetched window.",
-        "Cards show the clock time of the latest report — a rarity is chased within hours, so a bare date decides nothing.",
-        "Notable feeds are NOT collapsed to one observation per species, so a bird reported from six places shows all six."
+        "Filtered to today's date in the region's local time, deduped by CHECKLIST so two observers reporting the same bird both stand.",
+        "Newest first, and every row carries the clock time — a rarity is chased within hours, so a bare date decides nothing.",
+        "One row per checklist, not per species: a bird found at six places is six places you could drive to.",
+        "How rare each species is across the whole snapshot is deliberately NOT here — that is what 🚨 Last 7-Days rarity reports answers."
       ],
       "limits": [
         "\"Notable\" is eBird's own review flag for the region; a bird that is rare to YOU but common locally will not appear here."
