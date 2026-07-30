@@ -1008,7 +1008,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.28';
+      var APP_VERSION = '1.0.29';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6437,7 +6437,7 @@
                     ? '<div class="dim">…and ' + (c.recent.length - CASCADE_SPOTS) + ' more reports</div>' : '')
                 : '<div class="dim">' + (c.code
                     ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
-                    : 'Could not resolve this name to an eBird species code, so there is nowhere to link to.') + '</div>')
+                    : 'Not in this region’s species list, so there is nowhere to link to — likely a first record the list has not caught up with.') + '</div>')
               + (c.code ? '<div>' + extA(speciesUrl(c.code), 'All recent ' + esc(c.species)
                   + ' reports in ' + esc(getReport().label || 'this region') + ' ↗') + '</div>' : '')
               + '<div class="lanesub">Who added it</div><ul class="cklrows">' + who + '</ul>' + more + '</li>';
@@ -6528,13 +6528,28 @@
       // carries a species name, a date, and nothing else. That makes the lane
       // the only one in this section you could not act on.
       //
-      // Codes are resolved from the merged observations this section ALREADY
-      // fetched for the surge lane, so name→code costs nothing. The region
-      // species index would also answer it, but it is a spplist call plus a
-      // taxonomy chunk per 100 species, and this lane does not justify that.
-      // A bird that appears in no local feed simply keeps no code and says so —
-      // seeing counties our feeds never cover is this lane's whole purpose, so
-      // that outcome is expected rather than a failure.
+      // Codes are resolved in two tiers. First the merged observations this
+      // section ALREADY fetched, which is free. That was once the only tier,
+      // on the reasoning that a bird missing from every local feed must be
+      // from a county the feeds never cover — which is this lane's whole
+      // purpose, so failing to link it was "expected rather than a failure".
+      //
+      // MEASURED, that reasoning was wrong, and it failed on the common case.
+      // The merged feeds are rarity-biased (notable + hotspot recent), but a
+      // leaderboard cascade is a bird several top-100 birders just added to a
+      // YEAR list — which skews to regular migrants, not megas. Pectoral
+      // Sandpiper is the exact shape of it: `pecsan`, in the WA species list,
+      // in no notable feed, so the lane said "could not resolve this name"
+      // about a bird with a perfectly ordinary code. The message blamed the
+      // name when the dictionary was simply the wrong one.
+      //
+      // So tier two is the region species index — every species recorded in
+      // the region, which is what this lane's names are drawn from. The old
+      // comment rejected it as "a spplist call plus a taxonomy chunk per 100
+      // species", but that index already exists for the watchlist add field
+      // and is cached in localStorage for a day, so it is usually free and at
+      // worst is paid once per region per day. Only a bird absent from the
+      // region list — a first record not yet in spplist — now goes unlinked.
       //
       // Each resolved species then costs ONE species-scoped state feed, which
       // is not collapsed to one observation per species and so turns a name
@@ -6542,25 +6557,46 @@
       function cascadeSpots(cascades, merged) {
         var list = cascades || [];
         if (!list.length) return Promise.resolve(list);
-        var byName = {};
-        (merged || []).forEach(function (r) {
-          if (r && r.comName && r.speciesCode) byName[String(r.comName).toLowerCase()] = r.speciesCode;
-        });
-        list.forEach(function (c) {
-          if (!c.code) c.code = byName[String(c.species || '').toLowerCase()] || '';
-        });
-        var known = list.filter(function (c) { return c.code; });
-        if (!known.length) return Promise.resolve(list);
         var region = getRegion();
-        return pool(known, 2, function (c) {
-          return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
-              encodeURIComponent(c.code) + '?back=30&detail=full')
-            .then(function (obs) {
-              c.recent = (obs || []).slice().sort(function (a, b) {
-                return String(b.obsDt).localeCompare(String(a.obsDt));
-              });
-            }).catch(function () {});
-        }).then(function () { return list; }).catch(function () { return list; });
+        var byName = {};
+        var add = function (name, code) {
+          if (!name || !code) return;
+          var n = String(name).toLowerCase();
+          if (!byName[n]) byName[n] = code;
+          // Board names carry no parenthetical form, so index the base name
+          // too — it is how a form-level feed row still answers for its parent.
+          var b = baseSpeciesName(name).toLowerCase();
+          if (b && !byName[b]) byName[b] = code;
+        };
+        (merged || []).forEach(function (r) { if (r) add(r.comName, r.speciesCode); });
+        var resolve = function () {
+          list.forEach(function (c) {
+            if (c.code) return;
+            var n = String(c.species || '').toLowerCase();
+            c.code = byName[n] || byName[baseSpeciesName(c.species || '').toLowerCase()] || '';
+          });
+          return list.filter(function (c) { return c.code; });
+        };
+        var known = resolve();
+        var missing = list.length - known.length;
+        var seed = missing
+          ? loadSpeciesIndex(region).then(function (rows) {
+              (rows || []).forEach(function (r) { add(r.name, r.code); });
+              return resolve();
+            }).catch(function () { return known; })
+          : Promise.resolve(known);
+        return seed.then(function (found) {
+          if (!found.length) return list;
+          return pool(found, 2, function (c) {
+            return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
+                encodeURIComponent(c.code) + '?back=30&detail=full')
+              .then(function (obs) {
+                c.recent = (obs || []).slice().sort(function (a, b) {
+                  return String(b.obsDt).localeCompare(String(a.obsDt));
+                });
+              }).catch(function () {});
+          }).then(function () { return list; });
+        }).catch(function () { return list; });
       }
       // The board's "recent" column, parsed the same way report._LAST_NEW_RE      // does. Supplied to tickCascades rather than baked into it because both
       // repos already own this regex and neither should own the other's.
@@ -7720,6 +7756,7 @@
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
+        cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
         getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport,
