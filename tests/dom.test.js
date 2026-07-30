@@ -28,6 +28,12 @@ const CARDS_SPECIES = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8'
 const CARDS_HOTSPOT = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
+// The native permission that makes "📍 Here" work cannot be committed — ios/ is
+// regenerated every build — so the workflow and the manifest are the only two
+// places that can prove it will be there.
+const IOS_WF = fs.readFileSync(
+  path.join(__dirname, '..', '.github', 'workflows', 'ios-build.yml'), 'utf8');
+const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 const BL = require(path.join(WWW, 'logic.js'));
 
 const MIME = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
@@ -1793,6 +1799,10 @@ test('an unset anchor advertises how to set it instead of dying on tap', async (
   assert.match(app.$('quickStatus').textContent, /Settings/, 'it points at Settings');
 });
 
+// getDeviceLocation() is promise-based, so the UI it drives settles a microtask
+// or two after the tap rather than inside the click handler.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
 test('current location falls back to a typed place when geolocation is refused', async () => {
   const app = await boot();
   const w = app.window;
@@ -1801,20 +1811,136 @@ test('current location falls back to a typed place when geolocation is refused',
     getCurrentPosition(ok, fail) { asked++; fail({ code: 1, message: 'User denied Geolocation' }); },
   };
   app.click(app.$('quickHereBtn'));
+  await settle();
   assert.equal(asked, 1, 'it asks the device first');
   assert.equal(app.$('quickHereRow').hidden, false, 'refusal reveals the place input');
-  assert.match(app.$('quickStatus').textContent, /User denied Geolocation/,
-    'and says WHY, so "nothing happened" is never the outcome');
+  // "User denied Geolocation" is the browser's words, and they leave you with
+  // nowhere to go. A refusal is the one failure the user can actually undo, so
+  // the message names the switch instead of quoting the error.
+  assert.match(app.$('quickStatus').textContent, /Location Services/,
+    'a refusal says where to turn it back on');
+  assert.match(app.$('quickStatus').textContent, /Type where you are/,
+    'and still offers the fallback that needs no permission at all');
+
+  // Anything that is NOT a refusal is quoted, because there is nothing to tap.
+  w.navigator.geolocation.getCurrentPosition = (ok, fail) => fail({ code: 2, message: 'kCLErrorDomain 0' });
+  app.click(app.$('quickHereBtn'));
+  await settle();
+  assert.match(app.$('quickStatus').textContent, /kCLErrorDomain 0/,
+    'a real failure says WHY, so "nothing happened" is never the outcome');
 
   // A granted fix re-anchors the section and scans around the new point.
   w.navigator.geolocation.getCurrentPosition = (ok) => ok({ coords: { latitude: 48.5, longitude: -122.6 } });
   const before = app.state.fetches.length;
   app.click(app.$('quickHereBtn'));
+  await settle();
   const scan = app.state.fetches.slice(before).find((u) => /ref\/hotspot\/geo/.test(u));
   assert.ok(scan, 'a granted fix triggers a hotspot scan');
   assert.match(scan, /lat=48\.5&lng=-122\.6/, 'centred on where you actually are');
   assert.equal(app.$('quickHereBtn').getAttribute('aria-pressed'), 'true', 'and Here becomes the active anchor');
+  w.close();
 });
+
+test('current location asks the NATIVE plugin first, not the web API', async () => {
+  // The reported bug. Capacitor serves the app from capacitor://localhost, and
+  // WebKit only honours navigator.geolocation on origins it deems secure, so on
+  // device the web API is present (every `if (!navigator.geolocation)` guard
+  // passes) and then calls NEITHER callback — no prompt, no error, no result.
+  // Preferring the native plugin is the whole fix, so it is pinned at runtime.
+  const app = await boot();
+  const w = app.window;
+  let plugin = 0, web = 0;
+  w.Capacitor = Object.assign({}, w.Capacitor, {
+    Plugins: Object.assign({}, w.Capacitor && w.Capacitor.Plugins, {
+      Geolocation: {
+        getCurrentPosition() {
+          plugin++;
+          return Promise.resolve({ coords: { latitude: 47.1, longitude: -123.2 } });
+        },
+      },
+    }),
+  });
+  w.navigator.geolocation = { getCurrentPosition() { web++; } };
+
+  const before = app.state.fetches.length;
+  app.click(app.$('quickHereBtn'));
+  await settle();
+  assert.equal(plugin, 1, 'the native CoreLocation bridge is asked');
+  assert.equal(web, 0, 'the web API is the fallback, never the first choice');
+  const scan = app.state.fetches.slice(before).find((u) => /ref\/hotspot\/geo/.test(u));
+  assert.ok(scan && /lat=47\.1&lng=-123\.2/.test(scan), 'and its fix anchors the scan');
+
+  // The dependency has to be declared or the plugin never registers on device.
+  assert.ok(PKG.dependencies && PKG.dependencies['@capacitor/geolocation'],
+    '@capacitor/geolocation must be a runtime dependency — without it ' +
+    'Capacitor.Plugins.Geolocation is undefined on device and this silently ' +
+    'falls back to the web API that does not work there');
+  w.close();
+});
+
+test('a location request that never answers still lands somewhere usable', async () => {
+  // This is the symptom the user actually saw: the status line stuck on
+  // "Asking for your location…" forever. A PositionOptions `timeout` is enforced
+  // BY the implementation, so it cannot fire when the implementation is the
+  // thing that has gone quiet — the watchdog has to be ours.
+  const app = await boot();
+  const w = app.window;
+  const realTimeout = w.setTimeout;
+  // Fire only the long watchdog immediately; leave short timers alone so the
+  // rest of the app keeps its ordering.
+  w.setTimeout = function (fn, ms) {
+    if (typeof ms === 'number' && ms >= 5000) { return realTimeout(fn, 0); }
+    return realTimeout.apply(this, arguments);
+  };
+  w.Capacitor = Object.assign({}, w.Capacitor, {
+    Plugins: Object.assign({}, w.Capacitor && w.Capacitor.Plugins, {
+      Geolocation: { getCurrentPosition() { return new Promise(() => {}); } },
+    }),
+  });
+  app.click(app.$('quickHereBtn'));
+  await settle();
+  await settle();
+  w.setTimeout = realTimeout;
+
+  assert.equal(app.$('quickHereRow').hidden, false,
+    'silence must reveal the typed-place fallback, not hang');
+  assert.match(app.$('quickStatus').textContent, /timed out/i, 'and say the request timed out');
+  assert.doesNotMatch(app.$('quickStatus').textContent, /Asking for your location/,
+    'the status line must not be left mid-sentence');
+  w.close();
+});
+
+test('the iOS build declares the location permission it cannot commit', () => {
+  // ios/ is gitignored and regenerated by `npx cap add ios` every build, so
+  // Info.plist cannot carry this key in the repo. Without it CoreLocation
+  // refuses the request WITHOUT ever prompting — the app looks broken and no
+  // dialog appears, which is exactly the bug that was reported.
+  assert.match(IOS_WF, /NSLocationWhenInUseUsageDescription/,
+    'the workflow must inject the usage description into the generated Info.plist');
+  const sync = IOS_WF.indexOf('npx cap sync ios');
+  const inject = IOS_WF.indexOf('NSLocationWhenInUseUsageDescription');
+  assert.ok(sync !== -1 && inject > sync,
+    'inject AFTER `cap sync` so nothing downstream can drop the key');
+  assert.match(IOS_WF, /PlistBuddy[\s\S]{0,600}test -n/,
+    'and verify it stuck — a silent no-op here reproduces the exact bug');
+  // The string is shown verbatim in the iOS permission dialog, so it has to
+  // explain the trade the user is being asked to make.
+  const msg = /MSG='([^']+)'/.exec(IOS_WF);
+  assert.ok(msg, 'the usage description must be a real sentence, not a placeholder');
+  assert.ok(/hotspot/i.test(msg[1]) && msg[1].length > 40,
+    'it must say what the location is FOR: ' + (msg && msg[1]));
+});
+
+test('the debug panel says which location path the device will take', () => {
+  // "It does not prompt" is invisible from the outside; this is how the next
+  // report of it gets diagnosed without a Mac.
+  const src = HTML.slice(HTML.indexOf('function dbgContext('), HTML.indexOf('function dbgRender('));
+  assert.match(src, /Geolocation: /, 'the debug dump reports the geolocation path');
+  assert.match(src, /native plugin/, 'it distinguishes the native bridge');
+  assert.match(src, /will NOT prompt/,
+    'and calls out the web-API-only case, which is the broken one on device');
+});
+
 
 test('quick outing scans exactly one circle — the anchor you picked', async () => {
   const app = await boot();

@@ -65,6 +65,25 @@ jobs:
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 
+      # Same reason: Info.plist is regenerated, so the location usage string
+      # cannot be committed. Without it CoreLocation refuses the request WITHOUT
+      # ever prompting, which is how "📍 Here" in Quick outing came to hang
+      # forever with no permission dialog. Runs AFTER sync so nothing downstream
+      # can clobber the key. Fails loudly if the plist is missing — a silent skip
+      # here reproduces the exact bug this is fixing.
+      - name: Declare the location permission iOS requires
+        run: |
+          set -euo pipefail
+          PLIST=ios/App/App/Info.plist
+          test -f "$PLIST"
+          MSG='Bird Chaser uses your location to find birding hotspots near you for a quick outing.'
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string $MSG" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :NSLocationWhenInUseUsageDescription $MSG" "$PLIST"
+          # Prove it stuck; an empty or missing value must fail the build.
+          OUT="$(/usr/libexec/PlistBuddy -c 'Print :NSLocationWhenInUseUsageDescription' "$PLIST")"
+          echo "NSLocationWhenInUseUsageDescription = $OUT"
+          test -n "$OUT"
+
       - name: Build unsigned .app for device
         run: |
           set -euo pipefail
