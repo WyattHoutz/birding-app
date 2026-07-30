@@ -21,6 +21,11 @@ const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 
 const WWW = path.join(__dirname, '..', 'www');
 const HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+// The two card families live in their own files so they can be tweaked by
+// looking at the source. Guards that read card CSS must read it from THERE —
+// pointing them back at index.html is how a second definition creeps in.
+const CARDS_SPECIES = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
+const CARDS_HOTSPOT = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const BL = require(path.join(WWW, 'logic.js'));
@@ -550,7 +555,9 @@ test('every Wikimedia width the app asks for is on the served ladder', async () 
 
 // These two sections answer DIFFERENT questions and now use different templates
 // on purpose, which is a change from when they shared birdCard().
-//   Today's rarities = the DAY'S LIST, one row per checklist. Medium card.
+//   Today's rarities = the DAY'S LIST, one row per checklist. SMALL card, so a
+//                      long day scans as evenly spaced lines; every field the
+//                      markdown table prints is kept, labelled, below the row.
 //   The ABA alert    = read about ONE continental rarity. Large card.
 // Rendering the day's list as 13 full-screen baseball cards buried the next
 // report under evidence nobody asked for. What must NOT drift is that the ABA
@@ -569,15 +576,28 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
     "today's rarities is a list, not 13 profiles — the large card is the wrong template");
   assert.doesNotMatch(today, /rarityStats\(/,
     'how rare each species is across the snapshot is what Last 7-Days answers');
+  // It must use the shared small card rather than hand-rolling a row.
+  assert.match(today, /SpeciesCards\.small\(\{/, 'the row is the shared small card');
+  assert.match(HTML, /<ul id="results" class="obs card-sm">/,
+    'and the list opts into the small size');
   // The columns of the markdown table it mirrors: species, distance+place,
-  // observer, time, checklist. Losing any of them makes the row undecidable.
+  // observer, time, checklist. Losing any of them makes the row undecidable,
+  // and the whole point of the small card here was that NOTHING is dropped.
   assert.match(today, /photoSlot\(/, 'the row is illustrated');
-  assert.match(today, /class="ntext"/, 'the species name is the header cell');
+  assert.match(today, /speciesLink\(/, 'the species name is the header, and it links');
   assert.match(today, /distMi/, 'how far away it is');
   assert.match(today, /recLocLink\(/, 'where');
   assert.match(today, /r\.observer/, 'who saw it');
   assert.match(today, /fmtDateTime\(/, 'and at what time — a bare date decides nothing');
   assert.match(today, /checklistLink\(/, 'with the checklist to cite');
+  assert.match(today, /needTag\(/, 'unseen-this-year flag');
+  assert.match(today, /stakeflag/, 'and the stakeout day count');
+  // The overflow fields are LABELLED, or they read as an unexplained run of
+  // facts once they no longer sit in named table columns.
+  for (const lbl of ['Where', 'Observer', 'Latest']) {
+    assert.match(today, new RegExp('class="lbl">' + lbl + '<'),
+      lbl + ' is labelled below the card');
+  }
 });
 
 // MEASURED, not assumed. Two separate live measurements, and the second one
@@ -835,12 +855,22 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
       `${id} renders .cklrows under a .thumb, so it needs the float-clearing `
       + `"big" layout; it has class="${m[1]}"`);
   }
-  assert.match(HTML, /\.obs\.big \.thumb \{[^}]*float:\s*none/,
+  assert.match(CARDS_SPECIES, /\.obs\.big \.thumb \{[^}]*float:\s*none/,
     '.obs.big is the float-clearing layout — if it stops clearing, the guard above means nothing');
+  // Today's rarities renders .cklrows under a .thumb too, but as a SMALL card,
+  // so it depends on the small template clearing the float instead.
+  const today = /<ul id="results" class="([^"]*)"/.exec(HTML);
+  assert.ok(today && today[1].split(/\s+/).includes('card-sm'),
+    "today's rarities must carry a size that clears the float");
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{[^}]*float: none/,
+    'and .card-sm is that layout');
   // Baseline alignment on a grid row whose cell wraps to 3 lines is the other
-  // half of the clipping; `start` grows the row downward predictably.
+  // half of the clipping; `start` grows the row downward predictably. This
+  // applies to the labelled variant too — its value cell is a place name.
   assert.doesNotMatch(HTML, /\.cklrows li \{[^}]*align-items:\s*baseline/,
     '.cklrows rows must not be baseline-aligned — a wrapped place name overflows the row');
+  assert.doesNotMatch(HTML, /\.cklrows li\.lblrow \{[^}]*align-items:\s*baseline/,
+    'nor may the labelled variant — same wrapped place name, same overflow');
 });
 
 // The bird photo is the answer to "what IS that", so the rarity list sizes it to
@@ -849,7 +879,7 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows size the photo up and keep name+badges together', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(HTML, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
+  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
     'the rarity thumbnail is double the 46px default, and scales with the text-size setting');
   const fn = HTML.slice(HTML.indexOf('function loadActiveRarities('));
   const row = fn.slice(0, fn.indexOf('el.appendChild(li)'));
@@ -1325,20 +1355,64 @@ test('the three species sections use the large icon + title treatment', () => {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
   });
-  assert.match(HTML, /\.obs\.big \.thumb \{[^}]*width: calc\(64px \* var\(--s\)\)/,
+  assert.match(CARDS_SPECIES, /\.obs\.big \.thumb \{[^}]*width: calc\(64px \* var\(--s\)\)/,
     'the icon is actually bigger, not just a class name');
   // Today's rarities is a LIST of today's rare-bird checklists — one row per
-  // report — so it uses the medium card, not the large one. The large card is
-  // for reading about ONE bird; using it here made 13 checklists into 13 full
-  // screens of stats and forced the reader to scroll past evidence they did not
-  // ask for to find the next report.
+  // report — so it uses the SMALL card. The large card is for reading about ONE
+  // bird; using it here made 13 checklists into 13 full screens of stats. The
+  // medium card was better but still tall enough that a busy day scrolled; the
+  // small card scans, and everything that no longer fits the row is printed
+  // underneath it, labelled, so nothing is dropped.
   const rare = /<ul id="results"[^>]*class="([^"]*)"/.exec(HTML);
-  assert.ok(rare && /\bxl\b/.test(rare[1]),
-    "today's rarities render as medium cards, one per checklist");
+  assert.ok(rare && /\bcard-sm\b/.test(rare[1]),
+    "today's rarities render as small cards, one per checklist");
+  assert.ok(rare && !/\bxl\b/.test(rare[1]),
+    'and must not also carry the medium size — one list, one size');
 });
 
-test('latest ticks: the bird links to its species page and shows fresh lists', () => {
-  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+test('favorites: the hotspot is the heading, its birds are the list under it', () => {
+  const src = HTML.slice(HTML.indexOf('function renderFavs('),
+    HTML.indexOf('function favRarityCodes('));
+  // The distance and the map link are NOT part of the name. Crammed into the
+  // title they made a place read like a caption with facts stuck to it, and
+  // locLink's inline 🗺 duplicated the Open in Maps link sitting right below.
+  assert.doesNotMatch(src, /class="favtitle"[\s\S]{0,200}locLink\(/,
+    'the title must not use locLink — it appends its own 🗺 beside the name');
+  assert.match(src, /class="favtitle"[\s\S]{0,200}extA\(hotspotUrl\(/,
+    'the title is the hotspot name, linked, and nothing else');
+  assert.match(src, /class="hsact"[\s\S]{0,300}Open in Maps/,
+    'the map link moves below the card, into the shared actions row');
+  assert.match(src, /class="hsact"[\s\S]{0,300}toFixed\(1\) \+ ' mi/,
+    'and the distance goes with it');
+  // A heading has to outrank the 17px species links beneath it by enough to
+  // see. At 19px it did not, so the row read as birds with a caption.
+  const fav = /\.favtitle \{ font-size: calc\((\d+)px/.exec(HTML);
+  assert.ok(fav, '.favtitle must set a size');
+  assert.ok(Number(fav[1]) >= 23,
+    `the hotspot title (${fav[1]}px) must clearly outrank the 17px species names under it`);
+});
+
+test('latest ticks: the bird outranks the roster of who added it', () => {
+  // The row's subject is the BIRD. "Who added it" is a roster read at a glance
+  // — how many, how recently — not row by row, and at the checklist size it
+  // competed with the name it was evidence for. Sized by what the list IS, so
+  // the ranking holds wherever a roster appears.
+  const px = (re) => {
+    const m = re.exec(CARDS_SPECIES);
+    assert.ok(m, 'rule must exist: ' + re);
+    return Number(m[1]);
+  };
+  const name = px(/\.obs\.xl > li > \.name \{ font-size: calc\((\d+)px/);
+  const who = px(/\.cklrows\.whorows \{ font-size: calc\((\d+)px/);
+  const ckl = px(/\.obs\.xl > li > \.cklrows \{ font-size: calc\((\d+)px/);
+  assert.ok(name > ckl, `the bird name (${name}px) must outrank its checklists (${ckl}px)`);
+  assert.ok(who < ckl,
+    `the roster (${who}px) is supporting detail and must sit below the checklists (${ckl}px)`);
+  assert.match(HTML, /class="cklrows whorows"/,
+    'the roster opts into the smaller size by saying what it is');
+});
+
+test('latest ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
   assert.match(src, /speciesLink\(sp, info\.code/,
     'the bird title is a link to ebird.org/species/<code>/<region>');
@@ -2256,8 +2330,10 @@ test('Happening now titles all three lanes so the last is not a footnote', async
 //   anything after those two cells starts a new FULL-WIDTH row underneath
 test('the medium card is a real 2x2 grid, not a float', async () => {
   const app = await boot();
-  const css = HTML.slice(HTML.indexOf('.obs.xl > li, .obs.card-md > li {'),
-    HTML.indexOf('.stopnum {'));
+  // The card CSS lives in www/cards-species.js now, which is the point of the
+  // split: the rules you tweak are in a file named after what they style.
+  const css = CARDS_SPECIES.slice(CARDS_SPECIES.indexOf('.obs.xl > li, .obs.card-md > li {'),
+    CARDS_SPECIES.indexOf('MEDIUM typography'));
   assert.match(css, /display: grid;/, 'the row is a grid');
   assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\)/,
     'photo column sized to the photo, text column takes the rest and may shrink');
@@ -2279,7 +2355,9 @@ test('the medium card is a real 2x2 grid, not a float', async () => {
   assert.equal(scoped, null,
     'every medium-card rule must be child-scoped (>) or it leaks into nested small cards');
   const d = app.window.document;
-  for (const id of ['activeResults', 'lastNewResults', 'results']) {
+  // Today's rarities left this set when it became a small card; the two that
+  // remain are the ones that genuinely read one row at a time.
+  for (const id of ['activeResults', 'lastNewResults']) {
     assert.ok(d.getElementById(id).className.includes('xl'),
       id + ' shares the template rather than styling itself');
   }
@@ -2328,27 +2406,48 @@ test('Favorite hotspots shows what is worth driving for, not a species dump', as
   assert.match(quiet, /No rarities, watchlist hits, or unseen/, 'says nothing is here rather than going blank');
 });
 test('there are exactly three card templates and each one is really used', () => {
-  // The templates are a system, not three coincidences. Defining a shape in one
-  // place is only worth doing if the sections opt IN to it rather than
-  // re-tuning a fourth variant of the same row.
+  // The templates are a system, not three coincidences, and they now live in
+  // two files named after what they style — one per family, three sizes each.
   for (const cls of ['.obs.card-sm .name', '.obs.card-md > li > .name', '.card-lg > li']) {
-    assert.ok(HTML.includes(cls), cls + ' is defined');
+    assert.ok(CARDS_SPECIES.includes(cls), cls + ' is defined in cards-species.js');
+  }
+  for (const cls of ['.hscard-sm', '.hscard-md', '.hscard-lg']) {
+    assert.ok(CARDS_HOTSPOT.includes(cls), cls + ' is defined in cards-hotspot.js');
+  }
+  // Each family exposes the same three sizes, so a section picks a SIZE and
+  // never a bespoke shape.
+  for (const src of [CARDS_SPECIES, CARDS_HOTSPOT]) {
+    for (const size of ['small:', 'medium:', 'large:']) {
+      assert.ok(src.includes(size), 'both families expose ' + size);
+    }
   }
   // SMALL is one row: the text box matches the icon height so a long list
   // scans as evenly spaced lines rather than a ragged stack.
-  assert.match(HTML, /\.obs\.card-sm \.name \{ display: flex;[^}]*min-height: calc\(46px \* var\(--s\)\)/,
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.name \{ display: flex;[^}]*min-height: calc\(46px \* var\(--s\)\)/,
     'small card ties its row height to its icon');
-  assert.match(HTML, /\.obs\.card-sm \.thumb \{ float: none/,
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{ float: none/,
     'and the icon sits beside the name instead of floating out of the row');
   // LARGE stacks: photo, then name, then sub-header.
-  assert.match(HTML, /\.bchero \{ width: 100%;[^}]*aspect-ratio: 3 \/ 2/, 'large card photo is full width');
-  assert.ok(HTML.indexOf('.bcname') < HTML.indexOf('.bcsub'), 'name row precedes the sub-header row');
-  assert.ok(HTML.includes('class="obs card-sm favspp"'), 'favorites use the small template');
+  assert.match(CARDS_SPECIES, /\.bchero \{ width: 100%;[^}]*aspect-ratio: 3 \/ 2/, 'large card photo is full width');
+  assert.ok(CARDS_SPECIES.indexOf('.bcname') < CARDS_SPECIES.indexOf('.bcsub'),
+    'name row precedes the sub-header row');
+  // Favorites and the rarity lists must OPT IN to a size rather than hand-roll
+  // one. Favorites builds its list through the shared builder now, so the class
+  // is applied at render time — assert the delegation, not a source literal.
+  assert.match(HTML, /speciesListHtml\(rows, \{ presorted: true, cls: 'favspp' \}\)/,
+    'favorites use the small template via the one builder');
   assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
   // The ABA list takes its class at render time, because the same <ul> holds a
   // grouped card grid or a flat observation list depending on the region.
   assert.match(HTML, /grouped \? 'cards' : 'obs'/,
     'the ABA section uses the large template when it groups by species');
+  // index.html must not keep a second copy of any card rule — one definition
+  // is the entire point of moving them out.
+  for (const rule of ['.obs.card-sm .name {', '.obs.xl > li, .obs.card-md > li {',
+                      '.bchero {', '.hsnum {']) {
+    assert.ok(!HTML.includes(rule),
+      'index.html must not redeclare "' + rule + '" — the card files own it');
+  }
 });
 
 // The shared card is fed by five different record shapes. A missing slot must be
@@ -2364,12 +2463,56 @@ test('the hotspot card omits facts it was not given', async () => {
   });
   const meta = li.querySelector('.meta').textContent;
   assert.equal(meta, '12.0 mi · 2 targets', 'unknown facts vanish rather than printing junk');
-  assert.equal(li.querySelector('.thumb.stopnum').textContent, '3', 'the stop number is the icon');
+  assert.equal(li.querySelector('.hsnum').textContent, '3', 'the stop number is the icon');
   assert.match(li.querySelector('.ntext').textContent, /Marina Beach Park/, 'name is the header');
   // Tier 1 of the icon pipeline is the bundled seed, which is keyed by species
   // CODE. A species list carrying only names silently downgrades every row to a
   // network lookup and loses the /species/{code} link with it.
   assert.match(li.innerHTML, /tufpuf/, 'nested species rows carry the code, not just the name');
+  app.window.close();
+});
+
+// A hotspot card exists to answer ONE question: is this worth the drive? Only
+// the unseen list answers it. Hot hotspots collapsed BOTH lists behind a single
+// expander, so the deciding fact was a tap away on every row while a species
+// count you cannot act on was printed in full. Seen birds still earn a place —
+// they say the spot is alive rather than empty — but they are context, so they
+// collapse. A section may not swap which is which.
+test('a hotspot card shows the unseen birds and collapses the seen ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const li = A.hotspotCard({
+    n: 1, locId: 'L2', locName: 'Edmonds Marsh', lat: 47.8, lng: -122.38,
+    facts: ['2.4 mi'],
+    species: [{ code: 'tufpuf', comName: 'Tufted Puffin', rare: 1 }],
+    seenSpecies: [{ code: 'amecro', comName: 'American Crow', rare: 0 },
+                  { code: 'sonspa', comName: 'Song Sparrow', rare: 0 }],
+  });
+  const unseen = li.querySelector('.hsunseen');
+  assert.ok(unseen, 'the unseen birds are rendered');
+  assert.equal(unseen.closest('details'), null,
+    'the unseen list is NEVER behind an expander — it is the reason to drive there');
+  assert.match(unseen.textContent, /Tufted Puffin/, 'and it names the birds');
+
+  const seen = li.querySelector('.hsseen');
+  assert.equal(seen.tagName, 'DETAILS', 'the seen list IS an expander — it is context');
+  assert.ok(!seen.hasAttribute('open'), 'and it starts closed');
+  // The count has to be on the summary: it is the only thing readable while shut.
+  assert.match(seen.querySelector('summary').textContent, /2 more species already seen/,
+    'the summary carries the count, because the list itself is hidden');
+  assert.match(seen.textContent, /American Crow/, 'the seen birds are still there to open');
+
+  // Both lists use the small SPECIES card, so a bird looks like a bird everywhere.
+  for (const el of [unseen, seen]) {
+    assert.ok(el.querySelector('ul.obs.card-sm'), 'species render as small cards');
+  }
+  // And the actions come last, after the birds — you decide, then you go.
+  const acts = li.querySelector('.hsact');
+  assert.ok(acts, 'every hotspot card offers Open in Maps / Save');
+  assert.match(acts.textContent, /Open in Maps/, 'Open in Maps');
+  assert.match(acts.textContent, /Save|Saved/, 'and Save, exactly like the quick outing');
+  assert.ok(li.querySelector('.hsseen').compareDocumentPosition(acts)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'actions sit below the lists');
   app.window.close();
 });
 
@@ -2397,6 +2540,9 @@ test('every hotspot list is built by the one shared card', () => {
     'the trip planner': ['function renderRoute(', 'function loadTripPlanner('],
     'closest spots': ['function renderTargetPlaces(', 'function refresh()'],
     'quick outing': ['function loadQuickOuting(', 'function parseCSV('],
+    // Hot & Cold were the last holdouts: they rendered a hand-rolled row with
+    // the birds — unseen AND seen together — collapsed behind one expander.
+    'hot & cold hotspots': ['function hotspotRow(', 'var _hotspotCache'],
   };
   for (const [name, [from, to]] of Object.entries(fns)) {
     const i = HTML.indexOf(from), j = HTML.indexOf(to);
@@ -2406,15 +2552,20 @@ test('every hotspot list is built by the one shared card', () => {
     assert.match(src, /hotspotCard\(\{/, name + ' must build its rows with hotspotCard');
     assert.doesNotMatch(src, /<div class="name">/,
       name + ' must not hand-roll a row — that is how the five drifted apart');
+    assert.doesNotMatch(src, /<details/,
+      name + ' must not roll its own expander — the card decides what collapses');
   }
   // The shared card is what makes the standardisation real: one place to fix.
   const card = HTML.slice(HTML.indexOf('function hotspotCard('),
     HTML.indexOf('function renderDestinations('));
-  assert.match(card, /class="thumb stopnum"/, 'the rank/stop number occupies the photo slot');
-  assert.match(card, /class="ntext"/, 'the hotspot name is the header cell');
-  assert.match(card, /class="meta"/, 'distance/score/targets are the sub-header');
-  assert.match(card, /speciesListHtml\(/, 'the birds are listed under the card');
-  assert.match(card, /class="hsact"/, 'and the actions come last, on their own line');
+  assert.match(card, /HotspotCards\.medium\(/,
+    'the card delegates its layout to www/cards-hotspot.js, the one definition');
+  assert.match(card, /unseen:/, 'unseen birds are a slot the template renders open');
+  assert.match(card, /seen:/, 'seen birds are a slot the template collapses');
+  assert.match(card, /speciesListHtml\(/, 'and both are SPECIES cards, not a third row shape');
+  assert.match(card, /class="hsact"/, 'the actions come last, on their own line');
+  assert.match(card, /Open in Maps/, 'every hotspot can be opened in maps');
+  assert.match(card, /favLink\(/, 'and saved, exactly like the quick outing');
   // All five lists must actually opt into the medium template.
   for (const id of ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults']) {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
@@ -2449,8 +2600,8 @@ test('latest ticks: names are a list sorted newest first, not a run-on', () => {
     'a paragraph of "Name (#4) · Name (#7) · …" is unreadable on a phone');
   assert.match(src, /b\.date \|\| ''\)\.localeCompare\(String\(a\.date/,
     'sorted most recent first — yesterday’s tick says more than the highest rank');
-  assert.match(src, /Who added it[\s\S]{0,80}class="cklrows"/,
-    'the birders render as a labelled list');
+  assert.match(src, /Who added it[\s\S]{0,80}class="cklrows whorows"/,
+    'the birders render as a labelled list, at the roster size');
   assert.match(src, /recent checklist[\s\S]{0,120}class="cklrows"/,
     'and the checklists carrying the bird follow as their own list');
 });
@@ -2545,13 +2696,18 @@ test('GBIF states the window it searched instead of implying the bird vanished',
 // the three-template block exists to prevent: two definitions of one shape
 // means a fix to the card lands in one list and not the other.
 test('the small species list uses the shared card template, not its own copy', () => {
-  // Every `.sppl` list must opt into the template rather than restyling itself.
+  // There must be no hand-rolled `.sppl` list markup left in the app at all:
+  // the one builder delegates to www/cards-species.js. Two literals is how the
+  // drift started — hotspotBirdList hand-rolled a second, 34px copy of what
+  // speciesListHtml already built at 46px.
   const uls = HTML.match(/<ul class="obs[^"]*\bsppl\b[^"]*"/g) || [];
-  assert.ok(uls.length >= 2, 'the small species list is used in more than one section');
-  for (const u of uls) {
-    assert.match(u, /\bcard-sm\b/,
-      `every .sppl list must adopt .card-sm; found ${u}`);
-  }
+  assert.equal(uls.length, 0,
+    'no section may hand-roll a .sppl list; found ' + uls.length);
+  assert.match(HTML, /SpeciesCards\.list\('small'/,
+    'the list wrapper comes from the card file, which owns the size class');
+  // …and it must be used by more than one section, or "shared" means nothing.
+  const calls = (HTML.match(/speciesListHtml\(/g) || []).length;
+  assert.ok(calls >= 3, 'the one builder must serve several sections; found ' + calls);
   // …and must NOT redeclare the parts the template owns.
   const rules = HTML.match(/\.obs\.sppl[^{]*\{[^}]*\}/g) || [];
   for (const r of rules) {
@@ -2560,8 +2716,8 @@ test('the small species list uses the shared card template, not its own copy', (
         `.sppl must not redeclare "${owned}" -- .card-sm owns the shape. Found: ${r}`);
     }
   }
-  assert.match(HTML, /\.obs\.card-sm \.thumb \{[^}]*width:\s*calc\(46px \* var\(--s\)\)/,
-    '.card-sm is the one place the small icon size is set');
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{[^}]*width:\s*calc\(46px \* var\(--s\)\)/,
+    'www/cards-species.js is the one place the small icon size is set');
 });
 
 // A species row is only scannable if the name is a real heading, not the 15px
@@ -2569,17 +2725,18 @@ test('the small species list uses the shared card template, not its own copy', (
 // inherit `.obs .name`, so they get the same weight and colour as every other
 // species name in the app.
 test('small species rows render their name through .name, not a bare span', () => {
-  for (const marker of ['speciesListHtml', 'hotspotBirdList']) {
-    const i = HTML.indexOf('function ' + marker + '(');
-    assert.ok(i > -1, `${marker} must exist`);
-    const body = HTML.slice(i, HTML.indexOf('</ul>', i));
-    assert.match(body, /<div class="name">/,
-      `${marker} must wrap its row in .name so the shared card styles apply`);
-    assert.match(body, /class="ntext"/,
-      `${marker} must put the text in .ntext so a long name wraps as one block`);
-    assert.ok(!/class="bn"/.test(body),
-      `${marker} must not use the old unstyled .bn span`);
-  }
+  assert.match(CARDS_SPECIES.slice(CARDS_SPECIES.indexOf('var SMALL')),
+    /<div class="name">/,
+    'the small template wraps its row in .name so the shared card styles apply');
+  assert.match(CARDS_SPECIES.slice(CARDS_SPECIES.indexOf('var SMALL')),
+    /class="ntext"/,
+    'and puts the text in .ntext so a long name wraps as one block');
+  assert.ok(!/class="bn"/.test(CARDS_SPECIES), 'no old unstyled .bn span');
+  // The hotspot sections feed it through the split, so they cannot re-hand-roll.
+  const split = HTML.slice(HTML.indexOf('function splitHotspotBirds('),
+    HTML.indexOf('var _hotspotCache'));
+  assert.match(split, /comName:/, 'the split hands speciesListHtml its own record shape');
+  assert.ok(!/<li>/.test(split), 'and builds no markup of its own');
 });
 
 // getAnchors() resolves WHERE the coordinates come from; logic.js decides which

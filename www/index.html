@@ -252,78 +252,6 @@
     .thumb.nopic { display: none; }
     .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
     .obs li { overflow: hidden; }
-    /* Larger icon + title for the sections read as "which bird is this" rather
-       than "how many" — the thumbnail is the fastest way to recognise a bird. */
-    .obs.big .name { display: flex; align-items: center; gap: 12px; font-size: calc(20px * var(--s)); font-weight: 800; line-height: 1.25; }
-    .obs.big .thumb { float: none; flex: 0 0 auto; width: calc(64px * var(--s)); height: calc(64px * var(--s)); margin: 0; }
-    .obs.big .meta { margin-top: 6px; }
-    .obs.big .count { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); }
-    /* Last 7-Days rarity: read one row at a time ("what IS that bird, and do I
-       drive?"), not scanned like a leaderboard, so the photo is sized to be
-       identified rather than merely present. .ntext keeps the name and its
-       badges in ONE flex item so a long name wraps beside the photo instead of
-       dropping onto a second flex line underneath it. */
-    /* The xl list is a photo-led card: a 92px image and a 28px title made the
-       surrounding text read as fine print, so everything here steps up with it.
-       The distance is a decision — "is this worth the drive" — so it is sized
-       and coloured like an answer, not like a footnote. */
-    /* 32px wrapped "Terek Sandpiper" onto two lines beside a 92px photo, which
-       is the one thing the name must not do — it is the row's subject. At 22px
-       a two-word species name fits the remaining column on a phone, and the
-       detail line below it reads as a sub-header rather than a second title. */
-    /* Child combinators throughout: a medium card can CONTAIN a small-card
-       species list (the trip planner's unseen birds), and a descendant
-       selector would restyle those nested rows as titles. */
-    .obs.xl > li > .name { font-size: calc(26px * var(--s)); gap: 14px; }
-    .obs.xl > li > .name > .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }
-    /* break-word, NOT anywhere: `anywhere` breaks inside a word the moment the
-       line is tight, which is what split "Sandpiper" across two lines. A
-       species name should wrap between its words or not at all. */
-    .obs.xl > li > .name > .ntext { min-width: 0; overflow-wrap: break-word; word-break: normal;
-                     hyphens: none; line-height: 1.15; }
-    .obs.xl > li > .meta { font-size: calc(16px * var(--s)); }
-    .obs.xl > li > .count { font-size: calc(21px * var(--s)); font-weight: 800; color: var(--ink); }
-    .obs.xl > li > .cklrows { font-size: calc(17px * var(--s)); }
-    .obs.xl > li > .cklrows .who { font-size: calc(16px * var(--s)); }
-    .obs.xl > li > .name .needflag, .obs.xl > li > .name .stakeflag,
-    .obs.xl > li > .name .seenflag { font-size: calc(15px * var(--s)); }
-    /* LARGE (.cards / .card-lg) — the third of the three card templates: a
-       full-bleed photo, then the name, then the sub-header, then the evidence.
-       A rarity section holds 0-3 birds and each one is a bird you have probably
-       never seen, so the question is "what IS this and how big a deal is it",
-       not "which row do I scan next". */
-    .cards, .card-lg { list-style: none; margin: 10px 0 0; padding: 0; }
-    .cards > li, .card-lg > li { border: 1px solid var(--line); border-radius: 16px; margin: 0 0 16px;
-                  overflow: hidden; background: var(--card); }
-    /* Resets, not decoration: .bchero reuses .thumb for the shared photo
-       hydration pipeline, and .thumb's fixed 46px height CANCELS aspect-ratio
-       (a box with both width and height set ignores it), which collapsed every
-       card photo into a full-width 46px band with a tiny contained image. */
-    .bchero { width: 100%; height: auto; aspect-ratio: 3 / 2; float: none; margin: 0;
-      border-radius: 0; background: #eceff3; display: block; overflow: hidden; }
-    .bchero .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
-    /* The photo fills the frame edge to edge and lets the card's own
-       overflow:hidden clip the corners. A contained image on a grey mat reads
-       as a thumbnail someone forgot to finish, and the inset made an already
-       soft rendition look softer by shrinking it further. The generic
-       silhouette is the one exception: it is not a photo OF this bird, so
-       cropping it to fill would be dishonest as well as ugly. */
-    .bchero .birdpic.isfallback { object-fit: contain; background: #eceff3; padding: 18px; box-sizing: border-box; }
-    /* The bundled seed is 60px wide — a list icon. Stretched across a full-bleed
-       card that is a ~6x upscale, which is exactly the "blurry photo" the hero
-       path exists to avoid, and it looks like a bad photo rather than a missing
-       one. Render it at its natural size instead: never upscaled, centred on the
-       mat, honestly small. A card that says "we only have a thumbnail" is more
-       useful than one that shows a smear. */
-    .bchero .birdpic.isseed { width: auto; height: auto; max-width: 100%; max-height: 100%;
-      margin: auto; object-fit: none; image-rendering: auto; }
-    .bchero:has(.isseed) { display: flex; align-items: center; justify-content: center; }
-    .bchero.nopic { display: none; }
-    .bcbody { padding: 14px 16px 16px; }
-    .bcname { font-size: calc(30px * var(--s)); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
-              color: var(--accent); margin: 0; overflow-wrap: anywhere; }
-    .bcname .needflag, .bcname .stakeflag, .bcname .seenflag { font-size: calc(13px * var(--s)); vertical-align: middle; }
-    .bcsub { font-size: calc(14px * var(--s)); color: var(--muted); margin-top: 4px; }
     .bcnow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
       background: #f6f8f6; font-size: calc(18px * var(--s)); line-height: 1.4; }
     .bcnow .lbl { display: block; font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted);
@@ -432,86 +360,36 @@
     .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
     .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: calc(13px * var(--s)); }
     .cklrows .maplink, .cklrows .extlink { margin-top: 0; }
+    /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
+       enough that the fields below it would otherwise be an unlabelled run of
+       facts. A modifier class rather than :has(), which is unguarded on the
+       older iOS Safari this is sideloaded onto. */
+    /* `start`, NOT `baseline`: the value cell here is a place name that wraps to
+       two or three lines, and a baseline-aligned grid row overflows when it
+       does — the same clipping that sliced "Stanwood Water" through its
+       divider. `start` grows the row downward predictably. */
+    .cklrows li.lblrow { grid-template-columns: auto 1fr; align-items: start; }
+    .cklrows li.lblrow > .lbl { grid-column: 1; font-size: calc(12px * var(--s));
+      font-weight: 800; color: var(--muted); letter-spacing: 0.04em;
+      text-transform: uppercase; white-space: nowrap; }
+    .cklrows li.lblrow > .who, .cklrows li.lblrow > .when,
+    .cklrows li.lblrow > .where { grid-column: 2; font-size: calc(14px * var(--s)); }
     /* Happening now: the number IS the headline ("19 top-100 birders added it"),
        so it carries its own label instead of floating unexplained. */
     .obs.xl .count.big { font-size: calc(30px * var(--s)); text-align: right; max-width: 42%; line-height: 1.1; }
     .obs.xl .count.big small { display: block; font-size: calc(13px * var(--s)); line-height: 1.2; margin-top: 2px; }
-    /* ================= THREE CARD TEMPLATES =================================
-       Every list of birds in this app is exactly one of three shapes, defined
-       once here and referenced by the sections, so a fix to a shape lands
-       everywhere at once instead of being re-tuned per section.
+     /* ================= CARD TEMPLATES ======================================
+        Every list of birds and every list of hotspots in this app is exactly
+        one of three shapes, and they are DEFINED IN THEIR OWN FILES so they
+        can be read and tweaked without hunting through this one:
 
-         .card-sm  ONE row — small icon, name beside it, text box the same
-                   height as the icon. For scanning a long list when you
-                   already know what you are looking for.
-         .card-md  TWO columns — photo left; right column is the name over the
-                   details. For deciding: "which bird is this, and do I drive?"
-         .card-lg  THREE rows — full-width photo, then the name, then the
-                   sub-header. For reading about ONE bird rather than scanning.
+            www/cards-species.js   bird rows      small / medium / large
+            www/cards-hotspot.js   hotspot rows   small / medium / large
 
-       The old per-section modifiers are kept as aliases (.obs.xl is .card-md,
-       .bcard is .card-lg) so no section had to be renamed to adopt this.
-       ======================================================================== */
-    .obs.card-sm .name { display: flex; align-items: center; gap: 10px;
-                         min-height: calc(46px * var(--s)); line-height: 1.25; }
-    .obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;
-                          width: calc(46px * var(--s)); height: calc(46px * var(--s)); }
-    .obs.card-sm .ntext { min-width: 0; overflow-wrap: anywhere; }
-    /* The small card's optional SECOND line: what the row is (the name) stays
-       on top, and what backs it up (count, time, checklist) drops below at
-       caption weight. The icon box is 46px, which two lines of this size fit
-       inside, so the template's one-row height is preserved. */
-    .obs.card-sm .ntext .sub { display: block; font-size: calc(13px * var(--s));
-                          font-weight: 500; color: var(--muted); margin-top: 1px; line-height: 1.3; }
-    /* MEDIUM — a real two-column table, not a float.
-         col 1  the photo, spanning BOTH rows
-         col 2  row 1 = the header (what bird this is)
-                row 2 = the sub-header (what you need to decide)
-       Everything the row carries after those two cells is ADDITIONAL
-       INFORMATION and starts a new full-width row underneath.
-       The float this replaces made the sub-header slide up beside the photo
-       on a short name and drop below it on a long one, so no two rows in a
-       list ever lined up — the "wrapping odd" that kept being reported. */
-    /* Every selector here is CHILD-scoped: a medium card can CONTAIN a small
-       card list (a hotspot's unseen birds), and a descendant selector would
-       hand those nested rows the outer row's grid and turn their .name into
-       display:contents. */
-    .obs.xl > li, .obs.card-md > li {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      grid-template-rows: auto auto;
-      align-items: center;
-      overflow: hidden;
-    }
-    /* display:contents lifts the photo and the title OUT of .name so each can
-       be a cell of the row grid, while .name still supplies their typography —
-       inherited properties pass through a contents box even though its own
-       box is gone. */
-    .obs.xl > li > .name, .obs.card-md > li > .name { display: contents; }
-    /* The gutter is the photo's margin rather than the grid's column-gap so a
-       row whose photo failed to resolve (.thumb.nopic is display:none) closes
-       up completely instead of keeping an empty 14px indent. */
-    .obs.xl > li > .name > .thumb, .obs.card-md > li > .name > .thumb {
-      float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: center; }
-    .obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {
-      grid-column: 2; grid-row: 1; align-self: end; }
-    .obs.xl > li > .meta, .obs.card-md > li > .meta {
-      grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }
-    .obs.xl > li > *, .obs.card-md > li > * { grid-column: 1 / -1; min-width: 0; }
-    .obs.xl > li > .count.big, .obs.card-md > li > .count.big { float: none; display: block;
-                         max-width: none; text-align: left; margin: 6px 0 0; }
-    .obs.xl > li > .count.big small, .obs.card-md > li > .count.big small { display: inline; margin-left: 7px; }
-    /* The numbered badge that stands in for a photo when the row is a PLACE.
-       Same 92px box as the bird photo it replaces, so a hotspot list and a bird
-       list are visibly the same template rather than two lookalikes. */
-    .stopnum { display: flex; align-items: center; justify-content: center;
-               font-size: calc(38px * var(--s)); font-weight: 800; line-height: 1;
-               color: var(--accent); font-variant-numeric: tabular-nums;
-               background: color-mix(in srgb, var(--accent) 12%, transparent); }
-    /* Actions are the last thing in the row and read as a pair, not as two
-       more facts, so they get their own line with breathing room above. */
-    .hsact { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
-    .hsact .maplink, .hsact .favlink { margin-top: 0; }
+        Each file holds the HTML template AND the CSS for its family, injected
+        once on load. Do not re-declare a card rule here: two definitions of
+        one shape is what made six sections drift into six lookalikes.
+        ======================================================================== */
     /* A labelled break inside a row — "Where it is being reported" vs "Who
        added it" — so two adjacent tables are not read as one. */
     .lanesub { margin-top: 12px; font-size: calc(14px * var(--s)); font-weight: 800;
@@ -556,7 +434,13 @@
        the title outranks them. It was previously unstyled, which left it at
        body size under 17px bold species links — the row read as a list of birds
        with a caption rather than a place with a reason to drive there. */
-    .favtitle { font-size: calc(19px * var(--s)); font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+    /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
+       the title outranks them. At 19px it sat only 2px above the 17px species
+       links beneath it, which is not a rank difference you can see — the row
+       still read as a list of birds with a caption. 24px makes the place the
+       heading and the birds the list under it. */
+    .favtitle { font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.25;
+                overflow-wrap: anywhere; }
     .favtitle .dim { font-weight: 600; }
     .favspp { margin: 4px 0 6px; }
     .favspp li { padding: 5px 0; border: none; }
@@ -655,7 +539,7 @@
         <button id="settingsToggle" class="secondary">Settings</button>
       </div>
       <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
-      <ul id="results" class="obs big xl"></ul>
+      <ul id="results" class="obs card-sm"></ul>
     </section>
 
     <section class="panel">
@@ -1002,13 +886,17 @@
 
   <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
+  <!-- The two card families. Pure layout: they receive already-escaped HTML
+       and own the markup + CSS for every bird row and every hotspot row. -->
+  <script src="cards-species.js"></script>
+  <script src="cards-hotspot.js"></script>
   <script src="seed-birdlist.js"></script>
   <script>
     (function () {
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.29';
+      var APP_VERSION = '1.0.30';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1876,31 +1764,38 @@
           st.textContent = rows.length + ' rarity report' + (rows.length === 1 ? '' : 's') +
             ' so far today · newest first · updated ' + nowTime();
           var days = stakeoutDays(c.cv.merged || []);
-          // Medium cards, not full bird cards: this section is the DAY'S LIST of
-          // rare-bird reports — one row per checklist — so it carries exactly
-          // the columns the markdown table does (species, closest, observer,
-          // latest) and stops there. How rare each species is across the whole
-          // snapshot is what Last 7-Days rarity reports answers.
-          rows.forEach(function (r) {
-            var li = document.createElement('li');
+          // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
+          // reports — one row per checklist — so it is scanned, not read. It
+          // carries exactly the columns the markdown table does (species,
+          // closest, observer, latest) and nothing is dropped: what does not fit
+          // the one-row card is printed underneath it, labelled. How rare each
+          // species is across the whole snapshot is what Last 7-Days answers.
+          var html = rows.map(function (r) {
             var flock = (r.count != null && r.count !== '') ? ' <span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
             var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
             var d = (r.distMi != null && r.distMi !== Infinity) ? r.distMi.toFixed(1) + ' mi' : '';
-            li.innerHTML =
-              '<div class="name">' + photoSlot(r.name, r.code) + '<span class="ntext">' +
-              speciesLink(r.name, r.code) + '</span></div>' +
-              '<div class="meta">' + (d ? d + ' · ' : '') + recLocLink(r) +
-              needTag(r.code, r.name) + flock + stake + warn + '</div>' +
-              '<ul class="cklrows"><li>' +
-              '<span class="when">' + esc(fmtDateTime(r.dateStr)) + '</span>' +
-              '<span class="howmany"></span>' +
-              '<span class="where">' + (r.observer ? esc(r.observer) : '') +
-              (r.subId ? (r.observer ? ' · ' : '') + checklistLink(r.subId, r.subId) : '') +
-              '</span></li></ul>';
-            out.appendChild(li);
-          });
+            var below = '<ul class="cklrows">'
+              // Distance is already the card's caption line, where it is
+              // scannable; repeating it here would be the same fact twice.
+              + '<li class="lblrow"><span class="lbl">Where</span><span class="where">'
+              + recLocLink(r) + '</span></li>'
+              + (r.observer ? '<li class="lblrow"><span class="lbl">Observer</span><span class="who">'
+                  + esc(r.observer) + '</span></li>' : '')
+              + '<li class="lblrow"><span class="lbl">Latest</span><span class="when">'
+              + esc(fmtDateTime(r.dateStr))
+              + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>'
+              + '</ul>';
+            return SpeciesCards.small({
+              icon: photoSlot(r.name, r.code),
+              name: speciesLink(r.name, r.code),
+              tags: needTag(r.code, r.name) + flock + stake + warn,
+              sub: d,
+              below: below
+            });
+          }).join('');
+          out.innerHTML = html;
           hydratePhotos(out);
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
@@ -2862,22 +2757,24 @@
           return head + '<div class="favmeta">No rarities, watchlist hits, or ' +
             'unseen-this-year species in the last week.</div>';
         }
-        var out = head + '<ul class="obs card-sm favspp">';
-        res.rows.slice(0, FAV_ROWS).forEach(function (r) {
-          var o = r.o, tag = r.rare ? ' ⭐' : (r.watch ? ' 🔍' : '');
-          var name = o.comName || r.code;
-          out += '<li><div class="name">' + photoSlot(name, r.code) + '<span class="ntext">' +
-            (r.code ? '<a href="' + esc(speciesUrl(r.code)) + '" target="_blank" rel="noopener">' + esc(name) + '</a>' : esc(name)) +
-            tag +
+        // The one small-card builder, not a hand-rolled copy of it. Favorites
+        // ranks by tier then newest — that is its report's order, so it keeps
+        // its own sort — and its report legend is EXCLUSIVE (⭐ or 🔍, never
+        // both), so each row overrides the default accumulating flags.
+        var rows = res.rows.slice(0, FAV_ROWS).map(function (r) {
+          var o = r.o, name = o.comName || r.code;
+          return {
+            comName: name, code: r.code, rare: r.rare ? 1 : 0,
+            tag: r.rare ? ' ⭐' : (r.watch ? ' 🔍' : ''),
             // Count, time and checklist are evidence for the name above them,
             // not part of it — on one line they out-shouted the hotspot title
             // and the bird name lost the row it was the subject of.
-            '<span class="sub">' + (o.howMany ? '×' + esc(o.howMany) + ' · ' : '') +
-            esc(fmtDateTime(o.obsDt)) +
-            (o.subId ? ' · <a href="https://ebird.org/checklist/' + esc(o.subId) + '" target="_blank" rel="noopener">' + esc(o.subId) + '</a>' : '') +
-            '</span></span></div></li>';
+            sub: (o.howMany ? '×' + esc(o.howMany) + ' · ' : '')
+              + esc(fmtDateTime(o.obsDt))
+              + (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '')
+          };
         });
-        out += '</ul>';
+        var out = head + speciesListHtml(rows, { presorted: true, cls: 'favspp' });
         if (res.rows.length > FAV_ROWS) {
           out += '<div class="favmeta">…and ' + (res.rows.length - FAV_ROWS) + ' more.</div>';
         }
@@ -2936,12 +2833,19 @@
             ? haversineMi(home.lat, home.lng, +f.lat, +f.lng) : null;
           li.innerHTML =
             '<div class="favrow"><div class="favmain">' +
+              // The hotspot name is the row's subject, so it is a title, not a
+              // caption with a distance and a map glyph crammed in beside it.
+              // extA (not locLink) because locLink appends its own inline 🗺,
+              // which duplicated the Open in Maps link directly below.
               '<div class="favtitle"><span class="favrank">' + (i + 1) + '</span>' +
-              locLink(f.locName || f.id, f.lat, f.lng, f.locId) +
-              (d == null ? '' : ' <span class="dim">— ' + d.toFixed(1) + ' mi</span>') + '</div>' +
+              (f.locId ? extA(hotspotUrl(f.locId), f.locName || f.id)
+                       : esc(f.locName || f.id)) + '</div>' +
               '<div class="recentbox"></div>' +
-              '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">Open in Maps ↗</a>' +
-              (f.locId ? ' &nbsp; <a class="recentlink" data-i="' + i + '">Refresh ↻</a>' : '') +
+              '<div class="hsact">' +
+                '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">🗺 Open in Maps ↗</a>' +
+                (d == null ? '' : '<span class="dim">' + d.toFixed(1) + ' mi</span>') +
+                (f.locId ? '<a class="recentlink" data-i="' + i + '">Refresh ↻</a>' : '') +
+              '</div>' +
             '</div><div class="favctl">' +
               '<button class="favbtn favup" data-i="' + i + '" aria-label="Move ' +
                 esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
@@ -3352,20 +3256,38 @@
       //   header  the hotspot name
       //   sub     distance · score · targets — whatever the section knows
       //   below   the birds worth the drive, then the actions
-      function speciesListHtml(species) {
+      // The ONE small-card builder. `opts.presorted` keeps a caller's own order
+      // (favorites ranks by tier then newest, which is its report's order, not
+      // rare-then-alphabetical); `opts.cls` adds a spacing modifier; and a
+      // per-species `tag` REPLACES the default flags for sections whose report
+      // prints an exclusive legend instead of accumulating badges.
+      function speciesListHtml(species, opts) {
+        opts = opts || {};
         // Icons, not a comma run: these rows are read as "which birds are
         // there", and a bare name list is the hardest form to scan.
-        var lis = (species || []).slice()
-          .sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); })
-          .map(function (x) {
-            return '<li><div class="name">' + photoSlot(x.comName, x.code)
-              + '<span class="ntext">' + speciesLink(x.comName, x.code)
-              + needTag(x.code, x.comName) + (x.rare ? '<span class="star">★</span>' : '')
-              + (x.sub ? '<span class="sub">' + x.sub + '</span>' : '')
-              + '</span></div></li>';
-          }).join('');
-        return '<ul class="obs card-sm sppl">' + lis + '</ul>';
+        var list = (species || []).slice();
+        if (!opts.presorted) {
+          list.sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); });
+        }
+        var lis = list.map(function (x) {
+            // ⭐ not ★: every rarity marker in the Markdown report is ⭐, and a
+            // section whose own legend says "rarities (⭐)" must not then print
+            // a different glyph on the rows that legend describes.
+            var tags = (x.tag != null) ? x.tag
+              : needTag(x.code, x.comName) + (x.rare ? '<span class="star">⭐</span>' : '');
+            return SpeciesCards.small({
+              icon: photoSlot(x.comName, x.code),
+              name: speciesLink(x.comName, x.code),
+              tags: tags,
+              sub: x.sub || ''
+            });
+          });
+        return SpeciesCards.list('small', lis, 'sppl' + (opts.cls ? ' ' + opts.cls : ''));
       }
+      // Every hotspot row in the app comes through here, and the shape is fixed
+      // by HotspotCards.medium: number + name, sub-header, UNSEEN birds shown,
+      // SEEN birds collapsed, then Open in Maps / Save. Sections choose what
+      // goes in the icon and the facts; they do not choose the layout.
       function hotspotCard(o) {
         var li = document.createElement('li');
         var name = o.locId ? extA(hotspotUrl(o.locId), o.locName || o.locId)
@@ -3378,21 +3300,29 @@
           return f != null && f !== '' && String(f).indexOf('undefined') < 0
             && String(f).indexOf('NaN') < 0;
         }).join(' · ');
-        var sp = (o.species && o.species.length)
-          ? '<div class="lanesub">' + esc(o.speciesLabel || 'Unseen birds here') + '</div>'
-            + speciesListHtml(o.species)
-          : '';
         var la = parseFloat(o.lat), ln = parseFloat(o.lng);
         var acts = (isFinite(la) && isFinite(ln)
-          ? '<a class="maplink" data-q="' + esc(la + ',' + ln) + '">Open in Maps ↗</a>' : '')
+          ? '<a class="maplink" data-q="' + esc(la + ',' + ln) + '">🗺 Open in Maps ↗</a>' : '')
           + favLink({ locId: o.locId, locName: o.locName, lat: o.lat, lng: o.lng });
-        li.innerHTML =
-          '<div class="name"><span class="thumb stopnum" aria-hidden="true">' + esc(String(o.n)) + '</span>'
-          + '<span class="ntext">' + name + '</span></div>'
-          + '<div class="meta">' + facts + '</div>'
-          + sp
-          + '<div class="hsact">' + acts + '</div>';
-        return li;
+        var unseen = o.species || [], seen = o.seenSpecies || [];
+        var html = HotspotCards.medium({
+          num: o.n, name: name, sub: facts,
+          unseen: unseen.length ? speciesListHtml(unseen) : '',
+          unseenLabel: unseen.length
+            ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
+          // The count lives in the summary because it is the only thing you
+          // can read while the list is shut.
+          seen: seen.length ? speciesListHtml(seen) : '',
+          seenLabel: seen.length
+            ? (seen.length + ' more species already seen') : '',
+          below: o.below || '',
+          actions: '<div class="hsact">' + acts + '</div>'
+        });
+        // The template returns a full <li>; unwrap it so callers keep appending
+        // an element rather than a string.
+        var tmp = document.createElement('ul');
+        tmp.innerHTML = html;
+        return tmp.firstElementChild || li;
       }
       function renderDestinations(list, mapEl, listEl) {
         renderMap(mapEl, list, getHome(), false);
@@ -4914,7 +4844,7 @@
           var meta = '<div class="meta">' + people.length + ' of the top 100'
             + (near == null ? '' : ' · ' + near.toFixed(1) + ' mi to the closest report')
             + ' · newest tick ' + esc(fmtDate(g.latest)) + '</div>';
-          var who = '<div class="lanesub">Who added it</div><ul class="cklrows">'
+          var who = '<div class="lanesub">Who added it</div><ul class="cklrows whorows">'
             + people.map(function (b) {
               return '<li><span class="when">' + (b.rank ? '#' + esc(b.rank) : '') + '</span>'
                 + '<span class="howmany">' + (b.date ? esc(fmtDate(b.date)) : '') + '</span>'
@@ -5765,15 +5695,28 @@
         cold.sort(function (a, b) { return (b.score - a.score) || ((a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist)); });
         return { hot: hot, cold: cold, total: total };
       }
-      function hotspotRow(h, extra, tail) {
-        var d = h.dist == null ? '' : (h.dist.toFixed(1) + ' mi · ');
-        var eb = 'https://ebird.org/hotspot/' + encodeURIComponent(h.locId || '');
-        var q = h.lat.toFixed(6) + ',' + h.lng.toFixed(6);
-        var saved = isFav(h.locId || '');
-        var fav = '<a class="favlink" data-locid="' + esc(h.locId || '') + '" data-locname="' + esc(h.name) + '" data-lat="' + h.lat + '" data-lng="' + h.lng + '">' + (saved ? '★ Saved' : '☆ Save') + '</a>';
-        return '<li><div class="name"><a class="extlink" data-href="' + esc(eb) + '">' + esc(h.name) + '</a></div>' +
-          '<div class="sp">' + d + extra + ' · <a class="maplink" data-q="' + esc(q) + '">🗺 directions</a> · ' + fav + '</div>' +
-          (tail || '') + '</li>';
+      // Hot and Cold rows are hotspots with birds at them, which is the exact
+      // question hotspotCard answers — so they render through it rather than
+      // through a fourth hand-rolled row shape.
+      function hotspotRow(h, extra, n) {
+        var sp = splitHotspotBirds(h);
+        var card = hotspotCard({
+          n: n, locId: h.locId, locName: h.name, lat: h.lat, lng: h.lng,
+          facts: [h.dist == null ? '' : h.dist.toFixed(1) + ' mi', extra],
+          species: sp.unseen, seenSpecies: sp.seen
+        });
+        return card.outerHTML;
+      }
+      // Unseen birds are the reason to drive there, so they are never behind a
+      // tap; seen birds say the spot is alive rather than empty, so they are
+      // context and collapse. Collapsing BOTH — which this section used to do —
+      // hides the deciding fact and prints a count you cannot act on.
+      function splitHotspotBirds(h) {
+        var unseen = [], seen = [];
+        (h.birds || []).forEach(function (b) {
+          (b.unseen ? unseen : seen).push({ comName: b.name, code: b.code, rare: 0, tag: '' });
+        });
+        return { unseen: unseen, seen: seen };
       }
       var _hotspotCache = null, _hotspotPromise = null;
       function resetHotspotCache() { _hotspotCache = null; _hotspotPromise = null; }
@@ -5794,12 +5737,12 @@
         var top = r.hot.slice(0, 10), html = '';
         if (top.length) {
           html += '<ul class="obs dest">';
-          top.forEach(function (h) {
+          top.forEach(function (h, i) {
             var bits = h.fresh + ' species';
             if (h.checklists) bits += ' · ' + h.checklists + ' recent checklist' + (h.checklists === 1 ? '' : 's');
             bits += ' · ' + h.share.toFixed(0) + '% of region';
             if (h.silent != null) bits += ' · last obs ' + h.silent + 'd ago';
-            html += hotspotRow(h, bits, hotspotBirdList(h));
+            html += hotspotRow(h, bits, i + 1);
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
@@ -5809,30 +5752,21 @@
         renderMap($('hotMap'), top, getHome(), false);
       }
       // Which birds are actually there is the reason to go; a bare count is not.
-      function hotspotBirdList(h) {
-        var birds = h.birds || []; if (!birds.length) return '';
-        var lis = birds.map(function (b) {
-          return '<li><div class="name">' + photoSlot(b.name, b.code)
-            + '<span class="ntext">' + esc(b.name)
-            + (b.unseen ? ' <span class="need">🔍</span>' : '')
-            + '</span></div></li>';
-        }).join('');
-        return '<details class="spx"><summary>' + birds.length + ' species'
-          + (h.unseenN ? ' · <b>' + h.unseenN + ' unseen 🔍</b>' : '') + '</summary>'
-          + '<ul class="obs card-sm sppl">' + lis + '</ul></details>';
-      }
+      // The split itself lives in splitHotspotBirds, and the layout in
+      // HotspotCards.medium, so this section can no longer drift from the rest.
       function renderCold(r) {
         var el = $('coldResults'); if (!el) return;
         var top = r.cold.slice(0, 10), html = '';
         if (top.length) {
           html += '<ul class="obs dest">';
-          top.forEach(function (h) {
+          top.forEach(function (h, i) {
             var s = h.silent >= 365 ? '1y+' : h.silent + 'd';
-            html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s + anchorNote(h.anchor));
+            html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s + anchorNote(h.anchor), i + 1);
           });
           html += '</ul>';
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
         el.innerHTML = html;
+        hydratePhotos(el);
         renderMap($('coldMap'), top, getHome(), false);
       }
       // Hot and cold share ONE scan (2 API calls per county). Either section's
@@ -7769,6 +7703,7 @@
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
+        renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
         renderLastNew: renderLastNew, favInteresting: favInteresting, favDetailHtml: favDetailHtml,
