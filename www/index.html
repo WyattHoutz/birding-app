@@ -919,7 +919,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.25';
+      var APP_VERSION = '1.0.26';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1365,7 +1365,16 @@
           { n: Object.keys(days).length, label: 'days seen' }
         ];
         if (wide) {
-          out.push({ n: wide.length, label: 'reports ABA-wide' });
+          // NOT "reports". MEASURED against the live API: the species-scoped
+          // region endpoint returns exactly ONE observation per location — max
+          // rows at any single location was 1 for every species tested, while
+          // recent/notable returned 78 rows at one location for the same window.
+          // So this length is a LOCATION count. Calling it "reports" swapped a
+          // number that was too big (the alert's capped row count) for one that
+          // is too small, which is worse: it is confidently precise and wrong.
+          // Locations is what the feed actually measures, and for a chaser it is
+          // the more useful number anyway — it is how many places to consider.
+          out.push({ n: wide.length, label: 'locations ABA-wide' });
           out.push({ n: Object.keys(regions).length, label: 'states/provinces' });
         }
         return out;
@@ -1680,18 +1689,21 @@
           .catch(function () { return []; });
       }
 
-      // The alert is the ABA-CODE FILTER, never a census. MEASURED across 234
-      // stored snapshots: the unfiltered continent-wide feed has NEVER returned
-      // more than 497 observations, and all six unfiltered days sit at 493-497
-      // — a hard 500-row budget shared by ~50 species. Terek Sandpiper's slice
-      // of it read 26, 34, 34, 29, 36, 37 on consecutive days while the bird sat
-      // in one place, so "37 reports ABA-wide" was measuring the cap, not the
-      // bird. Any stat derived from alert row counts is therefore a floor
-      // wearing a total's clothing.
+      // The alert is the ABA-CODE FILTER, never a census. MEASURED against the
+      // live page: it returns EXACTLY 500 observations, with no pagination, no
+      // stated total and no truncation notice — a fixed budget shared by ~51
+      // species. Terek Sandpiper's slice of it read 26, 34, 34, 29, 36, 37 on
+      // consecutive days while the bird sat in one place, so any stat built from
+      // alert row counts is a floor wearing a total's clothing.
       //
-      // The species-scoped COUNTRY feed carries no such cap. Two calls buy a
-      // real continent-wide count and real subnational1Codes for the
-      // states/provinces stat, and they only run for the 2-4 species on screen.
+      // The species-scoped COUNTRY feed carries no such cap, but it answers a
+      // DIFFERENT question: MEASURED against the live API, it returns exactly
+      // one observation PER LOCATION (max 1 row at any single location for every
+      // species tested, where recent/notable returned 78 rows at one location
+      // over the same window). That makes it a complete and accurate list of
+      // WHERE the bird is — which is why the two stats it feeds are "locations
+      // ABA-wide" and "states/provinces", not "reports". A continent-wide report
+      // count is not cheaply obtainable and so is not claimed.
       var ABA_WIDE_COUNTRIES = ['US', 'CA'];
       function abaWideHistory(code) {
         if (!code) return Promise.resolve(null);
@@ -1704,10 +1716,14 @@
           // partial continent as a total repeats the exact error the cap was
           // making, so the whole stat stands down instead.
           if (res.some(function (r) { return r == null; })) return null;
+          // Keyed by LOCATION, matching what the feed returns and what the stat
+          // claims. Keying by checklist would let one location contribute twice
+          // if eBird ever stopped collapsing, and the label would quietly drift
+          // back into being a report count.
           var seen = {}, out = [];
           res.forEach(function (rows) {
             (Array.isArray(rows) ? rows : []).forEach(function (r) {
-              var k = abaArchiveKey(r);
+              var k = r.locId || r.locName || (r.lat + ',' + r.lng);
               if (seen[k]) return;
               seen[k] = 1; out.push(r);
             });
