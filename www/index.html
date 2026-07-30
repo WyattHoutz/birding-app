@@ -896,7 +896,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.30';
+      var APP_VERSION = '1.0.31';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3822,20 +3822,85 @@
       // Location services can be absent, denied, or simply time out, and all
       // three leave you standing somewhere you can still name — so every failure
       // path lands on the same typed-place fallback rather than an error.
+
+      // The native CoreLocation bridge (auto-registered plugin proxy; absent in
+      // web preview, where navigator.geolocation is the real thing).
+      function geo() { var c = window.Capacitor; var p = c && c.Plugins && c.Plugins.Geolocation; return p || null; }
+
+      // WKWebView is why this needs a plugin at all. Capacitor serves the app
+      // from capacitor://localhost, and WebKit only honours navigator.geolocation
+      // on origins it considers secure — so on device the web API is present
+      // (the `if (!navigator.geolocation)` guard never fires), and then calls
+      // NEITHER callback: no prompt, no error, no result. That is the reported
+      // bug — "📍 Here" left the status line reading "Asking for your location…"
+      // forever. The plugin talks to CoreLocation directly and is not
+      // scheme-bound. iOS also needs NSLocationWhenInUseUsageDescription in
+      // Info.plist or CoreLocation refuses the request without ever prompting;
+      // the ios/ folder is regenerated each build, so the key is injected by
+      // .github/workflows/ios-build.yml, not committed.
+      var GEO_WAIT_MS = 12000;
+      var GEO_DENIED = 'Location is off for Bird Chaser (Settings \u203A Privacy & Security \u203A Location Services).';
+
+      function geoErrText(e) {
+        var m = (e && (e.message || e.errorMessage)) || '';
+        return m ? String(m) : 'no reason given';
+      }
+      // iOS reports a refusal as a code-1 PositionError or a message mentioning
+      // denial; anything else is a genuine failure and gets its reason quoted.
+      function geoDenied(e) {
+        if (e && e.code === 1) return true;
+        return /denied|dismiss|not authoriz|unauthoriz|permission/i.test(geoErrText(e));
+      }
+
+      // Resolves { lat, lng }, or rejects with a sentence worth showing.
+      function getDeviceLocation() {
+        return new Promise(function (resolve, reject) {
+          var done = false, timer = null;
+          function ok(lat, lng) {
+            if (done) return; done = true; clearTimeout(timer);
+            if (isFinite(lat) && isFinite(lng)) resolve({ lat: Number(lat), lng: Number(lng) });
+            else reject(new Error('Location came back empty.'));
+          }
+          function fail(msg) { if (done) return; done = true; clearTimeout(timer); reject(new Error(msg)); }
+          // The watchdog is the load-bearing part. A PositionOptions `timeout`
+          // is enforced BY the implementation, so it cannot fire when the
+          // implementation is the thing that has gone quiet — which is exactly
+          // the WKWebView failure above. This one is ours, so it always fires.
+          timer = setTimeout(function () { fail('Location timed out.'); }, GEO_WAIT_MS);
+
+          var opts = { enableHighAccuracy: false, timeout: GEO_WAIT_MS - 2000, maximumAge: 300000 };
+          var P = geo();
+          if (P && typeof P.getCurrentPosition === 'function') {
+            try {
+              P.getCurrentPosition(opts).then(function (pos) {
+                var c = pos && pos.coords; ok(c && c.latitude, c && c.longitude);
+              }).catch(function (e) {
+                fail(geoDenied(e) ? GEO_DENIED : 'Location unavailable (' + geoErrText(e) + ').');
+              });
+              return;
+            } catch (e) { /* fall through to the web API */ }
+          }
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function (pos) {
+              var c = pos && pos.coords; ok(c && c.latitude, c && c.longitude);
+            }, function (err) {
+              fail(geoDenied(err) ? GEO_DENIED : 'Location unavailable (' + geoErrText(err) + ').');
+            }, opts);
+            return;
+          }
+          fail('This device has no location services.');
+        });
+      }
+
       function quickUseHere() {
-        if (!navigator.geolocation) {
-          quickAskPlace('This device has no location services. Type where you are instead.');
-          return;
-        }
         $('quickStatus').textContent = 'Asking for your location\u2026';
-        navigator.geolocation.getCurrentPosition(function (pos) {
-          quickHere = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'your location' };
+        getDeviceLocation().then(function (c) {
+          quickHere = { lat: c.lat, lng: c.lng, label: 'your location' };
           $('quickHereRow').hidden = true;
           loadQuickOuting('here');
-        }, function (err) {
-          quickAskPlace('Location unavailable (' + ((err && err.message) || 'permission denied') +
-            '). Type where you are instead.');
-        }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+        }).catch(function (e) {
+          quickAskPlace(((e && e.message) || 'Location unavailable.') + ' Type where you are instead.');
+        });
       }
 
       function quickFindPlace() {
@@ -7409,6 +7474,13 @@
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
         try { add('InAppBrowser: ' + (ibAvail() ? 'available' : 'NOT available')); } catch (e) {}
+        // Which location path "📍 Here" will take. On device this must read
+        // "native plugin"; "web API only" means the plugin did not register and
+        // the request will silently never prompt.
+        try {
+          add('Geolocation: ' + (geo() ? 'native plugin'
+            : (navigator.geolocation ? 'web API only (will NOT prompt on device)' : 'NONE')));
+        } catch (e) {}
         try { add('UA: ' + (navigator.userAgent || '')); } catch (e) {}
         return out.join('\n');
       }
