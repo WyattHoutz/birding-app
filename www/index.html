@@ -454,6 +454,15 @@
     .placeicon { display: flex; align-items: center; justify-content: center;
                  font-size: calc(44px * var(--s)); line-height: 1;
                  background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    /* A feed that came back capped is not an error — the section still renders —
+       but it is the difference between "these are the birds" and "these are the
+       birds that fit". Styled like a warning rather than a caption because a
+       hedge in muted grey under a confident list does not get read. */
+    .capwarn { margin: 10px 0 14px; padding: 10px 12px; border-radius: 10px;
+               border-left: 4px solid #d97706; line-height: 1.45;
+               background: color-mix(in srgb, #d97706 12%, transparent);
+               font-size: calc(14px * var(--s)); }
+    .capwarn b { display: block; margin-bottom: 3px; font-size: calc(15px * var(--s)); }
     /* Favorites: a saved list you MAINTAIN, so every row carries its own
        controls. Order is the whole point of a favorites list — it is the order
        you would drive them in — so it is editable rather than implied. */
@@ -740,6 +749,7 @@
         <button id="abaBtn">Load ABA alert</button>
       </div>
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
+      <div id="abaCapWarn"></div>
       <ul id="abaResults" class="obs"></ul>
     </section>
 
@@ -919,7 +929,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.26';
+      var APP_VERSION = '1.0.27';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4732,6 +4742,12 @@
             // alert to the active report's state and groups by species. Rarity
             // trackers (lower48/aba) have no state, so they keep the full feed.
             var region = getRegion(), scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);
+            // Taken on the UNSCOPED list on purpose. Filtering to a state first
+            // is exactly what hid this for weeks: a 6-row Washington slice says
+            // nothing about whether the continent-wide page it was cut from was
+            // full, and the report's own snapshots stored 497 (a capped 500
+            // minus 3 filtered territories) and read as healthy.
+            _abaTruncated = list.length >= ABA_ALERT_MAX_ROWS;
             var rows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;
             // First paint carries the STATE evidence only. The unscoped alert
             // used to double as a free "N ABA-wide across M states" yardstick,
@@ -4784,7 +4800,45 @@
       // continent-wide, so mixing the two would put a measured number and a
       // budget slice under the same label.
       var _abaWide = {};
+      // Mirrors aba_rba.ALERT_MAX_ROWS. The alert publishes no total, no
+      // pagination and no truncation notice, so landing exactly on this number
+      // is the only evidence available that species were dropped.
+      //
+      // Measured, not assumed: a live parse returns exactly 500 rows, and it is
+      // hit EVERY day. The stored report snapshots read 493-497 and looked like
+      // headroom, but that count is taken AFTER the region filter — 500 parsed,
+      // 3 US-UM records dropped, 497 stored. So truncation has to be measured on
+      // the RAW parse, before any state filter narrows it, which is why
+      // _abaTruncated is set from the unscoped list and not from `rows`.
+      //
+      // The loss is directional: the page is grouped by species in taxonomic
+      // order (49 species produced exactly 49 contiguous runs, Taiga Bean-Goose
+      // through Morelet's Seedeater), so the cut always takes the tail and whole
+      // species vanish rather than each losing a few rows.
+      var ABA_ALERT_MAX_ROWS = 500;
+      var _abaTruncated = false;
+      function abaAlertWarning(rowCount) {
+        if (_abaTruncated) {
+          return '<div class="capwarn"><b>⚠️ The alert was full, so species are missing.</b>' +
+            'It returned exactly ' + ABA_ALERT_MAX_ROWS + ' observations — its cap — and publishes no total, ' +
+            'so there is no way to see what it dropped. The loss is not random: the page is grouped by ' +
+            'species in taxonomic order, so the cut always falls on the tail and takes whole species with it. ' +
+            'Per-species report counts here are a share of that budget, not a census of the bird.</div>';
+        }
+        // An empty list is the one case where silence is itself a claim. The cap
+        // exists whether or not it was hit today, so an absence of rarities is
+        // weaker evidence than it looks.
+        if (!rowCount) {
+          return '<div class="capwarn"><b>Nothing here does not mean nothing is out there.</b>' +
+            'This is built from an alert capped at ' + ABA_ALERT_MAX_ROWS + ' observations continent-wide ' +
+            'and grouped by species in taxonomic order, so a bird late in that order can be cut from the ' +
+            'page entirely.</div>';
+        }
+        return '';
+      }
       function renderAbaAlert(list, url, grouped) {
+        var warn = $('abaCapWarn');
+        if (warn) warn.innerHTML = abaAlertWarning((list || []).length);
         var el = $('abaResults'); el.innerHTML = '';
         el.className = grouped ? 'cards' : 'obs';
         if (grouped) {

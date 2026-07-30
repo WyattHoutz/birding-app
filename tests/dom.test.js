@@ -586,8 +586,77 @@ test('the ABA-wide stat counts locations, and says so', () => {
     'the ABA area is the US and Canada — one country alone is not "ABA-wide"');
 });
 
-// --- Favorite hotspots ------------------------------------------------------
+// The ABA alert caps at 500 observations continent-wide and says nothing about
+// it — no total, no pagination, no notice. Three measured facts drive this:
+//
+//   1. The cap is hit EVERY day: a live parse returns exactly 500 rows.
+//   2. That was invisible because the counts everyone looked at were taken
+//      AFTER the region filter. Live: 500 parsed, 3 US-UM records dropped by
+//      the ABA-area filter, 497 stored — and "never above 497" was read as
+//      headroom for weeks. So truncation MUST be measured on the raw list,
+//      before scoping to a state, or a 6-row Washington slice silently reports
+//      a healthy feed.
+//   3. The loss is directional. The page is grouped by species in taxonomic
+//      order (49 species, exactly 49 contiguous runs, Taiga Bean-Goose through
+//      Morelet's Seedeater), so the cut always takes the tail and whole species
+//      vanish rather than each shedding a few rows.
+//
+// The failure mode is silence: a confident list of 6 birds out of an unknown
+// number. These guards pin that the app detects the cap before filtering, says
+// what kind of thing was lost, and stays quiet when the feed was complete.
+test('a capped ABA alert is stated, and measured before the state filter', () => {
+  const cap = /var ABA_ALERT_MAX_ROWS = (\d+)/.exec(HTML);
+  assert.ok(cap, 'the app must name the cap it is checking against');
+  assert.equal(cap[1], '500',
+    'measured live against the alert page — it must match aba_rba.ALERT_MAX_ROWS');
 
+  const load = HTML.slice(HTML.indexOf('function loadAbaAlert('),
+    HTML.indexOf('function renderAbaAlert('));
+  // The load order is the whole guard: the flag has to be taken off `list`
+  // (unscoped) and it has to happen before `rows` narrows it.
+  const iFlag = load.indexOf('_abaTruncated =');
+  const iScope = load.indexOf('var rows = scoped');
+  assert.ok(iFlag > -1, 'the app must detect truncation at all');
+  assert.ok(iScope > -1, 'the state filter must still exist');
+  assert.ok(iFlag < iScope,
+    'truncation is measured on the raw feed — filtering first is exactly what hid it');
+  assert.match(load, /_abaTruncated = list\.length >= ABA_ALERT_MAX_ROWS/,
+    'it must count the unscoped list, not the state-scoped rows');
+  assert.doesNotMatch(load, /_abaTruncated = rows\./,
+    'counting the filtered rows would read a capped feed as healthy');
+
+  const warn = HTML.slice(HTML.indexOf('function abaAlertWarning('),
+    HTML.indexOf('function renderAbaAlert('));
+  // Assert against the TRUNCATION branch specifically. Both branches mention
+  // taxonomic order, so a whole-function match would stay green while the
+  // truncation notice lost the only sentence that says what kind of thing went
+  // missing — which is the difference between a warning and a shrug.
+  const iEmpty = warn.indexOf('if (!rowCount)');
+  assert.ok(iEmpty > -1,
+    'an empty list cannot assert the state has no rarities — the cap may have eaten them');
+  const truncBranch = warn.slice(0, iEmpty);
+  assert.match(truncBranch, /taxonomic order/,
+    'the warning must say WHICH species are lost, not merely that some are');
+  assert.match(truncBranch, /falls on the tail/,
+    'the loss is directional — a reader who thinks it is a random sample will trust the counts');
+  assert.match(truncBranch, /ABA_ALERT_MAX_ROWS/,
+    'the warning names the cap so the reader can check it');
+  assert.match(warn.slice(iEmpty), /taxonomic order/,
+    'the empty-state hedge must explain why absence is weak evidence');
+  assert.match(warn, /return '';/,
+    'a complete feed must raise no alarm, or the warning becomes noise');
+
+  // The notice needs its own element: #abaResults is a <ul> whose class flips
+  // to `cards` (a grid), so a warning appended there would be laid out as a card.
+  assert.match(HTML, /<div id="abaCapWarn"><\/div>/,
+    'the warning needs a container outside the results list');
+  const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
+    HTML.indexOf('function birdcastSeason('));
+  assert.match(render, /abaCapWarn[\s\S]{0,120}abaAlertWarning\(/,
+    'every repaint must refresh the warning, including the deepening pass');
+});
+
+// --- Favorite hotspots ------------------------------------------------------
 test('favorites can be searched for, reordered and removed', async () => {
   const app = await boot();
   const A = app.window.__app;
