@@ -2596,3 +2596,59 @@ test('the app does not rebuild the anchor list that logic.js already defines', (
     'getAnchors must not hand-roll the anchor objects -- that is a second '
     + 'definition of the home/work ordering the report ranks on');
 });
+// The leaderboard cascade lane resolved species names ONLY from the merged
+// observation feeds, which are rarity-biased (notable + hotspot recent). But a
+// cascade is a bird several top-100 birders just added to a YEAR list, which
+// skews to regular migrants. Pectoral Sandpiper -- code `pecsan`, in the WA
+// species list, in no notable feed -- rendered "could not resolve this name to
+// an eBird species code", losing its link, its photo and its where-to-go feed.
+test('a cascade species absent from every observation feed still resolves via the region list', async () => {
+  const app = await boot({
+    fetch: (u) => {
+      if (/product\/spplist\/US-WA/.test(u)) return ['pecsan'];
+      if (/ref\/taxonomy\/ebird/.test(u) && /pecsan/.test(u)) {
+        return [{ speciesCode: 'pecsan', comName: 'Pectoral Sandpiper' }];
+      }
+      if (/data\/obs\/US-WA\/recent\/pecsan/.test(u)) {
+        return [{ obsDt: '2026-07-25 08:00', locName: 'Montlake Fill', locId: 'L1', subId: 'S1' }];
+      }
+      return null;
+    },
+  });
+  // merged is EMPTY: this is precisely the case the old resolver gave up on.
+  const out = await app.window.__app.cascadeSpots(
+    [{ species: 'Pectoral Sandpiper', birders: [{ rank: 1, name: 'A' }], latest: '2026-07-25' }], []);
+  assert.equal(out[0].code, 'pecsan',
+    'a bird in the region species list must resolve even when no local feed mentions it');
+  assert.ok(out[0].recent && out[0].recent.length,
+    'resolving the code must also buy the species-scoped feed that says where to stand');
+});
+
+// The unresolved message used to blame the NAME ("could not resolve this name")
+// when the real cause was the dictionary. Now that the region list is consulted,
+// the only honest remaining cause is absence from that list. Matched on the full
+// rendered sentence, so the comment above may keep quoting the old wording.
+test('the unresolved-species message names the real cause, not the name', () => {
+  assert.ok(!/resolve this name to an eBird species code/.test(HTML),
+    'that message blamed the species name for a lookup that never consulted the region list');
+  assert.ok(/Not in this region.s species list/.test(HTML),
+    'an unlinked cascade must say the bird is absent from the region list');
+});
+
+// Guards the two-tier order itself: the free tier (already-fetched observations)
+// must still be tried first, so the common case costs no extra call.
+test('cascade code resolution tries the already-fetched feeds before the region list', async () => {
+  const app = await boot({
+    fetch: (u) => {
+      if (/product\/spplist/.test(u)) throw new Error('region list must not be fetched when merged answers');
+      if (/data\/obs\/US-WA\/recent\/pecsan/.test(u)) return [];
+      return null;
+    },
+  });
+  const out = await app.window.__app.cascadeSpots(
+    [{ species: 'Pectoral Sandpiper', birders: [], latest: '2026-07-25' }],
+    [{ comName: 'Pectoral Sandpiper', speciesCode: 'pecsan' }]);
+  assert.equal(out[0].code, 'pecsan');
+  assert.equal(app.state.fetches.filter((f) => /spplist/.test(f)).length, 0,
+    'the region index is a fallback, not the first stop');
+});
