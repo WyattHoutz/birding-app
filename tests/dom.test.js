@@ -2642,9 +2642,170 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
   app.window.close();
 });
 
-// Measured: toRenderDest dropped the code, so every Top destinations / Top
-// excursions species row fell through to a Wikipedia lookup even though the bird
-// was already in the bundled seed.
+// Measured: only hotspotRow (Hot & Cold) ever passed seenSpecies, because it is
+// the one section that runs its own full hotspot scan. Top destinations, Top
+// excursions, the Trip planner, Closest spots and Quick outing read the CHASE
+// feeds — which carry every recent observation and are then FILTERED to unseen
+// for ranking — so the seen birds were fetched, merged and discarded one step
+// before the card. The collapsed "already seen" list belongs to the CARD, not
+// to one section, or it goes missing again the next time a section is added.
+test('the seen list reaches every hotspot card, not just Hot and Cold', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Take a species the ACTIVE report's year list really contains, so this
+  // guard cannot quietly pass by finding nothing seen to show.
+  const seenCodes = Object.keys(A.getReportSeen() || {});
+  assert.ok(seenCodes.length, 'the bundled seed supplies a year list to test against');
+  const already = seenCodes[0];
+  assert.ok(A.isSpeciesSeen(already, null), 'and that code really resolves as seen');
+
+  // The exact shape computeChaseViews returns, seeded through the cache the
+  // sections already render from — the point is that no extra fetch is needed.
+  A.seedChase(A.getReportSlug(), {
+    t: Date.now(), rarity: false,
+    cv: {
+      merged: [
+        { locId: 'L9', code: 'tufpuf', name: 'Tufted Puffin', kind: 'Rarity', dateStr: '2026-07-29 08:00' },
+        { locId: 'L9', code: already, name: 'Already Seen Bird', kind: 'Need', dateStr: '2026-07-29 07:00' },
+        { locId: 'L7', code: already, name: 'Already Seen Bird', kind: 'Need', dateStr: '2026-07-29 07:00' },
+      ],
+    },
+  });
+
+  // Array.from: these arrays are built inside the jsdom realm, and assert
+  // compares prototypes — an identical-looking list from another realm fails.
+  const split = A.locSpeciesSplit('L9', [{ code: 'tufpuf', comName: 'Tufted Puffin', rare: 1 }]);
+  assert.deepEqual(Array.from(split.unseen, (s) => s.code), ['tufpuf'],
+    'a caller that brought its own scored unseen list keeps exactly that list');
+  assert.deepEqual(Array.from(split.seen, (s) => s.code), [already],
+    'and the seen half is filled in from the merged chase feed');
+  // The split is a PARTITION decided by isSpeciesSeen, not a guess.
+  for (const row of split.seen) {
+    assert.ok(A.isSpeciesSeen(row.code, row.comName),
+      `${row.code} is in the seen half because the year list holds it`);
+    assert.equal(row.tag, '',
+      'seen rows carry no 🔍/⭐ — those mark a bird worth chasing, and this one is not');
+  }
+
+  // Now the card itself: a section that passes NO seenSpecies still gets it.
+  const li = A.hotspotCard({
+    n: 1, locId: 'L9', locName: 'Edmonds Marsh', lat: 47.8, lng: -122.38,
+    facts: ['2.4 mi'],
+    species: [{ code: 'tufpuf', comName: 'Tufted Puffin', rare: 1 }],
+  });
+  assert.match(li.querySelector('.hsunseen').textContent, /Tufted Puffin/,
+    'the unseen half still comes from the section');
+  const seen = li.querySelector('.hsseen');
+  assert.ok(seen, 'and the seen half is filled in from the chase feed already paid for');
+  assert.equal(seen.tagName, 'DETAILS', 'collapsed, exactly as Hot hotspots shows it');
+  assert.ok(!seen.hasAttribute('open'), 'and closed, because it is context');
+  assert.ok(seen.querySelector('ul.obs.card-sm'),
+    'the seen birds use the SMALL species card, like every other bird list');
+  assert.match(seen.querySelector('summary').textContent, /more species already seen/,
+    'the summary carries the count — it is all you can read while it is shut');
+
+  // A place with nothing recorded gets no invented list.
+  assert.equal(A.locSpeciesSplit('L-nothing-here', []).seen.length, 0,
+    'an unknown hotspot yields no seen birds rather than a wrong one');
+  app.window.close();
+});
+
+// A card that showed the seen list while hiding the unseen one would answer
+// "is this worth the drive?" with a confident NO about a spot with a target
+// sitting on it. Quick outing brings neither list (its ref/hotspot/geo feed
+// carries no species at all), so it must get BOTH halves or neither.
+test('a hotspot card never shows seen birds while hiding unseen ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.seedChase(A.getReportSlug(), {
+    t: Date.now(), rarity: false,
+    cv: {
+      merged: [
+        { locId: 'L5', code: 'zzzrare', name: 'Zzz Rare Bird', kind: 'Rarity', dateStr: '2026-07-29 08:00' },
+      ],
+    },
+  });
+  // No `species` at all — the Quick outing shape.
+  const li = A.hotspotCard({ n: 1, locId: 'L5', locName: 'Some Park', lat: 47.8, lng: -122.38, facts: ['1.0 mi'] });
+  const seen = li.querySelector('.hsseen');
+  const unseen = li.querySelector('.hsunseen');
+  // A species the year list cannot contain must land in the UNSEEN half, and a
+  // card holding only unseen birds must not render an empty seen expander.
+  assert.ok(unseen, 'a bird you have not logged is surfaced, not buried as context');
+  assert.match(unseen.textContent, /Zzz Rare Bird/, 'and it is named');
+  assert.equal(seen, null, 'no empty "already seen" expander when there is nothing to put in it');
+  app.window.close();
+});
+
+// The app had TWO definitions of "seen", and they disagree by a measurable
+// amount. getReportSeen() is the ACTIVE report's year list, mirroring the
+// Markdown report. isSpeciesSeen() reads localStorage K.seen, which applySeed()
+// fills with the COMBINED cross-region code list — 331 codes against
+// Washington's 303. Hot & Cold hotspots asked only isSpeciesSeen, so a bird
+// ticked in Missouri was reported as already seen in Washington and buried in
+// the collapsed context list: the section that exists to say "there are birds
+// here you still need" hiding 28 of them. On the Waikoloa trip report, whose
+// entire premise is that every Big Island bird is a lifer target, the combined
+// set silences all 331.
+test('a bird ticked in another region is still a target in this report', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const seed = app.window.__SEED_BIRDLIST__;
+  const slug = A.getReportSlug();
+  const rep = seed.seenByReport[slug];
+  const perReport = A.getReportSeen();
+
+  // Find a code the COMBINED seed calls seen that THIS report does not. If the
+  // seed ever stops diverging this guard says so rather than passing vacuously.
+  const elsewhere = seed.codes.map((c) => String(c).toLowerCase())
+    .filter((c) => !perReport[c]);
+  assert.ok(elsewhere.length,
+    `the shipped seed must diverge for this guard to mean anything (${slug})`);
+  const other = elsewhere[0];
+  assert.ok(A.isSpeciesSeen(other, null),
+    'precondition: the combined set really does call this bird seen');
+
+  // HOT_MIN_FRESH is 5, so pad with four birds the report genuinely has.
+  const mine = Object.keys(perReport).slice(0, 4);
+  assert.equal(mine.length, 4, 'the report supplies four genuinely-seen birds');
+  const codes = mine.concat([other]);
+  const recent = codes.map((c, i) => ({
+    locId: 'L1', speciesCode: c, comName: 'Bird ' + i,
+    subId: 'S' + i, obsDt: '2026-07-29 08:00',
+  }));
+  const meta = [{ locId: 'L1', locName: 'Test Marsh', lat: 47.8, lng: -122.38, numSpeciesAllTime: '120' }];
+  const res = A.computeHotspots(recent, meta, { lat: 47.8, lng: -122.38 }, []);
+
+  assert.equal(res.hot.length, 1, 'the fixture produces exactly one hot hotspot');
+  const row = res.hot[0];
+  assert.deepEqual(Array.from(row.birds.filter((b) => b.unseen), (b) => b.code), [other],
+    'the out-of-region bird is the target; the four on this year list are not');
+  assert.equal(row.unseenN, 1, 'and the row counts exactly one');
+
+  // The card the section renders has to agree with the scan, or the fix stops
+  // at the data and never reaches the screen.
+  const sp = A.splitHotspotBirds(row);
+  assert.equal(sp.unseen.length, 1, 'the card splits the row the same way');
+  assert.equal(sp.seen.length, 4, 'and the other four are the collapsed context list');
+
+  // A watchlisted bird is deliberately held OFF the year list so it resurfaces
+  // as a target. The resolver must not quietly hand it back via a name match.
+  const held = (rep.watchHeld || []).filter((c) => !perReport[String(c).toLowerCase()]);
+  if (held.length) {
+    const h = String(held[0]).toLowerCase();
+    const r2 = A.computeHotspots(
+      mine.concat([h]).map((c, i) => ({
+        locId: 'L2', speciesCode: c, comName: 'Bird ' + i, subId: 'T' + i, obsDt: '2026-07-29 08:00',
+      })),
+      [{ locId: 'L2', locName: 'Held Marsh', lat: 47.8, lng: -122.38, numSpeciesAllTime: '120' }],
+      { lat: 47.8, lng: -122.38 }, []);
+    assert.deepEqual(Array.from(r2.hot[0].birds.filter((b) => b.unseen), (b) => b.code), [h],
+      'a species held back for verification stays a target');
+  }
+  app.window.close();
+});
+
+
 test('destination clusters carry the species code into the render shape', () => {
   const logic = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
   const fn = logic.slice(logic.indexOf('function toRenderDest('),

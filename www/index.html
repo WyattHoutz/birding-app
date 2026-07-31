@@ -896,7 +896,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.31';
+      var APP_VERSION = '1.0.32';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3284,6 +3284,99 @@
           });
         return SpeciesCards.list('small', lis, 'sppl' + (opts.cls ? ' ' + opts.cls : ''));
       }
+      // ── SEEN BIRDS BELONG ON EVERY HOTSPOT CARD ─────────────────────────
+      // Only Hot & Cold ever rendered the collapsed "already seen" list, and
+      // not because the other sections lacked the data — because it is the one
+      // section that runs its own full hotspot scan and therefore had the list
+      // in hand. The other five read the CHASE feeds, which carry every recent
+      // observation and are then FILTERED down to unseen for ranking, so the
+      // seen birds were fetched, merged, distance-annotated and then thrown
+      // away one step before the card. This index hands them back for zero
+      // extra network calls.
+      //
+      // It is built from the SAME cached chase result the rows were ranked
+      // from, so the card can never describe a different moment than the
+      // sub-header above it.
+      var _locIdx = { slug: null, t: 0, idx: null };
+      // ONE definition of "already seen", shared by every card that splits a
+      // bird list — and it is the ACTIVE REPORT's, which is the only one that
+      // mirrors the Markdown report.
+      //
+      // The trap this replaces: isSpeciesSeen() reads localStorage K.seen,
+      // which applySeed() fills with the COMBINED cross-region code list, not
+      // the per-report one. Measured against the shipped seed, the combined set
+      // claims 28 species the Washington report does not count as seen — and on
+      // the Waikoloa trip report, whose whole premise is that every Big Island
+      // bird is a lifer target, it claims ALL 331. Anything ranking with
+      // isSpeciesSeen therefore buries real targets in the collapsed "already
+      // seen" list: a bird ticked in Missouri silences it in Washington. It also
+      // ignores watchHeld, so a tentative ID that is deliberately held off the
+      // year list to resurface as a target would be hidden instead.
+      //
+      // So the report set is the authority and nothing else is consulted. Names
+      // are matched too, but only names belonging to codes THIS report already
+      // counts as seen, so a subspecies row ("Dark-eyed Junco (Oregon)") finds
+      // its parent without letting a watchlisted bird back in.
+      function seenResolver() {
+        var set = getReportSeen() || {};
+        var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
+        var rep = (seed && seed.seenByReport && seed.seenByReport[slug]) || {};
+        var names = {};
+        (rep.yearList || []).forEach(function (e) {
+          var c = String((e && e.code) || '').toLowerCase();
+          if (!c || !set[c]) return;
+          var n = baseSpeciesName((e && e.name) || '').toLowerCase();
+          if (n) names[n] = 1;
+        });
+        return function (code, name) {
+          var c = code ? String(code).toLowerCase() : '';
+          if (c && set[c]) return true;
+          var n = name ? baseSpeciesName(name).toLowerCase() : '';
+          return !!(n && names[n]);
+        };
+      }
+      function locSpeciesIndex() {
+        var slug = getReport().slug, c = _chase[slug];
+        if (!c || !c.cv) return {};
+        if (_locIdx.idx && _locIdx.slug === slug && _locIdx.t === c.t) return _locIdx.idx;
+        var idx = {}, isSeen = seenResolver();
+        (c.cv.merged || []).forEach(function (r) {
+          if (!r.locId || !r.code) return;
+          var b = idx[r.locId] || (idx[r.locId] = {});
+          var prev = b[r.code];
+          // One row per species per place, keeping the most recent report.
+          if (prev && String(prev.dateStr) >= String(r.dateStr || '')) return;
+          b[r.code] = {
+            comName: r.name || r.code, code: r.code, dateStr: r.dateStr || '',
+            rare: r.kind === 'Rarity' ? 1 : 0,
+            seen: isSeen(r.code, r.name)
+          };
+        });
+        _locIdx = { slug: slug, t: c.t, idx: idx };
+        return idx;
+      }
+      // A card that showed the seen list while hiding the unseen one would
+      // answer "is this worth the drive?" with a confident no about a spot
+      // with a target sitting on it. So a caller either brings its own unseen
+      // list — curated and scored, and we fill in only the seen half — or it
+      // brings none and both halves come from the index. Never one without
+      // the other.
+      function locSpeciesSplit(locId, ownUnseen) {
+        var bucket = locId ? locSpeciesIndex()[locId] : null;
+        if (!bucket) return { unseen: ownUnseen || [], seen: [] };
+        var skip = {};
+        (ownUnseen || []).forEach(function (s) { if (s.code) skip[s.code] = 1; });
+        var unseen = ownUnseen ? ownUnseen.slice() : [], seen = [];
+        Object.keys(bucket).forEach(function (code) {
+          if (skip[code]) return;
+          var b = bucket[code];
+          // Seen rows carry no flags: needTag/⭐ mark a bird worth chasing, and
+          // on a bird you already have this year they would say the opposite.
+          if (b.seen) seen.push({ comName: b.comName, code: b.code, rare: 0, tag: '' });
+          else if (!ownUnseen) unseen.push({ comName: b.comName, code: b.code, rare: b.rare });
+        });
+        return { unseen: unseen, seen: seen };
+      }
       // Every hotspot row in the app comes through here, and the shape is fixed
       // by HotspotCards.medium: number + name, sub-header, UNSEEN birds shown,
       // SEEN birds collapsed, then Open in Maps / Save. Sections choose what
@@ -3304,7 +3397,14 @@
         var acts = (isFinite(la) && isFinite(ln)
           ? '<a class="maplink" data-q="' + esc(la + ',' + ln) + '">🗺 Open in Maps ↗</a>' : '')
           + favLink({ locId: o.locId, locName: o.locName, lat: o.lat, lng: o.lng });
-        var unseen = o.species || [], seen = o.seenSpecies || [];
+        var unseen, seen;
+        if (o.seenSpecies != null) {
+          // Hot & Cold know both halves from their own scan and say so.
+          unseen = o.species || []; seen = o.seenSpecies;
+        } else {
+          var sp = locSpeciesSplit(o.locId, o.species);
+          unseen = sp.unseen; seen = sp.seen;
+        }
         var html = HotspotCards.medium({
           num: o.n, name: name, sub: facts,
           unseen: unseen.length ? speciesListHtml(unseen) : '',
@@ -5693,6 +5793,11 @@
       function computeHotspots(recent, meta, home, anchors) {
         recent = Array.isArray(recent) ? recent : []; meta = Array.isArray(meta) ? meta : [];
         anchors = anchors || (home ? [{ name: 'home', lat: home.lat, lng: home.lng }] : []);
+        // Resolved once for the whole scan: Hot & Cold used isSpeciesSeen
+        // alone, which reads only the imported CSV, so with no CSV imported
+        // every bird at every hotspot resolved as UNSEEN and the section
+        // disagreed with the chase feeds ranking the very same birds.
+        var hotSeen = seenResolver();
         var metaById = {};
         meta.forEach(function (h) { if (h.locId && !metaById[h.locId]) metaById[h.locId] = h; });
         var freshPerLoc = {}, lastPerLoc = {}, subsPerLoc = {}, total = 0;
@@ -5726,7 +5831,7 @@
           // The bird list is the reason to drive there, so carry it on the row.
           // Unseen first: they are the only ones that change the decision.
           var birds = Object.keys(freshPerLoc[lid]).map(function (c) {
-            return { code: c, name: freshPerLoc[lid][c], unseen: !isSpeciesSeen(c, freshPerLoc[lid][c]) };
+            return { code: c, name: freshPerLoc[lid][c], unseen: !hotSeen(c, freshPerLoc[lid][c]) };
           }).sort(function (a, b) {
             if (a.unseen !== b.unseen) return a.unseen ? -1 : 1;
             return String(a.name).localeCompare(String(b.name));
@@ -7786,6 +7891,9 @@
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
         ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
+        locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
+        computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
+        seedChase: function (slug, res) { _chase[slug] = res; },
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav,
