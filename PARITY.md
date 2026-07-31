@@ -278,6 +278,80 @@ still resurfaces as a target. Guarded by *a bird ticked in another region is
 still a target in this report*, which derives its fixtures from the shipped
 seed and fails if the seed ever stops diverging.
 
+**v1.0.34 — four device reports, ONE root cause: an action-link rule was
+styling card titles.** `index.html`'s
+`.maplink, .extlink, .favlink, .mylink { margin-top: 8px; font-size: calc(13px
+* var(--s)) }` was written for **action** links — "Open in Maps", "eBird". But
+nearly every card **title** is rendered as `<a class="extlink">` (via `extA` /
+`speciesLink` / `locLink`) *inside* `.ntext`, and a direct rule on the anchor
+beats the size inherited from its container. **Every card name in the app
+rendered at 13px with an 8px top margin regardless of what the card asked
+for** — which is why raising `.hscard-md .ntext` from 23px to 46px in v1.0.32
+changed nothing on screen, and why *"the font size still has not increased"*
+was reported three times across two releases. The same fact explains three more
+symptoms: the 8px margin inside a tall line box **is** the reported blank line
+above the name; the 15px `.meta` was **larger** than the 13px name, so the
+card's sub-header outranked its own title; and because `.hsnum` spans both grid
+rows at 46px while a 13px + 15px text block is only ~33px, the grid **stretched
+the rows** to fit the badge — the reported dead space under the number. A grid
+distributes a spanning item's height across the rows it spans, so
+`align-content` cannot fix that; only a taller text block can. The fix is
+scoping rather than deletion — a link in a name slot now inherits the title's
+typography and keeps only its own colour — and the sizes are then set by what
+the text *is*: hotspot name **26px** > meta **17px**, species medium name
+**29px**. 46px was deliberately abandoned once it began to render at all: a
+real name like *Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk* wraps
+to about five lines on a 430px phone, which defeats the request that started
+this ("make this more condensed"). `26×1.15 + 2 + 17×1.35 = 54.9 > 46` is what
+holds the rows apart, and all three terms scale with `--s`.
+
+**This one could not be found in jsdom, and that is the durable lesson.** jsdom
+has no layout engine: it reported the `.ntext` rule as winning, because it
+never resolves which of two matching declarations actually reaches the box. A
+headless-Edge CDP probe measured the anchor itself — 13px before, 26px after.
+For anything where the *cascade* is the bug, the test has to run in a real
+layout engine.
+
+**And the first guard written for it was VACUOUS, which is the sharper
+lesson.** It booted the app and asserted `getComputedStyle(link).fontSize` was
+not the action-link size — which looks like the strongest possible check and
+proves nothing, because jsdom never applies index.html's action-link rule to
+that link in the first place. The assertion passed identically with the fix
+deleted; it was only caught by mutating the rule away and watching the test
+stay green. jsdom *does* resolve specificity correctly on a stylesheet it
+parses, so the guard now re-stages the card in a **clean document containing
+the two real competing rules** — the action-link rule lifted from
+`index.html` and the card CSS lifted from the modules' own injected `<style>`
+elements, in shipped order — and asks which one wins, with a precondition
+assertion that the staged sheet is live so it cannot quietly go vacuous again.
+Both mutations (breaking either card family's reset) now fail it. Same rule
+this project has hit twice before: **assert what a value means, and prove the
+guard can fail.**
+
+**All unseen reports now groups by species** (both repos still collapse
+identically by (species, day) → 250 m cluster first — that is unchanged). One
+medium species card per bird, listing every place it was seen with its
+checklist link, count, date and distance, **newest place first**, while the
+species themselves stay **nearest first** to match `section_all_unseen`. The
+species count moved out of the header into the sub-header, where the other
+counts live. **The report still prints one row per species per place**, because
+a Markdown table cannot nest; the app groups because it can, and the same facts
+are present on both sides.
+
+**Two app-only fixes with no report equivalent:** the UI could be side-scrolled
+off screen, now held by a root-only `html { overflow-x: clip }` guard —
+root-only on purpose, because root overflow propagates to the viewport so
+`#navbar`'s `position: sticky` survives, whereas putting it on `body` would
+break it — plus `grid-template-columns: auto minmax(0, 1fr)` so a long unbroken
+name cannot push a card wider than its container. And the kingfisher brand mark
+was being cut mid-neck by its circular CSS mask: the crop is now **solved**
+against the minimum enclosing circle of all four landmarks (centre (0.301,
+0.295), R = 0.186 ⇒ s ≥ 0.372; shipped at 0.440 for margin) and `generate.js`
+asserts the full **profile**, not just the face, so the nape can never be
+clipped again. The mark grew 58 → 76px and the page header was condensed around
+it. A square preview cannot reveal a circle-mask failure — this is the same
+trap as the v1.0.21 clipped beak, so it was checked under the real mask.
+
 **v1.0.33 — two app-only pieces of chrome, both with no report equivalent, and
 one of them is the app's front door.** The section navbar had four things
 competing for one flex row: a full `‹ Contents` **text** button, the 26px

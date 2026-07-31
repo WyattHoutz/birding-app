@@ -241,11 +241,80 @@
     return jobs;
   }
 
+  // ---- phase 2 of the fetch plan: one call per unseen species --------------
+  // The county and geo `recent` feeds return AT MOST ONE OBSERVATION PER
+  // SPECIES. That is a property of eBird's endpoint, not of our filtering, and
+  // it is the measured cause of "Closest spots seems sparse on data": a bird
+  // you still need contributes exactly ONE location however many places it was
+  // reported from, so every section that ranks places by which targets are
+  // there is ranking a SAMPLE rather than the data.
+  //
+  // /data/obs/{region}/recent/{speciesCode} has no such collapse - it returns
+  // every recent observation of that one species. So the fix is a second pass,
+  // and the reason it was parked is that it makes the fetch plan depend on the
+  // ANALYSIS RESULT: you cannot know which species to ask about until you have
+  // merged phase 1 and subtracted the year list.
+  //
+  // Scope is the STATE, not the counties: one call per species covers strictly
+  // more than a per-county fan-out would (2 counties + geo = 3 calls each for
+  // the same bird) and the rows are distance-filtered locally anyway. Measured
+  // on live WA: Western Kingbird returns 317 records at state scope, 2 at
+  // county scope, 0 at hotspot scope.
+  var SPECIES_FEED_MAX = 60;
+
+  // Deterministic and code-sorted, because this list IS the fetch plan and a
+  // plan that depends on iteration order cannot be proven equal across two
+  // languages. Capped because call volume is the whole reason this is a second
+  // phase - the cap is what keeps a bad day (a big unseen list early in the
+  // year) from turning into a 200-call run against a ~50/min throttle.
+  function speciesTargetCodes(recs, max) {
+    max = (max === undefined || max === null) ? SPECIES_FEED_MAX : max;
+    var seen = {}, out = [];
+    (recs || []).forEach(function (r) {
+      var c = r && r.code;
+      if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+    });
+    out.sort();
+    return max > 0 ? out.slice(0, max) : out;
+  }
+
+  function speciesFeedRegion(profile) {
+    if (!profile) return '';
+    if (profile.stateCode && /^[A-Z]{2}-/.test(profile.stateCode)) return profile.stateCode;
+    var c = profile.counties && profile.counties[0];
+    return c ? c.code : '';
+  }
+
+  function planSpeciesFeeds(profile, codes, back) {
+    back = back == null ? CONST.FETCH_BACK : back;
+    var region = speciesFeedRegion(profile);
+    if (!region || !codes || !codes.length) return [];
+    return codes.map(function (code) {
+      return {
+        file: 'sp-' + code + '.json', kind: 'species', src: 'Sp:' + code,
+        path: 'data/obs/' + region + '/recent/' + code,
+        params: { back: back, detail: 'full', includeProvisional: 'true' }
+      };
+    });
+  }
+
+  function speciesMergePlan(codes) {
+    return (codes || []).map(function (code) {
+      return { file: 'sp-' + code + '.json', kind: 'species', src: 'Sp:' + code };
+    });
+  }
+
   // Merge order (mirror analyze._county_sources): recents FIRST (county order
   // then geo), THEN notables (county order then geo). This differs from the
   // fetch/plan order and is what load_snapshot iterates, so dedup base-row and
   // cluster iteration order match the report.
-  function mergePlan(profile) {
+  //
+  // Phase-2 species feeds go LAST, deliberately. Merge order decides which row
+  // becomes the base row for a duplicated obsId, so appending means every
+  // observation phase 1 already had keeps exactly the row and the kind it had
+  // before - the second pass can only ADD locations, never restate existing
+  // ones differently.
+  function mergePlan(profile, speciesCodes) {
     var recents = [], notables = [];
     profile.counties.forEach(function (c) {
       recents.push({ file: c.slug + '-recent.json', kind: 'recent', src: c.label });
@@ -256,12 +325,12 @@
       recents.push({ file: 'geo-recent.json', kind: 'recent', src: 'Geo' + dist + 'km' });
       notables.push({ file: 'geo-notable.json', kind: 'notable', src: 'Geo' + dist + 'km' });
     }
-    return recents.concat(notables);
+    return recents.concat(notables).concat(speciesMergePlan(speciesCodes));
   }
 
   // Assemble merge-ordered feeds from a {file: rows[]} map, then merge.
-  function mergeFromFiles(profile, rowsByFile) {
-    var feeds = mergePlan(profile).map(function (f) {
+  function mergeFromFiles(profile, rowsByFile, speciesCodes) {
+    var feeds = mergePlan(profile, speciesCodes).map(function (f) {
       return { kind: f.kind, src: f.src, rows: rowsByFile[f.file] || [] };
     });
     return mergeSnapshot(feeds);
@@ -298,14 +367,18 @@
     var order = [];        // encounter order of obsIds (parity with dict insertion)
     var byObs = {};        // obsId -> merged raw row + sources
     var notableIds = {};   // obsId -> 1 if seen in a notable feed
+    var notableCodes = {}; // speciesCode -> 1 if ANY notable feed carried it
+    var fromSpecies = {};  // obsId -> 1 if phase 2 is what introduced it
     (feeds || []).forEach(function (feed) {
       var isNotable = feed.kind === 'notable';
+      var isSpecies = feed.kind === 'species';
       (feed.rows || []).forEach(function (r) {
         var id = obsKey(r);
-        if (isNotable) notableIds[id] = 1;
+        if (isNotable) { notableIds[id] = 1; if (r.speciesCode) notableCodes[r.speciesCode] = 1; }
         var ex = byObs[id];
         if (!ex) {
           byObs[id] = { row: r, sources: [feed.src] };
+          if (isSpecies) fromSpecies[id] = 1;
           order.push(id);
         } else if (ex.sources.indexOf(feed.src) < 0) {
           ex.sources.push(feed.src);
@@ -315,9 +388,16 @@
     var out = [];
     order.forEach(function (id) {
       var e = byObs[id], r = e.row;
+      // A rarity reported from five places used to arrive as ONE flagged row,
+      // because the notable feed collapses per species too. Phase 2 brings the
+      // other four in through a feed that carries no rarity flag at all, so
+      // without this they would render as ordinary needs and the section that
+      // exists to say "a rare bird is HERE" would point at one of five spots.
+      // Scoped to rows phase 2 introduced, so phase-1 output is untouched.
+      var rare = notableIds[id] || (fromSpecies[id] && notableCodes[r.speciesCode]);
       out.push({
         obsId: id,
-        kind: notableIds[id] ? 'Rarity' : 'Need',
+        kind: rare ? 'Rarity' : 'Need',
         code: r.speciesCode || '',
         name: r.comName || '',
         sciName: r.sciName || '',
@@ -1192,7 +1272,7 @@
     var countyLabels = (profile.counties || []).map(function (c) { return c.label; });
 
     // merged snapshot (analyze.load_snapshot) → exclusions → distances.
-    var allRecs = applyExclusions(mergeFromFiles(profile, opts.rowsToday || {}), profile);
+    var allRecs = applyExclusions(mergeFromFiles(profile, opts.rowsToday || {}, opts.speciesCodes), profile);
     annotateDistance(allRecs, home);
 
     var stakeout = computeStakeoutLocids(allRecs, seen);
@@ -1315,6 +1395,128 @@
     return rows;
   }
 
+  // ---- F11/F12: species-first ranking --------------------------------------
+  // Every other section starts from a PLACE or a rarity flag, so a bird that is
+  // hard to find but not rare is invisible: a Western Kingbird never trips the
+  // notable flag, yet there is one hotspot where it is an order of magnitude
+  // more likely than the surrounding region.
+  //
+  // The multiplier below is OUR metric and the UI must never present it as
+  // eBird's. eBird divides CHECKLIST FREQUENCIES (what share of checklists at a
+  // spot report the bird); we divide RECORD SHARES, because record shares are
+  // what a keyless public dataset actually exposes. A heavily-birded park
+  // dilutes its own denominator, so our numbers run about an order of magnitude
+  // below eBird's. The RANKING - which is the thing you chase on - is what
+  // reproduces: measured on Western Kingbird / Washington, McNary NWR scores
+  // 10.4x, Bennington Lake 6.3x, Marymoor Park 0.6x.
+  var ICONIC_BOX_KM = 2;
+
+  function gbifBoxWkt(lat, lng, km) {
+    km = km || ICONIC_BOX_KM;
+    var dLat = km / 111;
+    var dLng = km / (111 * Math.cos(lat * Math.PI / 180));
+    var pts = [
+      [lng - dLng, lat - dLat], [lng + dLng, lat - dLat], [lng + dLng, lat + dLat],
+      [lng - dLng, lat + dLat], [lng - dLng, lat - dLat]
+    ];
+    return 'POLYGON((' + pts.map(function (p) {
+      return p[0].toFixed(4) + ' ' + p[1].toFixed(4);
+    }).join(',') + '))';
+  }
+
+  function iconicMultiplier(spBox, allBox, spRegion, allRegion) {
+    if (!allBox || !allRegion || !spRegion) return null;
+    // A box with a handful of records can produce a spectacular ratio off one
+    // sighting, which is exactly the kind of number that sends someone on a
+    // two-hour drive for nothing.
+    if (allBox < 200) return null;
+    var regionRate = spRegion / allRegion;
+    if (!regionRate) return null;
+    return (spBox / allBox) / regionRate;
+  }
+
+  function iconicLabel(mult) {
+    if (mult === null || mult === undefined) return '';
+    if (mult >= 10) return Math.round(mult) + '\u00d7 the regional average';
+    if (mult >= 1.5) return mult.toFixed(1) + '\u00d7 the regional average';
+    if (mult >= 0.75) return 'about average for the region';
+    return 'below the regional average';
+  }
+
+  // Pooled across every year GBIF holds rather than year-by-year: pooling is
+  // both more robust and 2 calls instead of 14, which matters on a phone.
+  // Measured per-year on Western Kingbird / Washington the pooled answer lands
+  // inside the seven-year spread (2018-2024 arrivals: Apr 17-23).
+  function arrivalDay(dayCounts, pct) {
+    pct = pct === undefined ? 0.05 : pct;
+    var keys = Object.keys(dayCounts || {}).sort();
+    if (!keys.length) return null;
+    var peak = 0;
+    keys.forEach(function (k) { if (dayCounts[k] > peak) peak = dayCounts[k]; });
+    if (!peak) return null;
+    var need = pct * peak;
+    for (var i = 0; i < keys.length; i++) if (dayCounts[keys[i]] >= need) return keys[i];
+    return null;
+  }
+
+  function daysUntil(mmdd, today) {
+    if (!mmdd) return null;
+    var t = today ? new Date(today) : new Date();
+    var y = t.getFullYear();
+    var parts = String(mmdd).split('-');
+    var now = new Date(y, t.getMonth(), t.getDate());
+    var day = 86400000;
+    var d = Math.round((new Date(y, +parts[0] - 1, +parts[1]) - now) / day);
+    // Already well past this year: the useful answer is next year's return.
+    if (d < -30) d = Math.round((new Date(y + 1, +parts[0] - 1, +parts[1]) - now) / day);
+    return d;
+  }
+
+  // "Where has this bird been" - the F12 ask. One row per PLACE, not per
+  // observation, because a hotspot reported five times is still one place to
+  // drive to. Sorted by date then distance, in the user's words.
+  function speciesPlaces(rows, home) {
+    var byLoc = {}, order = [];
+    (rows || []).forEach(function (r) {
+      var id = r.locId || r.locName;
+      if (!id) return;
+      if (!byLoc[id]) {
+        byLoc[id] = {
+          locId: r.locId, loc: r.locName, lat: r.lat, lon: r.lng,
+          last: r.obsDt || '', n: 0, count: 0, obs: []
+        };
+        order.push(id);
+      }
+      var p = byLoc[id];
+      p.n += 1;
+      var howMany = typeof r.howMany === 'number' ? r.howMany : 0;
+      if (howMany > p.count) p.count = howMany;
+      if ((r.obsDt || '') > p.last) p.last = r.obsDt || '';
+      p.obs.push(r);
+    });
+    var out = order.map(function (id) { return byLoc[id]; });
+    if (home && home.lat != null && home.lng != null) {
+      out.forEach(function (p) {
+        p.distMi = (p.lat == null || p.lon == null) ? null
+          : haversineMi(home.lat, home.lng, p.lat, p.lon);
+      });
+    }
+    return sortSpeciesPlaces(out);
+  }
+
+  function sortSpeciesPlaces(places) {
+    return (places || []).slice().sort(function (a, b) {
+      // Date first: a bird seen yesterday two hours away beats one seen three
+      // weeks ago down the road, because the old one is probably gone.
+      var da = (a.last || ''), db = (b.last || '');
+      if (da !== db) return da < db ? 1 : -1;
+      var xa = a.distMi == null ? Infinity : a.distMi;
+      var xb = b.distMi == null ? Infinity : b.distMi;
+      if (xa !== xb) return xa - xb;
+      return String(a.loc || '').localeCompare(String(b.loc || ''));
+    });
+  }
+
   return {
     CONST: CONST,
     PROFILES: PROFILES,
@@ -1327,6 +1529,18 @@
     computeChaseViews: computeChaseViews,
     toRenderDest: toRenderDest,
     planFeeds: planFeeds,
+    planSpeciesFeeds: planSpeciesFeeds,
+    speciesTargetCodes: speciesTargetCodes,
+    speciesFeedRegion: speciesFeedRegion,
+    SPECIES_FEED_MAX: SPECIES_FEED_MAX,
+    gbifBoxWkt: gbifBoxWkt,
+    iconicMultiplier: iconicMultiplier,
+    iconicLabel: iconicLabel,
+    arrivalDay: arrivalDay,
+    daysUntil: daysUntil,
+    speciesPlaces: speciesPlaces,
+    sortSpeciesPlaces: sortSpeciesPlaces,
+    ICONIC_BOX_KM: ICONIC_BOX_KM,
     mergePlan: mergePlan,
     mergeFromFiles: mergeFromFiles,
     planConvoyFeeds: planConvoyFeeds,

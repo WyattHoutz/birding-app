@@ -86,6 +86,21 @@
   /* ------------------------------------------------------------------- css */
 
   var CSS = [
+    /* ---- A CARD TITLE THAT IS A LINK KEEPS THE TITLE'S TYPE ----
+       A hotspot name is rendered as an `<a class="extlink">` so it can open
+       the eBird hotspot page. index.html styles that class for what it was
+       built for — an ACTION link ("Open in Maps") — at 13px with an 8px top
+       margin, and that reached the TITLE text. So the hotspot name rendered
+       at 13px however large this file said it was (raising it 23px -> 46px in
+       v1.0.32 changed nothing visible), the 8px margin read as a blank line
+       above the name, and the 15px sub-header was BIGGER than the name it
+       belongs to. Same root cause in cards-species.js. Only the colour of a
+       title link stays its own. ---- */
+    '.hscard .ntext a, .hscard .ntext .extlink {',
+    '  display: inline; margin-top: 0;',
+    '  font-size: inherit; font-weight: inherit; line-height: inherit;',
+    '  letter-spacing: inherit; }',
+
     /* ---- the map-pin number ---- */
     '.hsnum {',
     '  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;',
@@ -113,24 +128,35 @@
        legible; a one- or two-digit number does not, and the 46px box hands
        the difference back to the name, which is the part that wraps. */
     '.hscard-md {',
-    '  display: grid; grid-template-columns: auto 1fr;',
-    '  column-gap: 14px; row-gap: 2px; align-items: start; padding: 14px 0; }',
+    '  display: grid; grid-template-columns: auto minmax(0, 1fr);',
+    '  column-gap: 14px; row-gap: 2px; align-items: start; padding: 10px 0;',
+    '  overflow: hidden; }',
     '.hscard-md > .name { display: contents; }',
     '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1 / span 2; }',
     '.hscard-md > .name > .ntext {',
-    '  grid-column: 2; grid-row: 1; align-self: end;',
-    /* The hotspot name is the SUBJECT of a hotspot card, so it outranks
-       everything the card holds — including the 29px species names in the
-       unseen list nested inside it. At 23px it did not: a card whose whole
-       point is "which place is this" led with a title smaller than the birds
-       listed under it. break-word (not `anywhere`) keeps it wrapping between
-       words, and only splits a token like "Marsh--Willow" when that token
-       alone cannot fit the column. */
-    '  font-size: calc(46px * var(--s)); font-weight: 700; line-height: 1.1;',
+    '  grid-column: 2; grid-row: 1; align-self: end; min-width: 0;',
+    /* The hotspot name is the SUBJECT of a hotspot card, so it outranks its
+       own sub-header — which it did NOT: the name was reaching the screen at
+       13px against a 15px sub-header (see the title-link rule at the top of
+       this file). 26px restores the ranking without the 46px the file used to
+       ask for, which wrapped a real name like
+       "Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk" over five
+       lines on a 430px phone and made a LIST of hotspots unscannable.
+       The size is also load-bearing for spacing: .hsnum spans both rows at
+       46px, and a grid distributes a spanning item's minimum height across
+       the rows it spans, so whenever name + row-gap + meta came to LESS than
+       46px the rows stretched to fill the badge — which is exactly the
+       reported blank line above the name and the dead space under the number.
+       26*1.15 + 2 + 17*1.35 = 54.9 > 46, so the text block now sets the
+       height and the badge no longer stretches anything. All three terms
+       scale with --s, so the relationship holds at every text size.
+       break-word (not `anywhere`) keeps it wrapping between words, and only
+       splits a token like "Marsh--Willow" when that token alone cannot fit. */
+    '  font-size: calc(26px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     '.hscard-md > .meta {',
-    '  grid-column: 2; grid-row: 2; align-self: start;',
-    '  font-size: calc(15px * var(--s)); font-weight: 500; color: var(--muted); }',
+    '  grid-column: 2; grid-row: 2; align-self: start; min-width: 0;',
+    '  font-size: calc(17px * var(--s)); font-weight: 500; color: var(--muted); }',
     /* Species lists, the expander and the actions row all span both columns. */
     '.hscard-md > * { grid-column: 1 / -1; }',
     '.hscard-md > .name, .hscard-md > .meta { grid-column: auto; }',

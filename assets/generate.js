@@ -210,12 +210,15 @@ function drawPhoto(cv, img, crop, size, ox, oy, circle) {
 // hold the whole profile plus the dark body that gives the mark weight.
 const CROP_ICON = { x: 0.090, y: 0.110, s: 0.800 };
 // MARK is masked by CSS to a circle INSCRIBED in the square, so the usable area
-// is 79% of the crop and the corners are gone. Sized so the dagger bill tip —
-// the furthest-left thing, and the feature that makes this bird a kingfisher
-// rather than a jay — clears the arc: it lands 0.45 from centre against a 0.5
-// radius. A crop that merely "looks centred" clips it, which is exactly what
-// happened the last time this master was replaced.
-const CROP_MARK = { x: 0.088, y: 0.062, s: 0.380 };
+// is 79% of the crop and the corners are gone. It was solved for FACE alone,
+// which put the nape at 0.550 from centre against a 0.5 radius — outside the
+// arc. That is not a stylish tight crop, it is the reported "cropped mid neck":
+// the head reads as severed because the circle cuts the bird where its neck
+// meets its body instead of past it. Now solved for the whole PROFILE: the
+// minimum circle enclosing all four landmarks is centred (0.301, 0.295) with
+// radius 0.186, so s must be at least 0.372; 0.440 adds the margin that keeps
+// the bird off the arc rather than tangent to it.
+const CROP_MARK = { x: 0.081, y: 0.075, s: 0.440 };
 
 // Where the bird is in the master, in the master's own normalised coordinates.
 // MEASURED, not guessed — these come from a silhouette scan of the master
@@ -230,10 +233,12 @@ const LANDMARKS = {
   'nape': [0.487, 0.292],
 };
 // What each output OWES, which is not the same as what is in the photo. The
-// mark is a deliberately tight face, so losing the trailing crest spikes is the
-// crop working; losing the bill is the crop broken. 'crown' is the top of the
-// shaggy crest and is non-negotiable in both — a belted kingfisher without its
-// crest silhouette is just a blue bird.
+// crown is the top of the shaggy crest and is non-negotiable everywhere — a
+// belted kingfisher without its crest silhouette is just a blue bird. The nape
+// used to be optional for the MARK on the theory that a tight face crop may
+// lose the trailing crest spikes; on device that read as a severed head, so
+// the mark now owes the whole profile too and FACE is kept only as the
+// irreducible core the crop is measured against.
 const FACE = ['bill tip', 'eye patch', 'crown'];
 const PROFILE = [...FACE, 'nape'];
 
@@ -274,7 +279,7 @@ const out = __dirname;
 const master = decodePNG(fs.readFileSync(path.join(out, 'brand', 'kingfisher.png')));
 
 assertFramed(CROP_ICON, 'CROP_ICON', 'squircle', PROFILE);
-assertFramed(CROP_MARK, 'CROP_MARK', 'circle', FACE);
+assertFramed(CROP_MARK, 'CROP_MARK', 'circle', PROFILE);
 
 const icon = new Canvas(1024, 1024);
 drawPhoto(icon, master, CROP_ICON, 1024, 0, 0, false);

@@ -87,6 +87,17 @@
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
+    /* The page may only ever scroll VERTICALLY. A single overflowing box used
+       to widen the whole document, so the lightest sideways swipe slid the
+       navbar, the header and every card off screen together — the app looked
+       broken even though only one grid cell was too wide.
+       Declared on the ROOT only: overflow on the root element propagates to
+       the viewport and leaves the element itself `visible`, so #navbar's
+       position:sticky keeps working. The same declaration on <body> WOULD
+       make body a scroll container and kill the sticky navbar.
+       `clip` is preferred because it never creates a scroll container at all;
+       `hidden` is declared first as the fallback for engines without it. */
+    html { overflow-x: hidden; overflow-x: clip; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
@@ -95,26 +106,27 @@
       min-height: 100vh;
     }
     header {
-      padding: calc(env(safe-area-inset-top) + 28px) 20px 20px;
+      padding: calc(env(safe-area-inset-top) + 14px) 20px 14px;
       background: linear-gradient(160deg, var(--accent), #0b5a3c);
       color: var(--accent-ink);
     }
-    /* Brand lockup. The mark is the SAME binoculars geometry the home-screen
-       icon is drawn from (assets/generate.js), redrawn as inline SVG so the
-       app looks like its own icon with zero network and zero extra bytes over
-       the wire. One <symbol>, reused wherever the mark appears. */
+    /* Brand lockup. The mark is the SAME kingfisher photograph the home-screen
+       icon is cut from (assets/generate.js), so the icon you tap and the header
+       you land on are recognisably one object, with zero network. */
     .brand { display: flex; align-items: center; gap: 14px; }
     /* The mark is the app icon photograph, masked to a circle here rather than
-       baked in, so one alpha-free file serves both sites and the iOS icon. */
-    .brandmark { width: 58px; height: 58px; flex: 0 0 auto; border-radius: 50%;
+       baked in, so one alpha-free file serves both sites and the iOS icon.
+       76px rather than 58px: this is the only place the bird is ever seen at
+       size, and the header is now short enough to give it the room. */
+    .brandmark { width: 76px; height: 76px; flex: 0 0 auto; border-radius: 50%;
                  object-fit: cover; background: #dfe6e2;
                  box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 2px rgba(255,255,255,.85); }
     .brandtext { min-width: 0; }
     .brandmark.small { width: 26px; height: 26px;
                        box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
-    header .kicker { font-size: calc(13px * var(--s)); letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 6px; }
-    header h1 { font-size: calc(30px * var(--s)); margin: 0; font-weight: 800; letter-spacing: -0.02em; }
-    header p { margin: 8px 0 0; font-size: calc(15px * var(--s)); opacity: .9; max-width: 34ch; }
+    header .kicker { font-size: calc(12px * var(--s)); letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 3px; }
+    header h1 { font-size: calc(27px * var(--s)); margin: 0; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    header p { margin: 6px 0 0; font-size: calc(14px * var(--s)); opacity: .9; max-width: 34ch; }
     main { padding: 18px 16px 40px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .card {
@@ -386,6 +398,26 @@
     .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
     .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: calc(13px * var(--s)); }
     .cklrows .maplink, .cklrows .extlink { margin-top: 0; }
+    /* 📋 All unseen reports: the places one bird was reported from, under its
+       card. Two lines per place — the name is what you tap, the facts are what
+       you weigh — because a place name that wraps mid-way through a run-on of
+       date, count and distance is the layout that made this section hard to
+       scan in the first place. */
+    .uplaces { list-style: none; margin: 8px 0 0; padding: 0; }
+    .uplaces li { padding: 7px 0 0; margin-top: 7px; border-top: 1px solid var(--line);
+                  min-width: 0; }
+    .uplaces .uploc { font-size: calc(16px * var(--s)); font-weight: 700; line-height: 1.25;
+                      min-width: 0; overflow-wrap: break-word; }
+    /* The place name IS the row's title and it links to the hotspot, so it
+       inherits the row's type rather than the 13px .extlink action size —
+       the same title-vs-action-link fix the two card files make. The
+       checklist link in .upmeta is a genuine action and keeps its own size,
+       but must not carry .extlink's 8px top margin inside a text run. */
+    .uplaces .uploc a { display: inline; margin-top: 0; font-size: inherit;
+                        font-weight: inherit; line-height: inherit; }
+    .uplaces .upmeta { font-size: calc(14px * var(--s)); color: var(--muted);
+                       margin-top: 2px; min-width: 0; overflow-wrap: anywhere; }
+    .uplaces .upmeta a { margin-top: 0; }
     /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
        enough that the fields below it would otherwise be an unlabelled run of
        facts. A modifier class rather than :has(), which is unguarded on the
@@ -550,14 +582,13 @@
   </div>
   <header>
     <div class="brand">
-      <img class="brandmark" src="assets/brand/mark.png" width="58" height="58"
+      <img class="brandmark" src="assets/brand/mark.png" width="76" height="76"
            alt="Bird Chaser">
       <div class="brandtext">
         <p class="kicker">Personal eBird tracker</p>
         <h1>Bird Chaser</h1>
       </div>
     </div>
-    <p>Find the birds you haven’t seen — live from the eBird API, no server, no account sync.</p>
   </header>
 
   <main>
@@ -587,7 +618,7 @@
         <button id="allUnseenBtn">List every report</button>
       </div>
       <div id="allUnseenStatus" class="status">Every unseen-species report in range, nearest first. Duplicate observers of the same bird at the same spot on the same day are merged into one row; ⚠️ = unconfirmed.</div>
-      <ul id="allUnseenResults" class="obs big"></ul>
+      <ul id="allUnseenResults" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -931,7 +962,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.33';
+      var APP_VERSION = '1.0.34';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1574,6 +1605,120 @@
           })
           .catch(function () { return null; });
       }
+      // --- F11: is this bird a specialty HERE? (GBIF) -------------------------
+      // eBird's own "N× more likely here" lives behind a bot wall (measured:
+      // the hotspot page returns a 4 KB "making sure you're not a bot" challenge
+      // to any programmatic fetch), and no API 2.0 endpoint exposes likelihood
+      // — guessed routes return an explicit route-table 404, not an auth error.
+      // GBIF hosts the same eBird observations, keyless and unfiltered, so the
+      // ranking is reconstructed from record shares instead. See logic.js for
+      // why our number is NOT eBird's number.
+      var GBIF_ICONIC_TTL_MS = 30 * 86400 * 1000;
+      function gbifTaxonKey(sci) {
+        var t = String(sci || '').trim();
+        if (!t) return Promise.resolve(null);
+        var ck = 'tk|' + t, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson('https://api.gbif.org/v1/species/match?name=' + encodeURIComponent(t))
+          .then(function (m) {
+            var v = (m && m.usageKey) || null;
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          });
+      }
+      function gbifCount(url) {
+        return gbifJson(url + '&limit=0').then(function (j) { return j ? (j.count || 0) : null; });
+      }
+      var GBIF_OCC = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS;
+      // The denominator is a property of the PLACE, not the bird, so it is
+      // cached per box and shared across every species ever looked up there.
+      // That turns the second lookup at a hotspot from two calls into one.
+      function gbifBoxTotal(wkt, stateName) {
+        var ck = 'box|' + wkt, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt))
+          .then(function (v) {
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          });
+      }
+      function gbifRegionTotal(stateName) {
+        var ck = 'aves|' + stateName, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName))
+          .then(function (v) {
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          });
+      }
+      // Annotates the places the LIVE feed already found. GBIF supplies the
+      // long-term baseline; eBird says whether the bird is there now. The two
+      // are never summed — GBIF lags about a year (2025 held 0 records when this
+      // was measured), so adding them would double-count nothing and undercount
+      // everything.
+      function gbifIconic(sci, stateName, places, max) {
+        max = max || 5;
+        if (!sci || !stateName || !places || !places.length) return Promise.resolve(places || []);
+        return gbifTaxonKey(sci).then(function (key) {
+          if (!key) return places;
+          var spBase = GBIF_OCC + '&taxonKey=' + key;
+          return Promise.all([
+            gbifCount(spBase + '&country=US&stateProvince=' + encodeURIComponent(stateName)),
+            gbifRegionTotal(stateName)
+          ]).then(function (r) {
+            var spRegion = r[0], allRegion = r[1];
+            if (!spRegion || !allRegion) return places;
+            var targets = places.filter(function (p) { return p.lat != null && p.lon != null; }).slice(0, max);
+            return pool(targets, 3, function (p) {
+              var wkt = BL.gbifBoxWkt(p.lat, p.lon);
+              return Promise.all([
+                gbifCount(spBase + '&geometry=' + encodeURIComponent(wkt)),
+                gbifBoxTotal(wkt, stateName)
+              ]).then(function (b) {
+                p.iconic = BL.iconicMultiplier(b[0], b[1], spRegion, allRegion);
+                p.iconicLabel = BL.iconicLabel(p.iconic);
+              }).catch(function () {});
+            }).then(function () { return places; });
+          });
+        }).catch(function () { return places; });
+      }
+      // Pooled across every year GBIF holds: two calls, and more robust than any
+      // single year. Measured on Western Kingbird / Washington the per-year
+      // arrivals ran Apr 17-23 across seven years, so a pooled answer is a real
+      // prediction, not a curiosity.
+      function gbifArrival(sci, stateName) {
+        if (!sci || !stateName) return Promise.resolve(null);
+        var ck = 'arr|' + sci + '|' + stateName, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifTaxonKey(sci).then(function (key) {
+          if (!key) return null;
+          var base = GBIF_OCC + '&taxonKey=' + key + '&country=US&stateProvince=' + encodeURIComponent(stateName);
+          return gbifJson(base + '&limit=0&facet=month&facetLimit=12').then(function (mj) {
+            var months = facetCounts(mj, 'month').map(function (x) { return { m: +x.name, n: x.count }; })
+              .filter(function (x) { return x.m >= 1 && x.m <= 12; });
+            if (months.length < 2 || months.length > 9) return null;   // resident: no arrival to predict
+            var peakMonth = months.slice().sort(function (a, b) { return b.n - a.n; })[0];
+            var total = months.reduce(function (s, x) { return s + x.n; }, 0);
+            // The month BEFORE the peak is where an arrival edge lives.
+            var edge = Math.max(1, peakMonth.m - 1);
+            return Promise.all([
+              gbifJson(base + '&month=' + edge + '&limit=0&facet=day&facetLimit=40'),
+              gbifJson(base + '&month=' + peakMonth.m + '&limit=0&facet=day&facetLimit=40')
+            ]).then(function (dj) {
+              var days = {};
+              [[edge, dj[0]], [peakMonth.m, dj[1]]].forEach(function (pair) {
+                facetCounts(pair[1], 'day').forEach(function (x) {
+                  days[String(pair[0]).replace(/^(\d)$/, '0$1') + '-' + String(x.name).replace(/^(\d)$/, '0$1')] = x.count;
+                });
+              });
+              var v = { day: BL.arrivalDay(days), months: months.length, records: total, peakMonth: peakMonth.m };
+              if (!v.day) return null;
+              var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+              return v;
+            });
+          });
+        }).catch(function () { return null; });
+      }
       function histLine(h, stateName) {
         if (!h) return '';
         // "898 US records" reads as reassuringly common until you notice 69% of
@@ -1921,13 +2066,20 @@
       // bucket to 250 m, and keep the cleanest location name — so a stakeout
       // whose observers each picked a different micro-hotspot is ONE row with
       // a report count, not fifteen near-identical lines.
+      //
+      // On top of that collapse the rows are grouped BY SPECIES, because the
+      // question this section answers is "what haven't I seen, and where can I
+      // get it" — one bird reported from six places is ONE decision with six
+      // options, not six competing rows. Flattening by species×location put
+      // the same warbler six rows apart and made a well-reported bird look
+      // like six weak ones.
       function buildAllUnseen(records) {
         var buckets = {};
         (records || []).forEach(function (r) {
           var k = (r.code || r.name || '') + '|' + String(r.dateStr || '').slice(0, 10);
           (buckets[k] || (buckets[k] = [])).push(r);
         });
-        var groups = [];
+        var clusters = [];
         Object.keys(buckets).forEach(function (k) {
           BL.clusterByProximity(buckets[k], 250).forEach(function (items) {
             items = items.slice().sort(function (a, b) {
@@ -1937,7 +2089,7 @@
             var canon = BL.pickCanonicalLoc(items) || rep;
             var obs = {};
             items.forEach(function (r) { if (r.observer) obs[r.observer] = 1; });
-            groups.push({
+            clusters.push({
               code: rep.code, name: rep.name || rep.code,
               loc: canon.loc || rep.loc, locId: canon.locId || rep.locId,
               lat: canon.lat != null ? canon.lat : rep.lat,
@@ -1951,11 +2103,62 @@
             });
           });
         });
+        // One row per PLACE per species: a bird refound at the same pond on
+        // three days is one place to drive to, dated by its freshest report.
+        var byCode = {}, order = [];
+        clusters.forEach(function (c) {
+          var sk = c.code || c.name || '';
+          var g = byCode[sk];
+          if (!g) {
+            g = byCode[sk] = { code: c.code, name: c.name, places: [], _byLoc: {} };
+            order.push(sk);
+          }
+          var lk = c.locId || (Math.round((c.lat || 0) * 400) + ',' + Math.round((c.lon || 0) * 400));
+          var p = g._byLoc[lk];
+          if (!p) { g._byLoc[lk] = c; g.places.push(c); return; }
+          p.nReports += c.nReports;
+          p.nObservers = Math.max(p.nObservers, c.nObservers);
+          p.anyUnconfirmed = p.anyUnconfirmed || c.anyUnconfirmed;
+          // The freshest report represents the place: it carries the checklist
+          // you would open and the count you would expect to find.
+          if (String(c.dateStr || '') > String(p.dateStr || '')) {
+            p.dateStr = c.dateStr; p.subId = c.subId; p.count = c.count;
+            p.loc = c.loc; p.locId = c.locId; p.lat = c.lat; p.lon = c.lon;
+            p.locationPrivate = c.locationPrivate; p.observer = c.observer;
+          }
+          if (c.distMi != null && (p.distMi == null || c.distMi < p.distMi)) p.distMi = c.distMi;
+        });
+        var groups = order.map(function (sk) {
+          var g = byCode[sk];
+          delete g._byLoc;
+          // Newest first: the user asked for the place list sorted by date,
+          // and the freshest report is the one still worth driving to.
+          g.places.sort(function (a, b) {
+            var c = String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+            if (c) return c;
+            var ad = (a.distMi == null || !isFinite(a.distMi)) ? Infinity : a.distMi;
+            var bd = (b.distMi == null || !isFinite(b.distMi)) ? Infinity : b.distMi;
+            return ad - bd;
+          });
+          g.nPlaces = g.places.length;
+          g.nReports = g.places.reduce(function (a, p) { return a + p.nReports; }, 0);
+          g.nObservers = g.places.reduce(function (a, p) { return a + p.nObservers; }, 0);
+          g.anyUnconfirmed = g.places.some(function (p) { return p.anyUnconfirmed; });
+          g.dateStr = g.places[0].dateStr;
+          g.distMi = g.places.reduce(function (a, p) {
+            var d = (p.distMi == null || !isFinite(p.distMi)) ? Infinity : p.distMi;
+            return d < a ? d : a;
+          }, Infinity);
+          if (!isFinite(g.distMi)) g.distMi = null;
+          return g;
+        });
+        // The species order stays nearest-first, which is what the report does
+        // and what the status line promises; only the place list is by date.
         groups.sort(function (a, b) {
           var ad = (a.distMi == null || !isFinite(a.distMi)) ? Infinity : a.distMi;
           var bd = (b.distMi == null || !isFinite(b.distMi)) ? Infinity : b.distMi;
           if (ad !== bd) return ad - bd;
-          return String(a.dateStr || '').localeCompare(String(b.dateStr || ''));
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
         });
         return groups;
       }
@@ -1970,28 +2173,49 @@
           var rows = buildAllUnseen(c.cv.unseen || []);
           if (!rows.length) { st.textContent = 'No unseen-species reports in range right now.'; return; }
           var raw = rows.reduce(function (a, g) { return a + g.nReports; }, 0);
-          st.textContent = rows.length + ' species×location'
-            + (rows.length === 1 ? '' : 's') + ' (' + raw + ' raw reports collapsed)'
-            + ' · nearest first · ' + nowTime();
+          var places = rows.reduce(function (a, g) { return a + g.nPlaces; }, 0);
+          st.textContent = rows.length + ' unseen species at ' + places + ' place'
+            + (places === 1 ? '' : 's') + ' (' + raw + ' raw reports collapsed)'
+            + ' · nearest first, places by date · ' + nowTime();
           el.innerHTML = rows.map(function (g, i) {
-            var d = (g.distMi != null && isFinite(g.distMi))
-              ? '<span class="count">' + g.distMi.toFixed(1) + ' mi</span>' : '';
-            return '<li>' + d
-              + '<div class="name">' + photoSlot(g.name, g.code)
-              + '<span class="rank">' + (i + 1) + '</span>'
-              + speciesLink(g.name, g.code) + needTag(g.code, g.name)
-              + (g.count != null && g.count !== '' ? ' <span class="dim">(' + esc(g.count) + ')</span>' : '')
-              + (g.anyUnconfirmed ? ' ⚠️' : '') + '</div>'
-              + '<div class="meta">' + locLink(g.loc || '', g.lat, g.lon, g.locId, g.locationPrivate)
-              + ' · ' + esc(fmtDateTime(g.dateStr))
-              + (g.subId ? ' · ' + checklistLink(g.subId, g.subId) : '')
-              + ' · ' + g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
-              + (g.nObservers ? ' · ' + g.nObservers + ' observer' + (g.nObservers === 1 ? '' : 's') : '')
-              + '</div></li>';
+            return SpeciesCards.medium({
+              icon: photoSlot(g.name, g.code),
+              name: '<span class="rank">' + (i + 1) + '</span>'
+                + speciesLink(g.name, g.code),
+              tags: needTag(g.code, g.name) + (g.anyUnconfirmed ? ' ⚠️' : ''),
+              // The per-observation count left the header at the user's
+              // request: it is evidence, not identity, and it belongs beside
+              // the place it was counted at.
+              sub: [
+                g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
+                (g.distMi != null && isFinite(g.distMi))
+                  ? 'nearest ' + g.distMi.toFixed(1) + ' mi' : '',
+                g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
+              ].filter(Boolean).join(' · '),
+              below: unseenPlacesHtml(g)
+            });
           }).join('');
           hydratePhotos(el);
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
+      }
+      // Every place the bird was reported from, freshest first, each carrying
+      // the four facts that decide whether to drive there: where, when, how
+      // many, how far — plus the checklist that is the evidence for all four.
+      function unseenPlacesHtml(g) {
+        return '<ul class="uplaces">' + g.places.map(function (p) {
+          var bits = [
+            esc(fmtDateTime(p.dateStr)),
+            (p.count != null && p.count !== '') ? esc(p.count) + (String(p.count) === '1' ? ' bird' : ' birds') : '',
+            (p.distMi != null && isFinite(p.distMi)) ? p.distMi.toFixed(1) + ' mi' : '',
+            p.nReports > 1 ? p.nReports + ' reports' : '',
+            p.anyUnconfirmed ? '⚠️' : ''
+          ].filter(Boolean).join(' · ');
+          return '<li><div class="uploc">'
+            + locLink(p.loc || '', p.lat, p.lon, p.locId, p.locationPrivate) + '</div>'
+            + '<div class="upmeta">' + bits
+            + (p.subId ? ' · ' + checklistLink(p.subId, p.subId) : '') + '</div></li>';
+        }).join('') + '</ul>';
       }
 
       // --- shared chase pipeline (BirdLogic.computeChaseViews), cached ~10 min -
@@ -2025,32 +2249,78 @@
           return set;
         } catch (e) { return null; }
       }
+      var SPECIES_BATCH = 6;
+      var _chaseInflight = {};
       function getChase() {
         var profile = getReport(), slug = profile.slug;
         var c = _chase[slug];
         if (c && (Date.now() - c.t) < 600000) return Promise.resolve(c);
+        // Two sections opening at once used to fire two complete waves, because
+        // the cache is only written at the END. Phase 2 made that materially
+        // worse - it doubles a 41-call run to 82 - so concurrent callers now
+        // share the one wave that is already running.
+        if (_chaseInflight[slug]) return _chaseInflight[slug];
         var feeds = BL.planFeeds(profile);
         if (!feeds.length) return Promise.resolve({ t: Date.now(), profile: profile, cv: null, rarity: true });
-        return Promise.all(feeds.map(function (f) {
-          return ebird(BL.requestUrl(f))
-            .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
-            .catch(function () { return { file: f.file, rows: [] }; });
-        })).then(function (results) {
-          var rowsByFile = {};
-          results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
-          var cv = BL.computeChaseViews(profile, {
-            rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug),
+        function fetchAll(list) {
+          return Promise.all(list.map(function (f) {
+            return ebird(BL.requestUrl(f))
+              .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
+              .catch(function () { return { file: f.file, rows: [] }; });
+          }));
+        }
+        // Phase 1 is ~6 feeds and can go at once. Phase 2 is one call PER
+        // UNSEEN SPECIES - measured at 41 on a normal Washington day - and
+        // firing 41 simultaneous requests is how you earn a 429 and render an
+        // empty section. The report throttles to 1.2s/call because it is an
+        // hourly job; a phone cannot spend 50s before first paint, so this
+        // splits the difference with small concurrent batches.
+        function fetchBatched(list, size) {
+          var out = [], i = 0;
+          function next() {
+            if (i >= list.length) return Promise.resolve(out);
+            var slice = list.slice(i, i + size);
+            i += size;
+            return fetchAll(slice).then(function (rs) {
+              out = out.concat(rs);
+              return next();
+            });
+          }
+          return next();
+        }
+        var rowsByFile = {};
+        function compute(codes) {
+          return BL.computeChaseViews(profile, {
+            rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
             seen: getReportSeen(), ownName: getDisplayName(), snapshotDate: todayStr(),
             home: getHome(), dailyDriveMi: profile.dailyDriveMi
           });
+        }
+        var run = fetchAll(feeds).then(function (results) {
+          results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+          // Phase 1 tells us WHICH birds we still need; only then can phase 2
+          // ask where each of them actually is. That ordering is the whole
+          // reason this could not be a static fetch plan.
+          var codes = BL.speciesTargetCodes(compute(null).unseenAll);
+          var spFeeds = BL.planSpeciesFeeds(profile, codes);
+          if (!spFeeds.length) return { codes: null };
+          return fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
+            spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+            return { codes: codes };
+          });
+        }).then(function (phase2) {
+          var cv = compute(phase2.codes);
           var codes = {}; cv.merged.forEach(function (r) { if (r.code) codes[r.code] = 1; });
           saveSnapCodes(slug, Object.keys(codes));
-          var res = { t: Date.now(), profile: profile, cv: cv, rarity: false };
+          var res = { t: Date.now(), profile: profile, cv: cv, rarity: false, speciesCodes: phase2.codes };
           _chase[slug] = res;
           return res;
         });
+        _chaseInflight[slug] = run;
+        run.catch(function () {}).then(function () { delete _chaseInflight[slug]; });
+        return run;
       }
-      function clearChaseCache() { _chase = {}; resetHotspotCache(); }
+      function clearChaseCache() { _chase = {}; _chaseInflight = {}; resetHotspotCache(); }
 
       // --- Top destinations (rank hotspots by unseen-target richness) ---
       function haversineMi(la1, lo1, la2, lo2) {
@@ -3128,7 +3398,7 @@
             return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')))
               .then(function (list) {
                 (list || []).forEach(function (t) {
-                  if (t && t.speciesCode && t.comName) rows.push({ code: t.speciesCode, name: t.comName });
+                  if (t && t.speciesCode && t.comName) rows.push({ code: t.speciesCode, name: t.comName, sci: t.sciName || '' });
                 });
               }).catch(function () {});
           }).then(function () {
@@ -8044,6 +8314,7 @@
         birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
         getWork: getWork, workKey: workKey, getAnchors: getAnchors,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
+        unseenPlacesHtml: unseenPlacesHtml,
         buildClosestSpots: buildClosestSpots,
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
         ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
@@ -8051,6 +8322,7 @@
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
         seedChase: function (slug, res) { _chase[slug] = res; },
+        getChase: getChase, clearChaseCache: clearChaseCache,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav,

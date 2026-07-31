@@ -1653,7 +1653,7 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   app.window.close();
 });
 
-test('All unseen reports: one row per species per place, nearest first', async () => {
+test('All unseen reports: one card per SPECIES, its places listed beneath', async () => {
   const app = await boot();
   const A = app.window.__app;
   // Four raw rows: three observers on one stakeout inside 250 m (which is ONE
@@ -1684,6 +1684,64 @@ test('All unseen reports: one row per species per place, nearest first', async (
   assert.equal(puffin.anyUnconfirmed, true,
     'an unconfirmed report in the group is surfaced, not averaged away');
   app.window.close();
+});
+
+// Reported from the device: the list printed one row per species PER PLACE, so
+// one bird at four spots read as four birds. The species is the thing you are
+// chasing; the places are how you chase it.
+test('All unseen reports: a species at several places is ONE card, places by date', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = A.buildAllUnseen([
+    // Same bird, three genuinely different places, three different days.
+    { code: 'btywar', name: 'Black-throated Gray Warbler', lat: 47.66, lon: -122.11,
+      dateStr: '2026-07-28 09:00', distMi: 6.7, loc: 'Marymoor Park',
+      locId: 'LA', observer: 'A', subId: 'S10' },
+    { code: 'btywar', name: 'Black-throated Gray Warbler', lat: 47.86, lon: -122.30,
+      dateStr: '2026-07-30 15:13', distMi: 11.2, loc: 'Interurban Trail',
+      locId: 'LB', observer: 'B', subId: 'S11' },
+    { code: 'btywar', name: 'Black-throated Gray Warbler', lat: 47.55, lon: -122.02,
+      dateStr: '2026-07-29 07:45', distMi: 9.9, loc: 'Lake Sammamish',
+      locId: 'LC', observer: 'C', subId: 'S12' },
+  ]);
+  assert.equal(rows.length, 1, 'one species is one card however many places it was at');
+  const g = rows[0];
+  assert.equal(g.places.length, 3, 'and every place it was seen at is kept');
+  assert.equal(g.nPlaces, 3, 'the place count is carried for the sub-header');
+  assert.equal(g.places.map((p) => p.subId).join(','), 'S11,S12,S10',
+    'places sort by date, newest first - a two-day-old report is a worse lead');
+  assert.equal(g.distMi, 6.7,
+    'the card leads with the NEAREST place, not the newest, so species still rank by distance');
+  assert.ok(g.places.every((p) => p.subId),
+    'every place carries the checklist that proves it');
+
+  // The rendered rows must expose date, count, distance and a checklist link —
+  // a place you cannot date, measure or verify is not a lead.
+  const html = A.unseenPlacesHtml(g);
+  assert.match(html, /class="uplaces"/, 'renders the place list');
+  assert.equal((html.match(/<li/g) || []).length, 3, 'one row per place');
+  assert.match(html, /S11/, 'and names the checklist rather than saying "checklist"');
+  for (const bit of ['mi', 'uploc', 'upmeta']) {
+    assert.ok(html.includes(bit), 'each place row carries ' + bit);
+  }
+  app.window.close();
+});
+
+// The wrapper class is what decides the font size, so a section that hand-writes
+// its <ul> silently gets a different card than the one it thinks it asked for.
+// That is exactly how the unseen list ended up with 20px names in a 29px card.
+test('All unseen reports uses the medium species card wrapper, not a lookalike', () => {
+  const m = HTML.match(/<ul id="allUnseenResults"[^>]*class="([^"]*)"/)
+        || HTML.match(/<ul[^>]*class="([^"]*)"[^>]*id="allUnseenResults"/);
+  assert.ok(m, 'the unseen list still exists');
+  const wrapper = (CARDS_SPECIES.match(/medium: *'([^']+)'/)
+               || CARDS_SPECIES.match(/medium: *"([^"]+)"/) || [])[1];
+  assert.ok(wrapper, 'cards-species.js still names the medium wrapper class');
+  for (const cls of wrapper.split(/\s+/)) {
+    assert.ok(m[1].split(/\s+/).includes(cls),
+      'the unseen list must carry "' + cls + '" — the medium card\'s own wrapper — '
+      + 'or it renders at another size than the template it uses');
+  }
 });
 
 test('work anchor: a second waypoint ranks, it never widens coverage', async () => {
@@ -2576,6 +2634,123 @@ test('there are exactly three card templates and each one is really used', () =>
   }
 });
 
+// The bug this guards was reported three times against two different sections
+// ("the font size STILL has not increased") and survived two releases, because
+// every fix raised a number that could not reach the screen.
+test('a card title that is a link keeps the TITLE type, not the action-link type', async () => {
+  const app = await boot();
+  const { window } = app;
+  const doc = window.document;
+
+  // The action-link rule that caused it. It is legitimate — it styles "Open in
+  // Maps" — so the fix is scoping, not deletion, and this pins the rule it is
+  // allowed to be so the guard keeps meaning something if it is retuned.
+  const actionRule = (HTML.match(
+    /\.maplink, \.extlink, \.favlink, \.mylink \{[^}]*\}/) || [])[0];
+  assert.ok(actionRule && /font-size:/.test(actionRule),
+    'the action-link rule still exists and still sets a font-size');
+  const actionSize = actionRule.match(/font-size: (calc\([^)]*\)[^;]*);/)[1];
+
+  const host = doc.createElement('ul');
+  host.className = 'obs hscards hscards-medium';
+  doc.body.appendChild(host);
+  host.appendChild(window.__app.hotspotCard({
+    n: 1, locId: 'L1', locName: 'Marymoor Park', facts: ['9.3 mi', '37 species']
+  }));
+
+  const link = host.querySelector('.ntext a');
+  assert.ok(link, 'the hotspot name really is rendered as a link');
+  assert.match(link.className, /extlink/,
+    'and it really carries the action-link class this guard is about');
+
+  // WHY THIS IS RE-STAGED IN A CLEAN DOCUMENT RATHER THAN MEASURED IN PLACE:
+  // asserting getComputedStyle on the booted app looks stronger and is in fact
+  // VACUOUS — jsdom never applies index.html's action-link rule to this link at
+  // all, so the assertion passed identically with the fix deleted. It was
+  // caught by mutating the rule and watching the test stay green. jsdom DOES
+  // resolve specificity correctly on a stylesheet it parses, so the honest test
+  // is to put the two REAL competing rules in one document and ask which wins.
+  const cardCss = ['hotspot', 'species'].map((k) => {
+    const el = doc.querySelector('style[data-cards="' + k + '"]');
+    assert.ok(el && el.textContent, k + ' card CSS is injected by its module');
+    return el.textContent;
+  });
+  // Same order as the shipped page: index.html's inline <style> is parsed
+  // first, the card modules append theirs afterwards, so a module wins ties.
+  const stage = new JSDOM('<!doctype html><html><head><style>:root{--s:1}\n'
+    + actionRule + '\n</style><style>' + cardCss.join('\n') + '</style></head>'
+    + '<body><ul class="obs hscards hscards-medium">'
+    + host.querySelector('li').outerHTML + '</ul></body></html>');
+  const sw = stage.window;
+  const sLink = sw.document.querySelector('.ntext a');
+  const sText = sw.document.querySelector('.ntext');
+  const sMeta = sw.document.querySelector('.meta');
+  const cs = (el) => sw.getComputedStyle(el).fontSize;
+  assert.ok(sLink && sText && sMeta, 'the card re-stages with its parts intact');
+  // Precondition: prove the staged document really is resolving the cascade,
+  // so a future jsdom change cannot silently turn this guard vacuous again.
+  assert.equal(cs(sw.document.createElement('a')) !== cs(sText), true,
+    'the staged stylesheet is live — an unstyled element differs from .ntext');
+
+  assert.notEqual(cs(sLink), actionSize,
+    'the hotspot NAME must not take the 13px action-link size — that is the '
+    + 'reported "font size still has not increased", and it also made the '
+    + 'sub-header bigger than the title it belongs to');
+  assert.equal(cs(sLink), cs(sText),
+    'a link that IS the title renders at the title size');
+  assert.equal(sw.getComputedStyle(sLink).marginTop, '0px',
+    'and carries no action-link top margin — that margin is the blank line '
+    + 'reported above the hotspot name');
+  assert.notEqual(cs(sText), cs(sMeta),
+    'title and sub-header are distinguishable at all');
+  stage.window.close();
+
+  // Both card families had the identical bug, so both must carry the fix. The
+  // selector must reset a BARE descendant `a`; `.ntext a.something` would
+  // satisfy a looser pattern while matching no title in the app.
+  for (const [src, file] of [[CARDS_HOTSPOT, 'cards-hotspot.js'],
+                             [CARDS_SPECIES, 'cards-species.js']]) {
+    assert.match(src, /\.ntext a\s*[,{][^{]*\{[^}]*font-size: inherit/,
+      file + ' resets link typography inside a name slot');
+  }
+  app.window.close();
+});
+
+// The blank line above the name and the dead space under the number were ONE
+// mechanism, and it is a property of the grid rather than of any single value.
+test('the hotspot card text block is taller than the number it sits beside', () => {
+  const px = (re) => {
+    const m = CARDS_HOTSPOT.match(re);
+    assert.ok(m, 'could not read ' + re);
+    return parseFloat(m[1]);
+  };
+  const badge = px(/\.hsnum \{[\s\S]*?height: calc\((\d+)px \* var\(--s\)\)/);
+  const name = px(/\.hscard-md > \.name > \.ntext \{[\s\S]*?font-size: calc\((\d+)px \* var\(--s\)\)/);
+  const nameLh = px(/\.hscard-md > \.name > \.ntext \{[\s\S]*?line-height: ([\d.]+)/);
+  const meta = px(/\.hscard-md > \.meta \{[\s\S]*?font-size: calc\((\d+)px \* var\(--s\)\)/);
+  const gap = px(/\.hscard-md \{[\s\S]*?row-gap: (\d+)px/);
+
+  assert.ok(name > meta,
+    'the hotspot name outranks its own sub-header (' + name + ' vs ' + meta + ')');
+  // .hsnum spans BOTH grid rows. A grid distributes a spanning item's minimum
+  // height across the rows it spans, so a text block shorter than the badge
+  // makes the rows STRETCH — which is the reported blank line and the dead
+  // space under the number. align-self cannot fix that; only height can.
+  const block = name * nameLh + gap + meta * 1.35;
+  assert.ok(block > badge,
+    'name + gap + meta (' + block.toFixed(1) + 'px) must exceed the '
+    + badge + 'px badge it spans, or the grid rows stretch to fill it');
+  // Every term scales with --s, so the relationship holds at every text size.
+  for (const rule of [/\.hscard-md > \.name > \.ntext \{[\s\S]*?font-size: calc\(\d+px \* var\(--s\)\)/,
+                      /\.hscard-md > \.meta \{[\s\S]*?font-size: calc\(\d+px \* var\(--s\)\)/]) {
+    assert.match(CARDS_HOTSPOT, rule, 'both sizes scale with --s');
+  }
+  // A 1fr column refuses to shrink below its content, which is how a long
+  // hotspot name pushes the whole page sideways.
+  assert.match(CARDS_HOTSPOT, /\.hscard-md \{[\s\S]*?grid-template-columns: auto minmax\(0, 1fr\)/,
+    'the text column may shrink below its content instead of widening the page');
+});
+
 // The shared card is fed by five different record shapes. A missing slot must be
 // OMITTED, not rendered — "score 42 · undefined rarities · 2 targets" is what a
 // template that trusts every caller produces the first time one of them changes.
@@ -3226,4 +3401,138 @@ test('F13: testing a key asks eBird and reports what it said', async () => {
     'the check is a real call - claiming a key works without asking is how the old dead end felt');
   const empty = await app.window.__app.testApiKey('');
   assert.equal(empty.ok, false, 'nothing to test is not a pass');
+});
+
+
+// ---------------------------------------------------------------------------
+// F9 - the county feeds collapse to ONE observation per species, so every
+// "closest spot" ranking was ranking a sample. Measured on live WA data the day
+// this shipped: 41 unseen species went from 66 distinct locations to 945, and
+// Common Loon alone went from 1 location to 49.
+// ---------------------------------------------------------------------------
+test('F9: getChase makes a SECOND wave of per-species calls', async () => {
+  const need = (obsId, code, locId) => ({
+    obsId, speciesCode: code, comName: code, locId, locName: locId,
+    lat: 47.6, lng: -122.3, obsDt: '2026-07-30 08:00', subId: 'S' + obsId
+  });
+  const app = await boot({
+    fetch: (u) => {
+      if (/\/recent\/notable/.test(u)) return [];
+      // A per-species call is data/obs/<region>/recent/<code>; the phase-1
+      // county feeds are .../recent and .../recent/notable.
+      const sp = u.match(/data\/obs\/[^/]+\/recent\/([a-z0-9]+)\?/);
+      if (sp) return [need('X' + sp[1], sp[1], 'L-far'), need('Y' + sp[1], sp[1], 'L-near')];
+      if (/data\/obs\//.test(u)) return [need('A', 'comloo', 'L-one')];
+      return null;
+    }
+  });
+  const res = await app.window.__app.getChase();
+  const sp = app.state.fetches.filter((u) => /data\/obs\/US-WA\/recent\/[a-z]/.test(u));
+  assert.ok(sp.length > 0,
+    'phase 2 ran - without it a needed bird contributes exactly one location ' +
+    'however many places reported it');
+  assert.ok(sp.every((u) => /includeProvisional=true/.test(u)),
+    'phase 2 asks for provisional records, like the report does');
+  assert.deepEqual(res.speciesCodes, res.speciesCodes.slice().sort(),
+    'the code list is sorted - it IS the fetch plan, so it cannot depend on ' +
+    'iteration order or the two languages could not be proven equal');
+  assert.ok(res.speciesCodes.length <= app.window.BirdLogic.SPECIES_FEED_MAX,
+    'and capped, so a big unseen list cannot become a 200-call run');
+
+  // The payoff: the needed bird is now known from more than one place.
+  const locs = new Set(res.cv.unseenAll.filter((r) => r.code === 'comloo').map((r) => r.locId));
+  assert.ok(locs.size > 1,
+    'a needed bird now contributes MORE than one location (' + locs.size + ')');
+  app.window.close();
+});
+
+test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
+  // Measured at 41 unseen species on a normal Washington day. The report can
+  // throttle to 1.2s/call because it is an hourly job; a phone firing all 41
+  // at once earns a 429 and renders an empty section, which reads as a broken
+  // app. Batching is what makes the correctness fix safe to ship on device.
+  const CODES = ['comloo', 'amepip', 'blkswi', 'arcter', 'casfin', 'comnig',
+    'btywar', 'bkbwoo', 'comter', 'commur'];
+  const need = (obsId, code, locId) => ({
+    obsId, speciesCode: code, comName: code, locId, locName: locId,
+    lat: 47.6, lng: -122.3, obsDt: '2026-07-30 08:00', subId: 'S' + obsId
+  });
+  const app = await boot({
+    fetch: (u) => {
+      if (/\/recent\/notable/.test(u)) return [];
+      if (/data\/obs\//.test(u)) return CODES.map((c, i) => need('A' + i, c, 'L' + i));
+      return null;
+    }
+  });
+  const w = app.window;
+  const orig = w.fetch;
+  let inFlight = 0, peak = 0;
+  // A REAL async delay, not a resolved promise: batches are chained through
+  // microtasks, so a synchronous counter would see every call at once no
+  // matter how the fetching is scheduled and the guard would prove nothing.
+  w.fetch = function (u) {
+    if (/data\/obs\/US-WA\/recent\/[a-z]/.test(String(u))) {
+      inFlight++; peak = Math.max(peak, inFlight);
+      return new Promise((res) => setTimeout(() => {
+        inFlight--;
+        res({ ok: true, status: 200, json: () => Promise.resolve([]), text: () => Promise.resolve('[]') });
+      }, 5));
+    }
+    return orig(u);
+  };
+  w.__app.clearChaseCache();
+  const res = await w.__app.getChase();
+  assert.ok(res.speciesCodes.length > 6,
+    'the fixture must produce more needs than one batch (' + res.speciesCodes.length + ')');
+  assert.ok(peak > 0, 'phase 2 actually ran');
+  assert.ok(peak <= 6,
+    'no more than 6 species calls are ever in flight at once (peak was ' + peak + ')');
+  w.close();
+});
+
+test('F9: concurrent callers share one wave, not two', async () => {
+  // The cache is only written at the END, so two sections opening together used
+  // to run two complete waves. Phase 2 turned that from wasteful into harmful:
+  // a 41-call run became 82, against a ~50/min throttle.
+  const app = await boot({
+    fetch: (u) => {
+      if (/\/recent\/notable/.test(u)) return [];
+      if (/data\/obs\//.test(u)) return [{
+        obsId: 'A', speciesCode: 'comloo', comName: 'Common Loon', locId: 'L1',
+        locName: 'One', lat: 47.6, lng: -122.3, obsDt: '2026-07-30 08:00', subId: 'S1'
+      }];
+      return null;
+    }
+  });
+  const w = app.window;
+  w.__app.clearChaseCache();
+  const before = app.state.fetches.length;
+  const [a, b] = await Promise.all([w.__app.getChase(), w.__app.getChase()]);
+  assert.equal(a, b, 'both callers get the SAME result object, not two waves');
+  const n = app.state.fetches.slice(before).filter((u) => /data\/obs\/US-WA\/recent\/comloo/.test(u)).length;
+  assert.equal(n, 1, 'the species feed is fetched once, not once per caller');
+  w.close();
+});
+
+test('F9: phase 2 cannot change what phase 1 already found', async () => {
+  // Merge order decides which row becomes the base row for a duplicated obsId.
+  // Phase 2 is appended, so this must hold or the second pass would silently
+  // restate observations the report already had.
+  const A = { obsId: 'A', speciesCode: 'comloo', comName: 'Common Loon',
+    locId: 'L1', locName: 'One', lat: 47.5, lng: -122.3,
+    obsDt: '2026-07-30 08:00', subId: 'S1' };
+  const app = await boot();
+  const BL = app.window.BirdLogic;
+  const wa = BL.profileFor('wa');
+  const rows = { 'king-recent.json': [A] };
+  const before = BL.mergeFromFiles(wa, rows);
+  const after = BL.mergeFromFiles(wa,
+    Object.assign({ 'sp-comloo.json': [A, Object.assign({}, A, { obsId: 'B', locId: 'L2' })] }, rows),
+    ['comloo']);
+  const a0 = after.find((r) => r.obsId === 'A');
+  ['kind', 'code', 'loc', 'locId', 'lat', 'lon', 'dateStr', 'subId'].forEach((f) => {
+    assert.deepEqual(a0[f], before[0][f], 'phase-1 row field "' + f + '" is untouched');
+  });
+  assert.equal(after.length, before.length + 1, 'phase 2 only ADDS');
+  app.window.close();
 });
