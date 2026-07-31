@@ -589,3 +589,94 @@ test('a hotspot norm is remembered across sessions, not re-derived each run', ()
   assert.equal(settled.L7[DAY(9).slice(0, 10)], 1,
     'a settled day collapses from names to a count');
 });
+
+// --- F9: phase-2 per-species feeds ----------------------------------------
+// The per-county `recent` feed collapses to ONE observation per species, so a
+// needed bird contributed a single location however many places reported it:
+// every "closest spot" ranking was ranking a sample. Measured on live WA data
+// the day this shipped: 41 unseen species went from 66 distinct locations to
+// 945, and Common Loon alone went from 1 location to 49.
+test('F9: species targets are deduped, sorted and capped', () => {
+  const recs = [{ code: 'wesmea' }, { code: 'amerob' }, { code: 'wesmea' },
+                { code: '' }, {}, { code: 'bkcchi' }];
+  assert.deepEqual(BL.speciesTargetCodes(recs),
+    ['amerob', 'bkcchi', 'wesmea'],
+    'deduped and sorted — the list IS the fetch plan, so it cannot depend on ' +
+    'iteration order or it could not be proven equal across two languages');
+  assert.deepEqual(BL.speciesTargetCodes(recs, 2), ['amerob', 'bkcchi'],
+    'capped — the cap is what stops a big unseen list turning into a 200-call run');
+  assert.equal(BL.SPECIES_FEED_MAX, 60, 'the shipped cap is 60');
+  assert.deepEqual(BL.speciesTargetCodes([]), [], 'no needs, no calls');
+});
+
+test('F9: the species feed is scoped to the STATE, not the counties', () => {
+  // Measured before choosing: Western Kingbird returned 317 records at state
+  // scope, 2 at county scope, 0 at hotspot scope. Fanning out per county would
+  // be 3x the calls for strictly less data.
+  const wa = BL.profileFor('wa');
+  assert.equal(BL.speciesFeedRegion(wa), 'US-WA', 'state code wins');
+  const feeds = BL.planSpeciesFeeds(wa, ['comloo'], 7);
+  assert.equal(feeds.length, 1, 'one call per species, not one per county');
+  assert.equal(BL.requestUrl(feeds[0]),
+    'data/obs/US-WA/recent/comloo?back=7&detail=full&includeProvisional=true');
+  assert.equal(feeds[0].file, 'sp-comloo.json');
+  assert.equal(feeds[0].src, 'Sp:comloo');
+  assert.deepEqual(BL.planSpeciesFeeds(wa, [], 7), [], 'no codes, no feeds');
+  assert.deepEqual(BL.planSpeciesFeeds({ counties: [] }, ['comloo'], 7), [],
+    'no region to scope to, no feeds');
+  assert.equal(BL.speciesFeedRegion({ counties: [{ code: 'US-WA-033' }] }),
+    'US-WA-033', 'falls back to the first county when there is no state code');
+});
+
+test('F9: species feeds merge LAST and only ADD locations', () => {
+  const wa = BL.profileFor('wa');
+  const plan = BL.mergePlan(wa, ['comloo', 'amerob']);
+  const files = plan.map((f) => f.file);
+  assert.deepEqual(files.slice(-2), ['sp-comloo.json', 'sp-amerob.json'],
+    'phase 2 is appended, so merge order — and therefore which row becomes the ' +
+    'base row for a duplicated obsId — is unchanged for everything phase 1 had');
+  assert.deepEqual(BL.mergePlan(wa).map((f) => f.file),
+    files.slice(0, files.length - 2),
+    'passing no codes reproduces the phase-1 plan exactly');
+
+  const p1 = [{ obsId: 'A', speciesCode: 'comloo', comName: 'Common Loon',
+                locId: 'L1', locName: 'One', lat: 47.5, lng: -122.3,
+                obsDt: '2026-07-30 08:00', subId: 'S1' }];
+  const p2 = [p1[0], { obsId: 'B', speciesCode: 'comloo', comName: 'Common Loon',
+                locId: 'L2', locName: 'Two', lat: 47.6, lng: -122.4,
+                obsDt: '2026-07-30 09:00', subId: 'S2' }];
+  const base = BL.mergeFromFiles(wa, { 'king-recent.json': p1 });
+  const grown = BL.mergeFromFiles(wa, { 'king-recent.json': p1, 'sp-comloo.json': p2 },
+    ['comloo']);
+  assert.equal(base.length, 1, 'phase 1 alone sees the one location it was told about');
+  assert.equal(grown.length, 2, 'phase 2 finds the second location');
+  const a = grown.find((r) => r.obsId === 'A');
+  assert.equal(a.locId, 'L1', 'the phase-1 row keeps its own location');
+  assert.equal(a.kind, base[0].kind, 'the phase-1 row keeps its own kind');
+});
+
+test('F9: a phase-2 row of a notable species is still a rarity', () => {
+  // The notable feed also collapses per species, so a rarity at five places
+  // arrives as ONE flagged row; phase 2 brings the other four in through a feed
+  // that carries no rarity flag at all. Without inheritance the section that
+  // exists to say "a rare bird is HERE" would point at one of five spots.
+  const wa = BL.profileFor('wa');
+  const row = (id, locId) => ({ obsId: id, speciesCode: 'brnboo', comName: 'Brown Booby',
+    locId: locId, locName: locId, lat: 47.5, lng: -122.3,
+    obsDt: '2026-07-30 08:00', subId: 'S' + id });
+  const out = BL.mergeFromFiles(wa, {
+    'king-notable.json': [row('A', 'L1')],
+    'sp-brnboo.json': [row('A', 'L1'), row('B', 'L2')]
+  }, ['brnboo']);
+  assert.equal(out.length, 2, 'both locations survive');
+  out.forEach((r) => assert.equal(r.kind, 'Rarity',
+    r.obsId + ' is a rarity — the species was flagged notable, so every place ' +
+    'it turned up is a rarity report'));
+
+  const ordinary = BL.mergeFromFiles(wa, {
+    'king-recent.json': [row('A', 'L1')],
+    'sp-brnboo.json': [row('A', 'L1'), row('B', 'L2')]
+  }, ['brnboo']);
+  ordinary.forEach((r) => assert.equal(r.kind, 'Need',
+    'inheritance only fires when some notable feed actually flagged the species'));
+});

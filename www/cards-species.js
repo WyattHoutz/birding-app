@@ -71,6 +71,22 @@
      drift into six lookalike layouts. */
 
   var CSS = [
+    /* ---- A CARD TITLE THAT IS A LINK KEEPS THE TITLE'S TYPE ----
+       Nearly every species name is rendered as an `<a class="extlink">` so it
+       can open the eBird species page. index.html styles that class for what
+       it was built for — an ACTION link ("Open in Maps", "eBird") — at 13px
+       with an 8px top margin. That reached the TITLE text too, so a card name
+       rendered at 13px no matter what size the card asked for: raising this
+       family's medium name 20px -> 29px changed nothing on screen, the 8px
+       margin read as a blank line above the name, and the 16px sub-header
+       out-sized the name it belongs to. A link that IS the title inherits the
+       title's type; only its colour stays its own. Scoped to the name slots so
+       genuine action links inside a card are untouched. ---- */
+    '.obs .ntext a, .cards .bcname a, .card-lg .bcname a, .obs .name > a {',
+    '  display: inline; margin-top: 0;',
+    '  font-size: inherit; font-weight: inherit; line-height: inherit;',
+    '  letter-spacing: inherit; }',
+
     /* ---- BIG icon modifier: for the sections read as "which bird is this"
        rather than "how many", where the thumbnail is the fastest way to
        recognise a bird. Stacks with a size below. ---- */
