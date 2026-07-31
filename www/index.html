@@ -148,11 +148,37 @@
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
     #navbar[hidden] { display: none; }
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
-    #navTitle { font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #navRegion { width: auto; max-width: 42%; margin-left: auto; padding: 7px 8px; font-size: calc(13px * var(--s)); font-weight: 700; border-radius: 8px; }
+    /* Icon-only chrome. #navTitle is the only element in this row with no
+       intrinsic width, so it is the one that gets squeezed -- a text back
+       button plus a <select> sized by its longest option label ("Waikoloa /
+       Big Island") left it about 40px on a phone. Both controls are now
+       squares that scale with --s, so the tap target grows with the text
+       rather than clipping at the setting a low-vision reader would pick. */
+    #navbar #navBack { flex: 0 0 auto; padding: 0; width: calc(38px * var(--s)); height: calc(38px * var(--s)); display: inline-flex; align-items: center; justify-content: center; font-size: calc(24px * var(--s)); line-height: 1; }
+    #navTitle { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The <select> is kept, not replaced by a custom menu: on iOS it opens the
+       native wheel picker, which shows every region label in full. It is laid
+       transparently over the globe so the control reads as an icon while the
+       list it opens stays legible. opacity:0 still receives taps. */
+    .navregion { position: relative; flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: calc(38px * var(--s)); height: calc(38px * var(--s)); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+    .navregion .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
+    #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     .regionpick label { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .regionpick select { flex: 1; font-weight: 700; }
+    /* First run has no key, and without one the app can do literally nothing.
+       Every section used to say so separately; this says it once, up front,
+       with the button that fixes it. */
+    .keybanner { margin: 12px 0 2px; padding: 12px 14px; border: 1px solid var(--accent);
+                 border-radius: 12px; background: var(--card); }
+    .keybanner[hidden] { display: none; }
+    .keybanner .kbtitle { font-weight: 800; font-size: calc(15px * var(--s)); }
+    .keybanner p { margin: 4px 0 10px; font-size: calc(13px * var(--s)); color: var(--muted); }
+    .keyrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+    .keyrow button { flex: 1 1 auto; }
+    .keystate { font-weight: 700; }
+    .keystate.ok { color: var(--accent); }
+    .keystate.bad { color: #b3261e; }
     #menuPanel h2 { font-size: calc(19px * var(--s)); margin-bottom: 4px; }
     /* Contents is a grid of tiles, not a list of links: 25 rows of text all
        set at the same weight is a wall to scan, while a glyph per tile lets
@@ -514,10 +540,13 @@
 </head>
 <body>
   <div id="navbar" hidden>
-    <button id="navBack" class="secondary" type="button">‹ Contents</button>
+    <button id="navBack" class="secondary" type="button" aria-label="Back to Contents"><span aria-hidden="true">&lsaquo;</span></button>
     <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
     <span id="navTitle"></span>
-    <select id="navRegion" aria-label="Report region"></select>
+    <span class="navregion">
+      <span class="navregionicon" aria-hidden="true">&#127758;</span>
+      <select id="navRegion" aria-label="Report region"></select>
+    </span>
   </div>
   <header>
     <div class="brand">
@@ -793,7 +822,13 @@
       <p class="hint">Every “Open in Maps” link and the trip route open here. Applies immediately. OpenStreetMap directions take only a start and an end, so a multi-stop route says so instead of quietly dropping the stops in between.</p>
       <label for="apiKey">eBird API key</label>
       <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
-      <p class="hint">Free key from <code>ebird.org/api/keygen</code>. Stored only on this device.</p>
+      <div class="keyrow">
+        <button id="keyGetBtn" class="secondary" type="button">Get a key</button>
+        <button id="keyPasteBtn" class="secondary" type="button">Paste</button>
+        <button id="keyTestBtn" class="secondary" type="button">Test</button>
+      </div>
+      <p id="keyStatus" class="hint keystate"></p>
+      <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
       <p class="hint">Pick which birding report to chase. Every section below matches that report's counties, home base, and seen-species list exactly.</p>
@@ -896,7 +931,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.32';
+      var APP_VERSION = '1.0.33';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4353,6 +4388,114 @@
         try { window.open(url, '_blank'); } catch (e) { try { window.open(url, '_system'); } catch (_) {} }
       }
 
+      // --- eBird API key acquisition (F13) -----------------------------------
+      // A missing key is a dead end: without one the app cannot make a single
+      // call, and the old Settings copy was a bare URL in a <code> block that
+      // was not even tappable. This walks the user there and back.
+      var EBIRD_KEYGEN_URL = 'https://ebird.org/api/keygen';
+      // eBird issues 12-character lowercase alphanumeric keys. Used only to
+      // catch an obvious paste error (a whole URL, a display name) BEFORE
+      // spending a network call - never to reject a key outright, because the
+      // format is eBird's to change and a false rejection is worse than a
+      // wasted request.
+      function keyLooksWrong(k) {
+        k = (k || '').trim();
+        if (!k) return 'empty';
+        if (/\s/.test(k)) return 'contains a space, so part of something else was copied';
+        if (/^https?:/i.test(k)) return 'looks like a URL, not a key';
+        if (k.length < 8 || k.length > 24) return 'is ' + k.length + ' characters; eBird keys are 12';
+        if (!/^[A-Za-z0-9]+$/.test(k)) return 'has punctuation in it; eBird keys are letters and digits only';
+        return '';
+      }
+      // Open the key request form INSIDE the app rather than in the system
+      // browser: the user has to sign in to eBird to get a key, and an in-app
+      // web view keeps that session next to the field they are filling in.
+      function openKeygen() {
+        var IB = ib();
+        if (IB && typeof IB.openWebView === 'function') {
+          try { IB.openWebView({ url: EBIRD_KEYGEN_URL, showReloadButton: true, title: 'eBird API key' }); return true; } catch (e) {}
+        }
+        openExternal(EBIRD_KEYGEN_URL);
+        return true;
+      }
+      // Clipboard read, best effort. The Capacitor plugin is not installed, so
+      // this is the web API, which iOS gates behind a user gesture - hence it
+      // only ever runs from a button tap.
+      function readClipboard() {
+        try {
+          if (navigator.clipboard && navigator.clipboard.readText) return navigator.clipboard.readText();
+        } catch (e) {}
+        return Promise.reject(new Error('no clipboard access'));
+      }
+      // Prove a key works before trusting it. ref/region/info is the cheapest
+      // authenticated call eBird has and it is not region-list dependent, so a
+      // failure here really is the key rather than the report's scope.
+      function testApiKey(k) {
+        k = (k || '').trim();
+        if (!k) return Promise.resolve({ ok: false, why: 'No key entered yet.' });
+        return fetch('https://api.ebird.org/v2/ref/region/info/US-WA', { headers: { 'X-eBirdApiToken': k } })
+          .then(function (r) {
+            if (r.status === 401 || r.status === 403) return { ok: false, why: 'eBird rejected this key (HTTP ' + r.status + '). Check you copied all of it.' };
+            if (!r.ok) return { ok: false, why: 'eBird returned HTTP ' + r.status + '. That is usually eBird, not your key — try again shortly.' };
+            return { ok: true, why: 'This key works.' };
+          })
+          .catch(function (e) { return { ok: false, why: 'Could not reach eBird: ' + (e && e.message ? e.message : e) }; });
+      }
+      function setKeyStatus(msg, cls) {
+        var el = $('keyStatus'); if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'hint keystate' + (cls ? ' ' + cls : '');
+      }
+      // One place that answers "can this app do anything right now?", shown on
+      // the Contents menu so it is the first thing a first-run user reads
+      // instead of discovering it one section at a time.
+      function renderKeyBanner() {
+        var el = $('keyBanner'); if (!el) return;
+        if (getKey()) { el.hidden = true; el.innerHTML = ''; return; }
+        el.hidden = false;
+        el.innerHTML = '<div class="kbtitle">🔑 Add your eBird API key to begin</div>' +
+          '<p>Every section reads live eBird data from this device, so nothing can load until a key is stored. It is free and takes about a minute.</p>' +
+          '<div class="keyrow"><button id="keyBannerBtn" type="button">Set up my key</button></div>';
+        var b = $('keyBannerBtn');
+        if (b) b.addEventListener('click', function () { showSettings(true); var f = $('apiKey'); if (f) { try { f.focus(); } catch (e) {} } });
+      }
+      function bindKeyHelpers() {
+        var get = $('keyGetBtn'), paste = $('keyPasteBtn'), test = $('keyTestBtn');
+        if (get && !get.dataset.bound) {
+          get.dataset.bound = '1';
+          get.addEventListener('click', function () {
+            setKeyStatus('Opening eBird… sign in, submit the form, then copy the key it gives you and tap Paste.', '');
+            openKeygen();
+          });
+        }
+        if (paste && !paste.dataset.bound) {
+          paste.dataset.bound = '1';
+          paste.addEventListener('click', function () {
+            readClipboard().then(function (txt) {
+              txt = (txt || '').trim();
+              if (!txt) { setKeyStatus('The clipboard is empty. Copy the key from the eBird page first.', 'bad'); return; }
+              $('apiKey').value = txt;
+              var wrong = keyLooksWrong(txt);
+              if (wrong) { setKeyStatus('Pasted, but it ' + wrong + '. Check it, then tap Test.', 'bad'); return; }
+              setKeyStatus('Pasted. Checking it with eBird…', '');
+              testApiKey(txt).then(function (r) { setKeyStatus(r.why + (r.ok ? ' Tap Save to keep it.' : ''), r.ok ? 'ok' : 'bad'); });
+            }).catch(function () {
+              setKeyStatus('This device would not hand over the clipboard. Long-press the field above and choose Paste.', 'bad');
+            });
+          });
+        }
+        if (test && !test.dataset.bound) {
+          test.dataset.bound = '1';
+          test.addEventListener('click', function () {
+            var k = ($('apiKey').value || '').trim();
+            var wrong = keyLooksWrong(k);
+            if (wrong === 'empty') { setKeyStatus('Enter a key first, or tap Get a key.', 'bad'); return; }
+            setKeyStatus('Checking with eBird…', '');
+            testApiKey(k).then(function (r) { setKeyStatus(r.why, r.ok ? 'ok' : 'bad'); });
+          });
+        }
+      }
+
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
       // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
@@ -7185,6 +7328,7 @@
         menu.innerHTML = '<h2>📑 Contents</h2>' +
           '<div class="regionpick"><label for="menuRegion">Region</label>' +
           '<select id="menuRegion"></select></div>' +
+          '<div id="keyBanner" class="keybanner" hidden></div>' +
           '<p class="hint" id="menuReport">Tap a tile to open that section — this menu mirrors your Markdown report.</p>' +
           '<ul id="menuList" class="toc"></ul>';
         main.insertBefore(menu, main.firstChild);
@@ -7202,6 +7346,7 @@
         });
         bindRegionPickers();
         renderMenuList();
+        renderKeyBanner();
         showMenu();
       }
       // The Contents list is rebuilt whenever the region changes, because the
@@ -7258,6 +7403,7 @@
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
         var nav = $('navbar'); if (nav) nav.hidden = true;
         var mr = $('menuReport'); if (mr) { try { mr.textContent = getReport().label + ' · tap a section to open it (mirrors your Markdown report).'; } catch (e) {} }
+        renderKeyBanner();
         syncRegionNav();
         try { window.scrollTo(0, 0); } catch (e) {}
       }
@@ -7834,9 +7980,20 @@
           clearChaseCache();
           _autoLoaded = {};
           loadSettings();
+          renderKeyBanner();
           showSettings(false);
           startBackgroundHistory(3000);
           if (!getKey()) $('status').textContent = 'Add your eBird API key in Settings to begin.';
+        }
+        // A malformed key is stored just as happily as a good one, and the
+        // failure then shows up as every section being empty - which reads as
+        // a broken app, not a typo. Name the problem here, at the one moment
+        // the user is looking at the field.
+        var typed = ($('apiKey').value || '').trim();
+        var wrong = typed ? keyLooksWrong(typed) : '';
+        if (wrong) {
+          setKeyStatus('Not saved: that key ' + wrong + '. Fix it, or tap Get a key.', 'bad');
+          return;
         }
         var place = ($('homePlace').value || '').trim();
         var haveCoords = isFinite(parseFloat($('homeLat').value)) && isFinite(parseFloat($('homeLng').value));
@@ -7909,10 +8066,13 @@
         searchSpecies: searchSpecies, runNvSearch: runNvSearch, clearNvSearch: clearNvSearch,
         getReportSeen: getReportSeen, WATCH_KEY: WATCH_KEY,
         abaArchiveAdd: abaArchiveAdd, abaArchiveFor: abaArchiveFor,
-        abaArchiveSince: abaArchiveSince, ABA_ARCHIVE_KEY: ABA_ARCHIVE_KEY
+        abaArchiveSince: abaArchiveSince, ABA_ARCHIVE_KEY: ABA_ARCHIVE_KEY,
+        keyLooksWrong: keyLooksWrong, renderKeyBanner: renderKeyBanner,
+        testApiKey: testApiKey, openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL
       };
       migrateHomeKeys();
       buildNav();
+      bindKeyHelpers();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       loadSettings();
       maybeAutoSeed();

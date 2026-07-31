@@ -278,6 +278,41 @@ still resurfaces as a target. Guarded by *a bird ticked in another region is
 still a target in this report*, which derives its fixtures from the shipped
 seed and fails if the seed ever stops diverging.
 
+**v1.0.33 — two app-only pieces of chrome, both with no report equivalent, and
+one of them is the app's front door.** The section navbar had four things
+competing for one flex row: a full `‹ Contents` **text** button, the 26px
+brandmark, the section title, and a native `<select>` **sized by its longest
+option label** ("Waikoloa / Big Island"). Only the title had no intrinsic
+width, so the title was the one that got squeezed — the two separate device
+reports ("the dropdown obscures the report name", "the back arrow is too
+large") were the same bug seen from two sides. Measured: the fixed chrome ate
+~354px of a 393px navbar, leaving **~39px** for the name of the section you are
+reading; it now takes ~170px, leaving **~223px**. The region control stays a
+real `<select>` — laid transparently (`opacity: 0`, which still receives taps,
+unlike `visibility: hidden`) over a 🌎 glyph — because on iOS that opens the
+native wheel picker showing the full labels, and because `syncRegionNav()` and
+the existing region tests drive it as a `<select>`. The brandmark **stays**: it
+costs 38px of the 223 reclaimed, and removing it would have meant weakening the
+branding guard that requires the mark in both the header and the navbar. None
+of this exists in the Markdown report, which has no chrome at all — the reader's
+browser supplies the back button and the report is one region by construction.
+
+**Guided eBird key acquisition (v1.0.33) — app-only, and the reason is
+structural.** The report runs in CI with a key in the environment; the app runs
+on a phone where a missing key means **nothing can load at all**, and the old
+Settings copy was an untappable URL in a `<code>` block. Settings now carries
+**Get a key** (opens `https://ebird.org/api/keygen` in the in-app web view, so
+the eBird sign-in the form requires happens next to the field being filled in),
+**Paste** (`navigator.clipboard.readText()` — no Capacitor Clipboard plugin is
+installed, and the web API is gated behind a user gesture, so it only ever runs
+from the tap; a refusal tells the user to long-press the field rather than
+failing silently), and **Test** (one `ref/region/info/US-WA` call, which
+distinguishes *eBird rejected this key* from *eBird is having a moment*). A
+malformed key is now **named and refused instead of stored**: saved silently, it
+turns into every section rendering empty, which reads as a broken app rather
+than a typo. The Contents menu leads with a banner while no key is stored,
+because that is the one screen a first-run user definitely sees.
+
 
 OpenStreetMap, and every outbound map link in the app — every pin, every
 "Directions", and the Trip planner route — is built from that choice. The
