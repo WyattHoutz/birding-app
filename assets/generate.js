@@ -1,13 +1,13 @@
 /*
  * Dependency-free generator for the app icon, launch images and in-app mark.
  *
- * The brand is a photograph -- a bald eagle shot by the app's author -- so the
- * icon you tap, the splash you wait on and the mark in the header are all
- * literally the same picture. Everything is derived from ONE master here, so
- * they cannot drift apart the way a hand-drawn logo and a separate icon do.
+ * The brand is a photograph -- a belted kingfisher shot by the app's author --
+ * so the icon you tap, the splash you wait on and the mark in the header are
+ * all literally the same picture. Everything is derived from ONE master here,
+ * so they cannot drift apart the way a hand-drawn logo and a separate icon do.
  *
  * Input:
- *   assets/brand/eagle.png     1024x1024 lossless master (the archival source)
+ *   assets/brand/kingfisher.png  1024x1024 lossless master (archival source)
  *
  * Output:
  *   assets/icon.png            1024x1024  app icon source  (capacitor-assets)
@@ -208,29 +208,33 @@ function drawPhoto(cv, img, crop, size, ox, oy, circle) {
 // Crops are solved against the mask each output actually gets, not eyeballed.
 // ICON sits under the iOS squircle, which only bites the corners, so it can
 // hold the whole profile plus the dark body that gives the mark weight.
-const CROP_ICON = { x: 0.148, y: 0.090, s: 0.820 };
+const CROP_ICON = { x: 0.090, y: 0.110, s: 0.800 };
 // MARK is masked by CSS to a circle INSCRIBED in the square, so the usable area
-// is 79% of the crop and the corners are gone. Sized so the hooked beak tip —
-// the furthest-left thing that makes this bird a bald eagle — clears the arc:
-// it lands 0.46 from centre against a 0.5 radius. A crop that merely "looks
-// centred" clips it, which is exactly what the previous one did.
-const CROP_MARK = { x: 0.165, y: 0.105, s: 0.645 };
+// is 79% of the crop and the corners are gone. Sized so the dagger bill tip —
+// the furthest-left thing, and the feature that makes this bird a kingfisher
+// rather than a jay — clears the arc: it lands 0.45 from centre against a 0.5
+// radius. A crop that merely "looks centred" clips it, which is exactly what
+// happened the last time this master was replaced.
+const CROP_MARK = { x: 0.088, y: 0.062, s: 0.380 };
 
 // Where the bird is in the master, in the master's own normalised coordinates.
-// Read off a grid overlay, not guessed. These exist so a crop can be CHECKED
-// rather than admired: the first pass at this photo looked fine as a square and
-// lost the beak the moment CSS made it round, which is invisible until it ships.
+// MEASURED, not guessed — these come from a silhouette scan of the master
+// (leftmost / topmost / rearmost non-sky pixel, and the white loral patch found
+// as the one light blob inside the dark crown), because the previous master was
+// eyeballed and lost the beak the moment CSS made the mark round. That failure
+// is invisible in a square preview, which is why the numbers have to be solved.
 const LANDMARKS = {
-  'beak tip': [0.195, 0.375],
-  'beak hook': [0.225, 0.465],
-  'crown': [0.440, 0.235],
-  'eye': [0.530, 0.330],
-  'nape': [0.905, 0.450],
+  'bill tip': [0.115, 0.298],
+  'eye patch': [0.305, 0.265],
+  'crown': [0.395, 0.159],
+  'nape': [0.487, 0.292],
 };
 // What each output OWES, which is not the same as what is in the photo. The
-// mark is a deliberately tight face, so losing the trailing nape feathers is
-// the crop working; losing the beak is the crop broken.
-const FACE = ['beak tip', 'beak hook', 'crown', 'eye'];
+// mark is a deliberately tight face, so losing the trailing crest spikes is the
+// crop working; losing the bill is the crop broken. 'crown' is the top of the
+// shaggy crest and is non-negotiable in both — a belted kingfisher without its
+// crest silhouette is just a blue bird.
+const FACE = ['bill tip', 'eye patch', 'crown'];
 const PROFILE = [...FACE, 'nape'];
 
 // A landmark must survive the mask its output actually gets. The circle is
@@ -267,7 +271,7 @@ function renderSplash(img, size, top, bot) {
 }
 
 const out = __dirname;
-const master = decodePNG(fs.readFileSync(path.join(out, 'brand', 'eagle.png')));
+const master = decodePNG(fs.readFileSync(path.join(out, 'brand', 'kingfisher.png')));
 
 assertFramed(CROP_ICON, 'CROP_ICON', 'squircle', PROFILE);
 assertFramed(CROP_MARK, 'CROP_MARK', 'circle', FACE);

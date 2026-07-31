@@ -119,7 +119,14 @@
     '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1 / span 2; }',
     '.hscard-md > .name > .ntext {',
     '  grid-column: 2; grid-row: 1; align-self: end;',
-    '  font-size: calc(23px * var(--s)); font-weight: 700; line-height: 1.15;',
+    /* The hotspot name is the SUBJECT of a hotspot card, so it outranks
+       everything the card holds — including the 29px species names in the
+       unseen list nested inside it. At 23px it did not: a card whose whole
+       point is "which place is this" led with a title smaller than the birds
+       listed under it. break-word (not `anywhere`) keeps it wrapping between
+       words, and only splits a token like "Marsh--Willow" when that token
+       alone cannot fit the column. */
+    '  font-size: calc(46px * var(--s)); font-weight: 700; line-height: 1.1;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     '.hscard-md > .meta {',
     '  grid-column: 2; grid-row: 2; align-self: start;',

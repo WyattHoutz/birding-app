@@ -247,6 +247,37 @@ same place — at the small-icon size, not the photo size, because a one- or
 two-digit number does not need 92px and the difference goes to the name, which
 is the part that wraps.
 
+**v1.0.32 — the seen list belongs to the CARD, and there is now one definition
+of "seen".** Two bugs, one shipped fix. First, only Hot & Cold actually passed
+a seen list: they are the one pair that runs its own hotspot scan, while the
+other five sections read the CHASE feeds, which carry every recent observation
+and are then *filtered* to unseen for ranking — so the seen birds were fetched,
+merged, distance-annotated and then discarded one step before the card. They
+are now recovered from the same cached `cv.merged` the rows were ranked from
+(`locSpeciesIndex` / `locSpeciesSplit`), so the collapsed list costs **zero
+extra network** and cannot describe a different moment than the sub-header
+above it. A caller either brings its own scored unseen list and we fill in only
+the seen half, or it brings neither and both halves come from the index —
+never one without the other, because a card showing the seen list while hiding
+the unseen one answers *"is this worth the drive?"* with a confident **no**
+about a spot with a target sitting on it.
+
+Second, and worse: the app had **two disagreeing definitions of "seen"**.
+`getReportSeen()` is the active report's year list, mirroring the Markdown
+report; `isSpeciesSeen()` reads `localStorage` `ebird_seen`, which `applySeed()`
+fills with the **combined cross-region** code list. Measured against the shipped
+seed those sets differ by **28 codes on the Washington report (331 vs 303)**,
+and on the Waikoloa trip report — whose entire premise is that every Big Island
+bird is a lifer target — the combined set claims **all 331**. Hot & Cold ranked
+with `isSpeciesSeen` alone, so a bird ticked in Missouri was reported as already
+seen in Washington and buried in the collapsed context list: the section that
+exists to say *"there are birds here you still need"* hiding 28 of them. Both
+paths now resolve through one report-scoped `seenResolver()`, which also
+respects `watchHeld` so a tentative ID deliberately held off the year list
+still resurfaces as a target. Guarded by *a bird ticked in another region is
+still a target in this report*, which derives its fixtures from the shipped
+seed and fails if the seed ever stops diverging.
+
 
 OpenStreetMap, and every outbound map link in the app — every pin, every
 "Directions", and the Trip planner route — is built from that choice. The
