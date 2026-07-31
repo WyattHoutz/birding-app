@@ -3096,3 +3096,134 @@ test('cascade code resolution tries the already-fetched feeds before the region 
   assert.equal(app.state.fetches.filter((f) => /spplist/.test(f)).length, 0,
     'the region index is a fallback, not the first stop');
 });
+
+
+// ---------------------------------------------------------------------------
+// F10 - the section navbar's chrome crowded out the thing it was labelling.
+// Reported from the device: the region <select> rendered its widest option
+// ("Waikoloa / Big Island") inline and the back button spelled out
+// "< Contents", leaving the section name - the only element a reader needs -
+// with almost nothing. Both controls are now icon-sized; the title takes the
+// rest. These guard the SHAPE, because jsdom has no layout engine and cannot
+// measure the result.
+// ---------------------------------------------------------------------------
+
+test('F10: the navbar back control is icon-only but keeps its accessible name', async () => {
+  const app = await boot();
+  const back = app.$('navBack');
+  assert.ok(back, 'the navbar still has a back control');
+  assert.equal(back.getAttribute('aria-label'), 'Back to Contents',
+    'an icon-only button carries its words in aria-label, which is the contract the label tests read');
+  assert.ok(!/contents/i.test(back.textContent),
+    'the words must not also be painted: spelling out "Contents" is the width this fix reclaims');
+  assert.ok(back.textContent.trim().length <= 2,
+    'what is left is a single chevron glyph, not a text label');
+
+  app.open(/Settings/);
+  assert.equal(app.$('navbar').hidden, false);
+  app.click(back);
+  assert.equal(app.$('menuPanel').hidden, false,
+    'shrinking the control must not unwire it - it still returns to Contents');
+});
+
+test('F10: the region picker is an icon-sized overlay, not an inline-sized select', async () => {
+  const app = await boot();
+  const sel = app.$('navRegion');
+  assert.ok(sel, 'the navbar still offers the region picker');
+  assert.equal(sel.tagName, 'SELECT',
+    'it stays a native select so iOS opens its wheel picker with the full region labels');
+  const wrap = sel.closest('.navregion');
+  assert.ok(wrap, 'the select is wrapped in a fixed-size box that supplies the icon');
+  assert.ok(wrap.querySelector('.navregionicon'),
+    'the wrapper paints a glyph, which is what the reader sees instead of "Waikoloa / Big Island"');
+
+  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
+  const rule = (sel2) => {
+    const m = css.match(new RegExp('(^|[\\s}])' + sel2.replace(/[.#*]/g, '\\$&') + '\\s*\\{([^}]*)\\}'));
+    return m ? m[2] : '';
+  };
+  assert.match(rule('#navRegion'), /opacity:\s*0/,
+    'the select is laid transparently over the glyph - opacity:0 still receives taps, unlike visibility:hidden');
+  assert.match(rule('#navRegion'), /position:\s*absolute/,
+    'absolute positioning is what stops the select claiming width from the title');
+  assert.match(rule('#navTitle'), /flex:\s*1 1 auto/,
+    'the title is the element that should absorb the freed space');
+  assert.match(rule('#navTitle'), /min-width:\s*0/,
+    'without min-width:0 a flex item refuses to shrink below its content and the ellipsis never engages');
+});
+
+test('F10: the navbar controls scale with the text-size setting', () => {
+  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
+  ['#navbar #navBack', '.navregion'].forEach((s) => {
+    const m = css.match(new RegExp('(^|[\\s}])' + s.replace(/[.#*]/g, '\\$&') + '\\s*\\{([^}]*)\\}'));
+    assert.ok(m, 'expected a rule for ' + s);
+    assert.match(m[2], /width:\s*calc\(\s*\d+px\s*\*\s*var\(--s\)\s*\)/,
+      s + ' must scale its box with --s, or it clips at the size a low-vision reader picks');
+    assert.match(m[2], /height:\s*calc\(\s*\d+px\s*\*\s*var\(--s\)\s*\)/,
+      s + ' must scale its height too');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F13 - guided eBird key acquisition. Without a key the app cannot make one
+// call, and the old Settings copy was an untappable URL in a <code> block.
+// ---------------------------------------------------------------------------
+
+test('F13: with no key stored the Contents menu leads with a way to get one', async () => {
+  const app = await boot({ key: null });
+  const banner = app.$('keyBanner');
+  assert.ok(banner, 'the Contents menu has a place to say the app is unusable');
+  assert.equal(banner.hidden, false, 'with no key the banner shows');
+  const btn = app.$('keyBannerBtn');
+  assert.ok(btn, 'and it carries the button that fixes it, not just a complaint');
+  app.click(btn);
+  assert.equal(app.$('settingsPanel').hidden, false,
+    'the banner routes to Settings, where the field is');
+});
+
+test('F13: a stored key hides the banner', async () => {
+  const app = await boot();
+  assert.equal(app.$('keyBanner').hidden, true,
+    'once a key is stored the banner is noise and must get out of the way');
+});
+
+test('F13: Settings offers get / paste / test beside the key field', async () => {
+  const app = await boot({ key: null });
+  ['keyGetBtn', 'keyPasteBtn', 'keyTestBtn'].forEach((id) => {
+    assert.ok(app.$(id), id + ' must exist: a bare password box is where the old dead end was');
+  });
+  assert.ok(app.$('keyStatus'), 'and somewhere to report what happened');
+  assert.ok(/ebird\.org\/api\/keygen/.test(HTML),
+    'the key request form is the destination and must be named in the app, not looked up');
+  assert.equal(app.window.__app.EBIRD_KEYGEN_URL, 'https://ebird.org/api/keygen');
+});
+
+test('F13: an obviously wrong key is named and refused, never silently saved', async () => {
+  const app = await boot({ key: null });
+  const wrong = app.window.__app.keyLooksWrong;
+  assert.match(wrong('https://ebird.org/api/keygen'), /URL/,
+    'pasting the page URL instead of the key is the most likely mistake');
+  assert.match(wrong('abc def'), /space/, 'a copied line of surrounding text carries whitespace');
+  assert.match(wrong('ab'), /characters/, 'a truncated copy is short');
+  assert.match(wrong('abcd-efgh-ijkl'), /punctuation/, 'eBird keys are alphanumeric');
+  assert.equal(wrong('a1b2c3d4e5f6'), '', 'a real 12-character key passes');
+
+  app.open(/Settings/);
+  app.$('apiKey').value = 'https://ebird.org/api/keygen';
+  app.click(app.$('saveBtn'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(!app.window.localStorage.getItem('ebird_api_key'),
+    'a malformed key must not reach storage: every section would then read empty, which looks like a broken app rather than a typo');
+  assert.match(app.$('keyStatus').textContent, /Not saved/,
+    'and the refusal has to say so, at the moment the user is looking at the field');
+});
+
+test('F13: testing a key asks eBird and reports what it said', async () => {
+  const app = await boot({ key: null, fetch: (u) => (/ref\/region\/info/.test(u) ? { code: 'US-WA' } : null) });
+  const r = await app.window.__app.testApiKey('a1b2c3d4e5f6');
+  assert.equal(r.ok, true, 'a key eBird accepts is reported as working');
+  assert.ok(app.state.fetches.some((f) => /ref\/region\/info/.test(f)),
+    'the check is a real call - claiming a key works without asking is how the old dead end felt');
+  const empty = await app.window.__app.testApiKey('');
+  assert.equal(empty.ok, false, 'nothing to test is not a pass');
+});
