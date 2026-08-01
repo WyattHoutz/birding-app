@@ -146,6 +146,13 @@ const AUDIT = `<script>
       if (over > 0.5) {
         items.push({ sel: chain(el), over: +over.toFixed(1), width: +r.width.toFixed(1), left: +r.left.toFixed(1) });
       }
+      // The other half, never checked until now: a box that starts before the
+      // left edge makes the page just as draggable, and the device screenshot
+      // showed the panel's LEFT edge clipped.
+      if (r.left < -0.5) {
+        items.push({ sel: chain(el), over: +(-r.left).toFixed(1), width: +r.width.toFixed(1),
+                     left: +r.left.toFixed(1), side: 'LEFT' });
+      }
     }
     items.sort(function (a, b) { return b.over - a.over; });
     var vis = document.querySelector('section.panel:not([hidden])');
@@ -252,7 +259,9 @@ server.listen(0, '127.0.0.1', () => {
       if (r.over <= 0.5 && !r.items.length) return;
       bad++;
       r.items.forEach((it) => {
-        console.log('   +' + it.over + 'px  w=' + it.width + ' left=' + it.left + '  ' + it.sel);
+        console.log('   ' + (it.side === 'LEFT' ? '<-' : '+') + it.over + 'px'
+          + (it.side === 'LEFT' ? ' PAST LEFT EDGE' : '')
+          + '  w=' + it.width + ' left=' + it.left + '  ' + it.sel);
       });
       console.log('');
     });

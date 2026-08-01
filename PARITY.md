@@ -13,6 +13,46 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.38 — the drag, take four: stop guessing, make the phone do the measuring
+
+**v1.0.37 fixed five real overflows and the drag still happens.** That is now
+three fixes in a row that were *correct* about something and *wrong* about this,
+so this release stops proposing causes and ships the instrument instead.
+
+**What the evidence actually says.** A real-browser sweep of **every element in
+the document** — now checking the **left** edge as well as the right, which
+nothing in this project had ever done — across 320px–430px and Normal→Huge text,
+finds **nothing past either edge**. The layout is clean on desktop Chrome. So
+whatever moves on the phone is not a width this project can see from here.
+
+That leaves three candidates, and they are indistinguishable to a finger because
+all three pan the whole screen including the sticky navbar:
+1. the document really is wider (`scrollWidth > clientWidth`),
+2. the page is **zoomed**, so the visual viewport is a window onto a larger one,
+3. iOS is panning the **visual** viewport with no zoom and no overflow.
+
+**🐞 → 📐 Drag.** The debug panel gains a drag probe that names which of the
+three is happening, in those words. Arm it, close the panel, drag the page
+sideways, reopen: it reports `scale`, visual-viewport width/`offsetLeft`/
+`pageLeft`, layout width, `scrollWidth` and `scrollLeft` at rest and at the peak
+of the gesture, plus the extreme element on **both** sides. Every copied debug
+log now also carries a `geometry:` line with the same figures, so a report is
+diagnosable even if the probe was never armed.
+
+**One mitigation ships with it, and it is not another guess about width.**
+The app declared **no `touch-action` at all**, so the root scroller permitted
+horizontal panning by default. `body { touch-action: pan-y }` says the page
+scrolls down, not sideways — enforced by the compositor rather than by layout,
+so unlike the two `overflow-x: clip` guards it does not care whether anything
+overflows. Maps are the one thing that must pan both ways; `.leaflet-container`
+restates `touch-action: none` (the mode Leaflet asks for, since it drives its
+own gestures from JS) because an ancestor's value is *intersected* with the
+element's.
+
+If the drag stops, the probe says why. If it does not, the probe says what is
+moving, and the next fix will be the first one aimed at a measurement rather
+than a hypothesis.
+
 ## v1.0.37 — the side-scroll, found: a nowrap that inherited into a flexible track
 
 **Reported three times across three releases and "fixed" twice blind.** The

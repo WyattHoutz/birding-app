@@ -98,6 +98,21 @@
        `clip` is preferred because it never creates a scroll container at all;
        `hidden` is declared first as the fallback for engines without it. */
     html { overflow-x: hidden; overflow-x: clip; }
+    /* The sideways drag, take four. The clip rules above stop the document
+       from SCROLLING sideways, but on iOS a drag can pan the VISUAL viewport
+       instead, which carries `position: sticky` chrome with it — that is why
+       the device screenshot shows the navbar moving while a desktop sweep of
+       every element, at every width and text scale, finds nothing past either
+       edge. `touch-action` is the standards-level way to say what this page
+       is allowed to do with a finger, and it is enforced by the compositor
+       rather than by layout, so it does not care whether anything overflows.
+       `pan-y` keeps vertical scrolling and drops horizontal panning.
+       Maps are the one thing that legitimately pans in both directions, and
+       Leaflet already drives its own gestures from JS — `touch-action: none`
+       is the mode it asks for, and it must be restated here because an
+       ancestor's value is intersected with the element's. */
+    body { touch-action: pan-y; }
+    .leaflet-container { touch-action: none; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
@@ -1029,6 +1044,7 @@
       <span id="dbgCount" class="dbgcount"></span>
       <span class="dbgspacer"></span>
       <button id="dbgDump" type="button">Dump</button>
+      <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgCopy" type="button">Copy</button>
       <button id="dbgClear" type="button">Clear</button>
       <button id="dbgClose" type="button">Close</button>
@@ -1048,7 +1064,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.37';
+      var APP_VERSION = '1.0.38';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8682,6 +8698,20 @@
         try { add('Bird Chaser v' + APP_VERSION + ' · ' + new Date().toString()); } catch (e) {}
         try { var cap = window.Capacitor; var plat = cap && cap.getPlatform ? cap.getPlatform() : '?'; var nat = cap && cap.isNativePlatform && cap.isNativePlatform() ? 'native' : 'web'; add('platform: ' + plat + ' (' + nat + ')'); } catch (e) {}
         try { add('online: ' + (navigator.onLine ? 'yes' : 'NO') + ' · viewport ' + window.innerWidth + 'x' + window.innerHeight); } catch (e) {}
+        // Present on EVERY copied log, not just when the probe is armed,
+        // because the one question three failed fixes could not answer is
+        // whether the page is too wide or merely zoomed — and the answer is
+        // two numbers. `layout > visual` means the screen is showing a window
+        // onto a wider page; `scrollW > layout` means content overflows it.
+        try {
+          var _d = document.documentElement, _vv = window.visualViewport;
+          add('geometry: layout ' + _d.clientWidth + ' · scrollW ' + _d.scrollWidth
+            + ' · visual ' + (_vv ? Math.round(_vv.width) : '?')
+            + ' · zoom ' + (_vv ? +(_vv.scale || 1).toFixed(3) : '?')
+            + (_d.scrollWidth > _d.clientWidth
+              ? '  ⚠️ OVERFLOWS by ' + (_d.scrollWidth - _d.clientWidth) + 'px' : '  (no overflow)'));
+        } catch (e) {}
+        try { add('text scale: ' + getUiScale() + '×'); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
         try { var h = getHome(); add('home: ' + (h ? (h.lat + ', ' + h.lng) : 'NOT SET (feeds are region-wide)')); } catch (e) {}
         try { var k = getKey(); add('apiKey: ' + (k ? ('set, len ' + k.length) : 'MISSING')); } catch (e) {}
@@ -8699,6 +8729,153 @@
         try { add('UA: ' + (navigator.userAgent || '')); } catch (e) {}
         return out.join('\n');
       }
+      // --- The sideways drag, take four: let the DEVICE do the measuring ----
+      // Three fixes have now missed this, and the last one missed for a
+      // specific reason worth writing down: every sweep only ever asked
+      // "does anything stick out past the RIGHT edge?" The device screenshot
+      // showed the panel's LEFT edge clipped, which no right-edge scan can
+      // see. It also only asked about the LAYOUT viewport, which cannot tell
+      // a page that is too wide from a page that is merely ZOOMED — and on
+      // iOS those look identical to the finger: both pan the whole screen,
+      // sticky navbar included.
+      //
+      // So this measures the three candidates at once and lets the numbers
+      // choose, instead of a fourth guess:
+      //   scale > 1                  -> the page is zoomed; nothing is too wide
+      //   scrollWidth > clientWidth  -> the document really is too wide
+      //   offsetLeft/pageLeft moves  -> the VISUAL viewport is panning
+      // and it names the extreme element on BOTH sides.
+      var _dragProbe = null;
+      function dragSnapshot() {
+        var d = document.documentElement, vv = window.visualViewport || null;
+        return {
+          scale: vv ? +(vv.scale || 1).toFixed(3) : 1,
+          vvW: vv ? Math.round(vv.width) : -1,
+          vvOffL: vv ? +(vv.offsetLeft || 0).toFixed(1) : 0,
+          vvPageL: vv ? +(vv.pageLeft || 0).toFixed(1) : 0,
+          clientW: d.clientWidth,
+          scrollW: d.scrollWidth,
+          scrollL: +(d.scrollLeft || window.pageXOffset || 0).toFixed(1),
+          bodyScrollL: +((document.body && document.body.scrollLeft) || 0).toFixed(1),
+          innerW: window.innerWidth
+        };
+      }
+      function dragSnapText(s) {
+        return 'scale ' + s.scale + ' · visual ' + s.vvW + ' @' + s.vvOffL
+          + ' (page ' + s.vvPageL + ') · layout ' + s.clientW
+          + ' · scrollW ' + s.scrollW + ' · scrollL ' + s.scrollL
+          + '/' + s.bodyScrollL + ' · inner ' + s.innerW;
+      }
+      // BOTH edges. A box at left:-40 is exactly as capable of making the page
+      // draggable as one that ends 40px past the right, and until now nothing
+      // in this project has ever looked for it.
+      function dragExtremes() {
+        var vw = document.documentElement.clientWidth;
+        var all = document.querySelectorAll('body *');
+        var wR = null, wRv = 0.5, wL = null, wLv = -0.5;
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          var cls = (el.getAttribute && el.getAttribute('class')) || '';
+          if (/leaflet-/.test(cls)) continue;
+          if (el.closest && el.closest('.leaflet-container')) continue;
+          if (el.hidden || el.offsetParent === null && el !== document.body) {
+            // still measure: a sticky/fixed box has no offsetParent
+          }
+          var r = el.getBoundingClientRect();
+          if (!r.width && !r.height) continue;
+          if (r.right - vw > wRv) { wRv = r.right - vw; wR = el; }
+          if (r.left < wLv) { wLv = r.left; wL = el; }
+        }
+        function name(el) {
+          if (!el) return 'none';
+          var c = (el.getAttribute && el.getAttribute('class')) || '';
+          return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
+            + (c ? '.' + String(c).trim().split(/\s+/).slice(0, 3).join('.') : '');
+        }
+        return { right: name(wR), rightBy: +wRv.toFixed(1), left: name(wL), leftBy: +wLv.toFixed(1) };
+      }
+      function armDragProbe() {
+        var btn = $('dbgDrag');
+        if (_dragProbe) {
+          _dragProbe.off();
+          _dragProbe = null;
+          if (btn) btn.textContent = '📐 Drag';
+          dbg('warn', 'drag probe: stopped');
+          dbgRender();
+          return;
+        }
+        var start = dragSnapshot(), ex = dragExtremes(), moves = 0, worst = null;
+        dbg('warn', '── drag probe ARMED ─ now close this panel, drag the page sideways, reopen ──');
+        dbg('warn', 'at rest: ' + dragSnapText(start));
+        dbg('warn', 'widest right: ' + ex.right + ' (+' + ex.rightBy + 'px past ' + start.clientW + ')');
+        dbg('warn', 'furthest left: ' + ex.left + ' (' + ex.leftBy + 'px)');
+        if (start.scrollW > start.clientW) {
+          dbg('error', 'VERDICT so far: the document IS wider than the screen by '
+            + (start.scrollW - start.clientW) + 'px — a real overflow.');
+        } else if (start.scale > 1.001) {
+          dbg('error', 'VERDICT so far: the page is ZOOMED (' + start.scale
+            + '×). Nothing is too wide; panning is what zoom does.');
+        } else {
+          dbg('warn', 'at rest nothing is too wide and there is no zoom — drag now, '
+            + 'because whatever moves will only show up mid-gesture.');
+        }
+        function onMove() {
+          moves++;
+          var s = dragSnapshot();
+          var shifted = Math.abs(s.vvOffL - start.vvOffL) > 0.5
+            || Math.abs(s.scrollL - start.scrollL) > 0.5
+            || Math.abs(s.vvPageL - start.vvPageL) > 0.5
+            || Math.abs(s.scale - start.scale) > 0.01;
+          if (!shifted) return;
+          var mag = Math.abs(s.vvPageL - start.vvPageL) + Math.abs(s.scrollL - start.scrollL)
+            + Math.abs(s.vvOffL - start.vvOffL);
+          if (!worst || mag > worst.mag) { worst = { mag: mag, s: s }; }
+        }
+        function onEnd() {
+          if (!worst) return;
+          var s = worst.s, out = [];
+          if (Math.abs(s.scrollL - start.scrollL) > 0.5) {
+            out.push('the DOCUMENT scrolled sideways (scrollLeft ' + start.scrollL + ' → ' + s.scrollL
+              + '), so something really is wider than the screen');
+          }
+          if (Math.abs(s.vvPageL - start.vvPageL) > 0.5 || Math.abs(s.vvOffL - start.vvOffL) > 0.5) {
+            out.push('the VISUAL viewport panned (pageLeft ' + start.vvPageL + ' → ' + s.vvPageL
+              + ', offsetLeft ' + start.vvOffL + ' → ' + s.vvOffL + ')'
+              + (s.scale > 1.001 ? ' because the page is zoomed ' + s.scale + '×'
+                : ' WITHOUT any zoom — that is WKWebView panning a layout viewport '
+                  + 'wider than the visual one'));
+          }
+          if (Math.abs(s.scale - start.scale) > 0.01) {
+            out.push('the ZOOM changed (' + start.scale + ' → ' + s.scale
+              + '), so the viewport meta is not being honoured');
+          }
+          dbg('error', 'DRAG MOVED: ' + out.join(' · '));
+          dbg('warn', 'peak: ' + dragSnapText(s));
+          var ex2 = dragExtremes();
+          dbg('warn', 'mid-drag widest right: ' + ex2.right + ' (+' + ex2.rightBy + 'px)');
+          dbg('warn', 'mid-drag furthest left: ' + ex2.left + ' (' + ex2.leftBy + 'px)');
+          worst = null;
+          if (window.__dbgLive) window.__dbgLive();
+        }
+        var vv = window.visualViewport || null;
+        document.addEventListener('touchmove', onMove, { passive: true });
+        document.addEventListener('touchend', onEnd, { passive: true });
+        document.addEventListener('scroll', onMove, { passive: true });
+        if (vv) { vv.addEventListener('scroll', onMove); vv.addEventListener('resize', onMove); }
+        _dragProbe = {
+          off: function () {
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+            document.removeEventListener('scroll', onMove);
+            if (vv) { vv.removeEventListener('scroll', onMove); vv.removeEventListener('resize', onMove); }
+            onEnd();
+            dbg('warn', 'drag probe saw ' + moves + ' move events');
+          }
+        };
+        if (btn) btn.textContent = '📐 Stop';
+        dbgRender();
+      }
+
       function dbgRender() {
         var ta = $('dbgLog'); if (!ta) return;
         var buf = (window.__dbg && window.__dbg.buf) || [];
@@ -8812,6 +8989,7 @@
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       $('dbgCopy').addEventListener('click', dbgCopyLog);
       $('dbgDump').addEventListener('click', dbgDump);
+      $('dbgDrag').addEventListener('click', armDragProbe);
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
@@ -9036,6 +9214,8 @@
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
         renderHot: renderHot, renderCold: renderCold, showSection: showSection,
         auditOverflow: auditOverflow,
+        dragSnapshot: dragSnapshot, dragExtremes: dragExtremes,
+        armDragProbe: armDragProbe, dbgContext: dbgContext,
         renderChecklistSplit: renderChecklistSplit, taxonomyFor: taxonomyFor,
         markBirdiestUnseen: markBirdiestUnseen,
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,

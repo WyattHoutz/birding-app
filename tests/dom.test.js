@@ -3765,6 +3765,79 @@ test('the overflow reporter can see OUTSIDE a panel', () => {
     'and also skips by ancestry, which catches the panes themselves');
 });
 
+// --- Take four: measure BOTH edges, and tell zoom apart from overflow ------
+// Three fixes have missed the sideways drag. The last one missed for a reason
+// worth encoding: every sweep asked only "does anything stick out past the
+// RIGHT edge?", while the device screenshot showed the LEFT edge clipped. And
+// no probe could tell a page that is too wide from a page that is merely
+// zoomed — on iOS both pan the whole screen, sticky navbar included.
+test('the drag probe measures both edges, not just the right one', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  Object.defineProperty(doc.documentElement, 'clientWidth', { value: 390, configurable: true });
+
+  const panel = doc.querySelector('.panel');
+  const far = doc.createElement('div');
+  panel.appendChild(far);
+  far.getBoundingClientRect = () => ({ width: 60, height: 10, left: 400, right: 460, top: 0, bottom: 10 });
+  const off = doc.createElement('div');
+  off.id = 'hangsLeft';
+  panel.appendChild(off);
+  off.getBoundingClientRect = () => ({ width: 60, height: 10, left: -40, right: 20, top: 0, bottom: 10 });
+
+  const ex = A.dragExtremes();
+  assert.match(ex.right, /div/, 'it names the element past the right edge');
+  assert.ok(ex.rightBy >= 69, `and by how much: got ${ex.rightBy}`);
+  // The half nothing in this project has ever looked for.
+  assert.match(ex.left, /#hangsLeft/, 'it also names the element hanging off the LEFT edge');
+  assert.equal(ex.leftBy, -40, 'and reports how far past it sits');
+  app.window.close();
+});
+
+test('the drag snapshot separates zoom from a page that is genuinely too wide', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  Object.defineProperty(doc.documentElement, 'clientWidth', { value: 390, configurable: true });
+  Object.defineProperty(doc.documentElement, 'scrollWidth', { value: 425, configurable: true });
+  const snap = A.dragSnapshot();
+  assert.equal(snap.clientW, 390, 'it records the layout viewport');
+  assert.equal(snap.scrollW, 425, 'and the scrollable width, whose difference IS the overflow');
+  assert.ok('scale' in snap && 'vvOffL' in snap && 'vvPageL' in snap,
+    'and the visual-viewport figures, which are the only way to spot zoom');
+
+  // The decisive numbers must ride along on every copied log, so a device
+  // report is diagnosable even when the user never armed the probe.
+  const ctx = A.dbgContext();
+  assert.match(ctx, /geometry: layout 390 · scrollW 425/, 'the context line carries both widths');
+  assert.match(ctx, /OVERFLOWS by 35px/, 'and states the verdict rather than leaving arithmetic to the reader');
+  app.window.close();
+});
+
+test('the drag probe is wired to a real button', () => {
+  assert.match(HTML, /<button id="dbgDrag"/, 'the debug bar has a Drag button');
+  assert.match(HTML, /\$\('dbgDrag'\)\.addEventListener\('click', armDragProbe\)/,
+    'and it is bound — an unbound control is how the species picker shipped dead');
+});
+
+// The clip rules stop the DOCUMENT scrolling sideways; they cannot stop iOS
+// panning the visual viewport, which is what carries the sticky navbar along.
+// touch-action is enforced by the compositor rather than by layout, so it holds
+// whether or not anything overflows.
+test('a finger may scroll the page down but not sideways', () => {
+  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
+  assert.match(css, /body\s*\{[^}]*touch-action:\s*pan-y/,
+    'the page declares vertical panning only');
+  // Maps are the one thing that must pan both ways. An ancestor's value is
+  // INTERSECTED with the element's, so pan-y on body would otherwise take the
+  // horizontal drag away from every map in the app.
+  assert.match(css, /\.leaflet-container\s*\{[^}]*touch-action:\s*none/,
+    'and maps opt back out, because Leaflet drives its own gestures from JS');
+  assert.ok(css.indexOf('body { touch-action: pan-y; }') < css.indexOf('.leaflet-container { touch-action: none; }'),
+    'with the map override after the body rule so it is not itself overridden');
+});
+
 test('showing a section reports any element wider than the screen', async () => {
   const app = await boot();
   const A = app.window.__app;
