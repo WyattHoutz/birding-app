@@ -750,6 +750,7 @@
       </div>
       <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
       <ul id="spLookupResults" class="obs big xl"></ul>
+      <div id="spLookupBest"></div>
     </section>
 
     <section class="panel">
@@ -1162,7 +1163,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.40';
+      var APP_VERSION = '1.0.41';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2591,6 +2592,7 @@
         var found = $('spLookupFound'), out = $('spLookupResults'), inp = $('spLookup');
         if (found) found.innerHTML = '';
         if (out) out.innerHTML = '';
+        if ($('spLookupBest')) $('spLookupBest').innerHTML = '';
         if (inp) inp.value = '';
         _spLookupGroup = null;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
@@ -2658,7 +2660,69 @@
           _spLookupGroup = g;
           if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
           renderSpeciesLookup();
+          // F11 rides ALONGSIDE the live answer rather than blocking it: the
+          // question "where is it right now" is already answered above, and a
+          // slow keyless third party must never hold that up. A GBIF failure
+          // simply leaves the block absent.
+          hydrateBestPlaces(code, name);
         }).catch(function (e) { st.textContent = netErr(e); });
+      }
+
+      // "Best places for this bird" + "due back" — backlog F11, Proposal A.
+      // The engine already existed and was never rendered: gbifIconic annotates
+      // the places the LIVE feed found with a long-term multiplier, and
+      // gbifArrival derives a return date from seven years of history. Both
+      // shipped unwired, which is the same failure as a button bound to
+      // nothing — the work is done and no one can see it.
+      //
+      // Historical and live stay in separate lines on purpose. GBIF lags about
+      // a year, so the two measure different windows and must never be summed.
+      function hydrateBestPlaces(code, name) {
+        var host = $('spLookupBest');
+        if (!host) return Promise.resolve();
+        host.innerHTML = '';
+        var sci = sciNameFor(code);
+        var stateName = getReport().label || '';
+        var g = _spLookupGroup;
+        if (!sci || !stateName || !g || !g.places || !g.places.length) return Promise.resolve();
+        host.innerHTML = '<div class="status">Checking where ' + esc(name)
+          + ' is historically most likely…</div>';
+        return Promise.all([
+          gbifIconic(sci, stateName, g.places.slice(), 5),
+          gbifArrival(sci, stateName)
+        ]).then(function (r) {
+          var places = (r[0] || []).filter(function (p) { return p.iconic != null; });
+          var arr = r[1];
+          if (!places.length && !arr) { host.innerHTML = ''; return; }
+          places.sort(function (a, b) { return (b.iconic || 0) - (a.iconic || 0); });
+          var h = '<div class="bestplaces"><h3>📍 How good are these places, historically?</h3>';
+          // The caveat is not boilerplate: eBird publishes a number that looks
+          // like this one and is computed differently, so an unqualified "10×"
+          // would read as a quote.
+          h += '<div class="hint">Share of records at each spot ÷ its share across '
+            + esc(stateName) + ', from the eBird archive on GBIF. '
+            + '<b>Our own metric, not eBird\u2019s “N× more likely”</b> — eBird divides '
+            + 'checklist frequencies, this divides record shares, so these run lower. '
+            + 'The ranking is the useful part.</div>';
+          if (places.length) {
+            h += '<ul class="obs dest">';
+            places.forEach(function (p) {
+              h += '<li><div class="name">' + esc(p.loc || '') + '</div><div class="meta">'
+                + '<b>' + (p.iconic >= 10 ? Math.round(p.iconic) : p.iconic.toFixed(1)) + '×</b> '
+                + esc(p.iconicLabel || 'the regional average')
+                + (p.distMi != null && isFinite(p.distMi) ? ' · ' + p.distMi.toFixed(1) + ' mi' : '')
+                + '</div></li>';
+            });
+            h += '</ul>';
+          }
+          if (arr && arr.day) {
+            h += '<div class="status">🗓 Historically back around <b>' + esc(arr.day) + '</b>'
+              + (arr.records ? ' · from ' + arr.records + ' archived records' : '')
+              + '. GBIF lags about a year, so this is the long-term pattern, not this season.</div>';
+          }
+          h += '</div>';
+          host.innerHTML = h;
+        }).catch(function () { host.innerHTML = ''; });
       }
 
       function renderSpeciesLookup() {
@@ -3886,6 +3950,22 @@
       var SPECIES_TTL_MS = 24 * 3600 * 1000;
       var SPECIES_CHUNK = 100;
       function speciesCacheKey(region) { return 'ebird_species_v1:' + region; }
+      // GBIF's backbone taxonomy does not resolve common names — "White
+      // Wagtail" matches nothing — so every GBIF call needs the scientific
+      // name. The species index already carries it; this just reads it back
+      // out of the cached rows rather than spending another taxonomy call.
+      function sciNameFor(code) {
+        if (!code) return '';
+        try {
+          var c = JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null');
+          var rows = (c && c.rows) || [];
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i].code === code) return rows[i].sci || '';
+          }
+        } catch (e) { /* no index cached yet */ }
+        return '';
+      }
+
       function loadSpeciesIndex(region) {
         var key = speciesCacheKey(region);
         try {
@@ -9624,6 +9704,8 @@
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
+        gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
+        hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },
         fmtDateTime: fmtDateTime,

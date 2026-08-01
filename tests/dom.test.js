@@ -1961,7 +1961,106 @@ test('Easy misses maps its spots onto the shared place shape', async () => {
 // heading — folding a group into one panel would force declaring the others
 // omitted from the app, and the omission list is the one mechanism that catches
 // a section silently disappearing.
-// --- F19 tier 1: hotspots where a scope changes what you can identify -------
+// --- F11: the engine existed and nothing rendered it ------------------------
+// BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
+// all built, parity-tested, and wired to nothing — the same failure as a button
+// bound to no handler, except harder to notice because the code looks finished.
+// A bird that is hard to find is not a bird that is rare, and this is the only
+// thing in the app that can tell them apart.
+test('a species lookup shows how good its places are historically', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist/.test(url)) return ['weskin'];
+      if (/data\/obs\/.*\/recent\/weskin/.test(url)) {
+        return [{
+          speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis',
+          locId: 'L1', locName: 'McNary NWR', lat: 46.1, lng: -119.0,
+          obsDt: '2026-07-31 08:00', howMany: 2, subId: 'S1', obsValid: true,
+        }];
+      }
+      // GBIF: species/match, then the counts the multiplier divides.
+      if (/species\/match/.test(url)) return { usageKey: 2482593 };
+      if (/occurrence\/search/.test(url)) {
+        if (/facet=month/.test(url)) {
+          return { count: 4000, facets: [{ field: 'MONTH', counts: [
+            { name: '4', count: 900 }, { name: '5', count: 1500 },
+            { name: '6', count: 1200 }, { name: '7', count: 400 },
+          ] }] };
+        }
+        if (/facet=day/.test(url)) {
+          return { count: 900, facets: [{ field: 'DAY', counts: [
+            { name: '18', count: 5 }, { name: '20', count: 60 }, { name: '25', count: 200 },
+          ] }] };
+        }
+        // geometry= is the 2 km box; without it, the region-wide totals.
+        if (/geometry=/.test(url)) return { count: /taxonKey=212/.test(url) ? 56424 : 721 };
+        return { count: /taxonKey=212/.test(url) ? 36800000 : 45199 };
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v1:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{ code: 'weskin', name: 'Western Kingbird', sci: 'Tyrannus verticalis' }],
+      }),
+    },
+  });
+  const doc = app.window.document;
+  const A = app.window.__app;
+  assert.equal(A.sciNameFor('weskin'), 'Tyrannus verticalis',
+    'the scientific name comes from the cached index — GBIF does not resolve common names');
+
+  doc.getElementById('spLookup').value = 'Western Kingbird';
+  A.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 400));
+  const host = doc.getElementById('spLookupBest');
+  assert.ok(host, 'the lookup has somewhere to put this');
+  const txt = host.textContent;
+  assert.match(txt, /×/, `a multiplier is rendered: got "${txt.slice(0, 200)}"`);
+  assert.match(txt, /McNary/, 'against the places the LIVE feed found');
+  // The caveat is load-bearing: eBird publishes a number that looks like this
+  // one and is computed differently, so an unqualified "10×" reads as a quote.
+  assert.match(txt, /not eBird/i,
+    'and it is labelled as our own metric, never as eBird\u2019s figure');
+  app.window.close();
+});
+
+test('the historical block never blocks or breaks the live answer', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist/.test(url)) return ['weskin'];
+      if (/data\/obs\/.*\/recent\/weskin/.test(url)) {
+        return [{
+          speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis',
+          locId: 'L1', locName: 'McNary NWR', lat: 46.1, lng: -119.0,
+          obsDt: '2026-07-31 08:00', howMany: 2, subId: 'S1', obsValid: true,
+        }];
+      }
+      return null;   // every GBIF call fails
+    },
+    storage: {
+      'ebird_species_v1:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{ code: 'weskin', name: 'Western Kingbird', sci: 'Tyrannus verticalis' }],
+      }),
+    },
+  });
+  const doc = app.window.document;
+  doc.getElementById('spLookup').value = 'Western Kingbird';
+  app.window.__app.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 900));
+  // The live answer is the section's job; GBIF is enrichment from a keyless
+  // third party and must never be able to take the section down with it.
+  assert.ok(doc.querySelectorAll('#spLookupResults li').length > 0,
+    'the live places still render when GBIF is unreachable');
+  const left = doc.getElementById('spLookupBest').textContent.trim();
+  assert.ok(!/×/.test(left),
+    `no multiplier is invented when GBIF is unreachable: got "${left.slice(0, 120)}"`);
+  app.window.close();
+});
+
 // Manual, hand-listed, keyed by locId because a hotspot NAME is not stable —
 // eBird renames and merges them, and the same name exists in several counties.
 // The file is shared byte-identical with the report so a site flagged in one is
