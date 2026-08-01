@@ -254,9 +254,23 @@
         "Bounded to about 35 mi from home by default."
       ]
     },
+    "recentBtn": {
+      "report": "## 🕒 Recent checklists",
+      "summary": "Every recent checklist in your counties, newest first.",
+      "inputs": [
+        "the same product/lists checklist feed the birdiest and convoy sections already fetch"
+      ],
+      "how": [
+        "Deduped by checklist id only, then sorted by observation time, newest first, top 50.",
+        "Nothing is collapsed per hotspot: several lists filed at one place this morning is itself the signal that people are still there."
+      ],
+      "limits": [
+        "The feed carries a species COUNT, not the species, so a checklist must be opened to see what was on it.",
+        "Costs no extra network — it shares one cached fetch with Birdiest checklists."
+      ]
+    },
     "cklBtn": {
-      "report": "## 🦜 Birdiest recent checklists",
-      "summary": "The single best recent checklist at each nearby hotspot.",
+      "report": "## 🦜 Birdiest recent checklists",      "summary": "The single best recent checklist at each nearby hotspot.",
       "inputs": [
         "checklist feeds for public hotspots in the region"
       ],

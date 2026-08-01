@@ -155,6 +155,22 @@
     footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
+    /* Second line of defence for the sideways drag. The clip on <html> above
+       provably did NOT stop it on device — WKWebView still pans the visual
+       viewport — and a headless Chromium sweep of all 25 panels at every text
+       scale from 320px to 393px finds nothing over the line, so the offending
+       box is engine- or data-specific and cannot be fixed by name. Containing
+       it per PANEL is the fix that does not need to know which box it is: a
+       panel that cannot be wider than its column cannot widen the document,
+       whatever one grid cell inside it does.
+       `clip` and NOT `hidden`, deliberately: clip is the only overflow value
+       that may be paired with `visible` on the other axis, so overflow-y stays
+       visible and no panel becomes a nested vertical scroll container. Writing
+       `overflow-x: hidden` here would force overflow-y to `auto` and give
+       every section its own scrollbar. There is no `hidden` fallback for the
+       same reason — on an engine without `clip` the declaration is simply
+       dropped, which is exactly where we already are. */
+    .panel { overflow-x: clip; }
     .panel h2 { font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { color: var(--muted); font-weight: 600; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
@@ -356,9 +372,18 @@
     .wxline { font-size: calc(13px * var(--s)); margin: 7px 0; line-height: 1.4; }
     .wxline.dim2 { color: var(--muted); font-size: calc(12px * var(--s)); }
     .wxtable { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: calc(13px * var(--s)); }
-    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+    /* Rarities outside the chase radius. Collapsed, because they are not what
+       the section is for — but present, because a rarity is still worth a
+       longer drive on the right day and this is the only place it is listed. */
+    .farrare { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+    .farrare > summary { cursor: pointer; color: var(--muted); font-size: calc(14px * var(--s)); }    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
     .wxtable th { color: var(--muted); font-weight: 600; font-size: calc(12px * var(--s)); }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    /* The row you are standing in. A left rule rather than another fill, so it
+       reads on top of the rising-tide highlight instead of fighting it. */
+    .wxtable tr.tidenow td { border-top: 2px solid var(--accent); }
+    .wxtable tr.tidenow td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    .tidenowline { margin: 6px 0 2px; font-size: calc(15px * var(--s)); }
     .seenflag, .needflag { font-size: calc(11px * var(--s)); font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
     /* Hot hotspots: the bird list behind a summary, so a 60-species spot does
        not push the next hotspot off the screen. */
@@ -385,9 +410,14 @@
        only thing that turns a good list into a place to drive to. */
     .obs .count.big { font-size: calc(22px * var(--s)); font-weight: 800; color: var(--ink); }
     .obs .count.big small { font-size: calc(12px * var(--s)); font-weight: 700; color: var(--muted); }
+    /* Holds the checklist's species split (unseen open, seen collapsed), so it
+       is a BLOCK, not the inline pill it was when it held a bare count. The
+       accent rule down the left says "there is something here for you" while
+       leaving the lists inside to be read as lists. */
     .cklneed { font-size: calc(14px * var(--s)); margin-top: 6px; }
-    .cklneed.hit { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
-                   border-radius: 8px; padding: 6px 9px; display: inline-block; }
+    .cklneed.hit { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px;
+                   background: color-mix(in srgb, var(--accent) 7%, transparent);
+                   border-radius: 0 8px 8px 0; }
     /* Latest ticks / rarity rows: a checklist list is scanned, not read, so
        each field lands in the same place on every row. */
     .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: calc(14px * var(--s)); }
@@ -650,6 +680,15 @@
       <div id="tripMap"></div>
       <div id="tripRouteLink" class="hint"></div>
       <ul id="tripResults" class="obs big xl dest route"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🕒 Recent checklists <span class="dim" id="recentRegionLabel"></span></h2>
+      <div class="row">
+        <button id="recentBtn">Load checklists</button>
+      </div>
+      <div id="recentStatus" class="status">Every recent checklist in your counties, newest first.</div>
+      <ul id="recentResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
@@ -962,10 +1001,14 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.34';
+      var APP_VERSION = '1.0.35';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
+      // One definition of "how far will I drive for a bird", shared with
+      // report.CHASE_MAX_MI through logic.js so the two repos cannot pick
+      // different radii for the same question.
+      var CHASE_MAX_MI = (BL && BL.CONST && BL.CONST.CHASE_MAX_MI) || 30;
 
       function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
       // Text scale for low-vision readers. Applied to <html> as a CSS custom
@@ -1236,8 +1279,8 @@
         places.forEach(function (p, i) {
           el.appendChild(hotspotCard({
             n: i + 1, locId: p.locId, locName: p.locName, lat: p.lat, lng: p.lng,
+            distMi: p.distMi,
             facts: [
-              p.distMi != null && isFinite(p.distMi) ? p.distMi.toFixed(1) + ' mi' : '',
               p.anchor ? anchorNote(p.anchor).trim() : '',
               p.species.length + ' unseen bird' + (p.species.length === 1 ? '' : 's'),
               p.latest ? 'latest ' + esc(fmtDate(p.latest)) : ''
@@ -1935,14 +1978,24 @@
         // first) and is covered by the cross-repo golden, so use it.
         getChase().then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var rows = c.cv.notableToday || [];
-          if (!rows.length) {
+          var all = c.cv.notableToday || [];
+          if (!all.length) {
             st.textContent = 'No rarity reports yet today. eBird processes notable submissions faster ' +
               'than common-bird checklists, so this fills in through the morning.';
             return;
           }
+          // A rarity 60 miles away is not the same proposition as one four
+          // miles away, and this section is the day's "what can I go and see".
+          // The far ones are sorted apart, not dropped: a rarity is still worth
+          // a longer drive on the right day, so they stay one tap down instead
+          // of vanishing from the only section that lists them. Same radius and
+          // same split as report.section_today.
+          var rows = all.filter(function (r) {
+            return !(r.distMi > CHASE_MAX_MI);
+          });
+          var far = all.filter(function (r) { return r.distMi > CHASE_MAX_MI; });
           st.textContent = rows.length + ' rarity report' + (rows.length === 1 ? '' : 's') +
-            ' so far today · newest first · updated ' + nowTime();
+            ' within ' + CHASE_MAX_MI + ' mi so far today · newest first · updated ' + nowTime();
           var days = stakeoutDays(c.cv.merged || []);
           // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
           // reports — one row per checklist — so it is scanned, not read. It
@@ -1950,7 +2003,7 @@
           // closest, observer, latest) and nothing is dropped: what does not fit
           // the one-row card is printed underneath it, labelled. How rare each
           // species is across the whole snapshot is what Last 7-Days answers.
-          var html = rows.map(function (r) {
+          function card(r) {
             var flock = (r.count != null && r.count !== '') ? ' <span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
@@ -1974,7 +2027,14 @@
               sub: d,
               below: below
             });
-          }).join('');
+          }
+          var html = rows.length ? rows.map(card).join('')
+            : '<div class="status">Nothing rare within ' + CHASE_MAX_MI + ' mi today.</div>';
+          if (far.length) {
+            html += '<details class="farrare"><summary>' + far.length
+              + ' more beyond ' + CHASE_MAX_MI + ' mi</summary>'
+              + far.map(card).join('') + '</details>';
+          }
           out.innerHTML = html;
           hydratePhotos(out);
         }).catch(function (e) { st.textContent = netErr(e); })
@@ -2320,7 +2380,7 @@
         run.catch(function () {}).then(function () { delete _chaseInflight[slug]; });
         return run;
       }
-      function clearChaseCache() { _chase = {}; _chaseInflight = {}; resetHotspotCache(); }
+      function clearChaseCache() { _chase = {}; _chaseInflight = {}; resetHotspotCache(); resetListsCache(); }
 
       // --- Top destinations (rank hotspots by unseen-target richness) ---
       function haversineMi(la1, lo1, la2, lo2) {
@@ -3712,6 +3772,9 @@
         }
         var html = HotspotCards.medium({
           num: o.n, name: name, sub: facts,
+          // Distance has its own column on the medium card, so it is passed
+          // as a number and must NOT also appear in `facts`.
+          distance: (o.distMi != null && isFinite(o.distMi)) ? o.distMi : null,
           unseen: unseen.length ? speciesListHtml(unseen) : '',
           unseenLabel: unseen.length
             ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
@@ -3727,7 +3790,93 @@
         // an element rather than a string.
         var tmp = document.createElement('ul');
         tmp.innerHTML = html;
-        return tmp.firstElementChild || li;
+        var el = tmp.firstElementChild || li;
+        // The locId travels with the card so the species lists can be
+        // corrected after paint — see hydrateLocSpecies.
+        if (o.locId) el.setAttribute('data-hsloc', o.locId);
+        return el;
+      }
+
+      // --- "7 more species already seen" at a park with ninety --------------
+      // Every hotspot card built its species lists out of cv.merged, which is
+      // the REGION-WIDE recent feed — and that feed returns exactly ONE
+      // observation per species for the whole region. So a hotspot only ever
+      // received the species whose single region-wide representative row
+      // happened to land there: Marymoor showed twelve species, seven of them
+      // "already seen", and both numbers were measurements of the feed's
+      // shape rather than of the park.
+      //
+      // The efficient correction is one location-scoped read per card.
+      // /data/obs/{locId}/recent?back=N is still one row per species, but the
+      // scope is the LOCATION, so "one per species" is now exactly the list we
+      // want, complete, in a single call. Three days because a species list
+      // for a place you might drive to today should describe today, and
+      // because the shorter window is what keeps the answer honest — a
+      // 30-day list at a migration hotspot is a brochure, not a forecast.
+      var LOC_SPECIES_DAYS = 3, LOC_SPECIES_CONC = 3;
+      function locFeedKey(locId) {
+        return 'ebird_locsp_v1:' + locId + ':' + LOC_SPECIES_DAYS;
+      }
+      function locRecentSpecies(locId) {
+        var key = locFeedKey(locId), today = todayStr();
+        try {
+          var hit = JSON.parse(localStorage.getItem(key) || 'null');
+          if (hit && hit.d === today && Array.isArray(hit.v)) return Promise.resolve(hit.v);
+        } catch (e) {}
+        return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + LOC_SPECIES_DAYS)
+          .then(function (rows) {
+            var out = (Array.isArray(rows) ? rows : []).map(function (o) {
+              return { code: o.speciesCode, name: o.comName || o.speciesCode, dateStr: o.obsDt || '' };
+            }).filter(function (o) { return o.code; });
+            try { localStorage.setItem(key, JSON.stringify({ d: today, v: out })); } catch (e) {}
+            return out;
+          });
+      }
+      // Re-splits every rendered hotspot card against its own location feed.
+      // Runs AFTER paint on purpose: the card is useful immediately with the
+      // approximate list, and correcting it in place beats holding the whole
+      // section back on N sequential reads.
+      function hydrateLocSpecies(root) {
+        if (!root || !getKey()) return Promise.resolve();
+        var cards = [].slice.call(root.querySelectorAll('[data-hsloc]'))
+          .filter(function (el) { return el.getAttribute('data-hsloc'); });
+        if (!cards.length) return Promise.resolve();
+        var isSeen = seenResolver();
+        return pool(cards, LOC_SPECIES_CONC, function (el) {
+          var lid = el.getAttribute('data-hsloc');
+          return locRecentSpecies(lid).then(function (rows) {
+            if (!rows.length) return;
+            var unseen = [], seen = [], dedupe = {};
+            rows.forEach(function (o) {
+              if (dedupe[o.code]) return;
+              dedupe[o.code] = 1;
+              var hit = isSeen(o.code, o.name);
+              (hit ? seen : unseen).push({
+                comName: o.name, code: o.code, rare: 0,
+                tag: hit ? '' : '<span class="needflag">🔍</span>'
+              });
+            });
+            function byName(a, b) { return String(a.comName).localeCompare(String(b.comName)); }
+            unseen.sort(byName); seen.sort(byName);
+            var slot = el.querySelector('.hslists');
+            if (!slot) return;
+            slot.innerHTML = HotspotCards.splitLists({
+              unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
+              unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍') : '',
+              seen: seen.length ? speciesListHtml(seen, { presorted: true }) : '',
+              seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
+            });
+            // The sub-header's species count came from the same wrong feed, so
+            // correcting one and not the other leaves the card contradicting
+            // itself on its own line.
+            var meta = el.querySelector('.meta');
+            if (meta) {
+              meta.innerHTML = meta.innerHTML.replace(
+                /\d+ species/, rows.length + ' species in ' + LOC_SPECIES_DAYS + 'd');
+            }
+            hydratePhotos(slot);
+          }).catch(function () {});
+        });
       }
       function renderDestinations(list, mapEl, listEl) {
         renderMap(mapEl, list, getHome(), false);
@@ -3735,8 +3884,8 @@
         list.forEach(function (d, i) {
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
+            distMi: d.dist,
             facts: [
-              d.dist != null ? d.dist.toFixed(1) + ' mi' : '',
               d.score != null ? 'score ' + d.score : '',
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
@@ -3745,6 +3894,7 @@
           }));
         });
         hydratePhotos(listEl);
+        hydrateLocSpecies(listEl);
       }
 
       // Shared status for reports where hotspot chasing doesn't apply (Lower 48 /
@@ -3842,8 +3992,12 @@
         plan.stops.forEach(function (d, i) {
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
+            // The planner's column is the LEG, not the distance from home —
+            // stop 4 is 2 mi from stop 3 and 30 from the house, and the leg is
+            // the number that decides the route.
+            distMi: d.leg,
             facts: [
-              d.leg.toFixed(1) + ' mi leg',
+              'leg',
               'score ' + d.score,
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
             ],
@@ -3873,8 +4027,81 @@
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
-      // --- Birdiest recent checklists (rank by species count) ---
-      // Mirrors report.section_birdiest_checklists: dedup by checklist, last 7
+      // --- Recent checklists, newest first ---------------------------------
+      // Birdiest answers "where was the best birding this week"; this answers
+      // "what is happening right now", which is a different question and the
+      // one you ask before leaving the house. It deliberately does NOT collapse
+      // to the best checklist per hotspot the way Birdiest does — three lists
+      // filed at one park this morning is itself the signal.
+      //
+      // Costs no extra network: BL.planConvoyFeeds is the same set of
+      // product/lists reads Birdiest already pays for, so the two sections
+      // share one cached promise.
+      var _listsCache = null;
+      function recentLists() {
+        if (_listsCache) return _listsCache;
+        var feeds = BL.planConvoyFeeds(getReport());
+        _listsCache = Promise.all(feeds.map(function (f) {
+          return ebird(BL.requestUrl(f)).catch(function () { return []; });
+        })).then(function (results) {
+          var lists = [];
+          results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+          return lists;
+        }).catch(function (e) { _listsCache = null; throw e; });
+        return _listsCache;
+      }
+      function resetListsCache() { _listsCache = null; }
+
+      function sortRecentLists(lists) {
+        var bySub = {};
+        (lists || []).forEach(function (chk) {
+          var sub = chk.subId || chk.subID;
+          if (sub && !bySub[sub]) bySub[sub] = chk;
+        });
+        return Object.keys(bySub).map(function (k) { return bySub[k]; })
+          .sort(function (a, b) {
+            return String(b.obsDt || b.isoObsDate || '')
+              .localeCompare(String(a.obsDt || a.isoObsDate || ''));
+          });
+      }
+
+      function loadRecentLists() {
+        var st = $('recentStatus'), el = $('recentResults'), btn = $('recentBtn');
+        if (!st || !el) return;
+        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; return; }
+        el.innerHTML = '';
+        if (!hasCounties()) {
+          el.innerHTML = '<div class="status">Recent checklists come from the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+          st.textContent = ''; return;
+        }
+        if ($('recentRegionLabel')) $('recentRegionLabel').textContent = '· ' + countyLabelStr();
+        if (btn) btn.disabled = true;
+        st.textContent = 'Loading recent checklists in ' + countyLabelStr() + '…';
+        recentLists().then(function (lists) {
+          var rows = sortRecentLists(lists).slice(0, 50);
+          if (!rows.length) { st.textContent = 'No recent checklists in ' + countyLabelStr() + '.'; return; }
+          st.textContent = rows.length + ' checklist' + (rows.length === 1 ? '' : 's') + ' · newest first · updated ' + nowTime();
+          var home = getHome();
+          rows.forEach(function (l) {
+            var lc = l.loc || {}, loc = lc.name || lc.locName || l.locName || '';
+            var locId = l.locId || lc.locId || '', sub = l.subId || l.subID || '';
+            var d = (home && lc.latitude != null && lc.longitude != null)
+              ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null;
+            var li = document.createElement('li');
+            li.innerHTML = '<span class="count big">' + (l.numSpecies || 0) + '<small> sp.</small></span>' +
+              '<div><span class="name">' + esc(l.obsDt || l.isoObsDate || '') + '</span></div>' +
+              '<div class="meta">' + (loc ? locLink(loc, lc.latitude, lc.longitude, locId, !lc.isHotspot) : 'Location hidden') +
+              (d == null ? '' : ' · ' + d.toFixed(1) + ' mi') +
+              ' · ' + esc(l.userDisplayName || 'eBirder') + '</div>' +
+              (sub ? extA(checklistUrl(sub), 'View ' + esc(sub) + ' ↗') : '');
+            el.appendChild(li);
+          });
+        }).catch(function (e) {
+          st.textContent = 'Could not load checklists: ' + (e && e.message ? e.message : e);
+        }).then(function () { if (btn) btn.disabled = false; });
+      }
+
+      // --- Birdiest recent checklists (rank by species count) ---      // Mirrors report.section_birdiest_checklists: dedup by checklist, last 7
       // days, public hotspots only (skip restricted), best checklist per
       // hotspot, within 40 mi of home. Fed the per-county product/lists feed.
       function buildBirdiest(lists, home) {
@@ -3915,11 +4142,9 @@
           $('cklResults').innerHTML = '<div class="status">Birdiest checklists come from the report\u2019s county hotspots — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
         }
-        var feeds = BL.planConvoyFeeds(getReport()), home = getHome();
+        var home = getHome();
         btn.disabled = true; st.textContent = 'Loading recent checklists in ' + countyLabelStr() + '…';
-        Promise.all(feeds.map(function (f) { return ebird(BL.requestUrl(f)).catch(function () { return []; }); })).then(function (results) {
-          var lists = [];
-          results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+        recentLists().then(function (lists) {
           var top = buildBirdiest(lists, home).slice(0, 25);
           var fw = BL.feedWindow(lists, 7);
           $('cklWarn').innerHTML = fw.warning
@@ -3953,27 +4178,102 @@
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
-      // Resolve each birdiest checklist's species and mark the ones you still
-      // need. Bounded concurrency: 25 checklists at full fan-out would spend
-      // the API key's whole per-minute budget on one section.
+      // Resolve each birdiest checklist's species and show WHICH birds are on
+      // it — unseen expanded because they are the reason to care, seen behind
+      // an expander because they are context. Same rule, and the same markup,
+      // as every hotspot card (HotspotCards.splitLists).
+      //
+      // "4 unseen birds on this list" was a count you could not act on: a
+      // 90-species list is only interesting for the four names it holds, and
+      // naming them is the whole point of the section.
+      //
+      // COST: the checklist reads are unavoidable (eBird publishes no bulk
+      // "species on these 25 checklists" endpoint), but the NAMES are resolved
+      // in ONE taxonomy pass over the union of every code seen, not one pass
+      // per checklist. 25 lists sharing ~300 distinct species would otherwise
+      // be 25 taxonomy calls for the same answer.
       function markBirdiestUnseen(root) {
         var slots = [].slice.call(root.querySelectorAll('.cklneed[data-sub]'))
           .filter(function (s) { return s.getAttribute('data-sub'); });
         if (!slots.length) return Promise.resolve();
+        var codesBySlot = [], allCodes = {};
         return pool(slots, CONVOY_FETCH_CONC, function (slot) {
           var sub = slot.getAttribute('data-sub');
           return ebird('product/checklist/view/' + encodeURIComponent(sub))
             .then(function (d) {
-              var obs = (d && d.obs) || [], need = [];
-              obs.forEach(function (o) {
-                if (o.speciesCode && !isSpeciesSeen(o.speciesCode, '')) need.push(o.speciesCode);
+              var seenHere = {}, list = [];
+              ((d && d.obs) || []).forEach(function (o) {
+                var c = o && o.speciesCode;
+                if (!c || seenHere[c]) return;
+                seenHere[c] = 1; list.push(c); allCodes[c] = 1;
               });
-              if (!need.length) return;
-              slot.className = 'cklneed hit';
-              slot.innerHTML = '🔍 <b>' + need.length + ' unseen bird'
-                + (need.length === 1 ? '' : 's') + ' on this list</b>';
+              if (list.length) codesBySlot.push({ slot: slot, codes: list });
             })
             .catch(function () {});
+        }).then(function () {
+          var all = Object.keys(allCodes);
+          if (!all.length) return;
+          return taxonomyFor(all).then(function (tax) {
+            codesBySlot.forEach(function (e) { renderChecklistSplit(e.slot, e.codes, tax); });
+            hydratePhotos(root);
+          });
+        });
+      }
+
+      // Common names + the subspecies -> parent map for a set of codes, in as
+      // few calls as the URL length allows. reportAs comes back in the same
+      // response, and without it every subspecies observation reads as an
+      // unseen bird (see resolveSpecies).
+      function taxonomyFor(codes) {
+        var all = (codes || []).filter(Boolean);
+        var out = { nameByCode: {}, parentOf: {} };
+        if (!all.length) return Promise.resolve(out);
+        var chunks = [];
+        for (var i = 0; i < all.length; i += SPECIES_CHUNK) chunks.push(all.slice(i, i + SPECIES_CHUNK));
+        return pool(chunks, 3, function (ch) {
+          return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')))
+            .then(function (list) {
+              (Array.isArray(list) ? list : []).forEach(function (t) {
+                if (!t || !t.speciesCode) return;
+                out.nameByCode[t.speciesCode] = t.comName || t.speciesCode;
+                if (t.reportAs) out.parentOf[t.speciesCode] = t.reportAs;
+              });
+            }).catch(function () {});
+        }).then(function () { return out; });
+      }
+
+      // One checklist's species, split the way every other card splits them.
+      function renderChecklistSplit(slot, codes, tax) {
+        var isSeen = seenResolver(), unseen = [], seen = [];
+        (codes || []).forEach(function (c) {
+          var nm = tax.nameByCode[c] || c;
+          // The report set is the authority, but a subspecies has to be able
+          // to find its parent or "Dark-eyed Junco (Oregon)" reads as a bird
+          // you have never recorded.
+          var parent = resolveSpecies(c, tax.parentOf);
+          var hit = isSeen(c, nm) || (parent !== c && isSeen(parent, ''));
+          // Tags are set EXPLICITLY rather than left to speciesListHtml's
+          // default, because that default calls isSpeciesSeen — the combined
+          // cross-region set — and this split was resolved with the ACTIVE
+          // REPORT's set. Letting the two disagree is how a bird ticked in
+          // Missouri ends up flagged unseen in Washington on the same row.
+          (hit ? seen : unseen).push({
+            comName: nm, code: c, rare: 0,
+            tag: hit ? '' : '<span class="needflag">🔍</span>'
+          });
+        });
+        function byName(a, b) { return String(a.comName).localeCompare(String(b.comName)); }
+        unseen.sort(byName); seen.sort(byName);
+        slot.className = 'cklneed' + (unseen.length ? ' hit' : '');
+        if (!unseen.length && !seen.length) { slot.innerHTML = ''; return; }
+        slot.innerHTML = HotspotCards.splitLists({
+          unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
+          unseenLabel: unseen.length
+            ? (unseen.length + ' unseen bird' + (unseen.length === 1 ? '' : 's') + ' on this list 🔍')
+            : '',
+          seen: seen.length ? speciesListHtml(seen, { presorted: true }) : '',
+          seenLabel: seen.length
+            ? (seen.length + ' more species already seen') : ''
         });
       }
 
@@ -4350,8 +4650,8 @@
           top.forEach(function (h, i) {
             el.appendChild(hotspotCard({
               n: i + 1, locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
+              distMi: h.dist,
               facts: [
-                h.dist != null ? h.dist.toFixed(1) + ' mi' : '',
                 h.n + ' species all-time',
                 h.latest ? 'latest ' + esc(fmtDate(h.latest)) : ''
               ]
@@ -6251,6 +6551,7 @@
           });
           hot.push({ locId: lid, name: name, lat: lat, lng: lng, dist: dist, fresh: fresh,
             share: total ? fresh / total * 100 : 0, alltime: alltime, silent: silentDays(lid, h),
+            latest: lastPerLoc[lid] || (h && h.latestObsDt) || '',
             checklists: Object.keys(subsPerLoc[lid] || {}).length, birds: birds,
             unseenN: birds.filter(function (b) { return b.unseen; }).length,
             score: fresh * (1 + intensity) / (1 + d / 10) });
@@ -6273,6 +6574,7 @@
           var d = dist == null ? 0 : dist;
           cold.push({ locId: lid, name: name, lat: lat, lng: lng, dist: dist, alltime: alltime,
             anchor: na ? na.name : null,
+            latest: lastPerLoc[lid] || (h && h.latestObsDt) || '',
             silent: silent, score: alltime * factor / (d + 5) });
         });
         cold.sort(function (a, b) { return (b.score - a.score) || ((a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist)); });
@@ -6285,12 +6587,12 @@
         var sp = splitHotspotBirds(h);
         var card = hotspotCard({
           n: n, locId: h.locId, locName: h.name, lat: h.lat, lng: h.lng,
-          facts: [h.dist == null ? '' : h.dist.toFixed(1) + ' mi', extra],
+          distMi: h.dist,
+          facts: [extra],
           species: sp.unseen, seenSpecies: sp.seen
         });
         return card.outerHTML;
-      }
-      // Unseen birds are the reason to drive there, so they are never behind a
+      }      // Unseen birds are the reason to drive there, so they are never behind a
       // tap; seen birds say the spot is alive rather than empty, so they are
       // context and collapse. Collapsing BOTH — which this section used to do —
       // hides the deciding fact and prints a count you cannot act on.
@@ -6321,16 +6623,20 @@
         if (top.length) {
           html += '<ul class="obs dest">';
           top.forEach(function (h, i) {
-            var bits = h.fresh + ' species';
+            // The sub-header answers "how alive is this place, and when was
+            // anyone last here" — the date leads because a 42-species haul
+            // from nine days ago is a different proposition from one today.
+            var bits = (h.latest ? 'latest ' + esc(fmtDate(h.latest)) : '')
+              + (h.latest ? ' · ' : '') + h.fresh + ' species';
             if (h.checklists) bits += ' · ' + h.checklists + ' recent checklist' + (h.checklists === 1 ? '' : 's');
             bits += ' · ' + h.share.toFixed(0) + '% of region';
-            if (h.silent != null) bits += ' · last obs ' + h.silent + 'd ago';
             html += hotspotRow(h, bits, i + 1);
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
+        hydrateLocSpecies(el);
         // Numbered pins match the list ranks, mirroring the report's section map.
         renderMap($('hotMap'), top, getHome(), false);
       }
@@ -6344,12 +6650,15 @@
           html += '<ul class="obs dest">';
           top.forEach(function (h, i) {
             var s = h.silent >= 365 ? '1y+' : h.silent + 'd';
-            html += hotspotRow(h, h.alltime + ' all-time species · quiet ' + s + anchorNote(h.anchor), i + 1);
+            var bits = (h.latest ? 'latest ' + esc(fmtDate(h.latest)) + ' · ' : '')
+              + h.alltime + ' all-time species · quiet ' + s + anchorNote(h.anchor);
+            html += hotspotRow(h, bits, i + 1);
           });
           html += '</ul>';
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
+        hydrateLocSpecies(el);
         renderMap($('coldMap'), top, getHome(), false);
       }
       // Hot and cold share ONE scan (2 API calls per county). Either section's
@@ -7199,17 +7508,119 @@
             span: tideSpan(p.t, nxt.t),
             rising: rising,
             trend: rising ? RISE : FALL,
-            height: ft(p) + ' → ' + ft(nxt) + ' ft'
+            height: ft(p) + ' → ' + ft(nxt) + ' ft',
+            startMs: tideMs(p.t), endMs: tideMs(nxt.t)
           };
         });
         if (preds.length) {
           var last = preds[preds.length - 1], up = last.type !== 'H';
           out.push({
             window: at(last) + ' → overnight', span: '', rising: up,
-            trend: up ? RISE : FALL, height: 'from ' + ft(last) + ' ft'
+            trend: up ? RISE : FALL, height: 'from ' + ft(last) + ' ft',
+            startMs: tideMs(last.t), endMs: tideMs(last.t) + 6 * 3600000
           });
         }
         return out;
+      }
+      // NOAA timestamps are LOCAL to the station and carry no zone, so they
+      // must be parsed as local time. Appending nothing and letting Date guess
+      // is what silently shifts every window by the UTC offset.
+      function tideMs(t) {
+        var s = String(t || '');
+        var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(s);
+        if (!m) return NaN;
+        return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+      }
+      // --- "what is the tide doing RIGHT NOW, and when is the next good one" -
+      // Reported from the device: "it was difficult at a glance to see current
+      // conditions and when next prime birding is." The table was a full day of
+      // windows including ones that had already passed, so the reader had to
+      // find their own place in it before it said anything. The answer to both
+      // halves is a state line ABOVE the table — the tide is rising or falling
+      // right now, and the next rising window starts in N — and a table that
+      // begins at the window you are actually standing in.
+      function tideNow(rows, nowMs) {
+        if (!rows || !rows.length) return null;
+        var cur = null, nextRise = null;
+        for (var i = 0; i < rows.length; i++) {
+          var r = rows[i];
+          if (!cur && isFinite(r.startMs) && isFinite(r.endMs) && nowMs >= r.startMs && nowMs < r.endMs) cur = r;
+          if (!nextRise && r.rising && isFinite(r.startMs) && r.startMs > nowMs) nextRise = r;
+        }
+        if (!cur && isFinite(rows[0].startMs) && nowMs < rows[0].startMs) cur = null;
+        var untilRise = null;
+        if (cur && cur.rising) untilRise = 0;
+        else if (nextRise) untilRise = nextRise.startMs - nowMs;
+        return { cur: cur, nextRise: nextRise, untilRise: untilRise };
+      }
+      // Prime = an incoming tide IN DAYLIGHT. A bird on every rising row would
+      // say nothing the highlight does not already say; the marker earns its
+      // place only by separating the windows you can actually see birds in
+      // from the ones that happen at 2am. With no sun times available every
+      // rising window keeps the benefit of the doubt rather than being
+      // silently demoted.
+      function tidePrime(r, lit) {
+        if (!r || !r.rising) return false;
+        if (!lit) return true;
+        return r.startMs < lit.b && r.endMs > lit.a;
+      }
+      function tideCountdown(ms) {        var mins = Math.max(0, Math.round(ms / 60000));
+        var h = Math.floor(mins / 60), m = mins % 60;
+        if (!h) return m + ' min';
+        return h + 'h' + (m ? ' ' + m + 'm' : '');
+      }
+      function renderTides(preds, st) {
+        var el = $('wxTides'); if (!el) return;
+        var all = buildTideRows(preds);
+        if (!all.length) { el.innerHTML = ''; return; }
+        var nowMs = Date.now(), now = tideNow(all, nowMs);
+        // A window that finished two hours ago cannot be chased, and every one
+        // of them is a row the reader must skip past to reach the answer.
+        var rows = all.filter(function (r) { return !isFinite(r.endMs) || r.endMs > nowMs; });
+        if (!rows.length) rows = all.slice(-1);
+
+        // Prime = rising AND in daylight. Flagging every rising window adds
+        // nothing over the highlight that is already there; the distinction
+        // that decides whether to leave the house is whether you will be able
+        // to see the birds the incoming water pushes in.
+        var home = getHome(), lit = null;
+        if (home) {
+          var d0 = new Date(nowMs);
+          var ss = sunriseSunset(home.lat, home.lng, d0.getFullYear(), d0.getMonth() + 1, d0.getDate());
+          if (ss && ss.rise && ss.set) lit = { a: ss.rise.getTime(), b: ss.set.getTime() };
+        }
+        function prime(r) { return tidePrime(r, lit); }
+
+        var body = rows.map(function (r) {
+          var isNow = now && now.cur === r;
+          var cls = (r.rising ? 'tiderise' : '') + (isNow ? ' tidenow' : '');
+          var flag = prime(r) ? '🦆 ' : (r.rising ? '👀 ' : '');
+          var w = (isNow ? '<b>now</b> · ' : '') + flag + (r.rising ? '<b>' + esc(r.window) + '</b>' : esc(r.window));
+          var sp = r.rising && r.span ? '<b>' + esc(r.span) + '</b>' : esc(r.span);
+          return '<tr' + (cls.trim() ? ' class="' + cls.trim() + '"' : '') + '><td>' + w + '</td><td>' + sp +
+            '</td><td>' + esc(r.trend) + '</td><td>' + esc(r.height) + '</td></tr>';
+        }).join('');
+
+        var head = '';
+        if (now && now.cur) {
+          var state = now.cur.rising
+            ? '⬆ <b>Rising now</b> — the water is coming in'
+            : '⬇ <b>Falling now</b>';
+          var next = now.cur.rising
+            ? 'through ' + esc(String(now.cur.window).split('→').pop().trim())
+            : (now.nextRise
+              ? 'next rising tide in <b>' + esc(tideCountdown(now.untilRise)) + '</b> (' +
+                esc(String(now.nextRise.window).split('→')[0].trim()) + ')'
+              : 'no further rising tide today');
+          head = '<div class="tidenowline">' + state + ' · ' + next + '</div>';
+        }
+
+        // Name the station rather than only its id: "9447427" is unverifiable at
+        // a glance, "Edmonds · nearest to home, 11.6 mi" is checkable.
+        var who = esc(st.name || ('station ' + st.id)) + (st.why ? ' <span class="dim2">· ' + esc(st.why) + '</span>' : '');
+        el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · ' + who + '</div>' + head +
+          '<table class="wxtable"><thead><tr><th>Window</th><th>For</th><th>Tide</th><th>Height</th></tr></thead><tbody>' + body + '</tbody></table>' +
+          '<div class="wxline dim2">🦆 <b>Prime</b> = an incoming tide in daylight — rising water pushes waterfowl &amp; shorebirds close to shore. 👀 marks a rising tide after dark. Past windows are dropped; the row you are in is marked <b>now</b>.</div>';
       }
       function renderSunMoon(home) {
         var el = $('wxSun'); if (!el) return;
@@ -7241,23 +7652,6 @@
         }).join('');
         el.innerHTML = '<div class="wxline dim2">NOAA forecast at Home · 🐦 = southerly winds (spring-migration arrivals)</div>' +
           '<table class="wxtable"><thead><tr><th>When</th><th>Forecast</th><th>Temp</th><th>Wind</th></tr></thead><tbody>' + rows + '</tbody></table>';
-      }
-      function renderTides(preds, st) {
-        var el = $('wxTides'); if (!el) return;
-        var rows = buildTideRows(preds);
-        if (!rows.length) { el.innerHTML = ''; return; }
-        var body = rows.map(function (r) {
-          var w = r.rising ? '👀 <b>' + esc(r.window) + '</b>' : esc(r.window);
-          var sp = r.rising && r.span ? '<b>' + esc(r.span) + '</b>' : esc(r.span);
-          return '<tr' + (r.rising ? ' class="tiderise"' : '') + '><td>' + w + '</td><td>' + sp +
-            '</td><td>' + esc(r.trend) + '</td><td>' + esc(r.height) + '</td></tr>';
-        }).join('');
-        // Name the station rather than only its id: "9447427" is unverifiable at
-        // a glance, "Edmonds · nearest to home, 11.6 mi" is checkable.
-        var who = esc(st.name || ('station ' + st.id)) + (st.why ? ' <span class="dim2">· ' + esc(st.why) + '</span>' : '');
-        el.innerHTML = '<div class="wxline">🌊 <b>Tides</b> · ' + who + '</div>' +
-          '<table class="wxtable"><thead><tr><th>Window</th><th>For</th><th>Tide</th><th>Height</th></tr></thead><tbody>' + body + '</tbody></table>' +
-          '<div class="wxline dim2">👀 ⬆ <b>Rising (incoming) tides</b> push waterfowl &amp; seafowl closer to shore — the highlighted rows are your prime chase windows.</div>';
       }
       // NOAA publishes every station that HAS tide predictions, which is by
       // construction the tidal (salt) ones — the list carries no Great Lakes
@@ -7466,6 +7860,7 @@
         { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo' },
         { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county' },
         { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county' },
+        { at: 'recentBtn',     label: '🕒 Recent checklists', needs: 'county' },
         { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
         { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
@@ -7504,6 +7899,7 @@
         hotBtn:     { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadBirdiest,     needsKey: true },
+        recentBtn:  { fn: loadRecentLists,  needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true },
@@ -7666,6 +8062,48 @@
         try { window.scrollTo(0, 0); } catch (e) {}
         autoLoad(target);
         refreshVisibleMaps();
+        auditOverflow(id);
+      }
+
+      // The sideways-drag report has now survived two blind fixes, because the
+      // bug does not reproduce off-device: a headless Chromium sweep of every
+      // panel, at every text scale, from 320px to 393px, finds nothing past
+      // the right edge. Guessing again is not a plan, so the DEVICE reports
+      // it instead — this names the widest offending element into the 🐞 log
+      // (tap the footer version 5x), which is the one place a phone can hand
+      // back a measurement. It runs after paint so it measures the laid-out
+      // section, skips Leaflet's own internals (tiles and markers are
+      // deliberately outside their clipped container and are never the cause),
+      // and reports at most one line per section so it cannot flood the log.
+      var _overflowSeen = {};
+      function auditOverflow(id) {
+        if (typeof requestAnimationFrame !== 'function') return;
+        requestAnimationFrame(function () {
+          try {
+            var vw = document.documentElement.clientWidth;
+            if (!vw) return;
+            var worst = null, worstOver = 0.5;
+            var all = document.querySelectorAll('.panel *');
+            for (var i = 0; i < all.length; i++) {
+              var el = all[i];
+              if (/leaflet-/.test(String(el.className))) continue;
+              var r = el.getBoundingClientRect();
+              if (!r.width && !r.height) continue;
+              var over = r.right - vw;
+              if (over > worstOver) { worstOver = over; worst = el; }
+            }
+            if (!worst) return;
+            var sel = worst.tagName.toLowerCase()
+              + (worst.id ? '#' + worst.id : '')
+              + (typeof worst.className === 'string' && worst.className
+                ? '.' + worst.className.trim().split(/\s+/).join('.') : '');
+            var key = id + '|' + sel;
+            if (_overflowSeen[key]) return;
+            _overflowSeen[key] = 1;
+            console.warn('overflow', id, sel, Math.round(worstOver) + 'px past ' + vw,
+              String(worst.textContent || '').trim().slice(0, 60));
+          } catch (e) {}
+        });
       }
       function showMenu() {
         _sections.forEach(function (s) { s.hidden = true; });
@@ -8078,6 +8516,7 @@
       $('excBtn').addEventListener('click', loadExcursions);
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadBirdiest);
+      $('recentBtn').addEventListener('click', loadRecentLists);
       $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
       $('quickWorkBtn').addEventListener('click', function () { loadQuickOuting('work'); });
       $('quickHereBtn').addEventListener('click', function () { loadQuickOuting('here'); });
@@ -8301,6 +8740,7 @@
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
+        tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey,
@@ -8321,8 +8761,15 @@
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
+        renderHot: renderHot, renderCold: renderCold, showSection: showSection,
+        auditOverflow: auditOverflow,
+        renderChecklistSplit: renderChecklistSplit, taxonomyFor: taxonomyFor,
+        markBirdiestUnseen: markBirdiestUnseen,
+        hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
+        sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
+        refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav,

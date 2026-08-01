@@ -11,8 +11,8 @@
 
    THE MEDIUM CARD IS THE ONE THAT MATTERS, and it owns a fixed shape:
 
-       ( 3 )  Marina Beach Park              <- number + name
-              2.4 mi · score 41 · 3 targets  <- sub-header
+       ( 3 )  Marina Beach Park             8.0   <- number · name · DISTANCE
+              Jul 30 · 42 species            mi   <- sub-header
        ------------------------------------
        🔍 UNSEEN, ALWAYS EXPANDED           <- the reason to drive there
           [small species card]
@@ -28,12 +28,18 @@
    printed in full. Seen birds still earn a place — they tell you the spot is
    alive rather than empty — but they are context, so they collapse.
 
+   Why distance gets a COLUMN on the medium card: it was the first item in a
+   `·`-joined sub-header, which reads as one fact among four. It is not — it
+   is the one fact you compare ACROSS rows while scanning, and a column makes
+   those numbers line up so the list can be read down its right edge.
+
    PLACEHOLDERS every size accepts (all optional except name):
 
      {{num}}       the marker number, styled to match the map pin
      {{icon}}      an explicit icon, if a section has something better
      {{name}}      hotspot name, already linked and escaped
-     {{distance}}  "2.4 mi"
+     {{distance}}  miles — a NUMBER. Medium renders it in its own column;
+                   small and large fold it into the sub-header.
      {{score}}     "score 41"
      {{sub}}       any further sub-header facts
      {{unseen}}    HTML list of unseen birds  (rendered EXPANDED)
@@ -58,10 +64,9 @@
 
   var MEDIUM = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{marker}}<span class="ntext">{{name}}</span></div>',
+    '  <div class="name">{{marker}}<span class="ntext">{{name}}</span>{{dist}}</div>',
     '  <div class="meta">{{sub}}</div>',
-    '  {{unseen}}',
-    '  {{seen}}',
+    '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
     '</li>'
@@ -71,8 +76,7 @@
     '<li class="{{cls}}">',
     '  <div class="hscardhead">{{marker}}<span class="ntext">{{name}}</span></div>',
     '  <div class="meta">{{sub}}</div>',
-    '  {{unseen}}',
-    '  {{seen}}',
+    '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
     '</li>'
@@ -112,6 +116,12 @@
     '  font-size: calc(19px * var(--s)); }',
     '.hscard-sm .hsnum { width: calc(34px * var(--s)); height: calc(34px * var(--s));',
     '                    font-size: calc(15px * var(--s)); }',
+    /* 40, not 46: the badge spans both header rows, and a spanning grid item
+       taller than the rows it spans stretches them. See the note on .ntext —
+       the text block has to win that comparison or the dead space under the
+       number comes straight back. */
+    '.hscard-md .hsnum { width: calc(40px * var(--s)); height: calc(40px * var(--s));',
+    '                    font-size: calc(17px * var(--s)); }',
     '.hscard-lg .hsnum { width: calc(56px * var(--s)); height: calc(56px * var(--s));',
     '                    font-size: calc(23px * var(--s)); }',
     /* Home keeps the green it has on the map. */
@@ -122,42 +132,72 @@
     '.hscard-sm > .name { display: flex; align-items: center; gap: 10px;',
     '                     min-height: calc(34px * var(--s)); line-height: 1.25; }',
 
-    /* ---- MEDIUM: the same 2x2 grid the species card uses ----
-       The number sits in the icon slot at the SMALL card's 46px rather than
-       the species card's 92px photo size. A photo needs the width to be
-       legible; a one- or two-digit number does not, and the 46px box hands
-       the difference back to the name, which is the part that wraps. */
+    /* ---- MEDIUM: a THREE-column header ----
+
+         col 1        col 2                         col 3
+       +--------+---------------------------+-----------+
+       |  (3)   | Marina Beach Park         |    8.0    |
+       |  top-  +---------------------------+    mi     |
+       | aligned| Jul 30 · 42 species       | spans 2   |
+       +--------+---------------------------+-----------+
+
+       Distance used to be the first item in the `·`-joined sub-header, where
+       it read as one fact among four — but it is the fact that decides
+       whether the rest of the card is worth reading, and it is the only one
+       you compare ACROSS rows while scanning a list. Giving it its own column
+       makes those numbers line up vertically so the list can be scanned down
+       the right edge, and frees the sub-header to carry what the place is
+       actually reporting. Callers pass `distance`; it is rendered in the
+       column and is NOT repeated in the sub-header.
+
+       The number sits in the icon slot at 40px rather than the species card's
+       92px photo size. A photo needs the width to be legible; a one- or
+       two-digit number does not, and the difference goes to the name, which
+       is the part that wraps. */
     '.hscard-md {',
-    '  display: grid; grid-template-columns: auto minmax(0, 1fr);',
+    '  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;',
     '  column-gap: 14px; row-gap: 2px; align-items: start; padding: 10px 0;',
     '  overflow: hidden; }',
     '.hscard-md > .name { display: contents; }',
-    '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1 / span 2; }',
+    '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1 / span 2; align-self: start; }',
     '.hscard-md > .name > .ntext {',
-    '  grid-column: 2; grid-row: 1; align-self: end; min-width: 0;',
+    '  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;',
     /* The hotspot name is the SUBJECT of a hotspot card, so it outranks its
        own sub-header — which it did NOT: the name was reaching the screen at
        13px against a 15px sub-header (see the title-link rule at the top of
-       this file). 26px restores the ranking without the 46px the file used to
-       ask for, which wrapped a real name like
-       "Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk" over five
-       lines on a 430px phone and made a LIST of hotspots unscannable.
-       The size is also load-bearing for spacing: .hsnum spans both rows at
-       46px, and a grid distributes a spanning item's minimum height across
-       the rows it spans, so whenever name + row-gap + meta came to LESS than
-       46px the rows stretched to fill the badge — which is exactly the
-       reported blank line above the name and the dead space under the number.
-       26*1.15 + 2 + 17*1.35 = 54.9 > 46, so the text block now sets the
-       height and the badge no longer stretches anything. All three terms
-       scale with --s, so the relationship holds at every text size.
+       this file). The first fix after that overshot at 26px, which made a
+       LIST of hotspots read as a stack of headlines. 21px keeps the ranking
+       over the 16px sub-header while letting a real name like
+       "Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk" wrap in two or
+       three lines rather than five on a 430px phone.
+       The size is also load-bearing for spacing: .hsnum spans both rows, and
+       a grid distributes a spanning item's minimum height across the rows it
+       spans, so whenever name + row-gap + meta came to LESS than the badge
+       the rows stretched to fill it — which is exactly the reported blank
+       line above the name and the dead space under the number. At the shipped
+       values 21*1.15 + 2 + 16*1.35 = 47.8 > 40, so the text block sets the
+       height and the badge no longer stretches anything. Every term scales
+       with --s, so the relationship holds at every text size.
        break-word (not `anywhere`) keeps it wrapping between words, and only
        splits a token like "Marsh--Willow" when that token alone cannot fit. */
-    '  font-size: calc(26px * var(--s)); font-weight: 700; line-height: 1.15;',
+    '  font-size: calc(21px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     '.hscard-md > .meta {',
     '  grid-column: 2; grid-row: 2; align-self: start; min-width: 0;',
-    '  font-size: calc(17px * var(--s)); font-weight: 500; color: var(--muted); }',
-    /* Species lists, the expander and the actions row all span both columns. */
+    '  font-size: calc(16px * var(--s)); line-height: 1.35;',
+    '  font-weight: 500; color: var(--muted); }',
+    /* The distance column. Big enough to scan down the edge of a list, and
+       the unit is a caption on it rather than a second number — "8.0 mi" read
+       at one size makes the reader parse two tokens to get one value. */
+    '.hscard-md > .name > .hsdist {',
+    '  grid-column: 3; grid-row: 1 / span 2; align-self: start; justify-self: end;',
+    '  text-align: right; white-space: nowrap;',
+    '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
+    '  color: var(--ink); font-variant-numeric: tabular-nums; }',
+    '.hscard-md > .name > .hsdist small {',
+    '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
+    '  color: var(--muted); letter-spacing: .02em; }',
+    /* Species lists, the expander and the actions row all span every column. */
     '.hscard-md > * { grid-column: 1 / -1; }',
     '.hscard-md > .name, .hscard-md > .meta { grid-column: auto; }',
 
@@ -192,14 +232,27 @@
     }).replace(/ class=""/g, '');
   }
 
-  function subHtml(v, wrap) {
-    var bits = [v.distance, v.score, v.sub].filter(function (x) {
+  function subHtml(v, wrap, dropDistance) {
+    var bits = [dropDistance ? '' : v.distance, v.score, v.sub].filter(function (x) {
       return x != null && x !== '' && String(x).indexOf('undefined') < 0
         && String(x).indexOf('NaN') < 0;
     });
     if (!bits.length) return '';
     var text = bits.join(' · ');
     return wrap ? '<span class="sub">' + text + '</span>' : text;
+  }
+
+  /* The medium card's third column. Accepts a number or anything a number can
+     be read out of ("2.4 mi"), so a caller that already formatted a string is
+     not punished for it. One decimal under ten miles and none above: the
+     column exists to be compared down a list, and "23.4" against "8.0" costs
+     a character of width to state a precision nobody drives by. */
+  function distHtml(v) {
+    if (v.distance == null || v.distance === '') return '';
+    var n = (typeof v.distance === 'number') ? v.distance : parseFloat(String(v.distance));
+    if (!isFinite(n)) return '';
+    return '<span class="hsdist">' + (n < 10 ? n.toFixed(1) : String(Math.round(n)))
+      + '<small>mi</small></span>';
   }
 
   function markerHtml(v) {
@@ -231,11 +284,16 @@
 
   function build(tpl, v, cls) {
     v = v || {};
+    // Only the medium card has a distance COLUMN. On small and large the
+    // distance stays where it always was, in the sub-header — printing it in
+    // both places on the one card that has a column is the drift this guards.
+    var isMedium = (tpl === MEDIUM);
     return fill(tpl, {
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' '),
       marker: markerHtml(v),
       name: v.name || '',
-      sub: subHtml(v, tpl === SMALL),
+      sub: subHtml(v, tpl === SMALL, isMedium),
+      dist: isMedium ? distHtml(v) : '',
       unseen: unseenHtml(v),
       seen: seenHtml(v),
       below: v.below || '',
@@ -250,6 +308,12 @@
     medium: function (v) { return build(MEDIUM, v, 'hscard hscard-md'); },
     large: function (v) { return build(LARGE, v, 'hscard hscard-lg'); },
     marker: function (num, home) { return markerHtml({ num: num, home: home }); },
+    /* The unseen/seen pair WITHOUT the rest of a card, for sections whose row
+       is not a hotspot but which still have to answer "what is on this list
+       that I still need?" — a birdiest checklist, for one. Exported rather
+       than re-implemented so the rule that unseen is open and seen is
+       collapsed has exactly one definition. */
+    splitLists: function (v) { return unseenHtml(v || {}) + seenHtml(v || {}); },
     list: function (size, items, extraCls) {
       return '<ul class="obs hscards hscards-' + size + (extraCls ? ' ' + extraCls : '') + '">'
         + (items || []).join('') + '</ul>';
