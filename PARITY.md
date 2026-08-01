@@ -13,53 +13,57 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
-## v1.0.38 — the drag, take four: stop guessing, make the phone do the measuring
+## v1.0.38 — the drag: it was never a width, it was a missing `touch-action`
 
-**v1.0.37 fixed five real overflows and the drag still happens.** That is now
-three fixes in a row that were *correct* about something and *wrong* about this,
-so this release stops proposing causes and ships the instrument instead.
+**Confirmed fixed on device.** Reported four times (v1.0.33 → v1.0.37) and "fixed" three
+times before this. Each earlier fix was correct about something real and wrong about this.
 
-**What the evidence actually says.** A real-browser sweep of **every element in
-the document** — now checking the **left** edge as well as the right, which
-nothing in this project had ever done — across 320px–430px and Normal→Huge text,
-finds **nothing past either edge**. The layout is clean on desktop Chrome. So
-whatever moves on the phone is not a width this project can see from here.
+**The answer.** Nothing was ever too wide. The app declared **no `touch-action` at all**,
+so the root scroller permitted horizontal panning by default and iOS was panning the
+**visual viewport** — which carries `position: sticky` chrome with it, which is exactly why
+the screenshot showed the *navbar itself* moving. `scrollWidth === clientWidth` throughout.
 
-That leaves three candidates, and they are indistinguishable to a finger because
-all three pan the whole screen including the sticky navbar:
-1. the document really is wider (`scrollWidth > clientWidth`),
-2. the page is **zoomed**, so the visual viewport is a window onto a larger one,
-3. iOS is panning the **visual** viewport with no zoom and no overflow.
+```css
+body { touch-action: pan-y; }               /* scrolls down, not sideways */
+.leaflet-container { touch-action: none; }  /* maps still pan both ways */
+```
 
-**🐞 → 📐 Drag.** The debug panel gains a drag probe that names which of the
-three is happening, in those words. Arm it, close the panel, drag the page
-sideways, reopen: it reports `scale`, visual-viewport width/`offsetLeft`/
-`pageLeft`, layout width, `scrollWidth` and `scrollLeft` at rest and at the peak
-of the gesture, plus the extreme element on **both** sides. Every copied debug
-log now also carries a `geometry:` line with the same figures, so a report is
-diagnosable even if the probe was never armed.
+**Why this worked when three width fixes did not.** `touch-action` is enforced by the
+**compositor, not by layout**. Both previous guards (`html { overflow-x: clip }` and
+`.panel { overflow-x: clip }`) can only contain content that *overflows* — and nothing did.
+A property that doesn't care whether anything overflows was the only kind that could have
+worked, and that was knowable from the sweep result *before* trying it.
 
-**One mitigation ships with it, and it is not another guess about width.**
-The app declared **no `touch-action` at all**, so the root scroller permitted
-horizontal panning by default. `body { touch-action: pan-y }` says the page
-scrolls down, not sideways — enforced by the compositor rather than by layout,
-so unlike the two `overflow-x: clip` guards it does not care whether anything
-overflows. Maps are the one thing that must pan both ways; `.leaflet-container`
-restates `touch-action: none` (the mode Leaflet asks for, since it drives its
-own gestures from JS) because an ancestor's value is *intersected* with the
-element's.
+`.leaflet-container` restates `touch-action: none` because an ancestor's value is
+**intersected** with the element's, so `pan-y` on `body` would otherwise have taken
+horizontal drag away from every map in the app. `none` is the mode Leaflet asks for anyway,
+since it drives its own gestures from JS. Guarded, including the ordering of the two rules.
 
-If the drag stops, the probe says why. If it does not, the probe says what is
-moving, and the next fix will be the first one aimed at a measurement rather
-than a hypothesis.
+**The lesson, which cost four releases.** By v1.0.37 the sweep had checked every element in
+the document, **both edges**, 320px–430px × text scale 1 → 1.75, and found nothing. *That
+finding was the answer* — it ruled out the entire category of width bugs and pointed at
+compositor behaviour — but three times running it was read as "look harder for a width
+bug". A clean measurement is a result, not a failed search.
 
-## v1.0.37 — the side-scroll, found: a nowrap that inherited into a flexible track
+**Also shipped: 🐞 → 📐 Drag.** The debug panel gained a probe that reports
+`visualViewport` scale / width / `offsetLeft` / `pageLeft`, layout width, `scrollWidth` and
+`scrollLeft` at rest and at the peak of a gesture, names the extreme element on **both**
+sides, and states in words which of overflow / zoom / visual-viewport panning occurred.
+Every copied debug log now carries the same figures on a `geometry:` line. The three
+previous fixes each cost a release largely because a device report could not carry a
+number; that is now fixed regardless of what breaks next.
+
+## v1.0.37 — the side-scroll: five real overflows, fixed, but not the drag
 
 **Reported three times across three releases and "fixed" twice blind.** The
 third report came with a screenshot, and the screenshot is what cracked it: the
 whole page — navbar included — panned sideways, which is *chrome*, outside
 every `.panel`. Both previous fixes and all three headless sweeps had only ever
 looked **inside** panels.
+
+⚠️ **This did not stop the drag.** Everything below is real and worth keeping —
+these elements genuinely overflowed and genuinely needed fixing — but the drag
+itself was a missing `touch-action`, found in v1.0.38. See above.
 
 **The bug — `index.html`, `.cklrows`.** `white-space: nowrap` on `.when` was
 written for the 3-column checklist row, where `.when` is an `auto` track
