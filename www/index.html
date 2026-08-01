@@ -477,6 +477,23 @@
                         font-weight: inherit; line-height: inherit; }
     .uplaces .upmeta { font-size: calc(14px * var(--s)); color: var(--muted);
                        margin-top: 2px; min-width: 0; overflow-wrap: anywhere; }
+    /* A paired section reads as one report with two modes. The switch is the
+       first thing in the panel because it says WHICH question you are looking
+       at before you read the answer. `aria-pressed` carries the state, so the
+       styling and the accessibility tree cannot disagree. */
+    .modeswitch { gap: 0; margin-bottom: 10px; border: 1px solid var(--line);
+                  border-radius: 12px; overflow: hidden; }
+    /* Six options do not fit across a phone as segments, and on iOS a native
+       select opens the wheel picker, which shows the full labels anyway — the
+       same reasoning that kept the navbar region control a real <select>. */
+    .modeswitch .modepick { border: 0; border-radius: 12px; font-weight: 700; }
+    .modeswitch .modebtn { flex: 1 1 0; min-width: 0; border-radius: 0; border: 0;
+                           padding: 10px 8px; font-size: calc(14px * var(--s));
+                           font-weight: 700; background: var(--bg); color: var(--muted);
+                           overflow-wrap: anywhere; }
+    .modeswitch .modebtn + .modebtn { border-left: 1px solid var(--line); }
+    .modeswitch .modebtn[aria-pressed="true"] { background: var(--accent);
+                                                color: var(--accent-ink); }
     .uplaces .upmeta a { margin-top: 0; }
     /* The checklists behind one hotspot. Indented under the place name so the
        hierarchy reads at a glance — place, then the evidence for it — and set
@@ -491,6 +508,11 @@
     .upfar { margin-top: 8px; }
     .upfar > summary { cursor: pointer; font-size: calc(14px * var(--s));
                        font-weight: 700; color: var(--accent); padding: 4px 0; }
+    /* Older places within the radius, folded away. Same affordance as .upfar
+       so the two expanders under one card read as a pair. */
+    .upmore { margin-top: 6px; }
+    .upmore > summary { cursor: pointer; font-size: calc(14px * var(--s));
+                        font-weight: 700; color: var(--accent); padding: 4px 0; }
     /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
        enough that the fields below it would otherwise be an unlabelled run of
        facts. A modifier class rather than :has(), which is unguarded on the
@@ -703,11 +725,15 @@
 
     <section class="panel">
       <h2>📋 All unseen reports <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="unseen">
+        <button class="modebtn" type="button" data-goto="sec-allUnseenBtn" aria-pressed="true">📋 Being reported</button>
+        <button class="modebtn" type="button" data-goto="sec-easyBtn" aria-pressed="false">🥚 Easy misses</button>
+      </div>
       <div class="row">
         <button id="allUnseenBtn">List every report</button>
       </div>
       <div id="allUnseenStatus" class="status">Every unseen-species report in range, nearest first. Duplicate observers of the same bird at the same spot on the same day are merged into one row; ⚠️ = unconfirmed.</div>
-      <ul id="allUnseenResults" class="obs big xl"></ul>
+      <ul id="allUnseenResults" class="obs big xl icon-sm"></ul>
     </section>
 
     <section class="panel">
@@ -728,6 +754,21 @@
 
     <section class="panel">
       <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="places">
+        <select class="modepick" aria-label="Which places to show">
+          <optgroup label="Ranked by birds you need">
+            <option value="sec-destBtn" selected>&#127941; Top destinations &mdash; day trip</option>
+            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
+            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
+          </optgroup>
+          <optgroup label="Hotspots near a place">
+            <option value="quick:home">&#127968; Near home</option>
+            <option value="quick:work">&#127970; Near work</option>
+            <option value="quick:here">&#128205; Current location</option>
+            <option value="quick:find">&#128269; Find a place&hellip;</option>
+          </optgroup>
+        </select>
+      </div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
       </div>
@@ -738,6 +779,21 @@
 
     <section class="panel">
       <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="places">
+        <select class="modepick" aria-label="Which places to show">
+          <optgroup label="Ranked by birds you need">
+            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
+            <option value="sec-excBtn" selected>&#128663; Top excursions &mdash; longer trip</option>
+            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
+          </optgroup>
+          <optgroup label="Hotspots near a place">
+            <option value="quick:home">&#127968; Near home</option>
+            <option value="quick:work">&#127970; Near work</option>
+            <option value="quick:here">&#128205; Current location</option>
+            <option value="quick:find">&#128269; Find a place&hellip;</option>
+          </optgroup>
+        </select>
+      </div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
       </div>
@@ -748,6 +804,21 @@
 
     <section class="panel">
       <h2>🧭 Trip planner <span class="dim" id="tripRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="places">
+        <select class="modepick" aria-label="Which places to show">
+          <optgroup label="Ranked by birds you need">
+            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
+            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
+            <option value="sec-tripBtn" selected>&#129517; Trip planner &mdash; a route</option>
+          </optgroup>
+          <optgroup label="Hotspots near a place">
+            <option value="quick:home">&#127968; Near home</option>
+            <option value="quick:work">&#127970; Near work</option>
+            <option value="quick:here">&#128205; Current location</option>
+            <option value="quick:find">&#128269; Find a place&hellip;</option>
+          </optgroup>
+        </select>
+      </div>
       <div class="row">
         <button id="tripBtn">Plan a route</button>
       </div>
@@ -758,16 +829,11 @@
     </section>
 
     <section class="panel">
-      <h2>🕒 Recent checklists <span class="dim" id="recentRegionLabel"></span></h2>
-      <div class="row">
-        <button id="recentBtn">Load checklists</button>
-      </div>
-      <div id="recentStatus" class="status">Every recent checklist in your counties, newest first.</div>
-      <ul id="recentResults" class="obs dest"></ul>
-    </section>
-
-    <section class="panel">
       <h2>🦜 Birdiest checklists <span class="dim" id="cklRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="checklists">
+        <button class="modebtn" id="cklModeBest" type="button" aria-pressed="true">🦜 Birdiest</button>
+        <button class="modebtn" id="cklModeNew" type="button" aria-pressed="false">🕒 Newest</button>
+      </div>
       <div class="row">
         <button id="cklBtn">Load checklists</button>
       </div>
@@ -779,6 +845,21 @@
 
     <section class="panel">
       <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="places">
+        <select class="modepick" aria-label="Which places to show">
+          <optgroup label="Ranked by birds you need">
+            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
+            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
+            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
+          </optgroup>
+          <optgroup label="Hotspots near a place">
+            <option value="quick:home" selected>&#127968; Near home</option>
+            <option value="quick:work">&#127970; Near work</option>
+            <option value="quick:here">&#128205; Current location</option>
+            <option value="quick:find">&#128269; Find a place&hellip;</option>
+          </optgroup>
+        </select>
+      </div>
       <div class="row">
         <button id="quickBtn">🏠 Home</button>
         <button id="quickWorkBtn" class="secondary" type="button">🏢 Work</button>
@@ -901,6 +982,10 @@
 
     <section class="panel">
       <h2>🥚 Easy misses <span class="dim" id="easyRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="unseen">
+        <button class="modebtn" type="button" data-goto="sec-allUnseenBtn" aria-pressed="false">📋 Being reported</button>
+        <button class="modebtn" type="button" data-goto="sec-easyBtn" aria-pressed="true">🥚 Easy misses</button>
+      </div>
       <div class="row">
         <button id="easyBtn">Find easy misses</button>
       </div>
@@ -1077,7 +1162,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.39';
+      var APP_VERSION = '1.0.40';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1085,6 +1170,10 @@
       // report.CHASE_MAX_MI through logic.js so the two repos cannot pick
       // different radii for the same question.
       var CHASE_MAX_MI = (BL && BL.CONST && BL.CONST.CHASE_MAX_MI) || 30;
+      // How many places show under an unseen bird before the rest fold away.
+      // Five is what fits under one card without the next species being pushed
+      // off the screen; the list is newest-first, so these are the live leads.
+      var UNSEEN_PLACES_SHOWN = 5;
 
       function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
       // Text scale for low-vision readers. Applied to <html> as a CSS custom
@@ -2371,12 +2460,15 @@
           el.innerHTML = shown.map(function (g) {
             var near = g.near.length ? g.near : g.places;
             var far = g.near.length ? g.far : [];
-            return SpeciesCards.medium({
-              icon: photoSlot(g.name, g.code),
+            // Show the freshest few and fold the rest away. A bird reported at
+            // 66 places turned one card into a wall you had to scroll past to
+            // reach the next species, and the places are already sorted newest
+            // first — so the ones worth reading are the ones at the top.
+            return speciesPlacesCard({
+              code: g.code, name: g.name,
               // No rank number: it rendered hard against the name as "1Merlin",
               // and a list already ordered nearest-first does not need to
               // number itself to say so.
-              name: speciesLink(g.name, g.code),
               tags: needTag(g.code, g.name) + (g.anyUnconfirmed ? ' ⚠️' : ''),
               // Distance is the third column now, not a phrase buried in the
               // middle of the sub-header — it is the one fact here that
@@ -2386,12 +2478,12 @@
                 near.length + ' place' + (near.length === 1 ? '' : 's'),
                 near.reduce(function (a, p) { return a + p.nReports; }, 0) + ' reports'
               ].filter(Boolean).join(' · '),
-              below: unseenPlacesHtml(near)
-                + (far.length
-                  ? '<details class="upfar"><summary>' + far.length + ' more place'
-                    + (far.length === 1 ? '' : 's') + ' beyond ' + CHASE_MAX_MI
-                    + ' mi</summary>' + unseenPlacesHtml(far) + '</details>'
-                  : '')
+              places: near,
+              extra: far.length
+                ? '<details class="upfar"><summary>' + far.length + ' more place'
+                  + (far.length === 1 ? '' : 's') + ' beyond ' + CHASE_MAX_MI
+                  + ' mi</summary>' + unseenPlacesHtml(far) + '</details>'
+                : ''
             });
           }).join('');
           hydratePhotos(el);
@@ -2936,13 +3028,38 @@
       // report.py::_loc_link — public hotspots link the NAME to the hotspot page
       // and append a 🗺 maps link; personal locations have no hotspot page, so
       // the name itself carries the maps link.
+      // Hotspots where a spotting scope changes what you can identify.
+      // Backlog F19, manual tier. Loaded from the SAME file the report reads
+      // (byte-identical in both repos), keyed by locId because a hotspot name
+      // is not stable — eBird renames and merges them. Fetched once, and a
+      // failure is silent on purpose: the badge is an enhancement, and a
+      // section that renders nothing because an optional annotation file did
+      // not load is a far worse bug than a missing 🔭.
+      var _scopeSites = null;
+      function loadScopeSites() {
+        if (_scopeSites) return _scopeSites;
+        _scopeSites = fetch('scope-sites.json')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { return (d && d.sites) || {}; })
+          .catch(function () { return {}; });
+        return _scopeSites;
+      }
+      var _scopeMap = {};
+      function scopeBadge(locId) {
+        return (locId && _scopeMap[locId]) ? ' 🔭' : '';
+      }
+      function scopeWhy(locId) {
+        var e = locId && _scopeMap[locId];
+        return (e && e.why) || '';
+      }
       function locLink(name, lat, lng, locId, isPrivate) {
         name = name || locId || '';
+        var scope = scopeBadge(locId);
         if (locId && !isPrivate) {
           var maps = (isFinite(+lat) && isFinite(+lng)) ? ' (' + mapA(lat, lng, '🗺') + ')' : '';
-          return extA(hotspotUrl(locId), name) + maps;
+          return extA(hotspotUrl(locId), name) + scope + maps;
         }
-        return mapA(lat, lng, name);
+        return mapA(lat, lng, name) + scope;
       }
       function recLocLink(r) {
         return locLink(r.loc || r.locName || '', r.lat, (r.lon != null ? r.lon : r.lng),
@@ -4104,6 +4221,7 @@
           // Distance has its own column on the medium card, so it is passed
           // as a number and must NOT also appear in `facts`.
           distance: (o.distMi != null && isFinite(o.distMi)) ? o.distMi : null,
+          distanceLabel: o.distanceLabel || null,
           unseen: unseen.length ? speciesListHtml(unseen) : '',
           unseenLabel: unseen.length
             ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
@@ -4323,10 +4441,13 @@
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
             // The planner's column is the LEG, not the distance from home —
             // stop 4 is 2 mi from stop 3 and 30 from the house, and the leg is
-            // the number that decides the route.
+            // the number that decides the route. Now that this card is one
+            // mode of a report whose other modes measure from home, the column
+            // has to SAY which it is; "leg" as a fact in the sub-header was
+            // enough when the section stood alone and is not enough now.
             distMi: d.leg,
+            distanceLabel: 'mi leg',
             facts: [
-              'leg',
               'score ' + d.score,
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
             ],
@@ -4397,16 +4518,46 @@
           });
       }
 
+      // Two collapses of ONE cached feed, not two sections. Birdiest keeps the
+      // best checklist per hotspot ("where was the best birding this week");
+      // Newest keeps them all, in order ("what is happening right now") —
+      // three lists filed at one park this morning is itself the signal, and
+      // the Birdiest collapse destroys exactly that.
+      //
+      // It was a separate top-level section for exactly one day, which was one
+      // day too long: it shares `recentLists()` with Birdiest, so it never
+      // cost a fetch, and a view of another section's data is a MODE of that
+      // section rather than a peer to it. Birdiest stays the default because it
+      // answers the question you ask more often.
+      var cklMode = 'best';
+      function setChecklistMode(mode) {
+        cklMode = (mode === 'new') ? 'new' : 'best';
+        var b = $('cklModeBest'), n = $('cklModeNew');
+        if (b) b.setAttribute('aria-pressed', cklMode === 'best' ? 'true' : 'false');
+        if (n) n.setAttribute('aria-pressed', cklMode === 'new' ? 'true' : 'false');
+        if ($('cklStatus')) {
+          $('cklStatus').textContent = cklMode === 'new'
+            ? 'Every recent checklist in your counties, newest first.'
+            : 'Recent regional checklists ranked by species count.';
+        }
+        loadChecklists();
+      }
+      function loadChecklists() {
+        return cklMode === 'new' ? loadRecentLists() : loadBirdiest();
+      }
+
       function loadRecentLists() {
-        var st = $('recentStatus'), el = $('recentResults'), btn = $('recentBtn');
+        var st = $('cklStatus'), el = $('cklResults'), btn = $('cklBtn');
         if (!st || !el) return;
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; return; }
         el.innerHTML = '';
+        if ($('cklWarn')) $('cklWarn').innerHTML = '';
+        if ($('cklMap')) $('cklMap').innerHTML = '';
         if (!hasCounties()) {
           el.innerHTML = '<div class="status">Recent checklists come from the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
         }
-        if ($('recentRegionLabel')) $('recentRegionLabel').textContent = '· ' + countyLabelStr();
+        if ($('cklRegionLabel')) $('cklRegionLabel').textContent = '· ' + countyLabelStr();
         if (btn) btn.disabled = true;
         st.textContent = 'Loading recent checklists in ' + countyLabelStr() + '…';
         recentLists().then(function (lists) {
@@ -4819,9 +4970,10 @@
       // Tuesday, near wherever you parked on a road trip. The report can only
       // ever rank from a fixed anchor; the app can ask. Home is the default so
       // the section still matches the report on first open.
-      var QUICK_ORIGINS = { home: 1, work: 1, here: 1 };
+      var QUICK_ORIGINS = { home: 1, work: 1, here: 1, find: 1 };
       var quickOrigin = 'home';
       var quickHere = null;   // resolved current location for this session only
+      var quickFound = null;  // a geocoded place, this session only
 
       function quickAnchor(which) {
         if (which === 'work') {
@@ -4831,6 +4983,12 @@
         if (which === 'here') {
           return quickHere ? { name: 'here', lat: quickHere.lat, lng: quickHere.lng,
                                label: quickHere.label || 'your location' } : null;
+        }
+        // A searched place is an anchor like any other, so every section that
+        // ranks "near X" works from it without knowing where X came from.
+        if (which === 'find') {
+          return quickFound ? { name: 'find', lat: quickFound.lat, lng: quickFound.lng,
+                                label: quickFound.label || 'that place' } : null;
         }
         var h = getHome();
         return h ? { name: 'home', lat: h.lat, lng: h.lng, label: 'home' } : null;
@@ -4848,6 +5006,30 @@
           p[1].classList.toggle('secondary', p[0] !== quickOrigin);
           p[1].setAttribute('aria-pressed', p[0] === quickOrigin ? 'true' : 'false');
         });
+        // The mode selector and the anchor buttons are two views of ONE state,
+        // so changing the anchor from either must move both. Otherwise the
+        // selector keeps claiming "Near home" while the results are measured
+        // from work.
+        syncModePick();
+      }
+      // Which mode the visible section is showing. Kept in one place because
+      // the selector appears in every section of the group, and a selector that
+      // is stale after arriving from the Contents menu is worse than none.
+      function syncModePick(sectionId) {
+        var id = sectionId || (function () {
+          var open = document.querySelector('section.panel:not([hidden])');
+          return open ? open.id : '';
+        }());
+        if (!id) return;
+        var want = (id === 'sec-quickBtn') ? 'quick:' + quickOrigin : id;
+        var picks = document.querySelectorAll('.modepick');
+        for (var i = 0; i < picks.length; i++) {
+          // Only touch a selector that actually offers this mode, so one
+          // group's state never overwrites another's.
+          var has = false, opts = picks[i].options;
+          for (var j = 0; j < opts.length; j++) { if (opts[j].value === want) { has = true; break; } }
+          if (has) picks[i].value = want;
+        }
       }
 
       function quickAskPlace(msg) {
@@ -4944,9 +5126,13 @@
         var q = ($('quickHerePlace').value || '').trim();
         $('quickStatus').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
         geocodePlace(q).then(function (r) {
-          quickHere = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
+          // A typed place is NOT "here". Keeping them apart means the label
+          // says where you actually asked about, and a later tap on Current
+          // location still means the device's position rather than the last
+          // thing you searched for.
+          quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
           $('quickHereRow').hidden = true;
-          loadQuickOuting('here');
+          loadQuickOuting('find');
         }).catch(function (e) { $('quickStatus').textContent = e.message || String(e); });
       }
 
@@ -4957,6 +5143,11 @@
         var a = quickAnchor(which);
         if (!a) {
           if (which === 'here') { quickUseHere(); return; }
+          if (which === 'find') {
+            quickOrigin = 'find'; syncQuickButtons();
+            quickAskPlace('Type a city, address, or "lat, lng" to search near.');
+            return;
+          }
           st.textContent = which === 'work'
             ? 'No work anchor yet. Add one in Settings and this button measures from there.'
             : 'Set a Home location in Settings to find hotspots near you.';
@@ -6637,6 +6828,9 @@
       // because ">=15% of days" is a materially different claim from ">=40%".
       var EASY_MISS_WIDEN_FREQ = [0.40, 0.25, 0.15, 0.08];
       var EASY_MISS_MIN_ROWS = 10;
+      // How many places to keep per bird. Five show and the rest fold, so this
+      // is the depth of the expander, not the length of the visible list.
+      var EASY_MISS_SPOTS = 20;
       var EASY_CACHE_NS = 'easymiss_v1:';
       // The report's window is its whole committed archive (75 days today); the
       // app cannot fetch that on demand, so it samples 30 and CACHES EACH DAY.
@@ -6725,7 +6919,11 @@
           rows.push({
             code: code, name: d.name, days: days, totalDays: totalDays, freq: freq,
             siteDays: Object.keys(d.siteDays).length, locs: spots.length,
-            spots: spots.slice(0, 3), latest: d.latest
+            // Was 3, chosen when the section printed a fixed three-line stub.
+            // The shared renderer shows five and folds the rest, so a hard
+            // truncation here would silently cap the expander at a number the
+            // reader is told nothing about.
+            spots: spots.slice(0, EASY_MISS_SPOTS), latest: d.latest
           });
         });
         rows.sort(function (a, b) { return (b.siteDays - a.siteDays) || (b.freq - a.freq); });
@@ -6739,6 +6937,64 @@
         kept = kept.slice(0, EASY_MISS_TOP);
         kept.minFreq = bar;
         return kept;
+      }
+      // ONE renderer for "a species, and the places it has been" — used by All
+      // unseen and by Easy misses, which had hand-rolled its own row markup and
+      // so drifted into a different card, a different place list and a #N rank
+      // badge. The card system's rule is that no section rolls its own bird
+      // row; this is that rule applied to the layer above it.
+      function speciesPlacesCard(o) {
+        var places = o.places || [];
+        var head = places.slice(0, UNSEEN_PLACES_SHOWN);
+        var rest = places.slice(UNSEEN_PLACES_SHOWN);
+        return SpeciesCards.medium({
+          icon: photoSlot(o.name, o.code),
+          name: speciesLink(o.name, o.code),
+          tags: o.tags || '',
+          distMi: o.distMi,
+          sub: o.sub || '',
+          below: unseenPlacesHtml(head)
+            + (rest.length
+              ? '<details class="upmore"><summary>' + rest.length + ' more place'
+                + (rest.length === 1 ? '' : 's') + '</summary>'
+                + unseenPlacesHtml(rest) + '</details>'
+              : '')
+            + (o.extra || '')
+        });
+      }
+      // Easy misses counts LOCATION-DAYS from historic checklists, so its
+      // "spots" carry one latest checklist each rather than a report cluster.
+      // Mapped onto the same place shape so both sections read identically.
+      function easySpotsToPlaces(spots) {
+        var byName = {}, out = [];
+        (spots || []).forEach(function (s) {
+          var k = locNameKey(s.name) || s.locId || (s.lat + ',' + s.lng);
+          var p = byName[k];
+          if (!p) {
+            p = byName[k] = {
+              loc: s.name, locId: s.locId, lat: s.lat, lon: s.lng,
+              distMi: s.mi, dateStr: s.when, nReports: 1, anyUnconfirmed: false,
+              checklists: s.sub ? [{ subId: s.sub, dateStr: s.when }] : []
+            };
+            out.push(p);
+            return;
+          }
+          p.nReports++;
+          if (s.sub && !p.checklists.some(function (c) { return c.subId === s.sub; })) {
+            p.checklists.push({ subId: s.sub, dateStr: s.when });
+          }
+          if (String(s.when || '') > String(p.dateStr || '')) { p.dateStr = s.when; }
+          if (s.mi != null && (p.distMi == null || s.mi < p.distMi)) p.distMi = s.mi;
+        });
+        out.forEach(function (p) {
+          p.checklists.sort(function (a, b) {
+            return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          });
+        });
+        out.sort(function (a, b) {
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+        });
+        return out;
       }
       function renderEasyMisses(rows, totalDays) {
         var box = $('easyResults');
@@ -6757,21 +7013,26 @@
                + ' birds qualify — at this point in the year you already have the truly common ones.'
              : '')
           + '</div>'
-          + '<ul class="obs big">' + rows.map(function (r, i) {
-          var spots = r.spots.map(function (s) {
-            var when = s.when ? fmtDateTime(s.when) : '';
-            var lbl = s.sub ? checklistLink(s.sub, when || s.sub) : esc(when);
-            return '<div class="dim">' + esc(s.name)
-              + (s.mi == null ? '' : ' · ' + s.mi.toFixed(1) + ' mi')
-              + (lbl ? ' · ' + lbl : '') + '</div>';
-          }).join('');
-          return '<li>'
-            + '<div class="name">' + photoSlot(r.name, r.code) + speciesLink(r.name, r.code)
-            + '<span class="count">#' + (i + 1) + '</span></div>'
-            + '<div class="dim">' + r.days + '/' + r.totalDays + ' days · '
-            + Math.round(r.freq * 100) + '% · ' + r.locs + ' spot' + (r.locs === 1 ? '' : 's') + '</div>'
-            + spots + '</li>';
-        }).join('') + '</ul>';
+          + '<ul class="obs big xl icon-sm">' + rows.map(function (r) {
+            var places = easySpotsToPlaces(r.spots);
+            var nearest = places.reduce(function (a, p) {
+              var d = (p.distMi == null || !isFinite(p.distMi)) ? Infinity : p.distMi;
+              return d < a ? d : a;
+            }, Infinity);
+            return speciesPlacesCard({
+              code: r.code, name: r.name,
+              tags: needTag(r.code, r.name),
+              distMi: isFinite(nearest) ? nearest : null,
+              // The rank badge is gone here for the same reason it went from
+              // All unseen: the list is already ordered and says so.
+              sub: [
+                r.days + '/' + r.totalDays + ' days',
+                Math.round(r.freq * 100) + '%',
+                r.locs + ' spot' + (r.locs === 1 ? '' : 's')
+              ].join(' · '),
+              places: places
+            });
+          }).join('') + '</ul>';
         hydratePhotos(box);
       }
       function loadEasyMisses() {
@@ -8204,7 +8465,6 @@
         { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo' },
         { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county' },
         { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county' },
-        { at: 'recentBtn',     label: '🕒 Recent checklists', needs: 'county' },
         { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
         { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
@@ -8243,8 +8503,7 @@
         excBtn:     { fn: loadExcursions,   needsKey: true },
         hotBtn:     { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
-        cklBtn:     { fn: loadBirdiest,     needsKey: true },
-        recentBtn:  { fn: loadRecentLists,  needsKey: true },
+        cklBtn:     { fn: loadChecklists,   needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true },
@@ -8404,6 +8663,9 @@
         var target = $(id), t = $('navTitle');
         if (t) { var h = target && target.querySelector('h2'); t.textContent = h ? h.textContent.trim() : ''; }
         syncRegionNav();
+        // Arriving from the Contents menu must move the selector too, or it
+        // keeps naming whichever mode you were in last.
+        syncModePick(id);
         try { window.scrollTo(0, 0); } catch (e) {}
         autoLoad(target);
         refreshVisibleMaps();
@@ -8598,6 +8860,14 @@
         $('cklRegionLabel').textContent = reg;
         $('quickRegionLabel').textContent = reg;
         syncQuickButtons();
+        // Loaded once at boot so the badge is available before the first
+        // section paints. Nothing waits on it: a section that renders before
+        // it lands simply shows no 🔭, which is the same as today. An empty
+        // result never overwrites a populated map — a failed reload must not
+        // silently un-badge sites that were already loaded.
+        loadScopeSites().then(function (m) {
+          if (m && Object.keys(m).length) _scopeMap = m;
+        });
         var hla = parseFloat(localStorage.getItem(homeKey('lat'))), hlo = parseFloat(localStorage.getItem(homeKey('lng')));
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
@@ -9039,8 +9309,9 @@
       $('targetsBtn').addEventListener('click', loadTargets);      $('destBtn').addEventListener('click', loadDestinations);
       $('excBtn').addEventListener('click', loadExcursions);
       $('tripBtn').addEventListener('click', loadTripPlanner);
-      $('cklBtn').addEventListener('click', loadBirdiest);
-      $('recentBtn').addEventListener('click', loadRecentLists);
+      $('cklBtn').addEventListener('click', loadChecklists);
+      $('cklModeBest').addEventListener('click', function () { setChecklistMode('best'); });
+      $('cklModeNew').addEventListener('click', function () { setChecklistMode('new'); });
       $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
       $('quickWorkBtn').addEventListener('click', function () { loadQuickOuting('work'); });
       $('quickHereBtn').addEventListener('click', function () { loadQuickOuting('here'); });
@@ -9081,6 +9352,44 @@
       $('dbgCopy').addEventListener('click', dbgCopyLog);
       $('dbgDump').addEventListener('click', dbgDump);
       $('dbgDrag').addEventListener('click', armDragProbe);
+      // Sections that answer the same question different ways read as ONE report
+      // with several modes: "ranked by the birds you still need" (Top
+      // destinations / Top excursions) vs "what is near a place" (home, work,
+      // where you are, or somewhere you name). Each mode keeps its OWN
+      // algorithm — the switch changes the question, not the presentation.
+      //
+      // They stay SEPARATE sections because each mirrors its own report
+      // heading. Folding a group into one panel would force declaring the
+      // others omitted from the app, and the omission list is the one mechanism
+      // that catches a section silently disappearing — so a merge that reads
+      // better on screen would have bought that by lying to the checker.
+      //
+      // A <select> rather than a segmented row because six options do not fit
+      // across a phone, and on iOS a native select opens the wheel picker,
+      // which shows the full labels anyway.
+      function routeMode(val) {
+        if (!val) return;
+        if (val.indexOf('quick:') === 0) {
+          var origin = val.slice(6);
+          showSection('sec-quickBtn');
+          loadQuickOuting(origin);
+          return;
+        }
+        showSection(val);
+      }
+      document.addEventListener('change', function (ev) {
+        var s = ev.target;
+        if (!s || !s.classList || !s.classList.contains('modepick')) return;
+        routeMode(s.value);
+      });
+      // Delegated, so adding a mode is markup only.
+      document.addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('.modeswitch .modebtn');
+        if (!b) return;
+        var to = b.getAttribute('data-goto');
+        if (!to || b.getAttribute('aria-pressed') === 'true') return;
+        showSection(to);
+      });
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
@@ -9296,7 +9605,9 @@
         birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
         getWork: getWork, workKey: workKey, getAnchors: getAnchors,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
-        unseenPlacesHtml: unseenPlacesHtml,
+        unseenPlacesHtml: unseenPlacesHtml, UNSEEN_PLACES_SHOWN: UNSEEN_PLACES_SHOWN,
+        speciesPlacesCard: speciesPlacesCard, easySpotsToPlaces: easySpotsToPlaces,
+        renderEasyMisses: renderEasyMisses,
         buildClosestSpots: buildClosestSpots,
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
         ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
@@ -9311,6 +9622,10 @@
         markBirdiestUnseen: markBirdiestUnseen,
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
+        setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
+        scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
+        locLink: locLink,
+        setScopeSites: function (m) { _scopeMap = m || {}; },
         fmtDateTime: fmtDateTime,
         runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,

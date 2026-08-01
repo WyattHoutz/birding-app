@@ -182,6 +182,19 @@
        leaving a long name on two lines instead of four. */
     '.obs.xl > li > .name { font-size: calc(22px * var(--s)); gap: 14px; }',
     '.obs.xl > li > .name > .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }',
+    /* Half-size icon, and it is a SHARPNESS fix as much as a layout one. The
+       bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a list
+       and a smear across a card"), and `photoSlot` deliberately stops at that
+       seed rather than paying for a network rendition. At 92px it is being
+       upscaled 1.5x, which is exactly the blur reported in All unseen — while
+       Last 7-Days looked crisp in the same 92px card for a reason that hides
+       the bug: its birds are RARE, most have no bundled seed at all, so they
+       miss tier 1 and fall through to a full-size network photo.
+       46px is the size the seed was cut for, so the same picture resolves
+       instead of stretching. Sections that show a network photo keep 92px. */
+    '.obs.xl.icon-sm > li > .name > .thumb {',
+    '  width: calc(46px * var(--s)); height: calc(46px * var(--s)); border-radius: 10px;',
+    '  margin-right: 12px; }',
     /* break-word, NOT anywhere: `anywhere` breaks inside a word the moment the
        line is tight, which is what split "Sandpiper" across two lines. A
        species name should wrap between its words or not at all. */

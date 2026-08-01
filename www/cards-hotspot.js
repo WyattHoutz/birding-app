@@ -251,8 +251,16 @@
     if (v.distance == null || v.distance === '') return '';
     var n = (typeof v.distance === 'number') ? v.distance : parseFloat(String(v.distance));
     if (!isFinite(n)) return '';
+    // The caption is a parameter because this column does NOT always measure
+    // the same thing. Everywhere that ranks places it is the distance from
+    // home; in the trip planner it is the LEG from the previous stop — stop 4
+    // is 2 mi from stop 3 and 30 from the house, and the leg is the number
+    // that decides the route. One column silently meaning two things is the
+    // same class of bug as a sub-header that repeated the distance it already
+    // had a column for.
+    var unit = v.distanceLabel || 'mi';
     return '<span class="hsdist">' + (n < 10 ? n.toFixed(1) : String(Math.round(n)))
-      + '<small>mi</small></span>';
+      + '<small>' + unit + '</small></span>';
   }
 
   function markerHtml(v) {
