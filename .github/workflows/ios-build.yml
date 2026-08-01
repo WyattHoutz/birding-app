@@ -36,6 +36,14 @@ jobs:
       - name: Run unit + syntax + DOM tests
         run: npm test
 
+      # jsdom has NO layout engine, so the suite above is blind to geometry by
+      # construction — which is exactly how a sideways-drag bug survived three
+      # releases and two blind fixes. This drives real Chrome (preinstalled on
+      # the runner) and fails if any element's right edge passes the viewport,
+      # at the narrowest phone and the largest text setting the app offers.
+      - name: Layout — nothing may overflow the screen
+        run: npm run test:layout
+
   build:
     needs: test
     runs-on: macos-latest

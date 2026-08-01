@@ -28,13 +28,21 @@ const WIDTH = +(process.argv[2] || 390);
 const HEIGHT = 844;
 const SCALE = process.argv[3] || '1';
 
+// Windows dev box and Linux CI runner both have to find a browser. CHROME_BIN
+// wins so a runner can point at whatever it actually installed.
 const CHROME = [
+  process.env.CHROME_BIN,
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-].find((p) => fs.existsSync(p));
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].filter(Boolean).find((p) => { try { return fs.existsSync(p); } catch (e) { return false; } });
 
-if (!CHROME) { console.error('No Chrome or Edge found'); process.exit(2); }
+if (!CHROME) { console.error('No Chrome found (set CHROME_BIN)'); process.exit(2); }
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json',
@@ -125,8 +133,11 @@ const AUDIT = `<script>
     var items = [], all = document.querySelectorAll('body *'), maxRight = 0;
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
-      // SVG elements have an SVGAnimatedString className, so a string test on
-      // it silently never matches. Maps overflow their tile pane by design.
+      // SVG className is an SVGAnimatedString, so a string test on it silently
+      // never matches; getAttribute('class') works for HTML and SVG alike.
+      // Ancestry catches the panes, the class catches an unparented tile.
+      var cls = (el.getAttribute && el.getAttribute('class')) || '';
+      if (/leaflet-/.test(cls)) continue;
       if (el.closest && el.closest('.leaflet-container')) continue;
       var r = el.getBoundingClientRect();
       if (!r.width && !r.height) continue;
@@ -250,5 +261,10 @@ server.listen(0, '127.0.0.1', () => {
   };
 
   onReport = done;
-  setTimeout(() => done(null), 30000);
+  // Generous on purpose: the sweep walks ~28 sections with a settle delay
+  // each, and when several widths run back to back the browser boot competes
+  // with the previous run's profile cleanup. A timeout here is scored as a
+  // FAILURE (exit 3), so a tight budget would turn this check flaky, and a
+  // flaky check is worse than no check.
+  setTimeout(() => done(null), +(process.env.AUDIT_TIMEOUT_MS || 120000));
 });

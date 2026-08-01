@@ -13,6 +13,59 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.37 — the side-scroll, found: a nowrap that inherited into a flexible track
+
+**Reported three times across three releases and "fixed" twice blind.** The
+third report came with a screenshot, and the screenshot is what cracked it: the
+whole page — navbar included — panned sideways, which is *chrome*, outside
+every `.panel`. Both previous fixes and all three headless sweeps had only ever
+looked **inside** panels.
+
+**The bug — `index.html`, `.cklrows`.** `white-space: nowrap` on `.when` was
+written for the 3-column checklist row, where `.when` is an `auto` track
+holding a short stamp like *Jul 31 5:06 pm*. The **labelled** variant
+(`li.lblrow`, the WHERE / OBSERVER / LATEST rows) reuses that class in a
+**2-column** grid where `.when` lands in the flexible track and carries the
+value **plus a checklist link**. A flexible track defaults to `min-width:
+auto`, so it cannot shrink below its content's min-content width — and `nowrap`
+makes that width *the entire unbroken line*. The track blew out and took the
+grid, the card, the panel and the page with it. `.where`, on the very next
+line, already carried the `min-width: 0` guard that `.when` lacked.
+
+**Measured:** Today's rarity reports, 375px viewport, text scale 1.75 —
+`span.when` right edge at **458px against a 375px viewport, +83px**.
+
+**Why it hid for so long, which is the part worth keeping.** `html` and
+`.panel` both set `overflow-x: clip`, and one side effect is that
+`documentElement.scrollWidth` is **clamped to `clientWidth`**. In the sweep
+that finally caught this, `docScrollW` read exactly 375 in **all 28 sections**
+while an element stuck out 83px. Any check keyed on `scrollWidth`,
+`body.scrollWidth` or "can the document scroll?" is *structurally incapable* of
+seeing this class of bug. Only a per-element `getBoundingClientRect()` sweep
+can, because a rect is unaffected by ancestor clipping. The clip rules stay —
+they are containment, not the fix.
+
+Four more elements were found by the same sweep and fixed with it: button rows
+now wrap (320px: `📍 Here` +22.8px, the birdlist copy button +15px), Contents
+tiles and their labels may shrink, the needs-verification thumbnail yields
+width before the ▲▼✕ touch targets do, and a hostname in a settings hint
+breaks instead of widening the panel.
+
+**The reporter was part of the problem, so it changed too.** The in-app 🐞
+overflow reporter swept `.panel *` — the same blind spot — and skipped Leaflet
+by testing `className`, which on an SVG element is an `SVGAnimatedString` and
+therefore silently never matches. It now sweeps `body *` and skips Leaflet by
+both the class *attribute* and ancestry.
+
+**New: `npm run test:layout`, wired into CI.** jsdom has no layout engine, so
+the 195-test suite is blind to geometry *by construction* — that is why this
+survived three releases. `assets/audit-overflow.js` serves `www/` over HTTP,
+drives real headless Chrome, walks every section and fails if any element's
+right edge passes the viewport. Proven against the bug itself: reverting the
+one-line fix makes it report `+98px  span.when`; restoring it reports clean.
+Verified across 20 width × text-scale combinations from 320px to 430px and
+Normal through Huge.
+
 ## v1.0.36 — the checklist pulse was sorted by a string that isn't a date
 
 **The bug:** eBird's `product/lists` returns **two** date fields, and the
@@ -236,6 +289,30 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | Footer | Footer badge | ✅ | Version / phase badge. |
 
 ## App-only
+
+**Species lookup (v1.0.37) — the one section that answers a question you bring
+to it.** Every other "where is this bird" view in the app starts from a list the
+app chose: your unseen targets, today's rarities, the closest spots. This one
+starts from a bird *you* name. Type any species, and it lists every place it has
+been reported in the last 30 days, with the checklist, count, date and distance
+behind each one — sortable by date ("is it still around?") or by distance ("how
+far must I drive?"), which are two different questions served by **one** fetch.
+
+Built on `data/obs/{region}/recent/{speciesCode}` — the same per-species
+endpoint F9 introduced, which is why it cost one fetch and one sort rather than
+a new pipeline. It reuses `searchSpecies` to resolve a name to a code and the
+shared medium species card to render the answer.
+
+**It deliberately answers for birds you have already seen**, marked ✅ *already
+on your year list*. That is the whole point of a lookup as opposed to the target
+lists: "I saw a Western Grebe in March, where are they now?" is a real question,
+and every other section in the app refuses it by construction.
+
+**No report equivalent, and there should not be one.** A Markdown report is a
+daily snapshot with no input box — a lookup is interactive by definition. It is
+recorded in `report-contract.json` with `report: null` and a stated reason,
+following the `settingsPanel` precedent, so the parity checker knows the
+omission is intentional rather than a section that silently went missing.
 
 Not a report section, but an app-native touch: the **Notable** panel shows an
 in-app "N new since last check" indicator, using a region-scoped baseline of

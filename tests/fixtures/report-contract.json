@@ -144,6 +144,13 @@
       "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"
     },
     {
+      "at": "spLookupBtn",
+      "label": "🔎 Species lookup",
+      "report": null,
+      "map": null,
+      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
+    },
+    {
       "at": "easyBtn",
       "label": "🥚 Easy misses",
       "report": "## 🥚 Easy misses",

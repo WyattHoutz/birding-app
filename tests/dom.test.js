@@ -3674,12 +3674,19 @@ test('birdiest checklists resolve every name in ONE taxonomy pass', async () => 
   assert.equal(filled.length, 3, 'every checklist row is filled in');
   app.window.close();
 });
-// --- The sideways drag: contain it, and make the DEVICE name it ------------
-// Reported three times. It does not reproduce off-device — a headless
-// Chromium sweep of all 25 panels at every text scale from 320px to 393px
-// finds nothing past the right edge — so the fix cannot name the box. It
-// contains overflow per panel instead, and ships a reporter so the next
-// device report arrives with a selector attached.
+// --- The sideways drag: the element that actually did it -------------------
+// Reported three times and "fixed" twice blind, because every probe looked in
+// the wrong place: this suite has no layout engine, the in-app reporter
+// scanned `.panel *`, and the containment fix was `.panel { overflow-x: clip }`
+// — while the device screenshot showed the NAVBAR panning, outside every
+// panel. A real-browser sweep (assets/audit-overflow.js) finally named it:
+// `.cklrows li.lblrow > .when`, +83px past a 375px viewport at text scale
+// 1.75, in Today's rarity reports.
+//
+// The clip rules stay, but they are containment, not the fix — and they are
+// why this took so long: `overflow-x: clip` clamps documentElement.scrollWidth
+// to clientWidth, so every document-level measurement read clean while an
+// element stuck out 83px.
 test('a panel clips sideways overflow WITHOUT becoming a scroll container', () => {
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
   const rule = /\.panel\s*\{[^}]*overflow-x:\s*clip[^}]*\}/.exec(css);
@@ -3695,6 +3702,67 @@ test('a panel clips sideways overflow WITHOUT becoming a scroll container', () =
   // again on any engine that ignores the panel rule.
   assert.match(css, /html\s*\{[^}]*overflow-x:\s*clip/,
     'the root clip is still there too');
+});
+
+// The measured cause, guarded at the CSS level because this suite cannot
+// measure: a flexible grid/flex track defaults to `min-width: auto`, so it
+// refuses to shrink below its content's min-content width. Pair that with
+// `white-space: nowrap` and one unbroken line sets the width of the whole
+// page. Every rule below is one of those escape hatches; the real proof is
+// `node assets/audit-overflow.js <width> <scale>`, which drives a browser.
+test('the flexible tracks that carry text can actually shrink', () => {
+  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
+
+  // The row that overflowed: LATEST / OBSERVER / WHERE in a checklist list.
+  const lbl = /\.cklrows li\.lblrow\s*\{[^}]*\}/.exec(css);
+  assert.ok(lbl, '.cklrows li.lblrow is styled');
+  assert.match(lbl[0], /grid-template-columns:\s*auto minmax\(0,\s*1fr\)/,
+    'its value column is minmax(0, 1fr), not a bare 1fr that cannot shrink');
+  const lblCells = /\.cklrows li\.lblrow > \.who[^{]*\{[^}]*\}/.exec(css);
+  assert.ok(lblCells, 'the labelled value cells are styled together');
+  assert.match(lblCells[0], /min-width:\s*0/,
+    'and they may shrink — `.when` inherits nowrap from the 3-column variant');
+  assert.match(lblCells[0], /white-space:\s*normal/,
+    'and that inherited nowrap is explicitly undone here');
+
+  // The 3-column variant feeding the same content.
+  assert.match(css, /\.cklrows li\s*\{[^}]*grid-template-columns:\s*auto auto minmax\(0,\s*1fr\)/,
+    'the unlabelled checklist row has the same escape hatch');
+
+  // A row of buttons must wrap rather than run off a narrow phone: a flex item
+  // will not shrink below its widest label.
+  assert.match(css, /\.row\s*\{[^}]*flex-wrap:\s*wrap/,
+    'button rows wrap instead of overflowing at 320px');
+
+  // Contents tiles: a grid track that is already minmax(0,1fr) still overflows
+  // if the flex item inside it refuses to shrink.
+  assert.match(css, /\.toc li\s*\{[^}]*min-width:\s*0/, 'contents tiles may shrink');
+  assert.match(css, /\.tilelabel\s*\{[^}]*overflow-wrap:\s*anywhere/,
+    'and a long tile label breaks rather than pushing the tile wide');
+
+  // The photo yields before the touch targets do.
+  assert.match(css, /\.nvrow > \.thumb\s*\{[^}]*flex:\s*0 1 auto/,
+    'the needs-verification thumb shrinks so the ▲▼✕ column stays on screen');
+
+  // Hostnames and alert ids are single unbreakable tokens.
+  assert.match(css, /\.hint code\s*\{[^}]*overflow-wrap:\s*anywhere/,
+    'a hostname in a hint breaks instead of widening the panel');
+});
+
+test('the overflow reporter can see OUTSIDE a panel', () => {
+  const fn = HTML.slice(HTML.indexOf('function auditOverflow('),
+    HTML.indexOf('function auditOverflow(') + 1600);
+  // The whole reason three sweeps missed this: the navbar is not in a panel.
+  assert.match(fn, /querySelectorAll\('body \*'\)/,
+    'it sweeps the document, not just .panel * — the navbar is chrome, not content');
+  assert.ok(!/querySelectorAll\('\.panel \*'\)/.test(fn),
+    'and the old panel-only selector is gone, not merely supplemented');
+  // An SVG className is an SVGAnimatedString, so a string test on it silently
+  // never matches and every Leaflet overlay reads as a false positive.
+  assert.match(fn, /getAttribute\('class'\)/,
+    'the Leaflet skip reads the class ATTRIBUTE, which works for SVG too');
+  assert.match(fn, /closest\('\.leaflet-container'\)/,
+    'and also skips by ancestry, which catches the panes themselves');
 });
 
 test('showing a section reports any element wider than the screen', async () => {
@@ -3987,5 +4055,144 @@ test('the tide table starts at now and says what the water is doing', async () =
   assert.equal(A.tidePrime(win(16, 22), lit), true, 'a window that only overlaps the end of daylight still counts');
   assert.equal(A.tidePrime({ rising: false, startMs: noon, endMs: noon + 1 }, lit), false, 'and an outgoing tide is never prime');
   assert.equal(A.tidePrime(win(0.5, 4), null), true, 'with no sun times, a rising window keeps the benefit of the doubt');
+  app.window.close();
+});
+
+// --- 🔎 Species lookup (F12) ------------------------------------------------
+// The section exists because of one gap: every other section answers "what
+// haven't you seen", and the question people actually ask on a Saturday is
+// "where can I find a Western Kingbird" — a question that stays valid when the
+// bird is already on your year list. If a lookup refused birds you have seen it
+// would just be All unseen reports with a search box.
+test('a species lookup answers for a bird you have ALREADY seen', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const seenCodes = Object.keys(A.getReportSeen());
+  assert.ok(seenCodes.length > 0, 'the wa report bundles a year list to test against');
+  const code = seenCodes[0];
+  app.window.close();
+
+  const feeds = [];
+  const app2 = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist\//.test(url)) return [code];
+      if (/data\/obs\/.*\/recent\//.test(url)) {
+        feeds.push(url);
+        return [{
+          speciesCode: code, comName: 'Testable Kingbird', locName: 'Marina',
+          locId: 'L1', lat: 47.8, lng: -122.4, obsDt: '2026-07-31 08:00',
+          howMany: 2, subId: 'S1', obsValid: true,
+        }];
+      }
+      return null;
+    },
+    storage: { ['ebird_species_v1:US-WA']: JSON.stringify({ at: Date.now(), rows: [{ code, name: 'Testable Kingbird', sci: 'Tyrannus testus' }] }) },
+  });
+  const doc2 = app2.window.document;
+  doc2.getElementById('spLookup').value = 'Testable Kingbird';
+  app2.window.__app.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 250));
+
+  assert.equal(feeds.length, 1, 'one read of the per-species feed');
+  assert.match(feeds[0], new RegExp(`recent/${code}\\b`),
+    'it asks eBird for THAT species, not the whole region feed filtered afterwards');
+  assert.match(feeds[0], new RegExp(`back=${app2.window.__app.SP_LOOKUP_BACK}\\b`),
+    'over a window wider than the chase feeds, because a lookup asks about birds that may not be here today');
+  const status = doc2.getElementById('spLookupStatus').textContent;
+  assert.match(status, new RegExp('Testable Kingbird'),
+    `a seen bird is answered, not refused: got "${status}"`);
+  // Asserted against the whole rendered panel rather than one element, because
+  // WHICH node carries the year-list fact is layout, not behaviour. What must
+  // never regress is that a bird you have already seen is still answered AND
+  // still marked as seen — the ✅ and the words, both.
+  const panel = doc2.getElementById('sec-spLookupBtn').textContent;
+  assert.match(panel, /already on your year list/,
+    'the answer says you have already seen it rather than staying silent');
+  assert.match(panel, /✅/, 'and marks it with the same tick the other sections use');
+  assert.ok(doc2.querySelectorAll('#spLookupResults li').length > 0,
+    'and the places it was seen are listed');
+  app2.window.close();
+});
+
+// Two orders because they are two different questions: "is it still around"
+// (date) and "how far must I drive" (distance). One fetch serves both.
+test('species lookup sorts by date and by distance from one fetch', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const g = {
+    places: [
+      { loc: 'Far but fresh',  distMi: 40, dateStr: '2026-07-31 09:00' },
+      { loc: 'Near but stale', distMi: 2,  dateStr: '2026-07-20 09:00' },
+      { loc: 'Middle',         distMi: 10, dateStr: '2026-07-25 09:00' },
+    ],
+  };
+  assert.deepEqual(A.sortSpeciesPlaces(g, 'date').places.map((p) => p.loc),
+    ['Far but fresh', 'Middle', 'Near but stale'],
+    'by date, the most recent sighting leads however far away it is');
+  assert.deepEqual(A.sortSpeciesPlaces(g, 'dist').places.map((p) => p.loc),
+    ['Near but stale', 'Middle', 'Far but fresh'],
+    'by distance, the closest leads however old it is');
+  // A place with no distance must not win the distance sort by being falsy.
+  const withNull = { places: [{ loc: 'Unknown', distMi: null, dateStr: '2026-07-31' }, { loc: 'Known', distMi: 9, dateStr: '2026-07-01' }] };
+  assert.equal(A.sortSpeciesPlaces(withNull, 'dist').places[0].loc, 'Known',
+    'an unknown distance sorts last, not first');
+  app.window.close();
+});
+
+// "Not being reported" is the answer to the question, not a failure to answer.
+test('a species with no recent reports says so as a result, not an error', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist\//.test(url)) return ['zzzrare'];
+      if (/data\/obs\/.*\/recent\//.test(url)) return [];
+      return null;
+    },
+    storage: { 'ebird_species_v1:US-WA': JSON.stringify({ at: Date.now(), rows: [{ code: 'zzzrare', name: 'Absent Grebe', sci: 'Nullus absentus' }] }) },
+  });
+  const doc = app.window.document;
+  doc.getElementById('spLookup').value = 'Absent Grebe';
+  app.window.__app.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 250));
+  const st = doc.getElementById('spLookupStatus').textContent;
+  assert.match(st, /not being seen right now|No reports/,
+    `absence is stated plainly: got "${st}"`);
+  assert.doesNotMatch(st, /error|failed|undefined/i, 'and it is not dressed up as a failure');
+  app.window.close();
+});
+
+// The multi-match list renders a 🔎 button per row. It was markup with no
+// handler — every one of those buttons was dead on tap.
+test('tapping a species in the match list runs the lookup', async () => {
+  const hit = [];
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist\//.test(url)) return ['sp1', 'sp2'];
+      if (/data\/obs\/.*\/recent\//.test(url)) { hit.push(url); return []; }
+      return null;
+    },
+    storage: { 'ebird_species_v1:US-WA': JSON.stringify({ at: Date.now(), rows: [
+      { code: 'sp1', name: 'Marsh Wren', sci: 'A' },
+      { code: 'sp2', name: 'Marsh Sandpiper', sci: 'B' },
+    ] }) },
+  });
+  const doc = app.window.document;
+  doc.getElementById('spLookup').value = 'Marsh';
+  app.window.__app.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 250));
+
+  const btns = doc.querySelectorAll('#spLookupFound .splook');
+  assert.equal(btns.length, 2, 'two matches offer two choices rather than guessing');
+  assert.equal(hit.length, 0, 'and nothing is fetched until one is chosen');
+  btns[0].dispatchEvent(new app.window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(hit.length, 1, 'tapping a match actually looks it up');
   app.window.close();
 });
