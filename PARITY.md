@@ -13,6 +13,45 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.39 — All unseen reports: four bugs from one screenshot
+
+**"1Merlin".** The rank badge rendered hard against the species name with no
+separator, so every card read as a number glued to a bird. Removed rather than
+spaced: the list is already ordered nearest-first and says so, and a list that
+has to number itself to prove it is ordered is not ordered visibly enough.
+
+**Distance is a column now, not a phrase.** It read
+*"66 places · nearest 4.2 mi · 67 reports"* — the one number that decides
+whether you can go, set at the same weight as two that don't. The medium
+species card gained a third column matching the hotspot medium card: photo ·
+name · how far, with the distance spanning both rows and the unit as a caption
+rather than a second token to parse. A caller that passes no `distMi` collapses
+the column to zero width instead of reserving an empty gutter.
+
+**One hotspot was arriving as several places.** eBird issues a **separate
+location id for every personal location**, so "Penny Creek Natural Area" came
+through three times, each row holding one checklist. Places now merge by
+**hotspot name** — what the reader actually reads — normalised for case and
+whitespace, falling back to locId and then to a coordinate box when unnamed.
+
+**And every checklist is kept.** A place that said *"3 reports"* while linking
+one of them was quoting a number you could not open. All three now list beneath
+their hotspot, newest first, deduplicated by submission id — which matters
+precisely *because* of the name merge above, since the same submission can
+arrive under two location ids.
+
+**The chase radius applies here too, in both repos.** The section was listing a
+bird 111 mi away beside one 8 mi from the house, in a report whose entire job is
+*"where can I go and see this."* Now filtered to the same `CHASE_MAX_MI` the
+rarity section uses, with far places collapsed into an expander rather than
+dropped — same treatment and the same wording, because a bird you still need is
+worth a longer drive on the right day. `report.py` gets the identical near/far
+split, so the two repos still present the same content.
+
+The section documentation claimed *"collapsed but not filtered"* and *"no
+chaseability gate — this is the full dump"*. Both were true when written and
+neither is now, so both were rewritten in both repos.
+
 ## v1.0.38 — the drag: it was never a width, it was a missing `touch-action`
 
 **Confirmed fixed on device.** Reported four times (v1.0.33 → v1.0.37) and "fixed" three

@@ -48,7 +48,7 @@
 
   var MEDIUM = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span></div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
     '  <div class="meta">{{sub}}</div>',
     '  {{below}}',
     '</li>'
@@ -131,7 +131,13 @@
        display:contents. */
     '.obs.xl > li, .obs.card-md > li {',
     '  display: grid;',
-    '  grid-template-columns: auto minmax(0, 1fr);',
+    /* Three columns, matching the hotspot medium card: photo · name · how far.
+       The distance was previously buried mid-sentence in the sub-header
+       ("66 places · nearest 4.2 mi · 67 reports"), where the one number that
+       decides whether you can go read the same weight as the two that don't.
+       `auto` on the third track means a card whose caller passes no distMi
+       collapses it to zero width rather than reserving a gutter. */
+    '  grid-template-columns: auto minmax(0, 1fr) auto;',
     '  grid-template-rows: auto auto;',
     '  align-items: center;',
     '  overflow: hidden;',
@@ -150,6 +156,17 @@
     '  grid-column: 2; grid-row: 1; align-self: end; }',
     '.obs.xl > li > .meta, .obs.card-md > li > .meta {',
     '  grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }',
+    /* The distance column spans both rows, like .hsnum does on the hotspot
+       card, so the number sits against the full height of the text block
+       rather than floating beside one line of it. */
+    '.obs.xl > li > .name > .spdist, .obs.card-md > li > .name > .spdist {',
+    '  grid-column: 3; grid-row: 1 / span 2; align-self: center; justify-self: end;',
+    '  text-align: right; white-space: nowrap; padding-left: 12px;',
+    '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
+    '  color: var(--ink); font-variant-numeric: tabular-nums; }',
+    '.obs.xl > li > .name > .spdist small, .obs.card-md > li > .name > .spdist small {',
+    '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
+    '  color: var(--muted); letter-spacing: .02em; }',
     '.obs.xl > li > *, .obs.card-md > li > * { grid-column: 1 / -1; min-width: 0; }',
     '.obs.xl > li > .count.big, .obs.card-md > li > .count.big { float: none; display: block;',
     '                     max-width: none; text-align: left; margin: 6px 0 0; }',
@@ -242,6 +259,18 @@
     return wrap ? '<span class="sub">' + text + '</span>' : text;
   }
 
+  // The distance COLUMN (medium only), matching the hotspot medium card: a
+  // number you scan straight down the edge of a list, with the unit as a
+  // caption rather than a second number to parse. Callers pass `distMi`; a
+  // caller that still puts "nearest 4.2 mi" in `sub` gets no column, so the
+  // two never render the same fact twice.
+  function distHtml(v, tpl) {
+    if (tpl !== MEDIUM) return '';
+    var d = v.distMi;
+    if (d == null || d === '' || !isFinite(Number(d))) return '';
+    return '<span class="spdist">' + Number(d).toFixed(1) + '<small>mi</small></span>';
+  }
+
   function build(tpl, v, cls) {
     v = v || {};
     return fill(tpl, {
@@ -250,6 +279,7 @@
       name: v.name || '',
       tags: v.tags || '',
       sub: subHtml(v, tpl === SMALL),
+      dist: distHtml(v, tpl),
       below: v.below || ''
     });
   }

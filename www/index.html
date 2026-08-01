@@ -478,6 +478,19 @@
     .uplaces .upmeta { font-size: calc(14px * var(--s)); color: var(--muted);
                        margin-top: 2px; min-width: 0; overflow-wrap: anywhere; }
     .uplaces .upmeta a { margin-top: 0; }
+    /* The checklists behind one hotspot. Indented under the place name so the
+       hierarchy reads at a glance — place, then the evidence for it — and set
+       smaller than the place because you scan places and only open one. */
+    .uplaces .upckl { list-style: none; margin: 4px 0 2px; padding: 0 0 0 12px; }
+    .uplaces .upckl li { border-top: 0; padding: 2px 0 0; margin-top: 0;
+                         font-size: calc(14px * var(--s)); }
+    .uplaces .upckl a { display: inline; margin-top: 0; font-size: inherit; }
+    /* Places beyond the chase radius, collapsed. Same treatment Today's
+       rarities gives a far bird: still reachable, but not competing with the
+       ones you could actually drive to this morning. */
+    .upfar { margin-top: 8px; }
+    .upfar > summary { cursor: pointer; font-size: calc(14px * var(--s));
+                       font-weight: 700; color: var(--accent); padding: 4px 0; }
     /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
        enough that the fields below it would otherwise be an unlabelled run of
        facts. A modifier class rather than :has(), which is unguarded on the
@@ -1064,7 +1077,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.38';
+      var APP_VERSION = '1.0.39';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2196,6 +2209,9 @@
       // options, not six competing rows. Flattening by species×location put
       // the same warbler six rows apart and made a well-reported bird look
       // like six weak ones.
+      function locNameKey(s) {
+        return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+      }
       function buildAllUnseen(records) {
         var buckets = {};
         (records || []).forEach(function (r) {
@@ -2221,6 +2237,16 @@
               distMi: canon.distMi != null ? canon.distMi : rep.distMi,
               dateStr: rep.dateStr, subId: rep.subId, observer: rep.observer,
               count: rep.count,
+              // Every checklist, not just the freshest. A hotspot with three
+              // reports of the same bird is three pieces of evidence you may
+              // want to open; keeping only the newest threw the other two away
+              // while still counting them in "3 reports", which read as a
+              // number you could not act on.
+              checklists: items.filter(function (r) { return r.subId; })
+                .map(function (r) {
+                  return { subId: r.subId, dateStr: r.dateStr, count: r.count,
+                           observer: r.observer, valid: r.valid };
+                }),
               nReports: items.length, nObservers: Object.keys(obs).length,
               anyUnconfirmed: items.some(function (r) { return r.valid === false; })
             });
@@ -2236,12 +2262,21 @@
             g = byCode[sk] = { code: c.code, name: c.name, places: [], _byLoc: {} };
             order.push(sk);
           }
-          var lk = c.locId || (Math.round((c.lat || 0) * 400) + ',' + Math.round((c.lon || 0) * 400));
+          // Keyed by hotspot NAME, not locId. eBird issues a separate locId
+          // for every personal location, so one hotspot arrived as several
+          // rows with the same name — "Penny Creek Natural Area" three times,
+          // each holding one checklist. Grouping by what the reader actually
+          // reads merges them into one place with three checklists under it.
+          // Falls back to locId, then to a coordinate box, when unnamed.
+          var lk = locNameKey(c.loc)
+            || c.locId
+            || (Math.round((c.lat || 0) * 400) + ',' + Math.round((c.lon || 0) * 400));
           var p = g._byLoc[lk];
           if (!p) { g._byLoc[lk] = c; g.places.push(c); return; }
           p.nReports += c.nReports;
           p.nObservers = Math.max(p.nObservers, c.nObservers);
           p.anyUnconfirmed = p.anyUnconfirmed || c.anyUnconfirmed;
+          p.checklists = (p.checklists || []).concat(c.checklists || []);
           // The freshest report represents the place: it carries the checklist
           // you would open and the count you would expect to find.
           if (String(c.dateStr || '') > String(p.dateStr || '')) {
@@ -2254,6 +2289,19 @@
         var groups = order.map(function (sk) {
           var g = byCode[sk];
           delete g._byLoc;
+          // Newest checklist first within each place, and each checklist once:
+          // the same submission can arrive from more than one cluster when a
+          // hotspot was split across locIds before the name merge above.
+          g.places.forEach(function (p) {
+            var seenSub = {};
+            p.checklists = (p.checklists || []).filter(function (c) {
+              if (!c.subId || seenSub[c.subId]) return false;
+              seenSub[c.subId] = 1;
+              return true;
+            }).sort(function (a, b) {
+              return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+            });
+          });
           // Newest first: the user asked for the place list sorted by date,
           // and the freshest report is the one still worth driving to.
           g.places.sort(function (a, b) {
@@ -2295,27 +2343,55 @@
           if (c.rarity) { rarityRedirect(st); return; }
           var rows = buildAllUnseen(c.cv.unseen || []);
           if (!rows.length) { st.textContent = 'No unseen-species reports in range right now.'; return; }
-          var raw = rows.reduce(function (a, g) { return a + g.nReports; }, 0);
-          var places = rows.reduce(function (a, g) { return a + g.nPlaces; }, 0);
-          st.textContent = rows.length + ' unseen species at ' + places + ' place'
-            + (places === 1 ? '' : 's') + ' (' + raw + ' raw reports collapsed)'
-            + ' · nearest first, places by date · ' + nowTime();
-          el.innerHTML = rows.map(function (g, i) {
+          // Filter by the chase radius, the same one Today's rarities uses.
+          // The section was listing places 111 mi away beside one 8 mi from
+          // the house, in a report whose whole job is "where can I go and see
+          // this". Far places are SORTED APART, not deleted — same treatment
+          // as the rarity section — because a bird you still need is worth a
+          // longer drive on the right day.
+          rows.forEach(function (g) {
+            g.near = g.places.filter(function (p) { return !(p.distMi > CHASE_MAX_MI); });
+            g.far = g.places.filter(function (p) { return p.distMi > CHASE_MAX_MI; });
+          });
+          var nearRows = rows.filter(function (g) { return g.near.length; });
+          var farOnly = rows.length - nearRows.length;
+          if (!nearRows.length) {
+            st.textContent = 'No unseen species within ' + CHASE_MAX_MI + ' mi right now ('
+              + rows.length + ' further out).';
+          }
+          var shown = nearRows.length ? nearRows : rows;
+          var raw = shown.reduce(function (a, g) { return a + g.nReports; }, 0);
+          var places = shown.reduce(function (a, g) { return a + g.near.length; }, 0);
+          if (nearRows.length) {
+            st.textContent = nearRows.length + ' unseen species at ' + places + ' place'
+              + (places === 1 ? '' : 's') + ' within ' + CHASE_MAX_MI + ' mi'
+              + (farOnly ? ' (' + farOnly + ' more species only further out)' : '')
+              + ' · nearest first, places by date · ' + nowTime();
+          }
+          el.innerHTML = shown.map(function (g) {
+            var near = g.near.length ? g.near : g.places;
+            var far = g.near.length ? g.far : [];
             return SpeciesCards.medium({
               icon: photoSlot(g.name, g.code),
-              name: '<span class="rank">' + (i + 1) + '</span>'
-                + speciesLink(g.name, g.code),
+              // No rank number: it rendered hard against the name as "1Merlin",
+              // and a list already ordered nearest-first does not need to
+              // number itself to say so.
+              name: speciesLink(g.name, g.code),
               tags: needTag(g.code, g.name) + (g.anyUnconfirmed ? ' ⚠️' : ''),
-              // The per-observation count left the header at the user's
-              // request: it is evidence, not identity, and it belongs beside
-              // the place it was counted at.
+              // Distance is the third column now, not a phrase buried in the
+              // middle of the sub-header — it is the one fact here that
+              // decides whether you can go.
+              distMi: g.distMi,
               sub: [
-                g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
-                (g.distMi != null && isFinite(g.distMi))
-                  ? 'nearest ' + g.distMi.toFixed(1) + ' mi' : '',
-                g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
+                near.length + ' place' + (near.length === 1 ? '' : 's'),
+                near.reduce(function (a, p) { return a + p.nReports; }, 0) + ' reports'
               ].filter(Boolean).join(' · '),
-              below: unseenPlacesHtml(g)
+              below: unseenPlacesHtml(near)
+                + (far.length
+                  ? '<details class="upfar"><summary>' + far.length + ' more place'
+                    + (far.length === 1 ? '' : 's') + ' beyond ' + CHASE_MAX_MI
+                    + ' mi</summary>' + unseenPlacesHtml(far) + '</details>'
+                  : '')
             });
           }).join('');
           hydratePhotos(el);
@@ -2324,20 +2400,32 @@
       }
       // Every place the bird was reported from, freshest first, each carrying
       // the four facts that decide whether to drive there: where, when, how
-      // many, how far — plus the checklist that is the evidence for all four.
-      function unseenPlacesHtml(g) {
-        return '<ul class="uplaces">' + g.places.map(function (p) {
+      // many, how far — and then EVERY checklist behind it, because a place
+      // that says "3 reports" while linking one of them is quoting a number
+      // the reader cannot open.
+      function unseenPlacesHtml(places) {
+        return '<ul class="uplaces">' + (places || []).map(function (p) {
           var bits = [
-            esc(fmtDateTime(p.dateStr)),
-            (p.count != null && p.count !== '') ? esc(p.count) + (String(p.count) === '1' ? ' bird' : ' birds') : '',
             (p.distMi != null && isFinite(p.distMi)) ? p.distMi.toFixed(1) + ' mi' : '',
+            esc(fmtDateTime(p.dateStr)),
             p.nReports > 1 ? p.nReports + ' reports' : '',
             p.anyUnconfirmed ? '⚠️' : ''
           ].filter(Boolean).join(' · ');
+          var cks = (p.checklists || []);
+          var ckHtml = cks.length
+            ? '<ul class="upckl">' + cks.map(function (c) {
+                var m = [
+                  esc(fmtDateTime(c.dateStr)),
+                  (c.count != null && c.count !== '')
+                    ? esc(c.count) + (String(c.count) === '1' ? ' bird' : ' birds') : '',
+                  c.valid === false ? '⚠️' : ''
+                ].filter(Boolean).join(' · ');
+                return '<li>' + checklistLink(c.subId, m) + '</li>';
+              }).join('') + '</ul>'
+            : '';
           return '<li><div class="uploc">'
             + locLink(p.loc || '', p.lat, p.lon, p.locId, p.locationPrivate) + '</div>'
-            + '<div class="upmeta">' + bits
-            + (p.subId ? ' · ' + checklistLink(p.subId, p.subId) : '') + '</div></li>';
+            + '<div class="upmeta">' + bits + '</div>' + ckHtml + '</li>';
         }).join('') + '</ul>';
       }
 
@@ -2496,13 +2584,16 @@
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
+          // Same third column as All unseen. A lookup deliberately does NOT
+          // filter by chase distance — you asked about this bird, so every
+          // place it has been is the answer, however far.
+          distMi: g.distMi,
           sub: [
             g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
-            (g.distMi != null && isFinite(g.distMi)) ? 'nearest ' + g.distMi.toFixed(1) + ' mi' : '',
             g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
             seenIt ? 'already on your year list' : 'not on your year list'
           ].filter(Boolean).join(' · '),
-          below: unseenPlacesHtml(g)
+          below: unseenPlacesHtml(g.places)
         });
         hydratePhotos(out);
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
