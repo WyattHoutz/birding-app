@@ -214,9 +214,9 @@
        hook so routing (and the DOM contract test) is unchanged. */
     .toc { list-style: none; padding: 0; margin: 10px 0 0; display: grid;
            grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .toc li { border-top: 0; display: flex; }
+    .toc li { border-top: 0; display: flex; min-width: 0; }
     .toc .toclink { display: flex; flex-direction: column; align-items: flex-start;
-                    justify-content: flex-start; gap: 8px; flex: 1 1 auto;
+                    justify-content: flex-start; gap: 8px; flex: 1 1 auto; min-width: 0;
                     padding: 14px 12px; border: 1px solid var(--line);
                     border-radius: 14px; background: var(--card);
                     font-size: calc(14px * var(--s)); font-weight: 700; line-height: 1.25;
@@ -255,7 +255,11 @@
             letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .doclist { margin: 0; padding-left: 18px; font-size: calc(13px * var(--s)); line-height: 1.45; }
     .doclist li { margin: 3px 0; }
-    .tilelabel { display: block; }
+    /* `min-width: 0` + `anywhere` because the tile is a flex item inside a
+       grid track: both default to a content-driven minimum, so at the largest
+       text scale on the narrowest phone a long label pushed the tile past the
+       screen instead of wrapping. */
+    .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere; }
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
@@ -267,14 +271,25 @@
     label { display: block; font-size: calc(12px * var(--s)); color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password], input[type=search] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
-    .row { display: flex; gap: 10px; align-items: center; }
+    /* `wrap` is load-bearing, not cosmetic: a flex item defaults to
+       `min-width: auto`, so a row of buttons cannot shrink below the widest
+       label and simply runs off a narrow phone instead. Measured at 320px:
+       "📍 Here" +22.8px and "📋 Copy for birdlist-needsverification.md"
+       +15px past the viewport. Wrapping keeps the labels legible, which
+       shrinking them would not. */
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: calc(12px * var(--s)); color: var(--muted); margin: 8px 0 0; }
     .destfoot { margin: 8px 0 2px; }
-    .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    /* A hostname or an alert id is one unbroken token, and the default
+       `overflow-wrap: normal` will run it off a narrow screen rather than
+       break it. `anywhere` is the only value that also shrinks the element's
+       min-content width, so the paragraph cannot inflate its container. */
+    .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                 overflow-wrap: anywhere; }
     .status { font-size: calc(13px * var(--s)); color: var(--muted); padding: 10px 0 2px; }
     .feedwarn { color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
                 border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
@@ -421,7 +436,7 @@
     /* Latest ticks / rarity rows: a checklist list is scanned, not read, so
        each field lands in the same place on every row. */
     .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: calc(14px * var(--s)); }
-    .cklrows li { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px;
+    .cklrows li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px;
                   padding: 6px 0; border-top: 1px solid var(--line); align-items: start; }
     .cklrows .when { font-weight: 700; color: var(--ink); white-space: nowrap; }
     .cklrows .howmany { font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -456,12 +471,22 @@
        two or three lines, and a baseline-aligned grid row overflows when it
        does — the same clipping that sliced "Stanwood Water" through its
        divider. `start` grows the row downward predictably. */
-    .cklrows li.lblrow { grid-template-columns: auto 1fr; align-items: start; }
+    .cklrows li.lblrow { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
     .cklrows li.lblrow > .lbl { grid-column: 1; font-size: calc(12px * var(--s));
       font-weight: 800; color: var(--muted); letter-spacing: 0.04em;
       text-transform: uppercase; white-space: nowrap; }
+    /* The value cell MUST be able to shrink. `.when` inherits `white-space:
+       nowrap` from the 3-column variant above, where it is a short stamp in an
+       `auto` track. Here it lands in the flexible track carrying the LATEST
+       value *plus* a checklist link, and a flexible track defaults to
+       `min-width: auto` — so `nowrap` made its min-content width the whole
+       unbroken line, blew the track out, and took the grid, the card and the
+       panel with it. Measured at +83px past a 375px viewport before this rule.
+       `.where` already carried the same guard, which is why only `.when` and
+       `.who` ever overflowed. */
     .cklrows li.lblrow > .who, .cklrows li.lblrow > .when,
-    .cklrows li.lblrow > .where { grid-column: 2; font-size: calc(14px * var(--s)); }
+    .cklrows li.lblrow > .where { grid-column: 2; font-size: calc(14px * var(--s));
+      min-width: 0; white-space: normal; overflow-wrap: anywhere; }
     /* Happening now: the number IS the headline ("19 top-100 birders added it"),
        so it carries its own label instead of floating unexplained. */
     .obs.xl .count.big { font-size: calc(30px * var(--s)); text-align: right; max-width: 42%; line-height: 1.1; }
@@ -515,7 +540,7 @@
     .picklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
     .picklist .pname { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: calc(16px * var(--s)); overflow-wrap: anywhere; }
     .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
-    .favrow { display: flex; align-items: flex-start; gap: 8px; }
+    .favrow { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
     .favrow .favmain { flex: 1 1 auto; min-width: 0; }
     .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
     /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
@@ -540,7 +565,13 @@
        hotspots keeps the compact row: a place has no photo and already fills
        the height with its species line and two links. */
     .nvrow { align-items: center; gap: 12px; min-height: calc(128px * var(--s)); }
-    .nvrow > .thumb { float: none; flex: 0 0 auto; margin: 0; border-radius: 12px;
+    /* The photo yields, the buttons never do. At the largest text scale on the
+       narrowest phone a 128px thumb wants 224px, which ran the ▲▼✕ column off
+       the screen — the one thing in the row you have to be able to hit.
+       `flex-shrink: 1` + `min-width: 0` lets the thumb give up width instead,
+       and `.birdpic` is `object-fit: cover`, so a narrower slot crops the
+       photo rather than distorting it. */
+    .nvrow > .thumb { float: none; flex: 0 1 auto; min-width: 0; margin: 0; border-radius: 12px;
                       width: calc(128px * var(--s)); height: calc(128px * var(--s)); }
     .nvrow .name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
                    font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.25; }
@@ -649,6 +680,22 @@
       </div>
       <div id="allUnseenStatus" class="status">Every unseen-species report in range, nearest first. Duplicate observers of the same bird at the same spot on the same day are merged into one row; ⚠️ = unconfirmed.</div>
       <ul id="allUnseenResults" class="obs big xl"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🔎 Species lookup <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <div class="row">
+        <input id="spLookup" type="search" placeholder="Find a species by name…" autocomplete="off" />
+        <button id="spLookupBtn" class="secondary">Search</button>
+        <button id="spLookupClear" class="secondary" type="button" hidden>✕ Close</button>
+      </div>
+      <ul id="spLookupFound" class="obs picklist"></ul>
+      <div class="row" id="spLookupSortRow" hidden>
+        <button id="spLookupByDate" class="secondary" type="button" aria-pressed="true">📅 By date</button>
+        <button id="spLookupByDist" class="secondary" type="button" aria-pressed="false">📍 By distance</button>
+      </div>
+      <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
+      <ul id="spLookupResults" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -1001,7 +1048,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.36';
+      var APP_VERSION = '1.0.37';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2276,6 +2323,181 @@
             + '<div class="upmeta">' + bits
             + (p.subId ? ' · ' + checklistLink(p.subId, p.subId) : '') + '</div></li>';
         }).join('') + '</ul>';
+      }
+
+      // --- 🔎 Species lookup (F12) -----------------------------------------
+      // "Search a bird and show the hotspots where it was seen, sorted by date
+      // and distance." App-only, and deliberately so: a Markdown report cannot
+      // take a query. The closest report equivalent — All unseen reports —
+      // only covers birds you HAVEN'T seen, and the whole point of a lookup is
+      // that you can ask about a bird you already have: "where can I find a
+      // Western Kingbird" is a valid question with a full year list.
+      //
+      // The heavy lifting is already done. This is F9's per-species endpoint
+      // (data/obs/{region}/recent/{code}) pointed at one bird instead of the
+      // unseen list, normalised into the same record shape the chase pipeline
+      // produces, and handed to the SAME buildAllUnseen collapse — so a
+      // stakeout whose observers each picked a different micro-hotspot reads
+      // as one place here exactly as it does there.
+      var SP_LOOKUP_BACK = 30;
+      var _spLookupSort = 'date';
+      var _spLookupGroup = null;
+
+      function speciesLookupPath(region, code, back) {
+        return 'data/obs/' + encodeURIComponent(region) + '/recent/'
+          + encodeURIComponent(code) + '?back=' + back
+          + '&detail=full&includeProvisional=true';
+      }
+
+      // Raw eBird rows -> the record shape buildAllUnseen expects. Distance is
+      // the NEAREST anchor (home or work), matching Closest spots rather than
+      // the report's home-only global distMi: this section exists to answer
+      // "can I get there", and work is where half the chases start from.
+      function speciesLookupRecords(rows, anchors) {
+        return (rows || []).filter(Boolean).map(function (r) {
+          var lat = r.lat != null ? +r.lat : 0, lon = r.lng != null ? +r.lng : 0;
+          var na = BL.nearestAnchor(anchors, lat, lon);
+          return {
+            code: r.speciesCode || '', name: r.comName || '',
+            loc: r.locName || '', locId: r.locId || '',
+            lat: lat, lon: lon,
+            distMi: na ? na.dist : null,
+            dateStr: r.obsDt || '',
+            count: (r.howMany == null ? null : r.howMany),
+            observer: r.userDisplayName || '',
+            subId: r.subId || '',
+            valid: r.obsValid == null ? true : !!r.obsValid,
+            location_private: !!r.locationPrivate
+          };
+        });
+      }
+
+      // Sorting is a VIEW, not a rebuild: the user asked for "sorted by date
+      // and distance", which is two different questions ("is it still there?"
+      // vs "can I get there?"), so both orders are offered over one fetch.
+      function sortSpeciesPlaces(g, mode) {
+        if (!g) return g;
+        g.places.sort(function (a, b) {
+          var ad = (a.distMi == null || !isFinite(a.distMi)) ? Infinity : a.distMi;
+          var bd = (b.distMi == null || !isFinite(b.distMi)) ? Infinity : b.distMi;
+          if (mode === 'dist') {
+            if (ad !== bd) return ad - bd;
+            return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          }
+          var c = String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          if (c) return c;
+          return ad - bd;
+        });
+        return g;
+      }
+
+      function clearSpeciesLookup() {
+        var found = $('spLookupFound'), out = $('spLookupResults'), inp = $('spLookup');
+        if (found) found.innerHTML = '';
+        if (out) out.innerHTML = '';
+        if (inp) inp.value = '';
+        _spLookupGroup = null;
+        if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
+        if ($('spLookupClear')) $('spLookupClear').hidden = true;
+        if ($('spLookupStatus')) {
+          $('spLookupStatus').textContent = 'Look up ANY bird — including ones already on your '
+            + 'year list — and see every place it has been reported in range, with the '
+            + 'checklist, count, date and distance behind each one.';
+        }
+      }
+
+      function runSpeciesLookup() {
+        var q = ($('spLookup') || {}).value || '';
+        var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
+        if (!found || !st) return;
+        found.innerHTML = ''; out.innerHTML = '';
+        _spLookupGroup = null;
+        if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
+        if ($('spLookupRegionLabel')) $('spLookupRegionLabel').textContent = '· ' + getReport().label;
+        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
+        if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
+        if ($('spLookupClear')) $('spLookupClear').hidden = false;
+        st.textContent = 'Finding species recorded in ' + (getReport().label || getRegion()) + '…';
+        loadSpeciesIndex(getObsRegion()).then(function (rows) {
+          var hits = searchSpecies(rows, q);
+          if (!hits.length) {
+            st.textContent = 'No species recorded in ' + (getReport().label || getRegion())
+              + ' matches “' + q + '”.';
+            return;
+          }
+          // One match is an answer, not a menu — go straight to the birds.
+          if (hits.length === 1) return lookupSpecies(hits[0].code, hits[0].name);
+          st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
+          hits.forEach(function (s) {
+            var li = document.createElement('li');
+            li.innerHTML = photoSlot(s.name, s.code)
+              + '<span class="pname">' + esc(s.name)
+              + '<span class="pmeta">' + esc(s.code) + '</span></span>'
+              + '<button class="favbtn splook" data-code="' + esc(s.code) + '" data-name="'
+              + esc(s.name) + '" aria-label="Look up ' + esc(s.name) + '">🔎</button>';
+            found.appendChild(li);
+          });
+          hydratePhotos(found);
+        }).catch(function (e) { st.textContent = netErr(e); });
+      }
+
+      function lookupSpecies(code, name) {
+        var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
+        if (!out || !st) return Promise.resolve();
+        found.innerHTML = ''; out.innerHTML = '';
+        if ($('spLookupClear')) $('spLookupClear').hidden = false;
+        st.textContent = 'Looking up ' + name + ' across ' + (getReport().label || getRegion())
+          + ' (last ' + SP_LOOKUP_BACK + ' days)…';
+        var region = BL.speciesFeedRegion(getReport()) || getObsRegion();
+        return ebird(speciesLookupPath(region, code, SP_LOOKUP_BACK)).then(function (rows) {
+          var recs = speciesLookupRecords(rows, getAnchors());
+          if (!recs.length) {
+            st.textContent = 'No reports of ' + name + ' in ' + region + ' in the last '
+              + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+            return;
+          }
+          var g = buildAllUnseen(recs)[0];
+          if (!g) { st.textContent = 'No reports of ' + name + ' in range.'; return; }
+          g.name = g.name || name; g.code = g.code || code;
+          _spLookupGroup = g;
+          if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
+          renderSpeciesLookup();
+        }).catch(function (e) { st.textContent = netErr(e); });
+      }
+
+      function renderSpeciesLookup() {
+        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
+        if (!out || !g) return;
+        sortSpeciesPlaces(g, _spLookupSort);
+        var seenIt = !!getReportSeen()[g.code];
+        st.textContent = g.name + ' · ' + g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
+          + ' · ' + g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
+          + ' in the last ' + SP_LOOKUP_BACK + ' days'
+          + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
+          + ' · ' + (_spLookupSort === 'dist' ? 'by distance' : 'by date')
+          + ' · ' + nowTime();
+        out.innerHTML = SpeciesCards.medium({
+          icon: photoSlot(g.name, g.code),
+          name: speciesLink(g.name, g.code),
+          tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
+          sub: [
+            g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
+            (g.distMi != null && isFinite(g.distMi)) ? 'nearest ' + g.distMi.toFixed(1) + ' mi' : '',
+            g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
+            seenIt ? 'already on your year list' : 'not on your year list'
+          ].filter(Boolean).join(' · '),
+          below: unseenPlacesHtml(g)
+        });
+        hydratePhotos(out);
+        ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
+          var b = $(id);
+          if (b) b.setAttribute('aria-pressed', String((id === 'spLookupByDist') === (_spLookupSort === 'dist')));
+        });
+      }
+
+      function setSpeciesLookupSort(mode) {
+        _spLookupSort = mode === 'dist' ? 'dist' : 'date';
+        renderSpeciesLookup();
       }
 
       // --- shared chase pipeline (BirdLogic.computeChaseViews), cached ~10 min -
@@ -7880,6 +8102,7 @@
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
         { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
         { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county' },
+        { at: 'spLookupBtn',   label: '🔎 Species lookup' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county' },
         { at: 'nvResults',     label: '🔍 Needs verification' },
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county' },
@@ -8080,16 +8303,26 @@
         auditOverflow(id);
       }
 
-      // The sideways-drag report has now survived two blind fixes, because the
-      // bug does not reproduce off-device: a headless Chromium sweep of every
-      // panel, at every text scale, from 320px to 393px, finds nothing past
-      // the right edge. Guessing again is not a plan, so the DEVICE reports
-      // it instead — this names the widest offending element into the 🐞 log
-      // (tap the footer version 5x), which is the one place a phone can hand
-      // back a measurement. It runs after paint so it measures the laid-out
-      // section, skips Leaflet's own internals (tiles and markers are
-      // deliberately outside their clipped container and are never the cause),
-      // and reports at most one line per section so it cannot flood the log.
+      // The sideways-drag report survived two blind fixes because every probe
+      // aimed at the wrong place. This reporter scanned `.panel *`, the
+      // containment fix was `.panel { overflow-x: clip }`, and the headless
+      // sweep reused that same selector — but the device screenshot showed the
+      // NAVBAR panning, which is outside every panel. So it now sweeps
+      // `body *`.
+      //
+      // It reports element rects rather than scrollWidth on purpose: `html`
+      // and `.panel` both set `overflow-x: clip`, which clamps
+      // documentElement.scrollWidth to clientWidth. A document-level metric
+      // therefore reads perfectly clean while an element sticks out 83px.
+      // getBoundingClientRect is unaffected by ancestor clipping, so it is the
+      // only thing left that can still see the truth.
+      //
+      // It names the widest offending element into the 🐞 log (tap the footer
+      // version 5x), which is the one place a phone can hand back a
+      // measurement. It runs after paint so it measures the laid-out section,
+      // skips Leaflet's own internals (tiles and markers are deliberately
+      // outside their clipped container and are never the cause), and reports
+      // at most one line per section so it cannot flood the log.
       var _overflowSeen = {};
       function auditOverflow(id) {
         if (typeof requestAnimationFrame !== 'function') return;
@@ -8098,10 +8331,18 @@
             var vw = document.documentElement.clientWidth;
             if (!vw) return;
             var worst = null, worstOver = 0.5;
-            var all = document.querySelectorAll('.panel *');
+            var all = document.querySelectorAll('body *');
             for (var i = 0; i < all.length; i++) {
               var el = all[i];
-              if (/leaflet-/.test(String(el.className))) continue;
+              // Two checks, because neither alone is sufficient. `className`
+              // on an SVG element is an SVGAnimatedString, so a string test on
+              // it silently never matches and every Leaflet <svg> overlay
+              // reads as a false hit — getAttribute('class') is the form that
+              // works for both HTML and SVG. And a tile can be measured before
+              // it is parented, so ancestry alone would miss it.
+              var cls = (el.getAttribute && el.getAttribute('class')) || '';
+              if (/leaflet-/.test(cls)) continue;
+              if (el.closest && el.closest('.leaflet-container')) continue;
               var r = el.getBoundingClientRect();
               if (!r.width && !r.height) continue;
               var over = r.right - vw;
@@ -8546,6 +8787,23 @@
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
+      $('spLookupBtn').addEventListener('click', runSpeciesLookup);
+      $('spLookupClear').addEventListener('click', clearSpeciesLookup);
+      // A search box that ignores the Return key is broken on a phone, where
+      // the keyboard's blue "search" key is the obvious way to submit.
+      $('spLookup').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); runSpeciesLookup(); }
+      });
+      $('spLookupByDate').addEventListener('click', function () { setSpeciesLookupSort('date'); });
+      $('spLookupByDist').addEventListener('click', function () { setSpeciesLookupSort('dist'); });
+      // The match list is rebuilt on every search, so the handler is delegated
+      // to the container rather than bound per row.
+      $('spLookupFound').addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('.splook');
+        if (!b) return;
+        ev.preventDefault();
+        lookupSpecies(b.getAttribute('data-code'), b.getAttribute('data-name'));
+      });
       $('surgeBtn').addEventListener('click', loadSurge);
       $('hotBtn').addEventListener('click', loadHotspots);
       $('coldBtn').addEventListener('click', loadColdspots);
@@ -8783,6 +9041,10 @@
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         fmtDateTime: fmtDateTime,
+        runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
+        clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
+        speciesLookupRecords: speciesLookupRecords, sortSpeciesPlaces: sortSpeciesPlaces,
+        speciesLookupPath: speciesLookupPath, SP_LOOKUP_BACK: SP_LOOKUP_BACK,
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
