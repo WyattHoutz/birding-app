@@ -322,17 +322,21 @@
     },
     "allUnseenBtn": {
       "report": "## 📋 All unseen reports in",
-      "summary": "Every unseen report in the region, collapsed but not filtered.",
+      "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"
       ],
       "how": [
         "Bucketed by (species, DAY) first, then clustered to 250 m.",
         "The day key is load-bearing: clustering without it merges Tuesday's bird into Saturday's pin and reports a stale sighting as current.",
-        "Sorted nearest first."
+        "Places are then merged by HOTSPOT NAME, because eBird issues a separate location id for every personal location — one hotspot otherwise arrives as several rows with the same name, each holding one checklist.",
+        "Every checklist for a hotspot is kept and listed newest first, deduplicated by submission id.",
+        "Filtered to the shared chase radius; places beyond it are collapsed into an expander rather than dropped.",
+        "Species sorted nearest first, places within a species by date."
       ],
       "limits": [
-        "No chaseability gate — this is the full dump, including places you cannot go."
+        "Distance is straight-line, not drive time — a ferry or a lake can make a near place far.",
+        "Beyond the chase radius the list is still complete, just collapsed; it is not a claim that nothing is out there."
       ]
     },
     "spLookupBtn": {

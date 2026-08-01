@@ -1760,11 +1760,12 @@ test('All unseen reports: a species at several places is ONE card, places by dat
   assert.ok(g.places.every((p) => p.subId),
     'every place carries the checklist that proves it');
 
-  // The rendered rows must expose date, count, distance and a checklist link —
+  // The rendered rows must expose date, distance and a checklist link —
   // a place you cannot date, measure or verify is not a lead.
-  const html = A.unseenPlacesHtml(g);
+  const html = A.unseenPlacesHtml(g.places);
   assert.match(html, /class="uplaces"/, 'renders the place list');
-  assert.equal((html.match(/<li/g) || []).length, 3, 'one row per place');
+  assert.equal((html.match(/<li class="uplace"|<li><div class="uploc"/g) || []).length, 3,
+    'one row per place');
   assert.match(html, /S11/, 'and names the checklist rather than saying "checklist"');
   for (const bit of ['mi', 'uploc', 'upmeta']) {
     assert.ok(html.includes(bit), 'each place row carries ' + bit);
@@ -1772,8 +1773,122 @@ test('All unseen reports: a species at several places is ONE card, places by dat
   app.window.close();
 });
 
-// The wrapper class is what decides the font size, so a section that hand-writes
-// its <ul> silently gets a different card than the one it thinks it asked for.
+// eBird issues a separate locId for every personal location, so ONE hotspot
+// arrived as several rows with the same name, each holding one checklist —
+// "Penny Creek Natural Area" three times over. The reader sees a name, not an
+// id, so that is what the rows are grouped by.
+test('All unseen reports: one hotspot NAME is one place, with every checklist under it', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = A.buildAllUnseen([
+    { code: 'merlin', name: 'Merlin', lat: 47.90, lon: -122.20,
+      dateStr: '2026-07-31 15:40', distMi: 8.1, loc: 'Penny Creek Natural Area',
+      locId: 'L111', observer: 'A', subId: 'S1' },
+    // Same name, DIFFERENT locId — a personal location for the same place.
+    { code: 'merlin', name: 'Merlin', lat: 47.90, lon: -122.20,
+      dateStr: '2026-07-30 08:00', distMi: 8.1, loc: 'Penny Creek Natural Area',
+      locId: 'L222', observer: 'B', subId: 'S2' },
+    // And once more with different spacing/case, which is still the same place.
+    { code: 'merlin', name: 'Merlin', lat: 47.90, lon: -122.20,
+      dateStr: '2026-07-29 06:15', distMi: 8.1, loc: '  penny creek   natural area ',
+      locId: 'L333', observer: 'C', subId: 'S3' },
+    { code: 'merlin', name: 'Merlin', lat: 47.60, lon: -122.10,
+      dateStr: '2026-07-28 07:00', distMi: 12.0, loc: 'Marymoor Park',
+      locId: 'L999', observer: 'D', subId: 'S9' },
+  ]);
+  const g = rows[0];
+  assert.equal(g.places.length, 2,
+    'three locIds sharing one hotspot name collapse to one place, plus the genuine second place');
+  const penny = g.places.filter((p) => /penny/i.test(p.loc))[0];
+  assert.ok(penny, 'the merged place keeps a readable name');
+  assert.equal(penny.checklists.length, 3,
+    'and keeps ALL THREE checklists — "3 reports" you cannot open is a number, not evidence');
+  assert.equal(penny.checklists.map((c) => c.subId).join(','), 'S1,S2,S3',
+    'newest checklist first');
+
+  const html = A.unseenPlacesHtml(g.places);
+  for (const s of ['S1', 'S2', 'S3']) {
+    assert.ok(html.includes(s), `every checklist is linked, missing ${s}`);
+  }
+  assert.match(html, /class="upckl"/, 'checklists render as a list under their hotspot');
+  app.window.close();
+});
+
+test('All unseen reports: the same checklist is never listed twice', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // The identical submission arriving under two locIds of one hotspot — which
+  // is exactly what the name merge above makes possible.
+  const rows = A.buildAllUnseen([
+    { code: 'merlin', name: 'Merlin', lat: 47.9, lon: -122.2, dateStr: '2026-07-31 15:40',
+      distMi: 8.1, loc: 'Penny Creek', locId: 'L1', observer: 'A', subId: 'SDUP' },
+    { code: 'merlin', name: 'Merlin', lat: 47.9, lon: -122.2, dateStr: '2026-07-30 15:40',
+      distMi: 8.1, loc: 'Penny Creek', locId: 'L2', observer: 'A', subId: 'SDUP' },
+  ]);
+  const p = rows[0].places[0];
+  assert.equal(p.checklists.length, 1, 'one submission is one row however many locIds carried it');
+  app.window.close();
+});
+
+// The distance was buried mid-sentence in the sub-header — "66 places ·
+// nearest 4.2 mi · 67 reports" — where the one number that decides whether you
+// can go read at the same weight as the two that don't. It is a column now,
+// matching the hotspot medium card.
+test('the medium species card gives distance its own column', async () => {
+  const app = await boot();
+  const SpeciesCards = app.window.SpeciesCards;
+  const md = SpeciesCards.medium({
+    icon: '<span class="thumb"></span>', name: 'Merlin', sub: '66 places', distMi: 4.24,
+  });
+  assert.match(md, /class="spdist"/, 'the distance is its own element, not sub-header prose');
+  assert.match(md, />4\.2<small>mi<\/small>/, 'one decimal, with the unit as a caption');
+  assert.ok(md.indexOf('spdist') > md.indexOf('ntext'),
+    'and it sits after the name, so it is the third column');
+  // A caller with no distance must not reserve an empty gutter.
+  const none = SpeciesCards.medium({ icon: '', name: 'Merlin', sub: 'x' });
+  assert.ok(!/spdist/.test(none), 'no distance, no column');
+  assert.ok(!/undefined|NaN/.test(SpeciesCards.medium({ name: 'M', distMi: null })),
+    'a null distance never leaks a placeholder');
+
+  const css = SpeciesCards.css;
+  assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\) auto/,
+    'three columns: icon · name · distance');
+  assert.match(css, /\.spdist[^}]*grid-column: 3; grid-row: 1 \/ span 2/,
+    'the distance spans both rows, like the hotspot card number does');
+  app.window.close();
+});
+
+test('All unseen reports drops the rank number from the species name', () => {
+  const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
+    HTML.indexOf('function unseenPlacesHtml('));
+  // It rendered hard against the name as "1Merlin".
+  assert.ok(!/class="rank"/.test(fn),
+    'no rank badge — the list is already ordered, and it read as "1Merlin"');
+  assert.match(fn, /name: speciesLink\(g\.name, g\.code\)/,
+    'the name slot is the species name and nothing else');
+  assert.match(fn, /distMi: g\.distMi/, 'and distance moved to the card column');
+  assert.ok(!/nearest ' \+ g\.distMi/.test(fn),
+    'so it is not also repeated in the sub-header');
+});
+
+// The section was listing places 111 mi away beside one 8 mi from the house,
+// in a report whose whole job is "where can I go and see this".
+test('All unseen reports respects the chase radius, and sorts far places apart', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const R = A.CHASE_MAX_MI;
+  assert.ok(R > 0, 'there is a shared chase radius');
+  const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
+    HTML.indexOf('function unseenPlacesHtml('));
+  assert.match(fn, /p\.distMi > CHASE_MAX_MI/,
+    'places are partitioned by the SAME radius the rarity section uses');
+  assert.match(fn, /upfar/, 'and the far ones are kept behind an expander, not deleted');
+  assert.match(fn, /within ' \+ CHASE_MAX_MI \+ ' mi/,
+    'the status line states the radius rather than implying the list is everything');
+  app.window.close();
+});
+
+
 // That is exactly how the unseen list ended up with 20px names in a 29px card.
 test('All unseen reports uses the medium species card wrapper, not a lookalike', () => {
   const m = HTML.match(/<ul id="allUnseenResults"[^>]*class="([^"]*)"/)
