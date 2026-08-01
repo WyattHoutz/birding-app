@@ -1860,15 +1860,316 @@ test('the medium species card gives distance its own column', async () => {
 
 test('All unseen reports drops the rank number from the species name', () => {
   const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
-    HTML.indexOf('function unseenPlacesHtml('));
+    HTML.indexOf('function loadAllUnseen(') + 4000);
   // It rendered hard against the name as "1Merlin".
   assert.ok(!/class="rank"/.test(fn),
     'no rank badge — the list is already ordered, and it read as "1Merlin"');
-  assert.match(fn, /name: speciesLink\(g\.name, g\.code\)/,
-    'the name slot is the species name and nothing else');
-  assert.match(fn, /distMi: g\.distMi/, 'and distance moved to the card column');
+  assert.match(fn, /distMi: g\.distMi/, 'distance moved to the card column');
   assert.ok(!/nearest ' \+ g\.distMi/.test(fn),
     'so it is not also repeated in the sub-header');
+  // The shared renderer owns the name slot for both sections now.
+  const card = HTML.slice(HTML.indexOf('function speciesPlacesCard('),
+    HTML.indexOf('function easySpotsToPlaces('));
+  assert.match(card, /name: speciesLink\(o\.name, o\.code\)/,
+    'the name slot is the species name and nothing else');
+});
+
+// A bird reported at 66 places turned one card into a wall you had to scroll
+// past to reach the next species.
+test('All unseen reports shows five places, then folds the rest away', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.UNSEEN_PLACES_SHOWN, 5, 'five places per bird before the fold');
+  const card = HTML.slice(HTML.indexOf('function speciesPlacesCard('),
+    HTML.indexOf('function easySpotsToPlaces('));
+  assert.match(card, /places\.slice\(0, UNSEEN_PLACES_SHOWN\)/, 'the head is the first five');
+  assert.match(card, /places\.slice\(UNSEEN_PLACES_SHOWN\)/, 'and the tail is kept, not dropped');
+  assert.match(card, /upmore/, 'behind its own expander');
+
+  // Proven by rendering, not just by reading the source: seven places must
+  // produce five rows outside the expander and two inside it.
+  const places = [];
+  for (let i = 0; i < 7; i++) {
+    places.push({ loc: 'Spot ' + i, lat: 47, lon: -122, locId: 'L' + i, distMi: i,
+                  dateStr: '2026-07-2' + i + ' 08:00', nReports: 1,
+                  checklists: [{ subId: 'S' + i, dateStr: '2026-07-2' + i + ' 08:00' }] });
+  }
+  const html = A.speciesPlacesCard({ code: 'merlin', name: 'Merlin', places: places });
+  const cut = html.indexOf('<details');
+  assert.ok(cut > 0, 'the expander exists');
+  assert.equal((html.slice(0, cut).match(/class="uploc"/g) || []).length, 5,
+    'exactly five places are shown before the fold');
+  assert.equal((html.slice(cut).match(/class="uploc"/g) || []).length, 2,
+    'and the remaining two are inside it, not discarded');
+
+  // The cap must not silently become the count.
+  const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
+    HTML.indexOf('function loadAllUnseen(') + 4000);
+  assert.match(fn, /near\.length \+ ' place'/,
+    'the sub-header still counts ALL near places, not just the five shown');
+  app.window.close();
+});
+
+// Easy misses hand-rolled its own row markup and so drifted into a different
+// card, a different place list and a "#N" rank badge. The card system's rule is
+// that no section rolls its own bird row; this is that rule one layer up.
+test('Easy misses renders through the SAME card as All unseen', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  A.renderEasyMisses(Object.assign([{
+    code: 'sonspa', name: 'Song Sparrow', days: 12, totalDays: 30, freq: 0.4,
+    siteDays: 20, locs: 2,
+    spots: [
+      { locId: 'L1', name: 'Marymoor Park', lat: 47.66, lng: -122.11, when: '2026-07-30 08:00', sub: 'S1', mi: 6.7 },
+      { locId: 'L2', name: 'Juanita Bay', lat: 47.70, lng: -122.20, when: '2026-07-28 09:00', sub: 'S2', mi: 9.1 },
+    ],
+  }], { minFreq: 0.4 }), 30);
+  const box = doc.getElementById('easyResults');
+  const ul = box.querySelector('ul');
+  for (const cls of ['obs', 'big', 'xl', 'icon-sm']) {
+    assert.ok(ul.className.split(/\s+/).includes(cls),
+      'the same wrapper All unseen uses, missing: ' + cls);
+  }
+  assert.ok(box.querySelector('.spdist'), 'distance is the third column here too');
+  assert.ok(box.querySelector('.uplaces'), 'places render through the shared place list');
+  assert.ok(box.querySelector('.upckl'), 'with their checklists beneath them');
+  assert.ok(!/#1/.test(box.textContent), 'and the "#N" rank badge is gone');
+  assert.match(box.textContent, /Marymoor Park/, 'the places are still named');
+  app.window.close();
+});
+
+test('Easy misses maps its spots onto the shared place shape', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Two spots sharing a hotspot NAME, as the unseen list already merges.
+  const places = A.easySpotsToPlaces([
+    { locId: 'L1', name: 'Penny Creek', lat: 47.9, lng: -122.2, when: '2026-07-29 08:00', sub: 'S1', mi: 8.1 },
+    { locId: 'L2', name: 'penny creek', lat: 47.9, lng: -122.2, when: '2026-07-31 15:40', sub: 'S2', mi: 8.1 },
+    { locId: 'L3', name: 'Marymoor Park', lat: 47.6, lng: -122.1, when: '2026-07-30 07:00', sub: 'S3', mi: 12.0 },
+  ]);
+  assert.equal(places.length, 2, 'one hotspot name is one place, as in All unseen');
+  assert.equal(places[0].loc, 'Penny Creek', 'newest place first');
+  assert.equal(places[0].checklists.length, 2, 'both checklists kept');
+  assert.equal(places[0].checklists[0].subId, 'S2', 'newest checklist first');
+  assert.equal(places[0].dateStr, '2026-07-31 15:40', 'the place is dated by its freshest report');
+  app.window.close();
+});
+
+// Sections that answer the same question different ways read as ONE report with
+// several modes. They stay SEPARATE sections because each mirrors its own report
+// heading — folding a group into one panel would force declaring the others
+// omitted from the app, and the omission list is the one mechanism that catches
+// a section silently disappearing.
+// --- F19 tier 1: hotspots where a scope changes what you can identify -------
+// Manual, hand-listed, keyed by locId because a hotspot NAME is not stable —
+// eBird renames and merges them, and the same name exists in several counties.
+// The file is shared byte-identical with the report so a site flagged in one is
+// flagged in both.
+test('a scope site is badged on its name, everywhere a place is rendered', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setScopeSites({ L164858: { name: 'Jetty Island', why: 'the birds are out on the far flats' } });
+  assert.equal(A.scopeBadge('L164858'), ' 🔭', 'a listed site is badged');
+  assert.equal(A.scopeBadge('L999'), '', 'an ordinary hotspot is not');
+  assert.equal(A.scopeBadge(''), '', 'and a missing id never badges');
+  assert.match(A.scopeWhy('L164858'), /far flats/, 'the reason is available to render');
+
+  // The badge rides on the NAME, via locLink, so it reaches every section that
+  // renders a place rather than only the ones that thought to ask.
+  const withScope = A.locLink('Jetty Island', 48.0, -122.2, 'L164858', false);
+  assert.match(withScope, /🔭/, 'a scope site is marked wherever a place is linked');
+  const plain = A.locLink('Marymoor Park', 47.6, -122.1, 'L1', false);
+  assert.ok(!/🔭/.test(plain), 'and an ordinary one is left alone');
+  // A private location has no hotspot page but can still want a scope.
+  assert.match(A.locLink('Some Spit', 48.0, -122.2, 'L164858', true), /🔭/,
+    'including private locations, which take the other branch');
+  app.window.close();
+});
+
+test('a missing scope file costs the badge, never the section', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setScopeSites({});   // as if the file were absent or unreadable
+  assert.equal(A.scopeBadge('L164858'), '', 'no data, no badge');
+  assert.match(A.locLink('Jetty Island', 48.0, -122.2, 'L164858', false), /Jetty Island/,
+    'and the place still renders — an optional annotation must not take a section with it');
+  app.window.close();
+});
+
+test('the app ships the same scope list the report reads', async () => {
+  const fs2 = require('node:fs');
+  const appFile = path.join(WWW, 'scope-sites.json');
+  assert.ok(fs2.existsSync(appFile), 'the app bundles the file, so it works offline');
+  const data = JSON.parse(fs2.readFileSync(appFile, 'utf8'));
+  assert.ok(data.sites && Object.keys(data.sites).length >= 2,
+    'seeded with the known sites');
+  for (const [id, e] of Object.entries(data.sites)) {
+    assert.match(id, /^L\d+$/, 'keyed by eBird locId, because a hotspot NAME is not stable');
+    assert.ok(e.why && e.why.length > 20,
+      `${id} states WHY it wants a scope — "scope site" does not tell you whether to carry the tripod`);
+  }
+});
+
+// "distance from home" in every mode that RANKS places, and "leg from the
+// previous stop" in the planner, which SEQUENCES them. Now that they are modes
+// of one report, an unlabelled column silently means two things.
+test('the distance column says which distance it is', async () => {
+  const app = await boot();
+  const HC = app.window.HotspotCards;
+  const ranked = HC.medium({ locName: 'Marymoor', distance: 8.04 });
+  assert.match(ranked, /8\.0<small>mi<\/small>/, 'ranking modes read plain miles');
+  const leg = HC.medium({ locName: 'Marymoor', distance: 2.1, distanceLabel: 'mi leg' });
+  assert.match(leg, /2\.1<small>mi leg<\/small>/, 'the planner names its column a leg');
+  // And the planner must actually pass it, or the guard tests a capability
+  // nothing uses.
+  const src = HTML.slice(HTML.indexOf('function renderRoute('),
+    HTML.indexOf('function renderRoute(') + 1400);
+  assert.match(src, /distMi: d\.leg/, 'the planner still measures the leg');
+  assert.match(src, /distanceLabel: 'mi leg'/, 'and labels the column as one');
+  assert.ok(!/'leg',/.test(src),
+    'and no longer repeats "leg" as a sub-header fact, which the column now says');
+  app.window.close();
+});
+
+test('grouped sections offer each other as modes of one report', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const groups = {};
+  for (const sw of doc.querySelectorAll('.modeswitch')) {
+    const key = sw.getAttribute('data-modes');
+    assert.ok(key, 'every mode switch names its group');
+    const pick = sw.querySelector('.modepick');
+    // Three shapes, one contract. A switch either NAVIGATES between sections
+    // (buttons carrying data-goto, or a select once there are more options
+    // than fit across a phone) or toggles a mode WITHIN one panel (buttons
+    // with no target, because there is nowhere to go).
+    const btns = [...sw.querySelectorAll('.modebtn')];
+    const inPanel = !pick && btns.length > 0 && btns.every((b) => !b.getAttribute('data-goto'));
+    if (inPanel) {
+      assert.ok(btns.length >= 2, `group "${key}" needs at least two modes to be a switch`);
+      assert.equal(btns.filter((b) => b.getAttribute('aria-pressed') === 'true').length, 1,
+        `group "${key}" must mark exactly one mode as current`);
+      // An in-panel switch lives in one section, so there is nothing to
+      // cross-check — but it must still be inside a real one.
+      assert.ok(sw.closest('section.panel'), `group "${key}" sits in a section`);
+      continue;
+    }
+    const modes = pick
+      ? [...pick.options].map((o) => o.value)
+      : btns.map((b) => b.getAttribute('data-goto'));
+    assert.ok(modes.length >= 2, `group "${key}" needs at least two modes to be a switch`);
+    if (pick) {
+      assert.ok(pick.getAttribute('aria-label'), 'a select-based switch is labelled for screen readers');
+      assert.equal([...pick.options].filter((o) => o.selected).length, 1,
+        `group "${key}" must have exactly one option selected`);
+    } else {
+      const btns = [...sw.querySelectorAll('.modebtn')];
+      assert.equal(btns.filter((b) => b.getAttribute('aria-pressed') === 'true').length, 1,
+        `group "${key}" must mark exactly one mode as current`);
+    }
+    for (const m of modes) {
+      // A mode is either a section to show, or a section plus an argument.
+      const id = m.indexOf('quick:') === 0 ? 'sec-quickBtn' : m;
+      assert.ok(doc.getElementById(id), `"${m}" resolves to a real section`);
+    }
+    (groups[key] = groups[key] || []).push(modes.join('|'));
+  }
+  assert.ok(Object.keys(groups).length >= 2, 'more than one group exists');
+  const ids = new Set(CONTRACT.menu.map((m) => 'sec-' + m.at));
+  for (const k of Object.keys(groups)) {
+    const modes = groups[k][0].split('|');
+    // The switch must appear in every SECTION it offers, or it is a one-way
+    // door: you can leave a mode but not come back to it. Several modes can
+    // share one section (the quick: anchors all live in sec-quickBtn), so the
+    // expected count is distinct sections, not options.
+    const sections = new Set(modes.map((m) => (m.indexOf('quick:') === 0 ? 'sec-quickBtn' : m)));
+    assert.equal(groups[k].length, sections.size,
+      `group "${k}" must carry its switch in all ${sections.size} of its sections`);
+    for (const seen of groups[k]) {
+      assert.equal(seen, groups[k][0], `group "${k}" offers the same modes in the same order everywhere`);
+    }
+    for (const s of sections) {
+      assert.ok(ids.has(s), `${s} is still a section in its own right, not absorbed`);
+    }
+  }
+  app.window.close();
+});
+
+test('choosing "Find a place" opens the search box and searches from there', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/nominatim/.test(url)) {
+        return [{ lat: '47.61', lon: '-122.33', display_name: 'Seattle, King County, Washington' }];
+      }
+      if (/ref\/hotspot\/geo/.test(url)) {
+        return [{ locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+                  numSpeciesAllTime: 270, latestObsDt: '2026-07-31 08:00' }];
+      }
+      return [];
+    },
+    storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const pick = doc.querySelector('#sec-quickBtn .modepick');
+  assert.ok(pick, 'the quick section carries the selector');
+  assert.ok([...pick.options].some((o) => o.value === 'quick:find'),
+    '"Find a place" is one of the modes');
+
+  pick.value = 'quick:find';
+  pick.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  // A mode you cannot type into is a dead end, which is how the geolocation
+  // fallback used to feel when it fired without explanation.
+  assert.equal(doc.getElementById('quickHereRow').hidden, false,
+    'the place box opens rather than silently doing nothing');
+
+  doc.getElementById('quickHerePlace').value = 'Seattle';
+  app.click(doc.getElementById('quickHereFind'));
+  await new Promise((r) => setTimeout(r, 260));
+  assert.match(doc.getElementById('quickStatus').textContent, /Seattle/,
+    'the status names the place you searched, not "your location"');
+  app.window.close();
+});
+
+test('a searched place is not confused with where you are standing', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Two different anchors, deliberately kept apart: a later tap on Current
+  // location must mean the device's position, not the last thing you typed.
+  const src = HTML.slice(HTML.indexOf('function quickFindPlace('),
+    HTML.indexOf('function loadQuickOuting('));
+  assert.match(src, /quickFound = \{/, 'a searched place lands in its own anchor');
+  assert.ok(!/quickHere = \{/.test(src),
+    'and never overwrites the device-location anchor');
+  assert.match(src, /loadQuickOuting\('find'\)/, 'then loads as the find origin');
+  assert.match(HTML, /QUICK_ORIGINS = \{ home: 1, work: 1, here: 1, find: 1 \}/,
+    'find is a first-class origin, so every "near X" path accepts it');
+  app.window.close();
+});
+
+test('the mode switch is wired, and does not re-navigate to where you already are', async () => {
+  assert.match(HTML, /closest\('\.modeswitch \.modebtn'\)/,
+    'one delegated handler serves every pair — adding a pair is markup only');
+  assert.match(HTML, /aria-pressed'\) === 'true'\) return;/,
+    'tapping the mode you are already in does nothing, rather than reloading the section');
+
+  // Proven by clicking. "The handler exists" is not "the control works" — the
+  // species picker shipped with buttons bound to nothing and looked fine.
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  A.showSection('sec-allUnseenBtn');
+  const from = doc.getElementById('sec-allUnseenBtn');
+  const other = [...from.querySelectorAll('.modeswitch .modebtn')]
+    .filter((b) => b.getAttribute('aria-pressed') !== 'true')[0];
+  assert.ok(other, 'the inactive mode is present to tap');
+  const target = other.getAttribute('data-goto');
+  other.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.ok(!doc.getElementById(target).hidden, 'tapping the other mode shows that section');
+  assert.ok(from.hidden, 'and leaves the one you were on');
+  app.window.close();
 });
 
 // The section was listing places 111 mi away beside one 8 mi from the house,
@@ -1888,6 +2189,30 @@ test('All unseen reports respects the chase radius, and sorts far places apart',
   app.window.close();
 });
 
+
+// The reported blur, and why it looked like only SOME sections had it. The
+// bundled seed is 60px wide and `photoSlot` deliberately stops there rather
+// than paying for a network rendition — so at the medium card's 92px it is
+// upscaled 1.5x. Last 7-Days looked crisp in the SAME 92px card because its
+// birds are rare: most have no bundled seed, miss tier 1, and fall through to
+// a full-size network photo. The seed size is the real constraint, so the card
+// that shows seeds is sized to it.
+test('the unseen list sizes its icon to the seed it actually shows', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const ul = doc.getElementById('allUnseenResults');
+  assert.ok(ul.className.split(/\s+/).includes('icon-sm'),
+    'the unseen list opts into the small icon');
+  for (const cls of ['obs', 'big', 'xl']) {
+    assert.ok(ul.className.split(/\s+/).includes(cls), 'still the medium card wrapper: ' + cls);
+  }
+  const css = app.window.SpeciesCards.css;
+  assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
+    'and that resolves to 46px — the width the seed was cut for');
+  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
+    'while sections showing a network photo keep 92px');
+  app.window.close();
+});
 
 // That is exactly how the unseen list ended up with 20px names in a 29px card.
 test('All unseen reports uses the medium species card wrapper, not a lookalike', () => {
@@ -4116,13 +4441,15 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
   app.window.close();
 });
 
-// --- Recent checklists is the pulse, and it costs nothing --------------------
+// --- The checklist pulse is a MODE of Birdiest, and it costs nothing --------
 // Birdiest answers "where was the best birding this week" by collapsing to one
 // checklist per hotspot. That collapse destroys the other signal: three lists
-// filed at one park this morning means people are STILL THERE. This section
-// keeps them, newest first, and shares Birdiest's single cached fetch so the
-// second question is free.
-test('recent checklists are newest first and never collapsed per hotspot', async () => {
+// filed at one park this morning means people are STILL THERE. The Newest mode
+// keeps them, and shares Birdiest's single cached fetch, so the second question
+// is free. It shipped as its own top-level section for one day (v1.0.35), which
+// was one day too long — a view of another section's data is a mode of that
+// section, not a peer to it.
+test('the newest-checklists mode is newest first and never collapsed per hotspot', async () => {
   const app = await boot();
   const A = app.window.__app;
   // These are the REAL field shapes eBird's product/lists returns, verified
@@ -4147,7 +4474,7 @@ test('recent checklists are newest first and never collapsed per hotspot', async
 
   // ...and the RENDERED row must carry the clock time. Asserting fmtDateTime
   // in isolation would not notice the row reverting to a bare obsDt, which is
-  // exactly the regression this section cannot afford: an 06:00 list and a
+  // exactly the regression this mode cannot afford: an 06:00 list and a
   // 21:00 list on the same day are different answers to "what is happening
   // right now".
   const rendered = await boot({
@@ -4162,13 +4489,40 @@ test('recent checklists are newest first and never collapsed per hotspot', async
       return null;
     },
   });
-  rendered.window.__app.loadRecentLists();
-  await new Promise((r) => setTimeout(r, 120));
-  const when = rendered.window.document.querySelector('#recentResults .name');
-  assert.ok(when, 'the section rendered a row');
+  rendered.window.__app.setChecklistMode('new');
+  await new Promise((r) => setTimeout(r, 140));
+  const when = rendered.window.document.querySelector('#cklResults .name');
+  assert.ok(when, 'the mode rendered a row into the Birdiest panel');
   assert.match(when.textContent, /\d{1,2}:\d{2}/,
     `the rendered when carries the clock time, not just the day: got "${when && when.textContent}"`);
   rendered.window.close();
+});
+
+// One feed, two collapses, one section — and Birdiest stays the default,
+// because it answers the question you ask more often.
+test('the checklist modes share one section and one cached feed', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  assert.ok(!doc.getElementById('recentBtn'),
+    'Recent checklists is no longer its own section');
+  assert.ok(!doc.getElementById('recentResults'), 'nor its own results list');
+  const best = doc.getElementById('cklModeBest'), rec = doc.getElementById('cklModeNew');
+  assert.ok(best && rec, 'Birdiest carries both modes');
+  assert.equal(best.getAttribute('aria-pressed'), 'true', 'Birdiest is the default');
+  assert.equal(rec.getAttribute('aria-pressed'), 'false');
+  // Both collapses read the SAME cached promise, which is why the second mode
+  // is free — if either stopped using recentLists() it would double the calls.
+  const src = HTML.slice(HTML.indexOf('function loadRecentLists('),
+    HTML.indexOf('function loadChecklists(') > 0 ? HTML.length : HTML.length);
+  assert.match(HTML.slice(HTML.indexOf('function loadRecentLists(')), /recentLists\(\)/,
+    'the newest mode reads the shared cached feed');
+  assert.match(HTML.slice(HTML.indexOf('function loadBirdiest(')), /recentLists\(\)/,
+    'and so does Birdiest');
+  A.setChecklistMode('new');
+  assert.equal(rec.getAttribute('aria-pressed'), 'true', 'switching marks the new mode current');
+  assert.equal(best.getAttribute('aria-pressed'), 'false', 'and un-marks the old one');
+  app.window.close();
 });
 
 // --- the tide table must answer "now" before it answers "today" -------------

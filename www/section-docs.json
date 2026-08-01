@@ -254,29 +254,16 @@
         "Bounded to about 35 mi from home by default."
       ]
     },
-    "recentBtn": {
-      "report": "## 🕒 Recent checklists",
-      "summary": "Every recent checklist in your counties, newest first.",
-      "inputs": [
-        "the same product/lists checklist feed the birdiest and convoy sections already fetch"
-      ],
-      "how": [
-        "Deduped by checklist id only, then sorted by observation time, newest first, top 50.",
-        "Nothing is collapsed per hotspot: several lists filed at one place this morning is itself the signal that people are still there."
-      ],
-      "limits": [
-        "The feed carries a species COUNT, not the species, so a checklist must be opened to see what was on it.",
-        "Costs no extra network — it shares one cached fetch with Birdiest checklists."
-      ]
-    },
     "cklBtn": {
-      "report": "## 🦜 Birdiest recent checklists",      "summary": "The single best recent checklist at each nearby hotspot.",
+      "report": "## 🦜 Birdiest recent checklists",
+      "summary": "Recent checklists in your counties - ranked by species count (Birdiest), or newest first.",
       "inputs": [
         "checklist feeds for public hotspots in the region"
       ],
       "how": [
         "Last 7 days, public hotspots only, within 40 mi of home, best checklist per hotspot, top 25.",
-        "Birds you still need are flagged inside each checklist."
+        "Birds you still need are flagged inside each checklist.",
+        "Two modes over ONE cached per-county product/lists feed, so the second costs no extra call: Birdiest keeps the best checklist per hotspot, Newest keeps every checklist in order. Birdiest is the default."
       ],
       "limits": [
         "One checklist per hotspot, so a site with two great lists appears once."
@@ -332,6 +319,7 @@
         "Places are then merged by HOTSPOT NAME, because eBird issues a separate location id for every personal location — one hotspot otherwise arrives as several rows with the same name, each holding one checklist.",
         "Every checklist for a hotspot is kept and listed newest first, deduplicated by submission id.",
         "Filtered to the shared chase radius; places beyond it are collapsed into an expander rather than dropped.",
+        "The five most recent places show under each bird and the rest fold into a second expander, so one bird reported at 66 places does not bury the next species.",
         "Species sorted nearest first, places within a species by date."
       ],
       "limits": [

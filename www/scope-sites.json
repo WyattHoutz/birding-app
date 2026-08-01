@@ -1,0 +1,34 @@
+{
+  "_comment": [
+    "Hotspots where a spotting scope changes what you can identify — open water,",
+    "a long tide flat, a distant sandspit. Binoculars still get you there; the",
+    "scope is what turns a distant smudge into a species.",
+    "",
+    "This is the MANUAL tier of backlog F19, and it is deliberately first: a",
+    "hand-listed site is perfectly precise about the places you already know,",
+    "costs no API calls, and cannot mis-flag anything. The automatic detector",
+    "(taxon fraction — what share of a site's records are waterfowl, loons,",
+    "grebes, alcids and distant shorebirds) is tier 2 and is NOT what this file",
+    "is. Adding a site here is a two-line edit and needs no code change.",
+    "",
+    "Keyed by eBird locId because a hotspot NAME is not stable — eBird renames",
+    "and merges them, and the same name can exist in several counties.",
+    "",
+    "Shared byte-identical between the report and the app (the parity suite",
+    "compares them exactly), so a site flagged in one is flagged in both.",
+    "",
+    "`why` is rendered to the reader, so write it as a reason rather than a",
+    "label: 'the birds are on the far side of open water' tells you whether to",
+    "bother carrying the tripod; 'scope site' does not."
+  ],
+  "sites": {
+    "L164858": {
+      "name": "Jetty Island",
+      "why": "shorebirds and terns work the far tide flats and the outer spit — most of the birds are beyond binocular range at low tide"
+    },
+    "L936924": {
+      "name": "Edmonds Fishing Pier",
+      "why": "loons, grebes, scoters and alcids sit well out on Puget Sound; from the pier the interesting birds are usually the distant ones"
+    }
+  }
+}

@@ -13,6 +13,81 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.40 — one "where do I go?" report, and one "what am I missing?" report
+
+Four sections were asking one question in four places, and two more were asking
+another. They now share selectors while keeping their **own algorithms** — the
+switch changes the question, not the presentation.
+
+**🥇 Where to go** — one selector across five modes:
+
+| mode | algorithm, unchanged |
+|---|---|
+| Top destinations *(default)* | clusters within `daily_drive_mi`, rarities ×3, distance a **filter** |
+| Top excursions | the same scoring beyond that radius, plus a soft distance penalty |
+| Trip planner | set cover (`unseen_codes - used_codes`), hops from the previous stop |
+| Near home · Near work · Current location · **🔎 Find a place** | one `ref/hotspot/geo` scan around a chosen anchor |
+
+**📋 What I'm missing** — All unseen ↔ Easy misses. Easy misses had hand-rolled
+its own row markup and drifted into a different card, a different place list and
+a `#N` rank badge; it now renders through the same `speciesPlacesCard`.
+
+**🦜 Checklists** — Birdiest *(default)* ↔ Newest. See below.
+
+**The sections stay separate, and that is not a compromise.** Each mirrors its
+own report heading. Folding a group into one panel would mean one app section
+claiming several headings, which `report-contract.json` cannot express — so one
+would have to be declared *omitted from the app*. That list is the one mechanism
+that catches a section silently disappearing, and a merge that reads better on
+screen is not worth a false entry in it. The reader gets one report; the contract
+still sees five.
+
+**The trap this had to avoid.** The shared hotspot card's distance column means
+*distance from home* in every mode that RANKS places, and *the leg from the
+previous stop* in the planner, which SEQUENCES them. Unlabelled, one column would
+have silently meant two things — the same class of bug as the sub-header that
+repeated a distance it already had a column for. The column now names its own
+unit (`2.1 mi leg`), and the planner stopped repeating "leg" as a fact.
+
+**🔎 Find a place** promotes the old geolocation-failure fallback into a
+first-class anchor. A typed place is deliberately **not** stored as "here":
+keeping the two apart means the label says what you actually searched for, and a
+later tap on *Current location* still means the device's position rather than the
+last thing you typed.
+
+### Recent checklists is now a mode of Birdiest, not a section
+
+It was a top-level section for exactly one day. It shares **one cached
+`product/lists` promise** with Birdiest, so it never cost a fetch — what it
+actually is, is a second *collapse* of a dataset another section already owns:
+Birdiest keeps the best checklist per hotspot (*"where was the best birding this
+week?"*), Newest keeps them all in order (*"what is happening right now?"*, where
+three lists filed at one park this morning means people are **still there**).
+
+Both questions are worth asking; neither needed its own menu entry, status line
+and report heading. `section_recent_checklists` is removed from `report.py` with
+its parity test, and the capability is unchanged.
+
+**A view of another section's data is a mode of that section, not a peer to it.**
+
+### New: 🔭 scope sites
+
+Hotspots where a spotting scope changes what you can identify — open water, a
+long tide flat, a distant sandspit. Seeded with Jetty Island and Edmonds Fishing
+Pier in a `scope-sites.json` shared **byte-identical** between the repos and
+guarded by a new parity check, so a site flagged in one is flagged in both.
+
+Keyed by **locId**, because a hotspot *name* is not stable — eBird renames and
+merges them, and the same name exists in several counties. The badge rides on the
+place **name** via `_loc_link` / `locLink`, so it reaches every section that
+renders a place rather than only the ones that thought to ask. A missing or
+unreadable file costs the badge and never the section, and an empty reload never
+overwrites an already-loaded list.
+
+This is the manual tier of backlog F19 on purpose: perfectly precise about the
+places you already know, no API calls, and it cannot mis-flag anything. The
+taxon-fraction detector is tier 2.
+
 ## v1.0.39 — All unseen reports: four bugs from one screenshot
 
 **"1Merlin".** The rank badge rendered hard against the species name with no
