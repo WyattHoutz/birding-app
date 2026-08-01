@@ -13,6 +13,46 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.41 — F11: the "hard to find, not rare" engine was built and never rendered
+
+*"I'm trying to find a western kingbird, and it says 380× more likely here."*
+
+**A bird that is hard to find is not the same as a bird that is rare**, and every
+existing section ranks on rarity. A Western Kingbird never trips the notable
+flag, so Today's rarities, Last 7-Days and the surge detectors are all blind to
+it — yet there is one hotspot where it is an order of magnitude more likely than
+the region at large.
+
+**The engine for this already existed.** `BirdLogic.iconicMultiplier`,
+`iconicLabel`, `arrivalDay`, `gbifBoxWkt`, plus the GBIF callers `gbifIconic`,
+`gbifArrival`, `gbifBoxTotal` and `gbifRegionTotal` — all built, all
+parity-tested, and **wired to nothing**. That is the same failure as a button
+bound to no handler, and harder to notice because the code looks finished. The
+species lookup now renders it.
+
+**What you see:** for the places the *live* feed just found, how good each one is
+historically — `10×`, `5.5×`, `0.0×` — and, for a migrant, roughly when it comes
+back.
+
+**The caveat is load-bearing, not boilerplate.** eBird publishes a number that
+looks like this one and is computed differently: eBird divides **checklist
+frequencies**, this divides **record shares**, so a heavily-birded park dilutes
+its own denominator and these run about an order of magnitude lower. The block
+says so in as many words, because an unqualified "10×" would read as a quote of
+eBird's figure. What survives, and what you actually chase on, is the **ranking**.
+
+**Historical and live are never summed.** GBIF's copy of the eBird archive lags
+about a year (2025 held 0 records when this was measured, 2024 held 4,976). For
+this use that is a feature — "iconic" is a long-term property — but it means the
+two answer different questions over different windows and adding them would
+produce a number that means nothing.
+
+**GBIF is a keyless third party, so it can never take the section down with it.**
+The historical block hydrates *after* the live answer is already on screen, and
+a GBIF failure leaves the block absent rather than the section broken. Guarded
+both ways, including a mutation test that reproduces the exact unwired state this
+shipped in.
+
 ## v1.0.40 — one "where do I go?" report, and one "what am I missing?" report
 
 Four sections were asking one question in four places, and two more were asking
