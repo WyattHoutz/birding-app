@@ -3869,18 +3869,50 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
 test('recent checklists are newest first and never collapsed per hotspot', async () => {
   const app = await boot();
   const A = app.window.__app;
+  // These are the REAL field shapes eBird's product/lists returns, verified
+  // against a live WA response: obsDt is a HUMAN date ("31 Jul 2026"),
+  // isoObsDate is "YYYY-MM-DD HH:MM". The first version of this fixture
+  // invented an ISO obsDt, which made the sort look correct in a world where
+  // the bug could not occur. The Jul/Aug pair is the whole point: sorting the
+  // human string ranks "31 Jul" above "01 Aug" because '3' > '0'.
   const rows = A.sortRecentLists([
-    { subId: 'S2', obsDt: '2026-07-31 06:00', locId: 'L1', numSpecies: 40 },
-    { subId: 'S1', obsDt: '2026-07-31 09:00', locId: 'L1', numSpecies: 12 },
-    { subId: 'S1', obsDt: '2026-07-31 09:00', locId: 'L1', numSpecies: 12 },
-    { subId: 'S3', obsDt: '2026-07-30 18:00', locId: 'L2', numSpecies: 90 },
+    { subId: 'S2', obsDt: '31 Jul 2026', isoObsDate: '2026-07-31 06:00', locId: 'L1', numSpecies: 40 },
+    { subId: 'S1', obsDt: '01 Aug 2026', isoObsDate: '2026-08-01 09:00', locId: 'L1', numSpecies: 12 },
+    { subId: 'S1', obsDt: '01 Aug 2026', isoObsDate: '2026-08-01 09:00', locId: 'L1', numSpecies: 12 },
+    { subId: 'S3', obsDt: '30 Jul 2026', isoObsDate: '2026-07-30 18:00', locId: 'L2', numSpecies: 90 },
   ]);
   assert.deepEqual(rows.map((r) => r.subId).join(','), 'S1,S2,S3',
-    'sorted by observation time, newest first - not by species count');
+    'sorted by observation time, newest first - not by species count, and not '
+    + 'by the human obsDt string, which would sink 01 Aug below 31 Jul');
   assert.equal(rows.filter((r) => r.locId === 'L1').length, 2,
     'two lists at one hotspot stay two rows: that repetition IS the signal');
   assert.equal(rows.length, 3, 'but the same checklist id is never listed twice');
   app.window.close();
+
+  // ...and the RENDERED row must carry the clock time. Asserting fmtDateTime
+  // in isolation would not notice the row reverting to a bare obsDt, which is
+  // exactly the regression this section cannot afford: an 06:00 list and a
+  // 21:00 list on the same day are different answers to "what is happening
+  // right now".
+  const rendered = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) {
+        return [{
+          subId: 'S_AUG01', obsDt: '01 Aug 2026', isoObsDate: '2026-08-01 09:00',
+          numSpecies: 12, userDisplayName: 'B',
+          loc: { locName: 'Marina', locId: 'L1', latitude: 47.8, longitude: -122.4, isHotspot: true },
+        }];
+      }
+      return null;
+    },
+  });
+  rendered.window.__app.loadRecentLists();
+  await new Promise((r) => setTimeout(r, 120));
+  const when = rendered.window.document.querySelector('#recentResults .name');
+  assert.ok(when, 'the section rendered a row');
+  assert.match(when.textContent, /\d{1,2}:\d{2}/,
+    `the rendered when carries the clock time, not just the day: got "${when && when.textContent}"`);
+  rendered.window.close();
 });
 
 // --- the tide table must answer "now" before it answers "today" -------------
@@ -3926,7 +3958,7 @@ test('the tide table starts at now and says what the water is doing', async () =
   assert.equal(A.tideCountdown(75 * 60000), '1h 15m', 'and carries minutes when it has them');
   assert.equal(A.tideCountdown(20 * 60000), '20 min', 'and drops the hour when there is none');
 
-  A.renderTides(preds, { id: '9447427', name: 'Edmonds' });
+  A.renderTides(preds, { id: '9447427', name: 'Edmonds' }, noon);
   const el = doc.getElementById('wxTides');
   const table = el.querySelector('.wxtable');
   assert.ok(el.querySelector('.tidenowline'),
@@ -3934,10 +3966,10 @@ test('the tide table starts at now and says what the water is doing', async () =
   assert.match(el.querySelector('.tidenowline').textContent, /(Rising|Falling) now/,
     'and it says which, in words');
 
-  // Whatever the wall clock is when this runs, a window that has already
-  // finished cannot be chased and must not be in the way of one that can.
+  // Pinned to noon, so this is the same table in every timezone: the two
+  // windows that ended before noon are gone and the one containing noon leads.
   const bodyRows = [].slice.call(table.querySelectorAll('tbody tr'));
-  assert.ok(bodyRows.length > 0 && bodyRows.length <= rows.length,
+  assert.ok(bodyRows.length > 0 && bodyRows.length < rows.length,
     'past windows are dropped');
   const marked = bodyRows.filter((tr) => tr.classList.contains('tidenow'));
   assert.equal(marked.length, 1, 'exactly one row is marked as the one you are in');

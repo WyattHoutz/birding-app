@@ -13,6 +13,38 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.36 — the checklist pulse was sorted by a string that isn't a date
+
+**The bug:** eBird's `product/lists` returns **two** date fields, and the
+obvious one is the wrong one. `obsDt` is a *human* date — `"31 Jul 2026"` —
+so sorting it lexicographically ranks **31 Jul above 01 Aug**, because `'3'`
+sorts after `'0'`. A section whose entire premise is *newest first* silently
+buried the newest checklists on the first of every month. `isoObsDate`
+(`"2026-07-31 17:06"`) is the sortable one, and it is also the only field
+carrying the **clock time**. Both repos now sort and render from it, so the
+`When` column reads `Jul 31 5:06 pm` instead of a bare `31 Jul 2026` — for a
+"what is happening right now" section, an 06:00 list and a 21:00 list are
+different answers.
+
+**Why the guard didn't catch it:** the fixture invented
+`obsDt: '2026-07-31 06:00'`, an ISO shape eBird never returns for that field.
+A fixture that doesn't match the real payload tests a world in which the bug
+cannot occur — worse than no fixture, because it is green. Both repos now pin
+the real field shapes and a **cross-month** pair.
+
+**Timezone divergence, now removed.** `renderTides` read `Date.now()`
+internally, so the whole section could only be tested at certain times of day.
+CI ran at 01:31 UTC — before the fixture's first tide window opened — and
+failed on a banner that is correct at 09:00 and absent at 01:31. It now takes
+`nowMs` as a parameter, exactly as `tideNow` already did. Reproduced locally
+under `TZ=Atlantic/Cape_Verde` (which put the wall clock in the same gap), and
+the suite now passes at UTC, UTC−1 and UTC+14. **A render that reaches for the
+global clock is untestable by construction.**
+
+Also: standing *outside* the fetched windows no longer prints an empty state
+line. The banner's job is "when is next prime birding", and that question has
+an answer even when the predictions start later today.
+
 ## v1.0.35 — a hotspot's species list, the checklist pulse, and the tide now
 
 **🕒 Recent checklists (new section, both repos).** Birdiest answers *where was

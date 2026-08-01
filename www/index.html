@@ -1001,7 +1001,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.35';
+      var APP_VERSION = '1.0.36';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4052,6 +4052,10 @@
       }
       function resetListsCache() { _listsCache = null; }
 
+      // obsDt is a HUMAN date ("31 Jul 2026"), so sorting it lexicographically
+      // puts 01 Aug before 31 Jul. isoObsDate is the sortable one, and it is
+      // also the only field carrying the clock time — which a section whose
+      // whole premise is "what is happening right now" cannot do without.
       function sortRecentLists(lists) {
         var bySub = {};
         (lists || []).forEach(function (chk) {
@@ -4060,8 +4064,7 @@
         });
         return Object.keys(bySub).map(function (k) { return bySub[k]; })
           .sort(function (a, b) {
-            return String(b.obsDt || b.isoObsDate || '')
-              .localeCompare(String(a.obsDt || a.isoObsDate || ''));
+            return String(b.isoObsDate || '').localeCompare(String(a.isoObsDate || ''));
           });
       }
 
@@ -4089,7 +4092,7 @@
               ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null;
             var li = document.createElement('li');
             li.innerHTML = '<span class="count big">' + (l.numSpecies || 0) + '<small> sp.</small></span>' +
-              '<div><span class="name">' + esc(l.obsDt || l.isoObsDate || '') + '</span></div>' +
+              '<div><span class="name">' + esc(fmtDateTime(l.isoObsDate || l.obsDt || '')) + '</span></div>' +
               '<div class="meta">' + (loc ? locLink(loc, lc.latitude, lc.longitude, locId, !lc.isHotspot) : 'Location hidden') +
               (d == null ? '' : ' · ' + d.toFixed(1) + ' mi') +
               ' · ' + esc(l.userDisplayName || 'eBirder') + '</div>' +
@@ -7569,11 +7572,16 @@
         if (!h) return m + ' min';
         return h + 'h' + (m ? ' ' + m + 'm' : '');
       }
-      function renderTides(preds, st) {
+      // nowMs is a parameter, not a reach for the global clock, for the same
+      // reason tideNow takes one: a render that depends on the wall clock can
+      // only be tested at certain times of day. CI caught this at 01:31 UTC,
+      // before the fixture's first window opened.
+      function renderTides(preds, st, nowMs) {
         var el = $('wxTides'); if (!el) return;
         var all = buildTideRows(preds);
         if (!all.length) { el.innerHTML = ''; return; }
-        var nowMs = Date.now(), now = tideNow(all, nowMs);
+        if (nowMs == null) nowMs = Date.now();
+        var now = tideNow(all, nowMs);
         // A window that finished two hours ago cannot be chased, and every one
         // of them is a row the reader must skip past to reach the answer.
         var rows = all.filter(function (r) { return !isFinite(r.endMs) || r.endMs > nowMs; });
@@ -7613,6 +7621,13 @@
                 esc(String(now.nextRise.window).split('→')[0].trim()) + ')'
               : 'no further rising tide today');
           head = '<div class="tidenowline">' + state + ' · ' + next + '</div>';
+        } else if (now && now.nextRise) {
+          // Standing outside the fetched windows (predictions that start later
+          // today). The banner's job is "when is next prime birding", and that
+          // still has an answer — printing nothing would withhold it.
+          head = '<div class="tidenowline">⬆ <b>Rising next</b> · in <b>' +
+            esc(tideCountdown(now.untilRise)) + '</b> (' +
+            esc(String(now.nextRise.window).split('→')[0].trim()) + ')</div>';
         }
 
         // Name the station rather than only its id: "9447427" is unverifiable at
@@ -8767,6 +8782,7 @@
         markBirdiestUnseen: markBirdiestUnseen,
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
+        fmtDateTime: fmtDateTime,
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
