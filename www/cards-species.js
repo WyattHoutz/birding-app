@@ -96,7 +96,14 @@
     '.obs.big .count { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); }',
 
     /* ---- SMALL: one row, icon and name on a single line ---- */
+    /* The small card is the row shape used INSIDE other cards — a hotspot's
+       unseen/seen birds, a checklist's species split — so it is almost always
+       a list nested under a heading that already names the subject. At the
+       base .obs 17px it competed with the card title above it and made a
+       20-row species list feel like 20 headings. 15px keeps it comfortably
+       ahead of its own 13px sub-line while reading as a LIST. */
     '.obs.card-sm .name { display: flex; align-items: center; gap: 10px;',
+    '                     font-size: calc(15px * var(--s));',
     '                     min-height: calc(46px * var(--s)); line-height: 1.25; }',
     '.obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;',
     '                      width: calc(46px * var(--s)); height: calc(46px * var(--s)); }',
@@ -149,10 +156,14 @@
     '.obs.xl > li > .count.big small, .obs.card-md > li > .count.big small { display: inline; margin-left: 7px; }',
 
     /* MEDIUM typography. The name is the row's subject, so it must not be the
-       thing that shrinks. At 29px a two-word species name still fits the
-       remaining column on a phone, and it now clearly outranks the evidence
-       listed beneath it rather than competing with it. */
-    '.obs.xl > li > .name { font-size: calc(29px * var(--s)); gap: 14px; }',
+       thing that shrinks — but it must not swallow the card either. 29px was
+       the overcorrection for the cascade bug that had been pinning every card
+       title to the 13px action-link size (see the reset at the top of this
+       file): once that was fixed the number written for a title nobody could
+       see turned out to be far too big, and a two-word species name filled
+       the row. 22px still clearly outranks the 17px evidence beneath it while
+       leaving a long name on two lines instead of four. */
+    '.obs.xl > li > .name { font-size: calc(22px * var(--s)); gap: 14px; }',
     '.obs.xl > li > .name > .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }',
     /* break-word, NOT anywhere: `anywhere` breaks inside a word the moment the
        line is tight, which is what split "Sandpiper" across two lines. A

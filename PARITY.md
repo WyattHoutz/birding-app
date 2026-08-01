@@ -13,7 +13,41 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
-## Multi-report selector
+## v1.0.35 — a hotspot's species list, the checklist pulse, and the tide now
+
+**🕒 Recent checklists (new section, both repos).** Birdiest answers *where was
+the best birding this week* by collapsing to one checklist per hotspot. That
+collapse destroys the other signal: three lists filed at one park this morning
+means people are **still there**. The new section keeps them, newest first, and
+shares Birdiest's single cached `product/lists` fetch, so the second question
+costs no extra network in either repo.
+
+**🔥 Hot / 🥶 Cold / 🥇 destinations — the species lists now describe the
+hotspot.** Reported from the device: a well-birded park read *"5 unseen · 7 more
+species already seen"*. Nothing was wrong with the split; the **input** was.
+Every card built its lists out of the region-wide `recent` feed, and that feed
+returns **exactly one observation per species for the whole region**, so a
+hotspot only ever received the species whose single region-wide representative
+row happened to land there. Cards now hydrate from `data/obs/{locId}/recent`
+after paint — still one row per species, but scoped to the LOCATION, so "one per
+species" is now exactly the list wanted, complete, in **one call per card**
+(cached per locId per day, pooled 3-wide, only for rendered cards). This is
+backlog **F9's blocker surfacing as a UI bug**, solved for hotspot cards.
+
+**🌊 Tides — a DIVERGENCE, deliberately.** The ask was *"it was difficult at a
+glance to see current conditions and when next prime birding is."* Both repos
+now mark **🦆 prime = an incoming tide in daylight** (a bird on every rising row
+would say nothing the existing highlight does not; the marker earns its place
+only by separating windows you can actually see birds in from ones at 2am), and
+👀 for a rising tide after dark. Only the **app** additionally prints the live
+state line — *rising now* / *falling now · next rising tide in 3h 20m* — marks
+the row you are standing in, and drops windows that have already finished. Same
+reasoning as the Quick-outing anchor divergence: **a Markdown report is
+generated hours before it is read and does not know when "now" is**, so a
+countdown printed in it would be a number that quietly goes wrong. The report
+keeps the whole day's windows; the app keeps only the ones you can still chase.
+
+
 
 The app ships all 9 reports. A **region picker sits in the Contents header and
 in the section navbar** (v1.0.12), so you can switch without opening Settings;

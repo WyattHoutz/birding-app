@@ -112,6 +112,12 @@
       "map": "coldMap"
     },
     {
+      "at": "recentBtn",
+      "label": "🕒 Recent checklists",
+      "report": "## 🕒 Recent checklists",
+      "map": null
+    },
+    {
       "at": "cklBtn",
       "label": "🦜 Birdiest checklists",
       "report": "## 🦜 Birdiest recent checklists",

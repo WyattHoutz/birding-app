@@ -1314,16 +1314,32 @@ test('tides: one row per WINDOW, rising windows highlighted', async () => {
 
 test('tides: the rising rows are visually marked, not just labelled', async () => {
   const app = await boot({ fetch: () => null });
+  // Dated today so the table has something current to show — the section now
+  // drops windows that have already finished, because a window you cannot
+  // stand in is only in the way of one you can.
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const at = (h, m) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(h)}:${p(m)}`;
   app.window.__app.renderTides([
-    { t: '2026-07-27 03:11', v: '9.4', type: 'H' },
-    { t: '2026-07-27 10:20', v: '-1.0', type: 'L' },
-    { t: '2026-07-27 18:26', v: '11.2', type: 'H' },
-    { t: '2026-07-27 23:47', v: '7.4', type: 'L' },
+    { t: at(3, 11), v: '9.4', type: 'H' },
+    { t: at(10, 20), v: '-1.0', type: 'L' },
+    { t: at(18, 26), v: '11.2', type: 'H' },
+    { t: at(23, 47), v: '7.4', type: 'L' },
   ], 'Seattle');
-  const marked = app.document.querySelectorAll('#wxTides tr.tiderise');
-  assert.equal(marked.length, 2,
-    'the daytime rising window and the overnight one both carry the highlight');
-  assert.match(marked[0].textContent, /\u{1F440}/u, 'and the binocular marker the report prints');
+  const shown = [].slice.call(app.document.querySelectorAll('#wxTides tbody tr'));
+  const marked = shown.filter((tr) => tr.classList.contains('tiderise'));
+  assert.ok(marked.length >= 1, 'an incoming tide is still on the table');
+  // The rule is "every rising window is highlighted", not "exactly N are" —
+  // which rows survive depends on the wall clock, but the mapping never does.
+  shown.forEach((tr) => {
+    const rising = /Rising/.test(tr.textContent);
+    assert.equal(tr.classList.contains('tiderise'), rising,
+      'the highlight marks exactly the rising windows');
+    if (rising) {
+      assert.match(tr.textContent, /\u{1F986}|\u{1F440}/u,
+        'and each carries a marker saying whether it is prime daylight or after dark');
+    }
+  });
   app.window.close();
 });
 
@@ -1435,14 +1451,43 @@ test("today's rarities show the time of the latest report, not just the date", (
     'a rarity is chased within hours, so the clock time is the deciding number');
 });
 
-test('closest spots: rows carry the distance in miles, closest first', () => {
-  const render = HTML.slice(HTML.indexOf('function groupTargetsByPlace('),
-    HTML.indexOf('// --- eBird API'));
-  assert.ok(render.length > 0, 'the closest-spots renderer must exist');
-  assert.match(render, /distMi[\s\S]*toFixed\(1\) \+ ' mi/,
-    'the report prints miles on every row of this section');
-  assert.match(render, /a\.distMi == null \? Infinity/,
+test('closest spots: rows carry the distance in miles, closest first', async () => {
+  // This guard used to match a source-text literal ("toFixed(1) + ' mi'"),
+  // which pinned ONE WAY of printing the distance rather than the fact that
+  // the distance is printed. When the medium hotspot card moved distance out
+  // of the `·`-joined sub-header into its own column, the section kept showing
+  // miles on every row and the guard failed anyway. Assert the MEANING against
+  // the rendered DOM: every row shows its distance, and the nearest is first.
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  const targets = [
+    { locId: 'LFAR', locName: 'Far Pond', lat: 47.9, lng: -122.4, distMi: 23.4,
+      comName: 'Sora', speciesCode: 'sora', obsDt: '2026-07-29 08:00' },
+    { locId: 'LNEAR', locName: 'Near Marsh', lat: 47.76, lng: -122.16, distMi: 8.04,
+      comName: 'Merlin', speciesCode: 'merlin', obsDt: '2026-07-30 07:00' }
+  ];
+  const places = A.groupTargetsByPlace(targets);
+  assert.deepEqual(places.map((p) => p.locId).join(','), 'LNEAR,LFAR',
     'places are ranked by their NEAREST target, closest first');
+
+  const ul = app.window.document.createElement('ul');
+  A.renderTargetPlaces(ul, places);
+  const rows = [...ul.children];
+  assert.equal(rows.length, 2, 'one row per place');
+  rows.forEach((li, i) => {
+    const txt = li.textContent.replace(/\s+/g, ' ');
+    assert.match(txt, /\d+(\.\d+)?\s*mi/,
+      `row ${i + 1} must state how far away it is: ${txt.slice(0, 120)}`);
+  });
+  // And the distance is a distinct field, not buried mid-sentence — that is
+  // what makes a list of hotspots scannable down one edge.
+  const dists = rows.map((li) => {
+    const d = li.querySelector('.hsdist');
+    return d ? d.textContent.replace(/\s+/g, '') : null;
+  });
+  assert.deepEqual(dists.join('|'), '8.0mi|23mi',
+    'each row carries its own distance cell, nearest first');
+
   const build = HTML.slice(HTML.indexOf('function buildClosestSpots('),
     HTML.indexOf('function loadTargets('));
   assert.match(build, /distMi:/, 'and the builder carries the distance through');
@@ -3534,5 +3579,381 @@ test('F9: phase 2 cannot change what phase 1 already found', async () => {
     assert.deepEqual(a0[f], before[0][f], 'phase-1 row field "' + f + '" is untouched');
   });
   assert.equal(after.length, before.length + 1, 'phase 2 only ADDS');
+  app.window.close();
+});
+
+// --- Birdiest checklists: name the birds, do not just count them -----------
+// "4 unseen birds on this list" is a number you cannot act on. A 90-species
+// checklist is interesting for the four names it holds, so the section shows
+// them — unseen expanded because they are the reason to care, seen collapsed
+// because they are context. Same rule, and the same markup, as every hotspot
+// card, so the two cannot drift.
+test('birdiest checklists name the unseen birds and collapse the seen ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const perReport = A.getReportSeen();
+  const seenCode = Object.keys(perReport)[0];
+  assert.ok(seenCode, 'fixture assumption: the report has birds on its year list');
+  // A code no report counts as seen, so it must land in the unseen half.
+  const targetCode = 'zzztest1';
+  assert.ok(!perReport[targetCode], 'the target must really be unseen');
+
+  const slot = doc.createElement('div');
+  slot.className = 'cklneed';
+  A.renderChecklistSplit(slot, [seenCode, targetCode], {
+    nameByCode: { [seenCode]: 'Already Had It', [targetCode]: 'Zzz Test Bird' },
+    parentOf: {}
+  });
+
+  const unseen = slot.querySelector('.hsunseen');
+  const seen = slot.querySelector('.hsseen');
+  assert.ok(unseen, 'the unseen birds are rendered');
+  assert.ok(seen, 'the seen birds are rendered too');
+  assert.equal(seen.tagName, 'DETAILS', 'seen birds collapse');
+  assert.equal(unseen.tagName, 'DIV', 'unseen birds do NOT collapse');
+  assert.ok(!seen.open, 'and the collapsed half starts shut');
+
+  assert.match(unseen.textContent, /Zzz Test Bird/,
+    'the unseen bird is NAMED, not counted');
+  assert.ok(!/Zzz Test Bird/.test(seen.textContent),
+    'and it is not also listed as seen');
+  assert.match(seen.querySelector('summary').textContent, /already seen/,
+    'the count lives on the summary, the only text readable while it is shut');
+  assert.match(unseen.textContent, /1 unseen bird on this list/,
+    'the unseen label still carries the count');
+  assert.ok(slot.className.includes('hit'),
+    'a list holding a target is marked as one');
+
+  // The old renderer printed a bare count and nothing else.
+  assert.ok(!/^\s*\S*\s*1 unseen birds? on this list\s*$/.test(slot.textContent),
+    'the bare-count badge is gone');
+  app.window.close();
+});
+
+test('birdiest checklists resolve every name in ONE taxonomy pass', async () => {
+  // 25 checklists sharing ~300 distinct species were 25 taxonomy calls for the
+  // same answer. The union is resolved once. This guard counts the requests.
+  const calls = [];
+  const app = await boot({
+    fetch: (u) => {
+      calls.push(u);
+      if (/product\/checklist\/view/.test(u)) {
+        const sub = u.split('/').pop();
+        return { obs: [{ speciesCode: 'aaa' + sub }, { speciesCode: 'shared1' }] };
+      }
+      if (/ref\/taxonomy/.test(u)) {
+        const codes = decodeURIComponent(/species=([^&]*)/.exec(u)[1]).split(',');
+        return codes.map((c) => ({ speciesCode: c, comName: 'Name ' + c }));
+      }
+      return null;
+    }
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const root = doc.createElement('ul');
+  ['S1', 'S2', 'S3'].forEach((s) => {
+    const li = doc.createElement('li');
+    li.innerHTML = '<div class="cklneed" data-sub="' + s + '"></div>';
+    root.appendChild(li);
+  });
+  await A.markBirdiestUnseen(root);
+
+  const tax = calls.filter((u) => /ref\/taxonomy/.test(u));
+  const chk = calls.filter((u) => /product\/checklist\/view/.test(u));
+  assert.equal(chk.length, 3, 'one read per checklist — eBird has no bulk endpoint');
+  assert.equal(tax.length, 1,
+    `names resolve in one pass over the union, not one per checklist (got ${tax.length})`);
+  const asked = decodeURIComponent(/species=([^&]*)/.exec(tax[0])[1]).split(',').sort();
+  assert.deepEqual(asked.join(','), 'aaaS1,aaaS2,aaaS3,shared1',
+    'and the union is de-duplicated before it is asked for');
+
+  // Every row got its birds, not just the first.
+  const filled = [...root.querySelectorAll('.cklneed')]
+    .filter((s) => s.querySelector('.hsunseen'));
+  assert.equal(filled.length, 3, 'every checklist row is filled in');
+  app.window.close();
+});
+// --- The sideways drag: contain it, and make the DEVICE name it ------------
+// Reported three times. It does not reproduce off-device — a headless
+// Chromium sweep of all 25 panels at every text scale from 320px to 393px
+// finds nothing past the right edge — so the fix cannot name the box. It
+// contains overflow per panel instead, and ships a reporter so the next
+// device report arrives with a selector attached.
+test('a panel clips sideways overflow WITHOUT becoming a scroll container', () => {
+  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
+  const rule = /\.panel\s*\{[^}]*overflow-x:\s*clip[^}]*\}/.exec(css);
+  assert.ok(rule, 'panels declare overflow-x: clip');
+  // `hidden` would force overflow-y to auto and give every section its own
+  // scrollbar. `clip` is the ONLY value that may pair with visible.
+  assert.ok(!/\.panel\s*\{[^}]*overflow-x:\s*hidden/.test(css),
+    'and never overflow-x: hidden, which would nest a vertical scroller');
+  assert.ok(!/\.panel\s*\{[^}]*overflow-y:\s*(auto|scroll|hidden)/.test(css),
+    'nor pin overflow-y, for the same reason');
+  // The root guard shipped in v1.0.34 stays — this is a second line, not a
+  // replacement, and deleting the first would silently widen the document
+  // again on any engine that ignores the panel rule.
+  assert.match(css, /html\s*\{[^}]*overflow-x:\s*clip/,
+    'the root clip is still there too');
+});
+
+test('showing a section reports any element wider than the screen', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const warned = [];
+  app.window.console.warn = (...a) => warned.push(a.join(' '));
+  // jsdom reports 0 for every rect, so the measurement is staged: a stub
+  // element whose rect is genuinely past the right edge must be NAMED.
+  const panel = doc.querySelector('.panel');
+  const bad = doc.createElement('div');
+  bad.id = 'tooWide';
+  bad.className = 'wideThing';
+  bad.textContent = 'a box that hangs off the edge';
+  panel.appendChild(bad);
+  Object.defineProperty(doc.documentElement, 'clientWidth', { value: 393, configurable: true });
+  bad.getBoundingClientRect = () => ({ width: 600, height: 20, left: 0, right: 640, top: 0, bottom: 20 });
+
+  A.auditOverflow('testPanel');
+  await new Promise((r) => setTimeout(r, 50));
+
+  const hit = warned.find((w) => /overflow/.test(w));
+  assert.ok(hit, 'the overflow is reported at all');
+  assert.match(hit, /#tooWide/, 'and the element is NAMED, not just counted');
+  assert.match(hit, /247px past 393/, 'with how far past the edge it reaches');
+
+  // One line per section per element: a per-frame log would flood the 800-line
+  // debug buffer and push out the fetch trail that is the point of the panel.
+  const before = warned.length;
+  A.auditOverflow('testPanel');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(warned.length, before, 'and it is not repeated');
+  app.window.close();
+});
+
+test('the overflow reporter ignores Leaflet, which overflows by design', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const warned = [];
+  app.window.console.warn = (...a) => warned.push(a.join(' '));
+  const tile = doc.createElement('img');
+  tile.className = 'leaflet-tile leaflet-tile-loaded';
+  doc.querySelector('.panel').appendChild(tile);
+  Object.defineProperty(doc.documentElement, 'clientWidth', { value: 393, configurable: true });
+  tile.getBoundingClientRect = () => ({ width: 256, height: 256, left: 500, right: 756, top: 0, bottom: 256 });
+  A.auditOverflow('tilePanel');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(warned.filter((w) => /overflow/.test(w)).length, 0,
+    'map tiles sit outside their clipped container on purpose and are never the cause');
+  app.window.close();
+});
+// --- Today's rarity reports respects the chase radius -----------------------
+// Reported from the device: the section was listing birds 60+ miles out beside
+// one four miles from the house, in the one section whose entire job is "what
+// can I go and see today". The radius already existed — report.py wrote it
+// down once for Closest spots and called it "a reasonable chase" — it was just
+// never applied here. Far reports are SORTED APART, not deleted: a rarity is
+// still worth a longer drive on the right day, and this is the only section
+// that lists today's.
+test("today's rarities lead with what is inside the chase radius", async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const R = A.CHASE_MAX_MI;
+  assert.equal(R, BL.CONST.CHASE_MAX_MI,
+    'the app reads the radius from the shared logic module, not its own copy');
+
+  A.seedChase(A.getReportSlug(), {
+    t: Date.now(), rarity: false,
+    cv: {
+      merged: [],
+      notableToday: [
+        { code: 'nearbird', name: 'Near Rarity', distMi: 4.2, dateStr: '2026-07-31 08:00',
+          loc: 'Close Park', locId: 'L1', lat: 47.7, lon: -122.2, subId: 'S1', observer: 'A B' },
+        { code: 'farbird', name: 'Far Rarity', distMi: R + 30, dateStr: '2026-07-31 07:00',
+          loc: 'Distant Slough', locId: 'L2', lat: 48.5, lon: -122.9, subId: 'S2', observer: 'C D' },
+      ],
+    },
+  });
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 60));
+
+  const out = doc.getElementById('results');
+  const far = out.querySelector('details.farrare');
+  assert.ok(far, 'the out-of-range reports are still there');
+  assert.ok(!far.open, 'but collapsed - they are not what the section is for');
+  assert.match(far.querySelector('summary').textContent, new RegExp(`1 more beyond ${R} mi`),
+    'and the summary says how many and past what');
+  assert.match(far.textContent, /Far Rarity/, 'the far bird lives inside the collapsed half');
+
+  // The near bird must be OUTSIDE the <details>, or "filtering" just means
+  // "everything moved one tap down".
+  const nearHtml = out.innerHTML.slice(0, out.innerHTML.indexOf('farrare'));
+  assert.match(nearHtml, /Near Rarity/, 'the near bird is listed directly');
+  assert.ok(!/Far Rarity/.test(nearHtml), 'and the far one is not');
+
+  assert.match(doc.getElementById('status').textContent,
+    new RegExp(`1 rarity report within ${R} mi`),
+    'the count in the header counts what it is showing, not the whole feed');
+  app.window.close();
+});
+// --- a hotspot's species list must describe the HOTSPOT ---------------------
+// Reported from the device: a well-birded park's card read "5 unseen · 7 more
+// species already seen" — twelve species at a place that gets fifty in a
+// morning. Nothing was broken in the split; the INPUT was wrong. Every card
+// built its lists out of cv.merged, the region-wide `recent` feed, and that
+// feed returns exactly ONE observation per species for the whole region. So a
+// hotspot only ever received the species whose single region-wide
+// representative row happened to land there, and the card was internally
+// consistent while being badly incomplete.
+//
+// The correction is one location-scoped read per card: /data/obs/{locId}/recent
+// is still one row per species, but scoped to the LOCATION, so "one per
+// species" is now exactly the list we want.
+test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed', async () => {
+  const feeds = [];
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      const m = /data\/obs\/(L\d+)\/recent/.exec(url);
+      if (!m) return null;
+      feeds.push(url);
+      // Ten species at this one park. The region feed only ever knew about two.
+      return Array.from({ length: 10 }, (_, i) => ({
+        speciesCode: 'sp' + i, comName: 'Bird ' + i, obsDt: '2026-07-31 08:00',
+      }));
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  A.renderHot({
+    hot: [{
+      locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+      fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
+      birds: [{ name: 'Bird 0', code: 'sp0', unseen: true },
+              { name: 'Bird 1', code: 'sp1', unseen: false }],
+    }],
+  });
+  await new Promise((r) => setTimeout(r, 80));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  assert.ok(card, 'the card carries its locId so it can be corrected after paint');
+  assert.equal(card.getAttribute('data-hsloc'), 'L1');
+
+  assert.equal(feeds.length, 1, 'exactly one location-scoped read per rendered card');
+  assert.match(feeds[0], new RegExp(`back=${A.LOC_SPECIES_DAYS}\\b`),
+    'windowed to the last few days: a species list for a place you might drive to today should describe today');
+
+  const names = [].slice.call(card.querySelectorAll('.hslists .name'))
+    .map((n) => n.textContent);
+  assert.ok(names.length >= 10,
+    `the card lists what the LOCATION feed returned, got ${names.length}: ${names.join(', ')}`);
+  assert.ok(names.some((n) => /Bird 9/.test(n)),
+    'including the species the region-wide feed never attributed to this hotspot');
+
+  // The sub-header counted the same wrong feed, so correcting one and not the
+  // other leaves the card contradicting itself on its own line.
+  assert.ok(!/\b2 species\b/.test(card.querySelector('.meta').textContent),
+    'the species count is re-stated from the corrected list, not left at the feed sample size');
+  app.window.close();
+});
+
+// --- Recent checklists is the pulse, and it costs nothing --------------------
+// Birdiest answers "where was the best birding this week" by collapsing to one
+// checklist per hotspot. That collapse destroys the other signal: three lists
+// filed at one park this morning means people are STILL THERE. This section
+// keeps them, newest first, and shares Birdiest's single cached fetch so the
+// second question is free.
+test('recent checklists are newest first and never collapsed per hotspot', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = A.sortRecentLists([
+    { subId: 'S2', obsDt: '2026-07-31 06:00', locId: 'L1', numSpecies: 40 },
+    { subId: 'S1', obsDt: '2026-07-31 09:00', locId: 'L1', numSpecies: 12 },
+    { subId: 'S1', obsDt: '2026-07-31 09:00', locId: 'L1', numSpecies: 12 },
+    { subId: 'S3', obsDt: '2026-07-30 18:00', locId: 'L2', numSpecies: 90 },
+  ]);
+  assert.deepEqual(rows.map((r) => r.subId).join(','), 'S1,S2,S3',
+    'sorted by observation time, newest first - not by species count');
+  assert.equal(rows.filter((r) => r.locId === 'L1').length, 2,
+    'two lists at one hotspot stay two rows: that repetition IS the signal');
+  assert.equal(rows.length, 3, 'but the same checklist id is never listed twice');
+  app.window.close();
+});
+
+// --- the tide table must answer "now" before it answers "today" -------------
+// Reported from the device: "I looked at it today, and it was difficult at a
+// glance to see current conditions and when next prime birding is." The table
+// printed a whole day of windows including the ones that had already passed,
+// so the reader had to locate themselves in it before it said anything. Two
+// changes carry the fix: a state line ABOVE the table, and a table that starts
+// at the window you are standing in.
+test('the tide table starts at now and says what the water is doing', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  // Four turning points spread around a fixed "now" of 12:00.
+  const day = new Date();
+  const iso = (h, m) => {
+    const d = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(h)}:${p(m)}`;
+  };
+  const preds = [
+    { t: iso(2, 0),  v: '9.5',  type: 'H' },   // 02:00 -> 08:00 falling  (past)
+    { t: iso(8, 0),  v: '-1.0', type: 'L' },   // 08:00 -> 14:00 rising   (NOW)
+    { t: iso(14, 0), v: '10.2', type: 'H' },   // 14:00 -> 20:00 falling
+    { t: iso(20, 0), v: '0.4',  type: 'L' },   // 20:00 -> overnight rising
+  ];
+  const rows = A.buildTideRows(preds);
+  assert.equal(rows.length, 4, 'one row per window plus the overnight one');
+
+  const noon = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0).getTime();
+  const now = A.tideNow(rows, noon);
+  assert.ok(now.cur, 'it can say which window you are standing in');
+  assert.equal(now.cur.rising, true, 'and at noon on this fixture the water is coming in');
+  assert.equal(now.untilRise, 0, 'so there is nothing to wait for');
+
+  const dawn = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 3, 0).getTime();
+  const early = A.tideNow(rows, dawn);
+  assert.equal(early.cur.rising, false, 'at 3am it is falling');
+  assert.ok(early.nextRise, 'and the next rising window is named');
+  assert.equal(A.tideCountdown(early.untilRise), '5h',
+    'the countdown is the wait until the water turns, in plain hours and minutes');
+  assert.equal(A.tideCountdown(75 * 60000), '1h 15m', 'and carries minutes when it has them');
+  assert.equal(A.tideCountdown(20 * 60000), '20 min', 'and drops the hour when there is none');
+
+  A.renderTides(preds, { id: '9447427', name: 'Edmonds' });
+  const el = doc.getElementById('wxTides');
+  const table = el.querySelector('.wxtable');
+  assert.ok(el.querySelector('.tidenowline'),
+    'the current state is stated ABOVE the table, not left to be reconstructed from it');
+  assert.match(el.querySelector('.tidenowline').textContent, /(Rising|Falling) now/,
+    'and it says which, in words');
+
+  // Whatever the wall clock is when this runs, a window that has already
+  // finished cannot be chased and must not be in the way of one that can.
+  const bodyRows = [].slice.call(table.querySelectorAll('tbody tr'));
+  assert.ok(bodyRows.length > 0 && bodyRows.length <= rows.length,
+    'past windows are dropped');
+  const marked = bodyRows.filter((tr) => tr.classList.contains('tidenow'));
+  assert.equal(marked.length, 1, 'exactly one row is marked as the one you are in');
+  assert.equal(marked[0], bodyRows[0], 'and it leads the table');
+
+  // A bird on every rising row would say nothing the highlight does not; the
+  // marker earns its place only by separating daylight windows from dark ones.
+  assert.match(el.textContent, /🦆/, 'prime windows carry a bird');
+
+  // …and the bird only means something if a rising window can FAIL to earn it.
+  var lit = { a: noon - 5 * 3600000, b: noon + 5 * 3600000 };   // 7am - 5pm
+  const win = (h0, h1) => ({ rising: true, startMs: noon + (h0 - 12) * 3600000, endMs: noon + (h1 - 12) * 3600000 });
+  assert.equal(A.tidePrime(win(9, 15), lit), true, 'a midday incoming tide is prime');
+  assert.equal(A.tidePrime(win(0.5, 4), lit), false, 'the same tide at 1am is not - you cannot see the birds it brings in');
+  assert.equal(A.tidePrime(win(16, 22), lit), true, 'a window that only overlaps the end of daylight still counts');
+  assert.equal(A.tidePrime({ rising: false, startMs: noon, endMs: noon + 1 }, lit), false, 'and an outgoing tide is never prime');
+  assert.equal(A.tidePrime(win(0.5, 4), null), true, 'with no sun times, a rising window keeps the benefit of the doubt');
   app.window.close();
 });

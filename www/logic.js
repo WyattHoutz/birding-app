@@ -27,6 +27,11 @@
     CUTOFF_DAYS: 2,         // analyze.CUTOFF_DAYS (daily-section recency)
     GEO_DIST_KM: 50,        // regions.py geo_dist_km
     DAILY_DRIVE_MI: 12,     // regions.py _WA daily_drive_mi
+    // How far you will actually drive for one bird. report.CHASE_MAX_MI.
+    // Written down once for Closest spots, then every other chase section
+    // quietly went unbounded — Today's rarity reports was listing birds 60+
+    // miles out beside one four miles from the house.
+    CHASE_MAX_MI: 30,
     CLUSTER_RADIUS_M: 250,  // report._cluster_by_proximity radius_m
     STAKEOUT_MIN_CHECKLISTS: 3,  // report.STAKEOUT_MIN_CHECKLISTS
     STAKEOUT_CLUSTER_M: 300,     // report.STAKEOUT_CLUSTER_M
