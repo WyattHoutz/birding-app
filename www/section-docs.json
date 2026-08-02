@@ -439,7 +439,8 @@
       "inputs": [],
       "how": [
         "Everything here is stored on this device only.",
-        "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island."
+        "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
+        "You can add your own regions for trips. They live only in the app, because the Markdown report's regions are compiled into it, and a new one starts with an empty seen list — on a trip that is very nearly true."
       ],
       "limits": []
     }
