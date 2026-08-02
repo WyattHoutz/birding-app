@@ -13,6 +13,53 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.43 — the 429 fix, now sized from a real device log
+
+v1.0.42 fixed the two obvious faults. A v1.0.39 log from the phone then showed
+the ceiling is not what either version assumed, so the pacing is re-derived from
+measurement instead of guesswork.
+
+**What the log actually says.** Six-wide batches put **24 calls through in
+570 ms, all 200** — and the 25th onward was refused, after which eBird kept
+refusing for the rest of the wave, each rejection arriving in ~90 ms. Elsewhere
+in the same log, **8 sequential calls at 4.5 req/s drew no 429 at all.**
+
+So it is a **burst allowance of roughly 25 requests**, not a tidy per-minute
+quota. v1.0.42's token bucket was wrong in *both* directions: its burst of 8 was
+still a spike, and its 1.4 req/s refill was **slower than the rate the same log
+proves is safe**.
+
+**Now: at most 2 in flight, at least 220 ms apart** (~4.5 req/s). Two knobs
+because they stop different failures — concurrency prevents a batch arriving as
+a spike, the gap holds the sustained rate. A 41-call wave takes about 8 seconds,
+against ~25 for the bucket it replaces. The species batch size dropped from 6 to
+2, since 6-wide is exactly the shape the log shows tripping the limit.
+
+**One 429 now holds every foreground call, not just the one that failed.** This
+is the log's worst property: once the budget was gone, all thirty-odd remaining
+calls were refused in ~90 ms each. Backing off only the failed request leaves
+the rest firing into a limiter that has already said no — which is how one 429
+became forty.
+
+**The chase cache went from 10 minutes to 30.** The wave is ~47 calls, and the
+log shows it firing four times in one session — twice inside 16 minutes, purely
+because the cache had lapsed. The feeds behind it are day-scoped, so a
+half-hour-old answer is the same answer.
+
+### The report now yields to the phone
+
+The phone is the primary consumer, so the balance that made sense when the
+Markdown report was the only thing spending the key is now backwards.
+`ebird.py` moved from **1.2 s to 4.0 s** between calls (~50 → ~15 req/min),
+overridable with `EBIRD_MIN_INTERVAL_S` for a one-off local run.
+
+**The cadence had to move with it.** Five real runs measured 31–38 minutes at
+1.2 s (~1660 calls); at 4.0 s that becomes ~111 minutes. The workflow's
+`cancel-in-progress` rule would then have killed every run before it finished
+and the report would simply have stopped updating. The schedule is now **every
+three hours**, which leaves the run comfortable headroom inside its own window
+and leaves the key clear for the app the rest of the time.
+
 ## v1.0.42 — HTTP 429: a rate-limited call was fatal, and nothing bounded the burst
 
 Reported from the device on v1.0.39: *"hitting 429 frequently"*, then *"even the
