@@ -1,0 +1,104 @@
+{
+  "_comment": [
+    "Travel zones — the cost of WATER, which a straight line cannot express.",
+    "",
+    "Backlog F1 (F18 folded in). Port Townsend is ~33 mi from home as the crow",
+    "flies and about two and a quarter hours away: a ferry, then the Hood Canal",
+    "Bridge. Ranking it beside a 33 mi drive to the Cascades is simply wrong.",
+    "",
+    "WHY ZONES AND NOT A CROSSING TEST. The first design drew the line to the",
+    "hotspot and asked whether it intersected water. That was prototyped and it",
+    "does not work — the straight line from home to Nisqually NWR crosses Puget",
+    "Sound while the road (I-5) drives around the south end and crosses nothing.",
+    "Any 'does the route cross water' test reports a ferry for every destination",
+    "reachable by going AROUND. Zones ask the answerable question instead: is",
+    "the destination on a landmass that costs extra to reach FROM WHERE I AM?",
+    "Same zone is free, however much water the straight line happens to clip.",
+    "",
+    "WHY NOT A PER-COUNTY TABLE. Island County contains both Whidbey (ferry)",
+    "and Camano (a bridge, free), and King County contains both home and Vashon",
+    "(ferry). A per-county penalty is wrong in both directions at once.",
+    "",
+    "THE PENALTY RANKS AND LABELS. IT MUST NEVER FILTER. This is decision 5 in",
+    "F1 and it is the whole reason this file is safe. Penalised miles belong in",
+    "sort keys and on screen; every `<= MAX_MI` inclusion test keeps taking the",
+    "raw straight-line distance. A real chase proved it: an Arctic Tern at",
+    "Murden Cove on Bainbridge is 17 mi straight-line — inside today's 30 mi",
+    "chase cap and 50 km geo feed — but 52 effective miles, which a penalised",
+    "35 mi radius would drop. Rarities arrive through the geo feed, so that",
+    "would not have ranked the bird lower, it would have hidden it entirely.",
+    "The architecture agrees: eBird's geo feed takes `dist=` as a true radius",
+    "and has never heard of a ferry, so what is FETCHED is physically a",
+    "straight line and can be nothing else.",
+    "",
+    "Shared byte-identical between the report and the app (the parity suite",
+    "compares them exactly and cross-checks the two implementations), so a",
+    "ferry costs the same in both.",
+    "",
+    "LIMITS, so nobody re-discovers them: the polygons are hand-drawn and",
+    "approximate, and a boundary error is silent — it shows up as one town",
+    "being mysteriously cheap, so every zone has a fixture naming real places",
+    "on both sides of its edge. `minutes` is one scalar per zone pair, but the",
+    "true cost depends on which side you leave by (from Kingston this charges",
+    "the Seattle boat for a southbound trip that never queues). Sailing",
+    "timetables are NOT modelled: a 06:30 boat and a 17:30 boat are very",
+    "different. That is deliberate — the goal is stopping Port Townsend",
+    "outranking Marymoor on a Tuesday evening, not predicting your arrival."
+  ],
+  "mph": 35,
+  "default_zone": "mainland",
+  "default_label": "mainland",
+  "zones": [
+    {
+      "id": "vashon",
+      "label": "Vashon I.",
+      "poly": [[47.52, -122.51], [47.52, -122.42], [47.33, -122.44], [47.33, -122.54]]
+    },
+    {
+      "id": "whidbey",
+      "label": "Whidbey I.",
+      "poly": [[48.03, -122.35], [48.05, -122.55], [48.24, -122.78], [48.41, -122.70],
+               [48.35, -122.58], [48.16, -122.45], [48.07, -122.31]]
+    },
+    {
+      "id": "kitsap",
+      "label": "Kitsap pen.",
+      "poly": [[47.95, -122.70], [47.93, -122.45], [47.55, -122.45], [47.35, -122.62],
+               [47.38, -122.80], [47.75, -122.78]]
+    },
+    {
+      "id": "olympic",
+      "label": "Olympic pen.",
+      "poly": [[48.20, -122.66], [48.40, -122.80], [48.40, -124.80], [47.30, -124.80],
+               [47.20, -123.10], [47.45, -122.95], [47.95, -122.80]]
+    },
+    {
+      "id": "gig",
+      "label": "Gig Harbor / Key pen.",
+      "poly": [[47.42, -122.62], [47.42, -122.52], [47.24, -122.55], [47.16, -122.78],
+               [47.35, -122.80]]
+    }
+  ],
+  "hops": {
+    "mainland|kitsap":  { "minutes": 60, "via": "⛴ Edmonds–Kingston ferry" },
+    "mainland|whidbey": { "minutes": 45, "via": "⛴ Mukilteo–Clinton ferry" },
+    "mainland|vashon":  { "minutes": 65, "via": "⛴ Fauntleroy–Vashon ferry" },
+    "mainland|olympic": { "minutes": 90, "via": "⛴ ferry, then the Hood Canal Bridge" },
+    "mainland|gig":     { "minutes": 25, "via": "Tacoma Narrows Bridge" },
+    "kitsap|olympic":   { "minutes": 20, "via": "Hood Canal Bridge" },
+    "kitsap|vashon":    { "minutes": 45, "via": "⛴ Southworth–Vashon ferry" },
+    "kitsap|whidbey":   { "minutes": 55, "via": "⛴ Port Townsend–Coupeville ferry" },
+    "whidbey|olympic":  { "minutes": 60, "via": "⛴ Coupeville–Port Townsend ferry" },
+    "gig|olympic":      { "minutes": 70, "via": "around the south sound" },
+    "gig|vashon":       { "minutes": 40, "via": "⛴ Point Defiance–Tahlequah ferry" },
+    "gig|kitsap":       { "minutes": 35, "via": "around via Purdy" },
+    "whidbey|vashon":   { "minutes": 90, "via": "two ferries" },
+    "whidbey|gig":      { "minutes": 80, "via": "⛴ ferry, then the length of the sound" },
+    "vashon|olympic":   { "minutes": 85, "via": "⛴ ferry, then the Hood Canal Bridge" }
+  },
+  "bands": [
+    { "id": "quick", "label": "quick outing", "max_round_trip_h": 2.5 },
+    { "id": "half",  "label": "half day",     "max_round_trip_h": 5.0 },
+    { "id": "full",  "label": "full day",     "max_round_trip_h": null }
+  ]
+}

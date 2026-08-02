@@ -1400,6 +1400,153 @@
     return rows;
   }
 
+  // ---- F1: travel zones — what a ferry costs -------------------------------
+  // Port Townsend is ~33 mi from home as the crow flies and about two and a
+  // quarter hours away: a ferry, then the Hood Canal Bridge.
+  //
+  // THE PENALTY RANKS AND LABELS. IT MUST NEVER FILTER. F1 decision 5. Every
+  // function here takes the straight-line distance as an ARGUMENT rather than
+  // computing one, so there is no way to call this that replaces a distance —
+  // only ways to add to a copy of it. `<= CHASE_MAX_MI` and the geo feed radius
+  // keep the raw number, which is also all eBird can honour: its geo feed takes
+  // `dist=` as a true radius and has never heard of a ferry.
+  //
+  // A real chase is the regression test: an Arctic Tern at Murden Cove on
+  // Bainbridge is 17 mi straight-line — inside the 30 mi chase cap — but 52
+  // effective miles, so a penalised 35 mi radius drops it. Rarities arrive
+  // through the geo feed, so that would not rank the bird lower, it would hide
+  // it entirely.
+  //
+  // `cfg` is the parsed travel-zones.json, passed in because this module stays
+  // free of fetch. Port of travel.py; the parity suite cross-checks the two.
+  var TRAVEL_DEFAULT_ZONE = 'mainland';
+
+  function travelMph(cfg) {
+    var m = cfg && Number(cfg.mph);
+    return (m && isFinite(m)) ? m : 35;
+  }
+
+  function pointInPoly(lat, lng, poly) {
+    var inside = false, n = poly.length, j = n - 1, i;
+    for (i = 0; i < n; i++) {
+      var yi = poly[i][0], xi = poly[i][1];
+      var yj = poly[j][0], xj = poly[j][1];
+      if ((yi > lat) !== (yj > lat)) {
+        if (yj !== yi && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+
+  function travelZoneOf(cfg, lat, lng) {
+    var la = Number(lat), ln = Number(lng);
+    if (!isFinite(la) || !isFinite(ln)) return TRAVEL_DEFAULT_ZONE;
+    var zones = (cfg && cfg.zones) || [];
+    for (var i = 0; i < zones.length; i++) {
+      var p = zones[i].poly;
+      if (p && p.length >= 3 && pointInPoly(la, ln, p)) {
+        return String(zones[i].id || TRAVEL_DEFAULT_ZONE);
+      }
+    }
+    return TRAVEL_DEFAULT_ZONE;
+  }
+
+  function travelZoneLabel(cfg, zoneId) {
+    if (zoneId === TRAVEL_DEFAULT_ZONE) {
+      return String((cfg && cfg.default_label) || TRAVEL_DEFAULT_ZONE);
+    }
+    var zones = (cfg && cfg.zones) || [];
+    for (var i = 0; i < zones.length; i++) {
+      if (zones[i].id === zoneId) return String(zones[i].label || zoneId);
+    }
+    return zoneId || TRAVEL_DEFAULT_ZONE;
+  }
+
+  // Symmetric: a crossing costs the same both ways, so the file lists one.
+  function travelHop(cfg, fromZone, toZone) {
+    if (fromZone === toZone) return null;
+    var hops = (cfg && cfg.hops) || {};
+    var e = hops[fromZone + '|' + toZone] || hops[toZone + '|' + fromZone];
+    return (e && typeof e === 'object') ? e : null;
+  }
+
+  // Between two POINTS, never a property of the hotspot — which is the point.
+  // Standing in Kingston, Point No Point is free and Marymoor costs an hour;
+  // a `ferry: true` flag on the hotspot could not express that.
+  function travelHopMinutes(cfg, lat1, lng1, lat2, lng2) {
+    var e = travelHop(cfg, travelZoneOf(cfg, lat1, lng1), travelZoneOf(cfg, lat2, lng2));
+    var m = e && Number(e.minutes);
+    return (m && isFinite(m)) ? Math.round(m) : 0;
+  }
+
+  function travelHopVia(cfg, lat1, lng1, lat2, lng2) {
+    var e = travelHop(cfg, travelZoneOf(cfg, lat1, lng1), travelZoneOf(cfg, lat2, lng2));
+    return (e && e.via) ? String(e.via) : '';
+  }
+
+  // Virtual extra MILES rather than minutes, so every existing numeric
+  // comparison keeps working unchanged — the codebase ranks in miles.
+  function travelPenaltyMi(cfg, lat1, lng1, lat2, lng2) {
+    var mins = travelHopMinutes(cfg, lat1, lng1, lat2, lng2);
+    return mins ? (mins / 60) * travelMph(cfg) : 0;
+  }
+
+  // A SORT KEY, NOT A FILTER.
+  function travelEffectiveMi(cfg, straightMi, lat1, lng1, lat2, lng2) {
+    var base = Number(straightMi);
+    if (!isFinite(base)) return 0;
+    return base + travelPenaltyMi(cfg, lat1, lng1, lat2, lng2);
+  }
+
+  function travelRoundTripH(cfg, effectiveMi) {
+    var e = Number(effectiveMi);
+    if (!isFinite(e)) return 0;
+    return (e / travelMph(cfg)) * 2;
+  }
+
+  // The SHAPE OF THE DAY. F1 decision 6: the reader's vocabulary for this is
+  // never distance. An Arctic Tern 110 mi out was "a half to full day
+  // excursion" and then "too far"; one 17 mi out across a ferry was worth "an
+  // excursion". "52 effective miles" answers neither question.
+  function travelDayBand(cfg, effectiveMi) {
+    var hours = travelRoundTripH(cfg, effectiveMi);
+    var bands = (cfg && cfg.bands) || [];
+    for (var i = 0; i < bands.length; i++) {
+      var cap = bands[i].max_round_trip_h;
+      if (cap === null || cap === undefined || hours < Number(cap)) {
+        return { id: String(bands[i].id || ''), label: String(bands[i].label || '') };
+      }
+    }
+    if (bands.length) {
+      var last = bands[bands.length - 1];
+      return { id: String(last.id || ''), label: String(last.label || '') };
+    }
+    return { id: '', label: '' };
+  }
+
+  // Integer arithmetic rather than toFixed: Python rounds half to EVEN and JS
+  // does not, so a formatted float is a silent parity failure waiting for the
+  // first x.5 value. floor(h * 2 + 0.5) means the same in both languages.
+  function travelHalfHours(hours) {
+    var h = Number(hours);
+    if (!isFinite(h) || h < 0) h = 0;
+    var halves = Math.floor(h * 2 + 0.5);
+    var whole = Math.floor(halves / 2);
+    return (halves % 2) ? (whole + '½') : String(whole);
+  }
+
+  function travelNote(cfg, straightMi, lat1, lng1, lat2, lng2) {
+    if (!travelHopMinutes(cfg, lat1, lng1, lat2, lng2)) return '';
+    var eff = travelEffectiveMi(cfg, straightMi, lat1, lng1, lat2, lng2);
+    var band = travelDayBand(cfg, eff);
+    var via = travelHopVia(cfg, lat1, lng1, lat2, lng2);
+    var parts = ['≈' + travelHalfHours(travelRoundTripH(cfg, eff)) + ' h round trip'];
+    if (band.label) parts.push(band.label);
+    if (via) parts.push(via);
+    return parts.join(' · ');
+  }
+
   // ---- F11/F12: species-first ranking --------------------------------------
   // Every other section starts from a PLACE or a rarity flag, so a bird that is
   // hard to find but not rare is invisible: a Western Kingbird never trips the
@@ -1597,6 +1744,16 @@
     anchorsFor: anchorsFor,
     nearestAnchor: nearestAnchor,
     annotateAnchorDistance: annotateAnchorDistance,
+    travelZoneOf: travelZoneOf,
+    travelZoneLabel: travelZoneLabel,
+    travelHopMinutes: travelHopMinutes,
+    travelHopVia: travelHopVia,
+    travelPenaltyMi: travelPenaltyMi,
+    travelEffectiveMi: travelEffectiveMi,
+    travelRoundTripH: travelRoundTripH,
+    travelDayBand: travelDayBand,
+    travelHalfHours: travelHalfHours,
+    travelNote: travelNote,
     dedupeObs: dedupeObs
   };
 }));

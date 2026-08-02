@@ -680,3 +680,126 @@ test('F9: a phase-2 row of a notable species is still a rarity', () => {
   ordinary.forEach((r) => assert.equal(r.kind, 'Need',
     'inheritance only fires when some notable feed actually flagged the species'));
 });
+
+// --- F1: travel zones — what a ferry costs ---------------------------------
+// Port Townsend is ~33 mi from home as the crow flies and about two and a
+// quarter hours away. These guard the mechanism AND, more importantly, the rule
+// that keeps it safe: the penalty ranks and labels, it never filters.
+const TZ = require(path.join(__dirname, '..', 'www', 'travel-zones.json'));
+
+const HOME = [47.75458, -122.15889];
+const KINGSTON = [47.7970, -122.4960];
+const MURDEN = [47.6470, -122.4950];   // Bainbridge — ferry-gated
+const OCEAN = [46.9260, -124.1710];    // Ocean Shores — plain mainland
+const MARYMOOR = [47.6585, -122.1180];
+
+test('travel zones: real places land in the zone they belong to', () => {
+  const cases = [
+    ['Marymoor', MARYMOOR, 'mainland'],
+    // The straight line from home crosses Puget Sound but I-5 drives around the
+    // south end, which is the case that killed the crossing-segment design.
+    ['Nisqually NWR', [47.0720, -122.7100], 'mainland'],
+    // Island COUNTY, reached by a bridge — free.
+    ['Camano Island', [48.2100, -122.4800], 'mainland'],
+    ['Ocean Shores', OCEAN, 'mainland'],
+    ['Murden Cove', MURDEN, 'kitsap'],
+    ['Point No Point', [47.9120, -122.5260], 'kitsap'],
+    ['Crockett Lake', [48.1900, -122.6600], 'whidbey'],
+    ['Port Townsend', [48.1120, -122.7600], 'olympic'],
+    ['Vashon Island', [47.4180, -122.4600], 'vashon'],
+    ['Gig Harbor', [47.3290, -122.5800], 'gig']
+  ];
+  cases.forEach(([name, pt, want]) => {
+    assert.equal(BL.travelZoneOf(TZ, pt[0], pt[1]), want,
+      name + ' is drawn into the wrong zone — a boundary error is silent, it ' +
+      'shows up as one town being mysteriously cheap');
+  });
+});
+
+test('travel zones: Camano is free and Vashon is not, so no per-county table works', () => {
+  // Island County holds Whidbey (ferry) AND Camano (bridge); King County holds
+  // home AND Vashon (ferry). A per-county penalty is wrong in both directions.
+  assert.equal(BL.travelHopMinutes(TZ, HOME[0], HOME[1], 48.2100, -122.4800), 0,
+    'Camano is reached by a bridge and must cost nothing');
+  assert.ok(BL.travelHopMinutes(TZ, HOME[0], HOME[1], 47.4180, -122.4600) > 0,
+    'Vashon is in King County like home, but needs a ferry');
+});
+
+test('travel zones: the penalty is between two POINTS, not a hotspot property', () => {
+  // Standing in Kingston, Kitsap is free and the Olympic peninsula is one
+  // bridge rather than a boat and a bridge. A `ferry: true` flag on the
+  // hotspot could never express that.
+  assert.equal(BL.travelHopMinutes(TZ, KINGSTON[0], KINGSTON[1], 47.9120, -122.5260), 0,
+    'from Kitsap, Point No Point is free');
+  const fromKingston = BL.travelHopMinutes(TZ, KINGSTON[0], KINGSTON[1], 48.1120, -122.7600);
+  const fromHome = BL.travelHopMinutes(TZ, HOME[0], HOME[1], 48.1120, -122.7600);
+  assert.ok(fromKingston > 0 && fromKingston < fromHome,
+    'Port Townsend must be cheaper from Kingston (' + fromKingston + ') than ' +
+    'from home (' + fromHome + ')');
+});
+
+test('travel zones: hops are symmetric', () => {
+  const a = BL.travelHopMinutes(TZ, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
+  const b = BL.travelHopMinutes(TZ, MURDEN[0], MURDEN[1], HOME[0], HOME[1]);
+  assert.equal(a, b, 'a crossing costs the same both ways');
+});
+
+test('travel zones: THE PENALTY MUST NEVER FILTER (F1 decision 5)', () => {
+  // The test that matters most. An Arctic Tern was available at Murden Cove
+  // (17 mi, ferry-gated) and Ocean Shores (110 mi, no boat). Murden Cove was
+  // chosen. If the penalty ever reaches an inclusion test the chosen bird
+  // disappears — and because rarities arrive through the geo feed, it
+  // disappears silently rather than merely ranking lower.
+  const straightMurden = 17.3;
+  const effMurden = BL.travelEffectiveMi(TZ, straightMurden, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
+
+  assert.ok(straightMurden <= 35,
+    'Murden Cove is inside a 35 mi straight-line radius and must stay there');
+  assert.ok(effMurden > 35,
+    'Murden Cove is beyond 35 EFFECTIVE miles — if this ever stops being true ' +
+    'the test has stopped testing anything and must be re-derived');
+
+  // Ranking — the thing the penalty is actually for — still prefers what was
+  // chosen. A ferry is a cost, not a veto.
+  const effOcean = BL.travelEffectiveMi(TZ, 110.2, HOME[0], HOME[1], OCEAN[0], OCEAN[1]);
+  assert.ok(effMurden < effOcean,
+    'ranking must prefer Murden Cove (' + effMurden.toFixed(0) + ') over Ocean ' +
+    'Shores (' + effOcean.toFixed(0) + '), as the reader did');
+});
+
+test('travel zones: the label is the shape of the day, not the mileage (F1 decision 6)', () => {
+  const effMurden = BL.travelEffectiveMi(TZ, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
+  const effOcean = BL.travelEffectiveMi(TZ, 110.2, HOME[0], HOME[1], OCEAN[0], OCEAN[1]);
+  assert.equal(BL.travelDayBand(TZ, effMurden).id, 'half',
+    'Murden Cove was worth "an excursion"');
+  assert.equal(BL.travelDayBand(TZ, effOcean).id, 'full',
+    'Ocean Shores was "a half to full day excursion" and then "too far"');
+  assert.equal(BL.travelDayBand(TZ, 7).id, 'quick', 'Marymoor is a quick outing');
+
+  const note = BL.travelNote(TZ, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
+  assert.match(note, /round trip/, 'the note leads with time, not distance');
+  assert.match(note, /half day/);
+  assert.match(note, /ferry/, 'and says how you would cross');
+  assert.equal(BL.travelNote(TZ, 7, HOME[0], HOME[1], MARYMOOR[0], MARYMOOR[1]), '',
+    'a place with no water in the way stays uncluttered');
+});
+
+test('travel zones: half-hour formatting avoids the round-half-to-even trap', () => {
+  // Python rounds half to EVEN and JS toFixed does not, so a formatted float
+  // is a silent cross-language parity failure waiting for the first x.5 value.
+  assert.equal(BL.travelHalfHours(3), '3');
+  assert.equal(BL.travelHalfHours(3.25), '3½');
+  assert.equal(BL.travelHalfHours(2.5), '2½');
+  assert.equal(BL.travelHalfHours(3.5), '3½');
+  assert.equal(BL.travelHalfHours(0), '0');
+});
+
+test('travel zones: a missing or empty config degrades to no penalty', () => {
+  // The badge is an enhancement. An app that ranks Port Townsend a little too
+  // kindly is better than one that throws while drawing a list.
+  assert.equal(BL.travelZoneOf({}, MURDEN[0], MURDEN[1]), 'mainland');
+  assert.equal(BL.travelHopMinutes({}, HOME[0], HOME[1], MURDEN[0], MURDEN[1]), 0);
+  assert.equal(BL.travelEffectiveMi({}, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]), 17.3);
+  assert.equal(BL.travelNote({}, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]), '');
+  assert.equal(BL.travelZoneOf(TZ, null, undefined), 'mainland');
+});
