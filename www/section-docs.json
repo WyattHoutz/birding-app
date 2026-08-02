@@ -181,7 +181,7 @@
         "Drop anything you have already seen this year, using the taxonomy parent chain so a subspecies of a bird you have seen does not read as unseen.",
         "Apply the chaseability gate (see limits) — a bird you cannot legally go and look at is not a target.",
         "Cluster what remains to 250 m so ten reports from one pond become one place.",
-        "Measure each cluster to the NEAREST anchor, home or work, so a spot by the office ranks on its short hop rather than its long drive from home, and say which anchor it was measured from.",
+        "Measure each cluster from home. There used to be a second fixed anchor, the workplace, so a spot by the office ranked on its short hop; it was retired because a stored workplace is a guess about where you will be, and the app's current-location anchor is not.",
         "Keep one record per species per cluster (the most recent), sort rarities first, then sort the clusters closest-first.",
         "Show everything within 30 mi, at least the 10 nearest, never more than 40."
       ],
@@ -198,7 +198,7 @@
         "ref/hotspot/geo around the chosen anchor"
       ],
       "how": [
-        "Pick the anchor — home, work, or your current location. Home is the default, which is what the Markdown report uses.",
+        "Pick the anchor — home, your current location, or a place you search for. Home is the default, which is what the Markdown report uses.",
         "Hotspots are scored on all-time species with a distance decay, so a 40-species puddle two minutes away does not beat a real site.",
         "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
         "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
@@ -439,7 +439,7 @@
       "inputs": [],
       "how": [
         "Everything here is stored on this device only.",
-        "Home, work and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island."
+        "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island."
       ],
       "limits": []
     }

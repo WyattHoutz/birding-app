@@ -67,7 +67,6 @@
         { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }
       ],
       home: { lat: 47.7616, lng: -122.1447 }, homeLabel: 'Woodinville, WA',
-      work: { lat: 47.6591, lng: -122.1415 }, workLabel: 'Redmond',
       geoDistKm: 50, dailyDriveMi: 12, tideStation: '9447130',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: '',
       tzStdOffset: -8, tzObservesDst: true
@@ -1349,23 +1348,25 @@
     return out;
   }
 
-  // ---- anchors (home + optional work) --------------------------------------
-  // report.py builds the same [("home", lat, lon), ("work", lat, lon)] list in
+  // ---- anchors (home, plus whatever transient one the reader picked) --------
+  // report.py builds the same [("home", lat, lon)] list in
   // section_closest_spots, the quick-outing section and cold hotspots, and
-  // ranks each candidate on the distance to the NEAREST one -- so a park by
-  // the office ranks on its short work-hop, not its longer home distance.
+  // ranks each candidate on the distance to the NEAREST one.
   //
-  // Measured on the live WA feeds 2026-07-28: of 138 distinct locations,
-  // **59 (43%) are closer to work than to home** and 35 are more than 3 miles
-  // closer (Cedar River mouth: 18.3 mi from home, 11.5 mi from work). The app
-  // knew only about home, which is why its Closest spots / Quick outing /
-  // Trip planner rows never matched the Markdown report.
+  // There used to be a second FIXED anchor here, the workplace. F1 step 1
+  // retired it. It was measurably useful for ranking -- of 138 live WA
+  // locations, 59 (43%) were closer to the office than to home -- but it was a
+  // STORED GUESS about where you would be, hand-kept in sync with a geocode,
+  // and it could not serve the office, a friend's house, a lunch break
+  // somewhere new, or being away on a trip. The app replaced it with a
+  // transient `here` / `found` anchor, which is not a guess; the Markdown
+  // report simply has one pin, because a file generated hours ago cannot know
+  // where you are standing.
   //
-  // The second anchor is deliberately a RANKING input and not a coverage one:
-  // a work-centred 50 km feed circle would have added just 2 of those 138
-  // locations, because Redmond is only 7 miles from Woodinville. Fetching a
-  // second geo feed would double that cost for a 1.4% gain, so anchors never
-  // touch planFeeds().
+  // Anchors were, and remain, a RANKING input and never a coverage one: a
+  // work-centred 50 km feed circle would have added just 2 of those 138
+  // locations, because Redmond is only 7 miles from Woodinville -- double the
+  // fetch for a 1.4% gain. Anchors never touch planFeeds().
   function anchorsFor(profile, opts) {
     opts = opts || {};
     profile = profile || {};
@@ -1373,9 +1374,11 @@
     var h = opts.home !== undefined ? opts.home : profile.home;
     if (h && isFinite(h.lat) && isFinite(h.lng))
       out.push({ name: 'home', lat: +h.lat, lng: +h.lng });
-    var w = opts.work !== undefined ? opts.work : profile.work;
-    if (w && isFinite(w.lat) && isFinite(w.lng))
-      out.push({ name: 'work', lat: +w.lat, lng: +w.lng });
+    // A transient anchor (current location, or a searched place) ranks exactly
+    // as the work anchor used to, but is never stored as a waypoint.
+    var t = opts.here;
+    if (t && isFinite(t.lat) && isFinite(t.lng))
+      out.push({ name: t.name || 'here', lat: +t.lat, lng: +t.lng });
     return out;
   }
 
