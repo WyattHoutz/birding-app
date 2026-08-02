@@ -522,6 +522,36 @@ additionally proves `index.html`'s wired data layer (`getChase()`) reproduces
 the golden destinations / excursions, and that `planFeeds` file names match the
 `mergePlan` map keys for all 9 reports.
 
+### Files authored once and shipped twice
+
+Three data files live in **both** repos and are compared **byte-for-byte**, not
+"equivalent JSON" — a vendored copy that may drift is not a shared file, and
+comparing parsed objects would let formatting rot silently until someone diffed
+them by hand.
+
+| file | what it carries | guarded by |
+|---|---|---|
+| `www/section-docs.json` | the "how is this calculated" note per section | `test_section_docs.py` |
+| `www/scope-sites.json` | hotspots where a scope changes what you can ID (🔭) | `test_scope_sites.py` |
+| `www/travel-zones.json` | what a ferry or bridge costs, as travel zones | `test_travel_zones.py` |
+
+Because the comparison is byte-level, **line endings are content**. All three
+are pinned `text eol=lf` in the `.gitattributes` of *both* repos: these are
+separate checkouts with independent `core.autocrlf`, so pinning one side only
+narrows the window rather than closing it. Adding a fourth shared file means
+editing two `.gitattributes`.
+
+`travel-zones.json` additionally has its **logic** shared: `travel.py` and the
+`travel*` functions in `www/logic.js` are ports of each other, and
+`test_travel_zones.py` runs both over the same 28 anchor/place pairs. The rule
+that keeps it safe is that the water penalty **ranks and labels but never
+filters** — every entry point takes the straight-line distance as an argument
+rather than computing one, so nothing can substitute a penalised distance into
+an inclusion test. That is not a stylistic preference: a real chase showed a
+ferry-gated hotspot 17 mi away scores 52 effective miles, so a penalised 35 mi
+radius would have dropped it — and since rarities arrive through the geo feed,
+dropped it invisibly rather than merely ranking it lower.
+
 ## County-scoped auxiliary panels
 
 Beyond the chase engine, the auxiliary panels — BirdCast, time-of-day
