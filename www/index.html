@@ -1058,6 +1058,16 @@
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
       <p class="hint">Pick which birding report to chase. Every section below matches that report's counties, home base, and seen-species list exactly.</p>
+      <label for="tripName">My regions &amp; trips</label>
+      <div id="myRegions"></div>
+      <div class="row">
+        <div style="flex:1 1 auto"><input id="tripName" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Victoria BC — Thanksgiving" /></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><input id="tripPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Where you'll be staying" /></div>
+        <button id="addTripBtn" class="secondary" type="button">Add</button>
+      </div>
+      <p class="hint" id="tripStatus">Add your own region for a trip and chase from wherever you're staying. Type a name and the place you'll sleep &mdash; the coordinate, region code and time zone are worked out from it. A new region starts with an <strong>empty</strong> seen list, which on a trip is very nearly true, so every bird counts as one you still need.</p>
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" readonly />
       <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
@@ -1143,7 +1153,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.45';
+      var APP_VERSION = '1.0.46';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1273,13 +1283,146 @@
         var t = String(q || '').trim();
         return t ? mapProvider().point(t) : '';
       }
-      // Active report (one of BirdLogic's 9 report slugs). Selecting a report
-      // scopes every chase section to exactly what the Markdown report computes.
+      // ---- F25: user-defined regions (trips) -------------------------------
+      // regions.py is compiled into the report generator, so a region invented
+      // on the phone can never appear in the Markdown report. That makes this
+      // app-only BY FORCE rather than by choice, and PARITY.md records it the
+      // same way it records "near me".
+      //
+      // Deliberately kept OUT of logic.js: that module is proven equal to
+      // regions.py by the parity suite, so adding user rows to its REPORTS map
+      // would make the two disagree by design. Custom regions are merged in
+      // this layer, on top of BirdLogic, and logic.js never learns about them.
+      var CUSTOM_KEY = 'ebird_custom_regions';
+      var CUSTOM_PREFIX = 'u-';   // namespaced so it can never collide with a built-in
+
+      function getCustomRegions() {
+        var out = [];
+        try {
+            var raw = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]');
+            if (!Array.isArray(raw)) return [];
+            raw.forEach(function (r) {
+                if (!r || typeof r !== 'object') return;
+                var slug = String(r.slug || '');
+                // A built-in slug here would shadow a real region, so refuse it.
+                if (slug.indexOf(CUSTOM_PREFIX) !== 0) return;
+                if (BL && BL.REPORTS && BL.REPORTS[slug]) return;
+                if (!isFinite(+r.lat) || !isFinite(+r.lng)) return;
+                out.push({
+                    slug: slug, label: String(r.label || slug), place: String(r.place || ''),
+                    lat: +r.lat, lng: +r.lng, stateCode: String(r.stateCode || ''),
+                    tideStation: String(r.tideStation || ''),
+                    tzStdOffset: isFinite(+r.tzStdOffset) ? +r.tzStdOffset : 0,
+                    tzObservesDst: r.tzObservesDst !== false
+                });
+            });
+        } catch (e) { return []; }
+        return out;
+      }
+
+      function saveCustomRegions(list) {
+        try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(list || [])); } catch (e) {}
+      }
+
+      function isCustomSlug(slug) {
+        return getCustomRegions().some(function (r) { return r.slug === slug; });
+      }
+
+      // A user region is GEO-ONLY (counties: []). That is not a stopgap - it is
+      // an already-supported shape, because the rarity trackers ship no county
+      // feeds either. When F1 step 4 lands and counties are derived from the
+      // radius, these regions gain county feeds without changing here.
+      //
+      // birdlistSlug is '' on purpose, so the seen list starts EMPTY. On a trip
+      // that is very nearly true, and it makes a new region useful the moment
+      // it is created rather than after an import.
+      function customProfile(rec) {
+        return {
+            slug: rec.slug, label: rec.label, kind: 'trip',
+            stateCode: rec.stateCode || '',
+            counties: [],
+            home: { lat: rec.lat, lng: rec.lng },
+            homeLabel: rec.place || rec.label,
+            geoDistKm: 50, dailyDriveMi: (BL && BL.CONST && BL.CONST.DAILY_DRIVE_MI) || 12,
+            tideStation: rec.tideStation || '',
+            geoFeed: true, isRarityTracker: false,
+            birdlistSlug: '', seenFromRegion: '',
+            tzStdOffset: rec.tzStdOffset, tzObservesDst: rec.tzObservesDst !== false,
+            custom: true
+        };
+      }
+
+      function allReportsList() {
+        var built = (BL.reports() || []).slice();
+        getCustomRegions().forEach(function (r) {
+            built.push({ slug: r.slug, label: r.label, kind: 'trip',
+                         isRarityTracker: false, stateCode: r.stateCode || '', custom: true });
+        });
+        return built;
+      }
+
+      // Every per-region key is slug-suffixed, so deleting a region has to sweep
+      // them all. Without this, storage grows a dead trip every holiday - and
+      // the compressed chase snapshot is the big one.
+      function deleteCustomRegion(slug) {
+        var list = getCustomRegions().filter(function (r) { return r.slug !== slug; });
+        saveCustomRegions(list);
+        var doomed = [];
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (!k) continue;
+            if (k.indexOf(':' + slug) >= 0 &&
+                (k.indexOf('ebird_home_') === 0 || k.indexOf('ebird_tide_station') === 0)) {
+                doomed.push(k);
+            } else if (k.indexOf(CHASE_NS + slug + ':') === 0 ||
+                       k.indexOf('bc_snap:' + slug + ':') === 0) {
+                doomed.push(k);
+            }
+        }
+        doomed.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+        // Deleting the region you are LOOKING AT must not leave the app
+        // pointed at a slug that no longer resolves.
+        if (getReportSlug() === slug || localStorage.getItem(K.report) === slug) {
+            localStorage.setItem(K.report, 'wa');
+            setActiveReport('wa');
+        }
+        return doomed.length;
+      }
+
+      function slugifyRegion(label) {
+        var base = String(label || '').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28) || 'trip';
+        var slug = CUSTOM_PREFIX + base, n = 2;
+        var taken = {};
+        getCustomRegions().forEach(function (r) { taken[r.slug] = 1; });
+        while (taken[slug] || (BL && BL.REPORTS && BL.REPORTS[slug])) {
+            slug = CUSTOM_PREFIX + base + '-' + (n++);
+        }
+        return slug;
+      }
+
+      // Standard-time offset from LONGITUDE. Crude, and right for the cases that
+      // matter here: Victoria BC -123.4 -> -8 (PST), Waikoloa -155.8 -> -10
+      // (HST), Woodinville -122.3 -> -8. It only drives time-of-day labels, so
+      // an error costs a mislabelled hour, not a wrong bird. Hawaii-Aleutian is
+      // the one common zone that does not observe DST.
+      function tzFromLng(lng) {
+        var off = Math.round(Number(lng) / 15);
+        return { tzStdOffset: off, tzObservesDst: off !== -10 };
+      }
+
+      // Active report: a built-in slug, or one of the user's own regions.
       function getReportSlug() {
         var s = (localStorage.getItem(K.report) || '').trim().toLowerCase();
-        return (BL && BL.REPORTS && BL.REPORTS[s]) ? s : 'wa';
+        if (BL && BL.REPORTS && BL.REPORTS[s]) return s;
+        if (s && isCustomSlug(s)) return s;
+        return 'wa';
       }
-      function getReport() { return BL.profileFor(getReportSlug()); }
+      function getReport() {
+        var s = getReportSlug();
+        var mine = getCustomRegions().filter(function (r) { return r.slug === s; })[0];
+        return mine ? customProfile(mine) : BL.profileFor(s);
+      }
       // Home coordinate and tide station are PER REPORT: chasing from
       // Woodinville is meaningless on the Big Island, and every regions.py
       // profile already ships its own home coord as the fallback. Values saved
@@ -9087,6 +9230,74 @@
       }
       function populateReportSelect() {
         fillRegionSelect($('reportSelect'));
+        renderMyRegions();
+      }
+
+      // The list of the user's own regions, each with a delete control.
+      // Built-ins are deliberately absent: they are not deletable, and showing
+      // them with a disabled button would only invite the tap.
+      function renderMyRegions() {
+        var host = $('myRegions');
+        if (!host) return;
+        var mine = getCustomRegions();
+        host.innerHTML = '';
+        if (!mine.length) {
+            var p = document.createElement('p');
+            p.className = 'hint';
+            p.textContent = 'No regions of your own yet.';
+            host.appendChild(p);
+            return;
+        }
+        mine.forEach(function (r) {
+            var row = document.createElement('div');
+            row.className = 'row';
+            var t = document.createElement('div');
+            t.style.cssText = 'flex:1 1 auto;min-width:0';
+            t.innerHTML = '<strong></strong><br><span class="hint"></span>';
+            t.querySelector('strong').textContent = r.label;
+            t.querySelector('.hint').textContent =
+                (r.place || (r.lat.toFixed(3) + ', ' + r.lng.toFixed(3))) +
+                (r.stateCode ? ' · ' + r.stateCode : '');
+            var del = document.createElement('button');
+            del.className = 'secondary';
+            del.type = 'button';
+            del.textContent = 'Delete';
+            del.setAttribute('data-slug', r.slug);
+            del.addEventListener('click', function () {
+                if (!window.confirm('Delete "' + r.label + '"? Its home, tides and cached chases go with it.')) return;
+                var n = deleteCustomRegion(r.slug);
+                renderMyRegions();
+                ['menuRegion', 'navRegion', 'reportSelect'].forEach(function (id) {
+                    if ($(id)) fillRegionSelect($(id));
+                });
+                if ($('reportSelect')) $('reportSelect').value = getReportSlug();
+                var st = $('tripStatus');
+                if (st) st.textContent = 'Deleted "' + r.label + '" and swept ' + n + ' stored value' + (n === 1 ? '' : 's') + '.';
+            });
+            row.appendChild(t);
+            row.appendChild(del);
+            host.appendChild(row);
+        });
+      }
+
+      // eBird has no reverse-geocode, but ref/hotspot/geo returns hotspots
+      // carrying subnational1Code, so the state/province is DERIVED from the
+      // coordinate rather than typed. The modal value wins, because a point
+      // near a border legitimately returns both sides.
+      function deriveRegionCode(lat, lng) {
+        return ebird('ref/hotspot/geo?lat=' + lat.toFixed(4) + '&lng=' + lng.toFixed(4) +
+                     '&dist=30&back=30&fmt=json')
+            .then(function (hs) {
+                var tally = {}, best = '', n = 0;
+                (hs || []).forEach(function (h) {
+                    var c = h && h.subnational1Code;
+                    if (!c) return;
+                    tally[c] = (tally[c] || 0) + 1;
+                    if (tally[c] > n) { n = tally[c]; best = c; }
+                });
+                return best;
+            })
+            .catch(function () { return ''; });
       }
       // --- region switcher ---------------------------------------------------
       // The project publishes nine reports; the picker in the Contents header
@@ -9094,13 +9305,18 @@
       // report", so switching from anywhere sticks and is what the app opens
       // on next launch.
       function fillRegionSelect(sel) {
-        if (!sel || sel.dataset.filled) return;
-        (BL.reports() || []).forEach(function (r) {
+        if (!sel) return;
+        // Rebuilt rather than filled-once: adding or deleting a region has to
+        // show up in every picker immediately, not after a restart.
+        var cur = sel.value;
+        sel.innerHTML = '';
+        (allReportsList() || []).forEach(function (r) {
           var o = document.createElement('option');
           o.value = r.slug;
           o.textContent = r.label + (r.kind === 'trip' ? ' (trip)' : '') + (r.isRarityTracker ? ' — rarities' : '');
           sel.appendChild(o);
         });
+        if (cur) sel.value = cur;
         sel.dataset.filled = '1';
       }
       function bindRegionPickers() {
@@ -9564,6 +9780,43 @@
       $('navBack').addEventListener('click', function () { showMenu(); });
       bindSwipeBack();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
+      $('addTripBtn').addEventListener('click', function () {
+        var label = ($('tripName').value || '').trim();
+        var place = ($('tripPlace').value || '').trim();
+        var st = $('tripStatus'), btn = this;
+        if (!label) { st.textContent = 'Give the region a name first.'; return; }
+        if (!place) { st.textContent = 'Type where you\u2019ll be staying \u2014 a city, address, or "lat, lng".'; return; }
+        btn.disabled = true;
+        st.textContent = 'Looking up \u201c' + place + '\u201d\u2026';
+        geocodePlace(place).then(function (res) {
+          st.textContent = 'Found ' + res.label + ' \u2014 working out the eBird region\u2026';
+          // The region code is derived, never typed. A failure here is not fatal:
+          // the region still works from its geo feeds, it just has no
+          // state-scoped species/notable lane until it is set.
+          return deriveRegionCode(res.lat, res.lng).then(function (code) {
+            var tz = tzFromLng(res.lng);
+            var rec = {
+              slug: slugifyRegion(label), label: label, place: res.label,
+              lat: res.lat, lng: res.lng, stateCode: code, tideStation: '',
+              tzStdOffset: tz.tzStdOffset, tzObservesDst: tz.tzObservesDst
+            };
+            var list = getCustomRegions();
+            list.push(rec);
+            saveCustomRegions(list);
+            $('tripName').value = ''; $('tripPlace').value = '';
+            renderMyRegions();
+            ['menuRegion', 'navRegion', 'reportSelect'].forEach(function (id) {
+              if ($(id)) fillRegionSelect($(id));
+            });
+            if ($('reportSelect')) $('reportSelect').value = getReportSlug();
+            st.textContent = 'Added \u201c' + label + '\u201d' +
+              (code ? ' in ' + code : ' (no eBird region resolved \u2014 it will chase from its own map circle)') +
+              '. Pick it in Default report to start chasing there.';
+          });
+        }).catch(function (e) {
+          st.textContent = (e && e.message) ? e.message : 'Could not find that place.';
+        }).finally(function () { btn.disabled = false; });
+      });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
       $('mapProvider').addEventListener('change', function () { setMapProvider(this.value); });
       $('favSearchBtn').addEventListener('click', runFavSearch);
@@ -9842,7 +10095,7 @@
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
-        getReportSlug: getReportSlug, menuApplies: menuApplies, setActiveReport: setActiveReport,
+        getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
@@ -9859,6 +10112,10 @@
         renderLastNew: renderLastNew, favInteresting: favInteresting, favDetailHtml: favDetailHtml,
         birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
         getAnchors: getAnchors,
+      getCustomRegions: getCustomRegions, saveCustomRegions: saveCustomRegions,
+      deleteCustomRegion: deleteCustomRegion, slugifyRegion: slugifyRegion,
+      customProfile: customProfile, allReportsList: allReportsList,
+      renderMyRegions: renderMyRegions, tzFromLng: tzFromLng,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         unseenPlacesHtml: unseenPlacesHtml, UNSEEN_PLACES_SHOWN: UNSEEN_PLACES_SHOWN,
         speciesPlacesCard: speciesPlacesCard, easySpotsToPlaces: easySpotsToPlaces,

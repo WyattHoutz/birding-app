@@ -522,8 +522,35 @@ additionally proves `index.html`'s wired data layer (`getChase()`) reproduces
 the golden destinations / excursions, and that `planFeeds` file names match the
 `mergePlan` map keys for all 9 reports.
 
-### A deliberate asymmetry: "near me" is app-only
+### A second deliberate asymmetry: regions you add yourself are app-only
 
+`regions.py` is a Python module compiled into the report generator, so **a region
+invented on the phone can never appear in the Markdown report.** Like "near me"
+above, this is a real feature difference and not a presentation one.
+
+The report ships nine committed regions. The app shows those *plus* any the
+reader adds — a trip to Victoria BC, a week in Hawaii — each with its own home,
+its own chase radius, and its own cached feeds.
+
+Three rules keep this from becoming drift:
+
+1. **`logic.js` never learns about them.** That module is proven equal to
+   `regions.py` by the parity suite, so a user row in its `REPORTS` map would
+   make the two disagree *by design*. User regions are merged one layer up, in
+   `index.html`, on top of `BirdLogic`.
+2. **Their slugs are namespaced** (`u-…`) and validated on read, so a stored
+   region can never shadow a built-in — an edited export naming itself `wa`
+   is refused rather than silently replacing Washington.
+3. **They are geo-only** (`counties: []`), which is not a special case: the
+   rarity trackers already ship no county feeds, so `planFeeds` needs no new
+   branch. When F1 step 4 derives counties from the chase radius, user regions
+   gain county feeds with no change here.
+
+A user region deliberately starts with an **empty seen list**, because it has no
+`birdlist-*.md` behind it. On a trip that is very nearly the truth, and it means
+a new region is useful the moment it is created rather than after an import.
+
+### A deliberate asymmetry: "near me" is app-only
 The report ranks everything from **home, and only home**. The app ranks from home
 *or* your current location *or* a place you search for.
 

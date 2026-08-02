@@ -5061,3 +5061,141 @@ test('tapping a species in the match list runs the lookup', async () => {
   assert.equal(hit.length, 1, 'tapping a match actually looks it up');
   app.window.close();
 });
+
+/*
+ * F25: regions and trips the user adds in the app.
+ *
+ * regions.py is compiled into the report generator, so a region invented on the
+ * phone can never reach the Markdown report. That makes this app-only BY FORCE,
+ * and the tests below guard the parts that bite rather than the happy path.
+ */
+test('a user region is geo-only, starts unseen, and never touches logic.js', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rec = { slug: 'u-victoria-bc', label: 'Victoria BC', place: 'Victoria, BC',
+                lat: 48.4284, lng: -123.3656, stateCode: 'CA-BC',
+                tzStdOffset: -8, tzObservesDst: true };
+  const p = A.customProfile(rec);
+
+  // Geo-only scope. Not a stopgap — the rarity trackers ship no counties either,
+  // so this is an already-supported shape and planFeeds needs no new branch.
+  // JSON.stringify rather than deepEqual: these objects come from jsdom's realm,
+  // and deepEqual compares prototypes.
+  assert.equal(JSON.stringify(p.counties), '[]', 'a user region has no county feeds');
+  assert.equal(p.geoFeed, true, 'it gathers from its own map circle instead');
+  const jobs = app.window.BirdLogic.planFeeds(p);
+  assert.ok(jobs.length > 0, 'and that still produces a usable feed plan');
+  assert.ok(jobs.every((j) => !/US-|CA-/.test(j.file || '') || /geo/.test(j.file || '')),
+    'every job is a geo job — there is no county lane to scope');
+
+  // An empty seen list is CORRECT for a trip: nearly everything is genuinely new,
+  // and it makes the region useful the moment it is created.
+  assert.equal(p.birdlistSlug, '', 'no bundled year list, so everything reads unseen');
+
+  // logic.js is proven equal to regions.py by the parity suite. A user row in its
+  // registry would make the two disagree by design.
+  assert.equal(app.window.BirdLogic.REPORTS['u-victoria-bc'], undefined,
+    'the shared registry must never learn about a user region');
+});
+
+test('a user region cannot shadow a built-in', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Hand-written storage is the realistic attack: an edited export, or an older
+  // build that wrote a different shape.
+  app.window.localStorage.setItem('ebird_custom_regions', JSON.stringify([
+    { slug: 'wa', label: 'Fake Washington', lat: 1, lng: 2 },
+    { slug: 'u-ok', label: 'Fine', lat: 48.4, lng: -123.3 },
+    { slug: 'u-nocoord', label: 'No coordinate' }
+  ]));
+  const mine = A.getCustomRegions();
+  assert.equal(JSON.stringify(mine.map((r) => r.slug)), JSON.stringify(['u-ok']),
+    'an un-namespaced slug and a region with no coordinate are both refused');
+
+  // And a generated slug never collides either.
+  app.window.localStorage.setItem('ebird_custom_regions', JSON.stringify([
+    { slug: 'u-victoria-bc', label: 'Victoria BC', lat: 48.4, lng: -123.3 }
+  ]));
+  assert.equal(A.slugifyRegion('Victoria BC'), 'u-victoria-bc-2',
+    'a second region of the same name gets its own slug');
+  assert.equal(A.slugifyRegion('Washington'), 'u-washington',
+    'and a user region is namespaced away from the built-in slug');
+});
+
+test('deleting a region sweeps every per-region key it left behind', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const w = app.window;
+  w.localStorage.setItem('ebird_custom_regions', JSON.stringify([
+    { slug: 'u-trip', label: 'A trip', lat: 48.4, lng: -123.3 }
+  ]));
+  // Everything a region accumulates. The chase snapshot is the big one — the
+  // durable cache stores a compressed copy of every feed.
+  w.localStorage.setItem('ebird_home_lat:u-trip', '48.4');
+  w.localStorage.setItem('ebird_home_lng:u-trip', '-123.3');
+  w.localStorage.setItem('ebird_home_place:u-trip', 'Victoria');
+  w.localStorage.setItem('ebird_tide_station:u-trip', '9443090');
+  w.localStorage.setItem('ebird_chase_v1:u-trip:2026-08-02', 'z:xxxx');
+  w.localStorage.setItem('bc_snap:u-trip:2026-08-02', '["abc"]');
+  // A neighbour that must survive.
+  w.localStorage.setItem('ebird_home_lat:wa', '47.75');
+
+  A.deleteCustomRegion('u-trip');
+
+  ['ebird_home_lat:u-trip', 'ebird_home_lng:u-trip', 'ebird_home_place:u-trip',
+   'ebird_tide_station:u-trip', 'ebird_chase_v1:u-trip:2026-08-02',
+   'bc_snap:u-trip:2026-08-02'].forEach((k) => {
+    assert.equal(w.localStorage.getItem(k), null,
+      k + ' must go with the region, or storage grows a dead trip every holiday');
+  });
+  assert.equal(w.localStorage.getItem('ebird_home_lat:wa'), '47.75',
+    'another region must not be swept with it');
+  assert.equal(JSON.stringify(A.getCustomRegions()), '[]', 'and the region itself is gone');
+});
+
+test('deleting the region you are looking at falls back to a built-in', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const w = app.window;
+  w.localStorage.setItem('ebird_custom_regions', JSON.stringify([
+    { slug: 'u-trip', label: 'A trip', lat: 48.4, lng: -123.3 }
+  ]));
+  w.localStorage.setItem('ebird_report', 'u-trip');
+  assert.equal(A.getReportSlug(), 'u-trip', 'the user region is selectable');
+  assert.equal(A.getReport().label, 'A trip', 'and resolves to its own profile');
+
+  A.deleteCustomRegion('u-trip');
+  assert.equal(A.getReportSlug(), 'wa',
+    'deleting the active region must not leave the app on a slug that cannot resolve');
+
+  // The same must hold for a stored slug that was never valid.
+  w.localStorage.setItem('ebird_report', 'u-does-not-exist');
+  assert.equal(A.getReportSlug(), 'wa', 'an unknown slug falls back rather than throwing');
+});
+
+test('the region pickers offer user regions alongside the built-ins', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const before = A.allReportsList().length;
+  app.window.localStorage.setItem('ebird_custom_regions', JSON.stringify([
+    { slug: 'u-victoria-bc', label: 'Victoria BC', lat: 48.4284, lng: -123.3656 }
+  ]));
+  const after = A.allReportsList();
+  assert.equal(after.length, before + 1, 'the user region joins the list');
+  const mine = after[after.length - 1];
+  assert.equal(mine.slug, 'u-victoria-bc');
+  assert.equal(mine.kind, 'trip', 'and reads as a trip, like Fort Casey and Waikoloa');
+});
+
+test('the time zone is derived from longitude, which is right where it matters', async () => {
+  const app = await boot();
+  const { tzFromLng } = app.window.__app;
+  // Crude, and correct for the cases this feature exists for. It only drives
+  // time-of-day labels, so an error costs a mislabelled hour, not a wrong bird.
+  assert.equal(tzFromLng(-123.3656).tzStdOffset, -8, 'Victoria BC is PST');
+  assert.equal(tzFromLng(-155.8).tzStdOffset, -10, 'Waikoloa is HST');
+  assert.equal(tzFromLng(-122.1447).tzStdOffset, -8, 'Woodinville is PST');
+  assert.equal(tzFromLng(-155.8).tzObservesDst, false,
+    'Hawaii does not observe DST, and it is the one common zone that does not');
+  assert.equal(tzFromLng(-123.3656).tzObservesDst, true, 'British Columbia does');
+});
