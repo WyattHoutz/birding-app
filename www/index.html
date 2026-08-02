@@ -1163,7 +1163,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.43';
+      var APP_VERSION = '1.0.44';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2885,16 +2885,137 @@
       // promises exist at once. Kept at the gate's concurrency so the two
       // cannot disagree - 6-wide batches are exactly what the device log shows
       // arriving as a spike.
+      // --- Compressed localStorage payloads ---------------------------------
+      // A chase snapshot is ~800 KB of JSON, which is a lot of a phone's
+      // storage budget to spend on plaintext that is ~90% repeated field names.
+      // gzip via CompressionStream is native on iOS 16.4+ (this app's floor is
+      // well above that) and needs no dependency.
+      //
+      // Base64 costs a third back on top of the compressed bytes, which is
+      // still an enormous net win — localStorage holds strings, so binary has
+      // to be encoded somehow.
+      //
+      // Every payload carries its own format tag, so a value written by a build
+      // WITHOUT compression stays readable by one with it and vice versa.
+      // Without the tag, a rollback would leave unreadable garbage that looks
+      // like corruption rather than a format change.
+      var PACK_Z = 'z:', PACK_RAW = 'j:';
+      function bytesToB64(bytes) {
+        // Chunked: String.fromCharCode.apply on a whole 100 KB array blows the
+        // argument limit and throws RangeError.
+        var CH = 0x8000, parts = [];
+        for (var i = 0; i < bytes.length; i += CH) {
+          parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CH)));
+        }
+        return btoa(parts.join(''));
+      }
+      function b64ToBytes(s) {
+        var bin = atob(s), n = bin.length, a = new Uint8Array(n);
+        for (var i = 0; i < n; i++) a[i] = bin.charCodeAt(i);
+        return a;
+      }
+      function packJson(obj) {
+        var json;
+        try { json = JSON.stringify(obj); } catch (e) { return Promise.reject(e); }
+        // Response.body rather than Blob.stream(): one fewer API to be present,
+        // and it is the formulation that works identically in the webview and
+        // under test.
+        if (typeof CompressionStream !== 'function' || typeof Response !== 'function') {
+          return Promise.resolve(PACK_RAW + json);
+        }
+        try {
+          var body = new Response(json).body;
+          if (!body || typeof body.pipeThrough !== 'function') return Promise.resolve(PACK_RAW + json);
+          return new Response(body.pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
+            .then(function (buf) { return PACK_Z + bytesToB64(new Uint8Array(buf)); })
+            // Compression is an optimisation, never a requirement: anything
+            // that goes wrong falls back to the readable form.
+            .catch(function () { return PACK_RAW + json; });
+        } catch (e) { return Promise.resolve(PACK_RAW + json); }
+      }
+      function unpackJson(s) {
+        if (typeof s !== 'string' || !s) return Promise.resolve(null);
+        if (s.slice(0, 2) === PACK_RAW) {
+          try { return Promise.resolve(JSON.parse(s.slice(2))); }
+          catch (e) { return Promise.resolve(null); }
+        }
+        if (s.slice(0, 2) !== PACK_Z) {
+          // Written before this existed: bare JSON, still readable.
+          try { return Promise.resolve(JSON.parse(s)); }
+          catch (e) { return Promise.resolve(null); }
+        }
+        if (typeof DecompressionStream !== 'function' || typeof Response !== 'function') {
+          return Promise.resolve(null);
+        }
+        try {
+          var bytes = b64ToBytes(s.slice(2));
+          var body = new Response(bytes).body;
+          if (!body || typeof body.pipeThrough !== 'function') return Promise.resolve(null);
+          return new Response(body.pipeThrough(new DecompressionStream('gzip'))).text()
+            .then(function (t) { try { return JSON.parse(t); } catch (e) { return null; } })
+            .catch(function () { return null; });
+        } catch (e) { return Promise.resolve(null); }
+      }
+
       var CHASE_TTL_MS = 30 * 60 * 1000;
       var SPECIES_BATCH = 2;
       var _chaseInflight = {};
+      // --- The chase snapshot, kept across app restarts ---------------------
+      // Reported: "I often close the app and then open it again." Every cold
+      // start re-fired the whole ~47-call wave, because the cache lived only in
+      // memory — visible in a device log as full waves on separate days.
+      //
+      // It stores the RAW FEED ROWS and recomputes the views on load, rather
+      // than storing the computed views. That is the load-bearing choice: the
+      // computation folds in your seen list, your display name and your home
+      // location, so a stored RESULT would keep calling a bird unseen after you
+      // had logged it. Recomputing is pure local work and costs nothing.
+      var CHASE_NS = 'ebird_chase_v1:';
+      function chaseKey(slug) { return CHASE_NS + slug + ':' + todayStr(); }
+      function saveChaseSnapshot(slug, codes, rowsByFile) {
+        return packJson({ t: Date.now(), codes: codes || null, rows: rowsByFile })
+          .then(function (payload) {
+            try {
+              localStorage.setItem(chaseKey(slug), payload);
+              dbg('net', 'chase snapshot saved (' + Math.round(payload.length / 1024) + ' KB)');
+            } catch (e) {
+              // Out of quota is not a failure the user should ever see: the app
+              // already has the data in memory and works without this.
+              dbg('warn', 'chase snapshot not saved: ' + (e && e.name ? e.name : e));
+              try { localStorage.removeItem(chaseKey(slug)); } catch (e2) {}
+            }
+            pruneChaseSnapshots();
+          })
+          .catch(function () { /* packing failed; nothing to store */ });
+      }
+      function loadChaseSnapshot(slug) {
+        var raw = null;
+        try { raw = localStorage.getItem(chaseKey(slug)); } catch (e) { raw = null; }
+        if (!raw) return Promise.resolve(null);
+        return unpackJson(raw).then(function (v) {
+          return (v && v.rows) ? v : null;
+        });
+      }
+      // Yesterday's snapshot is never useful — every feed in it is day-scoped —
+      // and keeping them is how a cache quietly becomes the reason the next
+      // write fails.
+      function pruneChaseSnapshots() {
+        var keep = chaseKey(getReport().slug), drop = [];
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(CHASE_NS) === 0 && k.indexOf(':' + todayStr()) < 0) drop.push(k);
+          }
+          drop.forEach(function (k) { if (k !== keep) localStorage.removeItem(k); });
+        } catch (e) { /* nothing worth reporting */ }
+      }
       function getChase() {
         var profile = getReport(), slug = profile.slug;
         var c = _chase[slug];
         // 30 minutes, not 10. This wave is ~47 calls (6 region feeds, then one
         // per unseen species), and at 10 minutes a device log showed it fired
-        // four separate times in one session — twice within 16 minutes, purely
-        // because the cache had lapsed. The underlying feeds are day-scoped, so
+        // four separate times in one session - twice within 16 minutes, purely
+        // because the cache had lapsed. The feeds behind it are day-scoped, so
         // a half-hour-old answer is the same answer; Refresh is there for the
         // times it isn't.
         if (c && (Date.now() - c.t) < CHASE_TTL_MS) return Promise.resolve(c);
@@ -2905,33 +3026,12 @@
         if (_chaseInflight[slug]) return _chaseInflight[slug];
         var feeds = BL.planFeeds(profile);
         if (!feeds.length) return Promise.resolve({ t: Date.now(), profile: profile, cv: null, rarity: true });
-        function fetchAll(list) {
-          return Promise.all(list.map(function (f) {
-            return ebird(BL.requestUrl(f))
-              .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
-              .catch(function () { return { file: f.file, rows: [] }; });
-          }));
-        }
-        // Phase 1 is ~6 feeds and can go at once. Phase 2 is one call PER
-        // UNSEEN SPECIES - measured at 41 on a normal Washington day - and
-        // firing 41 simultaneous requests is how you earn a 429 and render an
-        // empty section. The report throttles to 1.2s/call because it is an
-        // hourly job; a phone cannot spend 50s before first paint, so this
-        // splits the difference with small concurrent batches.
-        function fetchBatched(list, size) {
-          var out = [], i = 0;
-          function next() {
-            if (i >= list.length) return Promise.resolve(out);
-            var slice = list.slice(i, i + size);
-            i += size;
-            return fetchAll(slice).then(function (rs) {
-              out = out.concat(rs);
-              return next();
-            });
-          }
-          return next();
-        }
+
         var rowsByFile = {};
+        // Views are recomputed from raw rows every time rather than stored,
+        // because the computation folds in the seen list, the display name and
+        // home - a STORED result would keep calling a bird unseen after it was
+        // logged. Recomputing is pure local work.
         function compute(codes) {
           return BL.computeChaseViews(profile, {
             rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
@@ -2939,31 +3039,92 @@
             home: getHome(), dailyDriveMi: profile.dailyDriveMi
           });
         }
-        var run = fetchAll(feeds).then(function (results) {
-          results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
-          // Phase 1 tells us WHICH birds we still need; only then can phase 2
-          // ask where each of them actually is. That ordering is the whole
-          // reason this could not be a static fetch plan.
-          var codes = BL.speciesTargetCodes(compute(null).unseenAll);
-          var spFeeds = BL.planSpeciesFeeds(profile, codes);
-          if (!spFeeds.length) return { codes: null };
-          return fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
-            spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
-            return { codes: codes };
-          });
-        }).then(function (phase2) {
-          var cv = compute(phase2.codes);
-          var codes = {}; cv.merged.forEach(function (r) { if (r.code) codes[r.code] = 1; });
-          saveSnapCodes(slug, Object.keys(codes));
-          var res = { t: Date.now(), profile: profile, cv: cv, rarity: false, speciesCodes: phase2.codes };
+        function finish(codes, stale) {
+          var cv = compute(codes);
+          var seenCodes = {}; cv.merged.forEach(function (r) { if (r.code) seenCodes[r.code] = 1; });
+          saveSnapCodes(slug, Object.keys(seenCodes));
+          var res = { t: Date.now(), profile: profile, cv: cv, rarity: false,
+                      speciesCodes: codes || null, stale: !!stale };
           _chase[slug] = res;
           return res;
+        }
+        function fetchAll(list) {
+          return Promise.all(list.map(function (f) {
+            return ebird(BL.requestUrl(f))
+              .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
+              .catch(function () { return { file: f.file, rows: [] }; });
+          }));
+        }
+        // Phase 2 is one call PER UNSEEN SPECIES - 41 on a normal Washington
+        // day. The foreground gate is the real limiter now, so this only bounds
+        // how many promises exist at once.
+        function fetchBatched(list, size) {
+          var out = [], i = 0;
+          function next() {
+            if (i >= list.length) return Promise.resolve(out);
+            var slice = list.slice(i, i + size);
+            i += size;
+            return fetchAll(slice).then(function (rs) { out = out.concat(rs); return next(); });
+          }
+          return next();
+        }
+        function runWave() {
+          return fetchAll(feeds).then(function (results) {
+            results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+            // Phase 1 tells us WHICH birds we still need; only then can phase 2
+            // ask where each of them actually is. That ordering is the whole
+            // reason this could not be a static fetch plan.
+            var codes = BL.speciesTargetCodes(compute(null).unseenAll);
+            var spFeeds = BL.planSpeciesFeeds(profile, codes);
+            if (!spFeeds.length) return { codes: null };
+            return fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
+              spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+              return { codes: codes };
+            });
+          }).then(function (phase2) {
+            // Every feed failing leaves rowsByFile empty, and computing views
+            // from nothing yields a confident, wrong "nothing is being
+            // reported". A same-day snapshot is a better answer than that, and
+            // a 429 wave is exactly the situation that produces it.
+            if (!anyRows(rowsByFile)) {
+              return loadChaseSnapshot(slug).then(function (snap) {
+                if (!snap || !anyRows(snap.rows)) return finish(phase2.codes, false);
+                rowsByFile = snap.rows;
+                dbg('warn', 'live feeds returned nothing - showing the last good snapshot');
+                return finish(snap.codes, true);
+              });
+            }
+            return saveChaseSnapshot(slug, phase2.codes, rowsByFile)
+              .then(function () { return finish(phase2.codes, false); });
+          });
+        }
+        // A cold start had nothing in memory and paid the whole wave again.
+        // "I often close the app and then open it again" - so a snapshot from
+        // earlier today is served without touching the network at all.
+        var run = loadChaseSnapshot(slug).then(function (snap) {
+          if (snap && anyRows(snap.rows) && (Date.now() - (snap.t || 0)) < CHASE_TTL_MS) {
+            rowsByFile = snap.rows;
+            dbg('net', 'chase snapshot reused - no eBird calls needed');
+            return finish(snap.codes, false);
+          }
+          return runWave();
         });
         _chaseInflight[slug] = run;
         run.catch(function () {}).then(function () { delete _chaseInflight[slug]; });
         return run;
       }
-      function clearChaseCache() { _chase = {}; _chaseInflight = {}; resetHotspotCache(); resetListsCache(); }
+      function anyRows(rows) {
+        if (!rows) return false;
+        for (var k in rows) {
+          if (Object.prototype.hasOwnProperty.call(rows, k) && rows[k] && rows[k].length) return true;
+        }
+        return false;
+      }      function clearChaseCache() {
+        _chase = {}; _chaseInflight = {}; resetHotspotCache(); resetListsCache();
+        // Refresh has to drop the DURABLE copy too, or the wave it triggers is
+        // answered from disk and the button does nothing.
+        try { localStorage.removeItem(chaseKey(getReport().slug)); } catch (e) {}
+      }
 
       // --- Top destinations (rank hotspots by unseen-target richness) ---
       function haversineMi(la1, lo1, la2, lo2) {
@@ -9804,6 +9965,9 @@
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,
+        packJson: packJson, unpackJson: unpackJson,
+        saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
+        chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
         FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
