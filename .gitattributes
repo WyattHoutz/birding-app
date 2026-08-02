@@ -1,0 +1,14 @@
+# These files are AUTHORED ONCE AND SHIPPED TWICE: each copy here and its twin
+# in the sibling `birding` repo must stay BYTE-IDENTICAL, which that repo's
+# parity suite enforces exactly. Without this, core.autocrlf=true checks one
+# copy out as CRLF on Windows while the other stays LF and the twins "drift" by
+# hundreds of bytes of pure line ending with zero content difference — a
+# failure that looks like a content bug and is not one.
+#
+# The `birding` repo pins the matching side in its own .gitattributes. Both
+# halves are needed: these are SEPARATE checkouts with independent
+# core.autocrlf settings, so pinning one repo only narrows the window rather
+# than closing it. Adding a shared file means editing both.
+www/section-docs.json text eol=lf
+www/scope-sites.json text eol=lf
+www/travel-zones.json text eol=lf
