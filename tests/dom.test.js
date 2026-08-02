@@ -98,9 +98,24 @@ function boot(opts = {}) {
         // Tests that need a response supply opts.fetch(url) -> html string|null.
         if (opts.fetch) {
           const body = opts.fetch(String(url));
+          // A test that needs a FAILURE returns { __status, __headers }. Without
+          // this every stubbed response is a 200 and no retry path — the one
+          // that matters most, because it only runs when things go wrong — is
+          // unreachable from a test.
+          if (body != null && typeof body === 'object' && body.__status) {
+            const hdrs = body.__headers || {};
+            return Promise.resolve({
+              ok: body.__status >= 200 && body.__status < 300,
+              status: body.__status,
+              headers: { get: (k) => hdrs[k] ?? hdrs[String(k).toLowerCase()] ?? null },
+              text: () => Promise.resolve(JSON.stringify(body.__body ?? {})),
+              json: () => Promise.resolve(body.__body ?? {}),
+            });
+          }
           if (body != null) {
             return Promise.resolve({
               ok: true, status: 200,
+              headers: { get: () => null },
               text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
               json: () => Promise.resolve(typeof body === 'string' ? JSON.parse(body) : body),
             });
@@ -242,6 +257,10 @@ test('hot and cold hotspots render from ONE shared scan', async () => {
     'opening Cold hotspots must reuse the in-flight scan, not refetch');
   assert.match(app.$('coldStatus').textContent, /Scanning|overlooked/,
     'the cold section reports the shared scan');
+  // Let the in-flight scan settle before tearing the window down. The
+  // foreground lane defers behind a token now, so closing immediately leaves
+  // work pointing at a document that no longer exists.
+  await new Promise((r) => setTimeout(r, 30));
   app.window.close();
 });
 
@@ -1961,7 +1980,75 @@ test('Easy misses maps its spots onto the shared place shape', async () => {
 // heading — folding a group into one panel would force declaring the others
 // omitted from the app, and the omission list is the one mechanism that catches
 // a section silently disappearing.
-// --- F11: the engine existed and nothing rendered it ------------------------
+// --- Reported from the device: frequent HTTP 429 ----------------------------
+// The foreground lane was a bare fetch, written when a foreground load really
+// was "a handful of calls the user is waiting on". That premise expired: the
+// chase pipeline's phase 2 is one call PER UNSEEN SPECIES (~41 on a normal
+// Washington day) and hotspot cards hydrate one call each after paint. A single
+// 429 then rendered an empty section instead of costing a second.
+test('a rate-limited foreground call is retried, not fatal', async () => {
+  let hits = 0;
+  const app = await boot({
+    fetch(url) {
+      if (!/ref\/region\/info/.test(url)) return null;
+      hits++;
+      // Rate-limited once, then fine — the shape of a real burst.
+      if (hits === 1) return { __status: 429, __headers: { 'Retry-After': '0.05' } };
+      return { code: 'US-WA', result: 'ok' };
+    },
+  });
+  const A = app.window.__app;
+  const out = await A.ebird('ref/region/info/US-WA');
+  assert.equal(hits, 2, 'the 429 was retried rather than thrown at the section');
+  assert.equal(out.result, 'ok', 'and the caller gets the real answer');
+  app.window.close();
+});
+
+test('a 429 that never clears says what it is, in words', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (!/ref\/region\/info/.test(url)) return null;
+      return { __status: 429, __headers: { 'Retry-After': '0.01' } };
+    },
+  });
+  const A = app.window.__app;
+  let err = null;
+  try { await A.ebird('ref/region/info/US-WA'); } catch (e) { err = e; }
+  assert.ok(err, 'it still fails eventually rather than retrying forever');
+  // "eBird returned HTTP 429" tells the reader nothing they can act on.
+  assert.match(err.message, /rate-limit/i,
+    `the message names the cause: got "${err && err.message}"`);
+  assert.match(err.message, /minute|try again/i, 'and what to do about it');
+  app.window.close();
+});
+
+test('Retry-After is obeyed when eBird sends one', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // A guessed backoff that is shorter than the server asked for earns the next
+  // 429, so a header in seconds is the only number here that is not a guess.
+  const withHeader = A.retryAfterMs({ headers: { get: () => '2' } }, 0);
+  assert.equal(withHeader, 2000, 'seconds from the header become milliseconds');
+  const capped = A.retryAfterMs({ headers: { get: () => '9999' } }, 0);
+  assert.ok(capped <= 30000, 'but an absurd value is capped rather than hanging the app');
+  const guessed = A.retryAfterMs({ headers: { get: () => null } }, 2);
+  assert.equal(guessed, 4000, 'with no header it backs off exponentially');
+  app.window.close();
+});
+
+test('a burst of foreground calls is bounded', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.ok(A.FG_BURST > 0 && A.FG_BURST <= 12,
+    'the bucket allows a burst for first paint, but a bounded one');
+  // Sustained rate has to stay under the per-key ceiling the report assumes
+  // (~100/min); the background lane already holds 1.2s/call.
+  const perMin = 60000 / A.FG_REFILL_MS;
+  assert.ok(perMin <= 100,
+    `sustained foreground rate must stay under the ceiling: ${perMin}/min`);
+  app.window.close();
+});
+
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
 // all built, parity-tested, and wired to nothing — the same failure as a button
 // bound to no handler, except harder to notice because the code looks finished.
@@ -2588,6 +2675,9 @@ test('quick outing scans exactly one circle — the anchor you picked', async ()
   const app = await boot();
   const before = app.state.fetches.length;
   app.click(app.$('quickBtn'));
+  // The foreground lane takes a token before it fetches, so the request leaves
+  // a tick after the tap rather than during it.
+  await new Promise((r) => setTimeout(r, 30));
   const scans = app.state.fetches.slice(before).filter((u) => /ref\/hotspot\/geo/.test(u));
   assert.equal(scans.length, 1, 'one origin means one scan, not a union nobody reads');
   assert.match(scans[0], /lat=47\.75&lng=-122\.16/, 'centred on home');
