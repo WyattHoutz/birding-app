@@ -169,6 +169,16 @@
     }
     footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+    /* F17: a long fetch has to be honest rather than a frozen screen. Sticky
+       under the header so it stays visible while you scroll a half-built list —
+       the wave is one call per unseen species, and eBird paces it. */
+    #loadBar { position: sticky; top: 0; z-index: 40; background: var(--bg);
+               padding: 8px 16px 6px; border-bottom: 1px solid var(--line); }
+    #loadBarTrack { height: 4px; border-radius: 999px; overflow: hidden;
+                    background: color-mix(in srgb, var(--accent) 18%, transparent); }
+    #loadBarFill { height: 100%; width: 0%; background: var(--accent);
+                   border-radius: 999px; transition: width .35s ease; }
+    #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
     /* Second line of defence for the sideways drag. The clip on <html> above
        provably did NOT stop it on device — WKWebView still pans the visual
@@ -702,6 +712,11 @@
     </div>
   </header>
 
+  <div id="loadBar" hidden aria-live="polite">
+    <div id="loadBarTrack"><div id="loadBarFill"></div></div>
+    <div id="loadBarText" class="hint"></div>
+  </div>
+
   <main>
     <section class="panel">
       <h2>🌅 Today’s rarity reports <span class="dim" id="regionLabel"></span></h2>
@@ -1153,7 +1168,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.46';
+      var APP_VERSION = '1.0.47';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1601,8 +1616,68 @@
       // than the rate the same log proves is safe.
       //
       // 41 calls at these settings is about 8 s, against ~25 s for the bucket.
-      var FG_MAX_CONC = 2, FG_MIN_GAP_MS = 220, FG_MAX_RETRY = 3;
+      // Re-derived from a later device log, which disproved the model above.
+      //
+      // MEASURED: 37 eBird calls succeeded in 7.7 s (4.8 req/s) and the 38th
+      // 429'd. So the allowance is a bucket of ~37, not ~25 — and the earlier
+      // claim that "4.5 req/s sustained is safe" came from a sample of EIGHT
+      // calls, which was far too short to see the bucket drain.
+      //
+      // THE EXPENSIVE PART IS RECOVERY, NOT THE FIRST 429. After it, the same
+      // log shows 15 successes in 100 s — 0.15/s — with ~25 further 429s
+      // interleaved, and three species (towsol, gcrfin, corplo) burned all
+      // three retries and were dropped silently. Refused requests evidently
+      // still cost budget, so per-request retry timers kept the bucket at zero:
+      // the app was DoSing itself, and one 429 cost ~100 s of wall clock.
+      //
+      // Hence three changes:
+      //  1. CONCURRENCY 1. The log's 429s arrive in PAIRS because two calls
+      //     were always in flight, so every refusal cost two.
+      //  2. A real bucket sized from the measurement (capacity 30 of the
+      //     observed 37, refilling at 0.5/s) so the common case still bursts
+      //     and the tail is paced BEFORE eBird complains rather than after.
+      //  3. AIMD on top: a 429 doubles the gap and pauses every call globally;
+      //     a run of successes eases it back. That self-tunes instead of
+      //     betting on one number being right forever.
+      var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250, FG_MAX_RETRY = 4;
+      var FG_GAP_MAX = 10000, FG_BUCKET = 30, FG_REFILL_PER_S = 0.5;
+      var FG_COOLDOWN_MS = 20000, FG_EASE_AFTER = 12;
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [];
+      var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
+      var _fgOk = 0;           // consecutive successes, for easing back off
+      var _fgDone = 0;         // completed calls this wave, for the progress bar
+
+      // F17: a long fetch has to be honest rather than a frozen screen.
+      //
+      // The counter is driven BY THE GATE, not by the callers, so it cannot
+      // drift from what is really happening — and it grows correctly when
+      // phase 2 queues one call per unseen species after phase 1 has already
+      // told us how many there are.
+      function fgProgressSync() {
+        var queued = _fgWaiters.length + _fgActive;
+        var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
+        if (!queued) {
+          // Reset when the lane drains, or the NEXT wave starts at 50% because
+          // it is still counting the last one.
+          _fgDone = 0;
+          if (el) el.hidden = true;
+          return;
+        }
+        if (!el) return;
+        var total = _fgDone + queued;
+        el.hidden = false;
+        var pct = total ? Math.round(_fgDone / total * 100) : 0;
+        var fill = document.getElementById('loadBarFill');
+        var txt = document.getElementById('loadBarText');
+        if (fill) fill.style.width = pct + '%';
+        if (txt) {
+          // Name the slow thing. "eBird limits how fast" is the difference
+          // between a broken app and a slow one, and only one of those is true.
+          txt.textContent = 'Loading from eBird — ' + _fgDone + ' of ' + total +
+            (_fgGap > FG_MIN_GAP_MS * 2 ? ' · easing off, eBird is rate-limiting' : '');
+        }
+      }
+      function fgProgressReset() { _fgDone = 0; fgProgressSync(); }
       function fgDead() {
         try { return typeof window !== 'undefined' && window.closed === true; }
         catch (e) { return false; }
@@ -1614,18 +1689,33 @@
         _fgActive--;
         if (_fgWaiters.length) { var w = _fgWaiters.shift(); w(); }
       }
+      // Tokens refill continuously. While any remain a call only pays the small
+      // gap; once they are gone every call waits for the next drip, which is
+      // what stops the wave hitting the wall in the first place.
+      function fgTakeToken(now) {
+        var dt = (now - _fgTokenAt) / 1000;
+        if (dt > 0) {
+          _fgTokens = Math.min(FG_BUCKET, _fgTokens + dt * FG_REFILL_PER_S);
+          _fgTokenAt = now;
+        }
+        if (_fgTokens >= 1) { _fgTokens -= 1; return 0; }
+        var need = (1 - _fgTokens) / FG_REFILL_PER_S * 1000;
+        _fgTokens = 0; _fgTokenAt = now + need;
+        return need;
+      }
       function fgSlot() {
         if (fgDead()) return new Promise(function () {});
         return new Promise(function (resolve) {
           function take() {
             _fgActive++;
             var now = Date.now();
-            var at = Math.max(now, _fgNextAt);
-            _fgNextAt = at + FG_MIN_GAP_MS;
+            var at = Math.max(now, _fgNextAt) + fgTakeToken(now);
+            _fgNextAt = at + _fgGap;
             var wait = at - now;
             if (wait > 0) setTimeout(resolve, wait); else resolve();
           }
           if (_fgActive < FG_MAX_CONC) take(); else _fgWaiters.push(take);
+          fgProgressSync();
         });
       }
       // eBird may name the wait itself; a header in seconds is the only number
@@ -1635,7 +1725,7 @@
         try { h = r.headers && r.headers.get && r.headers.get('Retry-After'); } catch (e) { h = null; }
         var s = parseFloat(h);
         if (isFinite(s) && s > 0) return Math.min(30000, s * 1000);
-        return Math.pow(2, attempt) * 1000;
+        return Math.min(FG_COOLDOWN_MS, Math.pow(2, attempt) * 1000);
       }
       function fgAttempt(path, attempt) {
         return fgSlot().then(function () {
@@ -1651,13 +1741,18 @@
             if (RL_RETRY_CODES[r.status] && attempt < FG_MAX_RETRY) {
               var back = retryAfterMs(r, attempt);
               dbg('warn', 'eBird ' + r.status + ' — retry ' + (attempt + 1) + '/' + FG_MAX_RETRY
-                + ' in ' + (back / 1000) + 's · ' + path);
-              // Hold EVERY foreground call, not just this one. The log shows a
-              // 429 refusing the rest of the wave in ~90 ms each: once the
-              // budget is gone, the other 30 in-flight calls are already
-              // doomed, and letting them keep firing is what turned one 429
-              // into forty.
-              _fgNextAt = Math.max(_fgNextAt, Date.now() + back);
+                + ' in ' + Math.round(back / 100) / 10 + 's · ' + path);
+              // A refusal is evidence about the LANE, not about this one call.
+              // Slow every call down (multiplicative), empty the bucket so the
+              // next one has to wait for a drip, and hold the whole queue for a
+              // real cooldown. That device log is what this is answering: with
+              // per-request backoff only, each success immediately released the
+              // next call into a limiter that had just refused, and one 429
+              // turned into ~25 over 100 s.
+              _fgOk = 0;
+              _fgGap = Math.min(FG_GAP_MAX, Math.max(_fgGap * 2, 1000));
+              _fgTokens = 0; _fgTokenAt = Date.now();
+              _fgNextAt = Math.max(_fgNextAt, Date.now() + Math.max(back, FG_COOLDOWN_MS));
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
                 return fgAttempt(path, attempt + 1);
@@ -1671,12 +1766,24 @@
           return r.json();
         });
       }
+      // A run of clean calls is evidence the lane has room again, so ease the
+      // gap back down. Additive-decrease against the multiplicative-increase
+      // above: quick to back off, slow to speed up.
+      function fgNoteOk() {
+        _fgDone++;
+        if (++_fgOk >= FG_EASE_AFTER && _fgGap > FG_MIN_GAP_MS) {
+          _fgOk = 0;
+          _fgGap = Math.max(FG_MIN_GAP_MS, Math.round(_fgGap * 0.7));
+        }
+        fgProgressSync();
+      }
       function ebird(path) {
         dbg('net', 'GET ' + path);
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
         return fgAttempt(path, 0)
-          .then(function (v) { release(); return v; }, function (e) { release(); throw e; });
+          .then(function (v) { release(); fgNoteOk(); return v; },
+                function (e) { release(); fgProgressSync(); throw e; });
       }
       // --- Rate-limited background queue (mirrors ebird.py) ---------------
       // ebird.py holds every API call to _MIN_CALL_INTERVAL_S, now 4.0s (~15
@@ -3195,6 +3302,20 @@
             var codes = BL.speciesTargetCodes(compute(null).unseenAll);
             var spFeeds = BL.planSpeciesFeeds(profile, codes);
             if (!spFeeds.length) return { codes: null };
+
+            // PUBLISH PHASE 1 NOW rather than after phase 2. Phase 1 is 8 calls
+            // and lands in ~3 s; phase 2 is one per unseen species — 41 on a
+            // normal Washington day — and eBird paces it. Waiting for both is
+            // why a device log ending in a 429 wave looked like "nothing is
+            // loading": the data was there the whole time, unrendered.
+            //
+            // Phase 2 only ADDS locations for birds phase 1 already found, so a
+            // phase-1 view is correct-but-thinner, never wrong.
+            if (anyRows(rowsByFile)) {
+              finish(codes, false);
+              if (typeof onChasePartial === 'function') onChasePartial(slug);
+            }
+
             return fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
               spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
               return { codes: codes };
@@ -8951,6 +9072,21 @@
         myYearBody: { fn: updateMyYear }
       };
       var _autoLoaded = {};
+      // F17 / phase-1 publish: when the first wave lands, every section that has
+      // already run gets re-rendered from the now-populated cache. Without this
+      // the data arrives at ~3 s and sits unseen until phase 2 finishes, which
+      // is exactly what "nothing is loading" looked like on a 429 day.
+      function onChasePartial(slug) {
+        if (!slug || slug !== getReport().slug) return;
+        Object.keys(_autoLoaded).forEach(function (id) {
+          var sec = _sections.filter(function (s) { return s.id === id; })[0];
+          var spec = sec && sec._loader;
+          if (!spec || !spec.fn) return;
+          try { spec.fn(); } catch (e) {
+            try { dbg('error', 'repaint ' + id + ': ' + (e && e.message || e)); } catch (_) {}
+          }
+        });
+      }
       function autoLoad(sec) {
         if (!sec || _autoLoaded[sec.id]) return;
         var spec = sec._loader;
@@ -10142,6 +10278,10 @@
         saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
         chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
         FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
+      FG_BUCKET: FG_BUCKET, FG_REFILL_PER_S: FG_REFILL_PER_S,
+      fgProgressSync: fgProgressSync, fgProgressReset: fgProgressReset,
+      fgState: function () { return { gap: _fgGap, tokens: _fgTokens, done: _fgDone,
+                                      queued: _fgWaiters.length, active: _fgActive }; },
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },

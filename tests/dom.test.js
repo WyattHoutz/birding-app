@@ -2173,15 +2173,54 @@ test('a burst of foreground calls is bounded', async () => {
   app.window.close();
 });
 
-test('one 429 holds every foreground call, not just the one that failed', () => {
+test('one 429 slows the whole lane, not just the call that failed', () => {
   const src = HTML.slice(HTML.indexOf('function fgAttempt('),
     HTML.indexOf('function ebird('));
-  // The log's worst property: once the budget was gone, every remaining call
-  // in the wave was refused in ~90 ms each. Backing off only the failed call
-  // leaves the other thirty firing into a limiter that has already said no,
-  // which is how one 429 became forty.
-  assert.match(src, /_fgNextAt = Math\.max\(_fgNextAt, Date\.now\(\) \+ back\)/,
-    'the shared gate is pushed out, so the whole wave waits');
+  // The expensive part of a 429 is not the first one, it is the recovery. A
+  // device log measured 15 successes in 100 s afterwards, with ~25 further
+  // 429s interleaved and three species dropped entirely — because each
+  // success immediately released the next call into a limiter that had just
+  // refused. Backing off only the failed call is what turns one 429 into
+  // twenty-five, so a refusal has to be treated as evidence about the LANE.
+  assert.match(src, /_fgNextAt = Math\.max\(_fgNextAt, Date\.now\(\) \+ Math\.max\(back, FG_COOLDOWN_MS\)\)/,
+    'the shared gate is held for a real cooldown, so the whole wave waits');
+  assert.match(src, /_fgGap = Math\.min\(FG_GAP_MAX, Math\.max\(_fgGap \* 2, 1000\)\)/,
+    'and the sustained gap doubles — multiplicative decrease, so it backs off fast');
+  assert.match(src, /_fgTokens = 0/,
+    'and the burst bucket is emptied, or the next call bursts straight back into the wall');
+});
+
+test('the rate limiter is sized from what the log actually measured', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // 37 calls got through in 7.7 s before the first refusal, so the bucket is
+  // ~37 and a burst under that is safe. Sizing it AT the observed limit would
+  // trip on the very next call, so it sits below.
+  assert.ok(A.FG_BUCKET > 0 && A.FG_BUCKET < 37,
+    'the burst allowance sits under the measured ceiling, not on it');
+  // Serialized. The log's 429s arrive in PAIRS because two calls were always
+  // in flight, so every refusal cost two.
+  assert.equal(A.FG_MAX_CONC, 1, 'one call in flight, so a refusal costs one call');
+  // And once the burst is spent the tail is paced BEFORE eBird complains.
+  assert.ok(A.FG_REFILL_PER_S > 0 && A.FG_REFILL_PER_S < 4.8,
+    'the sustained rate is below the 4.8/s that drained the bucket');
+});
+
+test('a long wave reports progress instead of looking frozen', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.ok(app.$('loadBar'), 'there is a progress bar');
+  assert.ok(app.$('loadBarFill'), 'with a fill');
+  assert.ok(app.$('loadBarText'), 'and a label');
+  assert.equal(app.$('loadBar').hidden, true, 'hidden when nothing is in flight');
+
+  // The counter is driven by the gate, so it cannot drift from what is really
+  // happening — and it grows correctly when phase 2 queues one call per unseen
+  // species after phase 1 has counted them.
+  const st = A.fgState();
+  assert.equal(typeof st.done, 'number');
+  assert.equal(typeof st.queued, 'number');
+  assert.equal(typeof st.gap, 'number');
 });
 
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
