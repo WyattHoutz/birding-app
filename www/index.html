@@ -764,7 +764,6 @@
           </optgroup>
           <optgroup label="Hotspots near a place">
             <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:work">&#127970; Near work</option>
             <option value="quick:here">&#128205; Current location</option>
             <option value="quick:find">&#128269; Find a place&hellip;</option>
           </optgroup>
@@ -789,7 +788,6 @@
           </optgroup>
           <optgroup label="Hotspots near a place">
             <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:work">&#127970; Near work</option>
             <option value="quick:here">&#128205; Current location</option>
             <option value="quick:find">&#128269; Find a place&hellip;</option>
           </optgroup>
@@ -814,7 +812,6 @@
           </optgroup>
           <optgroup label="Hotspots near a place">
             <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:work">&#127970; Near work</option>
             <option value="quick:here">&#128205; Current location</option>
             <option value="quick:find">&#128269; Find a place&hellip;</option>
           </optgroup>
@@ -855,7 +852,6 @@
           </optgroup>
           <optgroup label="Hotspots near a place">
             <option value="quick:home" selected>&#127968; Near home</option>
-            <option value="quick:work">&#127970; Near work</option>
             <option value="quick:here">&#128205; Current location</option>
             <option value="quick:find">&#128269; Find a place&hellip;</option>
           </optgroup>
@@ -863,7 +859,6 @@
       </div>
       <div class="row">
         <button id="quickBtn">🏠 Home</button>
-        <button id="quickWorkBtn" class="secondary" type="button">🏢 Work</button>
         <button id="quickHereBtn" class="secondary" type="button">📍 Here</button>
       </div>
       <div class="row" id="quickHereRow" hidden>
@@ -1087,21 +1082,6 @@
         <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
       </div>
       <p class="hint">Adds distances and a home marker to Top destinations. Also drives the Conditions forecast (US only).</p>
-      <label for="workPlace">Work / second anchor (optional) <span id="workRegionLabel"></span></label>
-      <div class="row">
-        <div style="flex:1 1 auto"><input id="workPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.66, -122.14" /></div>
-        <button id="geocodeWorkBtn" class="secondary" type="button">Find</button>
-      </div>
-      <p class="hint" id="geocodeWorkStatus">A spot by the office should rank on its short lunch-break hop, not on its longer drive from home.</p>
-      <div class="row">
-        <div><input id="workLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.66" /></div>
-        <div><input id="workLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.14" /></div>
-      </div>
-      <div class="row">
-        <div style="flex:1 1 auto"><input id="workLabel" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="label, e.g. Redmond" /></div>
-        <button id="clearWorkBtn" class="secondary" type="button">Clear</button>
-      </div>
-      <p class="hint">Closest spots, Quick outing and Cold hotspots measure from whichever anchor is nearer, and say which one. Everything else stays measured from home, matching the report.</p>
       <label for="tideStation">NOAA tide station ID (optional)</label>
       <input id="tideStation" type="text" inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="e.g. 9447130" />
       <p class="hint">For coastal tides in Conditions. Find yours at <code>tidesandcurrents.noaa.gov</code>. Leave blank inland.</p>
@@ -1163,7 +1143,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.44';
+      var APP_VERSION = '1.0.45';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1306,11 +1286,6 @@
       // before this was per-region migrate once, into whichever report was
       // active at the time.
       function homeKey(field) { return 'ebird_home_' + field + ':' + getReportSlug(); }
-      // A second anchor, stored per region exactly like home. The report has
-      // had a work waypoint since regions.py existed (WA = Redmond); the app
-      // never did, which is why its Closest spots and Quick outing rows never
-      // matched the Markdown report's.
-      function workKey(field) { return 'ebird_work_' + field + ':' + getReportSlug(); }
       function tideKey() { return 'ebird_tide_station:' + getReportSlug(); }
       function migrateHomeKeys() {
         ['lat', 'lng', 'place'].forEach(function (f) {
@@ -3270,23 +3245,7 @@
         return !!(p.home && isFinite(p.home.lat) && isFinite(p.home.lng) && !p.homeIsPlaceholder);
       }
 
-      // A saved work anchor of "" is meaningful: it means the user explicitly
-      // cleared the region default, so it must NOT fall back to regions.py.
-      function getWork() {
-        var raw = localStorage.getItem(workKey('lat'));
-        if (raw === '') return null;
-        var la = parseFloat(raw), lo = parseFloat(localStorage.getItem(workKey('lng')));
-        if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
-        if (raw !== null) return null;
-        var w = getReport().work;
-        return (w && isFinite(w.lat) && isFinite(w.lng)) ? { lat: +w.lat, lng: +w.lng } : null;
-      }
-      function getWorkLabel() {
-        var s = localStorage.getItem(workKey('label'));
-        if (s) return s;
-        return getReport().workLabel || 'work';
-      }
-      // The two anchors in report.py's iteration order, so a tie goes to home
+      // The anchors in report.py's iteration order, so a tie goes to home
       // exactly as section_closest_spots does.
       //
       // Deliberately delegated rather than rebuilt: logic.js is the half of the
@@ -3296,11 +3255,15 @@
       // the report profile) and hands them to the shared builder. Rebuilding
       // the list here is how the tie-break rule drifts from the report without
       // any test noticing.
+      //
+      // There is one FIXED anchor. The stored workplace was retired in F1
+      // step 1 — it was a guess about where you would be, and the transient
+      // `here` / `find` anchors below are not.
       function getAnchors() {
-        return BL.anchorsFor(null, { home: getHome(), work: getWork() });
+        return BL.anchorsFor(null, { home: getHome() });
       }
       function anchorNote(a) {
-        return a === 'work' ? ' from ' + getWorkLabel() : '';
+        return a && a !== 'home' ? ' from ' + a : '';
       }
 
       // Geocode a free-text place (city / address / waypoint name) OR parse a
@@ -5309,16 +5272,12 @@
       // Tuesday, near wherever you parked on a road trip. The report can only
       // ever rank from a fixed anchor; the app can ask. Home is the default so
       // the section still matches the report on first open.
-      var QUICK_ORIGINS = { home: 1, work: 1, here: 1, find: 1 };
+      var QUICK_ORIGINS = { home: 1, here: 1, find: 1 };
       var quickOrigin = 'home';
       var quickHere = null;   // resolved current location for this session only
       var quickFound = null;  // a geocoded place, this session only
 
       function quickAnchor(which) {
-        if (which === 'work') {
-          var w = getWork();
-          return w ? { name: 'work', lat: w.lat, lng: w.lng, label: getWorkLabel() } : null;
-        }
         if (which === 'here') {
           return quickHere ? { name: 'here', lat: quickHere.lat, lng: quickHere.lng,
                                label: quickHere.label || 'your location' } : null;
@@ -5336,12 +5295,11 @@
       // An anchor that is not set says how to set it instead of failing on tap —
       // a dead button teaches nothing.
       function syncQuickButtons() {
-        var hb = $('quickBtn'), wb = $('quickWorkBtn'), eb = $('quickHereBtn');
-        if (!hb || !wb || !eb) return;
+        var hb = $('quickBtn'), eb = $('quickHereBtn');
+        if (!hb || !eb) return;
         hb.textContent = getHome() ? '\uD83C\uDFE0 Home' : '\uD83C\uDFE0 Set home';
-        wb.textContent = getWork() ? '\uD83C\uDFE2 ' + getWorkLabel() : '\uD83C\uDFE2 Set work';
         eb.textContent = quickHere ? '\uD83D\uDCCD Here' : '\uD83D\uDCCD Current location';
-        [['home', hb], ['work', wb], ['here', eb]].forEach(function (p) {
+        [['home', hb], ['here', eb]].forEach(function (p) {
           p[1].classList.toggle('secondary', p[0] !== quickOrigin);
           p[1].setAttribute('aria-pressed', p[0] === quickOrigin ? 'true' : 'false');
         });
@@ -5487,15 +5445,13 @@
             quickAskPlace('Type a city, address, or "lat, lng" to search near.');
             return;
           }
-          st.textContent = which === 'work'
-            ? 'No work anchor yet. Add one in Settings and this button measures from there.'
-            : 'Set a Home location in Settings to find hotspots near you.';
+          st.textContent = 'Set a Home location in Settings to find hotspots near you.';
           showSettings(true);
           return;
         }
         quickOrigin = which;
         syncQuickButtons();
-        var btns = [$('quickBtn'), $('quickWorkBtn'), $('quickHereBtn')];
+        var btns = [$('quickBtn'), $('quickHereBtn')];
         btns.forEach(function (b) { if (b) b.disabled = true; });
         $('quickResults').innerHTML = ''; $('quickMap').innerHTML = '';
         st.textContent = 'Finding hotspots near ' + a.label + '\u2026';
@@ -9211,12 +9167,6 @@
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
         $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
-        var w = getWork();
-        $('workLat').value = w ? w.lat : '';
-        $('workLng').value = w ? w.lng : '';
-        $('workPlace').value = localStorage.getItem(workKey('place')) || '';
-        $('workLabel').value = localStorage.getItem(workKey('label')) || (w ? (getReport().workLabel || '') : '');
-        if ($('workRegionLabel')) $('workRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('tideStation').value = localStorage.getItem(tideKey()) || '';
         if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('ebirdName').value = getDisplayName();
@@ -9652,7 +9602,6 @@
       $('cklModeBest').addEventListener('click', function () { setChecklistMode('best'); });
       $('cklModeNew').addEventListener('click', function () { setChecklistMode('new'); });
       $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
-      $('quickWorkBtn').addEventListener('click', function () { loadQuickOuting('work'); });
       $('quickHereBtn').addEventListener('click', function () { loadQuickOuting('here'); });
       $('quickHereFind').addEventListener('click', quickFindPlace);
       $('quickHerePlace').addEventListener('keydown', function (ev) {
@@ -9828,26 +9777,6 @@
           .finally(function () { btn.disabled = false; });
       });
 
-      $('geocodeWorkBtn').addEventListener('click', function () {
-        var q = ($('workPlace').value || '').trim(), st = $('geocodeWorkStatus'), btn = this;
-        if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
-        btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
-        geocodePlace(q).then(function (res) {
-          $('workLat').value = res.lat.toFixed(5);
-          $('workLng').value = res.lng.toFixed(5);
-          $('workPlace').value = res.label;
-          if (!($('workLabel').value || '').trim())
-            $('workLabel').value = String(res.label).split(',')[0].trim();
-          st.textContent = '\ud83d\udcbc ' + res.label + ' \u2192 ' + res.lat.toFixed(4) + ', ' + res.lng.toFixed(4) + '. Tap Save to keep.';
-        }).catch(function (e) { st.textContent = (e && e.message) ? e.message : 'Lookup failed.'; })
-          .finally(function () { btn.disabled = false; });
-      });
-      $('clearWorkBtn').addEventListener('click', function () {
-        $('workLat').value = ''; $('workLng').value = '';
-        $('workPlace').value = ''; $('workLabel').value = '';
-        $('geocodeWorkStatus').textContent = 'Cleared. Tap Save to drop the second anchor.';
-      });
-
       $('saveBtn').addEventListener('click', function () {
         var btn = this;
         function persist() {
@@ -9861,19 +9790,6 @@
             localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
           }
           localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
-          var wla = parseFloat($('workLat').value), wlo = parseFloat($('workLng').value);
-          if (isFinite(wla) && isFinite(wlo)) {
-            localStorage.setItem(workKey('lat'), wla); localStorage.setItem(workKey('lng'), wlo);
-            localStorage.setItem(workKey('place'), ($('workPlace').value || '').trim());
-            localStorage.setItem(workKey('label'), ($('workLabel').value || '').trim() || 'work');
-          } else {
-            // Empty string, not removeItem: an explicitly cleared work anchor
-            // must stay cleared instead of silently reverting to the region
-            // default on the next launch.
-            localStorage.setItem(workKey('lat'), '');
-            localStorage.setItem(workKey('lng'), '');
-            localStorage.removeItem(workKey('place')); localStorage.removeItem(workKey('label'));
-          }
           localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           clearChaseCache();
@@ -9942,7 +9858,7 @@
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
         renderLastNew: renderLastNew, favInteresting: favInteresting, favDetailHtml: favDetailHtml,
         birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
-        getWork: getWork, workKey: workKey, getAnchors: getAnchors,
+        getAnchors: getAnchors,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         unseenPlacesHtml: unseenPlacesHtml, UNSEEN_PLACES_SHOWN: UNSEEN_PLACES_SHOWN,
         speciesPlacesCard: speciesPlacesCard, easySpotsToPlaces: easySpotsToPlaces,

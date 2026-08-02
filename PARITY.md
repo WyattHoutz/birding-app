@@ -202,7 +202,7 @@ switch changes the question, not the presentation.
 | Top destinations *(default)* | clusters within `daily_drive_mi`, rarities ×3, distance a **filter** |
 | Top excursions | the same scoring beyond that radius, plus a soft distance penalty |
 | Trip planner | set cover (`unseen_codes - used_codes`), hops from the previous stop |
-| Near home · Near work · Current location · **🔎 Find a place** | one `ref/hotspot/geo` scan around a chosen anchor |
+| Near home · Current location · **🔎 Find a place** | one `ref/hotspot/geo` scan around a chosen anchor |
 
 **📋 What I'm missing** — All unseen ↔ Easy misses. Easy misses had hand-rolled
 its own row markup and drifted into a different card, a different place list and
@@ -521,6 +521,36 @@ An app-side glue test, [`assets/smoke-wiring.js`](assets/smoke-wiring.js),
 additionally proves `index.html`'s wired data layer (`getChase()`) reproduces
 the golden destinations / excursions, and that `planFeeds` file names match the
 `mergePlan` map keys for all 9 reports.
+
+### A deliberate asymmetry: "near me" is app-only
+
+The report ranks everything from **home, and only home**. The app ranks from home
+*or* your current location *or* a place you search for.
+
+This is a **real feature difference, not a presentation one**, so it is recorded
+here rather than discovered in a diff. Both repos used to carry a second FIXED
+anchor — a stored workplace (`work_lat` / `work_lon` in `regions.py`,
+`ebird_work_*` in the app). It measurably helped: of 138 live WA locations, 59
+(43%) were closer to the office than to home. It was retired in **F1 step 1**
+anyway, because it was a *guess* about where you would be, hand-kept in sync
+with a geocode, and it could not serve a friend's house, a new lunch spot, or
+being away on a trip.
+
+The replacement is not symmetric and cannot be. **A generated Markdown file has
+no "current location"** — it was written hours ago. So:
+
+| | report | app |
+|---|---|---|
+| fixed anchor | home | home |
+| transient anchor | — | current location · searched place |
+| map pins | `🟢 h = home` | home + the anchor in use |
+
+The retired 🏢 pin and its `🔵 w = …` legend entry are simply gone from the
+report. Everything else about anchors stays shared: `anchorsFor()` in
+`logic.js` is still the single definition of *which anchors exist and in what
+order*, still ported 1:1 from `report.py`, and anchors still **rank only** —
+they never reach `planFeeds()`, so they cannot change which birds either side
+knows about.
 
 ### Files authored once and shipped twice
 

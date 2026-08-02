@@ -458,9 +458,10 @@ test('Closest spots never lists a place the report would not go', async () => {
   const app = await boot();
   const A = app.window.__app;
   const anchors = [{ name: 'home', lat: 47.75, lng: -122.15 },
-                   { name: 'work', lat: 47.67, lng: -122.12 }];
+                   { name: 'here', lat: 47.67, lng: -122.12 }];
   // The exact row that shipped: a private "nearby yard" holding ONE Great
-  // Horned Owl on ONE checklist. It is 1.5 mi from work, so it sorts to #1 —
+  // Horned Owl on ONE checklist. It is 1.5 mi from the second anchor, so it
+  // sorts to #1 —
   // but report._is_reachable drops a private location unless it hosts a
   // stakeout (>=3 checklists), and the report never printed it.
   const cv = {
@@ -2464,7 +2465,7 @@ test('a searched place is not confused with where you are standing', async () =>
   assert.ok(!/quickHere = \{/.test(src),
     'and never overwrites the device-location anchor');
   assert.match(src, /loadQuickOuting\('find'\)/, 'then loads as the find origin');
-  assert.match(HTML, /QUICK_ORIGINS = \{ home: 1, work: 1, here: 1, find: 1 \}/,
+  assert.match(HTML, /QUICK_ORIGINS = \{ home: 1, here: 1, find: 1 \}/,
     'find is a first-class origin, so every "near X" path accepts it');
   app.window.close();
 });
@@ -2549,32 +2550,25 @@ test('All unseen reports uses the medium species card wrapper, not a lookalike',
   }
 });
 
-test('work anchor: a second waypoint ranks, it never widens coverage', async () => {
+test('the fixed anchor is home alone, and anchors never widen coverage', async () => {
   const app = await boot();
   const A = app.window.__app;
-  // regions.py ships a work waypoint for WA, so the default is already two
-  // anchors; the setting overrides it rather than creating it.
-  assert.equal(A.getAnchors().length, 2,
-    'the region default supplies home and work');
-  app.window.localStorage.setItem(A.workKey('lat'), '47.674');
-  app.window.localStorage.setItem(A.workKey('lng'), '-122.1215');
+  // F1 step 1 retired the stored workplace. It ranked well -- 59 of 138 live WA
+  // locations were closer to the office than to home -- but it was a GUESS about
+  // where you would be, hand-kept in sync with a geocode, and it could not serve
+  // a friend's house, a new lunch spot, or being away on a trip. The transient
+  // here/find anchors replaced it and are not guesses.
   const anchors = A.getAnchors();
-  assert.equal(anchors.length, 2, 'a saved work waypoint replaces the default');
-  assert.equal(anchors[1].lat, 47.674, 'and it is the saved one that is used');
-  assert.equal(anchors[0].name, 'home',
-    'home is first, so a tie in distance resolves to home');
-  // Clearing work stores an empty string rather than removing the key: a
-  // removed key would silently fall back to the regions.py default, so
-  // "I do not have a work location" would be un-expressible.
-  app.window.localStorage.setItem(A.workKey('lat'), '');
-  assert.equal(A.getAnchors().length, 1,
-    'clearing work really removes the second anchor, not resets it');
-  // The anchors must not reach the feed planner: a work-centred circle would
+  assert.equal(anchors.length, 1, 'exactly one fixed anchor');
+  assert.equal(anchors[0].name, 'home', 'and it is home');
+  assert.equal(typeof A.workKey, 'undefined', 'the work storage key is gone');
+  assert.equal(typeof A.getWork, 'undefined', 'and so is its accessor');
+  // The anchors must not reach the feed planner: an anchor-centred circle would
   // change WHICH birds the app knows about, and the report would then be
   // answering a different question than the app.
   const planner = HTML.slice(HTML.indexOf('BL.planFeeds('), HTML.indexOf('BL.planFeeds(') + 200);
   assert.ok(!/anchor/i.test(planner),
-    'planFeeds is never handed anchors - the second waypoint ranks only');
+    'planFeeds must not take an anchor -- anchors rank, they never gather');
   app.window.close();
 });
 
@@ -2633,33 +2627,37 @@ test('a stored text size is applied before anything renders', async () => {
  * near home on a Saturday are the wrong list on a Tuesday lunch break. Home
  * stays the default so the first open still matches the Markdown report.
  */
-test('quick outing offers home, work and current location, defaulting to home', async () => {
+test('quick outing offers home and current location, defaulting to home', async () => {
   const app = await boot();
-  const ids = ['quickBtn', 'quickWorkBtn', 'quickHereBtn'];
+  const ids = ['quickBtn', 'quickHereBtn'];
   ids.forEach((id) => assert.ok(app.$(id), id + ' exists'));
   assert.equal(app.$('quickBtn').getAttribute('aria-pressed'), 'true', 'home is the default anchor');
-  assert.equal(app.$('quickWorkBtn').getAttribute('aria-pressed'), 'false');
   assert.equal(app.$('quickHereBtn').getAttribute('aria-pressed'), 'false');
   assert.match(app.$('quickBtn').textContent, /Home/);
   assert.ok(app.$('quickHereRow').hidden, 'the type-a-place fallback stays out of the way');
+  // F1 step 1 retired the stored work anchor: a saved workplace is a guess
+  // about where you will be, and "current location" is not.
+  assert.equal(app.$('quickWorkBtn'), null, 'the work anchor button is gone');
 });
 
-test('an unset anchor advertises how to set it instead of dying on tap', async () => {
+test('an anchor with no coordinate yet asks for one instead of dying on tap', async () => {
   const app = await boot();
   const w = app.window;
-  // Clear the work anchor the way Settings does (empty string, not removeItem —
-  // removeItem falls back to the regions.py default and un-clears it).
-  w.localStorage.setItem('ebird_work_lat:wa', '');
-  w.localStorage.setItem('ebird_work_lng:wa', '');
-  w.__app.syncQuickButtons();
-  assert.match(app.$('quickWorkBtn').textContent, /Set work/,
-    'with no work anchor the button says how to get one');
-  assert.equal(w.__app.quickAnchor('work'), null);
+  // "here" and "find" are the anchors that can legitimately be unset — home
+  // always falls back to the region coordinate so distances match the report
+  // before anything is configured.
+  assert.equal(w.__app.quickAnchor('here'), null,
+    'no current location until one is resolved');
+  assert.equal(w.__app.quickAnchor('find'), null,
+    'and no searched place until one is searched');
 
+  // Tapping "find" with nothing set must open the search box rather than fail.
   const before = app.state.fetches.length;
-  app.click(app.$('quickWorkBtn'));
-  assert.equal(app.state.fetches.length, before, 'and taps no feed it cannot centre');
-  assert.match(app.$('quickStatus').textContent, /Settings/, 'it points at Settings');
+  w.__app.loadQuickOuting('find');
+  assert.equal(app.state.fetches.length, before,
+    'it taps no feed it cannot centre');
+  assert.ok(!app.$('quickHereRow').hidden,
+    'it opens the place search instead — a dead button teaches nothing');
 });
 
 // getDeviceLocation() is promise-based, so the UI it drives settles a microtask
@@ -2844,7 +2842,8 @@ test('the closest-spots doc names the gates that make it look sparse', () => {
   // These four are exactly the questions the section provokes and cannot answer
   // from its own output.
   assert.match(all, /250 m/, 'the clustering radius');
-  assert.match(all, /NEAREST anchor|nearest anchor/, 'ranking is from home OR work');
+  assert.match(all, /Measure each cluster from home/,
+    'ranking is from home, the one fixed anchor');
   assert.match(all, /private/i, 'why a residential address can legitimately appear');
   assert.match(all, /ONE observation per species|one observation per species/,
     'the feed limit that makes the section sparse by construction');
@@ -4019,9 +4018,9 @@ test('the app does not rebuild the anchor list that logic.js already defines', (
   const body = HTML.slice(i, HTML.indexOf('\n      }', i));
   assert.match(body, /anchorsFor\(/,
     'getAnchors must delegate to BirdLogic.anchorsFor, the shared definition');
-  assert.ok(!/name:\s*'home'/.test(body) && !/name:\s*'work'/.test(body),
+  assert.ok(!/name:\s*'home'/.test(body) && !/name:\s*'here'/.test(body),
     'getAnchors must not hand-roll the anchor objects -- that is a second '
-    + 'definition of the home/work ordering the report ranks on');
+    + 'definition of the anchor ordering the report ranks on');
 });
 // The leaderboard cascade lane resolved species names ONLY from the merged
 // observation feeds, which are rarity-biased (notable + hotspot recent). But a
