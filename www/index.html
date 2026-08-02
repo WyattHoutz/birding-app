@@ -1163,7 +1163,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.41';
+      var APP_VERSION = '1.0.42';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1462,16 +1462,93 @@
       // but they hold the background history lane while in flight so the two
       // never compete for the key.
       var _fgInFlight = 0;
+      // --- Foreground eBird calls: bounded, and they survive a 429 ----------
+      // This used to be a bare fetch, on the premise recorded below that a
+      // foreground load is "a handful of calls the user is waiting on". That
+      // stopped being true: the chase pipeline's phase 2 is ONE CALL PER UNSEEN
+      // SPECIES (measured at 41 on a normal Washington day), hotspot cards
+      // hydrate one call each after paint, and two sections opening together
+      // used to double the whole wave. Reported from the device as frequent
+      // HTTP 429s.
+      //
+      // Two things were wrong and both are fixed here:
+      //
+      // 1. A 429 was FATAL. The background lane has retried 429/5xx since it
+      //    was written; the foreground lane threw, so one rate-limited response
+      //    rendered an empty section rather than costing a second. eBird sends
+      //    Retry-After on some 429s, and it is obeyed when present because a
+      //    guessed backoff that is too short earns the next 429.
+      //
+      // 2. Nothing bounded the BURST. A token bucket keeps first paint fast —
+      //    the first FG_BURST calls go straight out — while holding the
+      //    sustained rate near the background lane's, so a 41-call phase 2
+      //    cannot spike past the per-key ceiling. Ceiling maths: the report
+      //    assumes ~100/min per key and deliberately uses half of it.
+      var FG_BURST = 8, FG_REFILL_MS = 700, FG_MAX_RETRY = 3;
+      var _fgTokens = FG_BURST, _fgRefillAt = Date.now();
+      // A torn-down page must stop spending the key. This matters beyond the
+      // obvious: the token bucket DEFERS calls, so without this a section the
+      // user has navigated away from — or a webview being destroyed — keeps
+      // firing queued requests into the same per-key budget the visible screen
+      // is competing for.
+      function fgDead() {
+        try { return typeof window !== 'undefined' && window.closed === true; }
+        catch (e) { return false; }
+      }
+      function fgToken() {
+        if (fgDead()) return new Promise(function () {});
+        var now = Date.now();
+        var gained = Math.floor((now - _fgRefillAt) / FG_REFILL_MS);
+        if (gained > 0) {
+          _fgTokens = Math.min(FG_BURST, _fgTokens + gained);
+          _fgRefillAt += gained * FG_REFILL_MS;
+        }
+        if (_fgTokens > 0) { _fgTokens--; return Promise.resolve(); }
+        return rlSleep(Math.max(50, FG_REFILL_MS - (now - _fgRefillAt))).then(fgToken);
+      }
+      // eBird may name the wait itself; a header in seconds is the only number
+      // here that is not a guess.
+      function retryAfterMs(r, attempt) {
+        var h = null;
+        try { h = r.headers && r.headers.get && r.headers.get('Retry-After'); } catch (e) { h = null; }
+        var s = parseFloat(h);
+        if (isFinite(s) && s > 0) return Math.min(30000, s * 1000);
+        return Math.pow(2, attempt) * 1000;
+      }
+      function fgAttempt(path, attempt) {
+        return fgToken().then(function () {
+          return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } });
+        }).then(function (r) {
+          if (r.status === 401 || r.status === 403) {
+            dbg('error', 'eBird ' + r.status + ' (key rejected) · ' + path);
+            throw new Error('the API key was rejected (HTTP ' + r.status + ').');
+          }
+          if (!r.ok) {
+            if (RL_RETRY_CODES[r.status] && attempt < FG_MAX_RETRY) {
+              var back = retryAfterMs(r, attempt);
+              dbg('warn', 'eBird ' + r.status + ' — retry ' + (attempt + 1) + '/' + FG_MAX_RETRY
+                + ' in ' + (back / 1000) + 's · ' + path);
+              // Spend the whole bucket: continuing to fire at the old rate into
+              // a limiter that just said no is how a burst becomes a stall.
+              _fgTokens = 0; _fgRefillAt = Date.now() + back;
+              return rlSleep(back).then(function () {
+                if (fgDead()) return new Promise(function () {});
+                return fgAttempt(path, attempt + 1);
+              });
+            }
+            dbg('error', 'eBird HTTP ' + r.status + ' · ' + path);
+            throw new Error(r.status === 429
+              ? 'eBird is rate-limiting this key (HTTP 429). Give it a minute and try again.'
+              : 'eBird returned HTTP ' + r.status + '.');
+          }
+          return r.json();
+        });
+      }
       function ebird(path) {
         dbg('net', 'GET ' + path);
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
-        return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
-          .then(function (r) {
-            if (r.status === 401 || r.status === 403) { dbg('error', 'eBird ' + r.status + ' (key rejected) · ' + path); throw new Error('the API key was rejected (HTTP ' + r.status + ').'); }
-            if (!r.ok) { dbg('error', 'eBird HTTP ' + r.status + ' · ' + path); throw new Error('eBird returned HTTP ' + r.status + '.'); }
-            return r.json();
-          })
+        return fgAttempt(path, 0)
           .then(function (v) { release(); return v; }, function (e) { release(); throw e; });
       }
       // --- Rate-limited background queue (mirrors ebird.py) ---------------
@@ -9705,6 +9782,7 @@
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
+        ebird: ebird, retryAfterMs: retryAfterMs, FG_BURST: FG_BURST, FG_REFILL_MS: FG_REFILL_MS,
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },

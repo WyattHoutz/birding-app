@@ -13,6 +13,43 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.42 — HTTP 429: a rate-limited call was fatal, and nothing bounded the burst
+
+Reported from the device on v1.0.39: *"hitting 429 frequently"*, then *"even the
+first time loading reports like the rarities is not loading."*
+
+**Two separate faults, both in the foreground lane.**
+
+**1. A 429 was fatal.** The background lane has retried 429/5xx with backoff
+since it was written. The foreground lane — every user-tapped load — was a bare
+`fetch` that threw on any non-OK status, so **one** rate-limited response
+rendered an empty section instead of costing a second. It now retries with
+exponential backoff and **obeys `Retry-After`** when eBird sends one, because a
+guessed backoff shorter than the server asked for earns the next 429. After the
+last retry the message says what happened and what to do, rather than
+`eBird returned HTTP 429`.
+
+**2. Nothing bounded the burst, and the premise had expired.** The code carried
+a comment justifying the unthrottled lane: *"foreground loads stay direct —
+they're a handful of calls the user is waiting on."* That stopped being true.
+The chase pipeline's phase 2 is **one call per unseen species — measured at 41**
+on a normal Washington day — fired in back-to-back batches of six, plus one call
+per hotspot card after paint. A token bucket now allows a burst of 8 for fast
+first paint and then holds the sustained rate under the per-key ceiling.
+
+**A torn-down page stops spending the key**, which matters more now that calls
+are deferred: a section you have navigated away from no longer fires queued
+requests into the budget the visible screen is competing for.
+
+### If it still happens: check whether your phone shares a key with the hourly job
+
+`publish.py` runs **every hour** in this repo's Actions and holds 1.2 s between
+calls — 50/min, sustained, for the length of a full run. If the key in Settings
+is the same one in `EBIRD_API_KEY`, the phone and the scheduled job draw on one
+budget and collide once an hour. **eBird issues more than one key: use a
+separate one on the device.** That is the structural fix; this release is what
+makes a collision cost a second instead of a section.
+
 ## v1.0.41 — F11: the "hard to find, not rare" engine was built and never rendered
 
 *"I'm trying to find a western kingbird, and it says 380× more likely here."*
