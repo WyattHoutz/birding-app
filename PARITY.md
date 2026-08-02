@@ -13,6 +13,58 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## v1.0.44 — the chase snapshot survives closing the app
+
+*"I often close the app and then open it again."* Every cold start re-fired the
+whole **~47-call wave**, because the cache lived only in memory — visible in the
+device log as full waves on separate days, and the single largest remaining
+source of 429s.
+
+**A snapshot from earlier today is now served without touching the network at
+all.** Every feed behind it is day-scoped, so a half-hour-old answer is the same
+answer.
+
+**It stores the RAW FEED ROWS and recomputes the views, never the views
+themselves.** That is the load-bearing choice: the computation folds in your seen
+list, your display name and your home location, so a stored *result* would keep
+calling a bird unseen after you had logged it. Recomputing is pure local work
+and costs nothing. Guarded, so nobody "optimises" it later by storing the
+finished object.
+
+**Compressed, because it was plaintext and it is ~90% repeated field names.**
+gzip via `CompressionStream` — native on iOS 16.4+, no dependency. Measured on a
+real Washington snapshot:
+
+| | size |
+|---|---:|
+| plaintext JSON | 424 KB |
+| gzip | 36 KB |
+| gzip + base64 *(what localStorage holds)* | **49 KB** |
+
+**89% smaller.** Base64 costs a third back on top of the compressed bytes —
+unavoidable, since localStorage holds strings — and is still an enormous net
+win.
+
+Every payload carries its own format tag (`z:` or `j:`), so a value written by a
+build with compression stays readable by one without it and vice versa. Without
+the tag a rollback would leave unreadable bytes that look like corruption rather
+than a format change. Compression is an optimisation and never a requirement: if
+the API is missing or anything throws, it falls back to readable JSON.
+
+**A 429 wave now shows the last good answer instead of nothing.** If every feed
+fails, the views are computed from an empty set and produce a confident, wrong
+*"nothing is being reported"*. It now falls back to the same-day snapshot and
+marks the result stale.
+
+Yesterday's snapshots are pruned — every feed in them is day-scoped, and keeping
+them is how a cache quietly becomes the reason the next write fails. Refresh
+clears the durable copy too, or the button would do nothing.
+
+**Testing gap closed on the way:** jsdom has no `CompressionStream`, so the
+first version of these tests only ever exercised the *fallback* — the gzip path,
+the one that actually runs on the phone, was never executed. The test now lends
+the window Node's implementation and asserts **both** paths.
+
 ## v1.0.43 — the 429 fix, now sized from a real device log
 
 v1.0.42 fixed the two obvious faults. A v1.0.39 log from the phone then showed

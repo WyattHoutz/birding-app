@@ -1980,6 +1980,123 @@ test('Easy misses maps its spots onto the shared place shape', async () => {
 // heading — folding a group into one panel would force declaring the others
 // omitted from the app, and the omission list is the one mechanism that catches
 // a section silently disappearing.
+// --- The chase snapshot survives closing the app ----------------------------
+// "I often close the app and then open it again." Every cold start re-fired the
+// whole ~47-call wave because the cache lived only in memory — visible in a
+// device log as full waves on separate days, and the single largest remaining
+// source of 429s.
+test('a cold start reuses today\'s snapshot instead of refetching', async () => {
+  const rows = { 'king-recent.json': [{ speciesCode: 'merlin', comName: 'Merlin',
+    locId: 'L1', locName: 'Marymoor', lat: 47.6, lng: -122.1,
+    obsDt: '2026-08-02 08:00', obsValid: true }] };
+  // First app: store a snapshot the way the real code does.
+  const a1 = await boot();
+  await a1.window.__app.saveChaseSnapshot('wa', ['merlin'], rows);
+  const stored = a1.window.localStorage.getItem(a1.window.__app.chaseKey('wa'));
+  assert.ok(stored, 'a snapshot was written');
+  a1.window.close();
+
+  // Second app: same storage, and it must not touch eBird.
+  const a2 = await boot({ storage: { [a1.window.__app.chaseKey('wa')]: stored } });
+  const before = a2.state.fetches.filter((u) => /api\.ebird\.org/.test(u)).length;
+  const res = await a2.window.__app.getChase();
+  const after = a2.state.fetches.filter((u) => /api\.ebird\.org/.test(u)).length;
+  assert.equal(after, before, 'a fresh snapshot costs ZERO eBird calls');
+  assert.ok(res && res.cv, 'and still produces the computed views');
+  a2.window.close();
+});
+
+// The load-bearing design choice: store the raw feed rows, recompute the views.
+// A stored RESULT would keep calling a bird unseen after it had been logged.
+test('the snapshot stores raw rows, so a newly seen bird is respected', async () => {
+  const rows = { 'king-recent.json': [{ speciesCode: 'merlin', comName: 'Merlin',
+    locId: 'L1', locName: 'Marymoor', lat: 47.6, lng: -122.1,
+    obsDt: '2026-08-02 08:00', obsValid: true }] };
+  const a1 = await boot();
+  await a1.window.__app.saveChaseSnapshot('wa', ['merlin'], rows);
+  const key = a1.window.__app.chaseKey('wa');
+  const stored = a1.window.localStorage.getItem(key);
+  const snap = await a1.window.__app.unpackJson(stored);
+  assert.ok(snap.rows, 'the payload carries RAW rows');
+  assert.ok(!snap.cv && !snap.unseen && !snap.destinations,
+    'and NOT the computed views, which would go stale against the seen list');
+  a1.window.close();
+});
+
+test('a snapshot round-trips through compression', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Realistic shape and volume: field names repeat on every row, which is
+  // exactly what makes this worth compressing.
+  const rows = { 'big.json': [] };
+  for (let i = 0; i < 400; i++) {
+    rows['big.json'].push({
+      speciesCode: 'merlin', comName: 'Merlin', sciName: 'Falco columbarius',
+      locId: 'L' + i, locName: 'Some Hotspot Name ' + i, lat: 47.6, lng: -122.1,
+      obsDt: '2026-08-02 08:00', howMany: 1, subId: 'S' + i, obsValid: true,
+    });
+  }
+  const plain = JSON.stringify({ t: 0, codes: null, rows });
+
+  // jsdom has no CompressionStream, so without this the ONLY path these tests
+  // ever exercise is the plaintext fallback — and the gzip path is the one that
+  // actually runs on the phone. Node has both, so lend them to the window.
+  assert.equal(typeof app.window.CompressionStream, 'undefined',
+    'jsdom still lacks it — if this ever changes, the lending below is redundant');
+  app.window.CompressionStream = CompressionStream;
+  app.window.DecompressionStream = DecompressionStream;
+  app.window.Response = Response;
+
+  const packed = await A.packJson({ t: Date.now(), codes: null, rows });
+  assert.equal(packed.slice(0, 2), 'z:', 'with the API present it really does compress');
+  assert.ok(packed.length < plain.length / 2,
+    `gzip+base64 must beat plaintext by a wide margin: ${packed.length} vs ${plain.length}`);
+  const back = await A.unpackJson(packed);
+  assert.equal(back.rows['big.json'].length, 400, 'everything survives the round trip');
+  assert.equal(back.rows['big.json'][399].subId, 'S399', 'including the last row');
+
+  // ...and the fallback still works, because a payload written by either build
+  // must be readable by the other.
+  delete app.window.CompressionStream;
+  const raw = await A.packJson({ t: 0, codes: null, rows });
+  assert.equal(raw.slice(0, 2), 'j:', 'without the API it falls back to readable JSON');
+  const backRaw = await A.unpackJson(raw);
+  assert.equal(backRaw.rows['big.json'].length, 400, 'and that round-trips too');
+  app.window.close();
+});
+
+test('an untagged or corrupt payload is discarded, not thrown', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(await A.unpackJson('z:not-valid-base64!!'), null, 'corrupt gzip yields null');
+  assert.equal(await A.unpackJson('j:{not json'), null, 'corrupt json yields null');
+  assert.equal(await A.unpackJson(''), null, 'empty yields null');
+  // Written before the format tag existed.
+  const bare = await A.unpackJson('{"rows":{}}');
+  assert.equal(JSON.stringify(bare), '{"rows":{}}', 'bare JSON still reads');
+  app.window.close();
+});
+
+test('Refresh drops the durable copy, or the button does nothing', () => {
+  const src = HTML.slice(HTML.indexOf('function clearChaseCache('),
+    HTML.indexOf('function clearChaseCache(') + 500);
+  assert.match(src, /localStorage\.removeItem\(chaseKey\(/,
+    'clearing the cache must clear the stored snapshot too');
+});
+
+test('yesterday\'s snapshot is pruned, not kept forever', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const stale = 'ebird_chase_v1:wa:2020-01-01';
+  app.window.localStorage.setItem(stale, 'j:{"rows":{}}');
+  await A.saveChaseSnapshot('wa', null, { 'a.json': [{ x: 1 }] });
+  assert.equal(app.window.localStorage.getItem(stale), null,
+    'a day-scoped snapshot from another day is removed — keeping them is how a cache '
+    + 'becomes the reason the next write fails');
+  assert.ok(app.window.localStorage.getItem(A.chaseKey('wa')), "but today's is kept");
+  app.window.close();
+});
+
 // --- Reported from the device: frequent HTTP 429 ----------------------------
 // The foreground lane was a bare fetch, written when a foreground load really
 // was "a handful of calls the user is waiting on". That premise expired: the
