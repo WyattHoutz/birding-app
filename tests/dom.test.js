@@ -2039,14 +2039,31 @@ test('Retry-After is obeyed when eBird sends one', async () => {
 test('a burst of foreground calls is bounded', async () => {
   const app = await boot();
   const A = app.window.__app;
-  assert.ok(A.FG_BURST > 0 && A.FG_BURST <= 12,
-    'the bucket allows a burst for first paint, but a bounded one');
-  // Sustained rate has to stay under the per-key ceiling the report assumes
-  // (~100/min); the background lane already holds 1.2s/call.
-  const perMin = 60000 / A.FG_REFILL_MS;
-  assert.ok(perMin <= 100,
-    `sustained foreground rate must stay under the ceiling: ${perMin}/min`);
+  // Sized from a real device log, not guessed: 6-wide batches put 24 calls
+  // through in 570 ms and the 25th onward was refused, while 8 sequential
+  // calls at 4.5 req/s drew no 429 at all. So the ceiling is a BURST
+  // allowance, and two knobs are needed — concurrency stops a batch arriving
+  // as a spike, the gap holds the sustained rate.
+  assert.ok(A.FG_MAX_CONC >= 1 && A.FG_MAX_CONC <= 3,
+    `concurrency must stay well under the 6-wide batches that tripped it: ${A.FG_MAX_CONC}`);
+  const perSec = (1000 / A.FG_MIN_GAP_MS) * 1;
+  assert.ok(perSec <= 5,
+    `sustained rate must stay at or under the ~4.5/s the log proves safe: ${perSec}/s`);
+  // ...and not so slow that a 41-call wave is unusable on a phone.
+  const waveSec = (41 * A.FG_MIN_GAP_MS) / 1000;
+  assert.ok(waveSec < 15, `a full wave must still finish promptly: ${waveSec}s`);
   app.window.close();
+});
+
+test('one 429 holds every foreground call, not just the one that failed', () => {
+  const src = HTML.slice(HTML.indexOf('function fgAttempt('),
+    HTML.indexOf('function ebird('));
+  // The log's worst property: once the budget was gone, every remaining call
+  // in the wave was refused in ~90 ms each. Backing off only the failed call
+  // leaves the other thirty firing into a limiter that has already said no,
+  // which is how one 429 became forty.
+  assert.match(src, /_fgNextAt = Math\.max\(_fgNextAt, Date\.now\(\) \+ back\)/,
+    'the shared gate is pushed out, so the whole wave waits');
 });
 
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
@@ -4679,7 +4696,8 @@ test('the newest-checklists mode is newest first and never collapsed per hotspot
     },
   });
   rendered.window.__app.setChecklistMode('new');
-  await new Promise((r) => setTimeout(r, 140));
+  // The foreground lane paces requests now, so a render takes a beat longer.
+  await new Promise((r) => setTimeout(r, 600));
   const when = rendered.window.document.querySelector('#cklResults .name');
   assert.ok(when, 'the mode rendered a row into the Birdiest panel');
   assert.match(when.textContent, /\d{1,2}:\d{2}/,

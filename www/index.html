@@ -1163,7 +1163,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.42';
+      var APP_VERSION = '1.0.43';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1462,49 +1462,53 @@
       // but they hold the background history lane while in flight so the two
       // never compete for the key.
       var _fgInFlight = 0;
-      // --- Foreground eBird calls: bounded, and they survive a 429 ----------
-      // This used to be a bare fetch, on the premise recorded below that a
-      // foreground load is "a handful of calls the user is waiting on". That
-      // stopped being true: the chase pipeline's phase 2 is ONE CALL PER UNSEEN
-      // SPECIES (measured at 41 on a normal Washington day), hotspot cards
-      // hydrate one call each after paint, and two sections opening together
-      // used to double the whole wave. Reported from the device as frequent
-      // HTTP 429s.
+      // --- Foreground eBird calls: paced from a measured device log ---------
+      // This was a bare fetch, on the premise recorded below that a foreground
+      // load is "a handful of calls the user is waiting on". That expired: the
+      // chase pipeline's phase 2 is ONE CALL PER UNSEEN SPECIES (41 on a normal
+      // Washington day), fired in batches of six.
       //
-      // Two things were wrong and both are fixed here:
+      // MEASURED, from a device log rather than guessed:
+      //   6-wide batches, 24 calls in 570 ms .............. all 200
+      //   the 25th call onward ........................... 429, and it STAYS
+      //     429 for the rest of the wave — every later batch refused in ~90 ms
+      //   sequential, 8 calls over 1769 ms (4.5 req/s) .... zero 429s
       //
-      // 1. A 429 was FATAL. The background lane has retried 429/5xx since it
-      //    was written; the foreground lane threw, so one rate-limited response
-      //    rendered an empty section rather than costing a second. eBird sends
-      //    Retry-After on some 429s, and it is obeyed when present because a
-      //    guessed backoff that is too short earns the next 429.
+      // So the ceiling is a BURST allowance of roughly 25 requests, not a
+      // per-minute quota, and ~4.5 req/s sustained sits comfortably under it.
+      // Two knobs rather than one, because they control different failures:
+      // concurrency stops a batch arriving as a spike, and the gap holds the
+      // sustained rate. A token bucket was tried first and was wrong in both
+      // directions — its burst was still a spike, and its refill was SLOWER
+      // than the rate the same log proves is safe.
       //
-      // 2. Nothing bounded the BURST. A token bucket keeps first paint fast —
-      //    the first FG_BURST calls go straight out — while holding the
-      //    sustained rate near the background lane's, so a 41-call phase 2
-      //    cannot spike past the per-key ceiling. Ceiling maths: the report
-      //    assumes ~100/min per key and deliberately uses half of it.
-      var FG_BURST = 8, FG_REFILL_MS = 700, FG_MAX_RETRY = 3;
-      var _fgTokens = FG_BURST, _fgRefillAt = Date.now();
-      // A torn-down page must stop spending the key. This matters beyond the
-      // obvious: the token bucket DEFERS calls, so without this a section the
-      // user has navigated away from — or a webview being destroyed — keeps
-      // firing queued requests into the same per-key budget the visible screen
-      // is competing for.
+      // 41 calls at these settings is about 8 s, against ~25 s for the bucket.
+      var FG_MAX_CONC = 2, FG_MIN_GAP_MS = 220, FG_MAX_RETRY = 3;
+      var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [];
       function fgDead() {
         try { return typeof window !== 'undefined' && window.closed === true; }
         catch (e) { return false; }
       }
-      function fgToken() {
+      // A torn-down page must stop spending the key: calls are queued now, so
+      // without this a section the user has navigated away from keeps firing
+      // into the same budget the visible screen is competing for.
+      function fgRelease() {
+        _fgActive--;
+        if (_fgWaiters.length) { var w = _fgWaiters.shift(); w(); }
+      }
+      function fgSlot() {
         if (fgDead()) return new Promise(function () {});
-        var now = Date.now();
-        var gained = Math.floor((now - _fgRefillAt) / FG_REFILL_MS);
-        if (gained > 0) {
-          _fgTokens = Math.min(FG_BURST, _fgTokens + gained);
-          _fgRefillAt += gained * FG_REFILL_MS;
-        }
-        if (_fgTokens > 0) { _fgTokens--; return Promise.resolve(); }
-        return rlSleep(Math.max(50, FG_REFILL_MS - (now - _fgRefillAt))).then(fgToken);
+        return new Promise(function (resolve) {
+          function take() {
+            _fgActive++;
+            var now = Date.now();
+            var at = Math.max(now, _fgNextAt);
+            _fgNextAt = at + FG_MIN_GAP_MS;
+            var wait = at - now;
+            if (wait > 0) setTimeout(resolve, wait); else resolve();
+          }
+          if (_fgActive < FG_MAX_CONC) take(); else _fgWaiters.push(take);
+        });
       }
       // eBird may name the wait itself; a header in seconds is the only number
       // here that is not a guess.
@@ -1516,8 +1520,10 @@
         return Math.pow(2, attempt) * 1000;
       }
       function fgAttempt(path, attempt) {
-        return fgToken().then(function () {
-          return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } });
+        return fgSlot().then(function () {
+          return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
+            .then(function (r) { fgRelease(); return r; },
+                  function (e) { fgRelease(); throw e; });
         }).then(function (r) {
           if (r.status === 401 || r.status === 403) {
             dbg('error', 'eBird ' + r.status + ' (key rejected) · ' + path);
@@ -1528,9 +1534,12 @@
               var back = retryAfterMs(r, attempt);
               dbg('warn', 'eBird ' + r.status + ' — retry ' + (attempt + 1) + '/' + FG_MAX_RETRY
                 + ' in ' + (back / 1000) + 's · ' + path);
-              // Spend the whole bucket: continuing to fire at the old rate into
-              // a limiter that just said no is how a burst becomes a stall.
-              _fgTokens = 0; _fgRefillAt = Date.now() + back;
+              // Hold EVERY foreground call, not just this one. The log shows a
+              // 429 refusing the rest of the wave in ~90 ms each: once the
+              // budget is gone, the other 30 in-flight calls are already
+              // doomed, and letting them keep firing is what turned one 429
+              // into forty.
+              _fgNextAt = Math.max(_fgNextAt, Date.now() + back);
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
                 return fgAttempt(path, attempt + 1);
@@ -1552,9 +1561,10 @@
           .then(function (v) { release(); return v; }, function (e) { release(); throw e; });
       }
       // --- Rate-limited background queue (mirrors ebird.py) ---------------
-      // ebird.py holds every API call to _MIN_CALL_INTERVAL_S = 1.2s (~50
-      // req/min — deliberately half eBird's ~100/min per-key ceiling, so a
-      // scheduled run and a local run can share one key) and retries 429/5xx
+      // ebird.py holds every API call to _MIN_CALL_INTERVAL_S, now 4.0s (~15
+      // req/min). The report YIELDS to the phone: it is an hourly-ish job
+      // nobody waits on, and its cadence dropped to every 3 hours to suit.
+      // It retries 429/5xx
       // with 2**attempt backoff. The app's background cache builders push
       // through the SAME limiter so a long history build can never burn the
       // key that the report's scheduled job depends on. Foreground, user-tapped
@@ -2871,12 +2881,23 @@
           return set;
         } catch (e) { return null; }
       }
-      var SPECIES_BATCH = 6;
+      // The foreground gate is the limiter now, so this only controls how many
+      // promises exist at once. Kept at the gate's concurrency so the two
+      // cannot disagree - 6-wide batches are exactly what the device log shows
+      // arriving as a spike.
+      var CHASE_TTL_MS = 30 * 60 * 1000;
+      var SPECIES_BATCH = 2;
       var _chaseInflight = {};
       function getChase() {
         var profile = getReport(), slug = profile.slug;
         var c = _chase[slug];
-        if (c && (Date.now() - c.t) < 600000) return Promise.resolve(c);
+        // 30 minutes, not 10. This wave is ~47 calls (6 region feeds, then one
+        // per unseen species), and at 10 minutes a device log showed it fired
+        // four separate times in one session — twice within 16 minutes, purely
+        // because the cache had lapsed. The underlying feeds are day-scoped, so
+        // a half-hour-old answer is the same answer; Refresh is there for the
+        // times it isn't.
+        if (c && (Date.now() - c.t) < CHASE_TTL_MS) return Promise.resolve(c);
         // Two sections opening at once used to fire two complete waves, because
         // the cache is only written at the END. Phase 2 made that materially
         // worse - it doubles a 41-call run to 82 - so concurrent callers now
@@ -9782,7 +9803,8 @@
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
-        ebird: ebird, retryAfterMs: retryAfterMs, FG_BURST: FG_BURST, FG_REFILL_MS: FG_REFILL_MS,
+        ebird: ebird, retryAfterMs: retryAfterMs,
+        FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },
