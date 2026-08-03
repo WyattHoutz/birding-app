@@ -5112,15 +5112,110 @@ test('the newest-checklists mode is newest first and never collapsed per hotspot
   rendered.window.__app.setChecklistMode('new');
   // The foreground lane paces requests now, so a render takes a beat longer.
   await new Promise((r) => setTimeout(r, 600));
-  const when = rendered.window.document.querySelector('#cklResults .name');
-  assert.ok(when, 'the mode rendered a row into the Birdiest panel');
-  assert.match(when.textContent, /\d{1,2}:\d{2}/,
+  // Both modes render through the SHARED medium checklist card, so the clock
+  // time lands in .ckdate rather than in a hand-rolled .name.
+  const doc2 = rendered.window.document;
+  const when = doc2.querySelector('#cklResults .cklcard-md .ckdate');
+  assert.ok(when, 'the mode rendered a card into the Birdiest panel');
+  assert.match(when.textContent, /\d{1,2}(:\d{2})?\s*[ap]/i,
     `the rendered when carries the clock time, not just the day: got "${when && when.textContent}"`);
+  // The headline is the PLACE and it links to the checklist — the separate
+  // "View S379659278 ↗" line is gone, and with it eleven characters of noise.
+  const head = doc2.querySelector('#cklResults .cklcard-md .ckplace a');
+  assert.ok(head, 'the place is the headline and it is a link');
+  assert.match(head.getAttribute('href') || '', /ebird\.org\/checklist\/S_AUG/,
+    'and the link is the checklist itself');
+  assert.ok(!/View\s+S_AUG|View checklist/.test(doc2.getElementById('cklResults').textContent),
+    'so no row carries a separate "View …" line any more');
   rendered.window.close();
 });
 
-// One feed, two collapses, one section — and Birdiest stays the default,
-// because it answers the question you ask more often.
+// Four things the device reported about this one section, pinned together
+// because they are one idea: the section should look like every other section.
+test('Birdiest and Newest are ONE template, with the caveat behind the ℹ', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+
+  // 1. Both modes render through the shared medium checklist card. They were
+  //    two hand-rolled <li> shapes for one question.
+  const best = HTML.slice(HTML.indexOf('function loadBirdiest('),
+    HTML.indexOf('function markBirdiestUnseen('));
+  const recent = HTML.slice(HTML.indexOf('function loadRecentLists('),
+    HTML.indexOf('function buildBirdiest('));
+  for (const [name, src] of [['Birdiest', best], ['Newest', recent]]) {
+    assert.match(src, /ChecklistCards\.list\('medium'/,
+      name + ' renders through the shared medium checklist card');
+    assert.match(src, /ChecklistCards\.medium\(\{/, name + ' builds shared cards');
+    assert.ok(!/<span class="count big">/.test(src),
+      name + ' must not hand-roll a row — that is how the two drifted apart');
+    // 2. The headline links to the checklist, so the "View …" line is gone.
+    assert.match(src, /href: sub \? checklistUrl\(sub\) : ''/,
+      name + ': the headline carries the checklist link');
+    // Asserted on the EMITTING call, not on the words: the comment above each
+    // renderer explains what was removed, and matching prose would fail on the
+    // explanation rather than on the code.
+    assert.ok(!/extA\(checklistUrl\(/.test(src),
+      name + ' must not emit a separate "View …" link of its own');
+  }
+  assert.ok(!/id="cklWarn"/.test(HTML),
+    'the inline yellow warning block is gone from the markup, not just unused');
+
+  // 3. The caveat is a LIVE note inside the ℹ dialog, and the button marks
+  //    itself — an explanation nobody knows is there is no explanation.
+  const sec = doc.getElementById('sec-cklBtn');
+  assert.ok(sec, 'the checklists section exists');
+  const docBtn = sec.querySelector('.docbtn');
+  const box = sec.querySelector('.sectiondoc');
+  assert.ok(docBtn && box, 'it has an ℹ button and a doc box');
+  assert.ok(!docBtn.classList.contains('hasnote'), 'unmarked when there is nothing to say');
+  app.window.__app.setSectionNote(sec, app.window.__app.sectionNoteHtml('Showing 3 days, not 7.'));
+  assert.ok(docBtn.classList.contains('hasnote'), 'marked once a note is attached');
+  assert.match(docBtn.getAttribute('aria-label') || '', /note/i,
+    'and says so to a screen reader, which cannot see the dot');
+  assert.match(box.getAttribute('data-note') || '', /Showing 3 days/,
+    'the note is held on the box, ready for the dialog');
+  // Cleared, not just overwritten: a caveat that no longer applies must not
+  // linger behind the icon from a previous load.
+  app.window.__app.setSectionNote(sec, '');
+  assert.ok(!docBtn.classList.contains('hasnote'), 'and unmarked again when cleared');
+  assert.ok(!box.getAttribute('data-note'), 'with the note actually removed');
+
+  // 4. The "Load checklists" button becomes the ↻ icon like every other
+  //    section. It never did, because the MODE SWITCH is a `.row` too and it
+  //    is the first one, so the helper skipped this section entirely.
+  const refresh = sec.querySelector('.refreshbtn');
+  assert.ok(refresh, 'the section has the ↻ icon every other section has');
+  const loadRow = doc.getElementById('cklBtn').closest('.row');
+  assert.equal(loadRow.hidden, true, 'and the wide Load button row is hidden');
+  assert.ok(!loadRow.classList.contains('modeswitch'),
+    'the row that got hidden is the LOAD row, not the mode switch');
+  assert.equal(sec.querySelector('.modeswitch').hidden, false,
+    'the mode switch is still visible — hiding it would remove the modes');
+  app.window.close();
+});
+
+// The device reports its own geometry, and it reported the document 33px
+// wider than the screen at 402px — a width the sweep did not test. eBird
+// personal locations are raw addresses with no break opportunity a normal
+// wrap would take, and they are the headline of these cards.
+test('a checklist headline cannot widen the card, however long the name', () => {
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+  assert.match(CK.css, /\.cklcard-md > \.ckhead > \.ckplace \{[^}]*overflow-wrap: anywhere/,
+    'a raw street address breaks rather than pushing the card wide');
+  assert.match(CK.css, /\.cklcard-md > \.ckhead > \.ckplace \{[^}]*min-width: 0/,
+    'and the headline cell may shrink below its content');
+  assert.match(CK.css, /\.cklcards-md > \.cklcard-md > \.ckhead \{[^}]*minmax\(0, 1fr\)/,
+    'the grid track it sits in is minmax(0, 1fr), or min-content wins anyway');
+  // Condensed too, so the common case is short before CSS has to rescue it.
+  const long = CK.medium({
+    place: '1730 North 122nd Street, Seattle, Washington, US (47.718, -122.335)',
+    href: 'https://ebird.org/checklist/S1',
+  });
+  assert.ok(/\u2026/.test(long), 'and a very long name is truncated with an ellipsis');
+});
 test('the checklist modes share one section and one cached feed', async () => {
   const app = await boot();
   const doc = app.window.document;
@@ -5760,4 +5855,83 @@ test('latest ticks paints the board before the checklists arrive', () => {
   assert.match(card, /var pending = !info;/, 'a row knows whether its feed has landed');
   assert.match(card, /finding recent checklists/, 'and says so while it waits');
 });
+
+// The generalised form of the bug behind "it doesn't seem to be using the
+// medium hotspot card". A card of one family rendered inside a container that
+// claims a DIFFERENT family gets the other family's geometry, because
+// cards-species.js scopes some rules as three-class descendants
+// (`.obs.big .name`) which outrank the hotspot card's own two-class
+// `.hscard-md > .name`. The static class check elsewhere pins the five lists
+// we know about; this one asks the BROWSER, so it also covers any list added
+// later and any nesting the class check cannot see.
+test('a hotspot card keeps its own layout wherever it is rendered', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const row = {
+    n: 1, locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+    distMi: 8.1, facts: ['270 species all-time', 'latest Jul 30'],
+    species: [{ code: 'merlin', name: 'Merlin' }],
+  };
+  // Every list in the app that hotspot cards are actually appended to.
+  const ids = ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults'];
+  const checked = [];
+  for (const id of ids) {
+    const ul = doc.getElementById(id);
+    assert.ok(ul, id + ' exists');
+    ul.innerHTML = '';
+    ul.appendChild(A.hotspotCard(row));
+    const li = ul.firstElementChild;
+    assert.ok(li && /hscard-md/.test(li.className),
+      id + ': renders the medium hotspot card');
+
+    // MEASURED, not assumed. jsdom does NOT apply the descendant rule
+    // `.obs.big .name { display: flex }`, so asserting on `display` here looks
+    // like coverage and silently passes even with the bug present — the first
+    // version of this test did exactly that and had to be thrown away. It DOES
+    // resolve the `>`-scoped rules, and `.obs.xl > li > .meta` sets
+    // `grid-column: 2` where `.hscard-md > .meta` sets `1 / -1`. That single
+    // value IS the reported symptom: the sub-header not spanning.
+    const meta = li.querySelector(':scope > .meta');
+    assert.ok(meta, id + ': the card has its sub-header');
+    const col = app.window.getComputedStyle(meta).gridColumn;
+    assert.equal(col, '1 / -1',
+      id + ': the sub-header must span all three columns, got grid-column "'
+      + col + '" — a species-card container class on this list outranks '
+      + '.hscard-md and boxes the sub-header back into column 2');
+
+    // The name block itself is only checked for existence: its font-size comes
+    // from a rule that legitimately applies in both families, so it is not a
+    // signal. grid-column above is.
+    const name = li.querySelector(':scope > .name');
+    assert.ok(name, id + ': the card has its name block');
+    checked.push(id);
+  }
+  assert.equal(checked.length, ids.length, 'every hotspot list was checked');
+  app.window.close();
+});
+
+// The other half of the same rule: the species cards NESTED inside a hotspot
+// card (the "3 unseen 🔍" list) must keep the small species treatment. They
+// live two levels down, so a descendant selector on the outer list is exactly
+// what would reach them.
+test('species cards nested inside a hotspot card keep the small treatment', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const ul = doc.getElementById('destResults');
+  ul.innerHTML = '';
+  ul.appendChild(A.hotspotCard({
+    n: 1, locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+    distMi: 8.1, facts: ['x'], species: [{ code: 'merlin', name: 'Merlin' }],
+  }));
+  const nested = ul.querySelector('.sppl');
+  assert.ok(nested, 'the unseen-species list renders inside the hotspot card');
+  assert.match(nested.className, /card-sm/,
+    'and declares the SMALL species size, not the big one');
+  assert.ok(!/\bbig\b|\bxl\b/.test(nested.className),
+    'a nested list must not claim a size its parent list also claims');
+  app.window.close();
+});
+
 
