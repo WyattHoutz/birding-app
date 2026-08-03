@@ -139,7 +139,12 @@
        collapses it to zero width rather than reserving a gutter. */
     '  grid-template-columns: auto minmax(0, 1fr) auto;',
     '  grid-template-rows: auto auto;',
-    '  align-items: center;',
+    /* Everything aligns to the TOP of its row. Centring made a card's height
+       depend on which cell happened to be tallest and then floated the others
+       in the leftover space, so a long species name and a short one produced
+       visibly different photo and distance positions down a list. Top-aligned,
+       every row starts on the same line however much any one cell wraps. */
+    '  align-items: start;',
     '  overflow: hidden;',
     '}',
     /* display:contents lifts the photo and the title OUT of .name so each can
@@ -151,16 +156,16 @@
        row whose photo failed to resolve (.thumb.nopic is display:none) closes
        up completely instead of keeping an empty 14px indent. */
     '.obs.xl > li > .name > .thumb, .obs.card-md > li > .name > .thumb {',
-    '  float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: center; }',
+    '  float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: start; }',
     '.obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {',
-    '  grid-column: 2; grid-row: 1; align-self: end; }',
+    '  grid-column: 2; grid-row: 1; align-self: start; }',
     '.obs.xl > li > .meta, .obs.card-md > li > .meta {',
     '  grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }',
     /* The distance column spans both rows, like .hsnum does on the hotspot
        card, so the number sits against the full height of the text block
        rather than floating beside one line of it. */
     '.obs.xl > li > .name > .spdist, .obs.card-md > li > .name > .spdist {',
-    '  grid-column: 3; grid-row: 1 / span 2; align-self: center; justify-self: end;',
+    '  grid-column: 3; grid-row: 1 / span 2; align-self: start; justify-self: end;',
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
