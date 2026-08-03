@@ -1168,7 +1168,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.47';
+      var APP_VERSION = '1.0.48';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1639,8 +1639,31 @@
       //  3. AIMD on top: a 429 doubles the gap and pauses every call globally;
       //     a run of successes eases it back. That self-tunes instead of
       //     betting on one number being right forever.
+      // MEASURED DIRECTLY against the API (prototypes/ebird-ratelimit-*.py),
+      // which replaced three rounds of inference from device logs. Two limits
+      // are stacked, and only the first was ever modelled here:
+      //
+      //   short term : a bucket of ~10, refilling ~1/s. Fits every controlled
+      //                run at 1.5/s and above exactly — 10/s got 11 through,
+      //                6/s got 12, 2/s got 22, 1.5/s got 32.
+      //   sustained  : ~29-30 successes per ~60-78 s, i.e. ~0.37/s. This is
+      //                what the sub-1.5/s runs hit, and it is invisible in any
+      //                burst short enough to finish inside a minute.
+      //
+      // The limiter is per-KEY, not per-url: 60 distinct species feeds did
+      // slightly WORSE than one url repeated (first refusal at #14 vs #20), so
+      // spreading the wave over different endpoints buys nothing.
+      //
+      // AND THE REPORT JOB SHARES THIS KEY. At 1660 calls x 4 s it runs at
+      // 0.25/s for 111 minutes out of every 3 hours — 68% of the sustainable
+      // budget, 61% of the time. That leaves ~0.12/s for the phone, which is
+      // the 0.15/s the device log measured after its first 429. The 429 storm
+      // was contention, not a client bug.
+      //
+      // So: burst under the measured bucket, sustain under the measured
+      // ceiling, and let AIMD find the rest.
       var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250, FG_MAX_RETRY = 4;
-      var FG_GAP_MAX = 10000, FG_BUCKET = 30, FG_REFILL_PER_S = 0.5;
+      var FG_GAP_MAX = 15000, FG_BUCKET = 8, FG_REFILL_PER_S = 0.3;
       var FG_COOLDOWN_MS = 20000, FG_EASE_AFTER = 12;
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();

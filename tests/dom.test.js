@@ -2196,14 +2196,17 @@ test('the rate limiter is sized from what the log actually measured', async () =
   // 37 calls got through in 7.7 s before the first refusal, so the bucket is
   // ~37 and a burst under that is safe. Sizing it AT the observed limit would
   // trip on the very next call, so it sits below.
-  assert.ok(A.FG_BUCKET > 0 && A.FG_BUCKET < 37,
-    'the burst allowance sits under the measured ceiling, not on it');
+  assert.ok(A.FG_BUCKET > 0 && A.FG_BUCKET <= 10,
+    'the burst allowance sits under the DIRECTLY MEASURED bucket of ~10 '
+    + '(prototypes/ebird-ratelimit-probe2.py), not the ~37 a device log implied');
   // Serialized. The log's 429s arrive in PAIRS because two calls were always
   // in flight, so every refusal cost two.
   assert.equal(A.FG_MAX_CONC, 1, 'one call in flight, so a refusal costs one call');
-  // And once the burst is spent the tail is paced BEFORE eBird complains.
-  assert.ok(A.FG_REFILL_PER_S > 0 && A.FG_REFILL_PER_S < 4.8,
-    'the sustained rate is below the 4.8/s that drained the bucket');
+  // The sustained ceiling is ~0.37/s measured directly, and the report job
+  // already spends 0.25/s of it. Sitting above this is how the 429 storm
+  // happened.
+  assert.ok(A.FG_REFILL_PER_S > 0 && A.FG_REFILL_PER_S <= 0.37,
+    'the sustained rate is under the measured 0.37/s ceiling');
 });
 
 test('a long wave reports progress instead of looking frozen', async () => {
