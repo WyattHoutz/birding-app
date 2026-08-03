@@ -132,14 +132,22 @@
     '.hscard-sm > .name { display: flex; align-items: center; gap: 10px;',
     '                     min-height: calc(34px * var(--s)); line-height: 1.25; }',
 
-    /* ---- MEDIUM: a THREE-column header ----
+    /* ---- MEDIUM: a three-column header over a full-width sub-header ----
 
          col 1        col 2                         col 3
        +--------+---------------------------+-----------+
-       |  (3)   | Marina Beach Park         |    8.0    |
-       |  top-  +---------------------------+    mi     |
-       | aligned| Jul 30 · 42 species       | spans 2   |
+       |  (3)   | Marina Beach Park         |    8.0    |  row 1
+       |        |                           |    mi     |
        +--------+---------------------------+-----------+
+       | Jul 30 · 42 species · last birded 12d ago      |  row 2, spans 1/-1
+       +------------------------------------------------+
+
+       Row 1 is three real cells; row 2 is one strip across all three. The
+       sub-header used to sit in column 2 only, boxed between the badge and
+       the distance and given roughly 60% of the card — and it is the line
+       carrying the actual facts, so it was the first thing to wrap. Nothing
+       spans ROWS any more, which also removes the old coupling where the
+       badge and the distance stretched row heights to fit themselves.
 
        Distance used to be the first item in the `·`-joined sub-header, where
        it read as one fact among four — but it is the fact that decides
@@ -159,7 +167,7 @@
     '  column-gap: 14px; row-gap: 2px; align-items: start; padding: 10px 0;',
     '  overflow: hidden; }',
     '.hscard-md > .name { display: contents; }',
-    '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1 / span 2; align-self: start; }',
+    '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1; align-self: start; }',
     '.hscard-md > .name > .ntext {',
     '  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;',
     /* The hotspot name is the SUBJECT of a hotspot card, so it outranks its
@@ -170,27 +178,34 @@
        over the 16px sub-header while letting a real name like
        "Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk" wrap in two or
        three lines rather than five on a 430px phone.
-       The size is also load-bearing for spacing: .hsnum spans both rows, and
-       a grid distributes a spanning item's minimum height across the rows it
-       spans, so whenever name + row-gap + meta came to LESS than the badge
-       the rows stretched to fill it — which is exactly the reported blank
-       line above the name and the dead space under the number. At the shipped
-       values 21*1.15 + 2 + 16*1.35 = 47.8 > 40, so the text block sets the
-       height and the badge no longer stretches anything. Every term scales
-       with --s, so the relationship holds at every text size.
+       The size is also load-bearing for spacing. It used to be MORE so: the
+       number and the distance both spanned rows 1-2, and a grid distributes a
+       spanning item's minimum height across the rows it spans, so whenever
+       name + row-gap + meta came to LESS than the badge the rows stretched to
+       fill it — the reported blank line above the name and the dead space
+       under the number. Nothing spans rows now (the sub-header spans COLUMNS
+       instead), so that coupling is gone and the name is free to set row 1's
+       height on its own.
        break-word (not `anywhere`) keeps it wrapping between words, and only
        splits a token like "Marsh--Willow" when that token alone cannot fit. */
     '  font-size: calc(21px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
+    /* The sub-header spans ALL THREE columns on its own row, rather than
+       sitting under the name in column 2. Row 1 is now three real cells —
+       number, name, distance — and row 2 is one full-width strip, so the
+       sub-header gets the whole card width instead of the ~60% left between
+       the badge and the distance. That matters because it is the line that
+       carries the facts (species counts, last visit, what is there now) and
+       it was the first thing to wrap. */
     '.hscard-md > .meta {',
-    '  grid-column: 2; grid-row: 2; align-self: start; min-width: 0;',
+    '  grid-column: 1 / -1; grid-row: 2; align-self: start; min-width: 0;',
     '  font-size: calc(16px * var(--s)); line-height: 1.35;',
     '  font-weight: 500; color: var(--muted); }',
     /* The distance column. Big enough to scan down the edge of a list, and
        the unit is a caption on it rather than a second number — "8.0 mi" read
        at one size makes the reader parse two tokens to get one value. */
     '.hscard-md > .name > .hsdist {',
-    '  grid-column: 3; grid-row: 1 / span 2; align-self: start; justify-self: end;',
+    '  grid-column: 3; grid-row: 1; align-self: start; justify-self: end;',
     '  text-align: right; white-space: nowrap;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
@@ -199,7 +214,9 @@
     '  color: var(--muted); letter-spacing: .02em; }',
     /* Species lists, the expander and the actions row all span every column. */
     '.hscard-md > * { grid-column: 1 / -1; }',
-    '.hscard-md > .name, .hscard-md > .meta { grid-column: auto; }',
+    /* .meta is NOT reset here — it is meant to span, and this rule would
+       otherwise win on source order and collapse it back into one column. */
+    '.hscard-md > .name { grid-column: auto; }',
 
     /* ---- LARGE ---- */
     '.hscard-lg { border: 1px solid var(--line); border-radius: 16px;',

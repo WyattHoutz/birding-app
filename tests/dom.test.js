@@ -2078,11 +2078,45 @@ test('an untagged or corrupt payload is discarded, not thrown', async () => {
   app.window.close();
 });
 
-test('Refresh drops the durable copy, or the button does nothing', () => {
+test('Refresh drops every cache, or the button does nothing', () => {
   const src = HTML.slice(HTML.indexOf('function clearChaseCache('),
-    HTML.indexOf('function clearChaseCache(') + 500);
+    HTML.indexOf('function clearChaseCache(') + 1200);
   assert.match(src, /localStorage\.removeItem\(chaseKey\(/,
     'clearing the cache must clear the stored snapshot too');
+  // The per-URL memo is newer and fails the same way: Refresh would be answered
+  // from the in-memory copy of the very feeds it is trying to re-read.
+  assert.match(src, /ebClearCache\(\)/,
+    'and the per-URL memo, or Refresh returns the same data it already had');
+  assert.match(src, /_partialDone = \{\}/,
+    'and the once-per-wave repaint guard, or the next wave never repaints');
+});
+
+test('only chase-derived sections repaint on the phase-1 publish', () => {
+  // Happening now calls getChase() AND fetches its own convoy feeds. Repainting
+  // it re-issued those, and at ~3.3 s per call under the measured rate limit
+  // that turned a free repaint into a 30-second reload — reported from a device
+  // as "happening now appears to be in a load loop".
+  const src = HTML.slice(HTML.indexOf('function onChasePartial('),
+    HTML.indexOf('function onChasePartial(') + 900);
+  assert.match(src, /spec\.fromChase/,
+    'the repaint is restricted to loaders that issue no requests of their own');
+  assert.match(src, /_partialDone\[slug\]/,
+    'and fires once per wave, so a repaint can never cascade');
+
+  const loaders = HTML.slice(HTML.indexOf('var LOADERS = {'),
+        HTML.indexOf('var _autoLoaded'));
+  // These render purely from the chase cache — verified by grepping each loader
+  // for its own ebird() calls.
+  ['allUnseenBtn', 'activeBtn', 'destBtn', 'targetsBtn', 'excBtn'].forEach((id) => {
+    assert.match(loaders, new RegExp(id + ':[^\\n]*fromChase: true'),
+      id + ' renders from the chase cache and may repaint');
+  });
+  // These fetch their own feeds and must NOT be repainted.
+  ['surgeBtn', 'convoyBtn', 'tripBtn', 'quickBtn', 'easyBtn', 'rankBtn', 'abaBtn'].forEach((id) => {
+    const line = loaders.split('\n').filter((l) => l.indexOf(id + ':') >= 0)[0] || '';
+    assert.ok(line && line.indexOf('fromChase') < 0,
+      id + ' issues its own requests, so repainting it would refetch');
+  });
 });
 
 test('yesterday\'s snapshot is pruned, not kept forever', async () => {
@@ -5240,4 +5274,88 @@ test('the time zone is derived from longitude, which is right where it matters',
   assert.equal(tzFromLng(-155.8).tzObservesDst, false,
     'Hawaii does not observe DST, and it is the one common zone that does not');
   assert.equal(tzFromLng(-123.3656).tzObservesDst, true, 'British Columbia does');
+});
+
+test('the same feed is fetched once, however many sections ask for it', async () => {
+  // A device log showed product/lists/US-WA-033 and -061 each fetched TWICE,
+  // seven seconds apart, and data/obs/US-WA/recent/tersan twice as well —
+  // because three sections (Birdiest, Convoys, Happening now) each call
+  // BL.planConvoyFeeds and none knew the others had already paid. The comment
+  // at the convoy call site asserted the opposite ("costs no extra network"),
+  // which was true when written and false once the third caller arrived.
+  //
+  // Under the MEASURED rate limit each duplicate costs ~3.3 s and a slot out of
+  // a burst allowance of about 10, so four wasted calls is ~13 s for nothing.
+  //
+  // Promise IDENTITY is the assertion, and it needs no network: if the second
+  // caller gets the same promise object, there is only one request. Awaiting
+  // would drag the real retry path (20 s cooldowns) into the suite.
+  const app = await boot();
+  const A = app.window.__app;
+  const path = 'product/lists/US-WA-033?maxResults=200';
+  const a = A.ebird(path);
+  const b = A.ebird(path);
+  assert.equal(a, b, 'a second caller shares the first request rather than issuing its own');
+  const other = A.ebird('product/lists/US-WA-061?maxResults=200');
+  assert.notEqual(a, other, 'but a different feed is still its own request');
+  a.catch(() => {}); b.catch(() => {}); other.catch(() => {});
+});
+
+test('a failed feed is evicted from the memo, so it can be retried', () => {
+  // Memoising the promise is what collapses duplicates, but a REJECTED promise
+  // must not stay cached, or one transient failure would poison that feed for
+  // the rest of the session. Asserted on the source rather than by driving a
+  // real failure: the retry path deliberately waits out a 20 s cooldown, so
+  // exercising it here would make the suite take minutes.
+  const src = HTML.slice(HTML.indexOf('function ebird(path)'),
+                         HTML.indexOf('function ebird(path)') + 900);
+  assert.match(src, /delete _ebCache\[path\]/,
+    'a rejected call is evicted so the next attempt actually goes out');
+  assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,
+    'and the promise is what is cached, so concurrent callers share one request');
+});
+
+test('the hotspot medium card is three cells over a full-width sub-header', () => {
+  // Requested layout: row 1 is number | name | distance, row 2 is the
+  // sub-header spanning all three columns.
+  //
+  // It previously had the badge and the distance each spanning rows 1-2 with
+  // the sub-header boxed into column 2, which gave the line carrying the
+  // actual facts about 60% of the card and made it the first thing to wrap.
+  //
+  // Asserted against the EXPORTED css rather than the source file, so the test
+  // reads the artifact the app actually installs.
+  const css = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-hotspot.js')).css;
+
+  const rule = (sel) => {
+    const i = css.indexOf(sel + ' {');
+    assert.ok(i >= 0, 'missing rule for ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+
+  assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\) auto/,
+    'three columns: badge, name, distance');
+
+  const num = rule('.hscard-md > .name > .hsnum');
+  assert.match(num, /grid-column: 1;/, 'the number is column 1');
+  assert.match(num, /grid-row: 1;/, 'of row 1, and it no longer spans rows');
+
+  const name = rule('.hscard-md > .name > .ntext');
+  assert.match(name, /grid-column: 2;/, 'the name is column 2');
+  assert.match(name, /grid-row: 1;/, 'of row 1');
+
+  const dist = rule('.hscard-md > .name > .hsdist');
+  assert.match(dist, /grid-column: 3;/, 'the distance is column 3');
+  assert.match(dist, /grid-row: 1;/, 'of row 1, and it no longer spans rows');
+
+  const meta = rule('.hscard-md > .meta');
+  assert.match(meta, /grid-column: 1 \/ -1;/,
+    'the sub-header spans all three columns');
+  assert.match(meta, /grid-row: 2;/, 'on its own second row');
+
+  // The blanket span rule comes later at equal specificity, so listing .meta
+  // in its reset would silently undo the span.
+  assert.ok(!/\.hscard-md > \.name, \.hscard-md > \.meta \{ grid-column: auto/.test(css),
+    '.meta must not be reset to grid-column:auto after being told to span');
 });
