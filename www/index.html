@@ -1168,7 +1168,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.48';
+      var APP_VERSION = '1.0.49';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1800,13 +1800,37 @@
         }
         fgProgressSync();
       }
+      // One in-flight/recent call per URL, shared by every caller.
+      //
+      // A device log proved this was needed: product/lists/US-WA-033 and -061
+      // were each fetched TWICE, seven seconds apart, because three sections
+      // (Birdiest, Convoys, Happening now) each call BL.planConvoyFeeds and
+      // none of them knew the others had already paid. The comment at the
+      // convoy call site actually asserted the opposite — "costs no extra
+      // network" — which was true when written and false once the third caller
+      // arrived. At 3.3 s per call under the measured rate limit, two wasted
+      // calls are ~7 s of the user's time and 20% of the burst allowance.
+      //
+      // Memoising the PROMISE rather than the result also collapses concurrent
+      // callers into one request, which is the case that actually happened.
+      // Failures are evicted so a retry is still possible.
+      var _ebCache = {}, EB_CACHE_MS = 30 * 60 * 1000;
+      function ebClearCache() { _ebCache = {}; }
       function ebird(path) {
+        var hit = _ebCache[path];
+        if (hit && (Date.now() - hit.t) < EB_CACHE_MS) return hit.p;
         dbg('net', 'GET ' + path);
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
-        return fgAttempt(path, 0)
+        var p = fgAttempt(path, 0)
           .then(function (v) { release(); fgNoteOk(); return v; },
-                function (e) { release(); fgProgressSync(); throw e; });
+                function (e) {
+                  release(); fgProgressSync();
+                  if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
+                  throw e;
+                });
+        _ebCache[path] = { t: Date.now(), p: p };
+        return p;
       }
       // --- Rate-limited background queue (mirrors ebird.py) ---------------
       // ebird.py holds every API call to _MIN_CALL_INTERVAL_S, now 4.0s (~15
@@ -3383,6 +3407,10 @@
         return false;
       }      function clearChaseCache() {
         _chase = {}; _chaseInflight = {}; resetHotspotCache(); resetListsCache();
+        // The per-URL memo has to go with it, or Refresh is answered from the
+        // in-memory copy of the very feeds it is trying to re-read.
+        ebClearCache();
+        _partialDone = {};
         // Refresh has to drop the DURABLE copy too, or the wave it triggers is
         // answered from disk and the button does nothing.
         try { localStorage.removeItem(chaseKey(getReport().slug)); } catch (e) {}
@@ -9069,20 +9097,28 @@
       // tap). Keyed by anchor id. needsKey/needsHome gate the eBird/geo loaders so
       // auto-open never redirects to Settings; the heavy migration build stays
       // manual (no entry here).
+      // `fromChase` marks the loaders that render PURELY from the chase cache
+      // and issue no requests of their own. Only those may be repainted when
+      // phase 1 publishes.
+      //
+      // Getting this wrong is what put Happening now in a load loop: it calls
+      // getChase() AND fetches its own convoy feeds, so repainting it re-ran
+      // those fetches — at 3.3 s per call under the measured rate limit, that
+      // is what turned a repaint into a 30-second reload.
       var LOADERS = {
-        allUnseenBtn: { fn: loadAllUnseen,  needsKey: true },
+        allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
         lastNewBtn: { fn: loadLastNew,      needsKey: true },
         refreshBtn: { fn: refresh,          needsKey: true },
-        activeBtn:  { fn: loadActiveRarities, needsKey: true },
+        activeBtn:  { fn: loadActiveRarities, needsKey: true, fromChase: true },
         abaBtn:     { fn: loadAbaAlert,     needsKey: true },
         tripBtn:    { fn: loadTripPlanner,  needsKey: true },
-        destBtn:    { fn: loadDestinations, needsKey: true },
-        targetsBtn: { fn: loadTargets,      needsKey: true },
+        destBtn:    { fn: loadDestinations, needsKey: true, fromChase: true },
+        targetsBtn: { fn: loadTargets,      needsKey: true, fromChase: true },
         quickBtn:   { fn: loadQuickOuting,  needsKey: true },
-        excBtn:     { fn: loadExcursions,   needsKey: true },
+        excBtn:     { fn: loadExcursions,   needsKey: true, fromChase: true },
         hotBtn:     { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadChecklists,   needsKey: true },
@@ -9095,16 +9131,23 @@
         myYearBody: { fn: updateMyYear }
       };
       var _autoLoaded = {};
-      // F17 / phase-1 publish: when the first wave lands, every section that has
-      // already run gets re-rendered from the now-populated cache. Without this
-      // the data arrives at ~3 s and sits unseen until phase 2 finishes, which
-      // is exactly what "nothing is loading" looked like on a 429 day.
+      // F17 / phase-1 publish: when the first wave lands, sections that render
+      // PURELY from the chase cache get repainted from the now-populated data.
+      // Without this the data arrives early and sits unseen until phase 2
+      // finishes, which is what "nothing is loading" looked like.
+      //
+      // Strictly `fromChase` loaders only. A loader that fetches its own feeds
+      // would re-issue them here, and under the measured rate limit each call
+      // costs ~3.3 s — that is exactly how Happening now ended up in a reload
+      // loop. Repainting must be free.
+      var _partialDone = {};
       function onChasePartial(slug) {
         if (!slug || slug !== getReport().slug) return;
+        if (_partialDone[slug]) return;      // once per wave, never a cascade
+        _partialDone[slug] = true;
         Object.keys(_autoLoaded).forEach(function (id) {
-          var sec = _sections.filter(function (s) { return s.id === id; })[0];
-          var spec = sec && sec._loader;
-          if (!spec || !spec.fn) return;
+          var spec = LOADERS[id];
+          if (!spec || !spec.fn || !spec.fromChase) return;
           try { spec.fn(); } catch (e) {
             try { dbg('error', 'repaint ' + id + ': ' + (e && e.message || e)); } catch (_) {}
           }
