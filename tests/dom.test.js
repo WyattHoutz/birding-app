@@ -5392,3 +5392,44 @@ test('the hotspot medium card is three cells over a full-width sub-header', () =
   assert.ok(!/\.hscard-md > \.name, \.hscard-md > \.meta \{ grid-column: auto/.test(css),
     '.meta must not be reset to grid-column:auto after being told to span');
 });
+
+test('latest ticks: today\u2019s species feeds are cached, and only new birds cost a call', async () => {
+  // The most expensive section in the app: one region feed plus ONE CALL PER
+  // SPECIES the top 100 recently added — measured at ~46, which at the rate
+  // limit eBird actually enforces is over two minutes of paced fetching.
+  // "Where has this bird been in the last 14 days" does not change between two
+  // visits on the same morning, so it is cached by region and DAY.
+  const app = await boot();
+  const A = app.window.__app, w = app.window;
+
+  assert.match(A.lastNewKey('US-WA'), /^bc_lastnew:US-WA:\d{4}-\d{2}-\d{2}$/,
+    'the key is scoped to the region AND the day, so it expires by itself');
+
+  // Only the fields the section renders are stored. detail=full would put
+  // megabytes into localStorage for a handful of columns.
+  const picked = A.lastNewPick({
+    obsDt: '2026-08-03 07:00', locName: 'Edmonds Marsh', lat: 47.8, lng: -122.3,
+    locId: 'L1', locationPrivate: false, howMany: 4, subId: 'S1',
+    userDisplayName: 'Wyatt', comName: 'Sora', speciesCode: 'sora',
+    obsReviewed: true, obsValid: true, exoticCategory: null
+  });
+  assert.equal(picked.locName, 'Edmonds Marsh');
+  assert.equal(picked.subId, 'S1');
+  assert.ok(!('comName' in picked) && !('obsReviewed' in picked),
+    'and nothing else — the projection is the point');
+
+  // Round-trips through the same compressor the chase snapshot uses.
+  await A.saveLastNewCache('US-WA', { Sora: { code: 'sora', obs: [picked] } });
+  const back = await A.loadLastNewCache('US-WA');
+  assert.equal(JSON.stringify(back.Sora.obs[0]), JSON.stringify(picked),
+    'what goes in comes back out');
+  assert.ok(w.localStorage.getItem(A.lastNewKey('US-WA')),
+    'and it is actually on disk');
+
+  // Yesterday's copy is dead weight once the date rolls over.
+  w.localStorage.setItem('bc_lastnew:US-WA:2000-01-01', 'z:stale');
+  await A.loadLastNewCache('US-WA');
+  A.lastNewChecklists([], 'US-WA').catch(() => {});
+  assert.equal(w.localStorage.getItem('bc_lastnew:US-WA:2000-01-01'), null,
+    'an older day is pruned rather than kept forever');
+});
