@@ -495,25 +495,17 @@
     .cklrows .where { min-width: 0; overflow-wrap: anywhere; }
     .cklrows .who { grid-column: 1 / -1; color: var(--muted); font-size: calc(13px * var(--s)); }
     .cklrows .maplink, .cklrows .extlink { margin-top: 0; }
-    /* 📋 All unseen reports: the places one bird was reported from, under its
-       card. Two lines per place — the name is what you tap, the facts are what
-       you weigh — because a place name that wraps mid-way through a run-on of
-       date, count and distance is the layout that made this section hard to
-       scan in the first place. */
-    .uplaces { list-style: none; margin: 8px 0 0; padding: 0; }
-    .uplaces li { padding: 7px 0 0; margin-top: 7px; border-top: 1px solid var(--line);
-                  min-width: 0; }
-    .uplaces .uploc { font-size: calc(16px * var(--s)); font-weight: 700; line-height: 1.25;
-                      min-width: 0; overflow-wrap: break-word; }
-    /* The place name IS the row's title and it links to the hotspot, so it
-       inherits the row's type rather than the 13px .extlink action size —
-       the same title-vs-action-link fix the two card files make. The
-       checklist link in .upmeta is a genuine action and keeps its own size,
-       but must not carry .extlink's 8px top margin inside a text run. */
-    .uplaces .uploc a { display: inline; margin-top: 0; font-size: inherit;
-                        font-weight: inherit; line-height: inherit; }
-    .uplaces .upmeta { font-size: calc(14px * var(--s)); color: var(--muted);
-                       margin-top: 2px; min-width: 0; overflow-wrap: anywhere; }
+    /* 📋 All unseen reports (and Easy misses — same list, same rules): ONE
+       LINE PER CHECKLIST. The hotspot name is the row AND the link to the
+       report, followed by when, how many, how far. This used to be two lines
+       per place plus a card per checklist, so the ordinary place-with-one-
+       report printed its date twice, stacked — which is what read as a
+       duplicate row for every checklist. Everything below is the shared
+       checklist card; this only sets the rule between rows, so several reports
+       from one hotspot still read as separate, openable reports. */
+    .cklcards.uplaces { margin: 8px 0 0; }
+    .cklcards.uplaces > .cklcard { padding: 6px 0; }
+    .cklcards.uplaces > .cklcard + .cklcard { border-top: 1px solid var(--line); }
     /* A paired section reads as one report with two modes. The switch is the
        first thing in the panel because it says WHICH question you are looking
        at before you read the answer. `aria-pressed` carries the state, so the
@@ -539,14 +531,6 @@
     .modeswitch .modebtn + .modebtn { border-left: 1px solid var(--line); }
     .modeswitch .modebtn[aria-pressed="true"] { background: var(--accent);
                                                 color: var(--accent-ink); }
-    .uplaces .upmeta a { margin-top: 0; }
-    /* The checklists behind one hotspot. Indented under the place name so the
-       hierarchy reads at a glance — place, then the evidence for it — and set
-       smaller than the place because you scan places and only open one. */
-    .uplaces .upckl { list-style: none; margin: 4px 0 2px; padding: 0 0 0 12px; }
-    .uplaces .upckl li { border-top: 0; padding: 2px 0 0; margin-top: 0;
-                         font-size: calc(14px * var(--s)); }
-    .uplaces .upckl a { display: inline; margin-top: 0; font-size: inherit; }
     /* Places beyond the chase radius, collapsed. Same treatment Today's
        rarities gives a far bird: still reachable, but not competing with the
        ones you could actually drive to this morning. */
@@ -1154,7 +1138,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.55';
+      var APP_VERSION = '1.0.56';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2948,43 +2932,54 @@
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
-      // Every place the bird was reported from, freshest first, each carrying
-      // the four facts that decide whether to drive there: where, when, how
-      // many, how far — and then EVERY checklist behind it, because a place
-      // that says "3 reports" while linking one of them is quoting a number
-      // the reader cannot open.
+      // ONE LINE PER CHECKLIST: name · when · how many · how far · 🗺.
+      //
+      // The checklist is the unit here — it is the thing you open, and the
+      // four facts that decide whether to drive to it fit on the row beside
+      // it. This used to be three rows to say that: a place heading, a
+      // distance/date line under it, and then a card per checklist. For the
+      // ordinary place-with-one-report the heading and the card printed the
+      // SAME date twice, one above the other, which is what read as a
+      // duplicate row for every checklist in the list.
+      //
+      // So the hotspot NAME is now the row, and the name is the link to the
+      // checklist. That is the same trade the small card already made for its
+      // date lead: an eBird submission id is noise, the row needed a link, and
+      // the name is the thing worth tapping. A place with three checklists is
+      // three rows under the same name — repetitive, but each row is a
+      // separate report you can open, which "3 reports" never was.
       function unseenPlacesHtml(places) {
-        return '<ul class="uplaces">' + (places || []).map(function (p) {
-          var bits = [
-            (p.distMi != null && isFinite(p.distMi)) ? p.distMi.toFixed(1) + ' mi' : '',
-            esc(fmtDateTime(p.dateStr)),
-            p.nReports > 1 ? p.nReports + ' reports' : '',
-            p.anyUnconfirmed ? '⚠️' : ''
-          ].filter(Boolean).join(' · ');
-          // The checklists under a place are a LIST OF CHECKLISTS, so they use
-          // the shared checklist card. The place NAME is deliberately not
-          // passed: the heading directly above this list already says where
-          // this is, and repeating it is what made the section read as
-          // duplicates ("Discovery Park" then "Discovery Park"). Without a
-          // name the card leads with the date, which becomes the checklist
-          // link — so the row is one short line and still one tap from source.
-          var cks = (p.checklists || []);
-          var ckHtml = cks.length
-            ? ChecklistCards.list('small', cks.map(function (c) {
-                var sub = (c.loc && p.loc && c.loc !== p.loc) ? c.loc : '';
-                return ChecklistCards.small({
-                  place: sub,
-                  href: c.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(c.subId) : '',
-                  date: fmtDateTime(c.dateStr),
-                  count: c.count,
-                  who: c.valid === false ? '⚠️' : ''
-                });
-              }))
-            : '';
-          return '<li><div class="uploc">'
-            + locLink(p.loc || '', p.lat, p.lon, p.locId, p.locationPrivate) + '</div>'
-            + '<div class="upmeta">' + bits + '</div>' + ckHtml + '</li>';
-        }).join('') + '</ul>';
+        var rows = [];
+        (places || []).forEach(function (p) {
+          // A place always has its checklists; Easy misses can hand over a
+          // spot with none, and that still deserves a row, so it falls back to
+          // the place's own date and links to the hotspot instead.
+          var cks = (p.checklists && p.checklists.length)
+            ? p.checklists
+            : [{ subId: '', dateStr: p.dateStr, count: null, valid: null }];
+          cks.forEach(function (c) {
+            var href = c.subId
+              ? 'https://ebird.org/checklist/' + encodeURIComponent(c.subId)
+              : (p.locId && !p.locationPrivate ? hotspotUrl(p.locId) : '');
+            rows.push(ChecklistCards.small({
+              // The full name, not the 34-char default: this row is the only
+              // place the hotspot is named now, so it gets the width the old
+              // heading had and still ellipsises rather than wrapping.
+              place: (p.loc || p.locId || ''),
+              max: 60,
+              href: href,
+              date: fmtDateTime(c.dateStr || p.dateStr),
+              count: c.count,
+              distMi: p.distMi,
+              // Still one tap to "take me there" — the pin used to hang off
+              // the place heading, which no longer exists.
+              map: mapPin(p.lat, p.lon),
+              flag: (c.valid === false
+                || (!c.subId && p.anyUnconfirmed)) ? '⚠️' : ''
+            }));
+          });
+        });
+        return ChecklistCards.list('small', rows, 'uplaces');
       }
 
       // A bare map pin for a coordinate, for the checklist cards. Google Maps

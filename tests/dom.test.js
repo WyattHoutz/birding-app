@@ -1816,13 +1816,15 @@ test('All unseen reports: a species at several places is ONE card, places by dat
   // The rendered rows must expose date, distance and a checklist link —
   // a place you cannot date, measure or verify is not a lead.
   const html = A.unseenPlacesHtml(g.places);
-  assert.match(html, /class="uplaces"/, 'renders the place list');
-  assert.equal((html.match(/<li class="uplace"|<li><div class="uploc"/g) || []).length, 3,
-    'one row per place');
+  assert.match(html, /class="cklcards cklcards-sm uplaces"/, 'renders the place list');
+  assert.equal((html.match(/<li class="cklcard cklcard-sm">/g) || []).length, 3,
+    'one row per checklist');
   assert.match(html, /S11/, 'and names the checklist rather than saying "checklist"');
-  for (const bit of ['mi', 'uploc', 'upmeta']) {
-    assert.ok(html.includes(bit), 'each place row carries ' + bit);
+  for (const bit of ['cklead', 'ckdate', 'ckdist', ' mi']) {
+    assert.ok(html.includes(bit), 'each row carries ' + bit);
   }
+  assert.ok(!/class="uploc"|class="upmeta"/.test(html),
+    'and says it on ONE line — the place heading and its meta line are gone');
   app.window.close();
 });
 
@@ -1863,20 +1865,25 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   for (const s of ['S1', 'S2', 'S3']) {
     assert.ok(html.includes(s), `every checklist is linked, missing ${s}`);
   }
-  assert.match(html, /class="cklcards cklcards-sm"/,
-    'checklists render through the shared checklist card, under their hotspot');
-  // THE DUPLICATION BUG, pinned. The place heading directly above this list
-  // already prints the hotspot name and its distance, and the card printed
-  // both again on every checklist under it — so a place with three checklists
-  // read as "Penny Creek Natural Area" four times over. Under a place heading
-  // the card leads with the DATE instead, which becomes the checklist link.
-  assert.ok(!/class="ckplace"/.test(html),
-    'the place name is NOT repeated on rows that already sit under it');
-  const names = (html.match(/Penny Creek/gi) || []).length;
-  assert.equal(names, 1,
-    'the hotspot name appears exactly once — on its heading, not on each checklist');
-  assert.match(html, /class="cklead"><a[^>]*ebird\.org\/checklist\/S1/,
-    'so the row leads with the linked date instead');
+  assert.match(html, /class="cklcards cklcards-sm uplaces"/,
+    'checklists render through the shared checklist card');
+  // THE DUPLICATION BUG, pinned. This used to be a place heading, a
+  // distance/date line under it, and THEN a card per checklist — so the
+  // ordinary place-with-one-report printed its date twice, stacked, and a
+  // place with three checklists printed its name once and its evidence three
+  // rows below. Now the hotspot NAME is the row and the name is the link, so
+  // there is exactly one line per checklist and nothing is said twice on it.
+  assert.equal((html.match(/<li class="cklcard cklcard-sm">/g) || []).length, 4,
+    'one row per checklist — three at Penny Creek, one at Marymoor');
+  assert.ok(!/class="uploc"|class="upmeta"/.test(html),
+    'the separate heading and meta lines are gone');
+  const pennyRows = (html.match(/Penny Creek/gi) || []).length;
+  assert.equal(pennyRows, 3,
+    'the name repeats only because each row is a different report you can open');
+  assert.match(html, /class="cklead"><a[^>]*ebird\.org\/checklist\/S1[^>]*>Penny Creek/,
+    'and the NAME is the link to the checklist, not a hotspot page');
+  assert.match(html, /class="ckdate">Jul 31/, 'when it was reported');
+  assert.match(html, /class="ckdist">8\.1 mi/, 'and how far it is, on the same line');
 
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));

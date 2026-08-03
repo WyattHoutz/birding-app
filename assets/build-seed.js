@@ -45,11 +45,16 @@ function normName(s) { return String(s || '').trim().toLowerCase().replace(/\s+/
 function parseBirdlist(text) {
   const codes = Object.create(null), codeToName = Object.create(null), nameToCode = Object.create(null);
   let m;
-  const spRe = /\/species\/([a-z0-9]+)\//g;               // /species/<code>/  or  /US-WA
+  // eBird writes the species link BOTH ways — "/species/moublu/US-WA" on some
+  // exports and a bare "/species/moublu)" on others. Requiring the trailing
+  // slash made a bare-form export parse as ZERO species, which is not a
+  // visible failure: the seed just silently loses a whole region's year list.
+  // Both forms are accepted here and in report.py::_parse_lower48_year_list.
+  const spRe = /\/species\/([a-z0-9]+)[/)]/g;
   while ((m = spRe.exec(text))) codes[m[1]] = 1;
   const sppRe = /[?&]spp=([a-z0-9]+)/g;                    // hybrids / sp. groups
   while ((m = sppRe.exec(text))) codes[m[1]] = 1;
-  const nameRe = /\[([^\]]+)\]\(\/species\/([a-z0-9]+)\//g; // link text → code
+  const nameRe = /\[([^\]]+)\]\(\/species\/([a-z0-9]+)[/)]/g; // link text → code
   while ((m = nameRe.exec(text))) {
     const name = m[1].trim(), code = m[2];
     if (name && !codeToName[code]) codeToName[code] = name;
@@ -93,7 +98,7 @@ function parseYearEntries(text) {
     while ((e = entryRe.exec(chunk))) heads.push({ at: e.index, n: +e[1], head: e[2].trim() });
     heads.forEach(function (h, j) {
       const block = chunk.slice(h.at, j + 1 < heads.length ? heads[j + 1].at : chunk.length);
-      const sp = /^\[([^\]]+)\]\(\/species\/([a-z0-9]+)\//.exec(h.head);
+      const sp = /^\[([^\]]+)\]\(\/species\/([a-z0-9]+)[/)]/.exec(h.head);
       if (!sp) return;                 // sp./hybrid groups have no species link
       const code = sp[2];
       if (seen[code]) return;          // an export can repeat a species; keep the first (newest)

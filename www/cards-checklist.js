@@ -40,8 +40,10 @@
      what buys the width back: an eBird submission id like "S379329490" is
      eleven characters of pure noise, and the row already needed a link.
      Every field is optional, because the caller's context decides what is
-     redundant — under a place heading the name and the distance are already
-     on screen, and repeating them is what made this list read as duplicates.
+     redundant. When a row stands on its own - as it does in All unseen, where
+     the checklist IS the row - it carries all four facts: name, date, count,
+     distance. A caller that already prints a place heading above the list
+     leaves the name out, and the row leads with the date instead.
 
      THE OBSERVER IS NOT ON THIS ROW, and that is a measured decision rather
      than an oversight. The layout sweep at 320px / 1.75× text scale caught the
@@ -213,6 +215,11 @@
       bits.push('<span class="ckdist">' + (Number(v.distMi) < 10
         ? Number(v.distMi).toFixed(1) : String(Math.round(v.distMi))) + ' mi</span>');
     }
+    /* A one-glyph warning (an unreviewed report). It rides the row rather than
+       a line of its own because it qualifies the whole claim, and it is last
+       so it cannot push the name or the date around. Raw HTML, like `map` and
+       `who`: the caller owns the glyph and any title on it. */
+    if (v.flag) bits.push('<span class="ckflag">' + v.flag + '</span>');
     if (v.map) bits.push('<span class="ckmapwrap">' + v.map + '</span>');
     // Small rows drop the observer entirely — see the note on SMALL.
     if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
