@@ -1184,7 +1184,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.50';
+      var APP_VERSION = '1.0.51';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6902,28 +6902,101 @@
       // pool with the same in-flight cap the convoy loader uses, and report
       // progress: a bounded fan-out is fast without stampeding the key.
       var LAST_NEW_FETCH_CONC = 4;
+      // Latest ticks is the most expensive section in the app: one region-wide
+      // feed plus ONE CALL PER SPECIES the top 100 recently added — measured at
+      // ~46 calls, which at the rate limit eBird actually enforces is over two
+      // minutes of paced fetching every time the section is opened.
+      //
+      // Those per-species feeds are day-scoped: "where has this bird been in
+      // the last 14 days" does not meaningfully change between two visits on
+      // the same morning. So they are cached durably, keyed by region and DAY.
+      //
+      // Two details that matter:
+      //  * only the fields this section renders are stored. The feed is
+      //    detail=full, and keeping all of it would put megabytes into
+      //    localStorage for a handful of columns.
+      //  * the cache is merged PER SPECIES rather than all-or-nothing, so a
+      //    second visit that finds three new birds on the board pays for three
+      //    calls, not forty-six.
+      var LAST_NEW_NS = 'bc_lastnew:';
+      function lastNewKey(region) { return LAST_NEW_NS + region + ':' + todayStr(); }
+      function lastNewPick(o) {
+        return { obsDt: o.obsDt, locName: o.locName, lat: o.lat, lng: o.lng,
+                 locId: o.locId, locationPrivate: o.locationPrivate,
+                 howMany: o.howMany, subId: o.subId,
+                 userDisplayName: o.userDisplayName };
+      }
+      function loadLastNewCache(region) {
+        var raw = null;
+        try { raw = localStorage.getItem(lastNewKey(region)); } catch (e) { raw = null; }
+        if (!raw) return Promise.resolve({});
+        return unpackJson(raw).then(function (v) {
+          return (v && typeof v === 'object') ? v : {};
+        }).catch(function () { return {}; });
+      }
+      function saveLastNewCache(region, byName) {
+        return packJson(byName).then(function (s) {
+          try { localStorage.setItem(lastNewKey(region), s); } catch (e) {
+            // A full quota is not a failure worth surfacing: the section works,
+            // it just pays again next time.
+            try { dbg('warn', 'latest-ticks cache not stored: ' + (e && e.name)); } catch (_) {}
+          }
+        }).catch(function () {});
+      }
+      // Yesterday's copy is dead weight the moment the date rolls over.
+      function pruneLastNewCache() {
+        try {
+          var drop = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(LAST_NEW_NS) === 0 && k.indexOf(':' + todayStr()) < 0) drop.push(k);
+          }
+          drop.forEach(function (k) { localStorage.removeItem(k); });
+        } catch (e) { /* nothing worth reporting */ }
+      }
       function lastNewChecklists(speciesNames, region, onProgress) {
         if (!/^US-[A-Z]{2}/.test(region)) return Promise.resolve({});
-        return ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&includeProvisional=true&maxResults=10000')
-          .catch(function () { return []; })
-          .then(function (obs) {
-            var code = {};
-            (obs || []).forEach(function (o) {
-              if (o.comName && o.speciesCode) code[String(o.comName).toLowerCase()] = o.speciesCode;
+        pruneLastNewCache();
+        return loadLastNewCache(region).then(function (cached) {
+          return ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&includeProvisional=true&maxResults=10000')
+            .catch(function () { return []; })
+            .then(function (obs) {
+              var code = {};
+              (obs || []).forEach(function (o) {
+                if (o.comName && o.speciesCode) code[String(o.comName).toLowerCase()] = o.speciesCode;
+              });
+              var wanted = speciesNames.filter(function (n) { return code[n.toLowerCase()]; });
+              var byName = {}, done = 0;
+              var missing = wanted.filter(function (n) {
+                var hit = cached[n];
+                if (hit && hit.code === code[n.toLowerCase()] && Array.isArray(hit.obs)) {
+                  byName[n] = hit;
+                  return false;
+                }
+                return true;
+              });
+              if (wanted.length !== missing.length) {
+                dbg('net', 'latest ticks: ' + (wanted.length - missing.length) + ' of '
+                  + wanted.length + ' species served from today\u2019s cache');
+              }
+              if (onProgress && missing.length !== wanted.length) {
+                try { onProgress(wanted.length - missing.length, wanted.length); } catch (e) {}
+              }
+              done = wanted.length - missing.length;
+              return pool(missing, LAST_NEW_FETCH_CONC, function (n) {
+                var sp = code[n.toLowerCase()];
+                return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' + encodeURIComponent(sp) + '?back=' + LAST_NEW_BACK_DAYS + '&detail=full&includeProvisional=true&maxResults=200')
+                  .catch(function () { return []; })
+                  .then(function (rows) {
+                    byName[n] = { code: sp, obs: (rows || []).map(lastNewPick) };
+                    done++;
+                    if (onProgress) { try { onProgress(done, wanted.length); } catch (e) {} }
+                  });
+              }).then(function () {
+                return saveLastNewCache(region, byName).then(function () { return byName; });
+              });
             });
-            var wanted = speciesNames.filter(function (n) { return code[n.toLowerCase()]; });
-            var byName = {}, done = 0;
-            return pool(wanted, LAST_NEW_FETCH_CONC, function (n) {
-              var sp = code[n.toLowerCase()];
-              return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' + encodeURIComponent(sp) + '?back=' + LAST_NEW_BACK_DAYS + '&detail=full&includeProvisional=true&maxResults=200')
-                .catch(function () { return []; })
-                .then(function (rows) {
-                  byName[n] = { code: sp, obs: rows || [] };
-                  done++;
-                  if (onProgress) { try { onProgress(done, wanted.length); } catch (e) {} }
-                });
-            }).then(function () { return byName; });
-          });
+        });
       }
 
       function renderLastNew(groups, byName, region) {
@@ -10467,7 +10540,10 @@
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
-        renderLastNew: renderLastNew, favInteresting: favInteresting, favDetailHtml: favDetailHtml,
+        renderLastNew: renderLastNew, lastNewChecklists: lastNewChecklists,
+      lastNewKey: lastNewKey, lastNewPick: lastNewPick,
+      loadLastNewCache: loadLastNewCache, saveLastNewCache: saveLastNewCache,
+      favInteresting: favInteresting, favDetailHtml: favDetailHtml,
         birdInfo: birdInfo, photoLookup: photoLookup, usableInfo: usableInfo, gbifSnapshotYear: gbifSnapshotYear,
         getAnchors: getAnchors,
       getCustomRegions: getCustomRegions, saveCustomRegions: saveCustomRegions,
