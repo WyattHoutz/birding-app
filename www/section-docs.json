@@ -318,6 +318,8 @@
         "The day key is load-bearing: clustering without it merges Tuesday's bird into Saturday's pin and reports a stale sighting as current.",
         "Places are then merged by HOTSPOT NAME, because eBird issues a separate location id for every personal location — one hotspot otherwise arrives as several rows with the same name, each holding one checklist.",
         "Every checklist for a hotspot is kept and listed newest first, deduplicated by submission id.",
+        "Duplicate observers of the same bird, at the same spot, on the same day are merged into ONE row: six birders standing together at one stakeout is one place to drive to, not six leads.",
+        "The row shows the checklist time, the tally and how far away it is; a warning triangle marks a report eBird has not yet reviewed.",
         "Filtered to the shared chase radius; places beyond it are collapsed into an expander rather than dropped.",
         "The five most recent places show under each bird and the rest fold into a second expander, so one bird reported at 66 places does not bury the next species.",
         "Species sorted nearest first, places within a species by date."
@@ -355,7 +357,9 @@
       "how": [
         "A species qualifies if it appeared on at least 40% of the sampled days and is not already on your year list, ranked by location-days: a bird reported from eight places is one you can go and get, while eight reports from one feeder is one lucky yard.",
         "If fewer than 10 species clear that bar, the bar DROPS - 40%, then 25%, 15%, 8% - rather than print a two-row section. The intro always names the bar actually used, because '>=15% of days' is a materially different claim from '>=40%'.",
-        "Anything already on your year list is removed before the bar is applied, so widening can never resurrect a bird you have."
+        "Anything already on your year list is removed before the bar is applied, so widening can never resurrect a bird you have.",
+        "Ranked by how many different PLACES reported the bird, not by how many reports there were.",
+        "In the app the first run samples a month of checklists in the background; each day is cached, so every later run is instant."
       ],
       "limits": [
         "This section naturally shrinks as your year list grows, and that is correct: by mid-year you have already got the common birds. The widening ladder exists so a shrinking section degrades into a longer-shot list rather than into nothing.",

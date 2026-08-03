@@ -505,16 +505,24 @@
        first thing in the panel because it says WHICH question you are looking
        at before you read the answer. `aria-pressed` carries the state, so the
        styling and the accessibility tree cannot disagree. */
+    /* Six chips, wrapping. As a <select> this control was the widest thing in
+       the panel and cost tap-scroll-tap; as chips every option is readable at
+       once and choosing is ONE tap. They wrap to two rows on a narrow phone
+       rather than squeezing six labels onto one line, so no chip is ever too
+       small to hit. `flex: 1 1 auto` (not `1 1 0`) lets a two-word chip keep
+       its natural width instead of every chip being 1/6 of the screen. */
     .modeswitch { gap: 0; margin-bottom: 10px; border: 1px solid var(--line);
-                  border-radius: 12px; overflow: hidden; }
-    /* Six options do not fit across a phone as segments, and on iOS a native
-       select opens the wheel picker, which shows the full labels anyway — the
-       same reasoning that kept the navbar region control a real <select>. */
-    .modeswitch .modepick { border: 0; border-radius: 12px; font-weight: 700; }
-    .modeswitch .modebtn { flex: 1 1 0; min-width: 0; border-radius: 0; border: 0;
+                  border-radius: 12px; overflow: hidden; flex-wrap: wrap; }
+    .modeswitch .modebtn { flex: 1 1 auto; min-width: 0; border-radius: 0; border: 0;
+                           display: inline-flex; align-items: center; justify-content: center;
+                           gap: 5px;
                            padding: 10px 8px; font-size: calc(14px * var(--s));
                            font-weight: 700; background: var(--bg); color: var(--muted);
                            overflow-wrap: anywhere; }
+    /* The icon rides the label's size rather than a fixed box, so it cannot
+       clip at the text scale a low-vision reader would choose. */
+    .modeswitch .mbico { font-size: calc(15px * var(--s)); line-height: 1; flex: 0 0 auto; }
+    .modeswitch .mbtxt { min-width: 0; }
     .modeswitch .modebtn + .modebtn { border-left: 1px solid var(--line); }
     .modeswitch .modebtn[aria-pressed="true"] { background: var(--accent);
                                                 color: var(--accent-ink); }
@@ -537,6 +545,17 @@
     .upmore { margin-top: 6px; }
     .upmore > summary { cursor: pointer; font-size: calc(14px * var(--s));
                         font-weight: 700; color: var(--accent); padding: 4px 0; }
+    /* The " (🗺)" that trails a hotspot name is one token, not three. */
+    .mapwrap { white-space: nowrap; }
+    /* Today's rarities sub-line: place · time · observer, with the separators
+       DRAWN rather than typed so a missing observer cannot strand a trailing
+       "·". `overflow-wrap: anywhere` because eBird place names contain long
+       unbroken runs ("Marymoor--Audubon/Interpretive-Boardwalk") that would
+       otherwise push the card past the panel. */
+    .rarewhere { display: block; min-width: 0; overflow-wrap: anywhere; }
+    .rarewhere > .when::before, .rarewhere > .who::before {
+      content: "\00b7"; margin: 0 5px; color: var(--line); }
+    .rarewhere > .who { color: var(--muted); }
     /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
        enough that the fields below it would otherwise be an unlabelled run of
        facts. A modifier class rather than :has(), which is unguarded on the
@@ -750,19 +769,16 @@
       </div>
       <div id="targetStatus" class="status">Recent species in your region that aren't on your eBird list yet.</div>
       <div id="closeMap"></div>
-      <ul id="targetResults" class="obs big xl"></ul>
+      <ul id="targetResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
       <h2>📋 All unseen reports <span class="dim" id="allUnseenRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="unseen">
-        <button class="modebtn" type="button" data-goto="sec-allUnseenBtn" aria-pressed="true">📋 Being reported</button>
-        <button class="modebtn" type="button" data-goto="sec-easyBtn" aria-pressed="false">🥚 Easy misses</button>
-      </div>
+      <div class="row modeswitch" data-modes="unseen" data-current="sec-allUnseenBtn"></div>
       <div class="row">
         <button id="allUnseenBtn">List every report</button>
       </div>
-      <div id="allUnseenStatus" class="status">Every unseen-species report in range, nearest first. Duplicate observers of the same bird at the same spot on the same day are merged into one row; ⚠️ = unconfirmed.</div>
+      <div id="allUnseenStatus" class="status"></div>
       <ul id="allUnseenResults" class="obs big xl icon-sm"></ul>
     </section>
 
@@ -785,75 +801,36 @@
 
     <section class="panel">
       <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places">
-        <select class="modepick" aria-label="Which places to show">
-          <optgroup label="Ranked by birds you need">
-            <option value="sec-destBtn" selected>&#127941; Top destinations &mdash; day trip</option>
-            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
-            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
-          </optgroup>
-          <optgroup label="Hotspots near a place">
-            <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:here">&#128205; Current location</option>
-            <option value="quick:find">&#128269; Find a place&hellip;</option>
-          </optgroup>
-        </select>
-      </div>
+      <div class="row modeswitch" data-modes="places" data-current="sec-destBtn"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
       </div>
       <div id="destStatus" class="status">Hotspots with the most species you still need, ranked by score (rarities ×3).</div>
       <div id="destMap"></div>
-      <ul id="destResults" class="obs big xl dest"></ul>
+      <ul id="destResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
       <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places">
-        <select class="modepick" aria-label="Which places to show">
-          <optgroup label="Ranked by birds you need">
-            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
-            <option value="sec-excBtn" selected>&#128663; Top excursions &mdash; longer trip</option>
-            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
-          </optgroup>
-          <optgroup label="Hotspots near a place">
-            <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:here">&#128205; Current location</option>
-            <option value="quick:find">&#128269; Find a place&hellip;</option>
-          </optgroup>
-        </select>
-      </div>
+      <div class="row modeswitch" data-modes="places" data-current="sec-excBtn"></div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
       </div>
       <div id="excStatus" class="status">Target-rich hotspots beyond a day-trip radius (needs Home set).</div>
       <div id="excMap"></div>
-      <ul id="excResults" class="obs big xl dest"></ul>
+      <ul id="excResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
       <h2>🧭 Trip planner <span class="dim" id="tripRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places">
-        <select class="modepick" aria-label="Which places to show">
-          <optgroup label="Ranked by birds you need">
-            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
-            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
-            <option value="sec-tripBtn" selected>&#129517; Trip planner &mdash; a route</option>
-          </optgroup>
-          <optgroup label="Hotspots near a place">
-            <option value="quick:home">&#127968; Near home</option>
-            <option value="quick:here">&#128205; Current location</option>
-            <option value="quick:find">&#128269; Find a place&hellip;</option>
-          </optgroup>
-        </select>
-      </div>
+      <div class="row modeswitch" data-modes="places" data-current="sec-tripBtn"></div>
       <div class="row">
         <button id="tripBtn">Plan a route</button>
       </div>
       <div id="tripStatus" class="status">A nearest-neighbour route through your best nearby target hotspots.</div>
       <div id="tripMap"></div>
       <div id="tripRouteLink" class="hint"></div>
-      <ul id="tripResults" class="obs big xl dest route"></ul>
+      <ul id="tripResults" class="obs dest route"></ul>
     </section>
 
     <section class="panel">
@@ -873,20 +850,7 @@
 
     <section class="panel">
       <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places">
-        <select class="modepick" aria-label="Which places to show">
-          <optgroup label="Ranked by birds you need">
-            <option value="sec-destBtn">&#127941; Top destinations &mdash; day trip</option>
-            <option value="sec-excBtn">&#128663; Top excursions &mdash; longer trip</option>
-            <option value="sec-tripBtn">&#129517; Trip planner &mdash; a route</option>
-          </optgroup>
-          <optgroup label="Hotspots near a place">
-            <option value="quick:home" selected>&#127968; Near home</option>
-            <option value="quick:here">&#128205; Current location</option>
-            <option value="quick:find">&#128269; Find a place&hellip;</option>
-          </optgroup>
-        </select>
-      </div>
+      <div class="row modeswitch" data-modes="places" data-current="quick:home"></div>
       <div class="row">
         <button id="quickBtn">🏠 Home</button>
         <button id="quickHereBtn" class="secondary" type="button">📍 Here</button>
@@ -897,7 +861,7 @@
       </div>
       <div id="quickStatus" class="status">The richest eBird hotspots within ~20 mi of Home (needs Home set).</div>
       <div id="quickMap"></div>
-      <ul id="quickResults" class="obs big xl dest"></ul>
+      <ul id="quickResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
@@ -1008,14 +972,11 @@
 
     <section class="panel">
       <h2>🥚 Easy misses <span class="dim" id="easyRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="unseen">
-        <button class="modebtn" type="button" data-goto="sec-allUnseenBtn" aria-pressed="false">📋 Being reported</button>
-        <button class="modebtn" type="button" data-goto="sec-easyBtn" aria-pressed="true">🥚 Easy misses</button>
-      </div>
+      <div class="row modeswitch" data-modes="unseen" data-current="sec-easyBtn"></div>
       <div class="row">
         <button id="easyBtn">Find easy misses</button>
       </div>
-      <div id="easyStatus" class="status">Common birds in your counties that aren’t on your year list yet — ranked by how many different places reported them (≥40% of the last 30 sampled days). First run samples a month of checklists in the background; each day is cached, so later runs are instant.</div>
+      <div id="easyStatus" class="status"></div>
       <div id="easyResults"></div>
     </section>
 
@@ -1184,7 +1145,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.52';
+      var APP_VERSION = '1.0.53';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1702,7 +1663,7 @@
       // the same budget whenever it is running.
       var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 20;
       var _fgStarts = [];
-      var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [];
+      var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [], _fgBgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
       var _fgOk = 0;           // consecutive successes, for easing back off
       var _fgDone = 0;         // completed calls this wave, for the progress bar
@@ -1739,7 +1700,7 @@
         if (el) el.hidden = true;
       }
       function fgProgressSync() {
-        var busy = _fgWaiters.length + _fgActive;
+        var busy = _fgWaiters.length + _fgBgWaiters.length + _fgActive;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
         if (_stage || busy) {
           if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
@@ -1774,7 +1735,11 @@
       // into the same budget the visible screen is competing for.
       function fgRelease() {
         _fgActive--;
-        if (_fgWaiters.length) { var w = _fgWaiters.shift(); w(); }
+        // Foreground first, always: the background lane is only drained when
+        // nothing the user is looking at is waiting.
+        var w = _fgWaiters.length ? _fgWaiters.shift()
+              : (_fgBgWaiters.length ? _fgBgWaiters.shift() : null);
+        if (w) w();
       }
       // Tokens refill continuously. While any remain a call only pays the small
       // gap; once they are gone every call waits for the next drip, which is
@@ -1801,7 +1766,22 @@
         // Wait for the oldest call in the window to age out of it.
         return Math.max(0, _fgStarts[_fgStarts.length - FG_WINDOW_MAX] + FG_WINDOW_MS - startAt);
       }
-      function fgSlot() {
+      // TWO LANES, not one queue.
+      //
+      // Phase 2 of the chase wave is ONE CALL PER UNSEEN SPECIES — about 46 of
+      // them — and at the rate eBird actually enforces that is over two minutes
+      // of paced fetching. It runs detached, so it is still going while you
+      // navigate. Quick outing needs exactly ONE call (`ref/hotspot/geo`), and
+      // in a single FIFO queue that one call sat behind up to 46 others: the
+      // section you are LOOKING AT waited on work nobody is waiting for.
+      //
+      // So background callers get their own lane, drained only when the
+      // foreground lane is empty. Each lane stays FIFO internally — jumping the
+      // whole queue to the front would just reverse the foreground order.
+      // Nothing is starved: the wave resumes the moment the tap is served, and
+      // both lanes pass through the same token bucket and rolling window, so
+      // the rate the key sees is unchanged.
+      function fgSlot(bg) {
         if (fgDead()) return new Promise(function () {});
         return new Promise(function (resolve) {
           function take() {
@@ -1814,7 +1794,9 @@
             var wait = at - now;
             if (wait > 0) setTimeout(resolve, wait); else resolve();
           }
-          if (_fgActive < FG_MAX_CONC) take(); else _fgWaiters.push(take);
+          if (_fgActive < FG_MAX_CONC) take();
+          else if (bg) _fgBgWaiters.push(take);
+          else _fgWaiters.push(take);
           fgProgressSync();
         });
       }
@@ -1827,8 +1809,8 @@
         if (isFinite(s) && s > 0) return Math.min(30000, s * 1000);
         return Math.min(FG_COOLDOWN_MS, Math.pow(2, attempt) * 1000);
       }
-      function fgAttempt(path, attempt) {
-        return fgSlot().then(function () {
+      function fgAttempt(path, attempt, bg) {
+        return fgSlot(bg).then(function () {
           return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
             .then(function (r) { fgRelease(); return r; },
                   function (e) { fgRelease(); throw e; });
@@ -1855,7 +1837,7 @@
               _fgNextAt = Math.max(_fgNextAt, Date.now() + Math.max(back, FG_COOLDOWN_MS));
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
-                return fgAttempt(path, attempt + 1);
+                return fgAttempt(path, attempt + 1, bg);
               });
             }
             dbg('error', 'eBird HTTP ' + r.status + ' · ' + path);
@@ -1893,7 +1875,10 @@
       // Failures are evicted so a retry is still possible.
       var _ebCache = {}, EB_CACHE_MS = 30 * 60 * 1000;
       function ebClearCache() { _ebCache = {}; }
-      function ebird(path) {
+      // `bg` marks a call nobody is waiting on — the detached phase-2 species
+      // wave. It is only a QUEUE POSITION, never a different rate: both lanes
+      // share the token bucket, the rolling window and the AIMD gap.
+      function ebird(path, bg) {
         var hit = _ebCache[path];
         if (hit && (Date.now() - hit.t) < EB_CACHE_MS) {
           // Say so. A log that shows 49 GETs and 30 responses looks like
@@ -1906,7 +1891,7 @@
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
         var t0 = Date.now();
-        var p = fgAttempt(path, 0)
+        var p = fgAttempt(path, 0, bg)
           .then(function (v) {
             release(); fgNoteOk();
             // The queue depth and the current gap are the two numbers that
@@ -1914,7 +1899,7 @@
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
             dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + ' calls'
-              + ' · queue ' + (_fgWaiters.length + _fgActive)
+              + ' · queue ' + _fgWaiters.length + '+' + _fgBgWaiters.length + 'bg/' + _fgActive
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
               + ' · window ' + _fgStarts.length + '/' + FG_WINDOW_MAX
               + ' · ' + path);
@@ -2630,15 +2615,20 @@
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
             var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
-            var below = '<ul class="cklrows">'
-              // Distance is the card's own third column and the place is now
-              // the sub-header, so neither is repeated here.
-              + (r.observer ? '<li class="lblrow"><span class="lbl">Observer</span><span class="who">'
-                  + esc(r.observer) + '</span></li>' : '')
-              + '<li class="lblrow"><span class="lbl">Latest</span><span class="when">'
-              + esc(fmtDateTime(r.dateStr))
-              + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>'
-              + '</ul>';
+            // Place · time · observer, on ONE line, in that order.
+            //
+            // These were two labelled rows underneath the card — "OBSERVER
+            // Neil Pankey" and "LATEST Aug 3 10:25 AM · S379634242" — which
+            // spent three lines of a phone screen on two short facts whose
+            // LABELS were longer than their values, and pushed the next bird
+            // off the screen. The submission id is eleven characters of noise,
+            // so the TIME carries the checklist link instead: nothing is lost
+            // and the source is still one tap away.
+            var when = fmtDateTime(r.dateStr);
+            var sub = recLocLink(r)
+              + ' <span class="when">'
+              + (r.subId ? checklistLink(r.subId, when) : esc(when)) + '</span>'
+              + (r.observer ? ' <span class="who">' + esc(r.observer) + '</span>' : '');
             return SpeciesCards.medium({
               icon: photoSlot(r.name, r.code),
               name: speciesLink(r.name, r.code),
@@ -2647,12 +2637,9 @@
               // stops being a token inside a `·`-joined line and starts being
               // something you can scan down the edge of the list.
               distMi: r.distMi,
-              // The sub-header gets the PLACE. On a rarity card the two facts
-              // that decide whether you go are which bird and where it is, so
-              // they belong in the header block together; the checklist and
-              // the observer are the follow-up, and stay in the rows below.
-              sub: recLocLink(r),
-              below: below
+              // The sub-header gets the PLACE, the time and the observer —
+              // which bird, where, when and who, in the order you read them.
+              sub: '<span class="rarewhere">' + sub + '</span>'
             });
           }
           var html = rows.length ? rows.map(card).join('')
@@ -2966,20 +2953,21 @@
             p.anyUnconfirmed ? '⚠️' : ''
           ].filter(Boolean).join(' · ');
           // The checklists under a place are a LIST OF CHECKLISTS, so they use
-          // the shared checklist card rather than a bespoke row. Each one-liner
-          // carries all five facts: condensed place, date, bird count, a map
-          // pin and the checklist id — previously it was only the date and the
-          // count, wrapped in a link, so there was no way to get directions or
-          // to see which of two nearby sites it actually was.
+          // the shared checklist card. The place NAME is deliberately not
+          // passed: the heading directly above this list already says where
+          // this is, and repeating it is what made the section read as
+          // duplicates ("Discovery Park" then "Discovery Park"). Without a
+          // name the card leads with the date, which becomes the checklist
+          // link — so the row is one short line and still one tap from source.
           var cks = (p.checklists || []);
           var ckHtml = cks.length
             ? ChecklistCards.list('small', cks.map(function (c) {
+                var sub = (c.loc && p.loc && c.loc !== p.loc) ? c.loc : '';
                 return ChecklistCards.small({
-                  place: ChecklistCards.condense(c.loc || p.loc || ''),
+                  place: sub,
+                  href: c.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(c.subId) : '',
                   date: fmtDateTime(c.dateStr),
                   count: c.count,
-                  map: mapPin(c.lat != null ? c.lat : p.lat, c.lng != null ? c.lng : p.lon),
-                  id: c.subId ? checklistLink(c.subId, c.subId) : '',
                   who: c.valid === false ? '⚠️' : ''
                 });
               }))
@@ -3445,9 +3433,9 @@
           _chase[slug] = res;
           return res;
         }
-        function fetchAll(list, step) {
+        function fetchAll(list, step, bg) {
           return Promise.all(list.map(function (f) {
-            return ebird(BL.requestUrl(f))
+            return ebird(BL.requestUrl(f), bg)
               .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
               .catch(function () { return { file: f.file, rows: [] }; })
               .then(function (r) { if (step) progressStep(1); return r; });
@@ -3456,13 +3444,13 @@
         // Phase 2 is one call PER UNSEEN SPECIES - 41 on a normal Washington
         // day. The foreground gate is the real limiter now, so this only bounds
         // how many promises exist at once.
-        function fetchBatched(list, size) {
+        function fetchBatched(list, size, bg) {
           var out = [], i = 0;
           function next() {
             if (i >= list.length) return Promise.resolve(out);
             var slice = list.slice(i, i + size);
             i += size;
-            return fetchAll(slice, true).then(function (rs) { out = out.concat(rs); return next(); });
+            return fetchAll(slice, true, bg).then(function (rs) { out = out.concat(rs); return next(); });
           }
           return next();
         }
@@ -3524,7 +3512,11 @@
             // must never take down what phase 1 already put on screen. Exposed
             // so a caller that genuinely needs the complete answer can wait for
             // it without every section having to.
-            _chasePhase2[slug] = fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
+            // BACKGROUND lane. Phase 1 already put the screen up, so nothing
+            // is waiting on these ~46 calls — and any section the user opens
+            // next must not queue behind them. That was the Quick outing
+            // complaint: one `ref/hotspot/geo` call, minutes behind the wave.
+            _chasePhase2[slug] = fetchBatched(spFeeds, SPECIES_BATCH, true).then(function (spResults) {
               spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
               finish(codes, false);
               dbg('net', 'WAVE phase 2 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
@@ -3841,7 +3833,13 @@
         name = name || locId || '';
         var scope = scopeBadge(locId);
         if (locId && !isPrivate) {
-          var maps = (isFinite(+lat) && isFinite(+lng)) ? ' (' + mapA(lat, lng, '🗺') + ')' : '';
+          // The " (🗺)" is ONE unbreakable token. As three separate inline
+          // items the line broke between them, so the device showed
+          // "Edmonds Waterfront ( 🗺" with the ")" stranded on the next line.
+          // The NBSP glues it to the last word of the name; nowrap stops the
+          // parens splitting off the glyph.
+          var maps = (isFinite(+lat) && isFinite(+lng))
+            ? '<span class="mapwrap">\u00a0(' + mapA(lat, lng, '🗺') + ')</span>' : '';
           return extA(hotspotUrl(locId), name) + scope + maps;
         }
         return mapA(lat, lng, name) + scope;
@@ -5680,11 +5678,11 @@
         // three-column grid with the observer tucked into a nested span.
         var rows = items.map(function (x) {
           return ChecklistCards.small({
-            place: ChecklistCards.condense(x.loc || x.locName || ''),
+            place: x.loc || x.locName || '',
+            href: x.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(x.subId) : '',
             date: fmtDateTime(x.dateStr),
             count: x.count,
-            map: mapPin(x.lat, x.lng != null ? x.lng : x.lon),
-            id: x.subId ? checklistLink(x.subId, x.subId) : '',
+            distMi: x.distMi,
             who: x.observer ? esc(x.observer) : ''
           });
         });
@@ -5824,13 +5822,18 @@
         }());
         if (!id) return;
         var want = (id === 'sec-quickBtn') ? 'quick:' + quickOrigin : id;
-        var picks = document.querySelectorAll('.modepick');
-        for (var i = 0; i < picks.length; i++) {
-          // Only touch a selector that actually offers this mode, so one
-          // group's state never overwrites another's.
-          var has = false, opts = picks[i].options;
-          for (var j = 0; j < opts.length; j++) { if (opts[j].value === want) { has = true; break; } }
-          if (has) picks[i].value = want;
+        var rows = document.querySelectorAll('.modeswitch[data-modes]');
+        for (var i = 0; i < rows.length; i++) {
+          // Only touch a switch that actually offers this mode, so one group's
+          // state never overwrites another's.
+          var btns = rows[i].querySelectorAll('.modebtn'), has = false, j;
+          for (j = 0; j < btns.length; j++) { if (btns[j].getAttribute('data-goto') === want) { has = true; break; } }
+          if (!has) continue;
+          rows[i].setAttribute('data-current', want);
+          for (j = 0; j < btns.length; j++) {
+            btns[j].setAttribute('aria-pressed',
+              btns[j].getAttribute('data-goto') === want ? 'true' : 'false');
+          }
         }
       }
 
@@ -5956,6 +5959,7 @@
         }
         quickOrigin = which;
         syncQuickButtons();
+        syncModePick('sec-quickBtn');
         var btns = [$('quickBtn'), $('quickHereBtn')];
         btns.forEach(function (b) { if (b) b.disabled = true; });
         $('quickResults').innerHTML = ''; $('quickMap').innerHTML = '';
@@ -6957,11 +6961,19 @@
               : 'No leaderboard entry carried a newest-species note.';
             return;
           }
+          // Paint the BOARD before the checklists. Everything above was derived
+          // from one leaderboard read that has already returned: which birds,
+          // how many of the top 100 got each, when, and who. The ~46 per-species
+          // checklist feeds behind it are paced against eBird's real rate limit
+          // and take minutes — so waiting for them meant staring at a status
+          // line while the answer sat in memory.
+          renderLastNew(groups, {}, region);
           st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
           return lastNewChecklists(species, region, function (done, total) {
             st.textContent = 'Matching ' + done + ' of ' + total + ' birds to recent checklists…';
-          }).then(function (byName) {
-            renderLastNew(groups, byName, region);
+          }, function (sp, info) {
+            lastNewPatch(sp, groups[sp], info, region);
+          }).then(function () {
             st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
           });
         }).catch(function (e) {
@@ -7031,7 +7043,7 @@
           drop.forEach(function (k) { localStorage.removeItem(k); });
         } catch (e) { /* nothing worth reporting */ }
       }
-      function lastNewChecklists(speciesNames, region, onProgress) {
+      function lastNewChecklists(speciesNames, region, onProgress, onSpecies) {
         if (!/^US-[A-Z]{2}/.test(region)) return Promise.resolve({});
         pruneLastNewCache();
         return loadLastNewCache(region).then(function (cached) {
@@ -7056,6 +7068,13 @@
                 dbg('net', 'latest ticks: ' + (wanted.length - missing.length) + ' of '
                   + wanted.length + ' species served from today\u2019s cache');
               }
+              // Cached species are answers we ALREADY HAVE, so they land on
+              // screen before the first network call goes out.
+              if (onSpecies) {
+                Object.keys(byName).forEach(function (n) {
+                  try { onSpecies(n, byName[n]); } catch (e) {}
+                });
+              }
               if (onProgress && missing.length !== wanted.length) {
                 try { onProgress(wanted.length - missing.length, wanted.length); } catch (e) {}
               }
@@ -7067,6 +7086,11 @@
                   .then(function (rows) {
                     byName[n] = { code: sp, obs: (rows || []).map(lastNewPick) };
                     done++;
+                    // Each species is painted the moment ITS OWN call lands
+                    // rather than after all ~46 of them, so the section fills
+                    // in front of you instead of showing a status line for two
+                    // minutes and then everything at once.
+                    if (onSpecies) { try { onSpecies(n, byName[n]); } catch (e) {} }
                     if (onProgress) { try { onProgress(done, wanted.length); } catch (e) {} }
                   });
               }).then(function () {
@@ -7076,17 +7100,63 @@
         });
       }
 
-      function renderLastNew(groups, byName, region) {
-        var out = $('lastNewResults'); out.innerHTML = '';
-        var keys = Object.keys(groups).sort(function (a, b) {
+      // Board order is decided by the LEADERBOARD alone — how many of the top
+      // 100 added the bird and when — so it is known before a single checklist
+      // is fetched and never reshuffles as the rows hydrate. That is what makes
+      // painting the board first safe: a row cannot jump out from under a
+      // thumb that is already reaching for it.
+      function lastNewOrder(groups) {
+        return Object.keys(groups).sort(function (a, b) {
           var d = groups[b].birders.length - groups[a].birders.length;
           if (d) return d;
           if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
           return a < b ? -1 : 1;
         });
-        var cards = [];
-        keys.forEach(function (sp) {
-          var g = groups[sp], info = byName[sp] || {};
+      }
+
+      function renderLastNew(groups, byName, region) {
+        var out = $('lastNewResults');
+        var keys = lastNewOrder(groups);
+        out.innerHTML = keys.map(function (sp) {
+          return lastNewCard(sp, groups[sp], (byName || {})[sp] || null, region);
+        }).join('');
+        // The card markup comes from a shared template, so the species key is
+        // stamped on afterwards rather than threaded through the template — the
+        // cards module is pure layout and must not learn about this section.
+        for (var i = 0; i < out.children.length && i < keys.length; i++) {
+          out.children[i].setAttribute('data-sp', keys[i]);
+        }
+        hydratePhotos(out);
+      }
+
+      // Replace ONE row once its own checklist feed lands. Rebuilding the whole
+      // list on every arrival would restart photo hydration ~46 times and throw
+      // away any <details> the reader had already opened.
+      function lastNewPatch(sp, g, info, region) {
+        var out = $('lastNewResults');
+        if (!out) return;
+        var el = null, kids = out.children;
+        for (var i = 0; i < kids.length; i++) {
+          if (kids[i].getAttribute('data-sp') === sp) { el = kids[i]; break; }
+        }
+        if (!el) return;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = lastNewCard(sp, g, info, region);
+        var fresh = tmp.firstElementChild;
+        if (!fresh) return;
+        fresh.setAttribute('data-sp', sp);
+        el.parentNode.replaceChild(fresh, el);
+        hydratePhotos(fresh.parentNode === out ? fresh : out);
+      }
+
+      // `info` is null while this bird's checklists are still in flight. The
+      // card still carries everything the LEADERBOARD knows — which bird, how
+      // many of the top 100 got it, when, and who — which is most of the
+      // decision; the checklists tell you where to stand.
+      function lastNewCard(sp, g, info, region) {
+        var pending = !info;
+        info = info || {};
+        {
           // Most recent first: this section is a chase board, and the birder who
           // ticked it yesterday says more about whether it is still gettable
           // than the one who happens to sit highest on the leaderboard.
@@ -7128,7 +7198,9 @@
           var subs = {}, uniq = [];
           obs.forEach(function (o) { if (o.subId && subs[o.subId]) return; if (o.subId) subs[o.subId] = 1; uniq.push(o); });
           var ck;
-          if (!info.code) {
+          if (pending) {
+            ck = '<div class="sp dim">finding recent checklists…</div>';
+          } else if (!info.code) {
             ck = '<div class="sp">no recent reports in ' + esc(region) + '</div>';
           } else if (!uniq.length) {
             ck = '<div class="sp">no checklists in the last ' + LAST_NEW_BACK_DAYS + ' days</div>';
@@ -7149,19 +7221,16 @@
               + (uniq.length === 1 ? '' : 's') + '</div>'
               + ChecklistCards.list('small', uniq.slice(0, nShow).map(function (o) {
                 return ChecklistCards.small({
-                  place: o.locName
-                    ? locLink(ChecklistCards.condense(o.locName), o.lat, o.lng, o.locId, o.locationPrivate)
-                    : '',
+                  place: o.locName || '',
+                  href: o.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(o.subId) : '',
                   date: fmtDate(o.obsDt),
                   count: o.howMany,
-                  map: mapPin(o.lat, o.lng),
-                  id: o.subId ? extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '',
                   who: o.userDisplayName ? esc(o.userDisplayName) : ''
                 });
               }))
               + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '');
           }
-          cards.push(SpeciesCards.medium({
+          return SpeciesCards.medium({
             icon: photoSlot(sp, info.code || ''),
             name: speciesLink(sp, info.code || ''),
             tags: needTag(info.code || '', sp),
@@ -7170,10 +7239,8 @@
             distMi: near,
             sub: people.length + ' of the top 100 · newest tick ' + esc(fmtDate(g.latest)),
             below: who + ck
-          }));
-        });
-        out.innerHTML = cards.join('');
-        hydratePhotos(out);
+          });
+        }
       }
 
       function loadAbaAlert() {
@@ -10413,9 +10480,56 @@
       // that catches a section silently disappearing — so a merge that reads
       // better on screen would have bought that by lying to the checker.
       //
-      // A <select> rather than a segmented row because six options do not fit
-      // across a phone, and on iOS a native select opens the wheel picker,
-      // which shows the full labels anyway.
+      // The mode switch: ONE TAP, not a wheel picker.
+      //
+      // This was a native <select>. The reasoning at the time was that six
+      // options do not fit across a phone — true of six full sentences, but
+      // the labels only needed to be full sentences because a collapsed
+      // <select> shows exactly one of them. As chips they are all visible at
+      // once, so each can be two words with an icon, and choosing costs one
+      // tap instead of tap-scroll-tap. It also stops the control being the
+      // widest thing in the panel, which is the same complaint F10 files
+      // against the navbar region <select>.
+      //
+      // ONE table drives every switch. The markup used to repeat all six
+      // options in each of four panels — 24 lines that had to be kept in sync
+      // by hand, with only the `selected` attribute differing.
+      var MODE_SETS = {
+        places: [
+          { to: 'sec-destBtn', icon: '\uD83C\uDFC5', label: 'Destinations', full: 'Top destinations — a day trip' },
+          { to: 'sec-excBtn',  icon: '\uD83D\uDE97', label: 'Excursions',   full: 'Top excursions — a longer trip' },
+          { to: 'sec-tripBtn', icon: '\uD83E\uDDED', label: 'Route',        full: 'Trip planner — a route through several' },
+          { to: 'quick:home',  icon: '\uD83C\uDFE0', label: 'Near home',    full: 'Hotspots near home' },
+          { to: 'quick:here',  icon: '\uD83D\uDCCD', label: 'Here',         full: 'Hotspots near my current location' },
+          { to: 'quick:find',  icon: '\uD83D\uDD0D', label: 'Find\u2026',   full: 'Hotspots near a place I name' }
+        ],
+        unseen: [
+          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Being reported', full: 'Every unseen bird being reported now' },
+          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Easy misses',    full: 'Common birds you should already have' }
+        ]
+      };
+      // The accessible name carries the FULL wording, because splitting a
+      // label into icon + text spans loses the space in textContent and the
+      // guards read aria-label — a lesson learned the hard way when a label
+      // was first split into icon + text spans.
+      function buildModeSwitches() {
+        var rows = document.querySelectorAll('.modeswitch[data-modes]');
+        Array.prototype.forEach.call(rows, function (row) {
+          var set = MODE_SETS[row.getAttribute('data-modes')];
+          if (!set) return;
+          var cur = row.getAttribute('data-current') || '';
+          row.innerHTML = set.map(function (m) {
+            var on = m.to === cur;
+            return '<button class="modebtn" type="button" data-goto="' + m.to + '"'
+              + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+              + ' aria-label="' + esc(m.full) + '">'
+              + '<span class="mbico" aria-hidden="true">' + m.icon + '</span>'
+              + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
+          }).join('');
+        });
+      }
+      // Quick outing is three modes on ONE section, so the pressed chip cannot
+      // be derived from which panel is visible — syncModePick reads quickOrigin.
       function routeMode(val) {
         if (!val) return;
         if (val.indexOf('quick:') === 0) {
@@ -10426,18 +10540,17 @@
         }
         showSection(val);
       }
-      document.addEventListener('change', function (ev) {
-        var s = ev.target;
-        if (!s || !s.classList || !s.classList.contains('modepick')) return;
-        routeMode(s.value);
-      });
-      // Delegated, so adding a mode is markup only.
+      // Delegated, so adding a mode is one row of the table above.
       document.addEventListener('click', function (ev) {
         var b = ev.target.closest && ev.target.closest('.modeswitch .modebtn');
         if (!b) return;
         var to = b.getAttribute('data-goto');
-        if (!to || b.getAttribute('aria-pressed') === 'true') return;
-        showSection(to);
+        if (!to) return;
+        // A quick-outing chip re-runs even when it is already pressed: "Here"
+        // means "where I am NOW", and refusing to re-scan because you tapped
+        // it before is the one case where a no-op is wrong.
+        if (b.getAttribute('aria-pressed') === 'true' && to.indexOf('quick:') !== 0) return;
+        routeMode(to);
       });
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
@@ -10657,7 +10770,7 @@
       FG_BUCKET: FG_BUCKET, FG_REFILL_PER_S: FG_REFILL_PER_S,
       fgProgressSync: fgProgressSync, fgProgressReset: fgProgressReset,
       fgState: function () { return { gap: _fgGap, tokens: _fgTokens, done: _fgDone,
-                                      queued: _fgWaiters.length, active: _fgActive }; },
+                                      queued: _fgWaiters.length, queuedBg: _fgBgWaiters.length, active: _fgActive }; },
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },
@@ -10692,6 +10805,7 @@
         testApiKey: testApiKey, openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL
       };
       migrateHomeKeys();
+      buildModeSwitches();
       buildNav();
       bindKeyHelpers();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';

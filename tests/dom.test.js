@@ -618,16 +618,36 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   assert.match(today, /checklistLink\(/, 'with the checklist to cite');
   assert.match(today, /needTag\(/, 'unseen-this-year flag');
   assert.match(today, /stakeflag/, 'and the stakeout day count');
-  // The overflow fields are LABELLED, or they read as an unexplained run of
-  // facts once they no longer sit in named table columns. "Where" is no longer
-  // among them: on the medium card the place IS the sub-header, so labelling it
-  // again below would state the same fact twice.
-  for (const lbl of ['Observer', 'Latest']) {
-    assert.match(today, new RegExp('class="lbl">' + lbl + '<'),
-      lbl + ' is labelled below the card');
-  }
-  assert.match(today, /sub: recLocLink\(r\)/,
-    'and the place is the sub-header, which is why it is not repeated below');
+  // The overflow fields used to be LABELLED rows beneath the card — "OBSERVER
+  // Neil Pankey" and "LATEST Aug 3 10:25 AM · S379634242". Two labelled rows
+  // for two short facts spent three lines of a phone screen on values whose
+  // LABELS were longer than the values, and pushed the next bird off screen.
+  // They are now one sub-line: place · time · observer, in the order you read
+  // them, with the TIME carrying the checklist link so the eleven characters
+  // of submission id stop being printed.
+  assert.doesNotMatch(today, /class="lbl">(Observer|Latest)</,
+    'no labelled Observer/Latest rows — they are one line under the name now');
+  assert.match(today, /sub: '<span class="rarewhere">'/,
+    'place, time and observer are ONE sub-line');
+  assert.match(today, /checklistLink\(r\.subId, when\)/,
+    'the time is the checklist link, so the submission id is not printed too');
+  assert.doesNotMatch(today, /checklistLink\(r\.subId, r\.subId\)/,
+    'the raw submission id is eleven characters of noise on a phone row');
+  // Drawn separators, so a report with no observer cannot strand a "·".
+  assert.match(HTML, /\.rarewhere > \.when::before, \.rarewhere > \.who::before/,
+    'the separators are drawn by CSS, not typed into the string');
+});
+
+// Reported from the device: the place name and its 🗺 link broke across two
+// lines, leaving a lone ")" stranded underneath "Edmonds Waterfront ( 🗺".
+test('the map link that trails a place name is one unbreakable token', () => {
+  const src = HTML.slice(HTML.indexOf('function locLink('),
+    HTML.indexOf('function recLocLink('));
+  assert.match(src, /class="mapwrap"/, 'the parens and the glyph are wrapped together');
+  assert.match(src, /\\u00a0\(/,
+    'and glued to the last word of the name with a non-breaking space');
+  assert.match(HTML, /\.mapwrap \{ white-space: nowrap; \}/,
+    'the wrapper actually forbids the break — the class alone changes nothing');
 });
 
 // MEASURED, not assumed. Two separate live measurements, and the second one
@@ -1400,7 +1420,11 @@ test('a checklist link is labelled by its subId, never the word "checklist"', ()
 });
 
 test('the three species sections use the large icon + title treatment', () => {
-  ['targetResults', 'lastNewResults'].forEach((id) => {
+  // targetResults (Closest spots) is NOT in this list any more: its rows are
+  // HOTSPOTS, and a hotspot list carrying the species container classes is
+  // what silently replaced the hotspot card's geometry — see "every hotspot
+  // list is built by the one shared card".
+  ['lastNewResults'].forEach((id) => {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
   });
@@ -1841,24 +1865,81 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   }
   assert.match(html, /class="cklcards cklcards-sm"/,
     'checklists render through the shared checklist card, under their hotspot');
-  // The facts the shared card exists to carry. Count and map depend on the
-  // fixture actually having a tally and a coordinate, so those two are
-  // asserted against the template directly rather than against this data.
-  assert.match(html, /class="ckplace"/, 'condensed place');
-  assert.match(html, /class="ckdate"/, 'checklist date');
-  assert.match(html, /class="ckid"/, 'and the checklist id, linked');
+  // THE DUPLICATION BUG, pinned. The place heading directly above this list
+  // already prints the hotspot name and its distance, and the card printed
+  // both again on every checklist under it — so a place with three checklists
+  // read as "Penny Creek Natural Area" four times over. Under a place heading
+  // the card leads with the DATE instead, which becomes the checklist link.
+  assert.ok(!/class="ckplace"/.test(html),
+    'the place name is NOT repeated on rows that already sit under it');
+  const names = (html.match(/Penny Creek/gi) || []).length;
+  assert.equal(names, 1,
+    'the hotspot name appears exactly once — on its heading, not on each checklist');
+  assert.match(html, /class="cklead"><a[^>]*ebird\.org\/checklist\/S1/,
+    'so the row leads with the linked date instead');
+
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
-  const full = CK.small({ place: 'P', date: 'Jul 30', count: 42,
-                          map: '<a class="ckmap">m</a>', id: '<a class="ckid">S1</a>' });
-  assert.match(full, /class="ckcount">42 birds/, 'bird count, pluralised');
-  assert.match(CK.small({ count: 1 }), /1 bird</, 'and singular when it is one');
-  assert.match(full, /class="ckmapwrap"/, 'map link');
+  const full = CK.small({ place: 'Marymoor Park--Audubon BirdLoop', date: 'Jul 30 9:29 AM',
+                          href: 'https://ebird.org/checklist/S1', count: 42, distMi: 4.24 });
+  assert.match(full, /class="ckcount">×42</,
+    'the count is compact on a one-line row — "42 birds" is four times the width');
+  assert.match(CK.medium({ place: 'P', count: 1 }), /1 bird</,
+    'the medium card has a whole line, so it spells it out and pluralises');
+  assert.match(full, /class="ckdist">4\.2 mi/, 'and how far, when the caller has it');
+  assert.match(full, /class="ckdate">Jul 30 9:29a/,
+    'the time is shortened — "9:29a" saves three characters a 320px row cannot spare');
+  // The observer is the one field of unbounded width. The layout sweep caught
+  // it hanging 247px past a 320px row at 1.75x text scale, so the small card
+  // drops it and the medium card keeps it.
+  assert.ok(!/ckwho/.test(CK.small({ place: 'P', who: 'Neil Pankey' })),
+    'a one-line row never carries the observer name');
+  assert.match(CK.medium({ place: 'P', who: 'Neil Pankey' }), /class="ckwho">Neil Pankey/,
+    'but the medium card, which has the room, does');
   // A name that carries a sub-area is condensed: the tail almost never tells
   // one row apart from its neighbours, and it is what breaks the one-line row.
   assert.equal(CK.condense('Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk'),
     'Marymoor Park', 'the hotspot name is condensed');
   app.window.close();
+});
+
+// Reported from the device with a screenshot: the checklist list under a place
+// showed the same name over and over and wrapped onto three lines per row.
+test('a checklist row is ONE line that truncates, and never overflows', async () => {
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+  // The LEAD is the only part allowed to shrink, so a long hotspot name loses
+  // its tail instead of pushing the facts off the screen.
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*white-space: nowrap/,
+    'no individual fact ever splits down the middle');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*overflow: hidden/,
+    'and the row CLIPS as a backstop — nowrap without overflow control hides '
+    + 'the overflow off the screen edge instead of preventing it (+196px once)');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*flex-wrap: wrap/,
+    'at 1.75x text scale the three facts alone measure ~316px on a 320px '
+    + 'screen, so the row degrades by WRAPPING — which keeps every fact '
+    + 'readable — rather than by clipping the distance away');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*text-overflow: ellipsis/,
+    'the lead is the part that truncates');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*min-width: 0/,
+    'and min-width:0 is what lets a flex item shrink below its content at all');
+  // The ellipsis must be on the LINK, not only its wrapper: text-overflow acts
+  // on the box that overflows, and an inline <a> inside a clipping span still
+  // measures its full width. The sweep caught exactly that, at +162px.
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead > \.ckgo \{[^}]*display: block/,
+    'the link itself is a block, so it is bounded by the row');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead > \.ckgo \{[^}]*text-overflow: ellipsis/,
+    'and truncates itself rather than being painted and clipped');
+  // Separators are DRAWN, so an omitted field cannot strand a "·".
+  assert.match(CK.css, /span \+ span::before \{\s*\n?\s*content: "\\00b7"/,
+    'the separators are CSS, not characters in the string');
+  const sparse = CK.small({ href: 'https://x/1', date: 'Aug 2 9:29 AM' });
+  assert.ok(!/\u00b7/.test(sparse),
+    'a row with only a date types no separator characters of its own');
+  // Every field is optional, because the CALLER's context decides what is
+  // redundant — that is the whole fix for the duplicate-name screenshot.
+  assert.ok(!/class="ckplace"|class="ckcount"|class="ckdist"/.test(sparse),
+    'and prints no empty cells for the facts it was not given');
 });
 
 test('All unseen reports: the same checklist is never listed twice', async () => {
@@ -2559,13 +2640,16 @@ test('choosing "Find a place" opens the search box and searches from there', asy
   });
   const A = app.window.__app;
   const doc = app.window.document;
-  const pick = doc.querySelector('#sec-quickBtn .modepick');
-  assert.ok(pick, 'the quick section carries the selector');
-  assert.ok([...pick.options].some((o) => o.value === 'quick:find'),
-    '"Find a place" is one of the modes');
+  // The modes are CHIPS now, not a <select>: one tap instead of
+  // tap-scroll-tap, and every option is readable without opening anything.
+  const row = doc.querySelector('#sec-quickBtn .modeswitch');
+  assert.ok(row, 'the quick section carries the mode switch');
+  const find = row.querySelector('.modebtn[data-goto="quick:find"]');
+  assert.ok(find, '"Find a place" is one of the modes');
+  assert.match(find.getAttribute('aria-label'), /place/i,
+    'the accessible name carries the full wording the chip abbreviates');
 
-  pick.value = 'quick:find';
-  pick.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  find.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   await new Promise((r) => setTimeout(r, 60));
   // A mode you cannot type into is a dead end, which is how the geolocation
   // fallback used to feel when it fired without explanation.
@@ -2599,8 +2683,9 @@ test('a searched place is not confused with where you are standing', async () =>
 test('the mode switch is wired, and does not re-navigate to where you already are', async () => {
   assert.match(HTML, /closest\('\.modeswitch \.modebtn'\)/,
     'one delegated handler serves every pair — adding a pair is markup only');
-  assert.match(HTML, /aria-pressed'\) === 'true'\) return;/,
-    'tapping the mode you are already in does nothing, rather than reloading the section');
+  assert.match(HTML, /=== 'true' && to\.indexOf\('quick:'\) !== 0\) return;/,
+    'tapping the mode you are already in does nothing — EXCEPT a quick-outing '
+    + 'origin, where "Here" must be allowed to mean "where I am now"');
 
   // Proven by clicking. "The handler exists" is not "the control works" — the
   // species picker shipped with buttons bound to nothing and looked fine.
@@ -2609,13 +2694,47 @@ test('the mode switch is wired, and does not re-navigate to where you already ar
   const A = app.window.__app;
   A.showSection('sec-allUnseenBtn');
   const from = doc.getElementById('sec-allUnseenBtn');
-  const other = [...from.querySelectorAll('.modeswitch .modebtn')]
-    .filter((b) => b.getAttribute('aria-pressed') !== 'true')[0];
+  const btns = [...from.querySelectorAll('.modeswitch .modebtn')];
+  assert.ok(btns.length >= 2, 'the switch is built from the shared table');
+  // Every chip carries an accessible name, because the visible label is
+  // deliberately abbreviated to two words.
+  btns.forEach((b) => assert.ok((b.getAttribute('aria-label') || '').length > 6,
+    'each chip names itself in full for a screen reader: ' + b.getAttribute('data-goto')));
+  const other = btns.filter((b) => b.getAttribute('aria-pressed') !== 'true')[0];
   assert.ok(other, 'the inactive mode is present to tap');
   const target = other.getAttribute('data-goto');
   other.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   assert.ok(!doc.getElementById(target).hidden, 'tapping the other mode shows that section');
   assert.ok(from.hidden, 'and leaves the one you were on');
+  app.window.close();
+});
+
+// The switch used to repeat all six options in each of four panels, and only
+// the `selected` attribute differed — 24 lines kept in sync by hand. One table
+// now drives every switch, so a mode cannot exist in one panel and not another.
+test('every mode switch is built from ONE table', async () => {
+  assert.doesNotMatch(HTML, /<select class="modepick"/,
+    'the wheel picker is gone — six chips are one tap, a select is three');
+  const app = await boot();
+  const doc = app.window.document;
+  const rows = [...doc.querySelectorAll('.modeswitch[data-modes]')];
+  assert.ok(rows.length >= 6, 'every paired section carries a switch');
+  const byGroup = {};
+  rows.forEach((r) => {
+    const g = r.getAttribute('data-modes');
+    const gotos = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-goto'));
+    assert.ok(gotos.length, g + ' switch was actually built');
+    if (byGroup[g]) {
+      assert.deepEqual(JSON.stringify(gotos), JSON.stringify(byGroup[g]),
+        g + ': every panel in a group offers exactly the same modes');
+    } else byGroup[g] = gotos;
+    // Exactly one chip is pressed, and it is the panel's own mode.
+    const on = [...r.querySelectorAll('.modebtn[aria-pressed="true"]')];
+    assert.equal(on.length, 1, g + ': exactly one mode reads as current');
+    assert.equal(on[0].getAttribute('data-goto'), r.getAttribute('data-current'),
+      g + ': the pressed chip is the one the panel declares current');
+  });
+  assert.equal(byGroup.places.length, 6, 'all six place modes are offered');
   app.window.close();
 });
 
@@ -3966,11 +4085,33 @@ test('every hotspot list is built by the one shared card', () => {
   assert.match(card, /class="hsact"/, 'the actions come last, on their own line');
   assert.match(card, /Open in Maps/, 'every hotspot can be opened in maps');
   assert.match(card, /favLink\(/, 'and saved, exactly like the quick outing');
-  // All five lists must actually opt into the medium template.
+  // A hotspot list must NOT carry the SPECIES card's container classes.
+  //
+  // This is the bug that put the medium hotspot card's sub-header back in
+  // column 2: these lists were `class="obs big xl dest"`, and cards-species.js
+  // scopes its geometry as `.obs.xl > li > .meta` and `.obs.big .name` — three
+  // classes, which beats the hotspot card's own two-class `.hscard-md > .meta`
+  // and `.hscard-md > .name`. So `display: contents` lost to `display: flex`,
+  // the three-column grid lost to the species grid, and the sub-header stopped
+  // spanning. Nothing in the hotspot module was wrong; it was simply outranked.
+  //
+  // The rule is stated as what it MEANS rather than as a list of banned class
+  // names for one section: whichever family a list belongs to, it may not
+  // declare itself the other one.
+  const SPECIES_CONTAINER = /\b(xl|card-md|big)\b/;
   for (const id of ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults']) {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
-    assert.ok(m && /\bxl\b/.test(m[1]), id + ' renders as a medium card list');
+    assert.ok(m, id + ' must exist');
+    assert.ok(!SPECIES_CONTAINER.test(m[1]),
+      id + ' holds hotspot cards, so it must not carry a species-card container '
+      + 'class (' + m[1] + ') — those rules outrank .hscard-md and replace its layout');
   }
+  // And the reason the clash is real: prove the species sheet claims those
+  // selectors, so this guard cannot be satisfied by renaming a class.
+  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.meta/,
+    'the species sheet really does own .obs.xl > li > .meta');
+  assert.match(CARDS_HOTSPOT, /\.hscard-md > \.meta \{/,
+    'and the hotspot sheet really does own .hscard-md > .meta');
 });
 
 // This is the bug the shared card exists to prevent, pinned directly: the trip
@@ -5370,8 +5511,8 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // the rest of the session. Asserted on the source rather than by driving a
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
-  const src = HTML.slice(HTML.indexOf('function ebird(path)'),
-                         HTML.indexOf('function ebird(path)') + 2200);
+  const src = HTML.slice(HTML.indexOf('function ebird(path, bg)'),
+                         HTML.indexOf('function ebird(path, bg)') + 2400);
   assert.match(src, /delete _ebCache\[path\]/,
     'a rejected call is evicted so the next attempt actually goes out');
   assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,
@@ -5508,4 +5649,85 @@ test('getChase resolves on phase 1 so the screen can come up', () => {
   // A phase-2 failure must not take down what is already on screen.
   assert.match(src, /the phase-1 view stands/,
     'and a phase-2 failure leaves the phase-1 view standing');
+  // ...and it must not hold the queue against the section you are looking at.
+  assert.match(src, /_chasePhase2\[slug\] = fetchBatched\(spFeeds, SPECIES_BATCH, true\)/,
+    'phase 2 runs in the BACKGROUND lane');
 });
+
+// Reported from the device: Quick outing needs exactly ONE call and still sat
+// on "Finding hotspots near home…" for a long time. It was queued behind the
+// detached phase-2 species wave — ~46 calls, over two minutes at the rate
+// eBird actually enforces. The section on screen was waiting on work nobody
+// was waiting for.
+test('the section you are looking at is not queued behind the background wave', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.ok(A.fgState, 'the gate exposes its state');
+  const st = A.fgState();
+  assert.ok('queuedBg' in st, 'and reports the two lanes separately');
+
+  const src = HTML.slice(HTML.indexOf('function fgSlot('),
+                         HTML.indexOf('function retryAfterMs('));
+  assert.match(src, /else if \(bg\) _fgBgWaiters\.push\(take\);/,
+    'background callers queue in their own lane');
+  assert.match(src, /else _fgWaiters\.push\(take\);/,
+    'and everything else keeps the foreground lane');
+  // Each lane must stay FIFO. Jumping the whole queue to the FRONT instead
+  // would reverse the order of the foreground calls against each other.
+  assert.ok(!/_fgWaiters\.unshift\(/.test(HTML),
+    'no lane is drained out of order');
+  const rel = HTML.slice(HTML.indexOf('function fgRelease()'),
+                         HTML.indexOf('function fgRelease()') + 600);
+  assert.match(rel, /_fgWaiters\.length \? _fgWaiters\.shift\(\)/,
+    'foreground drains first');
+  assert.match(rel, /_fgBgWaiters\.length \? _fgBgWaiters\.shift\(\)/,
+    'and the background lane is served only when nothing else is waiting');
+  // The lane is a QUEUE POSITION, not a second rate. Both lanes must go
+  // through the same bucket, window and gap, or "priority" would become a way
+  // to exceed the limit that every 429 in this app came from.
+  assert.match(src, /_fgStarts\.push\(at\)/, 'both lanes enter the rolling window');
+  assert.match(src, /fgTakeToken\(now\)/, 'and both spend a token');
+  assert.match(src, /_fgNextAt = at \+ _fgGap/, 'and both respect the AIMD gap');
+  app.window.close();
+});
+
+// Reported from the device with a screenshot: "Matching 12 of 52 birds to
+// recent checklists…" and an otherwise empty section. Everything on the card
+// EXCEPT the checklists comes from one leaderboard read that has already
+// returned, so there was no reason to hold it back.
+test('latest ticks paints the board before the checklists arrive', () => {
+  const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
+                          HTML.indexOf('function lastNewKey('));
+  assert.match(load, /renderLastNew\(groups, \{\}, region\);/,
+    'the board is painted from the leaderboard read, with no checklists yet');
+  assert.ok(load.indexOf('renderLastNew(groups, {}, region);')
+            < load.indexOf('lastNewChecklists('),
+    'and painted BEFORE the per-species fetches start');
+  assert.match(load, /lastNewPatch\(sp, groups\[sp\], info, region\)/,
+    'each row is replaced as its own feed lands');
+
+  // The order must be decided by the leaderboard alone, or rows would jump
+  // around under a thumb that is already reaching for one.
+  const order = HTML.slice(HTML.indexOf('function lastNewOrder('),
+                           HTML.indexOf('function renderLastNew('));
+  assert.match(order, /groups\[b\]\.birders\.length - groups\[a\]\.birders\.length/,
+    'ranked by how many of the top 100 added it');
+  assert.ok(!/byName|info\./.test(order),
+    'and never by anything that arrives later, so the list cannot reshuffle');
+
+  // Patching ONE row rather than re-rendering the list: a full re-render would
+  // restart photo hydration ~46 times and close any expander already opened.
+  const patch = HTML.slice(HTML.indexOf('function lastNewPatch('),
+                           HTML.indexOf('function lastNewCard('));
+  assert.match(patch, /replaceChild\(fresh, el\)/, 'one row is swapped in place');
+  assert.ok(!/innerHTML = ''/.test(patch), 'the list is never rebuilt wholesale');
+  assert.match(patch, /getAttribute\('data-sp'\) === sp/,
+    'the row is found by species, not by index — the list must not be re-sorted');
+
+  // A pending row still says something useful rather than looking broken.
+  const card = HTML.slice(HTML.indexOf('function lastNewCard('),
+                          HTML.indexOf('function loadAbaAlert('));
+  assert.match(card, /var pending = !info;/, 'a row knows whether its feed has landed');
+  assert.match(card, /finding recent checklists/, 'and says so while it waits');
+});
+
