@@ -602,10 +602,10 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
     "today's rarities is a list, not 13 profiles — the large card is the wrong template");
   assert.doesNotMatch(today, /rarityStats\(/,
     'how rare each species is across the snapshot is what Last 7-Days answers');
-  // It must use the shared small card rather than hand-rolling a row.
-  assert.match(today, /SpeciesCards\.small\(\{/, 'the row is the shared small card');
-  assert.match(HTML, /<ul id="results" class="obs card-sm">/,
-    'and the list opts into the small size');
+  // It must use the shared MEDIUM card rather than hand-rolling a row.
+  assert.match(today, /SpeciesCards\.medium\(\{/, 'the row is the shared medium card');
+  assert.match(HTML, /<ul id="results" class="obs big xl">/,
+    'and the list opts into the medium size');
   // The columns of the markdown table it mirrors: species, distance+place,
   // observer, time, checklist. Losing any of them makes the row undecidable,
   // and the whole point of the small card here was that NOTHING is dropped.
@@ -619,11 +619,15 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   assert.match(today, /needTag\(/, 'unseen-this-year flag');
   assert.match(today, /stakeflag/, 'and the stakeout day count');
   // The overflow fields are LABELLED, or they read as an unexplained run of
-  // facts once they no longer sit in named table columns.
-  for (const lbl of ['Where', 'Observer', 'Latest']) {
+  // facts once they no longer sit in named table columns. "Where" is no longer
+  // among them: on the medium card the place IS the sub-header, so labelling it
+  // again below would state the same fact twice.
+  for (const lbl of ['Observer', 'Latest']) {
     assert.match(today, new RegExp('class="lbl">' + lbl + '<'),
       lbl + ' is labelled below the card');
   }
+  assert.match(today, /sub: recLocLink\(r\)/,
+    'and the place is the sub-header, which is why it is not repeated below');
 });
 
 // MEASURED, not assumed. Two separate live measurements, and the second one
@@ -883,13 +887,11 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
   }
   assert.match(CARDS_SPECIES, /\.obs\.big \.thumb \{[^}]*float:\s*none/,
     '.obs.big is the float-clearing layout — if it stops clearing, the guard above means nothing');
-  // Today's rarities renders .cklrows under a .thumb too, but as a SMALL card,
-  // so it depends on the small template clearing the float instead.
+  // Today's rarities renders .cklrows under a .thumb too. It is a MEDIUM card
+  // now, so it relies on .obs.big clearing the float — pinned just above.
   const today = /<ul id="results" class="([^"]*)"/.exec(HTML);
-  assert.ok(today && today[1].split(/\s+/).includes('card-sm'),
+  assert.ok(today && today[1].split(/\s+/).includes('big'),
     "today's rarities must carry a size that clears the float");
-  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{[^}]*float: none/,
-    'and .card-sm is that layout');
   // Baseline alignment on a grid row whose cell wraps to 3 lines is the other
   // half of the clipping; `start` grows the row downward predictably. This
   // applies to the labelled variant too — its value cell is a place name.
@@ -902,17 +904,22 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 // The bird photo is the answer to "what IS that", so the rarity list sizes it to
 // be identified. The name and its badges must stay in ONE grid cell, or a long
 // name wraps into the sub-header's row and the two rows collide.
-test('Last 7-Days rarity rows size the photo up and keep name+badges together', () => {
+test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
   assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
     'the rarity thumbnail is double the 46px default, and scales with the text-size setting');
+  // It used to hand-roll .name/.ntext/.meta — a second copy of the medium card
+  // that could drift from the real one, which is exactly what happened to Easy
+  // misses before it was unified.
   const fn = HTML.slice(HTML.indexOf('function loadActiveRarities('));
-  const row = fn.slice(0, fn.indexOf('el.appendChild(li)'));
-  assert.match(row, /class="ntext"/,
-    'the species link and its badges must be wrapped in .ntext so they wrap as one block');
-  assert.ok(row.indexOf('photoSlot(') < row.indexOf('class="ntext"'),
-    'the photo is the first grid cell, the text block the second');
+  const row = fn.slice(0, fn.indexOf('hydratePhotos(el)'));
+  assert.match(row, /SpeciesCards\.medium\(\{/,
+    'the row is built from the shared template, not rebuilt inline');
+  assert.ok(!/'<div class="name">'/.test(row),
+    'and does not hand-roll the card markup alongside it');
+  assert.match(row, /distMi: r\.distMi/,
+    'the drive is a real column now, not a token inside the sub-header');
 });
 
 // The seed exists so an arbitrary region's report is mostly illustrated with no
@@ -1406,10 +1413,10 @@ test('the three species sections use the large icon + title treatment', () => {
   // small card scans, and everything that no longer fits the row is printed
   // underneath it, labelled, so nothing is dropped.
   const rare = /<ul id="results"[^>]*class="([^"]*)"/.exec(HTML);
-  assert.ok(rare && /\bcard-sm\b/.test(rare[1]),
-    "today's rarities render as small cards, one per checklist");
-  assert.ok(rare && !/\bxl\b/.test(rare[1]),
-    'and must not also carry the medium size — one list, one size');
+  assert.ok(rare && /\bxl\b/.test(rare[1]),
+    "today's rarities render as medium cards, one per checklist");
+  assert.ok(rare && !/\bcard-sm\b/.test(rare[1]),
+    'and must not also carry the small size — one list, one size');
 });
 
 test('favorites: the hotspot is the heading, its birds are the list under it', () => {
@@ -1445,13 +1452,15 @@ test('latest ticks: the bird outranks the roster of who added it', () => {
     return Number(m[1]);
   };
   const name = px(/\.obs\.xl > li > \.name \{ font-size: calc\((\d+)px/);
-  const who = px(/\.cklrows\.whorows \{ font-size: calc\((\d+)px/);
   const ckl = px(/\.obs\.xl > li > \.cklrows \{ font-size: calc\((\d+)px/);
   assert.ok(name > ckl, `the bird name (${name}px) must outrank its checklists (${ckl}px)`);
-  assert.ok(who < ckl,
-    `the roster (${who}px) is supporting detail and must sit below the checklists (${ckl}px)`);
-  assert.match(HTML, /class="cklrows whorows"/,
-    'the roster opts into the smaller size by saying what it is');
+  // The roster is no longer a table. It is one sentence, which is smaller than
+  // the checklists by being prose rather than by opting into a size class —
+  // it was the tallest thing on the card and the least scanned.
+  assert.match(HTML, /class="wholine"/,
+    'the roster is a single labelled line, not a row per birder');
+  assert.doesNotMatch(HTML, /class="cklrows whorows"/,
+    'and no longer renders as a checklist-style table');
 });
 
 test('latest ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
@@ -1830,7 +1839,25 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   for (const s of ['S1', 'S2', 'S3']) {
     assert.ok(html.includes(s), `every checklist is linked, missing ${s}`);
   }
-  assert.match(html, /class="upckl"/, 'checklists render as a list under their hotspot');
+  assert.match(html, /class="cklcards cklcards-sm"/,
+    'checklists render through the shared checklist card, under their hotspot');
+  // The facts the shared card exists to carry. Count and map depend on the
+  // fixture actually having a tally and a coordinate, so those two are
+  // asserted against the template directly rather than against this data.
+  assert.match(html, /class="ckplace"/, 'condensed place');
+  assert.match(html, /class="ckdate"/, 'checklist date');
+  assert.match(html, /class="ckid"/, 'and the checklist id, linked');
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+  const full = CK.small({ place: 'P', date: 'Jul 30', count: 42,
+                          map: '<a class="ckmap">m</a>', id: '<a class="ckid">S1</a>' });
+  assert.match(full, /class="ckcount">42 birds/, 'bird count, pluralised');
+  assert.match(CK.small({ count: 1 }), /1 bird</, 'and singular when it is one');
+  assert.match(full, /class="ckmapwrap"/, 'map link');
+  // A name that carries a sub-area is condensed: the tail almost never tells
+  // one row apart from its neighbours, and it is what breaks the one-line row.
+  assert.equal(CK.condense('Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk'),
+    'Marymoor Park', 'the hotspot name is condensed');
   app.window.close();
 });
 
@@ -1953,7 +1980,7 @@ test('Easy misses renders through the SAME card as All unseen', async () => {
   }
   assert.ok(box.querySelector('.spdist'), 'distance is the third column here too');
   assert.ok(box.querySelector('.uplaces'), 'places render through the shared place list');
-  assert.ok(box.querySelector('.upckl'), 'with their checklists beneath them');
+  assert.ok(box.querySelector('.cklcards'), 'with their checklists beneath them');
   assert.ok(!/#1/.test(box.textContent), 'and the "#N" rank badge is gone');
   assert.match(box.textContent, /Marymoor Park/, 'the places are still named');
   app.window.close();
@@ -3443,8 +3470,13 @@ test('Latest ticks answers how far away the bird is', async () => {
   A.renderLastNew(groups, byName, 'US-WA');
   const txt = d.getElementById('lastNewResults').textContent;
   // The CLOSEST report, not the newest: the nearest one is where you would go.
-  assert.match(txt, /3\.\d mi/, 'measures to the closest report, not the latest');
-  assert.match(txt, /to the closest report/, 'and says which one it measured');
+  // It now renders in the medium card's distance COLUMN rather than as a
+  // phrase in the sub-header, which is the same convention every other medium
+  // card uses — the number is there to be scanned down the edge of a list.
+  assert.match(txt, /3\.\d/, 'measures to the closest report, not the latest');
+  const dist = d.querySelector('#lastNewResults .spdist');
+  assert.ok(dist, 'and it is the card distance column, not buried in a sentence');
+  assert.match(dist.textContent, /3\.\d/);
 });
 
 test('Favorite hotspots shows what is worth driving for, not a species dump', async () => {
@@ -3945,10 +3977,11 @@ test('latest ticks: names are a list sorted newest first, not a run-on', () => {
     'a paragraph of "Name (#4) · Name (#7) · …" is unreadable on a phone');
   assert.match(src, /b\.date \|\| ''\)\.localeCompare\(String\(a\.date/,
     'sorted most recent first — yesterday’s tick says more than the highest rank');
-  assert.match(src, /Who added it[\s\S]{0,80}class="cklrows whorows"/,
-    'the birders render as a labelled list, at the roster size');
-  assert.match(src, /recent checklist[\s\S]{0,120}class="cklrows"/,
-    'and the checklists carrying the bird follow as their own list');
+  assert.match(src, /Who added it[\s\S]{0,80}class="wholine"|class="wholine"[\s\S]{0,80}Who added it/,
+    'the birders render as ONE labelled sentence — the table was the tallest '
+    + 'thing on the card and the least scanned');
+  assert.match(src, /recent checklist[\s\S]{0,160}ChecklistCards\.list\('small'/,
+    'and the checklists carrying the bird follow as their own shared-card list');
 });
 
 // The expander mirrors report._rarity_reports_cell: a section whose rows ARE the
@@ -5308,7 +5341,7 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
   const src = HTML.slice(HTML.indexOf('function ebird(path)'),
-                         HTML.indexOf('function ebird(path)') + 900);
+                         HTML.indexOf('function ebird(path)') + 2200);
   assert.match(src, /delete _ebCache\[path\]/,
     'a rejected call is evicted so the next attempt actually goes out');
   assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,

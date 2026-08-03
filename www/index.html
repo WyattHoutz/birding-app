@@ -179,6 +179,20 @@
     #loadBarFill { height: 100%; width: 0%; background: var(--accent);
                    border-radius: 999px; transition: width .35s ease; }
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
+    /* "Who added it" as one sentence rather than a row per birder. The table
+       version was the tallest thing on the card and the least scanned. */
+    .wholine { font-size: calc(14px * var(--s)); line-height: 1.45; margin: 8px 0 0; }
+    .wholine .lbl { display: inline-block; font-size: calc(12px * var(--s));
+                    font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+                    color: var(--muted); margin-right: 6px; }
+    /* The reload control lives beside the ℹ on the heading, not as a wide
+       button below it: it is a verb you use occasionally, and it was taking a
+       full row in every section. */
+    .refreshbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
+                  margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+                  border: 1px solid var(--line); background: transparent;
+                  color: var(--muted); vertical-align: middle; }
+    .refreshbtn:disabled { opacity: .45; }
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
     /* Second line of defence for the sideways drag. The clip on <html> above
        provably did NOT stop it on device — WKWebView still pans the visual
@@ -558,6 +572,7 @@
 
             www/cards-species.js   bird rows      small / medium / large
             www/cards-hotspot.js   hotspot rows   small / medium / large
+            www/cards-checklist.js checklist rows small / medium
 
         Each file holds the HTML template AND the CSS for its family, injected
         once on load. Do not re-declare a card rule here: two definitions of
@@ -725,7 +740,7 @@
         <button id="settingsToggle" class="secondary">Settings</button>
       </div>
       <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
-      <ul id="results" class="obs card-sm"></ul>
+      <ul id="results" class="obs big xl"></ul>
     </section>
 
     <section class="panel">
@@ -1162,13 +1177,14 @@
        and own the markup + CSS for every bird row and every hotspot row. -->
   <script src="cards-species.js"></script>
   <script src="cards-hotspot.js"></script>
+  <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
   <script>
     (function () {
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.49';
+      var APP_VERSION = '1.0.50';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1673,34 +1689,53 @@
       // F17: a long fetch has to be honest rather than a frozen screen.
       //
       // The counter is driven BY THE GATE, not by the callers, so it cannot
-      // drift from what is really happening — and it grows correctly when
-      // phase 2 queues one call per unseen species after phase 1 has already
-      // told us how many there are.
+      // drift from what is really happening.
+      //
+      // Two things it must NOT do, both reported from a device as the bar
+      // "resetting with a different x of y, in a loop":
+      //
+      //  1. Reset the moment the lane empties. fetchBatched issues 2 calls,
+      //     awaits both, then the next 2 — so the queue hits zero BETWEEN
+      //     every batch. Resetting there restarts the count several times a
+      //     minute. It now resets only after the lane has been genuinely idle
+      //     for longer than one paced call (~3.3 s at the measured rate).
+      //  2. Let the total shrink. `done + queued` drops as a batch drains, so
+      //     the denominator was going backwards. The total is now monotonic
+      //     within a wave: it only ever grows, as more work is discovered.
+      var _fgTotal = 0, _fgIdleTimer = null;
+      var FG_IDLE_RESET_MS = 8000;
+      function fgProgressReset() {
+        _fgDone = 0; _fgTotal = 0;
+        var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
+        if (el) el.hidden = true;
+      }
       function fgProgressSync() {
         var queued = _fgWaiters.length + _fgActive;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        if (!queued) {
-          // Reset when the lane drains, or the NEXT wave starts at 50% because
-          // it is still counting the last one.
-          _fgDone = 0;
-          if (el) el.hidden = true;
-          return;
+        if (queued) {
+          if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
+          _fgTotal = Math.max(_fgTotal, _fgDone + queued);
+        } else if (!_fgIdleTimer && (_fgTotal || _fgDone)) {
+          _fgIdleTimer = setTimeout(function () {
+            _fgIdleTimer = null;
+            fgProgressReset();
+          }, FG_IDLE_RESET_MS);
         }
         if (!el) return;
-        var total = _fgDone + queued;
+        if (!_fgTotal) { el.hidden = true; return; }
         el.hidden = false;
-        var pct = total ? Math.round(_fgDone / total * 100) : 0;
+        var pct = Math.min(100, Math.round(_fgDone / _fgTotal * 100));
         var fill = document.getElementById('loadBarFill');
         var txt = document.getElementById('loadBarText');
         if (fill) fill.style.width = pct + '%';
         if (txt) {
           // Name the slow thing. "eBird limits how fast" is the difference
           // between a broken app and a slow one, and only one of those is true.
-          txt.textContent = 'Loading from eBird — ' + _fgDone + ' of ' + total +
+          txt.textContent = 'Loading from eBird — ' + Math.min(_fgDone, _fgTotal) +
+            ' of ' + _fgTotal +
             (_fgGap > FG_MIN_GAP_MS * 2 ? ' · easing off, eBird is rate-limiting' : '');
         }
       }
-      function fgProgressReset() { _fgDone = 0; fgProgressSync(); }
       function fgDead() {
         try { return typeof window !== 'undefined' && window.closed === true; }
         catch (e) { return false; }
@@ -1818,17 +1853,36 @@
       function ebClearCache() { _ebCache = {}; }
       function ebird(path) {
         var hit = _ebCache[path];
-        if (hit && (Date.now() - hit.t) < EB_CACHE_MS) return hit.p;
+        if (hit && (Date.now() - hit.t) < EB_CACHE_MS) {
+          // Say so. A log that shows 49 GETs and 30 responses looks like
+          // dropped calls; "cached" is the difference between a bug and a
+          // saving, and it is invisible unless it is printed.
+          dbg('net', 'CACHED ' + path);
+          return hit.p;
+        }
         dbg('net', 'GET ' + path);
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
+        var t0 = Date.now();
         var p = fgAttempt(path, 0)
-          .then(function (v) { release(); fgNoteOk(); return v; },
-                function (e) {
-                  release(); fgProgressSync();
-                  if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
-                  throw e;
-                });
+          .then(function (v) {
+            release(); fgNoteOk();
+            // The queue depth and the current gap are the two numbers that
+            // explain a slow load, and neither was in the log before: without
+            // them a 3-second pause between calls is indistinguishable from a
+            // hung request.
+            dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + '/' + _fgTotal
+              + ' · queue ' + (_fgWaiters.length + _fgActive)
+              + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
+              + ' · ' + path);
+            return v;
+          }, function (e) {
+            release(); fgProgressSync();
+            dbg('error', 'failed after ' + (Date.now() - t0) + 'ms · ' + path
+              + ' · ' + ((e && e.message) || e));
+            if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
+            throw e;
+          });
         _ebCache[path] = { t: Date.now(), p: p };
         return p;
       }
@@ -2533,23 +2587,28 @@
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
             var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
-            var d = (r.distMi != null && r.distMi !== Infinity) ? r.distMi.toFixed(1) + ' mi' : '';
             var below = '<ul class="cklrows">'
-              // Distance is already the card's caption line, where it is
-              // scannable; repeating it here would be the same fact twice.
-              + '<li class="lblrow"><span class="lbl">Where</span><span class="where">'
-              + recLocLink(r) + '</span></li>'
+              // Distance is the card's own third column and the place is now
+              // the sub-header, so neither is repeated here.
               + (r.observer ? '<li class="lblrow"><span class="lbl">Observer</span><span class="who">'
                   + esc(r.observer) + '</span></li>' : '')
               + '<li class="lblrow"><span class="lbl">Latest</span><span class="when">'
               + esc(fmtDateTime(r.dateStr))
               + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>'
               + '</ul>';
-            return SpeciesCards.small({
+            return SpeciesCards.medium({
               icon: photoSlot(r.name, r.code),
               name: speciesLink(r.name, r.code),
               tags: needTag(r.code, r.name) + flock + stake + warn,
-              sub: d,
+              // The medium card carries distance in its own column, so it
+              // stops being a token inside a `·`-joined line and starts being
+              // something you can scan down the edge of the list.
+              distMi: r.distMi,
+              // The sub-header gets the PLACE. On a rarity card the two facts
+              // that decide whether you go are which bird and where it is, so
+              // they belong in the header block together; the checklist and
+              // the observer are the follow-up, and stay in the rows below.
+              sub: recLocLink(r),
               below: below
             });
           }
@@ -2863,22 +2922,41 @@
             p.nReports > 1 ? p.nReports + ' reports' : '',
             p.anyUnconfirmed ? '⚠️' : ''
           ].filter(Boolean).join(' · ');
+          // The checklists under a place are a LIST OF CHECKLISTS, so they use
+          // the shared checklist card rather than a bespoke row. Each one-liner
+          // carries all five facts: condensed place, date, bird count, a map
+          // pin and the checklist id — previously it was only the date and the
+          // count, wrapped in a link, so there was no way to get directions or
+          // to see which of two nearby sites it actually was.
           var cks = (p.checklists || []);
           var ckHtml = cks.length
-            ? '<ul class="upckl">' + cks.map(function (c) {
-                var m = [
-                  esc(fmtDateTime(c.dateStr)),
-                  (c.count != null && c.count !== '')
-                    ? esc(c.count) + (String(c.count) === '1' ? ' bird' : ' birds') : '',
-                  c.valid === false ? '⚠️' : ''
-                ].filter(Boolean).join(' · ');
-                return '<li>' + checklistLink(c.subId, m) + '</li>';
-              }).join('') + '</ul>'
+            ? ChecklistCards.list('small', cks.map(function (c) {
+                return ChecklistCards.small({
+                  place: ChecklistCards.condense(c.loc || p.loc || ''),
+                  date: fmtDateTime(c.dateStr),
+                  count: c.count,
+                  map: mapPin(c.lat != null ? c.lat : p.lat, c.lng != null ? c.lng : p.lon),
+                  id: c.subId ? checklistLink(c.subId, c.subId) : '',
+                  who: c.valid === false ? '⚠️' : ''
+                });
+              }))
             : '';
           return '<li><div class="uploc">'
             + locLink(p.loc || '', p.lat, p.lon, p.locId, p.locationPrivate) + '</div>'
             + '<div class="upmeta">' + bits + '</div>' + ckHtml + '</li>';
         }).join('') + '</ul>';
+      }
+
+      // A bare map pin for a coordinate, for the checklist cards. Google Maps
+      // rather than the in-app Leaflet map: this is "take me there", which is
+      // the phone's job, not the app's.
+      function mapPin(lat, lng) {
+        if (!isFinite(lat) || !isFinite(lng)) return '';
+        return '<a class="ckmap" target="_blank" rel="noopener"'
+          + ' aria-label="Directions"'
+          + ' href="https://www.google.com/maps/search/?api=1&query='
+          + encodeURIComponent(Number(lat).toFixed(6) + ',' + Number(lng).toFixed(6))
+          + '">\uD83D\uDDFA</a>';
       }
 
       // --- 🔎 Species lookup (F12) -----------------------------------------
@@ -3341,14 +3419,19 @@
           return next();
         }
         function runWave() {
+          var _t0 = Date.now();
+          dbg('net', 'WAVE start · ' + feeds.length + ' region feeds');
           return fetchAll(feeds).then(function (results) {
             results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+            dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
             // Phase 1 tells us WHICH birds we still need; only then can phase 2
             // ask where each of them actually is. That ordering is the whole
             // reason this could not be a static fetch plan.
             var codes = BL.speciesTargetCodes(compute(null).unseenAll);
             var spFeeds = BL.planSpeciesFeeds(profile, codes);
             if (!spFeeds.length) return { codes: null };
+            dbg('net', 'WAVE phase 2 · ' + spFeeds.length + ' species feeds'
+              + ' (~' + Math.round(spFeeds.length / FG_REFILL_PER_S) + 's at the safe rate)');
 
             // PUBLISH PHASE 1 NOW rather than after phase 2. Phase 1 is 8 calls
             // and lands in ~3 s; phase 2 is one per unseen species — 41 on a
@@ -3387,13 +3470,37 @@
         // A cold start had nothing in memory and paid the whole wave again.
         // "I often close the app and then open it again" - so a snapshot from
         // earlier today is served without touching the network at all.
+        //
+        // TWO different questions share this one file, and they want different
+        // answers. Within CHASE_TTL_MS the snapshot IS the answer. Older than
+        // that but still TODAY, it is a very good answer that happens to be a
+        // bit behind - and the alternative is a blank screen for ~2.4 minutes,
+        // because the wave is one call per unseen species and the measured rate
+        // limit paces it at ~3.3 s each. A device log showed exactly that: a
+        // session at 22:53 after one ending at 21:38 fell 45 minutes outside
+        // the TTL and paid all 49 calls with nothing on screen.
+        //
+        // So: serve it immediately, then refresh behind it. The feeds are
+        // day-scoped, so "earlier today" is the same answer for most sections.
         var run = loadChaseSnapshot(slug).then(function (snap) {
-          if (snap && anyRows(snap.rows) && (Date.now() - (snap.t || 0)) < CHASE_TTL_MS) {
-            rowsByFile = snap.rows;
+          var usable = snap && anyRows(snap.rows);
+          if (!usable) return runWave();
+          rowsByFile = snap.rows;
+          if ((Date.now() - (snap.t || 0)) < CHASE_TTL_MS) {
             dbg('net', 'chase snapshot reused - no eBird calls needed');
             return finish(snap.codes, false);
           }
-          return runWave();
+          // Stale-but-today: paint it, then go and get the fresh one.
+          // rowsByFile deliberately KEEPS the snapshot rows as its base, so a
+          // feed that fails during the refresh falls back to today's earlier
+          // data instead of vanishing from the section.
+          var shown = finish(snap.codes, true);
+          dbg('net', 'showing today\u2019s earlier snapshot while refreshing behind it');
+          runWave().then(function () {
+            _partialDone[slug] = false;      // let the refreshed data repaint
+            if (typeof onChasePartial === 'function') onChasePartial(slug);
+          }).catch(function () { /* the snapshot is still on screen */ });
+          return shown;
         });
         _chaseInflight[slug] = run;
         run.catch(function () {}).then(function () { delete _chaseInflight[slug]; });
@@ -5437,38 +5544,40 @@
           if (!rows) return;
           if (!rows.length) { st.textContent = 'No rarities currently reported in ' + label + '.'; return; }
           st.textContent = rows.length + ' rare species reported recently · most recent first · ' + nowTime();
-          rows.forEach(function (r) {
-            var li = document.createElement('li');
+          el.innerHTML = rows.map(function (r) {
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
             var stake = r.stakeDays >= 2
               ? ' <span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = (r.closest && r.closest.valid === false) ? ' ⚠️' : '';
-            // The header is the bird and nothing else. Day count, flags and the
-            // drive are what you weigh AFTER you know which bird it is, so they
-            // are the sub-header — and they no longer crowd the title.
-            li.innerHTML =
-              '<div class="name">' + photoSlot(r.name, r.code) + '<span class="ntext">' +
-              speciesLink(r.name, r.code) + '</span></div>' +
-              '<div class="meta">' +
-              (r.distMi != null ? r.distMi.toFixed(1) + ' mi · ' : '') +
-              staleTag(r.latest) + span +
-              ' · ' + r.reports + ' report' + (r.reports === 1 ? '' : 's') +
-              (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : '') +
-              needTag(r.code, r.name) + stake + warn + '</div>' +
+            // This used to hand-roll a .name/.meta/.cklrows lookalike of the
+            // medium card. That is the same drift Easy misses had before it was
+            // unified: two copies of one layout that quietly diverge. It now
+            // renders through the shared template, so the distance becomes a
+            // real third column instead of a token inside the sub-header.
+            return SpeciesCards.medium({
+              icon: photoSlot(r.name, r.code),
+              name: speciesLink(r.name, r.code),
+              tags: needTag(r.code, r.name) + stake + warn,
+              distMi: r.distMi,
+              // The header is the bird and the drive. Day count and counts are
+              // what you weigh AFTER you know which bird it is.
+              sub: staleTag(r.latest) + span
+                + ' · ' + r.reports + ' report' + (r.reports === 1 ? '' : 's')
+                + (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : ''),
               // Two facts decide the chase — where the nearest bird is and when
               // it was last seen — so each gets a labelled line of its own
               // instead of being run together behind "closest:".
-              '<ul class="cklrows"><li><span class="when">Closest</span>' +
-              (r.distMi != null ? '<span class="howmany">' + r.distMi.toFixed(1) + ' mi</span>' : '<span class="howmany"></span>') +
-              '<span class="where">' + recLocLink(r.closest) + '</span></li>' +
-              '<li><span class="when">Latest</span><span class="howmany"></span>' +
-              '<span class="where">' + staleTag(r.latest) + esc(fmtDateTime(r.latest)) +
-              (r.closest && r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '') +
-              '</span></li></ul>' +
-              rarityChecklistDetails(r);
-            el.appendChild(li);
-          });
+              below: '<ul class="cklrows"><li><span class="when">Closest</span>'
+                + '<span class="howmany"></span>'
+                + '<span class="where">' + recLocLink(r.closest) + '</span></li>'
+                + '<li><span class="when">Latest</span><span class="howmany"></span>'
+                + '<span class="where">' + staleTag(r.latest) + esc(fmtDateTime(r.latest))
+                + (r.closest && r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '')
+                + '</span></li></ul>'
+                + rarityChecklistDetails(r)
+            });
+          }).join('');
           hydratePhotos(el);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -5489,18 +5598,22 @@
           items.push(x);
         });
         if (items.length < 2) return '';
+        // The shared checklist card: one line per report carrying place, date,
+        // count, a map pin and the checklist id. This used to be a bespoke
+        // three-column grid with the observer tucked into a nested span.
         var rows = items.map(function (x) {
-          var dm = (x.distMi != null && isFinite(x.distMi)) ? x.distMi.toFixed(1) + ' mi' : '';
-          return '<li><span class="when">' + esc(fmtDateTime(x.dateStr)) + '</span>'
-            + '<span class="howmany">' + (x.count != null && x.count !== '' ? '×' + esc(x.count) : dm) + '</span>'
-            + '<span class="where">' + recLocLink(x)
-            + '<span class="who">' + (x.observer ? esc(x.observer) : '')
-            + (x.subId ? (x.observer ? ' · ' : '') + checklistLink(x.subId, x.subId) : '')
-            + '</span></span></li>';
-        }).join('');
+          return ChecklistCards.small({
+            place: ChecklistCards.condense(x.loc || x.locName || ''),
+            date: fmtDateTime(x.dateStr),
+            count: x.count,
+            map: mapPin(x.lat, x.lng != null ? x.lng : x.lon),
+            id: x.subId ? checklistLink(x.subId, x.subId) : '',
+            who: x.observer ? esc(x.observer) : ''
+          });
+        });
         return '<details class="ckall"><summary>' + items.length + ' checklist'
           + (items.length === 1 ? '' : 's') + ' — show every report</summary>'
-          + '<ul class="cklrows">' + rows + '</ul></details>';
+          + ChecklistCards.list('small', rows) + '</details>';
       }
 
       // Last 7-Days rarity reports for the rare-bird-tracker reports: the public ABA alert,
@@ -6821,8 +6934,9 @@
           if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
           return a < b ? -1 : 1;
         });
+        var cards = [];
         keys.forEach(function (sp) {
-          var g = groups[sp], info = byName[sp] || {}, li = document.createElement('li');
+          var g = groups[sp], info = byName[sp] || {};
           // Most recent first: this section is a chase board, and the birder who
           // ticked it yesterday says more about whether it is still gettable
           // than the one who happens to sit highest on the leaderboard.
@@ -6830,9 +6944,6 @@
             var d = String(b.date || '').localeCompare(String(a.date || ''));
             return d || ((a.rank || 9999) - (b.rank || 9999));
           });
-          var head = '<div class="name">' + photoSlot(sp, info.code || '') +
-            '<span class="ntext">' + speciesLink(sp, info.code || '') +
-            needTag(info.code || '', sp) + '</span></div>';
           // How far you would have to drive is half the decision, and the
           // section had every coordinate it needed to answer it. Measured to
           // the CLOSEST recent report, not the newest, because the nearest one
@@ -6845,22 +6956,22 @@
               if (near == null || d < near) near = d;
             });
           }
-          // Count, distance and date are the three numbers that decide this
-          // row, so they ARE the sub-header. The birder names that used to run
-          // on here are a list, and are rendered as one below.
-          //
-          // The distance keeps its qualifier even in a compact sub-header: a
-          // bare "3.5 mi" beside a species does not say 3.5 mi to WHAT, and
-          // this one is measured to the closest report, not the newest.
-          var meta = '<div class="meta">' + people.length + ' of the top 100'
-            + (near == null ? '' : ' · ' + near.toFixed(1) + ' mi to the closest report')
-            + ' · newest tick ' + esc(fmtDate(g.latest)) + '</div>';
-          var who = '<div class="lanesub">Who added it</div><ul class="cklrows whorows">'
-            + people.map(function (b) {
-              return '<li><span class="when">' + (b.rank ? '#' + esc(b.rank) : '') + '</span>'
-                + '<span class="howmany">' + (b.date ? esc(fmtDate(b.date)) : '') + '</span>'
-                + '<span class="where">' + esc(b.name) + '</span></li>';
-            }).join('') + '</ul>';
+          // Who added it, as ONE SENTENCE rather than a row per birder. The
+          // list was the tallest thing on the card and the least scanned — the
+          // decision is "several of the top 100 got this recently", which a
+          // sentence carries in a line and a table spends ten on. Names are
+          // capped because past the first few the answer stops changing.
+          var WHO_SHOWN = 4;
+          var whoTxt = people.slice(0, WHO_SHOWN).map(function (b) {
+            var bits = [];
+            if (b.rank) bits.push('#' + esc(b.rank));
+            if (b.date) bits.push(esc(fmtDate(b.date)));
+            return esc(b.name) + (bits.length ? ' <span class="dim">(' + bits.join(' · ') + ')</span>' : '');
+          }).join(', ');
+          if (people.length > WHO_SHOWN) {
+            whoTxt += ' <span class="dim">and ' + (people.length - WHO_SHOWN) + ' more</span>';
+          }
+          var who = '<div class="wholine"><span class="lbl">Who added it</span> ' + whoTxt + '</div>';
           var obs = (info.obs || []).slice().sort(function (a, b) {
             return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
           });
@@ -6886,23 +6997,32 @@
             // the list can be scanned instead of read.
             ck = '<div class="lanesub">' + uniq.length + ' recent checklist'
               + (uniq.length === 1 ? '' : 's') + '</div>'
-              + '<ul class="cklrows">' + uniq.slice(0, nShow).map(function (o) {
-                var when = esc(fmtDate(o.obsDt));
-                var where = o.locName
-                  ? locLink(o.locName, o.lat, o.lng, o.locId, o.locationPrivate)
-                  : '';
-                return '<li><span class="when">' + when + '</span>'
-                  + (o.howMany ? '<span class="howmany">×' + esc(o.howMany) + '</span>' : '')
-                  + '<span class="where">' + where + '</span>'
-                  + '<span class="who">' + (o.userDisplayName ? esc(o.userDisplayName) : '')
-                  + (o.subId ? ' · ' + extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '')
-                  + '</span></li>';
-              }).join('') + '</ul>'
+              + ChecklistCards.list('small', uniq.slice(0, nShow).map(function (o) {
+                return ChecklistCards.small({
+                  place: o.locName
+                    ? locLink(ChecklistCards.condense(o.locName), o.lat, o.lng, o.locId, o.locationPrivate)
+                    : '',
+                  date: fmtDate(o.obsDt),
+                  count: o.howMany,
+                  map: mapPin(o.lat, o.lng),
+                  id: o.subId ? extA('https://ebird.org/checklist/' + encodeURIComponent(o.subId), o.subId) : '',
+                  who: o.userDisplayName ? esc(o.userDisplayName) : ''
+                });
+              }))
               + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '');
           }
-          li.innerHTML = head + meta + who + ck;
-          out.appendChild(li);
+          cards.push(SpeciesCards.medium({
+            icon: photoSlot(sp, info.code || ''),
+            name: speciesLink(sp, info.code || ''),
+            tags: needTag(info.code || '', sp),
+            // The drive is now a real column instead of a phrase in the
+            // sub-header. It is measured to the CLOSEST report, not the newest.
+            distMi: near,
+            sub: people.length + ' of the top 100 · newest tick ' + esc(fmtDate(g.latest)),
+            below: who + ck
+          }));
         });
+        out.innerHTML = cards.join('');
         hydratePhotos(out);
       }
 
@@ -9218,6 +9338,36 @@
         h2.parentNode.insertBefore(box, h2.nextSibling);
       }
 
+      // The "Load …" button becomes a ↻ beside the ℹ on the heading.
+      //
+      // Sections auto-load, so the wide button below every heading was a verb
+      // you rarely need occupying a full row in each of two dozen panels. The
+      // original button is KEPT in the DOM and merely hidden, because every
+      // handler, loader-registry key and test addresses it by id — the icon
+      // just forwards a click to it, so nothing else has to know.
+      //
+      // Only a row that contains exactly one button is replaced: Quick outing's
+      // row holds the anchor buttons too, and those are not a reload.
+      function addSectionRefresh(sec) {
+        var h2 = sec.querySelector('h2');
+        if (!h2 || sec.querySelector('.refreshbtn')) return;
+        var row = null;
+        Array.prototype.slice.call(sec.children).forEach(function (c) {
+          if (!row && c.classList && c.classList.contains('row')) row = c;
+        });
+        if (!row) return;
+        var buttons = row.querySelectorAll('button');
+        if (buttons.length !== 1) return;
+        var load = buttons[0];
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'refreshbtn'; btn.textContent = '\u21BB';
+        btn.setAttribute('aria-label',
+          (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
+        btn.addEventListener('click', function () { load.click(); });
+        h2.appendChild(btn);
+        row.hidden = true;
+      }
+
       function _setH2(sec, label) {
         var h2 = sec.querySelector('h2'); if (!h2) return;
         var span = h2.querySelector('span');
@@ -9226,10 +9376,15 @@
         // be carried across a relabel like the ℹ button — otherwise switching
         // region silently drops the only route to the truncation notice.
         var warn = h2.querySelector('.warnbtn');
+        // The ↻ is added at boot like the ℹ, so it has to survive a relabel for
+        // the same reason — otherwise switching region silently drops the only
+        // way to reload the section.
+        var refresh = h2.querySelector('.refreshbtn');
         h2.textContent = label + ' ';
         if (span) h2.appendChild(span);
         if (doc) h2.appendChild(doc);
         if (warn) h2.appendChild(warn);
+        if (refresh) h2.appendChild(refresh);
       }
       function buildNav() {
         var main = document.querySelector('main'); if (!main) return;
@@ -9252,6 +9407,7 @@
           sec._at = m.at; sec._label = m.label; sec._needs = m.needs || '';
           _setH2(sec, m.label);
           addSectionDoc(sec);
+        addSectionRefresh(sec);
           _sections.push(sec);
         });
         bindRegionPickers();
