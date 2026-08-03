@@ -34,19 +34,26 @@
 
   /* ---------------------------------------------------------------- markup */
 
-  /* SMALL — deliberately ONE LINE.
-     A checklist list is scanned, not read: you are looking down it for a date
-     that is recent enough or a count that is big enough. Anything that wraps
-     to a second line halves how many rows fit on a phone screen, so the row
-     is a flex line that lets the PLACE take the slack and truncate, while the
-     four short facts keep their natural width. */
+  /* SMALL — ONE LINE that never wraps.
+     The line is: place (abbreviated, and it IS the link to the checklist) ·
+     short date/time · count · distance. Making the NAME the checklist link is
+     what buys the width back: an eBird submission id like "S379329490" is
+     eleven characters of pure noise, and the row already needed a link.
+     Every field is optional, because the caller's context decides what is
+     redundant — under a place heading the name and the distance are already
+     on screen, and repeating them is what made this list read as duplicates.
+
+     THE OBSERVER IS NOT ON THIS ROW, and that is a measured decision rather
+     than an oversight. The layout sweep at 320px / 1.75× text scale caught the
+     observer name hanging 247px past the row: it is the one field of
+     unbounded width, and a clipped name is worse than an absent one. It is
+     also the least decision-relevant thing here — you drive to a place at a
+     time, not to a person. The medium card, which has a whole line, keeps it.
+     The count is kept but written "×42", not "42 birds": same fact, a quarter
+     of the width. */
   var SMALL = [
     '<li class="cklcard cklcard-sm">',
-    '<span class="ckplace">{{place}}</span>',
-    '<span class="ckfacts">',
-    '<span class="ckdate">{{date}}</span>',
-    '{{count}}{{map}}{{id}}{{who}}',
-    '</span>',
+    '{{row}}',
     '</li>'
   ].join('');
 
@@ -55,10 +62,8 @@
      one column among five. */
   var MEDIUM = [
     '<li class="cklcard cklcard-md">',
-    '<div class="ckplace">{{place}}{{map}}</div>',
-    '<div class="ckfacts">',
-    '<span class="ckdate">{{date}}</span>{{count}}{{id}}{{who}}',
-    '</div>',
+    '<div class="ckplace">{{place}}</div>',
+    '<div class="ckfacts">{{row}}</div>',
     '</li>'
   ].join('');
 
@@ -66,35 +71,50 @@
 
   var CSS = [
     '.cklcards { list-style: none; margin: 6px 0 4px; padding: 0; }',
-    /* One line per checklist WHEN IT FITS, wrapping rather than overflowing
-       when it does not.
-       The first version pinned .ckfacts to `flex: 0 0 auto; white-space:
-       nowrap`, which the layout sweep caught running 196px past a 320px screen
-       at the largest text size: a nowrap group that cannot shrink has nowhere
-       to go. Both the row and the facts group now wrap, while each individual
-       fact keeps nowrap so a date or a count never splits down the middle.
-       min-width:0 on the place is what actually lets the ellipsis happen —
-       without it a flex item refuses to shrink below its content. */
+    /* ONE LINE at every normal text size, and it TRUNCATES the name rather
+       than wrapping it: the lead flexes and ellipsises while the short facts
+       keep their natural width, so a long hotspot name loses its tail instead
+       of pushing "Aug 2 9:29a · ×1 · 4.2 mi" onto a second line.
+       `flex-wrap: wrap` is the DEGRADATION, not the normal case. At the
+       largest accessibility text scale (1.75×) on a 320px screen the three
+       facts alone measure ~316px, so something has to give — and wrapping to
+       a second line keeps every fact readable, where clipping would silently
+       delete the distance. The layout sweep measures this exactly.
+       Each cell still carries `white-space: nowrap`, so a date or a count can
+       never split down the middle; only whole facts move.
+       An earlier version put nowrap on a group that could not shrink and had
+       no overflow control, and the sweep caught it 196px past a 320px screen:
+       nowrap alone does not prevent overflow, it hides it off the edge. */
     '.cklcards-sm > .cklcard-sm {',
     '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;',
-    '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35; }',
-    '.cklcards-sm > .cklcard-sm > .ckplace {',
-    '  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
-    '  white-space: nowrap; font-weight: 600; color: var(--ink); }',
-    '.cklcards-sm > .cklcard-sm > .ckfacts {',
-    '  flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap;',
-    '  align-items: baseline; gap: 2px 8px; color: var(--muted); }',
-    '.cklcard .ckdate, .cklcard .ckcount { white-space: nowrap; }',
-    /* Tabular figures so dates and counts line up down the list. */
+    '  min-width: 0; overflow: hidden; white-space: nowrap;',
+    '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35;',
+    '  color: var(--muted); }',
+    '.cklcards-sm > .cklcard-sm > .cklead {',
+    '  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
+    '  font-weight: 600; }',
+    /* The ellipsis has to be applied to the LINK, not only to its wrapper.
+       `text-overflow` acts on the box that overflows, and an inline <a> inside
+       a clipping span is simply painted-then-clipped: it still measures its
+       full width, so the layout sweep saw a.ckgo 162px past a 320px screen
+       even though the span looked right on screen. As a block with
+       max-width:100% inside a min-width:0 flex item, the anchor is bounded by
+       the row and truncates itself. */
+    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo {',
+    '  display: block; max-width: 100%; min-width: 0; overflow: hidden;',
+    '  text-overflow: ellipsis; white-space: nowrap; }',
+    '.cklcards-sm > .cklcard-sm > span:not(.cklead) { flex: 0 0 auto; }',
+    /* Separators are DRAWN, not typed, so a field the caller left out cannot
+       strand a "·" behind it. */
+    '.cklcards-sm > .cklcard-sm > span + span::before {',
+    '  content: "\\00b7"; margin-right: 8px; color: var(--line); }',
+    /* Tabular figures so dates, counts and distances line up down the list. */
     '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
     '                    color: var(--ink); }',
-    '.cklcard .ckid { font-size: calc(12px * var(--s)); min-width: 0;',
-    '                 overflow: hidden; text-overflow: ellipsis; }',
-    '.cklcard .ckid a { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }',
+    '.cklcard .ckdist { font-variant-numeric: tabular-nums; }',
     '.cklcard .ckmapwrap a, .cklcard .ckmap { text-decoration: none; }',
-    '.cklcard .ckwho { color: var(--muted); min-width: 0;',
-    '                  overflow: hidden; text-overflow: ellipsis; }',
+    '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
 
     /* MEDIUM: the place is the headline, the facts are the caption. */
     '.cklcards-md > .cklcard-md { padding: 6px 0; }',
@@ -129,31 +149,57 @@
     return s;
   }
 
-  function build(tpl, v) {
+  function build(tpl, v, isMedium) {
     v = v || {};
-    var count = (v.count == null || v.count === '') ? ''
-      : '<span class="ckcount">' + esc(v.count)
-        + (String(v.count) === '1' ? ' bird' : ' birds') + '</span>';
-    // The id arrives as a ready-made link (checklistLink / extA), which carries
-    // the app's own link class. Wrap it so the card can still style the slot —
-    // otherwise the monospace treatment silently never applies.
-    var id = v.id ? '<span class="ckid">' + v.id + '</span>' : '';
-    var map = v.map ? '<span class="ckmapwrap">' + v.map + '</span>' : '';
+    var bits = [];
+    // The LEAD is the link. Its text is the abbreviated place when there is
+    // one, and otherwise the date — so a row always has something clickable
+    // without ever printing a place its heading has already given. On the
+    // medium card the place has its own line, so the lead is always the date.
+    var usePlaceAsLead = !!v.place && !isMedium;
+    var leadText = usePlaceAsLead ? condense(v.place, v.max) : shortWhen(v.date);
+    if (leadText) {
+      bits.push('<span class="cklead">' + (v.href
+        ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
+          + esc(leadText) + '</a>'
+        : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
+    }
+    if (usePlaceAsLead && v.date) {
+      bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+    }
+    if (v.count != null && v.count !== '') {
+      bits.push('<span class="ckcount">' + (isMedium
+        ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
+        : '\u00d7' + esc(v.count)) + '</span>');
+    }
+    if (v.distMi != null && isFinite(v.distMi)) {
+      bits.push('<span class="ckdist">' + (Number(v.distMi) < 10
+        ? Number(v.distMi).toFixed(1) : String(Math.round(v.distMi))) + ' mi</span>');
+    }
+    if (v.map) bits.push('<span class="ckmapwrap">' + v.map + '</span>');
+    // Small rows drop the observer entirely — see the note on SMALL.
+    if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
     return tpl
-      .replace('{{place}}', v.place || '')
-      .replace('{{date}}', esc(v.date || ''))
-      .replace('{{count}}', count)
-      .replace('{{map}}', map)
-      .replace('{{id}}', id)
-      .replace('{{who}}', v.who ? '<span class="ckwho">' + v.who + '</span>' : '');
+      .replace('{{row}}', bits.join(''))
+      .replace('{{place}}', v.place ? esc(condense(v.place, v.max)) : '');
+  }
+
+  /* "Aug 2 9:29 AM" is longer than a one-line row can afford next to a place
+     name. "Aug 2 9:29a" says the same thing and saves three characters, which
+     on a 320px screen is the difference between fitting and truncating. */
+  function shortWhen(s) {
+    return String(s == null ? '' : s)
+      .replace(/\s*([AP])M\b/i, function (_m, ap) { return ap.toLowerCase(); })
+      .replace(/:00([ap])\b/i, '$1')
+      .trim();
   }
 
   var API = {
     css: CSS,
     templates: { small: SMALL, medium: MEDIUM },
     condense: condense,
-    small: function (v) { return build(SMALL, v); },
-    medium: function (v) { return build(MEDIUM, v); },
+    small: function (v) { return build(SMALL, v, false); },
+    medium: function (v) { return build(MEDIUM, v, true); },
     list: function (size, items, extraCls) {
       var s = size === 'medium' ? 'md' : 'sm';
       return '<ul class="cklcards cklcards-' + s
