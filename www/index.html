@@ -835,10 +835,7 @@
 
     <section class="panel">
       <h2>🦜 Birdiest checklists <span class="dim" id="cklRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="checklists">
-        <button class="modebtn" id="cklModeBest" type="button" aria-pressed="true">🦜 Birdiest</button>
-        <button class="modebtn" id="cklModeNew" type="button" aria-pressed="false">🕒 Newest</button>
-      </div>
+      <div class="row modeswitch" data-modes="checklists" data-current="cklModeBest"></div>
       <div class="row">
         <button id="cklBtn">Load checklists</button>
       </div>
@@ -1145,7 +1142,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.53';
+      var APP_VERSION = '1.0.54';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -10393,6 +10390,64 @@
         }).finally(function () { btn.disabled = false; });
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
+      // ONE table drives every switch. The markup used to repeat all six
+      // options in each of four panels — 24 lines that had to be kept in sync
+      // by hand, with only the `selected` attribute differing.
+      //
+      // Declared HERE, above the first call, rather than beside routeMode()
+      // where the rest of the switch logic lives: `var` initialisers do not
+      // hoist, so a table defined further down would read as `undefined` at
+      // the call site and build nothing.
+      var MODE_SETS = {
+        places: [
+          { to: 'sec-destBtn', icon: '\uD83C\uDFC5', label: 'Destinations', full: 'Top destinations — a day trip' },
+          { to: 'sec-excBtn',  icon: '\uD83D\uDE97', label: 'Excursions',   full: 'Top excursions — a longer trip' },
+          { to: 'sec-tripBtn', icon: '\uD83E\uDDED', label: 'Route',        full: 'Trip planner — a route through several' },
+          { to: 'quick:home',  icon: '\uD83C\uDFE0', label: 'Near home',    full: 'Hotspots near home' },
+          { to: 'quick:here',  icon: '\uD83D\uDCCD', label: 'Here',         full: 'Hotspots near my current location' },
+          { to: 'quick:find',  icon: '\uD83D\uDD0D', label: 'Find\u2026',   full: 'Hotspots near a place I name' }
+        ],
+        checklists: [
+          { id: 'cklModeBest', icon: '\uD83E\uDD9C', label: 'Birdiest', full: 'Checklists with the most species' },
+          { id: 'cklModeNew',  icon: '\uD83D\uDD52', label: 'Newest',   full: 'The most recently submitted checklists' }
+        ],
+        unseen: [
+          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Being reported', full: 'Every unseen bird being reported now' },
+          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Easy misses',    full: 'Common birds you should already have' }
+        ]
+      };
+      // The accessible name carries the FULL wording, because splitting a
+      // label into icon + text spans loses the space in textContent and the
+      // guards read aria-label — a lesson learned the hard way when a label
+      // was first split into icon + text spans.
+      //
+      // Two kinds of chip share this control, and the difference is real:
+      // `to` NAVIGATES to another section, `id` TOGGLES a mode inside this one
+      // (Birdiest vs Newest), which keeps its own handler and is addressed by
+      // id. Both are drawn identically because to the reader they are the same
+      // gesture — pick which question this panel answers.
+      function buildModeSwitches() {
+        var rows = document.querySelectorAll('.modeswitch[data-modes]');
+        Array.prototype.forEach.call(rows, function (row) {
+          var set = MODE_SETS[row.getAttribute('data-modes')];
+          if (!set) return;
+          var cur = row.getAttribute('data-current') || '';
+          row.innerHTML = set.map(function (m) {
+            var key = m.to || m.id;
+            return '<button class="modebtn" type="button"'
+              + (m.to ? ' data-goto="' + m.to + '"' : ' id="' + m.id + '"')
+              + ' aria-pressed="' + (key === cur ? 'true' : 'false') + '"'
+              + ' aria-label="' + esc(m.full) + '">'
+              + '<span class="mbico" aria-hidden="true">' + m.icon + '</span>'
+              + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
+          }).join('');
+        });
+      }
+      // BEFORE any addEventListener below. The checklist chips are addressed
+      // by id and get their handlers bound down there, so building the switch
+      // afterwards would replace the very elements those handlers are on and
+      // silently leave two dead buttons.
+      buildModeSwitches();
       $('mapProvider').addEventListener('change', function () { setMapProvider(this.value); });
       $('favSearchBtn').addEventListener('click', runFavSearch);
       $('favSearchClear').addEventListener('click', clearFavSearch);
@@ -10494,40 +10549,10 @@
       // ONE table drives every switch. The markup used to repeat all six
       // options in each of four panels — 24 lines that had to be kept in sync
       // by hand, with only the `selected` attribute differing.
-      var MODE_SETS = {
-        places: [
-          { to: 'sec-destBtn', icon: '\uD83C\uDFC5', label: 'Destinations', full: 'Top destinations — a day trip' },
-          { to: 'sec-excBtn',  icon: '\uD83D\uDE97', label: 'Excursions',   full: 'Top excursions — a longer trip' },
-          { to: 'sec-tripBtn', icon: '\uD83E\uDDED', label: 'Route',        full: 'Trip planner — a route through several' },
-          { to: 'quick:home',  icon: '\uD83C\uDFE0', label: 'Near home',    full: 'Hotspots near home' },
-          { to: 'quick:here',  icon: '\uD83D\uDCCD', label: 'Here',         full: 'Hotspots near my current location' },
-          { to: 'quick:find',  icon: '\uD83D\uDD0D', label: 'Find\u2026',   full: 'Hotspots near a place I name' }
-        ],
-        unseen: [
-          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Being reported', full: 'Every unseen bird being reported now' },
-          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Easy misses',    full: 'Common birds you should already have' }
-        ]
-      };
-      // The accessible name carries the FULL wording, because splitting a
-      // label into icon + text spans loses the space in textContent and the
-      // guards read aria-label — a lesson learned the hard way when a label
-      // was first split into icon + text spans.
-      function buildModeSwitches() {
-        var rows = document.querySelectorAll('.modeswitch[data-modes]');
-        Array.prototype.forEach.call(rows, function (row) {
-          var set = MODE_SETS[row.getAttribute('data-modes')];
-          if (!set) return;
-          var cur = row.getAttribute('data-current') || '';
-          row.innerHTML = set.map(function (m) {
-            var on = m.to === cur;
-            return '<button class="modebtn" type="button" data-goto="' + m.to + '"'
-              + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
-              + ' aria-label="' + esc(m.full) + '">'
-              + '<span class="mbico" aria-hidden="true">' + m.icon + '</span>'
-              + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
-          }).join('');
-        });
-      }
+      //
+      // MODE_SETS and buildModeSwitches live further up, above their first
+      // call site — see the note there about `var` initialisers not hoisting.
+      //
       // Quick outing is three modes on ONE section, so the pressed chip cannot
       // be derived from which panel is visible — syncModePick reads quickOrigin.
       function routeMode(val) {
@@ -10805,7 +10830,6 @@
         testApiKey: testApiKey, openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL
       };
       migrateHomeKeys();
-      buildModeSwitches();
       buildNav();
       bindKeyHelpers();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';

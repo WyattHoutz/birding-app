@@ -2720,10 +2720,14 @@ test('every mode switch is built from ONE table', async () => {
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes]')];
   assert.ok(rows.length >= 6, 'every paired section carries a switch');
   const byGroup = {};
+  // A chip is keyed by data-goto when it NAVIGATES and by id when it TOGGLES a
+  // mode inside its own panel — both are chips, so read whichever it carries.
+  const keyOf = (b) => b.getAttribute('data-goto') || b.id;
   rows.forEach((r) => {
     const g = r.getAttribute('data-modes');
-    const gotos = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-goto'));
+    const gotos = [...r.querySelectorAll('.modebtn')].map(keyOf);
     assert.ok(gotos.length, g + ' switch was actually built');
+    assert.ok(gotos.every(Boolean), g + ': every chip is addressable');
     if (byGroup[g]) {
       assert.deepEqual(JSON.stringify(gotos), JSON.stringify(byGroup[g]),
         g + ': every panel in a group offers exactly the same modes');
@@ -2731,10 +2735,24 @@ test('every mode switch is built from ONE table', async () => {
     // Exactly one chip is pressed, and it is the panel's own mode.
     const on = [...r.querySelectorAll('.modebtn[aria-pressed="true"]')];
     assert.equal(on.length, 1, g + ': exactly one mode reads as current');
-    assert.equal(on[0].getAttribute('data-goto'), r.getAttribute('data-current'),
+    assert.equal(keyOf(on[0]), r.getAttribute('data-current'),
       g + ': the pressed chip is the one the panel declares current');
   });
   assert.equal(byGroup.places.length, 6, 'all six place modes are offered');
+  // Build order is load-bearing: the checklist chips are addressed by id and
+  // get their handlers bound in the init block, so the switch must be built
+  // BEFORE that block runs or those handlers land on elements that are about
+  // to be thrown away.
+  assert.ok(HTML.indexOf('buildModeSwitches();')
+            < HTML.indexOf("$('cklModeBest').addEventListener"),
+    'the switch is built before the id-addressed chips get their handlers');
+  // And the table itself must be declared above its first call: `var`
+  // initialisers do not hoist, so a table defined lower would read as
+  // undefined and quietly build nothing at all.
+  assert.ok(HTML.indexOf('var MODE_SETS = {') < HTML.indexOf('buildModeSwitches();'),
+    'and the table is assigned before it is read');
+  assert.equal((HTML.match(/var MODE_SETS = \{/g) || []).length, 1,
+    'there is exactly ONE table — two would be the drift it exists to stop');
   app.window.close();
 });
 
@@ -5114,6 +5132,18 @@ test('the checklist modes share one section and one cached feed', async () => {
   assert.ok(best && rec, 'Birdiest carries both modes');
   assert.equal(best.getAttribute('aria-pressed'), 'true', 'Birdiest is the default');
   assert.equal(rec.getAttribute('aria-pressed'), 'false');
+  // These two chips are BUILT from the shared mode table but are addressed by
+  // id and keep their own handlers, so build order is load-bearing: building
+  // the switch AFTER the listeners are bound replaces the very elements the
+  // handlers sit on and leaves two buttons that look right and do nothing.
+  // Driving them by CLICK is the only assertion that can see that.
+  assert.ok(best.getAttribute('aria-label'), 'the chip names itself in full');
+  rec.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(rec.getAttribute('aria-pressed'), 'true',
+    'TAPPING Newest switches mode — not just calling setChecklistMode');
+  assert.equal(best.getAttribute('aria-pressed'), 'false');
+  best.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(best.getAttribute('aria-pressed'), 'true', 'and tapping back returns');
   // Both collapses read the SAME cached promise, which is why the second mode
   // is free — if either stopped using recentLists() it would double the calls.
   const src = HTML.slice(HTML.indexOf('function loadRecentLists('),
