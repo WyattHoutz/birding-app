@@ -45,7 +45,7 @@
     '<span class="ckplace">{{place}}</span>',
     '<span class="ckfacts">',
     '<span class="ckdate">{{date}}</span>',
-    '{{count}}{{map}}{{id}}',
+    '{{count}}{{map}}{{id}}{{who}}',
     '</span>',
     '</li>'
   ].join('');
@@ -66,26 +66,35 @@
 
   var CSS = [
     '.cklcards { list-style: none; margin: 6px 0 4px; padding: 0; }',
-    /* One line per checklist. min-width:0 on the place is what actually lets
-       the ellipsis happen — without it a flex item refuses to shrink below its
-       content and pushes the facts off the edge instead of truncating. */
+    /* One line per checklist WHEN IT FITS, wrapping rather than overflowing
+       when it does not.
+       The first version pinned .ckfacts to `flex: 0 0 auto; white-space:
+       nowrap`, which the layout sweep caught running 196px past a 320px screen
+       at the largest text size: a nowrap group that cannot shrink has nowhere
+       to go. Both the row and the facts group now wrap, while each individual
+       fact keeps nowrap so a date or a count never splits down the middle.
+       min-width:0 on the place is what actually lets the ellipsis happen —
+       without it a flex item refuses to shrink below its content. */
     '.cklcards-sm > .cklcard-sm {',
-    '  display: flex; align-items: baseline; gap: 8px;',
+    '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;',
     '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35; }',
     '.cklcards-sm > .cklcard-sm > .ckplace {',
     '  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
     '  white-space: nowrap; font-weight: 600; color: var(--ink); }',
     '.cklcards-sm > .cklcard-sm > .ckfacts {',
-    '  flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px;',
-    '  white-space: nowrap; color: var(--muted); }',
+    '  flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap;',
+    '  align-items: baseline; gap: 2px 8px; color: var(--muted); }',
+    '.cklcard .ckdate, .cklcard .ckcount { white-space: nowrap; }',
     /* Tabular figures so dates and counts line up down the list. */
     '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
     '                    color: var(--ink); }',
-    '.cklcard .ckid { font-size: calc(12px * var(--s)); }',
+    '.cklcard .ckid { font-size: calc(12px * var(--s)); min-width: 0;',
+    '                 overflow: hidden; text-overflow: ellipsis; }',
     '.cklcard .ckid a { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }',
     '.cklcard .ckmapwrap a, .cklcard .ckmap { text-decoration: none; }',
-    '.cklcard .ckwho { color: var(--muted); }',
+    '.cklcard .ckwho { color: var(--muted); min-width: 0;',
+    '                  overflow: hidden; text-overflow: ellipsis; }',
 
     /* MEDIUM: the place is the headline, the facts are the caption. */
     '.cklcards-md > .cklcard-md { padding: 6px 0; }',
