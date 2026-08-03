@@ -343,8 +343,11 @@
     .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                  overflow-wrap: anywhere; }
     .status { font-size: calc(13px * var(--s)); color: var(--muted); padding: 10px 0 2px; }
-    .feedwarn { color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
-                border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+    /* `.feedwarn` used to live here — a yellow block above Birdiest checklists
+       and above Birder convoys carrying the same eBird-cap caveat. Both now
+       render it as a live note inside the ℹ dialog (setSectionNote), which is
+       where an explanation that is true once and unchanging belongs. See
+       `.docnote`. */
     .obs { list-style: none; margin: 6px 0 0; padding: 0; }
     .obs li { padding: 12px 0; border-top: 1px solid var(--line); overflow: hidden; }
     /* Bird names are what these lists are FOR — they were set at 15px, smaller
@@ -531,14 +534,12 @@
     .modeswitch .modebtn + .modebtn { border-left: 1px solid var(--line); }
     .modeswitch .modebtn[aria-pressed="true"] { background: var(--accent);
                                                 color: var(--accent-ink); }
-    /* Places beyond the chase radius, collapsed. Same treatment Today's
-       rarities gives a far bird: still reachable, but not competing with the
-       ones you could actually drive to this morning. */
-    .upfar { margin-top: 8px; }
-    .upfar > summary { cursor: pointer; font-size: calc(14px * var(--s));
-                       font-weight: 700; color: var(--accent); padding: 4px 0; }
-    /* Older places within the radius, folded away. Same affordance as .upfar
-       so the two expanders under one card read as a pair. */
+    /* Older places within the radius, folded away. There used to be a SECOND
+       expander beside this one (.upfar, "N more places beyond 30 mi") on every
+       card. Two folds under one bird was one too many — the status line above
+       the list already says how many species are only further out, and a place
+       you have decided is too far does not need its own affordance repeated
+       once per species. */
     .upmore { margin-top: 6px; }
     .upmore > summary { cursor: pointer; font-size: calc(14px * var(--s));
                         font-weight: 700; color: var(--accent); padding: 4px 0; }
@@ -631,8 +632,17 @@
     .picklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
     .picklist .pname { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: calc(16px * var(--s)); overflow-wrap: anywhere; }
     .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
-    .favrow { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
-    .favrow .favmain { flex: 1 1 auto; min-width: 0; }
+    /* The ▲▼✕ column NEVER wraps below the card.
+       It used to: `.favrow` was `flex-wrap: wrap`, and flexbox wraps a line
+       BEFORE it shrinks an item below its min-content width — so as soon as
+       `.favmain`'s content (the actions row, mostly) could not get narrower,
+       the controls dropped underneath. `flex: 1 1 auto` made that worse by
+       starting the main column at its content width.
+       `nowrap` + `flex-basis: 0` + `min-width: 0` is the recipe: there is no
+       second line to escape to, and the main column is free to shrink to
+       whatever is left after the fixed-width controls take their 40px. */
+    .favrow { display: flex; align-items: flex-start; gap: 8px; flex-wrap: nowrap; }
+    .favrow .favmain { flex: 1 1 0; min-width: 0; }
     .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
     /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
        the title outranks them. It was previously unstyled, which left it at
@@ -682,8 +692,26 @@
     .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: #0f7a52;
                  background: color-mix(in srgb, #0f7a52 14%, transparent);
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
+    /* A pill is one token. `.stakeflag` already said so; these two did not, so
+       a two-word pill could break across lines and render as half a badge.
+       inline-block also stops the pill's padding being split at a line break,
+       which is what makes a wrapped tag row read as a caption rather than as
+       an accident. */
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .seenflag, .needflag { display: inline-block; white-space: nowrap; }
+    /* The ABA Code 3+ index: one tap per bird, above a dozen full profiles. */
+    .abaindex { margin: 0 0 6px; }
+    .abaindex .lanesub { margin-top: 0; }
+    .abaindex a.abajump { font-weight: 800; }
+    /* Landing silently in the middle of a long list leaves you unsure whether
+       anything moved, so the target says "here". */
+    @keyframes cardjump {
+      from { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+      to   { background: transparent; }
+    }
+    .jumped { animation: cardjump 1.2s ease-out 1; border-radius: 12px; }
+    @media (prefers-reduced-motion: reduce) { .jumped { animation: none; } }
     .rankhead { margin: 2px 0 4px; }
     .rankhead .bignum small { display: inline; }
     .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
@@ -1138,7 +1166,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.56';
+      var APP_VERSION = '1.0.57';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2901,7 +2929,6 @@
           }
           el.innerHTML = shown.map(function (g) {
             var near = g.near.length ? g.near : g.places;
-            var far = g.near.length ? g.far : [];
             // Show the freshest few and fold the rest away. A bird reported at
             // 66 places turned one card into a wall you had to scroll past to
             // reach the next species, and the places are already sorted newest
@@ -2920,12 +2947,14 @@
                 near.length + ' place' + (near.length === 1 ? '' : 's'),
                 near.reduce(function (a, p) { return a + p.nReports; }, 0) + ' reports'
               ].filter(Boolean).join(' · '),
-              places: near,
-              extra: far.length
-                ? '<details class="upfar"><summary>' + far.length + ' more place'
-                  + (far.length === 1 ? '' : 's') + ' beyond ' + CHASE_MAX_MI
-                  + ' mi</summary>' + unseenPlacesHtml(far) + '</details>'
-                : ''
+              places: near
+              // NO per-card "beyond N mi" expander. Every card carried one, so
+              // the section repeated the same "there is more, further away"
+              // affordance dozens of times over — and the status line above
+              // already says how many species are only further out. A second
+              // expander inside each card, under the one that folds the extra
+              // places, was two folds deep for a place you had already decided
+              // was too far.
             });
           }).join('');
           hydratePhotos(el);
@@ -7459,7 +7488,7 @@
           // Merge what the alert holds into the archive BEFORE rendering, so a
           // card always reflects everything this device has ever seen.
           abaArchiveAdd(region, list);
-          Object.keys(byCode).map(function (code) {
+          var groups = Object.keys(byCode).map(function (code) {
             // The state feed is the authority on how many reports there really
             // are; the alert supplies only the ABA-code filter. Union both, plus
             // the archive, deduped by checklist.
@@ -7473,7 +7502,36 @@
             return { code: code, rs: rs, latest: latest };
           }).sort(function (a, b) {
             return String(b.latest.obsDt).localeCompare(String(a.latest.obsDt));
-          }).forEach(function (g) {
+          });
+
+          // AN INDEX FIRST. Each card below is a full profile — latest report,
+          // finder, every report we hold, state history — so a dozen megararities
+          // is a dozen screens, and there was no way to see WHICH birds the
+          // section held without scrolling all of them. The index is one tap per
+          // bird, using the small species card so it reads as the same family of
+          // thing the cards below are.
+          if (groups.length > 1) {
+            var idx = document.createElement('div');
+            idx.className = 'abaindex';
+            idx.innerHTML = '<div class="lanesub">' + groups.length + ' species</div>'
+              + '<ul class="obs card-sm">'
+              + groups.map(function (g) {
+                return SpeciesCards.small({
+                  icon: photoSlot(g.latest.comName, g.code),
+                  // The NAME is the jump link, not a separate "go" affordance:
+                  // the name is what you are looking for in a list of names.
+                  name: '<a class="abajump" href="#aba-' + esc(g.code) + '">'
+                    + esc(g.latest.comName || g.code) + '</a>',
+                  tags: needTag(g.code, g.latest.comName),
+                  sub: esc(fmtDate(g.latest.obsDt)) + ' · ' + g.rs.length + ' report'
+                    + (g.rs.length === 1 ? '' : 's')
+                });
+              }).join('')
+              + '</ul>';
+            el.appendChild(idx);
+          }
+
+          groups.forEach(function (g) {
             var o = g.latest;
             // The report's own rows, one per line, so the card still carries
             // every report the table cell would have listed.
@@ -7556,6 +7614,10 @@
                 '<ul class="cklrows">' + lines + '</ul>' + more
             });
             el.appendChild(card);
+            // The anchor the index above jumps to. Set on the card element
+            // itself rather than threaded through birdCard(), because the id is
+            // this section's navigation concern and not part of the card shape.
+            card.id = 'aba-' + g.code;
             // GBIF matches on scientific name only, so the slot stays inert
             // unless one is already in hand — no lookup is worth an extra call.
             var sci = sciFor(g.rs), slot = card.querySelector('.bchist');
@@ -8528,13 +8590,16 @@
       function renderConvoys(routes, lists) {
         var el = $('convoyResults'); el.innerHTML = '';
         var w = BL.feedWindow(lists || [], CONVOY_LOOKBACK_DAYS);
-        var banner = w.warning
-          ? '<div class="status feedwarn">⚠️ <b>' + esc(w.warning) + '</b></div>' : '';
+        // The truncation caveat goes behind the ℹ button, exactly as Birdiest
+        // checklists does it. It is the same sentence about the same eBird cap,
+        // it is true once and unchanging, and as a permanent yellow block above
+        // the results it was taller than the first convoy it was qualifying.
+        setSectionNote(el.closest ? el.closest('section') : null,
+          sectionNoteHtml(w.warning));
         if (!routes.length) {
-          el.innerHTML = banner + '<div class="status">No group routes detected in the last ' + w.days + ' day' + (w.days === 1 ? '' : 's') + ' — convoys need 2+ birders sharing 2+ hotspots on one day.</div>';
+          el.innerHTML = '<div class="status">No group routes detected in the last ' + w.days + ' day' + (w.days === 1 ? '' : 's') + ' — convoys need 2+ birders sharing 2+ hotspots on one day.</div>';
           return;
         }
-        el.innerHTML = banner;
         // Newest first, mirroring report.section_birder_convoys: the section is
         // read as "what happened lately", so date leads and stop count / group
         // size only break ties within a day.
@@ -10643,6 +10708,26 @@
         if (b.getAttribute('aria-pressed') === 'true' && to.indexOf('quick:') !== 0) return;
         routeMode(to);
       });
+      // The ABA index jumps to a card in the SAME section. A bare `#hash` would
+      // ask the browser to navigate, which this app does not do — navigation is
+      // showSection() and a hash change would fight it. So the jump is handled
+      // here: scroll the card into view and flash it, because landing silently
+      // in the middle of a long list leaves you unsure whether anything moved.
+      document.addEventListener('click', function (ev) {
+        var a = ev.target.closest && ev.target.closest('a.abajump');
+        if (!a) return;
+        ev.preventDefault();
+        var id = (a.getAttribute('href') || '').replace(/^#/, '');
+        var card = id && document.getElementById(id);
+        if (!card) return;
+        try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        catch (e) { card.scrollIntoView(); }
+        card.classList.remove('jumped');
+        // Reflow, or re-adding the class in the same frame does not restart
+        // the animation and a second tap on the same bird flashes nothing.
+        void card.offsetWidth;
+        card.classList.add('jumped');
+      });
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
@@ -10851,6 +10936,7 @@
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
+        renderAbaAlert: renderAbaAlert,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,

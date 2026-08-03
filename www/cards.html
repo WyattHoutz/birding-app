@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Bird Chaser — card gallery</title>
+  <!--
+    Every card template in the app, rendered side by side with sample data.
+
+    WHY THIS EXISTS: the three card families are the app's only defence against
+    six sections drifting into six lookalikes, and until now you could only see
+    a template by finding a section that happened to use it — which is
+    impossible for the four that nothing uses. A shape you cannot look at is a
+    shape that rots.
+
+    It loads the SAME three modules the app does and makes NO network calls, so
+    it behaves offline exactly like the app does. Nothing here is imported by
+    index.html; this page is a viewer, not a dependency.
+  -->
+  <style>
+    :root {
+      --s: 1;
+      --bg: #f6f7f5; --card: #ffffff; --ink: #16211b; --muted: #5c6b63;
+      --accent: #0f7a52; --accent-ink: #ffffff; --line: #e4e8e4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1512; --card: #17201b; --ink: #eaf1ec; --muted: #9fb0a6;
+        --accent: #37d391; --accent-ink: #06120c; --line: #26302a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 18px 16px 60px; background: var(--bg); color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    }
+    h1 { font-size: calc(24px * var(--s)); margin: 0 0 4px; }
+    .lede { color: var(--muted); font-size: calc(14px * var(--s)); margin: 0 0 16px; max-width: 60ch; }
+    .lede a { color: var(--accent); }
+    .controls {
+      position: sticky; top: 0; z-index: 5; background: var(--bg);
+      padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 18px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      font-size: calc(14px * var(--s));
+    }
+    .controls label { font-weight: 700; }
+    .controls select, .controls input { font-size: calc(14px * var(--s)); padding: 4px 6px; }
+    .fam { margin: 0 0 6px; font-size: calc(19px * var(--s)); font-weight: 800; }
+    .famfile { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+               font-size: calc(12px * var(--s)); color: var(--muted); font-weight: 500; }
+    .tpl { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+           padding: 12px 14px; margin: 0 0 14px; }
+    .tplhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+               margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+    .tplname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+               font-weight: 800; font-size: calc(15px * var(--s)); }
+    .tplwhy { color: var(--muted); font-size: calc(13px * var(--s)); }
+    .unused { font-size: calc(11px * var(--s)); font-weight: 800; letter-spacing: .04em;
+              text-transform: uppercase; color: #b45309; background: #fffbeb;
+              border: 1px solid #fcd34d; border-radius: 999px; padding: 2px 8px; }
+    @media (prefers-color-scheme: dark) {
+      .unused { color: #fcd34d; background: #2a2313; border-color: #6b5a1e; }
+    }
+    /* The gallery renders raw <li> templates, so it supplies the <ul> wrappers
+       the app's sections would normally provide. */
+    .demo { list-style: none; margin: 0; padding: 0; }
+    .err { color: #b42318; font-weight: 700; }
+    footer { margin-top: 30px; color: var(--muted); font-size: calc(12px * var(--s)); }
+  </style>
+</head>
+<body>
+  <h1>Card gallery</h1>
+  <p class="lede">
+    Every template in the app, with sample data. Change the text scale to see
+    how each one degrades. Mapping to sections is in
+    <a href="../docs/CARDS.md">docs/CARDS.md</a>.
+  </p>
+
+  <div class="controls">
+    <label for="scale">Text scale</label>
+    <select id="scale">
+      <option value="1">1× (default)</option>
+      <option value="1.25">1.25×</option>
+      <option value="1.5">1.5×</option>
+      <option value="1.75">1.75× (largest)</option>
+    </select>
+    <label for="width">Width</label>
+    <select id="width">
+      <option value="">full</option>
+      <option value="320">320px</option>
+      <option value="375">375px</option>
+      <option value="402">402px (iPhone 16 Pro)</option>
+      <option value="430">430px (Pro Max)</option>
+    </select>
+    <label><input type="checkbox" id="showUnused" checked /> show unused</label>
+  </div>
+
+  <main id="out"></main>
+
+  <footer id="ver"></footer>
+
+  <script src="cards-species.js"></script>
+  <script src="cards-hotspot.js"></script>
+  <script src="cards-checklist.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      // Sample data is deliberately AWKWARD, not tidy: a hotspot name with an
+      // eBird sub-area tail, a raw-address personal location, an observer with
+      // an apostrophe. A gallery of short clean strings proves nothing — every
+      // layout bug this app has shipped was a long string in a narrow box.
+      var LONG_PLACE = 'Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk';
+      var ADDRESS = '1730 North 122nd Street, Seattle, Washington, US (47.718, -122.335)';
+      var A = function (t) { return '<a href="#" onclick="return false">' + t + '</a>'; };
+      var PIN = '<a class="ckmap" href="#" onclick="return false" aria-label="Directions">\uD83D\uDDFA</a>';
+      var THUMB = '<span class="thumb" style="background:var(--line);border-radius:10px;'
+        + 'display:inline-block"></span>';
+
+      var GROUPS = [
+        {
+          family: 'SpeciesCards', file: 'www/cards-species.js', api: window.SpeciesCards,
+          wrap: function (size) {
+            return size === 'small' ? 'obs card-sm sppl'
+                 : size === 'medium' ? 'obs big xl' : 'obs';
+          },
+          items: [
+            { size: 'small', used: true,
+              why: 'the bird lists nested inside a hotspot card',
+              v: { icon: THUMB, name: A('Merlin'), sub: 'seen 12 Jul' } },
+            { size: 'medium', used: true,
+              why: "Today's rarities · Species lookup · Active rarities · Latest ticks · All unseen",
+              v: { icon: THUMB, name: A('Tufted Puffin'),
+                   tags: '<span class="needflag">\uD83D\uDD0D</span>'
+                       + ' <span class="dim">\u00d71</span>'
+                       + ' <span class="stakeflag">\uD83D\uDCCD Day 3</span>',
+                   distMi: 11.4,
+                   sub: '<span class="rarewhere">' + A('Edmonds Public Fishing Pier')
+                      + ' <span class="when">' + A('Aug 3 10:25a') + '</span>'
+                      + ' <span class="who">Neil Pankey</span></span>' } },
+            { size: 'large', used: false,
+              why: 'the "read about ONE bird" shape — the ABA alert profile',
+              v: { icon: THUMB, name: A('Terek Sandpiper'), tags: '<span class="star">\u2b50</span>',
+                   sub: 'Rarity \u00b7 26 reports \u00b7 first seen 19 Jul',
+                   below: '<div class="meta">A Eurasian shorebird that turns up on the '
+                        + 'Pacific coast every few years.</div>' } }
+          ]
+        },
+        {
+          family: 'HotspotCards', file: 'www/cards-hotspot.js', api: window.HotspotCards,
+          wrap: function () { return 'obs dest'; },
+          items: [
+            { size: 'small', used: false, why: 'a compact place row',
+              v: { num: 1, name: A(LONG_PLACE), sub: '270 species all-time', distance: '8.1 mi' } },
+            { size: 'medium', used: true,
+              why: 'EVERY hotspot list in the app — destinations, excursions, trip planner, quick outing, closest, hot, cold',
+              v: { num: 1, name: A('Discovery Park'),
+                   sub: '270 species all-time \u00b7 latest Jul 30', distance: null, distMi: 8.1,
+                   unseen: '<ul class="obs card-sm sppl"><li><div class="name">'
+                         + '<span class="ntext">Merlin</span></div></li></ul>',
+                   unseenLabel: '1 unseen \uD83D\uDD0D',
+                   actions: '<div class="hsact">' + A('\uD83D\uDDFA Open in Maps \u2197')
+                          + A('\u2606 Save') + '</div>' } },
+            { size: 'large', used: false, why: 'the "read about ONE place" shape',
+              v: { num: 1, name: A('Discovery Park'), sub: '270 species all-time',
+                   actions: '<div class="hsact">' + A('\uD83D\uDDFA Open in Maps \u2197') + '</div>' } },
+            { size: 'marker', used: false, why: 'a numbered map pin (Leaflet builds its own)',
+              marker: true, v: 3 }
+          ]
+        },
+        {
+          family: 'ChecklistCards', file: 'www/cards-checklist.js', api: window.ChecklistCards,
+          wrap: function (size) { return 'cklcards cklcards-' + (size === 'medium' ? 'md' : 'sm'); },
+          items: [
+            { size: 'small', used: true,
+              why: 'All unseen \u00b7 Easy misses \u00b7 Active rarities \u00b7 Latest ticks — one line per checklist',
+              v: { place: LONG_PLACE, href: '#', date: 'Aug 3 10:25 AM', count: 42,
+                   distMi: 4.24, map: PIN } },
+            { size: 'medium', used: true, why: 'Birdiest checklists, both modes',
+              v: { num: 1, place: ADDRESS, href: '#', species: 40,
+                   date: 'Aug 3 12:31 PM', distMi: 8.6, who: "Dan McDougall-Treacy" } }
+          ]
+        }
+      ];
+
+      var out = document.getElementById('out');
+
+      function render() {
+        var showUnused = document.getElementById('showUnused').checked;
+        var html = '';
+        GROUPS.forEach(function (g) {
+          if (!g.api) {
+            html += '<p class="err">' + g.family + ' failed to load from ' + g.file + '</p>';
+            return;
+          }
+          html += '<h2 class="fam">' + g.family
+                + ' <span class="famfile">' + g.file + '</span></h2>';
+          g.items.forEach(function (it) {
+            if (!it.used && !showUnused) return;
+            var body;
+            try {
+              if (it.marker) {
+                body = '<div>' + g.api.marker(it.v) + '</div>';
+              } else if (typeof g.api[it.size] !== 'function') {
+                body = '<p class="err">no ' + it.size + '() on ' + g.family + '</p>';
+              } else {
+                body = '<ul class="demo ' + g.wrap(it.size) + '">'
+                     + g.api[it.size](it.v) + '</ul>';
+              }
+            } catch (e) {
+              body = '<p class="err">threw: ' + String(e && e.message || e) + '</p>';
+            }
+            html += '<section class="tpl"><div class="tplhead">'
+                  + '<span class="tplname">' + g.family + '.' + it.size + '()</span>'
+                  + (it.used ? '' : '<span class="unused">unused</span>')
+                  + '<span class="tplwhy">' + it.why + '</span></div>'
+                  + body + '</section>';
+          });
+        });
+        out.innerHTML = html;
+      }
+
+      document.getElementById('scale').addEventListener('change', function () {
+        document.documentElement.style.setProperty('--s', this.value);
+      });
+      document.getElementById('width').addEventListener('change', function () {
+        out.style.maxWidth = this.value ? this.value + 'px' : '';
+        out.style.outline = this.value ? '1px dashed var(--line)' : '';
+      });
+      document.getElementById('showUnused').addEventListener('change', render);
+
+      render();
+      var loaded = GROUPS.filter(function (g) { return !!g.api; }).length;
+      document.getElementById('ver').textContent =
+        loaded + ' of ' + GROUPS.length + ' card families loaded \u00b7 no network calls';
+    }());
+  </script>
+</body>
+</html>
