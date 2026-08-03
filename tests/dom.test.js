@@ -2030,11 +2030,17 @@ test('All unseen reports shows five places, then folds the rest away', async () 
                   checklists: [{ subId: 'S' + i, dateStr: '2026-07-2' + i + ' 08:00' }] });
   }
   const html = A.speciesPlacesCard({ code: 'merlin', name: 'Merlin', places: places });
-  const cut = html.indexOf('<details');
+  const cut = html.indexOf('<details class="upmore"');
   assert.ok(cut > 0, 'the expander exists');
-  assert.equal((html.slice(0, cut).match(/class="uploc"/g) || []).length, 5,
+  // Counted as CHECKLIST ROWS, not as the old `.uploc` place headings: the
+  // section is one line per checklist now, and each of these seven fixtures
+  // carries exactly one. Anchoring on `<details class="upmore">` rather than
+  // the first `<details>` matters for the same reason — a place's own
+  // checklists can open an expander of their own further down the row.
+  const rowRe = /class="cklcard cklcard-sm"/g;
+  assert.equal((html.slice(0, cut).match(rowRe) || []).length, 5,
     'exactly five places are shown before the fold');
-  assert.equal((html.slice(cut).match(/class="uploc"/g) || []).length, 2,
+  assert.equal((html.slice(cut).match(rowRe) || []).length, 2,
     'and the remaining two are inside it, not discarded');
 
   // The cap must not silently become the count.
@@ -2774,14 +2780,81 @@ test('All unseen reports respects the chase radius, and sorts far places apart',
     HTML.indexOf('function unseenPlacesHtml('));
   assert.match(fn, /p\.distMi > CHASE_MAX_MI/,
     'places are partitioned by the SAME radius the rarity section uses');
-  assert.match(fn, /upfar/, 'and the far ones are kept behind an expander, not deleted');
+  // The far places are no longer given a per-card expander. Every card carried
+  // one, so a single section repeated "there is more, further away" dozens of
+  // times — a second fold under the one that already folds the extra places.
+  // The STATUS LINE is what has to carry it now, so it is asserted here rather
+  // than merely dropped: a partition nobody is told about is just missing data.
+  assert.doesNotMatch(fn, /upfar/,
+    'no per-card "beyond N mi" expander — one per species was the noise');
+  assert.match(fn, /more species only further out/,
+    'the status line says how many species are ONLY further out, so the '
+    + 'partition is still visible without repeating it on every card');
   assert.match(fn, /within ' \+ CHASE_MAX_MI \+ ' mi/,
     'the status line states the radius rather than implying the list is everything');
   app.window.close();
 });
 
 
-// The reported blur, and why it looked like only SOME sections had it. The
+// Both sections that hit the same eBird feed cap now say so the same way:
+// behind the ℹ button, not as a yellow block above the results.
+test('the feed-cap caveat lives behind the ℹ button, in every section that has one', async () => {
+  assert.ok(!/class="status feedwarn"/.test(HTML),
+    'no section renders the caveat as a banner above its list any more');
+  for (const [name, from, to] of [
+    ['Birdiest checklists', 'function loadBirdiest(', 'function markBirdiestUnseen('],
+    ['Birder convoys', 'function renderConvoys(', 'function convoyLocName('],
+  ]) {
+    const i = HTML.indexOf(from);
+    assert.ok(i > -1, name + ': ' + from + ' must exist');
+    const j = HTML.indexOf(to, i);
+    const src = HTML.slice(i, j > i ? j : i + 4000);
+    assert.match(src, /setSectionNote\(/, name + ' attaches the caveat as a section note');
+    assert.match(src, /sectionNoteHtml\(/, name + ' formats it through the shared helper');
+    assert.ok(!/feedwarn/.test(src), name + ' no longer builds a banner');
+  }
+
+  // Proven by driving it, not just by reading: the note reaches the box and
+  // marks the button, and clearing it removes both.
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const sec = doc.getElementById('sec-convoyBtn');
+  assert.ok(sec, 'the convoys section exists');
+  const btn = sec.querySelector('.docbtn'), box = sec.querySelector('.sectiondoc');
+  assert.ok(btn && box, 'it has an ℹ button and a doc box');
+  A.setSectionNote(sec, A.sectionNoteHtml('Showing 3 days, not 7.'));
+  assert.ok(btn.classList.contains('hasnote'), 'the ℹ button marks itself');
+  assert.match(box.getAttribute('data-note') || '', /Showing 3 days/, 'and holds the note');
+  A.setSectionNote(sec, '');
+  assert.ok(!btn.classList.contains('hasnote'), 'and unmarks when the caveat no longer applies');
+  app.window.close();
+});
+
+// Reported from the device: on some favourites the ▲▼✕ column dropped below
+// the card. Flexbox wraps a line BEFORE it shrinks an item below its
+// min-content width, so as soon as the card could not get narrower the
+// controls — the one thing in the row you have to be able to hit — went with
+// it. There is no second line to escape to now.
+test('the favourites controls never wrap below the card', async () => {
+  const app = await boot();
+  const css = [...app.window.document.querySelectorAll('style')]
+    .map((s) => s.textContent).join('\n');
+  const favrow = /\.favrow \{([^}]*)\}/.exec(css);
+  assert.ok(favrow, '.favrow is defined');
+  assert.match(favrow[1], /flex-wrap:\s*nowrap/,
+    'the row does not wrap, so the controls cannot leave it');
+  const favmain = /\.favrow \.favmain \{([^}]*)\}/.exec(css);
+  assert.ok(favmain, '.favrow .favmain is defined');
+  assert.match(favmain[1], /flex:\s*1 1 0/,
+    'the main column starts from zero rather than from its content width');
+  assert.match(favmain[1], /min-width:\s*0/,
+    'and may shrink below min-content, which is what nowrap requires of it');
+  // The actions row inside the card is what set that floor.
+  assert.match(app.window.HotspotCards.css, /\.hsact \{[^}]*min-width: 0/,
+    'the card actions row can shrink too, or it becomes the floor again');
+  app.window.close();
+});
 // bundled seed is 60px wide and `photoSlot` deliberately stops there rather
 // than paying for a network rendition — so at the medium card's 92px it is
 // upscaled 1.5x. Last 7-Days looked crisp in the SAME 92px card because its
@@ -5942,3 +6015,168 @@ test('species cards nested inside a hotspot card keep the small treatment', asyn
 });
 
 
+
+
+// ---------------------------------------------------------------- gallery --
+// docs/CARDS.md maps every template to the sections that use it, and
+// www/cards.html renders every template with sample data. Both are claims
+// about the code, and a claim nobody checks is a claim that rots — which
+// matters most for the four templates nothing in the app calls, since there is
+// no section to notice when one of them breaks.
+const CARDS_CHECKLIST = fs.readFileSync(path.join(WWW, 'cards-checklist.js'), 'utf8');
+const CARDS_MD = fs.readFileSync(path.join(__dirname, '..', 'docs', 'CARDS.md'), 'utf8');
+const GALLERY = fs.readFileSync(path.join(WWW, 'cards.html'), 'utf8');
+
+// The families and the sizes each one actually exports.
+const FAMILIES = {
+  SpeciesCards: ['small', 'medium', 'large'],
+  HotspotCards: ['small', 'medium', 'large', 'marker'],
+  ChecklistCards: ['small', 'medium'],
+};
+
+test('the card gallery renders every template, with no network', async () => {
+  const app = await boot();
+  const w = app.window;
+  // Every family the gallery loads must actually be on the page it loads them
+  // from, or the gallery is showing a stale copy of the app's shapes.
+  for (const [family, sizes] of Object.entries(FAMILIES)) {
+    assert.ok(w[family], family + ' is a global the gallery can read');
+    for (const size of sizes) {
+      assert.equal(typeof w[family][size], 'function',
+        family + '.' + size + '() exists');
+    }
+  }
+  // The gallery must render all of them — including the unused four.
+  const total = Object.values(FAMILIES).reduce((a, s) => a + s.length, 0);
+  for (const [family, sizes] of Object.entries(FAMILIES)) {
+    for (const size of sizes) {
+      assert.ok(GALLERY.includes("size: '" + size + "'"),
+        'the gallery has a ' + size + ' entry');
+      assert.ok(GALLERY.includes("family: '" + family + "'"),
+        'the gallery has a ' + family + ' group');
+    }
+  }
+  assert.equal((GALLERY.match(/size: '/g) || []).length, total,
+    'the gallery has exactly one entry per template (' + total + ')');
+  // NO RUNTIME GITHUB OR NETWORK DEPENDENCY, same invariant as the app.
+  assert.ok(!/https?:\/\/(?!ebird\.org)/.test(GALLERY.replace(/https?:\/\/www\.w3\.org[^"']*/g, '')),
+    'the gallery loads nothing off the network');
+  assert.ok(!/fetch\(|XMLHttpRequest/.test(GALLERY.replace(/w\.fetch/g, '')),
+    'and makes no calls of its own');
+  app.window.close();
+});
+
+test('docs/CARDS.md matches the code it documents', () => {
+  // 1. Every template that exists is documented, and nothing else is.
+  for (const [family, sizes] of Object.entries(FAMILIES)) {
+    assert.ok(CARDS_MD.includes('`' + family + '`'), family + ' is documented');
+    for (const size of sizes) {
+      assert.ok(new RegExp('\\|\\s*`' + size + '`\\s*\\|').test(CARDS_MD),
+        family + '.' + size + ' has a row in the mapping table');
+    }
+  }
+
+  // 2. The "unused" claims are TRUE. This is the half that rots: a template
+  //    picked up by a new section stays labelled unused for a year otherwise.
+  const src = { SpeciesCards: HTML, HotspotCards: HTML, ChecklistCards: HTML };
+  const documentedUnused = [
+    ['SpeciesCards', 'large'],
+    ['HotspotCards', 'small'],
+    ['HotspotCards', 'large'],
+    ['HotspotCards', 'marker'],
+  ];
+  for (const [family, size] of documentedUnused) {
+    const calls = (src[family].match(
+      new RegExp(family + '\\.' + size + '\\(', 'g')) || []).length;
+    assert.equal(calls, 0,
+      'docs/CARDS.md calls ' + family + '.' + size + ' unused, but index.html '
+      + 'calls it ' + calls + ' time(s) — update the doc');
+  }
+  // ...and everything the doc does NOT list as unused must actually be used.
+  const unusedSet = new Set(documentedUnused.map(([f, s]) => f + '.' + s));
+  for (const [family, sizes] of Object.entries(FAMILIES)) {
+    for (const size of sizes) {
+      if (unusedSet.has(family + '.' + size)) continue;
+      const calls = (src[family].match(
+        new RegExp(family + '\\.' + size + '\\(', 'g')) || []).length;
+      assert.ok(calls > 0,
+        family + '.' + size + ' is no longer called anywhere — either restore '
+        + 'its caller or move it to the "unused" list in docs/CARDS.md');
+    }
+  }
+
+  // 3. The builders the doc names must exist, or the mapping points nowhere.
+  for (const fn of ['speciesListHtml', 'hotspotCard', 'unseenPlacesHtml',
+                    'rarityChecklistDetails', 'lastNewCard', 'loadBirdiest',
+                    'loadRecentLists', 'speciesPlacesCard', 'renderSpeciesLookup',
+                    'loadActiveRarities']) {
+    assert.ok(CARDS_MD.includes('`' + fn + '`'), fn + ' is named in the mapping');
+    assert.ok(HTML.includes('function ' + fn + '('),
+      'docs/CARDS.md names ' + fn + ' as a builder, but it does not exist');
+  }
+});
+
+// A dozen ABA megararities is a dozen full-screen profiles, and there was no
+// way to see WHICH birds the section held without scrolling every one of them.
+test('the ABA alert indexes its birds, and the index jumps to the card', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const rows = [
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-08-02 09:00',
+      locName: 'Stanwood', lat: 48.2, lng: -122.3, subId: 'S1', howMany: 1 },
+    { speciesCode: 'whiwag', comName: 'White Wagtail', obsDt: '2026-08-01 07:30',
+      locName: 'Neah Bay', lat: 48.4, lng: -124.6, subId: 'S2', howMany: 1 },
+    { speciesCode: 'litgul', comName: 'Little Gull', obsDt: '2026-07-30 16:00',
+      locName: 'Ocean Shores', lat: 46.9, lng: -124.1, subId: 'S3', howMany: 2 },
+  ];
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true);
+
+  const idx = doc.querySelector('.abaindex');
+  assert.ok(idx, 'the section leads with an index');
+  const jumps = [...idx.querySelectorAll('a.abajump')];
+  assert.equal(jumps.length, 3, 'one entry per species, not per report');
+  // The SMALL species card, so the index reads as the same family of thing as
+  // the profiles below it rather than as a fourth invented row shape.
+  assert.ok(idx.querySelector('ul.obs.card-sm'), 'built from the small species card');
+  assert.match(idx.textContent, /3 species/, 'and says how many there are');
+
+  // Newest first, matching the cards below — an index in a different order
+  // than the thing it indexes is worse than no index.
+  assert.deepEqual(JSON.stringify(jumps.map((a) => a.textContent)),
+    JSON.stringify(['Terek Sandpiper', 'White Wagtail', 'Little Gull']),
+    'the index is in the same order as the cards');
+
+  // Every jump must land somewhere. A dead anchor is the whole failure mode.
+  for (const a of jumps) {
+    const id = (a.getAttribute('href') || '').replace(/^#/, '');
+    assert.ok(id, 'the entry carries a target');
+    assert.ok(doc.getElementById(id), 'and that target exists: ' + id);
+  }
+
+  // Proven by clicking: the handler must intercept, or the browser would try
+  // to navigate to a hash and fight showSection().
+  const target = doc.getElementById('aba-whiwag');
+  let scrolled = false;
+  target.scrollIntoView = function () { scrolled = true; };
+  const ev = new app.window.MouseEvent('click', { bubbles: true, cancelable: true });
+  jumps[1].dispatchEvent(ev);
+  assert.ok(ev.defaultPrevented, 'the jump is handled here, not by the browser');
+  assert.ok(scrolled, 'and it scrolls the card into view');
+  assert.ok(target.classList.contains('jumped'),
+    'and flashes it, so you can see that something moved');
+  app.window.close();
+});
+
+// One bird needs no index — it would be a table of contents for a single page.
+test('the ABA index does not appear for a single species', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  app.window.__app.renderAbaAlert([
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-08-02 09:00',
+      locName: 'Stanwood', lat: 48.2, lng: -122.3, subId: 'S1', howMany: 1 },
+  ], 'https://ebird.org/alert/summary?sid=X', true);
+  assert.ok(!doc.querySelector('.abaindex'), 'no index for one bird');
+  assert.ok(doc.getElementById('aba-tersan'), 'but the card still carries its anchor');
+  app.window.close();
+});

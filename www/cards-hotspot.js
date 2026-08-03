@@ -234,8 +234,13 @@
     '.hsseen > summary { cursor: pointer; font-size: calc(14px * var(--s));',
     '                    color: var(--muted); }',
 
-    /* ---- the actions row ---- */
+    /* ---- the actions row ----
+       `min-width: 0` is load-bearing where a card sits inside a flex row that
+       also holds fixed controls (Favorite hotspots): without it this row's
+       min-content width becomes the floor the whole card cannot shrink under,
+       and the controls beside it get pushed onto their own line. */
     '.hsact { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 18px;',
+    '         min-width: 0; overflow-wrap: anywhere;',
     '         font-size: calc(15px * var(--s)); }',
     ''
   ].join('\n');
