@@ -1184,7 +1184,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.51';
+      var APP_VERSION = '1.0.52';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1681,6 +1681,27 @@
       var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250, FG_MAX_RETRY = 4;
       var FG_GAP_MAX = 15000, FG_BUCKET = 8, FG_REFILL_PER_S = 0.3;
       var FG_COOLDOWN_MS = 20000, FG_EASE_AFTER = 12;
+      // THE SUSTAINED LIMIT, enforced as a sliding window rather than inferred
+      // from the bucket. This is the half the first implementation missed.
+      //
+      // A device log caught it exactly: the app stalled for 57 seconds mid-wave
+      // (the phone was almost certainly backgrounded, which suspends timers).
+      // The token bucket refilled to full while nothing ran, then released all
+      // 8 in about two seconds — the log shows tokens walking 7.0, 6.1, 5.1,
+      // 4.2, 3.3, 2.3, 1.4, 0.5, 0.0 — and the 429s began eight seconds later.
+      //
+      // The bucket was doing its job. The problem is that a bucket only models
+      // the SHORT-term allowance; the measured limiter also caps roughly 30
+      // successes per minute, and a post-idle burst walks straight through that
+      // while the previous minute is still being counted. Idle time earns you
+      // burst credit with eBird's short window and none at all with its long
+      // one.
+      //
+      // So: a hard cap on how many calls may start in any rolling 60 s. Set
+      // under the measured ~30 because the scheduled report job spends part of
+      // the same budget whenever it is running.
+      var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 20;
+      var _fgStarts = [];
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
       var _fgOk = 0;           // consecutive successes, for easing back off
@@ -1688,52 +1709,60 @@
 
       // F17: a long fetch has to be honest rather than a frozen screen.
       //
-      // The counter is driven BY THE GATE, not by the callers, so it cannot
-      // drift from what is really happening.
+      // STAGES, not a running total. The first version counted every call the
+      // gate had ever seen and divided by "done + still queued", so the
+      // denominator grew as work was discovered — "12 of 20" then "12 of 44"
+      // then "12 of 51". A total that moves is not progress, it is noise, and
+      // it made a wave that was working look like one that was looping.
       //
-      // Two things it must NOT do, both reported from a device as the bar
-      // "resetting with a different x of y, in a loop":
-      //
-      //  1. Reset the moment the lane empties. fetchBatched issues 2 calls,
-      //     awaits both, then the next 2 — so the queue hits zero BETWEEN
-      //     every batch. Resetting there restarts the count several times a
-      //     minute. It now resets only after the lane has been genuinely idle
-      //     for longer than one paced call (~3.3 s at the measured rate).
-      //  2. Let the total shrink. `done + queued` drops as a batch drains, so
-      //     the denominator was going backwards. The total is now monotonic
-      //     within a wave: it only ever grows, as more work is discovered.
-      var _fgTotal = 0, _fgIdleTimer = null;
+      // Each stage now declares a FIXED total up front and is named for what it
+      // is actually doing, because "loading 12 of 44" says nothing about what
+      // you are waiting for. Calls that belong to no stage (a section fetching
+      // its own feeds) show an unnumbered "working" state rather than inflating
+      // somebody else's denominator.
+      var _stage = null;   // { label, total, done }
+      var _fgIdleTimer = null;
       var FG_IDLE_RESET_MS = 8000;
+      function progressStage(label, total) {
+        _stage = { label: label, total: Math.max(0, total | 0), done: 0 };
+        fgProgressSync();
+      }
+      function progressStep(n) {
+        if (!_stage) return;
+        _stage.done = Math.min(_stage.total, _stage.done + (n == null ? 1 : n));
+        fgProgressSync();
+      }
+      function progressEnd() { _stage = null; fgProgressSync(); }
       function fgProgressReset() {
-        _fgDone = 0; _fgTotal = 0;
+        _stage = null;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
         if (el) el.hidden = true;
       }
       function fgProgressSync() {
-        var queued = _fgWaiters.length + _fgActive;
+        var busy = _fgWaiters.length + _fgActive;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        if (queued) {
+        if (_stage || busy) {
           if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
-          _fgTotal = Math.max(_fgTotal, _fgDone + queued);
-        } else if (!_fgIdleTimer && (_fgTotal || _fgDone)) {
+        } else if (!_fgIdleTimer) {
           _fgIdleTimer = setTimeout(function () {
-            _fgIdleTimer = null;
-            fgProgressReset();
+            _fgIdleTimer = null; fgProgressReset();
           }, FG_IDLE_RESET_MS);
         }
         if (!el) return;
-        if (!_fgTotal) { el.hidden = true; return; }
+        if (!_stage && !busy) { el.hidden = true; return; }
         el.hidden = false;
-        var pct = Math.min(100, Math.round(_fgDone / _fgTotal * 100));
         var fill = document.getElementById('loadBarFill');
         var txt = document.getElementById('loadBarText');
-        if (fill) fill.style.width = pct + '%';
-        if (txt) {
-          // Name the slow thing. "eBird limits how fast" is the difference
-          // between a broken app and a slow one, and only one of those is true.
-          txt.textContent = 'Loading from eBird — ' + Math.min(_fgDone, _fgTotal) +
-            ' of ' + _fgTotal +
-            (_fgGap > FG_MIN_GAP_MS * 2 ? ' · easing off, eBird is rate-limiting' : '');
+        var slow = _fgGap > FG_MIN_GAP_MS * 2 ? ' · easing off, eBird is rate-limiting' : '';
+        if (_stage && _stage.total) {
+          var pct = Math.round(_stage.done / _stage.total * 100);
+          if (fill) fill.style.width = pct + '%';
+          if (txt) txt.textContent = _stage.label + ' — ' + _stage.done + ' of ' + _stage.total + slow;
+        } else {
+          // No fixed total to report against. An indeterminate bar is honest;
+          // a made-up denominator is not.
+          if (fill) fill.style.width = '100%';
+          if (txt) txt.textContent = (_stage ? _stage.label : 'Loading from eBird') + '…' + slow;
         }
       }
       function fgDead() {
@@ -1761,6 +1790,17 @@
         _fgTokens = 0; _fgTokenAt = now + need;
         return need;
       }
+      // How long until this call may START without breaking the sustained cap.
+      // Idle time earns burst credit with the short-term bucket and NONE with
+      // the rolling window, which is the asymmetry a 57-second background stall
+      // exposed: the bucket refilled to full and released everything at once.
+      function fgWindowWait(startAt) {
+        var cut = startAt - FG_WINDOW_MS;
+        while (_fgStarts.length && _fgStarts[0] <= cut) _fgStarts.shift();
+        if (_fgStarts.length < FG_WINDOW_MAX) return 0;
+        // Wait for the oldest call in the window to age out of it.
+        return Math.max(0, _fgStarts[_fgStarts.length - FG_WINDOW_MAX] + FG_WINDOW_MS - startAt);
+      }
       function fgSlot() {
         if (fgDead()) return new Promise(function () {});
         return new Promise(function (resolve) {
@@ -1768,6 +1808,8 @@
             _fgActive++;
             var now = Date.now();
             var at = Math.max(now, _fgNextAt) + fgTakeToken(now);
+            at += fgWindowWait(at);
+            _fgStarts.push(at);
             _fgNextAt = at + _fgGap;
             var wait = at - now;
             if (wait > 0) setTimeout(resolve, wait); else resolve();
@@ -1871,9 +1913,10 @@
             // explain a slow load, and neither was in the log before: without
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
-            dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + '/' + _fgTotal
+            dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + ' calls'
               + ' · queue ' + (_fgWaiters.length + _fgActive)
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
+              + ' · window ' + _fgStarts.length + '/' + FG_WINDOW_MAX
               + ' · ' + path);
             return v;
           }, function (e) {
@@ -3310,6 +3353,10 @@
       var CHASE_TTL_MS = 30 * 60 * 1000;
       var SPECIES_BATCH = 2;
       var _chaseInflight = {};
+      // Phase 2 runs detached so the screen can come up on phase 1. This holds
+      // its promise per region, for the rare caller (and the tests) that needs
+      // the complete answer rather than the fast one.
+      var _chasePhase2 = {};
       // --- The chase snapshot, kept across app restarts ---------------------
       // Reported: "I often close the app and then open it again." Every cold
       // start re-fired the whole ~47-call wave, because the cache lived only in
@@ -3398,11 +3445,12 @@
           _chase[slug] = res;
           return res;
         }
-        function fetchAll(list) {
+        function fetchAll(list, step) {
           return Promise.all(list.map(function (f) {
             return ebird(BL.requestUrl(f))
               .then(function (rows) { return { file: f.file, rows: Array.isArray(rows) ? rows : [] }; })
-              .catch(function () { return { file: f.file, rows: [] }; });
+              .catch(function () { return { file: f.file, rows: [] }; })
+              .then(function (r) { if (step) progressStep(1); return r; });
           }));
         }
         // Phase 2 is one call PER UNSEEN SPECIES - 41 on a normal Washington
@@ -3414,57 +3462,86 @@
             if (i >= list.length) return Promise.resolve(out);
             var slice = list.slice(i, i + size);
             i += size;
-            return fetchAll(slice).then(function (rs) { out = out.concat(rs); return next(); });
+            return fetchAll(slice, true).then(function (rs) { out = out.concat(rs); return next(); });
           }
           return next();
         }
         function runWave() {
           var _t0 = Date.now();
           dbg('net', 'WAVE start · ' + feeds.length + ' region feeds');
-          return fetchAll(feeds).then(function (results) {
+          // Stage 1 of 2, named for what it is fetching. Its total is fixed.
+          progressStage('Recent sightings near you', feeds.length);
+          return fetchAll(feeds, true).then(function (results) {
             results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
             dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
-            // Phase 1 tells us WHICH birds we still need; only then can phase 2
-            // ask where each of them actually is. That ordering is the whole
-            // reason this could not be a static fetch plan.
-            var codes = BL.speciesTargetCodes(compute(null).unseenAll);
-            var spFeeds = BL.planSpeciesFeeds(profile, codes);
-            if (!spFeeds.length) return { codes: null };
-            dbg('net', 'WAVE phase 2 · ' + spFeeds.length + ' species feeds'
-              + ' (~' + Math.round(spFeeds.length / FG_REFILL_PER_S) + 's at the safe rate)');
 
-            // PUBLISH PHASE 1 NOW rather than after phase 2. Phase 1 is 8 calls
-            // and lands in ~3 s; phase 2 is one per unseen species — 41 on a
-            // normal Washington day — and eBird paces it. Waiting for both is
-            // why a device log ending in a 429 wave looked like "nothing is
-            // loading": the data was there the whole time, unrendered.
-            //
-            // Phase 2 only ADDS locations for birds phase 1 already found, so a
-            // phase-1 view is correct-but-thinner, never wrong.
-            if (anyRows(rowsByFile)) {
-              finish(codes, false);
-              if (typeof onChasePartial === 'function') onChasePartial(slug);
-            }
-
-            return fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
-              spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
-              return { codes: codes };
-            });
-          }).then(function (phase2) {
             // Every feed failing leaves rowsByFile empty, and computing views
             // from nothing yields a confident, wrong "nothing is being
             // reported". A same-day snapshot is a better answer than that, and
             // a 429 wave is exactly the situation that produces it.
             if (!anyRows(rowsByFile)) {
+              progressEnd();
               return loadChaseSnapshot(slug).then(function (snap) {
-                if (!snap || !anyRows(snap.rows)) return finish(phase2.codes, false);
+                if (!snap || !anyRows(snap.rows)) return finish(null, false);
                 rowsByFile = snap.rows;
                 dbg('warn', 'live feeds returned nothing - showing the last good snapshot');
                 return finish(snap.codes, true);
               });
             }
-            return saveChaseSnapshot(slug, phase2.codes, rowsByFile)
-              .then(function () { return finish(phase2.codes, false); });
+
+            // Phase 1 tells us WHICH birds we still need; only then can phase 2
+            // ask where each of them actually is. That ordering is the whole
+            // reason this could not be a static fetch plan.
+            var codes = BL.speciesTargetCodes(compute(null).unseenAll);
+            var spFeeds = BL.planSpeciesFeeds(profile, codes);
+
+            // RESOLVE HERE, on phase 1. Not "publish and keep waiting".
+            //
+            // The previous attempt set _chase[slug] at this point and then
+            // carried on awaiting phase 2 before resolving, on the assumption
+            // that already-rendered sections would repaint. On a COLD START
+            // nothing has rendered yet — every section is blocked on this very
+            // promise — so the repaint had no audience and the screen stayed
+            // empty for the whole wave. A device log showed phase 1 finishing
+            // in 4.5s with all eight feeds at HTTP 200, and the user seeing
+            // nothing for a minute and then a 429.
+            //
+            // Phase 2 only ever ADDS locations for birds phase 1 already found,
+            // so resolving early is thinner, never wrong.
+            var first = finish(codes, false);
+            if (!spFeeds.length) {
+              progressEnd();
+              saveChaseSnapshot(slug, null, rowsByFile).catch(function () {});
+              return first;
+            }
+            dbg('net', 'WAVE phase 2 · ' + spFeeds.length + ' species feeds'
+              + ' (~' + Math.round(spFeeds.length / FG_REFILL_PER_S) + 's at the safe rate)'
+              + ' — the screen is already up, this fills it in');
+            // Stage 2 of 2. Its total is known now and does not move.
+            progressStage('Finding where your missing birds are', spFeeds.length);
+
+            // Detached: it refreshes the cache and repaints, and a failure here
+            // must never take down what phase 1 already put on screen. Exposed
+            // so a caller that genuinely needs the complete answer can wait for
+            // it without every section having to.
+            _chasePhase2[slug] = fetchBatched(spFeeds, SPECIES_BATCH).then(function (spResults) {
+              spResults.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+              finish(codes, false);
+              dbg('net', 'WAVE phase 2 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
+              return saveChaseSnapshot(slug, codes, rowsByFile);
+            }).then(function () {
+              progressEnd();
+              _partialDone[slug] = false;
+              if (typeof onChasePartial === 'function') onChasePartial(slug);
+              return _chase[slug];
+            }).catch(function (e) {
+              progressEnd();
+              try { dbg('warn', 'phase 2 did not finish; the phase-1 view stands · '
+                + ((e && e.message) || e)); } catch (_) {}
+              return _chase[slug];
+            });
+
+            return first;
           });
         }
         // A cold start had nothing in memory and paid the whole wave again.
@@ -10576,6 +10653,7 @@
         saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
         chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
         FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
+      FG_WINDOW_MAX: FG_WINDOW_MAX, FG_WINDOW_MS: FG_WINDOW_MS,
       FG_BUCKET: FG_BUCKET, FG_REFILL_PER_S: FG_REFILL_PER_S,
       fgProgressSync: fgProgressSync, fgProgressReset: fgProgressReset,
       fgState: function () { return { gap: _fgGap, tokens: _fgTokens, done: _fgDone,
@@ -10590,6 +10668,9 @@
         speciesLookupPath: speciesLookupPath, SP_LOOKUP_BACK: SP_LOOKUP_BACK,
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
+      chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
+      progressStage: progressStage, progressStep: progressStep, progressEnd: progressEnd,
+      progressState: function () { return _stage ? { label: _stage.label, total: _stage.total, done: _stage.done } : null; },
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
