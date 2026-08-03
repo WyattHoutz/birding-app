@@ -290,6 +290,19 @@
                   padding: 12px 14px; margin: 10px 0 14px; }
     .sectiondoc[hidden] { display: none; }
     .docsum { margin: 0 0 8px; font-weight: 700; font-size: calc(14px * var(--s)); }
+    /* A LIVE caveat inside the ℹ dialog. It reads as a warning without being a
+       permanent yellow block above the results, which is what it used to be —
+       taller than the first two rows of the answer it was qualifying. */
+    .docnote { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
+               color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
+               font-weight: 700; font-size: calc(14px * var(--s)); }
+    @media (prefers-color-scheme: dark) {
+      .docnote { color: #fcd34d; background: #2a2313; border-color: #6b5a1e; }
+    }
+    /* An explanation nobody knows is there is the same as no explanation, so
+       the ℹ button MARKS ITSELF whenever a note is attached. */
+    .docbtn.hasnote { border-color: #d97706; color: #b45309; }
+    .docbtn.hasnote::after { content: "\2022"; color: #d97706; margin-left: 1px; }
     .doch { margin: 10px 0 4px; font-size: calc(11px * var(--s)); font-weight: 700;
             letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .doclist { margin: 0; padding-left: 18px; font-size: calc(13px * var(--s)); line-height: 1.45; }
@@ -840,9 +853,8 @@
         <button id="cklBtn">Load checklists</button>
       </div>
       <div id="cklStatus" class="status">Recent regional checklists ranked by species count.</div>
-      <div id="cklWarn"></div>
       <div id="cklMap"></div>
-      <ul id="cklResults" class="obs dest"></ul>
+      <ul id="cklResults" class="cklcards cklcards-md"></ul>
     </section>
 
     <section class="panel">
@@ -1142,7 +1154,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.54';
+      var APP_VERSION = '1.0.55';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5347,7 +5359,10 @@
         if (!st || !el) return;
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; return; }
         el.innerHTML = '';
-        if ($('cklWarn')) $('cklWarn').innerHTML = '';
+        // The truncation caveat belongs to Birdiest's 7-day window. Newest has
+        // its own window, so the note is CLEARED here rather than left behind
+        // the ℹ button describing a list you are no longer looking at.
+        setSectionNote(el.closest ? el.closest('section') : null, '');
         if ($('cklMap')) $('cklMap').innerHTML = '';
         if (!hasCounties()) {
           el.innerHTML = '<div class="status">Recent checklists come from the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
@@ -5361,20 +5376,27 @@
           if (!rows.length) { st.textContent = 'No recent checklists in ' + countyLabelStr() + '.'; return; }
           st.textContent = rows.length + ' checklist' + (rows.length === 1 ? '' : 's') + ' · newest first · updated ' + nowTime();
           var home = getHome();
-          rows.forEach(function (l) {
+          // The SAME medium checklist card Birdiest uses. These two modes are
+          // one section with one question ("which checklists near me are worth
+          // looking at"), and they were rendering two different hand-rolled
+          // rows — the exact drift cards-checklist.js exists to stop.
+          el.innerHTML = ChecklistCards.list('medium', rows.map(function (l) {
             var lc = l.loc || {}, loc = lc.name || lc.locName || l.locName || '';
             var locId = l.locId || lc.locId || '', sub = l.subId || l.subID || '';
             var d = (home && lc.latitude != null && lc.longitude != null)
               ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null;
-            var li = document.createElement('li');
-            li.innerHTML = '<span class="count big">' + (l.numSpecies || 0) + '<small> sp.</small></span>' +
-              '<div><span class="name">' + esc(fmtDateTime(l.isoObsDate || l.obsDt || '')) + '</span></div>' +
-              '<div class="meta">' + (loc ? locLink(loc, lc.latitude, lc.longitude, locId, !lc.isHotspot) : 'Location hidden') +
-              (d == null ? '' : ' · ' + d.toFixed(1) + ' mi') +
-              ' · ' + esc(l.userDisplayName || 'eBirder') + '</div>' +
-              (sub ? extA(checklistUrl(sub), 'View ' + esc(sub) + ' ↗') : '');
-            el.appendChild(li);
-          });
+            return ChecklistCards.medium({
+              // The headline is the PLACE and it links to the checklist, so
+              // the "View S379659278 ↗" line under every row is gone: an
+              // eBird submission id is eleven characters nobody reads.
+              place: loc || 'Location hidden',
+              href: sub ? checklistUrl(sub) : '',
+              species: l.numSpecies || 0,
+              date: fmtDateTime(l.isoObsDate || l.obsDt || ''),
+              distMi: d,
+              who: esc(l.userDisplayName || 'eBirder')
+            });
+          }));
         }).catch(function (e) {
           st.textContent = 'Could not load checklists: ' + (e && e.message ? e.message : e);
         }).then(function () { if (btn) btn.disabled = false; });
@@ -5426,26 +5448,31 @@
         recentLists().then(function (lists) {
           var top = buildBirdiest(lists, home).slice(0, 25);
           var fw = BL.feedWindow(lists, 7);
-          $('cklWarn').innerHTML = fw.warning
-            ? '<div class="status feedwarn">⚠️ <b>' + esc(fw.warning) + '</b></div>' : '';
+          // The truncation caveat goes BEHIND the ℹ button, not above the
+          // list. It is true, worth reading once, and was a permanent yellow
+          // block taller than the first two rows of the answer it qualified.
+          setSectionNote($('cklResults').closest('section'), sectionNoteHtml(fw.warning));
           if (!top.length) { st.textContent = 'No recent hotspot checklists within 40 mi in ' + countyLabelStr() + '.'; return; }
           st.textContent = top.length + ' checklist' + (top.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           var el = $('cklResults');
-          el.innerHTML = '';
-          top.forEach(function (l, i) {
-            var li = document.createElement('li');
+          el.innerHTML = ChecklistCards.list('medium', top.map(function (l, i) {
             var lc = l.loc || {};
             var loc = lc.name || lc.locName || l.locName || '';
-            var locId = l.locId || lc.locId || '';
             var sub = l.subId || l.subID || '';
-            li.innerHTML = '<span class="count big">' + (l.numSpecies || 0) + '<small> sp.</small></span>' +
-              '<div><span class="rank">' + (i + 1) + '</span><span class="name">' + esc(l.userDisplayName || 'eBirder') + '</span></div>' +
-              '<div class="meta">' + (loc ? locLink(loc, lc.latitude, lc.longitude, locId, !lc.isHotspot) : 'Location hidden') +
-              ' · ' + esc(l.obsDt || '') + '</div>' +
-              '<div class="cklneed" data-sub="' + esc(sub) + '"></div>' +
-              (sub ? extA(checklistUrl(sub), 'View checklist ↗') : '');
-            el.appendChild(li);
-          });
+            return ChecklistCards.medium({
+              num: i + 1,
+              // The headline is the PLACE and it links to the checklist —
+              // which is what "View checklist ↗" used to be, minus the line.
+              place: loc || 'Location hidden',
+              href: sub ? checklistUrl(sub) : '',
+              species: l.numSpecies || 0,
+              date: fmtDateTime(l.isoObsDate || l.obsDt || ''),
+              distMi: (home && lc.latitude != null && lc.longitude != null)
+                ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null,
+              who: esc(l.userDisplayName || 'eBirder'),
+              below: '<div class="cklneed" data-sub="' + esc(sub) + '"></div>'
+            });
+          }));
           // Pins match the numbered rows above (mirrors the report's map).
           renderMap($('cklMap'), top.map(function (l) {
             var loc = l.loc || {};
@@ -9514,8 +9541,13 @@
           .catch(function (e) { dbg('warn', 'section docs: ' + e.message); _sectionDocs = {}; return _sectionDocs; });
       }
       function renderSectionDoc(box, d) {
-        if (!d) { box.innerHTML = '<p class="hint">No calculation notes for this section yet.</p>'; return; }
-        var h = '';
+        var note = box.getAttribute('data-note') || '';
+        if (!d) {
+          box.innerHTML = note
+            || '<p class="hint">No calculation notes for this section yet.</p>';
+          return;
+        }
+        var h = note;
         if (d.summary) h += '<p class="docsum">' + esc(d.summary) + '</p>';
         function list(title, items, cls) {
           if (!items || !items.length) return '';
@@ -9526,6 +9558,40 @@
         h += list('How it is calculated', d.how, 'doclist');
         h += list('What it cannot tell you', d.limits, 'doclist doclimits');
         box.innerHTML = h;
+      }
+      // A LIVE caveat, shown inside the ℹ dialog rather than above the list.
+      //
+      // "⚠️ Showing 3 days, not 7. eBird caps this feed at 200 checklists per
+      // county…" is true, worth knowing once, and worth nothing on every visit
+      // — as a permanent yellow block above the results it was bigger than the
+      // first two rows of the answer it was qualifying. It belongs with the
+      // rest of the explanation of how the section works.
+      //
+      // The ℹ button MARKS ITSELF when a note is attached, because an
+      // explanation nobody knows is there is the same as no explanation. The
+      // note is cleared, not just overwritten, so a caveat that no longer
+      // applies cannot linger behind the icon from a previous load.
+      function setSectionNote(sec, html) {
+        if (!sec) return;
+        var box = sec.querySelector('.sectiondoc');
+        var btn = sec.querySelector('.docbtn');
+        if (!box) return;
+        if (html) box.setAttribute('data-note', html);
+        else box.removeAttribute('data-note');
+        if (btn) {
+          btn.classList.toggle('hasnote', !!html);
+          btn.setAttribute('aria-label', (html ? 'Important note, and how ' : 'How ')
+            + (sec._label || 'this section') + ' is calculated');
+        }
+        // Already filled and open/closed by the reader — refill in place so the
+        // note appears without needing the dialog reopened.
+        if (box.dataset.filled) {
+          loadSectionDocs().then(function (docs) { renderSectionDoc(box, docs[sec._at]); });
+        }
+      }
+      function sectionNoteHtml(warning) {
+        return warning
+          ? '<p class="docnote">\u26A0\uFE0F ' + esc(warning) + '</p>' : '';
       }
       function toggleSectionDoc(sec) {
         var box = sec.querySelector('.sectiondoc'), btn = sec.querySelector('.docbtn');
@@ -9566,8 +9632,13 @@
         var h2 = sec.querySelector('h2');
         if (!h2 || sec.querySelector('.refreshbtn')) return;
         var row = null;
+        // The mode switch is a `.row` too, and it is the FIRST one — so a
+        // section with modes was silently skipped and kept its "Load …"
+        // button while every other section got the ↻ icon. The load row is the
+        // first row that is NOT the switch.
         Array.prototype.slice.call(sec.children).forEach(function (c) {
-          if (!row && c.classList && c.classList.contains('row')) row = c;
+          if (!row && c.classList && c.classList.contains('row')
+              && !c.classList.contains('modeswitch')) row = c;
         });
         if (!row) return;
         var buttons = row.querySelectorAll('button');
@@ -10784,6 +10855,7 @@
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
+        setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,

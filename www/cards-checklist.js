@@ -57,13 +57,17 @@
     '</li>'
   ].join('');
 
-  /* MEDIUM — the same five facts, but the place gets its own line.
-     For lists where the place name IS the answer (a chase board) rather than
-     one column among five. */
+  /* MEDIUM — the PLACE is the headline and it IS the link to the checklist.
+     Laid out exactly like the medium hotspot card, because it answers the same
+     shape of question: rank | what it is | the one number that ranks it, over
+     a full-width facts line, over whatever the section wants to hang beneath.
+     "View checklist ↗" used to be a fourth line on every row; making the
+     headline the link deletes that line without losing the destination. */
   var MEDIUM = [
     '<li class="cklcard cklcard-md">',
-    '<div class="ckplace">{{place}}</div>',
+    '<div class="ckhead">{{num}}<span class="ckplace">{{place}}</span>{{tally}}</div>',
     '<div class="ckfacts">{{row}}</div>',
+    '{{below}}',
     '</li>'
   ].join('');
 
@@ -116,14 +120,42 @@
     '.cklcard .ckmapwrap a, .cklcard .ckmap { text-decoration: none; }',
     '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
 
-    /* MEDIUM: the place is the headline, the facts are the caption. */
-    '.cklcards-md > .cklcard-md { padding: 6px 0; }',
-    '.cklcards-md > .cklcard-md > .ckplace {',
-    '  font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1.3;',
-    '  overflow-wrap: break-word; }',
+    /* MEDIUM: laid out exactly like the medium hotspot card — rank | headline |
+       the one number that ranks it, over a full-width facts line. Same shape,
+       because it answers the same shape of question, and a reader who has
+       learned one list has learned all of them.
+       `overflow-wrap: anywhere` on the headline is load-bearing: eBird
+       personal locations are raw addresses ("1730 North 122nd Street, Seattle,
+       Washington, US (47.718, -122.335)") with no break opportunity a normal
+       wrap would take, and a device log measured the document 33px wider than
+       the screen because of exactly that. */
+    '.cklcards-md > .cklcard-md { padding: 8px 0; }',
+    '.cklcards-md > .cklcard-md > .ckhead {',
+    '  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;',
+    '  column-gap: 10px; align-items: baseline; }',
+    '.cklcard-md > .ckhead > .ckplace {',
+    '  min-width: 0; font-size: calc(17px * var(--s)); font-weight: 700;',
+    '  line-height: 1.25; overflow-wrap: anywhere; }',
+    '.cklcard-md > .ckhead > .cknum {',
+    '  display: inline-flex; align-items: center; justify-content: center;',
+    '  width: calc(24px * var(--s)); height: calc(24px * var(--s));',
+    '  border-radius: 50%; background: #d64545; color: #fff;',
+    '  font-size: calc(13px * var(--s)); font-weight: 800; }',
+    /* The tally is the ranking number, so it reads like one — same treatment
+       as distance on the hotspot card. */
+    '.cklcard-md > .ckhead > .cktally {',
+    '  text-align: right; white-space: nowrap; font-size: calc(24px * var(--s));',
+    '  font-weight: 800; line-height: 1.1; color: var(--ink);',
+    '  font-variant-numeric: tabular-nums; }',
+    '.cklcard-md > .ckhead > .cktally small {',
+    '  font-size: calc(12px * var(--s)); font-weight: 600; color: var(--muted);',
+    '  margin-left: 3px; }',
     '.cklcards-md > .cklcard-md > .ckfacts {',
-    '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;',
-    '  margin-top: 2px; font-size: calc(13px * var(--s)); color: var(--muted); }'
+    '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;',
+    '  min-width: 0; margin-top: 3px; font-size: calc(14px * var(--s));',
+    '  color: var(--muted); overflow-wrap: anywhere; }',
+    '.cklcards-md > .cklcard-md > .ckfacts > span + span::before {',
+    '  content: "\\00b7"; margin-right: 8px; color: var(--line); }'
   ].join('\n');
 
   /* ------------------------------------------------------------- rendering */
@@ -152,20 +184,25 @@
   function build(tpl, v, isMedium) {
     v = v || {};
     var bits = [];
-    // The LEAD is the link. Its text is the abbreviated place when there is
-    // one, and otherwise the date — so a row always has something clickable
-    // without ever printing a place its heading has already given. On the
-    // medium card the place has its own line, so the lead is always the date.
-    var usePlaceAsLead = !!v.place && !isMedium;
-    var leadText = usePlaceAsLead ? condense(v.place, v.max) : shortWhen(v.date);
-    if (leadText) {
-      bits.push('<span class="cklead">' + (v.href
-        ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
-          + esc(leadText) + '</a>'
-        : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
-    }
-    if (usePlaceAsLead && v.date) {
-      bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+    if (isMedium) {
+      // MEDIUM: the place is the headline and carries the link, so the facts
+      // line leads with a PLAIN date. Two links to the same checklist in one
+      // card is one more tap target than the row has meaning for.
+      if (v.date) bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+    } else {
+      // SMALL: the LEAD is the link. Its text is the abbreviated place when
+      // there is one, and otherwise the date — so a row always has something
+      // clickable without ever printing a place its heading has already given.
+      var leadText = v.place ? condense(v.place, v.max) : shortWhen(v.date);
+      if (leadText) {
+        bits.push('<span class="cklead">' + (v.href
+          ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
+            + esc(leadText) + '</a>'
+          : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
+      }
+      if (v.place && v.date) {
+        bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+      }
     }
     if (v.count != null && v.count !== '') {
       bits.push('<span class="ckcount">' + (isMedium
@@ -179,9 +216,22 @@
     if (v.map) bits.push('<span class="ckmapwrap">' + v.map + '</span>');
     // Small rows drop the observer entirely — see the note on SMALL.
     if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
+
+    // The headline IS the link to the checklist. `placeHtml` lets a caller
+    // pass ready-made HTML (a hotspot link plus its 🗺) instead of plain text.
+    var head = v.placeHtml || esc(condense(v.place || '', v.max || 60));
+    if (v.href && !v.placeHtml) {
+      head = '<a class="ckgo" target="_blank" rel="noopener" href="'
+        + esc(v.href) + '">' + head + '</a>';
+    }
     return tpl
       .replace('{{row}}', bits.join(''))
-      .replace('{{place}}', v.place ? esc(condense(v.place, v.max)) : '');
+      .replace('{{num}}', v.num != null && v.num !== ''
+        ? '<span class="cknum">' + esc(v.num) + '</span>' : '')
+      .replace('{{tally}}', (v.species != null && v.species !== '')
+        ? '<span class="cktally">' + esc(v.species) + '<small>sp.</small></span>' : '')
+      .replace('{{below}}', v.below || '')
+      .replace('{{place}}', head);
   }
 
   /* "Aug 2 9:29 AM" is longer than a one-line row can afford next to a place
