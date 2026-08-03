@@ -2270,7 +2270,7 @@ test('the rate limiter is sized from what the log actually measured', async () =
     'the sustained rate is under the measured 0.37/s ceiling');
 });
 
-test('a long wave reports progress instead of looking frozen', async () => {
+test('a long wave reports staged progress instead of a moving total', async () => {
   const app = await boot();
   const A = app.window.__app;
   assert.ok(app.$('loadBar'), 'there is a progress bar');
@@ -2278,13 +2278,36 @@ test('a long wave reports progress instead of looking frozen', async () => {
   assert.ok(app.$('loadBarText'), 'and a label');
   assert.equal(app.$('loadBar').hidden, true, 'hidden when nothing is in flight');
 
-  // The counter is driven by the gate, so it cannot drift from what is really
-  // happening — and it grows correctly when phase 2 queues one call per unseen
-  // species after phase 1 has counted them.
-  const st = A.fgState();
-  assert.equal(typeof st.done, 'number');
-  assert.equal(typeof st.queued, 'number');
-  assert.equal(typeof st.gap, 'number');
+  // A denominator that grows is not progress. Each stage declares a FIXED
+  // total and is named for what it is fetching — "12 of 20" then "12 of 44"
+  // then "12 of 51" made a working wave look like a looping one.
+  A.progressStage('Recent sightings near you', 8);
+  let st = A.progressState();
+  assert.equal(st.total, 8, 'the stage total is fixed up front');
+  assert.equal(st.done, 0);
+  assert.equal(app.$('loadBar').hidden, false, 'and the bar is showing');
+  assert.match(app.$('loadBarText').textContent, /Recent sightings near you — 0 of 8/,
+    'the label says WHAT is loading, not just a count');
+
+  A.progressStep(); A.progressStep();
+  assert.equal(A.progressState().done, 2);
+  assert.match(app.$('loadBarText').textContent, /2 of 8/);
+  assert.equal(app.$('loadBarFill').style.width, '25%');
+
+  // A second stage replaces the first rather than extending its total.
+  A.progressStage('Finding where your missing birds are', 44);
+  st = A.progressState();
+  assert.equal(st.total, 44, 'the new stage has its own total');
+  assert.equal(st.done, 0, 'and starts from zero rather than carrying over');
+  assert.match(app.$('loadBarText').textContent, /Finding where your missing birds are — 0 of 44/);
+
+  // Stepping can never run past the stage total, so the bar cannot read
+  // "46 of 44" if a stray completion arrives.
+  A.progressStep(99);
+  assert.equal(A.progressState().done, 44, 'progress is clamped to the stage');
+
+  A.progressEnd();
+  assert.equal(A.progressState(), null, 'and the stage clears when it is done');
 });
 
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
@@ -4342,7 +4365,12 @@ test('F9: getChase makes a SECOND wave of per-species calls', async () => {
       return null;
     }
   });
-  const res = await app.window.__app.getChase();
+  const first = await app.window.__app.getChase();
+  // getChase now resolves on PHASE 1 so the screen can come up in seconds
+  // rather than minutes; phase 2 fills it in behind. A test that wants the
+  // complete answer waits for it explicitly.
+  assert.ok(first.cv, 'phase 1 alone already produces a usable view');
+  const res = await app.window.__app.chasePhase2();
   const sp = app.state.fetches.filter((u) => /data\/obs\/US-WA\/recent\/[a-z]/.test(u));
   assert.ok(sp.length > 0,
     'phase 2 ran - without it a needed bird contributes exactly one location ' +
@@ -4397,7 +4425,7 @@ test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
     return orig(u);
   };
   w.__app.clearChaseCache();
-  const res = await w.__app.getChase();
+  const res = await w.__app.getChase().then(function () { return w.__app.chasePhase2(); });
   assert.ok(res.speciesCodes.length > 6,
     'the fixture must produce more needs than one batch (' + res.speciesCodes.length + ')');
   assert.ok(peak > 0, 'phase 2 actually ran');
@@ -4425,6 +4453,8 @@ test('F9: concurrent callers share one wave, not two', async () => {
   const before = app.state.fetches.length;
   const [a, b] = await Promise.all([w.__app.getChase(), w.__app.getChase()]);
   assert.equal(a, b, 'both callers get the SAME result object, not two waves');
+  // Phase 2 is detached now, so wait for it before counting its calls.
+  await w.__app.chasePhase2();
   const n = app.state.fetches.slice(before).filter((u) => /data\/obs\/US-WA\/recent\/comloo/.test(u)).length;
   assert.equal(n, 1, 'the species feed is fetched once, not once per caller');
   w.close();
@@ -5432,4 +5462,50 @@ test('latest ticks: today\u2019s species feeds are cached, and only new birds co
   A.lastNewChecklists([], 'US-WA').catch(() => {});
   assert.equal(w.localStorage.getItem('bc_lastnew:US-WA:2000-01-01'), null,
     'an older day is pruned rather than kept forever');
+});
+
+test('the sustained limit is a sliding window, not just a bucket', async () => {
+  // A device log caught the gap in the first model. The app stalled for 57
+  // seconds mid-wave (a backgrounded phone suspends timers), the token bucket
+  // refilled to full while nothing ran, and then released all of it in about
+  // two seconds — the log shows tokens walking 7.0, 6.1, 5.1, 4.2, 3.3, 2.3,
+  // 1.4, 0.5, 0.0 — with the 429s starting eight seconds later.
+  //
+  // The bucket was working. The problem is that it only models the SHORT-term
+  // allowance, while the measured limiter ALSO caps ~30 successes per minute.
+  // Idle time earns burst credit against the short window and none at all
+  // against the long one.
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(typeof A.FG_WINDOW_MAX, 'number', 'there is a rolling-window cap');
+  assert.ok(A.FG_WINDOW_MAX > 0 && A.FG_WINDOW_MAX <= 30,
+    'set under the measured ~30/min, because the scheduled report spends part '
+    + 'of the same budget whenever it is running');
+  assert.equal(A.FG_WINDOW_MS, 60000, 'measured over a minute, like the limit');
+
+  const src = HTML.slice(HTML.indexOf('function fgSlot('),
+                         HTML.indexOf('function fgSlot(') + 700);
+  assert.match(src, /fgWindowWait\(at\)/,
+    'and every call is scheduled through it, not just the bucket');
+  assert.match(src, /_fgStarts\.push\(at\)/,
+    'recording when it actually starts, so the window is real rather than notional');
+});
+
+test('getChase resolves on phase 1 so the screen can come up', () => {
+  // The bug this fixes: phase 1 finished in 4.5s with all eight feeds at HTTP
+  // 200, and the user saw nothing for a minute and then a 429. getChase was
+  // publishing phase 1 into the cache and then CONTINUING to await phase 2
+  // before resolving — on a cold start every section is blocked on that very
+  // promise, so the "publish" had no audience.
+  const src = HTML.slice(HTML.indexOf('function runWave()'),
+                         HTML.indexOf('function runWave()') + 5200);
+  assert.match(src, /var first = finish\(codes, false\);/,
+    'phase 1 produces the result that is returned');
+  assert.match(src, /return first;/,
+    'and it is returned rather than awaited past');
+  assert.match(src, /_chasePhase2\[slug\] = fetchBatched\(/,
+    'phase 2 is detached and kept, so a caller that needs it can wait');
+  // A phase-2 failure must not take down what is already on screen.
+  assert.match(src, /the phase-1 view stands/,
+    'and a phase-2 failure leaves the phase-1 view standing');
 });
