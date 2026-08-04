@@ -41,7 +41,7 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{sub}}</span></div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -108,6 +108,15 @@
     '.obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;',
     '                      width: calc(46px * var(--s)); height: calc(46px * var(--s)); }',
     '.obs.card-sm .ntext { min-width: 0; overflow-wrap: anywhere; }',
+    /* The row's right-hand control. `margin-left: auto` is what pins it to the
+       edge; without it a short species name leaves it floating mid-row. It is
+       a real tap target rather than a decoration, so it gets a 44px box. */
+    '.obs.card-sm > li > .name > .spgo {',
+    '  margin-left: auto; flex: 0 0 auto; display: inline-flex;',
+    '  align-items: center; justify-content: center;',
+    '  min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));',
+    '  font-size: calc(22px * var(--s)); line-height: 1; font-weight: 700;',
+    '  color: var(--accent); text-decoration: none; }',
     /* The small card's optional SECOND line: what the row is (the name) stays
        on top, and what backs it up (count, time, checklist) drops below at
        caption weight. The icon box is 46px, which two lines of this size fit
@@ -158,7 +167,10 @@
     '.obs.xl > li > .name > .thumb, .obs.card-md > li > .name > .thumb {',
     '  float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: start; }',
     '.obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {',
-    '  grid-column: 2; grid-row: 1; align-self: start; }',
+    /* CENTRED in its row, not top-aligned. The photo beside it spans both
+       rows, so a one-line name pinned to the top of row 1 sat high against a
+       70px picture and read as though it had come loose from it. */
+    '  grid-column: 2; grid-row: 1; align-self: center; }',
     '.obs.xl > li > .meta, .obs.card-md > li > .meta {',
     '  grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }',
     /* The distance column spans both rows, like .hsnum does on the hotspot
@@ -169,6 +181,14 @@
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
+    /* When the distance is a MAP LINK it keeps the column's typography — the
+       number is what you scan down the edge of the list, and shrinking it to
+       the app's 13px link size would hide it — but takes the accent colour so
+       it reads as tappable. `.maplink`'s `margin-top: 8px` is the one thing
+       that must be undone: it is meant for an action link on its own line and
+       would drop the number below the name it is aligned with. */
+    '.obs.xl > li > .name > a.spdist, .obs.card-md > li > .name > a.spdist {',
+    '  margin-top: 0; color: var(--accent); text-decoration: none; }',
     '.obs.xl > li > .name > .spdist small, .obs.card-md > li > .name > .spdist small {',
     '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
     '  color: var(--muted); letter-spacing: .02em; }',
@@ -300,7 +320,28 @@
     if (tpl !== MEDIUM) return '';
     var d = v.distMi;
     if (d == null || d === '' || !isFinite(Number(d))) return '';
-    return '<span class="spdist">' + Number(d).toFixed(1) + '<small>mi</small></span>';
+    var body = Number(d).toFixed(1) + '<small>mi</small>';
+    // THE DISTANCE OPENS MAPS. It is the one number on the card that answers
+    // "can I go", so it should also be the thing that takes you.
+    // `distQ` is a plain "lat,lng" string, NOT a URL: the card tags the
+    // element with the class the app's delegated handler already looks for
+    // and stops there, so map-provider choice and URL building stay in
+    // index.html with the rest of the routing. Passing ready-made HTML
+    // instead would duplicate the number formatting above, which is the one
+    // thing this file exists to own.
+    return v.distQ
+      ? '<a class="spdist maplink" data-q="' + coordQ(v.distQ)
+        + '" aria-label="Open in Maps">' + body + '</a>'
+      : '<span class="spdist">' + body + '</span>';
+  }
+
+  /* A coordinate has a KNOWN SHAPE, so it is validated rather than escaped.
+     These files take ready-made HTML from the caller by design and have no
+     escaper of their own; stripping everything that is not a digit, dot,
+     minus or comma is both simpler and stricter than escaping would be — a
+     value that is not a coordinate cannot survive it at all. */
+  function coordQ(q) {
+    return String(q == null ? '' : q).replace(/[^0-9.,-]/g, '');
   }
 
   function build(tpl, v, cls) {
@@ -312,6 +353,11 @@
       tags: v.tags || '',
       sub: subHtml(v, tpl === SMALL),
       dist: distHtml(v, tpl),
+      // An optional control at the RIGHT EDGE of a small row. It has to be a
+      // sibling of `.ntext` rather than inside it, because `.name` is the flex
+      // row — anything nested in the text block sits after the words, not at
+      // the edge. Used by the ABA list, where each row opens a sub-page.
+      right: v.right || '',
       below: v.below || ''
     });
   }
