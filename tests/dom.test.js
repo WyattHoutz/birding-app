@@ -166,11 +166,38 @@ test('Contents menu matches the report section contract (labels + order)', async
   // Tiles split the label into a glyph span and a text span, so textContent
   // loses the space between them. The accessible name is the label a
   // screen-reader user actually hears, so that is what the contract pins.
-  assert.deepEqual(
-    app.links().map((a) => (a.getAttribute('aria-label') || a.textContent).trim()),
-    CONTRACT.menu.map((m) => m.label),
-    'menu labels/order drifted from tests/fixtures/report-contract.json — update ' +
-    'both the app and the contract (and report.py if the report changed)');
+  const rendered = app.links().map((a) => (a.getAttribute('aria-label') || a.textContent).trim());
+  const contract = CONTRACT.menu.map((m) => m.label);
+
+  // MEMBERSHIP is pinned exactly: every section the report emits has a tile,
+  // and no tile exists that the report does not.
+  assert.deepEqual(JSON.stringify(rendered.slice().sort()),
+    JSON.stringify(contract.slice().sort()),
+    'menu labels drifted from tests/fixtures/report-contract.json — update '
+    + 'both the app and the contract (and report.py if the report changed)');
+
+  // ORDER is pinned WITHIN A GROUP, not across the whole menu. The menu is
+  // laid out by what you are trying to do — "eBird Rankings" sits with My year
+  // even though the report prints it third — so the report's order is kept
+  // where it still means something: among the sections of one group.
+  // The ARRAY order in index.html is untouched and is what
+  // tests/parity/test_report_toc.py compares to the report.
+  const groupOf = {};
+  for (const m of HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']+)'[^\n]*group: '([^']+)'/g)) {
+    groupOf[m[2].replace(/\\u2019/g, '\u2019')] = m[3];
+  }
+  const rank = {};
+  contract.forEach((l, i) => { rank[l] = i; });
+  const lastSeen = {};
+  for (const label of rendered) {
+    const g = groupOf[label];
+    if (!g) continue;
+    if (lastSeen[g] != null) {
+      assert.ok(rank[label] > lastSeen[g],
+        '"' + label + '" is out of report order within its group "' + g + '"');
+    }
+    lastSeen[g] = rank[label];
+  }
   const tiles = app.links();
   assert.ok(tiles.every((a) => a.tagName === 'BUTTON'),
     'Contents entries are real buttons (tiles), not bare anchors');
@@ -1912,7 +1939,9 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   assert.match(html, /class="cklead"><a[^>]*ebird\.org\/checklist\/S1[^>]*>Penny Creek/,
     'and the NAME is the link to the checklist, not a hotspot page');
   assert.match(html, /class="ckdate">Jul 31/, 'when it was reported');
-  assert.match(html, /class="ckdist">8\.1 mi/, 'and how far it is, on the same line');
+  assert.match(html, /class="ckdist[^"]*"[^>]*>8\.1 mi/,
+    'and how far it is, on the same line — the class may now carry `maplink` '
+    + 'too, because the distance opens maps');
 
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
@@ -6185,17 +6214,28 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   const detail = doc.getElementById('abaDetail');
   assert.equal(list.hidden, false, 'the species list is what the section shows');
   assert.equal(detail.hidden, true, 'and no profile is open');
-  const jumps = [...list.querySelectorAll('a.abajump')];
-  assert.equal(jumps.length, 3, 'one entry per species, not per report');
+  const items = [...list.querySelectorAll('ul.obs.card-sm > li')];
+  assert.equal(items.length, 3, 'one entry per species, not per report');
   assert.ok(list.querySelector('ul.obs.card-sm'), 'built from the small species card');
+  // Every row carries BOTH ways in: the name, and a chevron at the RIGHT EDGE
+  // — a bare name does not look like it opens anything.
+  items.forEach((li) => {
+    assert.ok(li.querySelector('.ntext a.abajump'), 'the name opens the profile');
+    const go = li.querySelector('.name > a.spgo.abajump');
+    assert.ok(go, 'and so does the chevron at the right edge of the row');
+    assert.ok((go.getAttribute('aria-label') || '').length > 6,
+      'which names itself, since "›" reads as nothing');
+  });
+  const jumps = items.map((li) => li.querySelector('.ntext a.abajump'));
   // Newest first — a list in a different order than the thing it indexes is
   // worse than no list.
   assert.deepEqual(JSON.stringify(jumps.map((a) => a.textContent)),
     JSON.stringify(['Terek Sandpiper', 'White Wagtail', 'Little Gull']),
     'newest first');
   // The profiles exist but are put away.
-  assert.equal(detail.children.length, 3, 'every profile is built');
-  [...detail.children].forEach((c) => assert.equal(c.hidden, true, 'and hidden'));
+  const cards = doc.getElementById('abaDetailCards');
+  assert.equal(cards.children.length, 3, 'every profile is built');
+  [...cards.children].forEach((c) => assert.equal(c.hidden, true, 'and hidden'));
 
   // 2. Tapping a name opens THAT bird, over the list.
   const ev = new app.window.MouseEvent('click', { bubbles: true, cancelable: true });
@@ -6281,22 +6321,22 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   assert.equal(under.length, GO.length,
     'exactly the five place-finding sections sit under it, got: ' + under.join(' | '));
 
-  // 3. The MENU order is a contract with the Markdown report, so grouping must
-  //    not have reordered anything. The groups are drawn OVER the report's own
-  //    order; every group must therefore be a contiguous run of it.
+  // 3. The MENU ARRAY order is a contract with the Markdown report and is
+  //    never touched. Grouping changes only the LAYOUT: a group collects its
+  //    members wherever they sit, because "eBird Rankings" belongs with My
+  //    year even though the report prints it third. What must hold is that
+  //    every entry declares a group the renderer knows how to place.
   const order = [...HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',[^\n]*group: '([^']+)'/g)]
     .map((m) => ({ at: m[1], group: m[2] }));
   assert.equal(order.length, 26, 'every menu entry declares a group');
-  const seen = new Set();
-  let prev = null;
+  const known = /var MENU_GROUPS = \[([\s\S]*?)\];/.exec(HTML);
+  assert.ok(known, 'the group order is DECLARED, not derived from position — '
+    + 'a group whose members are scattered has no position to derive from');
+  const groupNames = [...known[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
   for (const e of order) {
-    if (e.group !== prev) {
-      assert.ok(!seen.has(e.group),
-        e.group + ' is split into two runs — grouping may not reorder the menu, '
-        + 'because tests/parity/test_report_toc.py compares it to the report');
-      seen.add(e.group);
-      prev = e.group;
-    }
+    assert.ok(groupNames.includes(e.group),
+      e.at + ' is in group "' + e.group + '", which MENU_GROUPS does not place '
+      + '— it would render nowhere at all');
   }
   app.window.close();
 });
@@ -6404,4 +6444,101 @@ test('the convoy already-seen list is collapsed', () => {
   assert.ok(!/<div class="convoyhead">Already seen this year/.test(HTML),
     'and the old always-open heading is gone, not merely bypassed');
   assert.match(HTML, /\.convoyseen > summary \{/, 'and it is styled as one');
+});
+
+// "Remove the Load latest ticks button, since there's already a refresh
+// button" — and the same complaint had already been made about Birdiest
+// checklists. Rather than fix them one at a time, this asserts the RULE for
+// every section at once.
+test('no section shows a bare Load button — every loader is the refresh icon', async () => {
+  const app = await boot();
+  const doc = app.document;
+  const LOADERS = ['refreshBtn', 'targetsBtn', 'allUnseenBtn', 'spLookupBtn', 'destBtn',
+    'excBtn', 'tripBtn', 'cklBtn', 'quickBtn', 'surgeBtn', 'wxBtn', 'rankBtn',
+    'activeBtn', 'abaBtn', 'lastNewBtn', 'hotBtn', 'coldBtn', 'convoyBtn',
+    'easyBtn', 'migBtn', 'todBtn'];
+  const visible = [], noIcon = [];
+  for (const id of LOADERS) {
+    const b = doc.getElementById(id);
+    if (!b) continue;
+    const row = b.closest('.row'), sec = b.closest('section');
+    // Species lookup is driven by TYPING, not by a load button — its row is
+    // the search box and must stay visible. The one exception, named rather
+    // than silently tolerated.
+    if (id === 'spLookupBtn') {
+      assert.equal(row.hidden, false, 'the species search box stays on screen');
+      continue;
+    }
+    if (row && !row.hidden) visible.push(id);
+    // Quick outing has no icon because its mode chips ARE the reload: tapping
+    // the anchor you are already on re-runs it.
+    if (id !== 'quickBtn' && sec && !sec.querySelector('.refreshbtn')) noIcon.push(id);
+  }
+  assert.deepEqual(JSON.stringify(visible), JSON.stringify([]),
+    'these sections still show a wide Load button: ' + visible.join(', '));
+  assert.deepEqual(JSON.stringify(noIcon), JSON.stringify([]),
+    'these sections have no refresh icon to replace it: ' + noIcon.join(', '));
+  app.window.close();
+});
+
+// The distance is the one number on a card that answers "can I go", so it is
+// also the thing that takes you. All three medium cards, one mechanism.
+test('the medium cards centre the name and make the distance open maps', () => {
+  const P = require('node:path').join(__dirname, '..', 'www');
+  const S = require(P + '/cards-species.js');
+  const H = require(P + '/cards-hotspot.js');
+  const C = require(P + '/cards-checklist.js');
+  const Q = '47.66,-122.42';
+
+  // 1. The name cell is vertically centred in its row, in all three.
+  assert.match(S.css, /> \.ntext \{[\s\S]{0,260}align-self: center/,
+    'species: the name is centred against the photo beside it');
+  assert.match(H.css, /\.hscard-md > \.name > \.ntext \{[\s\S]{0,280}align-self: center/,
+    'hotspot: the name is centred against the badge and the distance');
+  assert.match(C.css, /\.ckhead \{[^}]*align-items: center/,
+    'checklist: the head row is centred, not baseline-aligned');
+
+  // 2. The distance opens maps when the caller knows where the place is.
+  assert.match(S.medium({ name: 'x', distMi: 8.1, distQ: Q }),
+    /<a class="spdist maplink" data-q="47\.66,-122\.42"/, 'species distance is a map link');
+  assert.match(H.medium({ name: 'x', distance: 8.1, distQ: Q }),
+    /<a class="hsdist maplink" data-q="47\.66,-122\.42"/, 'hotspot distance is a map link');
+  assert.match(C.small({ place: 'p', distMi: 4.2, distQ: Q }),
+    /<a class="ckdist maplink" data-q="47\.66,-122\.42"/, 'checklist distance is a map link');
+
+  // 3. Inert when we do NOT know where it is — a link that goes nowhere is
+  //    worse than plain text.
+  assert.match(S.medium({ name: 'x', distMi: 8.1 }), /<span class="spdist">/, 'no coordinate, no link');
+  assert.match(H.medium({ name: 'x', distance: 8.1 }), /<span class="hsdist">/);
+  assert.match(C.small({ place: 'p', distMi: 4.2 }), /<span class="ckdist">/);
+
+  // 4. The card TAGS the element; it does not build a URL. Map-provider choice
+  //    lives in index.html with the rest of the routing.
+  for (const [n, m] of [['species', S], ['hotspot', H], ['checklist', C]]) {
+    assert.ok(!/maps\.google|google\.com\/maps|apple\.com\/maps/.test(m.css),
+      n + ' card must not know how to build a map URL');
+  }
+
+  // 5. A coordinate is VALIDATED, not escaped — these files have no escaper.
+  const bad = S.medium({ name: 'x', distMi: 1, distQ: '47.6,-122.4" onerror=alert(1)' });
+  assert.ok(!/onerror/.test(bad), 'a value that is not a coordinate cannot survive');
+  assert.match(/data-q="([^"]*)"/.exec(bad)[1], /^[0-9.,-]*$/, 'only coordinate characters remain');
+
+  // 6. `.maplink`'s 8px top margin is undone, or the number would drop below
+  //    the name it is aligned with.
+  assert.match(S.css, /a\.spdist[^{]*\{[^}]*margin-top: 0/, 'species distance keeps its position');
+  assert.match(H.css, /a\.hsdist \{ margin-top: 0/, 'hotspot distance keeps its position');
+  assert.match(C.css, /a\.ckdist \{ margin-top: 0/, 'checklist distance keeps its position');
+});
+
+// The big picture on an ABA profile is a SLOT until something fills it, and
+// nothing ever asked — so every profile showed a grey box where the bird
+// should be. Same for the small icons in the list.
+test('the ABA section hydrates its photos', () => {
+  const open = HTML.slice(HTML.indexOf('function abaOpenBird('),
+    HTML.indexOf('function abaCloseBird('));
+  assert.match(open, /hydratePhotos\(card\)/, 'the profile photo is filled when opened');
+  const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
+    HTML.indexOf('function renderAbaAlert(') + 5000);
+  assert.match(render, /hydratePhotos\(el\)/, 'and the list icons when the list is built');
 });

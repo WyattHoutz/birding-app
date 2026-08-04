@@ -132,6 +132,12 @@
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
     '                    color: var(--ink); }',
     '.cklcard .ckdist { font-variant-numeric: tabular-nums; }',
+    /* A linked distance stays the size of the row it sits in — `.maplink` is
+       13px/700/accent with an 8px top margin, all of which would make one
+       fact on the line taller and lower than the rest. Only the colour is
+       kept, as the signal that it is tappable. */
+    '.cklcard a.ckdist { margin-top: 0; font-size: inherit; font-weight: inherit;',
+    '                    color: var(--accent); text-decoration: none; }',
     '.cklcard .ckmapwrap a, .cklcard .ckmap { text-decoration: none; }',
     '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
 
@@ -147,7 +153,9 @@
     '.cklcards-md > .cklcard-md { padding: 8px 0; }',
     '.cklcards-md > .cklcard-md > .ckhead {',
     '  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;',
-    '  column-gap: 10px; align-items: baseline; }',
+    /* `center`, not `baseline`: the tally beside the name is 24px against the
+       name's 17px, and baseline-aligning them made the name sit low. */
+    '  column-gap: 10px; align-items: center; }',
     '.cklcard-md > .ckhead > .ckplace {',
     '  min-width: 0; font-size: calc(17px * var(--s)); font-weight: 700;',
     '  line-height: 1.25; overflow-wrap: anywhere; }',
@@ -196,6 +204,12 @@
     return s;
   }
 
+  /* A coordinate has a KNOWN SHAPE, so it is validated rather than escaped.
+     See cards-species.js for why these files have no escaper of their own. */
+  function coordQ(q) {
+    return String(q == null ? '' : q).replace(/[^0-9.,-]/g, '');
+  }
+
   function build(tpl, v, isMedium) {
     v = v || {};
     var bits = [];
@@ -229,7 +243,13 @@
       // requested row "…Aug 3 5:14AM ×3 12.4mi" printed "12 mi" — and on a
       // list you scan to pick a drive, the tenth is the part that separates
       // two hotspots ten minutes apart.
-      bits.push('<span class="ckdist">' + Number(v.distMi).toFixed(1) + ' mi</span>');
+      // Tappable when the caller knows where the place is: `distQ` is a plain
+      // "lat,lng" and the app's delegated `.maplink` handler owns the URL.
+      var dtxt = Number(v.distMi).toFixed(1) + ' mi';
+      bits.push(v.distQ
+        ? '<a class="ckdist maplink" data-q="' + coordQ(v.distQ)
+          + '" aria-label="Open in Maps">' + dtxt + '</a>'
+        : '<span class="ckdist">' + dtxt + '</span>');
     }
     /* A one-glyph warning (an unreviewed report). It rides the row rather than
        a line of its own because it qualifies the whole claim, and it is last

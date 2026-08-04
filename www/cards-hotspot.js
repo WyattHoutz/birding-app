@@ -169,7 +169,9 @@
     '.hscard-md > .name { display: contents; }',
     '.hscard-md > .name > .hsnum { grid-column: 1; grid-row: 1; align-self: start; }',
     '.hscard-md > .name > .ntext {',
-    '  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;',
+    /* CENTRED in its row: the rank badge and the distance beside it are short
+       and vertically centred, so a top-aligned name sat above both. */
+    '  grid-column: 2; grid-row: 1; align-self: center; min-width: 0;',
     /* The hotspot name is the SUBJECT of a hotspot card, so it outranks its
        own sub-header — which it did NOT: the name was reaching the screen at
        13px against a 15px sub-header (see the title-link rule at the top of
@@ -209,6 +211,11 @@
     '  text-align: right; white-space: nowrap;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
+    /* The linked distance keeps the column's typography and takes the accent
+       colour to read as tappable; `.maplink`'s 8px top margin is undone
+       because it is meant for an action link on its own line. */
+    '.hscard-md > .name > a.hsdist { margin-top: 0; color: var(--accent);',
+    '                               text-decoration: none; }',
     '.hscard-md > .name > .hsdist small {',
     '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
     '  color: var(--muted); letter-spacing: .02em; }',
@@ -281,8 +288,20 @@
     // same class of bug as a sub-header that repeated the distance it already
     // had a column for.
     var unit = v.distanceLabel || 'mi';
-    return '<span class="hsdist">' + (n < 10 ? n.toFixed(1) : String(Math.round(n)))
-      + '<small>' + unit + '</small></span>';
+    var body = (n < 10 ? n.toFixed(1) : String(Math.round(n))) + '<small>' + unit + '</small>';
+    // Tappable, for the same reason as the species card: the distance is the
+    // fact that answers "can I go", so it is also the thing that takes you.
+    // `distQ` is a plain "lat,lng", not a URL — see cards-species.js.
+    return v.distQ
+      ? '<a class="hsdist maplink" data-q="' + coordQ(v.distQ)
+        + '" aria-label="Open in Maps">' + body + '</a>'
+      : '<span class="hsdist">' + body + '</span>';
+  }
+
+  /* A coordinate has a KNOWN SHAPE, so it is validated rather than escaped —
+     these files have no escaper of their own by design. See cards-species.js. */
+  function coordQ(q) {
+    return String(q == null ? '' : q).replace(/[^0-9.,-]/g, '');
   }
 
   function markerHtml(v) {
