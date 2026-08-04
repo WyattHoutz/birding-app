@@ -131,3 +131,15 @@ npm install
   `_convoy_species_cell`. This completes **full report parity**. ✅
 
 See **[PARITY.md](PARITY.md)** for the full report-feature → app-status matrix.
+
+## Data sources and attribution
+
+Bird data comes from the **eBird API**, © **Cornell Lab of Ornithology**, used
+under the [eBird API Terms of Use](https://www.birds.cornell.edu/home/ebird-api-terms-of-use/).
+Weather and tides come from NOAA; see **[DATA.md](DATA.md)** for the full list,
+the terms each source arrives under, and what the bundled sample list actually
+contains.
+
+This is a free, personal, **non-commercial** tool. It is not affiliated with or
+endorsed by the Cornell Lab of Ornithology or eBird, and it ships no API key —
+you supply your own.
