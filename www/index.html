@@ -5890,9 +5890,29 @@
       // first/latest dates. Distinct from "Today's rarity reports", which lists
       // today's individual sightings.
       function buildActiveRarities(records, home) {
-        var byCode = {}, order = [];
+        var byCode = {}, order = [], droppedFar = 0;
         (records || []).forEach(function (r) {
           if (r.kind !== 'Rarity' || !r.code) return;
+          // BOUND BY THE CHASE RADIUS, exactly as report.section_rarities does.
+          //
+          // kind === 'Rarity' is not a local marker: the pool includes raw
+          // statewide notable records (the ABA Code 3+ recovery path fetches a
+          // whole state's notable feed), so this section listed a Nashville
+          // Warbler with 16 "reports" whose expander offered checklists from
+          // Clarkston, 252 miles away across the Cascades, beside the two at
+          // Bolt Creek Burn that were the actual reports for it.
+          //
+          // The filter is DISTANCE, not "did eBird flag it here". eBird judges
+          // rarity per location — an Eastern Kingbird is unremarkable in one
+          // county and notable in the next — so a nearby checklist holding the
+          // bird is worth seeing whether or not that sighting was flagged.
+          // Filtering on the flag would drop exactly the useful case.
+          //
+          // A record with no coordinates keeps its place; the report treats a
+          // missing distance the same way.
+          var dm = (home && isFinite(r.lat) && isFinite(r.lon))
+            ? haversineMi(home.lat, home.lng, r.lat, r.lon) : null;
+          if (dm != null && dm > CHASE_MAX_MI) { droppedFar++; return; }
           if (!byCode[r.code]) { byCode[r.code] = []; order.push(r.code); }
           byCode[r.code].push(r);
         });
@@ -5920,6 +5940,10 @@
           };
         });
         out.sort(function (a, b) { return String(b.latest).localeCompare(String(a.latest)); });
+        // Carried on the array so the status line can say what was withheld.
+        // Silence is how this went unnoticed: nobody questions a count whose
+        // workings they cannot see.
+        out.droppedFar = droppedFar;
         return out;
       }
 
@@ -5943,7 +5967,10 @@
         }).then(function (rows) {
           if (!rows) return;
           if (!rows.length) { st.textContent = 'No rarities currently reported in ' + label + '.'; return; }
-          st.textContent = rows.length + ' rare species reported recently · most recent first · ' + nowTime();
+          st.textContent = rows.length + ' rare species reported recently · within ' + CHASE_MAX_MI
+            + ' mi · most recent first · ' + nowTime()
+            + (rows.droppedFar ? ' · ' + rows.droppedFar + ' report'
+               + (rows.droppedFar === 1 ? '' : 's') + ' farther out not shown' : '');
           el.innerHTML = rows.map(function (r) {
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
@@ -11394,6 +11421,7 @@
       window.__app = {
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
+        buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,

@@ -6846,3 +6846,58 @@ test('no personal eBird identity is hardcoded in the shipped source', () => {
     'A default identity is not a cosmetic issue - it is what the leaderboard ' +
     'lookup and own-checklist filtering key on.');
 });
+
+// The app half of the rarity-distance bug. Reported from a real report: the
+// Nashville Warbler row claimed 16 reports and expanded into checklists from
+// Clarkston (252 mi), Chief Timothy Park (250 mi) and Whitman Mission (210 mi),
+// beside the two at Bolt Creek Burn 32.1 mi away that were the actual reports.
+//
+// kind === 'Rarity' is not a local marker: the ABA Code 3+ recovery path pulls a
+// whole state's notable feed and those records carry the same kind.
+//
+// The filter is DISTANCE, not "did eBird flag it here" -- eBird judges rarity
+// per location, so an Eastern Kingbird is unremarkable in one county and notable
+// in the next. A nearby checklist holding the bird is worth seeing whether or
+// not that sighting was flagged; filtering on the flag drops the useful case.
+test('rarity reports are bounded by the chase radius, not by the flag', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const home = { lat: 47.75, lng: -122.16 };
+  const at = (miNorth) => ({ lat: 47.75 + miNorth / 69, lon: -122.16 });
+
+  const recs = [
+    // The two real ones, close.
+    { kind: 'Rarity', code: 'nawwar', name: 'Nashville Warbler', subId: 'S378890306',
+      observer: 'Birder Wyatt', dateStr: '2026-08-01', ...at(30) },
+    { kind: 'Rarity', code: 'nawwar', name: 'Nashville Warbler', subId: 'S378544956',
+      observer: 'Aaron Gyllenhaal', dateStr: '2026-07-31', ...at(30) },
+    // Across the mountains.
+    { kind: 'Rarity', code: 'nawwar', name: 'Nashville Warbler', subId: 'S379303809',
+      observer: 'Someone', dateStr: '2026-08-02', ...at(252) },
+    { kind: 'Rarity', code: 'nawwar', name: 'Nashville Warbler', subId: 'S379390171',
+      observer: 'Someone', dateStr: '2026-08-02', ...at(250) },
+    { kind: 'Rarity', code: 'nawwar', name: 'Nashville Warbler', subId: 'S379630222',
+      observer: 'Someone', dateStr: '2026-08-03', ...at(66) },
+  ];
+
+  const rows = A.buildActiveRarities(recs, home);
+  assert.equal(rows.length, 1, 'one species row');
+  const row = rows[0];
+
+  assert.equal(row.reports, 2,
+    `the count must match what the expander lists (got ${row.reports}); ` +
+    'reporting 16 while only 2 are chaseable is the original bug');
+  // JSON.stringify, not deepEqual: the array comes from the jsdom realm and
+  // cross-realm deepEqual fails on identical contents.
+  const subs = row.recs.map((r) => r.subId).sort().join(',');
+  assert.equal(subs, 'S378544956,S378890306',
+    'only the checklists inside the radius survive');
+  assert.ok(row.distMi < A.CHASE_MAX_MI, 'and the closest is genuinely close');
+  assert.equal(rows.droppedFar, 3, 'what was withheld is counted, not silently dropped');
+
+  // A species whose every report is far away is not a chase at all.
+  const onlyFar = A.buildActiveRarities(recs.slice(2), home);
+  assert.equal(onlyFar.length, 0,
+    'a species with nothing inside the radius gets no row - there is nowhere to go');
+  app.window.close();
+});
