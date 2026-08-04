@@ -596,7 +596,13 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
     HTML.indexOf('function birdcastSeason('));
   assert.match(aba, /birdCard\(\{/, 'the ABA alert builds large cards');
   assert.match(aba, /rarityStats\(/, 'and shows the rarity evidence');
-  assert.match(aba, /hydrateCards\(/, 'and the ABA cards get their blurbs');
+  // Hydration is LAZY now: the profiles are a sub-page, hidden until one is
+  // opened, and history/blurb/finder are a network call each — a dozen birds
+  // nobody has opened is a dozen calls nobody asked for.
+  const open = HTML.slice(HTML.indexOf('function abaOpenBird('),
+    HTML.indexOf('function abaCloseBird('));
+  assert.match(open, /hydrateCards\(card\)/, 'and the opened ABA card gets its blurb');
+  assert.match(open, /card\.dataset\.hydrated/, 'once, not on every open');
 
   assert.doesNotMatch(today, /birdCard\(\{/,
     "today's rarities is a list, not 13 profiles — the large card is the wrong template");
@@ -633,9 +639,19 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
     'the time is the checklist link, so the submission id is not printed too');
   assert.doesNotMatch(today, /checklistLink\(r\.subId, r\.subId\)/,
     'the raw submission id is eleven characters of noise on a phone row');
-  // Drawn separators, so a report with no observer cannot strand a "·".
-  assert.match(HTML, /\.rarewhere > \.when::before, \.rarewhere > \.who::before/,
+  // Drawn separators, so a report with no observer, no count and no
+  // stakeout cannot strand a "·" — the flags are optional now too.
+  assert.match(HTML, /\.rarewhere > span \+ span::before/,
     'the separators are drawn by CSS, not typed into the string');
+  // The NAME row carries the name alone. 🔍, ×count and 📍 Day N are facts
+  // about the sighting, so they sit with the rest of them on the sub-line.
+  assert.match(today, /tags: ''/, 'the header is the bird, and nothing else');
+  assert.match(today, /class="rareflags"/, 'the flags moved to the sub-line');
+  const flagIdx = today.indexOf('class="rareflags"');
+  const locIdx = today.indexOf('class="rareloc"');
+  assert.ok(flagIdx > -1 && locIdx > flagIdx,
+    'and read before the place: do I need it, how many, has it stuck around, '
+    + 'then where');
 });
 
 // Reported from the device: the place name and its 🗺 link broke across two
@@ -927,8 +943,8 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
-    'the rarity thumbnail is double the 46px default, and scales with the text-size setting');
+  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(70px \* var\(--s\)\)/,
+    'the rarity thumbnail is larger than the 46px seed-sized default, and scales with the text-size setting');
   // It used to hand-roll .name/.ntext/.meta — a second copy of the medium card
   // that could drift from the real one, which is exactly what happened to Easy
   // misses before it was unified.
@@ -1743,11 +1759,24 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   assert.equal(plain.icon, '', 'a label with no glyph claims none');
   assert.equal(plain.text, 'Settings',
     'and keeps all of its text rather than losing a letter to a bad guess');
-  const first = app.document.querySelector('#menuList li');
+  // The first TILE, not the first list child: the group heading above it is
+  // a child too. Grouping the menu is what broke the old selector.
+  const first = app.document.querySelector('#menuList li:not(.tocgroup)');
   assert.ok(first.classList.contains('wide'),
     'the first tile spans the row rather than sharing a slot');
   assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
     /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
+  // The headings are labels for the tiles, not tiles: a screen reader
+  // stepping through Contents must not find one that does nothing.
+  const heads = [...app.document.querySelectorAll('#menuList li.tocgroup')];
+  assert.ok(heads.length >= 2, 'the menu is broken into named groups');
+  heads.forEach((h) => {
+    assert.equal(h.getAttribute('role'), 'presentation',
+      'a group heading is not announced as a list item');
+    assert.ok(!h.querySelector('button'), 'and carries nothing tappable');
+  });
+  assert.ok(heads.some((h) => /go birding/i.test(h.textContent)),
+    'including the one that holds the place-finding sections');
   app.window.close();
 });
 
@@ -1922,10 +1951,15 @@ test('a checklist row is ONE line that truncates, and never overflows', async ()
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*overflow: hidden/,
     'and the row CLIPS as a backstop — nowrap without overflow control hides '
     + 'the overflow off the screen edge instead of preventing it (+196px once)');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*flex: 1 1 0/,
+    'flex-BASIS 0 on the lead: with `auto` the name claimed its content width '
+    + 'first and shoved the facts onto a second line, which is the reported bug');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > span:not\(\.cklead\) \{[^}]*flex: 0 1 auto/,
+    'the facts take their natural width and shrink only if they must');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*flex-wrap: wrap/,
-    'at 1.75x text scale the three facts alone measure ~316px on a 320px '
-    + 'screen, so the row degrades by WRAPPING — which keeps every fact '
-    + 'readable — rather than by clipping the distance away');
+    'wrapping survives ONLY as the last resort: at 1.75x on a 320px screen '
+    + 'the facts alone are wider than the screen, so there is no one-line '
+    + 'answer left and clipping would delete the distance silently');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*text-overflow: ellipsis/,
     'the lead is the part that truncates');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*min-width: 0/,
@@ -2722,16 +2756,20 @@ test('the mode switch is wired, and does not re-navigate to where you already ar
   app.window.close();
 });
 
-// The switch used to repeat all six options in each of four panels, and only
-// the `selected` attribute differed — 24 lines kept in sync by hand. One table
-// now drives every switch, so a mode cannot exist in one panel and not another.
+// One table drives every switch, so a mode cannot exist in one panel and not
+// another. The `places` group is deliberately GONE: destinations, excursions
+// and the trip planner rank places by the birds you still need, while the
+// quick-outing anchors just list what is near a point you pick. Merging them
+// hid two top-level sections inside another section's control.
 test('every mode switch is built from ONE table', async () => {
   assert.doesNotMatch(HTML, /<select class="modepick"/,
-    'the wheel picker is gone — six chips are one tap, a select is three');
+    'the wheel picker is gone — chips are one tap, a select is three');
+  assert.doesNotMatch(HTML, /data-modes="places"/,
+    'no panel offers the merged places switch any more');
   const app = await boot();
   const doc = app.window.document;
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes]')];
-  assert.ok(rows.length >= 6, 'every paired section carries a switch');
+  assert.ok(rows.length >= 3, 'the sections that really have modes carry a switch');
   const byGroup = {};
   // A chip is keyed by data-goto when it NAVIGATES and by id when it TOGGLES a
   // mode inside its own panel — both are chips, so read whichever it carries.
@@ -2751,7 +2789,13 @@ test('every mode switch is built from ONE table', async () => {
     assert.equal(keyOf(on[0]), r.getAttribute('data-current'),
       g + ': the pressed chip is the one the panel declares current');
   });
-  assert.equal(byGroup.places.length, 6, 'all six place modes are offered');
+  assert.equal(byGroup.quick.length, 3,
+    'the quick outing offers exactly its three anchors — near home, here, '
+    + 'and a place you name — and no longer smuggles three other SECTIONS in '
+    + 'beside them');
+  assert.deepEqual(JSON.stringify(byGroup.quick),
+    JSON.stringify(['quick:home', 'quick:here', 'quick:find']),
+    'in that order, with home the default');
   // Build order is load-bearing: the checklist chips are addressed by id and
   // get their handlers bound in the init block, so the switch must be built
   // BEFORE that block runs or those handlers land on elements that are about
@@ -2873,8 +2917,8 @@ test('the unseen list sizes its icon to the seed it actually shows', async () =>
   const css = app.window.SpeciesCards.css;
   assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
     'and that resolves to 46px — the width the seed was cut for');
-  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(92px \* var\(--s\)\)/,
-    'while sections showing a network photo keep 92px');
+  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(70px \* var\(--s\)\)/,
+    'while sections showing a network photo keep the larger box');
   app.window.close();
 });
 
@@ -6118,7 +6162,11 @@ test('docs/CARDS.md matches the code it documents', () => {
 
 // A dozen ABA megararities is a dozen full-screen profiles, and there was no
 // way to see WHICH birds the section held without scrolling every one of them.
-test('the ABA alert indexes its birds, and the index jumps to the card', async () => {
+// The ABA section is the SPECIES LIST. Each profile is a full screen — latest
+// report, finder, every report we hold, state history — so a dozen
+// megararities was a dozen screens to scroll past before you knew which birds
+// were even in it. A bird opens as a SUB-PAGE over the list.
+test('the ABA alert shows a species list, and a bird opens as a sub-page', async () => {
   const app = await boot();
   const doc = app.window.document;
   const A = app.window.__app;
@@ -6132,51 +6180,169 @@ test('the ABA alert indexes its birds, and the index jumps to the card', async (
   ];
   A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true);
 
-  const idx = doc.querySelector('.abaindex');
-  assert.ok(idx, 'the section leads with an index');
-  const jumps = [...idx.querySelectorAll('a.abajump')];
+  // 1. The section shows the LIST, and only the list.
+  const list = doc.getElementById('abaResults');
+  const detail = doc.getElementById('abaDetail');
+  assert.equal(list.hidden, false, 'the species list is what the section shows');
+  assert.equal(detail.hidden, true, 'and no profile is open');
+  const jumps = [...list.querySelectorAll('a.abajump')];
   assert.equal(jumps.length, 3, 'one entry per species, not per report');
-  // The SMALL species card, so the index reads as the same family of thing as
-  // the profiles below it rather than as a fourth invented row shape.
-  assert.ok(idx.querySelector('ul.obs.card-sm'), 'built from the small species card');
-  assert.match(idx.textContent, /3 species/, 'and says how many there are');
-
-  // Newest first, matching the cards below — an index in a different order
-  // than the thing it indexes is worse than no index.
+  assert.ok(list.querySelector('ul.obs.card-sm'), 'built from the small species card');
+  // Newest first — a list in a different order than the thing it indexes is
+  // worse than no list.
   assert.deepEqual(JSON.stringify(jumps.map((a) => a.textContent)),
     JSON.stringify(['Terek Sandpiper', 'White Wagtail', 'Little Gull']),
-    'the index is in the same order as the cards');
+    'newest first');
+  // The profiles exist but are put away.
+  assert.equal(detail.children.length, 3, 'every profile is built');
+  [...detail.children].forEach((c) => assert.equal(c.hidden, true, 'and hidden'));
 
-  // Every jump must land somewhere. A dead anchor is the whole failure mode.
-  for (const a of jumps) {
-    const id = (a.getAttribute('href') || '').replace(/^#/, '');
-    assert.ok(id, 'the entry carries a target');
-    assert.ok(doc.getElementById(id), 'and that target exists: ' + id);
-  }
-
-  // Proven by clicking: the handler must intercept, or the browser would try
-  // to navigate to a hash and fight showSection().
-  const target = doc.getElementById('aba-whiwag');
-  let scrolled = false;
-  target.scrollIntoView = function () { scrolled = true; };
+  // 2. Tapping a name opens THAT bird, over the list.
   const ev = new app.window.MouseEvent('click', { bubbles: true, cancelable: true });
   jumps[1].dispatchEvent(ev);
-  assert.ok(ev.defaultPrevented, 'the jump is handled here, not by the browser');
-  assert.ok(scrolled, 'and it scrolls the card into view');
-  assert.ok(target.classList.contains('jumped'),
-    'and flashes it, so you can see that something moved');
+  assert.ok(ev.defaultPrevented, 'handled here, not by the browser — a hash '
+    + 'change would fight showSection()');
+  assert.equal(detail.hidden, false, 'the sub-page opens');
+  assert.equal(list.hidden, true, 'and the list goes away, rather than the '
+    + 'profile being the tenth thing you scroll past');
+  assert.equal(doc.getElementById('aba-whiwag').hidden, false, 'the bird you tapped');
+  assert.equal(doc.getElementById('aba-tersan').hidden, true, 'and only that one');
+  assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
+    'the navbar names where you are');
+
+  // 3. Back means UP ONE LEVEL, not all the way out.
+  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
+    /rarities list/i, 'and the back button says so');
+  // Entering the section first makes "back does not leave it" a real claim:
+  // from the menu, everything is hidden and the assertion would be vacuous.
+  A.showSection('sec-abaBtn');
+  A.abaOpenBird('whiwag');
+  assert.equal(doc.getElementById('menuPanel').hidden, true, 'we are in the section');
+  A.navBack();
+  assert.equal(detail.hidden, true, 'back closes the sub-page');
+  assert.equal(list.hidden, false, 'and returns to the list');
+  assert.equal(doc.getElementById('menuPanel').hidden, true,
+    'without leaving the section entirely — back is UP ONE LEVEL, not all the way out');
+  A.navBack();
+  assert.equal(doc.getElementById('menuPanel').hidden, false,
+    'and a second back, with no sub-page open, does leave for Contents');
+  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
+    /contents/i, 'and back now means Contents again');
   app.window.close();
 });
 
-// One bird needs no index — it would be a table of contents for a single page.
-test('the ABA index does not appear for a single species', async () => {
+// Leaving the section must forget the sub-page, or coming back later lands you
+// on a bird's profile with no memory of having chosen it.
+test('navigating away closes the ABA sub-page', async () => {
   const app = await boot();
   const doc = app.window.document;
-  app.window.__app.renderAbaAlert([
+  const A = app.window.__app;
+  A.renderAbaAlert([
     { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-08-02 09:00',
       locName: 'Stanwood', lat: 48.2, lng: -122.3, subId: 'S1', howMany: 1 },
   ], 'https://ebird.org/alert/summary?sid=X', true);
-  assert.ok(!doc.querySelector('.abaindex'), 'no index for one bird');
-  assert.ok(doc.getElementById('aba-tersan'), 'but the card still carries its anchor');
+  assert.ok(A.abaOpenBird('tersan'), 'the bird opens');
+  assert.equal(doc.getElementById('abaDetail').hidden, false);
+  A.showSection('sec-refreshBtn');
+  assert.equal(doc.getElementById('abaDetail').hidden, true, 'and is put away on leaving');
+  assert.equal(doc.getElementById('abaResults').hidden, false, 'with the list restored');
+  app.window.close();
+});
+
+// "I previously asked to merge the destinations and excursions, but this was a
+// mistake." Two top-level sections had become options inside a THIRD section's
+// control, so finding "excursions" meant knowing it lived on the Quick outing
+// panel. They are menu entries again, grouped with the other place-finders.
+test('the place-finding sections are top-level, and grouped as Go birding', async () => {
+  const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
+  const doc = app.document;
+  const GO = ['tripBtn', 'destBtn', 'targetsBtn', 'quickBtn', 'excBtn'];
+
+  // 1. Each is its own section, reachable from the menu on its own.
+  const labels = [...doc.querySelectorAll('#menuList .toclink')]
+    .map((b) => b.getAttribute('aria-label'));
+  for (const want of ['Top destinations', 'Top excursions', 'Quick outing',
+                      'Trip planner', 'Closest spots']) {
+    assert.ok(labels.some((l) => l && l.includes(want)),
+      want + ' has its own tile in Contents');
+  }
+
+  // 2. They sit under one heading, contiguously — a group with a gap in it is
+  //    not a group, it is a coincidence.
+  const kids = [...doc.querySelectorAll('#menuList > li')];
+  const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
+    && /go birding/i.test(k.textContent));
+  assert.ok(headIdx > -1, 'there is a Go birding heading');
+  const under = [];
+  for (let i = headIdx + 1; i < kids.length; i++) {
+    if (kids[i].classList.contains('tocgroup')) break;
+    under.push(kids[i].querySelector('.toclink').getAttribute('aria-label'));
+  }
+  assert.equal(under.length, GO.length,
+    'exactly the five place-finding sections sit under it, got: ' + under.join(' | '));
+
+  // 3. The MENU order is a contract with the Markdown report, so grouping must
+  //    not have reordered anything. The groups are drawn OVER the report's own
+  //    order; every group must therefore be a contiguous run of it.
+  const order = [...HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',[^\n]*group: '([^']+)'/g)]
+    .map((m) => ({ at: m[1], group: m[2] }));
+  assert.equal(order.length, 26, 'every menu entry declares a group');
+  const seen = new Set();
+  let prev = null;
+  for (const e of order) {
+    if (e.group !== prev) {
+      assert.ok(!seen.has(e.group),
+        e.group + ' is split into two runs — grouping may not reorder the menu, '
+        + 'because tests/parity/test_report_toc.py compares it to the report');
+      seen.add(e.group);
+      prev = e.group;
+    }
+  }
+  app.window.close();
+});
+
+// The Quick outing panel is about ONE question: which anchor to measure from.
+test('quick outing offers only its three anchors, and asks for a place only when told to', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/nominatim/.test(url)) return [{ lat: '47.61', lon: '-122.33', display_name: 'Seattle' }];
+      if (/ref\/hotspot\/geo/.test(url)) return [];
+      return [];
+    },
+    storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+  });
+  const doc = app.document;
+  const sec = doc.getElementById('sec-quickBtn');
+  const chips = [...sec.querySelectorAll('.modeswitch .modebtn')]
+    .map((b) => b.getAttribute('data-goto'));
+  assert.deepEqual(JSON.stringify(chips),
+    JSON.stringify(['quick:home', 'quick:here', 'quick:find']),
+    'near home, here, find — and nothing that is really a different section');
+  for (const gone of ['sec-destBtn', 'sec-excBtn', 'sec-tripBtn']) {
+    assert.ok(!chips.includes(gone), gone + ' is a section, not a quick-outing mode');
+  }
+
+  // The two anchor buttons are the SAME state the chips carry, so they are
+  // kept for their handlers but never shown: two controls for one choice is
+  // how this panel came to have a dropdown AND a button pair on screen.
+  assert.ok(doc.getElementById('quickBtn'), 'the loader button still exists');
+  assert.equal(doc.getElementById('quickBtn').closest('.row').hidden, true,
+    'but its row is hidden — the chips are the control now');
+
+  // The place box belongs to Find alone. It used to be a permanent third row,
+  // so the panel asked for an address every time you opened it to look near
+  // home — and a failed geolocation opened it and nothing ever closed it.
+  const row = doc.getElementById('quickHereRow');
+  assert.equal(row.hidden, true, 'no address box before it is asked for');
+  app.window.__app.loadQuickOuting('home');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(row.hidden, true, 'still none when looking near home');
+  sec.querySelector('.modebtn[data-goto="quick:find"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(row.hidden, false, 'Find opens it');
+  app.window.__app.loadQuickOuting('home');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(row.hidden, true, 'and going back to Home closes it again');
   app.window.close();
 });

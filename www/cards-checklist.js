@@ -77,28 +77,39 @@
 
   var CSS = [
     '.cklcards { list-style: none; margin: 6px 0 4px; padding: 0; }',
-    /* ONE LINE at every normal text size, and it TRUNCATES the name rather
-       than wrapping it: the lead flexes and ellipsises while the short facts
-       keep their natural width, so a long hotspot name loses its tail instead
-       of pushing "Aug 2 9:29a · ×1 · 4.2 mi" onto a second line.
-       `flex-wrap: wrap` is the DEGRADATION, not the normal case. At the
-       largest accessibility text scale (1.75×) on a 320px screen the three
-       facts alone measure ~316px, so something has to give — and wrapping to
-       a second line keeps every fact readable, where clipping would silently
-       delete the distance. The layout sweep measures this exactly.
-       Each cell still carries `white-space: nowrap`, so a date or a count can
-       never split down the middle; only whole facts move.
-       An earlier version put nowrap on a group that could not shrink and had
-       no overflow control, and the sweep caught it 196px past a 320px screen:
-       nowrap alone does not prevent overflow, it hides it off the edge. */
+    /* ONE LINE, and the HOTSPOT NAME is what truncates to keep it there.
+       `flex-basis: 0` on the lead is the whole fix, and it is one word. With
+       `auto` the lead claimed its content width first and only then shrank in
+       proportion to it, so a long name kept a slice of the row it should have
+       surrendered and shoved the facts onto a second line — which is exactly
+       what was reported. With `0` the lead asks for nothing, takes only what
+       is left after the short facts, and ellipsises.
+       `flex-wrap: wrap` remains as the LAST RESORT, and only bites at the
+       largest accessibility text scale on the narrowest phone: at 1.75× on a
+       320px screen the facts ALONE measure wider than the screen, so there is
+       no one-line answer left — and wrapping keeps every fact readable where
+       clipping would silently delete the distance. The layout sweep measures
+       exactly that case. At every normal size the row is one line.
+       Each cell keeps `white-space: nowrap`, so a date or a count never
+       splits down the middle; only whole facts can move. */
     '.cklcards-sm > .cklcard-sm {',
     '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;',
     '  min-width: 0; overflow: hidden; white-space: nowrap;',
     '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35;',
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm > .cklead {',
-    '  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
+    '  flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
     '  font-weight: 600; }',
+    /* `flex-basis: 0` on the lead, NOT `auto`, and that one word is the whole
+       fix. With `auto` the lead claims its content width first and only then
+       shrinks in proportion to it, so a long hotspot name kept ~47px of the
+       row it should have surrendered and pushed the distance 30px off a 320px
+       screen — measured by the layout sweep, exactly there.
+       With `0` the lead asks for nothing and takes only what is left after the
+       short facts, so the NAME is always what gives way. The facts stay
+       shrinkable as a second line of defence. */
+    '.cklcards-sm > .cklcard-sm > span:not(.cklead) {',
+    '  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
     /* The ellipsis has to be applied to the LINK, not only to its wrapper.
        `text-overflow` acts on the box that overflows, and an inline <a> inside
        a clipping span is simply painted-then-clipped: it still measures its
