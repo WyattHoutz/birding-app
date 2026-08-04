@@ -1846,7 +1846,7 @@ test('All unseen reports: a species at several places is ONE card, places by dat
   // a place you cannot date, measure or verify is not a lead.
   const html = A.unseenPlacesHtml(g.places);
   assert.match(html, /class="cklcards cklcards-sm uplaces"/, 'renders the place list');
-  assert.equal((html.match(/<li class="cklcard cklcard-sm">/g) || []).length, 3,
+  assert.equal((html.match(/<li class="cklcard cklcard-sm"/g) || []).length, 3,
     'one row per checklist');
   assert.match(html, /S11/, 'and names the checklist rather than saying "checklist"');
   for (const bit of ['cklead', 'ckdate', 'ckdist', ' mi']) {
@@ -1902,7 +1902,7 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   // place with three checklists printed its name once and its evidence three
   // rows below. Now the hotspot NAME is the row and the name is the link, so
   // there is exactly one line per checklist and nothing is said twice on it.
-  assert.equal((html.match(/<li class="cklcard cklcard-sm">/g) || []).length, 4,
+  assert.equal((html.match(/<li class="cklcard cklcard-sm"/g) || []).length, 4,
     'one row per checklist — three at Penny Creek, one at Marymoor');
   assert.ok(!/class="uploc"|class="upmeta"/.test(html),
     'the separate heading and meta lines are gone');
@@ -6345,4 +6345,63 @@ test('quick outing offers only its three anchors, and asks for a place only when
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(row.hidden, true, 'and going back to Home closes it again');
   app.window.close();
+});
+
+// Requests that arrived in another session and were nearly lost. Pinned
+// together because they are one idea: a checklist row is a ROW YOU TAP.
+test('a checklist row is the requested one-liner, and the whole row is the link', async () => {
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+
+  // The row as it was asked for, to the character:
+  //   "33014 NE 138th St. Aug 3 5:14AM x3 12.4mi"
+  const row = CK.small({
+    place: '33014 NE 138th St', href: 'https://ebird.org/checklist/S1',
+    date: 'Aug 3 5:14 AM', count: 3, distMi: 12.4,
+  });
+  const app = await boot();
+  const d = app.window.document;
+  d.body.insertAdjacentHTML('beforeend', '<ul class="cklcards cklcards-sm">' + row + '</ul>');
+  const li = d.querySelector('body > ul.cklcards-sm > li.cklcard-sm');
+  const txt = li.textContent.replace(/\s+/g, ' ').trim();
+  assert.match(txt, /33014 NE 138th St/, 'the hotspot name leads');
+  assert.match(txt, /Aug 3 5:14a/, 'then when');
+  assert.match(txt, /×3/, 'then how many');
+  assert.match(txt, /12\.4 mi/,
+    'then how far, to ONE DECIMAL — it used to round anything over 10mi to '
+    + '"12 mi", and on a list you scan to pick a drive the tenth is what '
+    + 'separates two hotspots ten minutes apart');
+
+  // The WHOLE ROW is the link, not just the name: on a phone the name is a
+  // ~10px target in a 30px row and the rest looked tappable but was not.
+  assert.equal(li.getAttribute('data-href'), 'https://ebird.org/checklist/S1',
+    'the row carries the checklist link');
+  // ...via data-href, NOT by wrapping the row in an <a>: the row also holds a
+  // map pin, and an <a> inside an <a> is invalid HTML that browsers silently
+  // un-nest, which would break the pin.
+  assert.ok(!/^<li[^>]*>\s*<a /.test(row), 'the row is not wrapped in an anchor');
+  // The name stays a REAL link so keyboard and screen-reader users get one.
+  assert.ok(li.querySelector('a.ckgo'), 'the name is still a proper link');
+  assert.match(CK.css, /\.cklcard-sm\[data-href\] \{ cursor: pointer/,
+    'and the row looks tappable, because it is');
+
+  // The handler must let a real link inside the row win, or the map pin would
+  // open the checklist instead of the map.
+  const src = HTML.slice(HTML.indexOf(".cklcard-sm[data-href]'"),
+    HTML.indexOf(".cklcard-sm[data-href]'") + 400);
+  assert.match(src, /!ev\.target\.closest\('a'\)/,
+    'a click on a link inside the row is left alone');
+  app.window.close();
+});
+
+// The unseen birds are the finding; the already-seen list is the context it is
+// contrasted with — and at a busy convoy it was the longer of the two.
+test('the convoy already-seen list is collapsed', () => {
+  // Not scoped to renderConvoys: the species split is filled in by a later
+  // hydration pass, several functions away from where the card is built.
+  assert.match(HTML, /<details class="convoyseen"><summary>Already seen this year/,
+    'it is a collapsed <details>, not an always-open block');
+  assert.ok(!/<div class="convoyhead">Already seen this year/.test(HTML),
+    'and the old always-open heading is gone, not merely bypassed');
+  assert.match(HTML, /\.convoyseen > summary \{/, 'and it is styled as one');
 });

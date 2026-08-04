@@ -54,7 +54,7 @@
      The count is kept but written "×42", not "42 birds": same fact, a quarter
      of the width. */
   var SMALL = [
-    '<li class="cklcard cklcard-sm">',
+    '<li class="cklcard cklcard-sm"{{rowlink}}>',
     '{{row}}',
     '</li>'
   ].join('');
@@ -97,6 +97,8 @@
     '  min-width: 0; overflow: hidden; white-space: nowrap;',
     '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35;',
     '  color: var(--muted); }',
+    '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',
+    '.cklcards-sm > .cklcard-sm[data-href]:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }',
     '.cklcards-sm > .cklcard-sm > .cklead {',
     '  flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
     '  font-weight: 600; }',
@@ -223,8 +225,11 @@
         : '\u00d7' + esc(v.count)) + '</span>');
     }
     if (v.distMi != null && isFinite(v.distMi)) {
-      bits.push('<span class="ckdist">' + (Number(v.distMi) < 10
-        ? Number(v.distMi).toFixed(1) : String(Math.round(v.distMi))) + ' mi</span>');
+      // ONE DECIMAL, always. It used to round anything over 10 mi, so the
+      // requested row "…Aug 3 5:14AM ×3 12.4mi" printed "12 mi" — and on a
+      // list you scan to pick a drive, the tenth is the part that separates
+      // two hotspots ten minutes apart.
+      bits.push('<span class="ckdist">' + Number(v.distMi).toFixed(1) + ' mi</span>');
     }
     /* A one-glyph warning (an unreviewed report). It rides the row rather than
        a line of its own because it qualifies the whole claim, and it is last
@@ -244,6 +249,15 @@
     }
     return tpl
       .replace('{{row}}', bits.join(''))
+      // THE WHOLE ROW IS THE LINK. On a phone the name is a ~10px-tall target
+      // in a 30px-tall row, and the rest of the row was dead space that looked
+      // tappable. `data-href` rather than wrapping the row in an <a>, because
+      // the row also contains a map pin, and an <a> inside an <a> is invalid
+      // HTML that browsers silently un-nest — which would break the pin. The
+      // name stays a REAL link, so keyboard and screen-reader users still get
+      // one; the row click is an enhancement over it, not a replacement.
+      .replace('{{rowlink}}', (v.href && !isMedium)
+        ? ' data-href="' + esc(v.href) + '"' : '')
       .replace('{{num}}', v.num != null && v.num !== ''
         ? '<span class="cknum">' + esc(v.num) + '</span>' : '')
       .replace('{{tally}}', (v.species != null && v.species !== '')
