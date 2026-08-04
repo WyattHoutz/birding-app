@@ -315,6 +315,17 @@
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
+    /* A group heading spans the whole grid so the tiles under it read as a
+       set. It is a <li> because the grid's children must be list items, and
+       role="presentation" because it is a LABEL for the tiles, not one of
+       them — a screen reader stepping through the list should hear five
+       destinations, not six with one that does nothing. */
+    .toc li.tocgroup {
+      grid-column: 1 / -1; display: block; margin: 14px 0 -2px;
+      font-size: calc(13px * var(--s)); font-weight: 800; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .toc li.tocgroup:first-child { margin-top: 2px; }
     .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
                             gap: 12px; font-size: calc(17px * var(--s));
                             background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
@@ -545,14 +556,23 @@
                         font-weight: 700; color: var(--accent); padding: 4px 0; }
     /* The " (🗺)" that trails a hotspot name is one token, not three. */
     .mapwrap { white-space: nowrap; }
-    /* Today's rarities sub-line: place · time · observer, with the separators
-       DRAWN rather than typed so a missing observer cannot strand a trailing
-       "·". `overflow-wrap: anywhere` because eBird place names contain long
+    /* Today's rarities sub-line: everything except the bird's NAME.
+       🔍 · ×1 · 📍 Day 3 · place · time · observer — do I need it, how many,
+       has it stuck around, where, when, who. The name row carries the name
+       alone, because the one thing you scan a rarity list for is which bird,
+       and it used to be mixed in with four qualifiers about it.
+       Separators are DRAWN between the cells rather than typed, so a report
+       with no observer, no count and no stakeout cannot strand a "·".
+       `overflow-wrap: anywhere` because eBird place names contain long
        unbroken runs ("Marymoor--Audubon/Interpretive-Boardwalk") that would
        otherwise push the card past the panel. */
     .rarewhere { display: block; min-width: 0; overflow-wrap: anywhere; }
-    .rarewhere > .when::before, .rarewhere > .who::before {
+    .rarewhere > span + span::before {
       content: "\00b7"; margin: 0 5px; color: var(--line); }
+    /* The flags keep their own spacing INSIDE their cell, so the drawn
+       separator sits between the group and the place rather than between
+       every badge. */
+    .rarewhere > .rareflags > * + * { margin-left: 5px; }
     .rarewhere > .who { color: var(--muted); }
     /* A LABELLED row: "Where / Observer / Latest". Used where a card is small
        enough that the fields below it would otherwise be an unlabelled run of
@@ -700,18 +720,10 @@
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .seenflag, .needflag { display: inline-block; white-space: nowrap; }
-    /* The ABA Code 3+ index: one tap per bird, above a dozen full profiles. */
-    .abaindex { margin: 0 0 6px; }
-    .abaindex .lanesub { margin-top: 0; }
-    .abaindex a.abajump { font-weight: 800; }
-    /* Landing silently in the middle of a long list leaves you unsure whether
-       anything moved, so the target says "here". */
-    @keyframes cardjump {
-      from { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-      to   { background: transparent; }
-    }
-    .jumped { animation: cardjump 1.2s ease-out 1; border-radius: 12px; }
-    @media (prefers-reduced-motion: reduce) { .jumped { animation: none; } }
+    /* The ABA rarities list, and the profile that opens over it. The list is
+       the section; a bird is a SUB-PAGE, so the profile gets the whole screen
+       rather than being the tenth thing you scroll past. */
+    #abaDetail { margin-top: 2px; }
     .rankhead { margin: 2px 0 4px; }
     .rankhead .bignum small { display: inline; }
     .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
@@ -781,9 +793,8 @@
       <h2>🌅 Today’s rarity reports <span class="dim" id="regionLabel"></span></h2>
       <div class="row">
         <button id="refreshBtn">Refresh</button>
-        <button id="settingsToggle" class="secondary">Settings</button>
       </div>
-      <div id="status" class="status">Add your eBird API key in Settings to begin.</div>
+      <div id="status" class="status"></div>
       <ul id="results" class="obs big xl"></ul>
     </section>
 
@@ -826,7 +837,6 @@
 
     <section class="panel">
       <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places" data-current="sec-destBtn"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
       </div>
@@ -837,7 +847,6 @@
 
     <section class="panel">
       <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places" data-current="sec-excBtn"></div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
       </div>
@@ -848,7 +857,6 @@
 
     <section class="panel">
       <h2>🧭 Trip planner <span class="dim" id="tripRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places" data-current="sec-tripBtn"></div>
       <div class="row">
         <button id="tripBtn">Plan a route</button>
       </div>
@@ -871,8 +879,13 @@
 
     <section class="panel">
       <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="places" data-current="quick:home"></div>
-      <div class="row">
+      <div class="row modeswitch" data-modes="quick" data-current="quick:home"></div>
+      <!-- The 🏠/📍 buttons are the SAME state the chips above carry, so they
+           are kept for their handlers and the loader registry but never shown:
+           two controls for one choice is how the panel came to have both a
+           dropdown and a button pair on screen at once. Tapping a chip that is
+           already pressed re-runs, so the chips are the refresh too. -->
+      <div class="row" hidden>
         <button id="quickBtn">🏠 Home</button>
         <button id="quickHereBtn" class="secondary" type="button">📍 Here</button>
       </div>
@@ -980,6 +993,12 @@
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
       <div id="abaCapWarn" hidden></div>
       <ul id="abaResults" class="obs"></ul>
+      <!-- The detail SUB-PAGE. Each bird here is a full profile — latest
+           report, finder, every report we hold, state history — so a dozen
+           megararities was a dozen screens to scroll past. The section shows
+           the species LIST; one bird's profile opens over it, with the navbar
+           back button returning to the list rather than to Contents. -->
+      <div id="abaDetail" hidden></div>
     </section>
 
     <section class="panel">
@@ -1166,7 +1185,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.57';
+      var APP_VERSION = '1.0.58';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2632,35 +2651,39 @@
           // the one-row card is printed underneath it, labelled. How rare each
           // species is across the whole snapshot is what Last 7-Days answers.
           function card(r) {
-            var flock = (r.count != null && r.count !== '') ? ' <span class="dim">×' + esc(r.count) + '</span>' : '';
+            var flock = (r.count != null && r.count !== '') ? '<span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
-            var stake = n >= 2 ? ' <span class="stakeflag">📍 Day ' + n + '</span>' : '';
-            var warn = (r.valid === false) ? ' <span class="dim" title="not yet reviewed">⚠️</span>' : '';
-            // Place · time · observer, on ONE line, in that order.
+            var stake = n >= 2 ? '<span class="stakeflag">📍 Day ' + n + '</span>' : '';
+            var warn = (r.valid === false) ? '<span class="dim" title="not yet reviewed">⚠️</span>' : '';
+            // EVERYTHING except the bird's name lives on the second row.
             //
-            // These were two labelled rows underneath the card — "OBSERVER
-            // Neil Pankey" and "LATEST Aug 3 10:25 AM · S379634242" — which
-            // spent three lines of a phone screen on two short facts whose
-            // LABELS were longer than their values, and pushed the next bird
-            // off the screen. The submission id is eleven characters of noise,
-            // so the TIME carries the checklist link instead: nothing is lost
-            // and the source is still one tap away.
+            // The header used to carry the name plus 🔍, ×count, 📍 Day N and
+            // ⚠️ all inline, so the one thing you are scanning for — WHICH
+            // BIRD — was mixed in with four qualifiers about it and wrapped
+            // onto a second line as soon as any of them were present. The name
+            // is the subject; the flags are facts about the sighting, which is
+            // exactly what the sub-row already held.
+            //
+            // Order is the order you ask the questions in: do I need it, how
+            // many, has it stuck around, where, when, who.
             var when = fmtDateTime(r.dateStr);
-            var sub = recLocLink(r)
-              + ' <span class="when">'
-              + (r.subId ? checklistLink(r.subId, when) : esc(when)) + '</span>'
-              + (r.observer ? ' <span class="who">' + esc(r.observer) + '</span>' : '');
+            var flags = needTag(r.code, r.name) + flock + stake + warn;
+            var bits = [];
+            if (flags) bits.push('<span class="rareflags">' + flags + '</span>');
+            bits.push('<span class="rareloc">' + recLocLink(r) + '</span>');
+            bits.push('<span class="when">'
+              + (r.subId ? checklistLink(r.subId, when) : esc(when)) + '</span>');
+            if (r.observer) bits.push('<span class="who">' + esc(r.observer) + '</span>');
             return SpeciesCards.medium({
               icon: photoSlot(r.name, r.code),
               name: speciesLink(r.name, r.code),
-              tags: needTag(r.code, r.name) + flock + stake + warn,
+              // The header is the NAME and nothing else.
+              tags: '',
               // The medium card carries distance in its own column, so it
               // stops being a token inside a `·`-joined line and starts being
               // something you can scan down the edge of the list.
               distMi: r.distMi,
-              // The sub-header gets the PLACE, the time and the observer —
-              // which bird, where, when and who, in the order you read them.
-              sub: '<span class="rarewhere">' + sub + '</span>'
+              sub: '<span class="rarewhere">' + bits.join('') + '</span>'
             });
           }
           var html = rows.length ? rows.map(card).join('')
@@ -5671,8 +5694,10 @@
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
             var stake = r.stakeDays >= 2
-              ? ' <span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
-            var warn = (r.closest && r.closest.valid === false) ? ' ⚠️' : '';
+              ? '<span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
+            var warn = (r.closest && r.closest.valid === false)
+              ? '<span class="dim" title="not yet reviewed">⚠️</span>' : '';
+            var flags = needTag(r.code, r.name) + stake + warn;
             // This used to hand-roll a .name/.meta/.cklrows lookalike of the
             // medium card. That is the same drift Easy misses had before it was
             // unified: two copies of one layout that quietly diverge. It now
@@ -5681,24 +5706,35 @@
             return SpeciesCards.medium({
               icon: photoSlot(r.name, r.code),
               name: speciesLink(r.name, r.code),
-              tags: needTag(r.code, r.name) + stake + warn,
+              // The header is the NAME alone, exactly as in Today's rarities:
+              // the flags are facts ABOUT the sighting and belong with the
+              // rest of them, not mixed into the thing you are scanning for.
+              tags: '',
               distMi: r.distMi,
-              // The header is the bird and the drive. Day count and counts are
-              // what you weigh AFTER you know which bird it is.
-              sub: staleTag(r.latest) + span
-                + ' · ' + r.reports + ' report' + (r.reports === 1 ? '' : 's')
-                + (r.observers ? ' · ' + r.observers + ' observer' + (r.observers === 1 ? '' : 's') : ''),
-              // Two facts decide the chase — where the nearest bird is and when
-              // it was last seen — so each gets a labelled line of its own
-              // instead of being run together behind "closest:".
-              below: '<ul class="cklrows"><li><span class="when">Closest</span>'
-                + '<span class="howmany"></span>'
-                + '<span class="where">' + recLocLink(r.closest) + '</span></li>'
-                + '<li><span class="when">Latest</span><span class="howmany"></span>'
-                + '<span class="where">' + staleTag(r.latest) + esc(fmtDateTime(r.latest))
-                + (r.closest && r.closest.subId ? ' · ' + checklistLink(r.closest.subId, r.closest.subId) : '')
-                + '</span></li></ul>'
-                + rarityChecklistDetails(r)
+              // EVERYTHING on the full-width second row.
+              //
+              // "Closest" and "Latest" were two labelled rows underneath —
+              // three lines of a phone screen for two short facts whose LABELS
+              // were longer than their values, and the submission id printed
+              // in full beside them. The sub-header already spans all three
+              // columns, which is the widest line on the card and the one
+              // place these actually fit.
+              sub: '<span class="rarewhere">'
+                + (flags ? '<span class="rareflags">' + flags + '</span>' : '')
+                + '<span class="rareloc">' + recLocLink(r.closest) + '</span>'
+                + '<span class="when">' + staleTag(r.latest)
+                + (r.closest && r.closest.subId
+                    ? checklistLink(r.closest.subId, fmtDateTime(r.latest))
+                    : esc(fmtDateTime(r.latest))) + '</span>'
+                + '<span class="rarespan">' + span + '</span>'
+                + '<span class="rarecount">' + r.reports + ' report'
+                + (r.reports === 1 ? '' : 's')
+                + (r.observers ? ' · ' + r.observers + ' observer'
+                    + (r.observers === 1 ? '' : 's') : '') + '</span>'
+                + '</span>',
+              // The checklists stay collapsed: the summary is the decision and
+              // the list is the evidence for it.
+              below: rarityChecklistDetails(r)
             });
           }).join('');
           hydratePhotos(el);
@@ -6008,6 +6044,11 @@
         quickOrigin = which;
         syncQuickButtons();
         syncModePick('sec-quickBtn');
+        // The place box belongs to the Find mode ALONE. It used to be a
+        // permanent third row under the anchor buttons, so the panel asked you
+        // to type an address every time you opened it to look near home — and
+        // once a failed geolocation opened it, nothing ever closed it again.
+        if ($('quickHereRow')) $('quickHereRow').hidden = (which !== 'find');
         var btns = [$('quickBtn'), $('quickHereBtn')];
         btns.forEach(function (b) { if (b) b.disabled = true; });
         $('quickResults').innerHTML = ''; $('quickMap').innerHTML = '';
@@ -7262,21 +7303,34 @@
             var nFresh = uniq.filter(function (o) { return String(o.obsDt || '').slice(0, 10) >= freshCut; }).length;
             var nShow = Math.min(Math.max(LAST_NEW_CHECKLISTS, nFresh),
               LAST_NEW_MAX_CHECKLISTS);
-            // One row per checklist rather than a <br>-joined run: date, count,
-            // place and observer each land in the same column every time, so
-            // the list can be scanned instead of read.
-            ck = '<div class="lanesub">' + uniq.length + ' recent checklist'
-              + (uniq.length === 1 ? '' : 's') + '</div>'
+            // COLLAPSED by default, and every field the small card carries is
+            // filled. The list is the EVIDENCE for the row above it — which
+            // bird, how many of the top 100 got it, how far — and the decision
+            // is made from that summary; the checklists are what you open once
+            // you have decided. Left open, ten of these buried the next bird.
+            //
+            // `distMi` and the map pin were simply never passed, so two of the
+            // card's five facts rendered blank on every row here while the
+            // same card filled them elsewhere — the drift a shared template is
+            // supposed to make impossible, hiding in the CALLER.
+            var home = getHome();
+            ck = '<details class="ckall"><summary>' + uniq.length + ' recent checklist'
+              + (uniq.length === 1 ? '' : 's') + '</summary>'
               + ChecklistCards.list('small', uniq.slice(0, nShow).map(function (o) {
+                var d = (home && isFinite(o.lat) && isFinite(o.lng))
+                  ? haversineMi(home.lat, home.lng, +o.lat, +o.lng) : null;
                 return ChecklistCards.small({
                   place: o.locName || '',
                   href: o.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(o.subId) : '',
-                  date: fmtDate(o.obsDt),
+                  date: fmtDateTime(o.obsDt),
                   count: o.howMany,
+                  distMi: d,
+                  map: mapPin(o.lat, o.lng),
                   who: o.userDisplayName ? esc(o.userDisplayName) : ''
                 });
               }))
-              + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '');
+              + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '')
+              + '</details>';
           }
           return SpeciesCards.medium({
             icon: photoSlot(sp, info.code || ''),
@@ -7504,32 +7558,28 @@
             return String(b.latest.obsDt).localeCompare(String(a.latest.obsDt));
           });
 
-          // AN INDEX FIRST. Each card below is a full profile — latest report,
-          // finder, every report we hold, state history — so a dozen megararities
-          // is a dozen screens, and there was no way to see WHICH birds the
-          // section held without scrolling all of them. The index is one tap per
-          // bird, using the small species card so it reads as the same family of
-          // thing the cards below are.
-          if (groups.length > 1) {
-            var idx = document.createElement('div');
-            idx.className = 'abaindex';
-            idx.innerHTML = '<div class="lanesub">' + groups.length + ' species</div>'
-              + '<ul class="obs card-sm">'
-              + groups.map(function (g) {
-                return SpeciesCards.small({
-                  icon: photoSlot(g.latest.comName, g.code),
-                  // The NAME is the jump link, not a separate "go" affordance:
-                  // the name is what you are looking for in a list of names.
-                  name: '<a class="abajump" href="#aba-' + esc(g.code) + '">'
-                    + esc(g.latest.comName || g.code) + '</a>',
-                  tags: needTag(g.code, g.latest.comName),
-                  sub: esc(fmtDate(g.latest.obsDt)) + ' · ' + g.rs.length + ' report'
-                    + (g.rs.length === 1 ? '' : 's')
-                });
-              }).join('')
-              + '</ul>';
-            el.appendChild(idx);
-          }
+          // THE SECTION IS THE SPECIES LIST. Each profile below is a full
+          // screen — latest report, finder, every report we hold, state
+          // history — so a dozen megararities was a dozen screens to scroll
+          // past before you knew which birds were even in it. The list is what
+          // the section shows; a profile opens over it as a sub-page.
+          var detail = $('abaDetail');
+          if (detail) { detail.innerHTML = ''; detail.hidden = true; }
+          el.className = 'obs';
+          el.innerHTML = '<ul class="obs card-sm">'
+            + groups.map(function (g) {
+              return SpeciesCards.small({
+                icon: photoSlot(g.latest.comName, g.code),
+                // The NAME is the link, not a separate "details" affordance:
+                // the name is what you are looking for in a list of names.
+                name: '<a class="abajump" href="#aba-' + esc(g.code) + '">'
+                  + esc(g.latest.comName || g.code) + '</a>',
+                tags: needTag(g.code, g.latest.comName),
+                sub: esc(fmtDate(g.latest.obsDt)) + ' · ' + g.rs.length + ' report'
+                  + (g.rs.length === 1 ? '' : 's')
+              });
+            }).join('')
+            + '</ul>';
 
           groups.forEach(function (g) {
             var o = g.latest;
@@ -7613,11 +7663,13 @@
                   ' — earlier sightings are not missing, they are simply before we started.</div>' : '') +
                 '<ul class="cklrows">' + lines + '</ul>' + more
             });
-            el.appendChild(card);
-            // The anchor the index above jumps to. Set on the card element
-            // itself rather than threaded through birdCard(), because the id is
-            // this section's navigation concern and not part of the card shape.
+            // The profile goes into the SUB-PAGE, hidden, one per bird. It is
+            // hydrated lazily when opened rather than here: history, blurbs
+            // and finder names are one network call each, and a dozen birds
+            // you have not opened is a dozen calls nobody asked for.
             card.id = 'aba-' + g.code;
+            card.hidden = true;
+            if (detail) detail.appendChild(card);
             // GBIF matches on scientific name only, so the slot stays inert
             // unless one is already in hand — no lookup is worth an extra call.
             var sci = sciFor(g.rs), slot = card.querySelector('.bchist');
@@ -7626,9 +7678,11 @@
               else { slot.style.display = 'none'; }
             }
           });
-          hydrateHistory(el);
-          hydrateCards(el);
-          hydrateFinders(el);
+          // NOT hydrated here. The profiles are hidden until one is opened, and
+          // history, blurb and finder are a network call each — a dozen birds
+          // nobody has opened is a dozen calls nobody asked for. abaOpenBird()
+          // hydrates the one card it shows, once.
+          abaCloseBird();
         } else {
           list.slice().sort(function (a, b) {
             var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
@@ -9482,32 +9536,32 @@
       //              build_rarity_report, which emits far fewer sections)
       //   omitted  — every report has it
       var MENU = [
-        { at: 'surgeBtn',      label: '🔴 Happening now' },
-        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100' },
-        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo' },
-        { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports' },
-        { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo' },
-        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo' },
-        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo' },
-        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo' },
-        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo' },
-        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo' },
-        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo' },
-        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county' },
-        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county' },
-        { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county' },
-        { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county' },
-        { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo' },
-        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county' },
-        { at: 'spLookupBtn',   label: '🔎 Species lookup' },
-        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county' },
-        { at: 'nvResults',     label: '🔍 Needs verification' },
-        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county' },
-        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county' },
-        { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county' },
-        { at: 'myYearBody',    label: '📅 My year' },
-        { at: 'settingsPanel', label: '⚙️ Settings' }
+        { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
+        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Right now' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Right now' },
+        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo', group: 'Rare birds' },
+        { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports', group: 'Rare birds' },
+        { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo', group: 'Rare birds' },
+        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
+        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding' },
+        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo', group: 'Go birding' },
+        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
+        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo', group: 'Go birding' },
+        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
+        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county', group: 'Hotspots & birders' },
+        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county', group: 'Hotspots & birders' },
+        { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county', group: 'Hotspots & birders' },
+        { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
+        { at: 'favResults',    label: '📍 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
+        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
+        { at: 'spLookupBtn',   label: '🔎 Species lookup', group: 'Birds you still need' },
+        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need' },
+        { at: 'nvResults',     label: '🔍 Needs verification', group: 'Birds you still need' },
+        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Timing' },
+        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county', group: 'Timing' },
+        { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county', group: 'Timing' },
+        { at: 'myYearBody',    label: '📅 My year', group: 'You' },
+        { at: 'settingsPanel', label: '⚙️ Settings', group: 'You' }
       ];
       function menuApplies(m) {
         if (m.needs === 'county') return hasCounties();
@@ -9750,6 +9804,7 @@
           if (!sec.id) sec.id = 'sec-' + m.at;
           sec._loader = LOADERS[m.at] || null;
           sec._at = m.at; sec._label = m.label; sec._needs = m.needs || '';
+        sec._group = m.group || '';
           _setH2(sec, m.label);
           addSectionDoc(sec);
         addSectionRefresh(sec);
@@ -9776,10 +9831,28 @@
       function renderMenuList() {
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
+        // GROUPED, but never REORDERED. The menu order is a contract with the
+        // Markdown report — tests/parity/test_report_toc.py compares the two —
+        // so the headings are drawn over the existing order rather than the
+        // order being rearranged to suit them. Every group is a contiguous run
+        // of the report's own sections; if a future section lands between two
+        // groups, give it the group it sits in rather than moving it.
+        var group = null, firstTile = true;
         _sections.forEach(function (sec) {
           if (!menuApplies({ needs: sec._needs })) return;
+          if (sec._group && sec._group !== group) {
+            group = sec._group;
+            var h = document.createElement('li');
+            h.className = 'tocgroup';
+            h.setAttribute('role', 'presentation');
+            h.textContent = group;
+            list.appendChild(h);
+          }
           var li = document.createElement('li');
-          if (!list.children.length) li.className = 'wide';
+          // The first TILE is wide, not the first child — the heading above it
+          // is a child too, and counting children made the wide tile vanish
+          // the moment groups were introduced.
+          if (firstTile) { li.className = 'wide'; firstTile = false; }
           var a = document.createElement('button');
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
@@ -9797,6 +9870,9 @@
         });
       }
       function showSection(id) {
+        // Leaving the section closes any sub-page it had open, or coming back
+        // later lands you on a bird's profile with no memory of choosing it.
+        if (_abaOpen) abaCloseBird();
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
         var menu = $('menuPanel'); if (menu) menu.hidden = true;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
@@ -9928,7 +10004,9 @@
           if (dx < SWIPE_MIN_X) return;
           if (Math.abs(dy) > Math.abs(dx) * SWIPE_MAX_OFF) return;
           if (Date.now() - s.t > SWIPE_MAX_MS) return;
-          showMenu();
+          // Same "up one level" rule as the back button — a swipe from a bird's
+          // profile goes to the rarities list, not all the way to Contents.
+          navBack();
         }, { passive: true });
       }
       function populateReportSelect() {
@@ -10478,9 +10556,11 @@
       }
 
       // --- wire up ---
-      $('settingsToggle').addEventListener('click', function () { showSettings($('settingsPanel').hidden); });
+      // Settings is a top-level section with its own menu tile, so a second
+      // door to it beside Refresh was the only thing keeping Today's rarities
+      // from collapsing into the ↻ icon every other section already had.
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
-      $('navBack').addEventListener('click', function () { showMenu(); });
+      $('navBack').addEventListener('click', function () { navBack(); });
       bindSwipeBack();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
       $('addTripBtn').addEventListener('click', function () {
@@ -10521,22 +10601,29 @@
         }).finally(function () { btn.disabled = false; });
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
-      // ONE table drives every switch. The markup used to repeat all six
-      // options in each of four panels — 24 lines that had to be kept in sync
-      // by hand, with only the `selected` attribute differing.
+      // ONE table drives every switch.
+      //
+      // It used to offer SIX modes across four panels — destinations,
+      // excursions, trip planner, and the three quick-outing anchors — on
+      // the theory that they are all "places". They are not. The first three
+      // RANK places by the birds you still need; the last three just list
+      // what is near a point you pick. Merging them meant Top destinations
+      // and Top excursions were reachable only THROUGH another section's
+      // switch, so a reader looking for "excursions" had to know it lived
+      // inside a control on a different panel. They are top-level menu
+      // entries again, under "Go birding", and the switch is left to the one
+      // place it is genuinely a switch: which ANCHOR the outing measures
+      // from.
       //
       // Declared HERE, above the first call, rather than beside routeMode()
       // where the rest of the switch logic lives: `var` initialisers do not
       // hoist, so a table defined further down would read as `undefined` at
       // the call site and build nothing.
       var MODE_SETS = {
-        places: [
-          { to: 'sec-destBtn', icon: '\uD83C\uDFC5', label: 'Destinations', full: 'Top destinations — a day trip' },
-          { to: 'sec-excBtn',  icon: '\uD83D\uDE97', label: 'Excursions',   full: 'Top excursions — a longer trip' },
-          { to: 'sec-tripBtn', icon: '\uD83E\uDDED', label: 'Route',        full: 'Trip planner — a route through several' },
-          { to: 'quick:home',  icon: '\uD83C\uDFE0', label: 'Near home',    full: 'Hotspots near home' },
-          { to: 'quick:here',  icon: '\uD83D\uDCCD', label: 'Here',         full: 'Hotspots near my current location' },
-          { to: 'quick:find',  icon: '\uD83D\uDD0D', label: 'Find\u2026',   full: 'Hotspots near a place I name' }
+        quick: [
+          { to: 'quick:home', icon: '\uD83C\uDFE0', label: 'Near home', full: 'Hotspots near home' },
+          { to: 'quick:here', icon: '\uD83D\uDCCD', label: 'Here',      full: 'Hotspots near my current location' },
+          { to: 'quick:find', icon: '\uD83D\uDD0D', label: 'Find\u2026', full: 'Hotspots near a place I name' }
         ],
         checklists: [
           { id: 'cklModeBest', icon: '\uD83E\uDD9C', label: 'Birdiest', full: 'Checklists with the most species' },
@@ -10708,25 +10795,71 @@
         if (b.getAttribute('aria-pressed') === 'true' && to.indexOf('quick:') !== 0) return;
         routeMode(to);
       });
-      // The ABA index jumps to a card in the SAME section. A bare `#hash` would
-      // ask the browser to navigate, which this app does not do — navigation is
-      // showSection() and a hash change would fight it. So the jump is handled
-      // here: scroll the card into view and flash it, because landing silently
-      // in the middle of a long list leaves you unsure whether anything moved.
+      // --- ABA sub-page: the list, and one bird over it -------------------
+      //
+      // A THIRD level of navigation, and the only one in the app. It exists
+      // because a megararity profile is genuinely a page — latest report,
+      // finder, every report we hold, state history, a blurb — and a dozen of
+      // them stacked is a dozen screens you must scroll past to learn which
+      // birds the section even holds.
+      //
+      // The back button is the SAME button, told where it is. A second back
+      // affordance would be a second navigation model, and this app has one.
+      var _abaOpen = '';
+      function abaOpenBird(code) {
+        var detail = $('abaDetail'), list = $('abaResults');
+        if (!detail || !list) return false;
+        var card = document.getElementById('aba-' + code);
+        if (!card) return false;
+        Array.prototype.forEach.call(detail.children, function (c) { c.hidden = true; });
+        card.hidden = false;
+        // Hydrate ONCE, and only what is on screen.
+        if (!card.dataset.hydrated) {
+          card.dataset.hydrated = '1';
+          try { hydrateHistory(card); hydrateCards(card); hydrateFinders(card); }
+          catch (e) { dbg('warn', 'aba detail hydrate: ' + (e && e.message || e)); }
+        }
+        detail.hidden = false;
+        list.hidden = true;
+        var st = $('abaStatus'); if (st) st.hidden = true;
+        var row = $('abaBtn') && $('abaBtn').closest('.row'); if (row) row.dataset.abaHid = '1';
+        _abaOpen = code;
+        // The navbar names where you ARE, so it names the bird.
+        var t = $('navTitle'), h = card.querySelector('.bcname, h3, .name');
+        if (t && h) t.textContent = h.textContent.trim();
+        var back = $('navBack');
+        if (back) back.setAttribute('aria-label', 'Back to the rarities list');
+        try { window.scrollTo(0, 0); } catch (e) {}
+        return true;
+      }
+      function abaCloseBird() {
+        var detail = $('abaDetail'), list = $('abaResults');
+        if (detail) { detail.hidden = true; }
+        if (list) list.hidden = false;
+        var st = $('abaStatus'); if (st) st.hidden = false;
+        _abaOpen = '';
+        var back = $('navBack');
+        if (back) back.setAttribute('aria-label', 'Back to Contents');
+        var sec = list && list.closest ? list.closest('section') : null;
+        var t = $('navTitle'), h = sec && sec.querySelector('h2');
+        if (t && h) t.textContent = h.textContent.trim();
+      }
+      // Back means "up one level", so it closes the sub-page before it leaves
+      // the section. Anything else strands the reader: tapping back from a
+      // bird would jump them all the way to Contents.
+      function navBack() {
+        if (_abaOpen) { abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {} return; }
+        showMenu();
+      }
       document.addEventListener('click', function (ev) {
         var a = ev.target.closest && ev.target.closest('a.abajump');
         if (!a) return;
+        // Handled here, not by the browser: a bare `#hash` would ask for a
+        // navigation this app does not do — navigation is showSection(), and a
+        // hash change would fight it.
         ev.preventDefault();
         var id = (a.getAttribute('href') || '').replace(/^#/, '');
-        var card = id && document.getElementById(id);
-        if (!card) return;
-        try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-        catch (e) { card.scrollIntoView(); }
-        card.classList.remove('jumped');
-        // Reflow, or re-adding the class in the same frame does not restart
-        // the animation and a second tap on the same bird flashes nothing.
-        void card.offsetWidth;
-        card.classList.add('jumped');
+        abaOpenBird(id.replace(/^aba-/, ''));
       });
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
@@ -10937,6 +11070,7 @@
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         renderAbaAlert: renderAbaAlert,
+        abaOpenBird: abaOpenBird, abaCloseBird: abaCloseBird, navBack: navBack,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,

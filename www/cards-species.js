@@ -184,19 +184,27 @@
        file): once that was fixed the number written for a title nobody could
        see turned out to be far too big, and a two-word species name filled
        the row. 22px still clearly outranks the 17px evidence beneath it while
-       leaving a long name on two lines instead of four. */
-    '.obs.xl > li > .name { font-size: calc(22px * var(--s)); gap: 14px; }',
-    '.obs.xl > li > .name > .thumb { width: calc(92px * var(--s)); height: calc(92px * var(--s)); border-radius: 12px; }',
-    /* Half-size icon, and it is a SHARPNESS fix as much as a layout one. The
-       bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a list
-       and a smear across a card"), and `photoSlot` deliberately stops at that
-       seed rather than paying for a network rendition. At 92px it is being
+       leaving a long name on two lines instead of four.
+       Then 22px was still too big on the device — reported directly — so both
+       the name and the photo come down about a quarter: 17px name, 70px photo.
+       They move TOGETHER on purpose. The photo is the row's height and the
+       name is its width, so shrinking one alone just changes which of the two
+       is the thing that looks wrong. 17px still outranks the 16px sub-header,
+       which is the rank that has to survive: the bird is the subject and the
+       sighting is the evidence. */
+    '.obs.xl > li > .name { font-size: calc(17px * var(--s)); gap: 12px; }',
+    '.obs.xl > li > .name > .thumb { width: calc(70px * var(--s)); height: calc(70px * var(--s)); border-radius: 12px; }',
+    /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
+       The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a
+       list and a smear across a card"), and `photoSlot` deliberately stops at
+       that seed rather than paying for a network rendition. At 92px it was
        upscaled 1.5x, which is exactly the blur reported in All unseen — while
-       Last 7-Days looked crisp in the same 92px card for a reason that hides
-       the bug: its birds are RARE, most have no bundled seed at all, so they
-       miss tier 1 and fall through to a full-size network photo.
+       Last 7-Days looked crisp in the same card for a reason that hides the
+       bug: its birds are RARE, most have no bundled seed at all, so they miss
+       tier 1 and fall through to a full-size network photo.
        46px is the size the seed was cut for, so the same picture resolves
-       instead of stretching. Sections that show a network photo keep 92px. */
+       instead of stretching. Sections that show a network photo keep the
+       larger box. */
     '.obs.xl.icon-sm > li > .name > .thumb {',
     '  width: calc(46px * var(--s)); height: calc(46px * var(--s)); border-radius: 10px;',
     '  margin-right: 12px; }',
@@ -205,10 +213,16 @@
        species name should wrap between its words or not at all. */
     '.obs.xl > li > .name > .ntext { min-width: 0; overflow-wrap: break-word; word-break: normal;',
     '                 hyphens: none; line-height: 1.15; }',
-    '.obs.xl > li > .meta { font-size: calc(16px * var(--s)); }',
+    /* The whole card scales together, not just the name.
+       The name was reported too large at 22px, but dropping it alone to 17px
+       would have put it level with the 17px checklists and only 1px above the
+       16px sub-header — the rank that says "this is the bird and that is the
+       evidence for it" would have inverted, which the tests catch. So the
+       evidence comes down with it and the gaps stay real: 17 > 14 > 13. */
+    '.obs.xl > li > .meta { font-size: calc(14px * var(--s)); }',
     '.obs.xl > li > .count { font-size: calc(21px * var(--s)); font-weight: 800; color: var(--ink); }',
-    '.obs.xl > li > .cklrows { font-size: calc(17px * var(--s)); }',
-    '.obs.xl > li > .cklrows .who { font-size: calc(16px * var(--s)); }',
+    '.obs.xl > li > .cklrows { font-size: calc(14px * var(--s)); }',
+    '.obs.xl > li > .cklrows .who { font-size: calc(13px * var(--s)); }',
     /* WHO added it is a roster of names — a supporting list, read at a glance
        to see how many and how recently, not row by row like the checklists it
        sits beside. At the checklist size it competed with the bird name it was

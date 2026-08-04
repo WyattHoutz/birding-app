@@ -85,6 +85,8 @@
         "Filtered to today's date in the region's local time, deduped by CHECKLIST so two observers reporting the same bird both stand.",
         "Newest first, and every row carries the clock time — a rarity is chased within hours, so a bare date decides nothing.",
         "One row per checklist, not per species: a bird found at six places is six places you could drive to.",
+        "The card gives the bird's name a row of its own. Everything else — whether you still need it (🔍), how many were seen, whether it has stayed put (📍 Day N), where, when and who — sits on the line beneath it, because the one thing you scan a rarity list for is WHICH BIRD.",
+        "Reports beyond the chase radius are collapsed into an expander rather than dropped: a bird you still need is worth a longer drive on the right day.",
         "How rare each species is across the whole snapshot is deliberately NOT here — that is what 🚨 Last 7-Days rarity reports answers."
       ],
       "limits": [
