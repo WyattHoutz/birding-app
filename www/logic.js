@@ -1570,9 +1570,15 @@
     // annotation rather than to a bare round-trip figure computed from
     // defaults. Same reason the zone lookup degrades to "no penalty".
     if (!band.id || band.id === TRAVEL_ROUTINE_BAND) return '';
+    // NO HOUR FIGURE, on purpose. This used to lead with an "≈3 h round trip"
+    // estimate, and travel time varies "significantly due to rush hour and peak
+    // season" — so that is a point estimate of a quantity the model cannot
+    // stand behind, competing with the mileage already shown everywhere, which
+    // does not vary and can be checked on a map. The band survives the variance
+    // where a figure does not, which is why the owner's own vocabulary is
+    // banded rather than numeric. Time decides the band; only the band is shown.
+    var parts = band.label ? [band.label] : [];
     var via = travelHopVia(cfg, lat1, lng1, lat2, lng2);
-    var parts = ['≈' + travelHalfHours(travelRoundTripH(cfg, eff)) + ' h round trip'];
-    if (band.label) parts.push(band.label);
     if (via) parts.push(via);
     return parts.join(' · ');
   }

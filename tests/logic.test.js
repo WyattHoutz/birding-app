@@ -779,7 +779,14 @@ test('travel zones: the label is the shape of the day, not the mileage (F1 decis
   assert.equal(BL.travelDayBand(TZ, 7).id, 'quick', 'Marymoor is a quick outing');
 
   const note = BL.travelNote(TZ, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
-  assert.match(note, /round trip/, 'the note leads with time, not distance');
+  assert.ok(!/round trip|\d\s*h\b/.test(note),
+    'the note must NOT print an hour figure. Travel time varies "significantly '
+    + 'due to rush hour and peak season", so an estimate is a promise the model '
+    + 'cannot keep — while the mileage every section already shows does not vary '
+    + 'and can be checked on a map. The band absorbs the variance; a number '
+    + 'advertises precision that is not there.');
+  assert.match(note, /half day|full day|a trip/,
+    'it says the shape of the day, which is the part that survives traffic');
   assert.match(note, /half day/);
   assert.match(note, /ferry/, 'and says how you would cross');
   assert.equal(BL.travelNote(TZ, 7, HOME[0], HOME[1], MARYMOOR[0], MARYMOOR[1]), '',
