@@ -1144,7 +1144,7 @@
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" readonly />
       <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
       <label for="ebirdName">eBird display name</label>
-      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Birder Wyatt" />
+      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your eBird display name" />
       <p class="hint">Used to find your row on eBird leaderboards. It's the public name on your eBird profile.</p>
       <label for="abaSid">ABA rare-bird alert code</label>
       <input id="abaSid" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="SN10489" />
@@ -4063,7 +4063,7 @@
         }
         var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q);
         dbg('net', 'geocode ' + q);
-        return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/json' } })
+        return fetch(url, { headers: { 'User-Agent': 'BirdChaser/1.0 (+https://github.com/WyattHoutz/birding-app)', 'Accept': 'application/json' } })
           .then(function (r) { if (!r.ok) throw new Error('geocoder returned HTTP ' + r.status + '.'); return r.json(); })
           .then(function (arr) {
             if (!Array.isArray(arr) || !arr.length) throw new Error('No match for "' + q + '".');
@@ -6455,7 +6455,17 @@
       // server-rendered HTML and posts a small JSON payload back over the
       // bridge — never piping eBird's multi-MB HTML across. Ported 1:1 from the
       // pipeline's rankings.py and aba_rba.py scrapers.
-      function getDisplayName() { return (localStorage.getItem('ebird_display_name') || 'Birder Wyatt').trim(); }
+      // Empty by default, NOT the author's name. This used to return 'Birder
+      // Wyatt', which is a privacy leak in a public repo and, more immediately,
+      // a correctness bug: it is the identity used to look you up on the Top 100
+      // leaderboard and to filter out "your own" checklists. A fresh install on
+      // anyone else's phone therefore showed them the author's rank as their
+      // own, and suppressed the author's sightings as already-seen.
+      //
+      // Every comparison site guards with `own && ...` (and logic.js does the
+      // same in isOwn/convoyDetect), so an empty name degrades to "filter
+      // nothing" — the safe direction. The rank loaders prompt for it instead.
+      function getDisplayName() { return (localStorage.getItem('ebird_display_name') || '').trim(); }
       function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
 
       // Follow the eBird taxonomy's reportAs chain to the terminal parent
@@ -9404,7 +9414,7 @@
 
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
       function wxGet(url) {
-        return fetch(url, { headers: { 'User-Agent': 'wyhoutz-birding-app (github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
+        return fetch(url, { headers: { 'User-Agent': 'BirdChaser/1.0 (+https://github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       }
       function wxErr(e) {
@@ -11330,7 +11340,10 @@
             localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
           }
           localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
-          localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim() || 'Birder Wyatt');
+          // Blank means blank. Falling back to a hardcoded name here would put
+          // the author's identity back into storage the first time anyone
+          // pressed Save, undoing the default above.
+          localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim());
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           clearChaseCache();
           _autoLoaded = {};
@@ -11380,7 +11393,7 @@
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
-        SCRUB_PREFIX: SCRUB_PREFIX,
+        SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,

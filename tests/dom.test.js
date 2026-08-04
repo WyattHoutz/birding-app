@@ -1257,7 +1257,14 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
   // summary list AND a big-number header - then a run-on "198 species / 337
   // checklists / recent: ..." line per birder. That duplication is the
   // readability bug, so the guard is structural rather than cosmetic.
-  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  // The identity must be set explicitly now. getDisplayName() no longer defaults
+  // to any name, because that default was the author's and it is what the
+  // leaderboard lookup keys on — a fresh install used to show his rank as yours.
+  // Setting it here is what a configured user actually does.
+  const app = await boot({
+    storage: { ebird_display_name: 'Birder Wyatt' },
+    fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null),
+  });
   app.open(/eBird Rankings/);
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(app.document.querySelectorAll('.rankcard').length, 1,
@@ -1291,7 +1298,10 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   // a rank you did not record is gone. The Markdown report archives a dated
   // board per run; the app has no GitHub access by design, so it keeps its own
   // forward-only history and can never backfill.
-  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const app = await boot({
+    storage: { ebird_display_name: 'Birder Wyatt' },
+    fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null),
+  });
   app.open(/eBird Rankings/);
   await new Promise((r) => setTimeout(r, 150));
   const raw = app.window.localStorage.getItem('ebird_rankhist:US-WA');
@@ -6789,4 +6799,50 @@ test('the erase control exists, is labelled, and confirms first', async () => {
   assert.equal(app.window.localStorage.getItem('ebird_api_key'), 'secret-key',
     'declining the confirm changes nothing');
   app.window.close();
+});
+
+// The shipped app must not carry the author's identity. This is a privacy
+// matter in a public repo, but the reason it is a TEST is that it was a
+// correctness bug: getDisplayName() defaulted to the author's eBird name, which
+// is the identity used to look you up on the Top 100 leaderboard and to filter
+// out "your own" checklists. A fresh install on anyone else's phone showed them
+// the author's rank as theirs, and hid the author's sightings as already-seen.
+test('the app ships with no identity baked in', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  assert.equal(A.getDisplayName(), '',
+    'an unconfigured install has NO display name; a default would be someone else\u2019s identity');
+
+  // Saving a blank field must not quietly restore a hardcoded fallback.
+  app.$('ebirdName').value = '';
+  app.$('saveBtn').click();
+  // Assert the effect, not the storage representation: an unset key reads back
+  // as null and a saved-blank one as '', and both mean "no identity".
+  assert.equal(A.getDisplayName(), '', 'blank stays blank through a save');
+  assert.ok(!(app.window.localStorage.getItem('ebird_display_name') || ''),
+    'and nothing was quietly substituted into storage');
+
+  app.window.localStorage.setItem('ebird_display_name', 'Someone Else');
+  assert.equal(A.getDisplayName(), 'Someone Else', 'and a real name is used when set');
+  app.window.close();
+});
+
+// Separate from the runtime check: the SOURCE must not contain the author's
+// eBird identity outside test fixtures, or a later edit can reintroduce a
+// default that the runtime test above would only catch if it went through
+// getDisplayName().
+test('no personal eBird identity is hardcoded in the shipped source', () => {
+  const shipped = HTML + fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+  const hits = [];
+  // The author's eBird display name and personal handle. The GitHub URL is
+  // fine and stays: Nominatim's usage policy REQUIRES a User-Agent that
+  // identifies the application and gives a contact point.
+  for (const needle of ['Birder Wyatt', 'wyhoutz-birding-app']) {
+    if (shipped.includes(needle)) hits.push(needle);
+  }
+  assert.deepEqual(hits, [],
+    `shipped source contains personal identity: ${JSON.stringify(hits)}. ` +
+    'A default identity is not a cosmetic issue - it is what the leaderboard ' +
+    'lookup and own-checklist filtering key on.');
 });
