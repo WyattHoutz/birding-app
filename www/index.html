@@ -724,6 +724,14 @@
        the section; a bird is a SUB-PAGE, so the profile gets the whole screen
        rather than being the tenth thing you scroll past. */
     #abaDetail { margin-top: 2px; }
+    /* The convoy's already-seen birds, folded away: the unseen list above is
+       the finding, and this is the context it is contrasted with — but at a
+       busy convoy it was the longer of the two and buried the answer. */
+    .convoyseen { margin-top: 8px; }
+    .convoyseen > summary { cursor: pointer; font-size: calc(14px * var(--s));
+                            font-weight: 800; color: var(--muted);
+                            letter-spacing: .04em; text-transform: uppercase;
+                            padding: 4px 0; }
     .rankhead { margin: 2px 0 4px; }
     .rankhead .bignum small { display: inline; }
     .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
@@ -1185,7 +1193,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.58';
+      var APP_VERSION = '1.0.59';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8798,7 +8806,14 @@
                 html += '<div class="allseen">✅ Nothing unseen here<small>All '
                   + all.length + ' species on this route are already on your year list</small></div>';
               }
-              if (have.length) html += '<div class="convoyhead">Already seen this year (' + have.length + ')</div>' + items(have);
+              // COLLAPSED. The unseen birds above are the reason to read the
+              // card; this list is context, and at a busy convoy it was much
+              // the longer of the two — so it buried the finding it exists to
+              // contrast with. Same <details> affordance the checklists use.
+              if (have.length) {
+                html += '<details class="convoyseen"><summary>Already seen this year ('
+                  + have.length + ')</summary>' + items(have) + '</details>';
+              }
               box.innerHTML = html;
               hydratePhotos(box);
               retitleConvoy(box, all.length, missing.length);
@@ -10876,6 +10891,17 @@
       })();
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
+        // A CHECKLIST ROW is a link. The name inside it is a real <a> and wins
+        // — this only fires on the dead space around it, which on a phone is
+        // most of a 30px row. Any other link inside the row (the map pin) is
+        // let through untouched for the same reason.
+        var row = ev.target.closest('.cklcard-sm[data-href]');
+        if (row && !ev.target.closest('a')) {
+          ev.preventDefault();
+          var rurl = row.getAttribute('data-href') || '';
+          if (rurl) openExternal(rurl);
+          return;
+        }
         var link = ev.target.closest('.maplink, .extlink');
         if (link) {
           ev.preventDefault();
