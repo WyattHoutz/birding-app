@@ -6687,3 +6687,106 @@ test('destinations and excursions drop hotspots with nothing you need', async ()
     'an empty section explains itself');
   app.window.close();
 });
+
+// ---------------------------------------------------------------------------
+// eBird API Terms compliance: attribution, and erasing your own data.
+// ---------------------------------------------------------------------------
+
+// §3: "You agree to attribute eBird.org as the source of the data accessed via
+// the API wherever it is used or displayed." The app had 1,339 links to
+// ebird.org before this and satisfied none of it -- deep-links to species pages
+// are navigation, not a statement of provenance. So the test is not "does the
+// string ebird appear", which was already true; it is that a persistent,
+// visible element names eBird as the SOURCE, from every section.
+test('eBird is credited as the data source, persistently and visibly', async () => {
+  const app = await boot();
+  const doc = app.document;
+  const attrib = doc.getElementById('attrib');
+  assert.ok(attrib, 'the footer carries an attribution element');
+
+  const txt = attrib.textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /data from .*eBird/i, 'it names eBird as the source of the data');
+  assert.match(txt, /Cornell Lab of Ornithology/i, 'it credits the Cornell Lab');
+  assert.match(txt, /[Nn]ot affiliated with or endorsed by/,
+    'the Data Access terms require saying use implies no endorsement');
+
+  const link = attrib.querySelector('a[href="https://ebird.org"]');
+  assert.ok(link, 's3 asks for a link back to ebird.org');
+
+  // It lives in the footer, which is outside <main> and therefore not hidden
+  // when sections toggle. If it ever moves inside a section it would be visible
+  // from one screen and absent from every other, which is not "wherever it is
+  // used or displayed".
+  assert.ok(attrib.closest('footer'), 'attribution sits in the persistent footer');
+  assert.ok(!attrib.closest('section'),
+    'attribution must not live inside a section, or it disappears with that section');
+  assert.equal(attrib.hidden, false, 'and it is not hidden');
+  app.window.close();
+});
+
+// The scrub must enumerate localStorage by prefix. Three of the app's keys are
+// themselves prefixes with one entry per region (ebird_home_, ebird_mig_,
+// ebird_tod_), so a hardcoded list of key names is already wrong for anyone who
+// has viewed a second region -- and would leave home coordinates on the device
+// after telling the user everything was erased.
+test('erasing your data removes every ebird_ key, including per-region ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const ls = app.window.localStorage;
+
+  ls.setItem('ebird_api_key', 'secret-key');
+  ls.setItem('ebird_seen', '["amecro"]');
+  ls.setItem('ebird_favs', '[{"locId":"L1"}]');
+  ls.setItem('ebird_display_name', 'Birder Wyatt');
+  ls.setItem('ebird_home_wa', '47.6,-122.3');     // per-region: the trap
+  ls.setItem('ebird_home_az', '33.4,-111.9');
+  ls.setItem('ebird_mig_wa', '{"x":1}');
+  ls.setItem('ebird_tod_wa', '{"y":2}');
+  ls.setItem('unrelated_app_key', 'keep me');
+
+  const found = A.scrubbableKeys();
+  for (const k of ['ebird_home_wa', 'ebird_home_az', 'ebird_mig_wa', 'ebird_tod_wa']) {
+    assert.ok(found.includes(k), `${k} is found by enumeration, not by a fixed list`);
+  }
+
+  const removed = A.scrubPersonalData();
+  assert.ok(removed >= 8, `removed everything it found (got ${removed})`);
+
+  const left = [];
+  for (let i = 0; i < ls.length; i++) left.push(ls.key(i));
+  const leaked = left.filter((k) => k.startsWith('ebird_') && k !== 'ebird_seed_dismissed');
+  assert.deepEqual(leaked, [],
+    `no personal data may survive an erase; found ${JSON.stringify(leaked)}`);
+
+  assert.equal(ls.getItem('ebird_api_key'), null, 'the API key is gone');
+  assert.equal(ls.getItem('ebird_home_wa'), null, 'per-region home coordinates are gone');
+  assert.equal(ls.getItem('unrelated_app_key'), 'keep me',
+    'it only touches this app\'s namespace');
+
+  // Having erased your list, repopulating with the bundled sample (someone
+  // else's birding history) on next load is not a clean slate.
+  assert.equal(ls.getItem('ebird_seed_dismissed'), '1',
+    'the bundled sample list stays dismissed after an erase');
+  app.window.close();
+});
+
+// The control has to be reachable, and has to warn before doing something
+// irreversible.
+test('the erase control exists, is labelled, and confirms first', async () => {
+  const app = await boot();
+  const doc = app.document;
+  const btn = doc.getElementById('scrubBtn');
+  assert.ok(btn, 'Settings has an erase control');
+  assert.match(btn.textContent, /Erase all my data/i, 'it says what it does');
+  assert.ok(btn.closest('#settingsPanel'), 'it lives in Settings');
+
+  let asked = null;
+  app.window.confirm = (m) => { asked = m; return false; };
+  app.window.localStorage.setItem('ebird_api_key', 'secret-key');
+  btn.click();
+  assert.ok(asked && /cannot be undone/i.test(asked),
+    'it warns that the erase is irreversible');
+  assert.equal(app.window.localStorage.getItem('ebird_api_key'), 'secret-key',
+    'declining the confirm changes nothing');
+  app.window.close();
+});

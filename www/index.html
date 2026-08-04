@@ -169,6 +169,22 @@
     }
     footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+    /* Attribution required by eBird API Terms §3. Deliberately quiet but never
+       hidden: it must be legible, not decorative, so it inherits the footer's
+       muted colour rather than fading further, and it scales with the
+       accessibility text-size control like everything else. */
+    #attrib { margin: 6px auto 4px; max-width: 46em; line-height: 1.5;
+              font-size: calc(11.5px * var(--s)); }
+    #attrib a { color: inherit; text-decoration: underline; }
+    #attrib .attrib-dim { opacity: .75; margin-top: 2px; }
+    /* A button, not an <a href="#">, so it is reachable by keyboard and screen
+       readers as the control it actually is, and cannot hijack the URL. */
+    .linkish { background: none; border: 0; padding: 0; margin: 0;
+               color: inherit; font: inherit; text-decoration: underline;
+               cursor: pointer; }
+    #sourcesPanel dt { font-weight: 600; margin-top: 10px; }
+    #sourcesPanel dd { margin: 2px 0 0; opacity: .85; }
+
     /* F17: a long fetch has to be honest rather than a frozen screen. Sticky
        under the header so it stays visible while you scroll a half-built list —
        the wave is one call per unseen species, and eBird paces it. */
@@ -1159,6 +1175,46 @@
         <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
       </div>
       <p class="hint" id="csvStatus">No seen list yet. eBird → Download My Data → import MyEBirdData.csv.</p>
+
+      <!-- Erase everything this app has stored about you. Separate from "Clear"
+           above, which only drops the seen list: this removes the API key, the
+           seen list, favourites, home locations, display name, and every cached
+           per-region panel.
+           It enumerates localStorage by PREFIX rather than deleting a fixed list
+           of keys. Three of the app's keys are prefixes with per-region variants
+           (ebird_home_, ebird_mig_, ebird_tod_), so a hardcoded list is wrong the
+           moment a second region is used and silently leaves data behind — which
+           is the one outcome a control called "erase everything" must not have. -->
+      <label style="margin-top:18px">Your data</label>
+      <div class="row">
+        <button id="scrubBtn" class="secondary" type="button">🧹 Erase all my data</button>
+      </div>
+      <p class="hint" id="scrubStatus">Removes your API key, seen list, favourites, home
+        locations and every cached panel from this device. Nothing was ever sent anywhere
+        else, so this is the whole of it.</p>
+
+      <label style="margin-top:18px">Data sources &amp; terms</label>
+      <div id="sourcesPanel" class="hint">
+        <dl>
+          <dt>Birds — <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a></dt>
+          <dd>© Cornell Lab of Ornithology, used under the
+            <a href="https://www.birds.cornell.edu/home/ebird-api-terms-of-use/" target="_blank" rel="noopener">eBird API Terms of Use</a>.
+            You supply your own API key; it never leaves this device.</dd>
+          <dt>Weather &amp; tides — NOAA</dt>
+          <dd>US Government work, public domain.</dd>
+          <dt>Arrival timing — <a href="https://www.gbif.org/" target="_blank" rel="noopener">GBIF</a></dt>
+          <dd>eBird Observation Dataset.</dd>
+          <dt>Photos &amp; species text — Wikipedia</dt>
+          <dd>CC BY-SA.</dd>
+          <dt>Migration — <a href="https://birdcast.info/" target="_blank" rel="noopener">BirdCast</a></dt>
+          <dd>Cornell Lab of Ornithology / Colorado State University.</dd>
+          <dt>Maps — OpenStreetMap</dt>
+          <dd>© OpenStreetMap contributors, © CARTO. Geocoding via Nominatim.</dd>
+        </dl>
+        <p>This app is free and non-commercial, is not affiliated with or endorsed by the
+          Cornell Lab of Ornithology, and stores everything only on your device.</p>
+      </div>
+
       <div class="row" style="margin-top:16px">
         <button id="saveBtn">Save</button>
         <button id="closeSettings" class="secondary">Done</button>
@@ -1169,6 +1225,20 @@
 
   <footer>
     <div id="runtime">Loading…</div>
+    <!-- eBird API Terms of Use §3: "You agree to attribute eBird.org as the
+         source of the data accessed via the API wherever it is used or
+         displayed. Whenever possible, please accompany this with a link back to
+         eBird.org." The Data Access Terms ask for acknowledgement again, and add
+         that use of the data implies no endorsement.
+         This sits in the persistent footer, not in Settings: "wherever it is
+         used or displayed" means visible from every section, not merely findable
+         by someone who goes looking. Analysis in birding/docs/API-TERMS.md. -->
+    <div id="attrib">
+      Bird data from <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a>,
+      © Cornell Lab of Ornithology · weather &amp; tides from NOAA ·
+      <button type="button" id="attribMore" class="linkish">all data sources</button>
+      <div class="attrib-dim">Not affiliated with or endorsed by the Cornell Lab of Ornithology.</div>
+    </div>
     <div id="ver">Bird Chaser · tap 5× for 🐞 debug</div>
   </footer>
 
@@ -1224,6 +1294,47 @@
       var UNSEEN_PLACES_SHOWN = 5;
 
       function getKey() { return (localStorage.getItem(K.api) || '').trim(); }
+
+  // -- Erasing everything this app knows about you -------------------------
+  //
+  // Every key the app writes is namespaced `ebird_`, so the scrub enumerates
+  // localStorage and matches on that PREFIX rather than deleting a list of
+  // known names.
+  //
+  // That is not defensive coding for its own sake. Three of the keys are
+  // themselves prefixes with one entry per region — ebird_home_<slug>,
+  // ebird_mig_<slug>, ebird_tod_<slug> — so a hardcoded list is already wrong
+  // for anyone who has looked at a second region, and would leave home
+  // coordinates on the device after being told they were erased. A control
+  // called "erase all my data" has exactly one unacceptable failure mode, and
+  // that is quietly leaving some behind. Enumerating also means a key added
+  // next year is covered without anyone remembering to update this.
+  //
+  // Nothing here has ever left the device — there is no server — so clearing
+  // local storage really is the whole of it.
+  var SCRUB_PREFIX = 'ebird_';
+
+  function scrubbableKeys() {
+    var out = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(SCRUB_PREFIX) === 0) out.push(k);
+    }
+    return out;
+  }
+
+  function scrubPersonalData() {
+    var keys = scrubbableKeys(), n = 0;
+    for (var i = 0; i < keys.length; i++) {
+      try { localStorage.removeItem(keys[i]); n++; } catch (e) { /* quota/private mode */ }
+    }
+    // The bundled sample list is someone else's birding history. Having just
+    // erased yours, silently repopulating the app with theirs on next load is
+    // not a clean slate — so mark it dismissed. This is written AFTER the sweep
+    // above, which would otherwise remove it.
+    try { localStorage.setItem('ebird_seed_dismissed', '1'); } catch (e) { }
+    return n;
+  }
       // Text scale for low-vision readers. Applied to <html> as a CSS custom
       // property, which every px font-size and picture box in the stylesheet
       // multiplies through. Read and applied before first paint of any section
@@ -11176,6 +11287,23 @@
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
       $('loadSeedBtn').addEventListener('click', function () { loadSeed(true); });
+      $('attribMore').addEventListener('click', function () {
+        showSection('settingsPanel');
+        var p = $('sourcesPanel');
+        if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      $('scrubBtn').addEventListener('click', function () {
+        var n = scrubbableKeys().length;
+        if (!window.confirm(
+          'Erase all your data from this device?\n\n' +
+          'This removes your eBird API key, seen list, favourites, home locations '
+          + 'and every cached panel (' + n + ' stored item' + (n === 1 ? '' : 's') + ').\n\n'
+          + 'It cannot be undone, and you will need to re-enter your API key.')) return;
+        var removed = scrubPersonalData();
+        $('scrubStatus').textContent = 'Erased ' + removed + ' stored item'
+          + (removed === 1 ? '' : 's') + '. Reloading\u2026';
+        setTimeout(function () { location.reload(); }, 600);
+      });
       $('geocodeBtn').addEventListener('click', function () {
         var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus'), btn = this;
         if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
@@ -11251,6 +11379,8 @@
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
+        scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
+        SCRUB_PREFIX: SCRUB_PREFIX,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
