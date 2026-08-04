@@ -97,8 +97,9 @@
     "vashon|olympic":   { "minutes": 85, "via": "⛴ ferry, then the Hood Canal Bridge" }
   },
   "bands": [
-    { "id": "quick", "label": "quick outing", "max_round_trip_h": 2.5 },
-    { "id": "half",  "label": "half day",     "max_round_trip_h": 5.0 },
-    { "id": "full",  "label": "full day",     "max_round_trip_h": null }
+    { "id": "quick", "label": "under an hour each way", "max_round_trip_h": 2.0 },
+    { "id": "half",  "label": "half day",               "max_round_trip_h": 3.0 },
+    { "id": "full",  "label": "full day",               "max_round_trip_h": 4.0 },
+    { "id": "trip",  "label": "a trip, not a day out",  "max_round_trip_h": null }
   ]
 }

@@ -1522,6 +1522,10 @@
   // never distance. An Arctic Tern 110 mi out was "a half to full day
   // excursion" and then "too far"; one 17 mi out across a ferry was worth "an
   // excursion". "52 effective miles" answers neither question.
+  // The band that needs no annotation — under an hour each way is somewhere you
+  // simply go. Mirrors travel._ROUTINE_BAND.
+  var TRAVEL_ROUTINE_BAND = 'quick';
+
   function travelDayBand(cfg, effectiveMi) {
     var hours = travelRoundTripH(cfg, effectiveMi);
     var bands = (cfg && cfg.bands) || [];
@@ -1550,9 +1554,22 @@
   }
 
   function travelNote(cfg, straightMi, lat1, lng1, lat2, lng2) {
-    if (!travelHopMinutes(cfg, lat1, lng1, lat2, lng2)) return '';
+    // THE GATE IS TIME, NOT WATER — mirrors travel.travel_note. Gating on a
+    // ferry produced two wrong answers at once: Ocean Shores is 110 miles and
+    // over three hours each way with no water anywhere and said NOTHING,
+    // reading exactly like somewhere you might pop out to; while Port Townsend
+    // and Murden Cove both read the same when one is a real outing and the
+    // other is over two hours away and would never be attempted.
+    //
+    // Silence inside the routine band is equally deliberate: Edmonds Marina is
+    // a weekend-morning destination visited many times a year, and annotating
+    // it is the noise that stops the notes that matter from being read.
     var eff = travelEffectiveMi(cfg, straightMi, lat1, lng1, lat2, lng2);
     var band = travelDayBand(cfg, eff);
+    // No bands at all means no config, and a missing config must degrade to no
+    // annotation rather than to a bare round-trip figure computed from
+    // defaults. Same reason the zone lookup degrades to "no penalty".
+    if (!band.id || band.id === TRAVEL_ROUTINE_BAND) return '';
     var via = travelHopVia(cfg, lat1, lng1, lat2, lng2);
     var parts = ['≈' + travelHalfHours(travelRoundTripH(cfg, eff)) + ' h round trip'];
     if (band.label) parts.push(band.label);

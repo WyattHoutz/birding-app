@@ -772,8 +772,10 @@ test('travel zones: the label is the shape of the day, not the mileage (F1 decis
   const effOcean = BL.travelEffectiveMi(TZ, 110.2, HOME[0], HOME[1], OCEAN[0], OCEAN[1]);
   assert.equal(BL.travelDayBand(TZ, effMurden).id, 'half',
     'Murden Cove was worth "an excursion"');
-  assert.equal(BL.travelDayBand(TZ, effOcean).id, 'full',
-    'Ocean Shores was "a half to full day excursion" and then "too far"');
+  assert.equal(BL.travelDayBand(TZ, effOcean).id, 'trip',
+    'Ocean Shores is over two hours each way — "I would not do a day trip". '
+    + 'Anything beyond an excursion becomes a trip, which this project already '
+    + 'models (regions.Region.kind === "trip": Fort Casey, Waikoloa)');
   assert.equal(BL.travelDayBand(TZ, 7).id, 'quick', 'Marymoor is a quick outing');
 
   const note = BL.travelNote(TZ, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);
