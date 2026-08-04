@@ -6453,6 +6453,7 @@ test('the convoy already-seen list is collapsed', () => {
 test('no section shows a bare Load button — every loader is the refresh icon', async () => {
   const app = await boot();
   const doc = app.document;
+  const win = app.window;
   const LOADERS = ['refreshBtn', 'targetsBtn', 'allUnseenBtn', 'spLookupBtn', 'destBtn',
     'excBtn', 'tripBtn', 'cklBtn', 'quickBtn', 'surgeBtn', 'wxBtn', 'rankBtn',
     'activeBtn', 'abaBtn', 'lastNewBtn', 'hotBtn', 'coldBtn', 'convoyBtn',
@@ -6469,7 +6470,20 @@ test('no section shows a bare Load button — every loader is the refresh icon',
       assert.equal(row.hidden, false, 'the species search box stays on screen');
       continue;
     }
-    if (row && !row.hidden) visible.push(id);
+    // Computed display rather than the `hidden` property. This test used to
+    // assert `row.hidden === true` and passed for days while every one of
+    // these buttons was still on screen: `hidden` is a UA-stylesheet
+    // `display: none` and `.row { display: flex }` silently outvotes it, so
+    // the property said "hidden" and the row rendered anyway.
+    //
+    // BE HONEST ABOUT WHAT THIS CATCHES: jsdom does NOT reproduce that
+    // cascade conflict — it reports `none` here with or without the fix, so
+    // this line alone would still have missed the bug. The guard that really
+    // holds the fix is 'hidden means hidden, whatever else sets display',
+    // which pins the rule itself and fails when it is removed. This check is
+    // kept for the OTHER half of the question: that the row is marked hidden
+    // at all, in whichever section grows a Load button next.
+    if (row && win.getComputedStyle(row).display !== 'none') visible.push(id);
     // Quick outing has no icon because its mode chips ARE the reload: tapping
     // the anchor you are already on re-runs it.
     if (id !== 'quickBtn' && sec && !sec.querySelector('.refreshbtn')) noIcon.push(id);
@@ -6478,6 +6492,35 @@ test('no section shows a bare Load button — every loader is the refresh icon',
     'these sections still show a wide Load button: ' + visible.join(', '));
   assert.deepEqual(JSON.stringify(noIcon), JSON.stringify([]),
     'these sections have no refresh icon to replace it: ' + noIcon.join(', '));
+  app.window.close();
+});
+
+// The rule the test above depends on, pinned on its own — and this is the
+// guard that actually holds it. Removing the rule fails THIS test; it does not
+// fail the computed-display check above, because jsdom does not reproduce the
+// cascade conflict that caused the bug. Mutation-verified, both ways.
+test('hidden means hidden, whatever else sets display', async () => {
+  const app = await boot();
+  const win = app.window, doc = app.document;
+  assert.match(HTML, /\[hidden\] \{ display: none !important; \}/,
+    'ONE global rule, not a per-element patch each time someone hits it — '
+    + 'this file carried five of those before it (navbar, keybanner, '
+    + 'abaCapWarn, sectiondoc, debugPanel), each added on a separate day');
+  // `.row` is the class that actually caused it: it sets `display: flex`,
+  // which outvotes the UA stylesheet's `[hidden] { display: none }`.
+  assert.match(HTML, /\.row \{ display: flex/,
+    '.row sets display, which is what defeated `hidden` before the rule above');
+  // Every one of these must honour `hidden`, whether or not it sets display
+  // today — the next rule someone adds must not be able to bring the bug back.
+  for (const cls of ['row', 'panel', 'obs', 'modeswitch']) {
+    const el = doc.createElement('div');
+    el.className = cls;
+    el.hidden = true;
+    doc.body.appendChild(el);
+    assert.equal(win.getComputedStyle(el).display, 'none',
+      '.' + cls + ' honours `hidden`');
+    el.remove();
+  }
   app.window.close();
 });
 
@@ -6541,4 +6584,106 @@ test('the ABA section hydrates its photos', () => {
   const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
     HTML.indexOf('function renderAbaAlert(') + 5000);
   assert.match(render, /hydratePhotos\(el\)/, 'and the list icons when the list is built');
+});
+
+// --- performance: stop paying for answers that have not changed ------------
+// Measured from a device log: opening Hot & Cold fired FOUR heavy calls at
+// once and all four 429'd. Two of them were reference DIRECTORIES that had
+// not changed in months.
+test('static reference feeds are cached across restarts, observation feeds are not', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.ok(A.ebRefGet && A.ebRefPut, 'the durable reference cache is reachable');
+
+  // A DIRECTORY is cacheable for a week: hotspots are created and renamed over
+  // months, and a region's species list moves with taxonomy, once a year.
+  for (const p of ['ref/hotspot/US-WA-033?fmt=json', 'product/spplist/US-WA',
+                   'ref/taxonomy/ebird?fmt=json&locale=en&species=merlin']) {
+    A.ebRefPut(p, [{ x: 1 }]);
+    assert.ok(A.ebRefGet(p), p + ' is held across restarts');
+  }
+  // A SIGHTING is not. A stale observation is a WRONG ANSWER — it sends you to
+  // a bird that has gone — where a stale hotspot list is merely a short one.
+  for (const p of ['data/obs/US-WA-033/recent?back=7',
+                   'data/obs/US-WA/recent/notable?back=7',
+                   'ref/hotspot/geo?lat=47&lng=-122',
+                   'product/lists/US-WA-033?maxResults=200']) {
+    A.ebRefPut(p, [{ x: 1 }]);
+    assert.equal(A.ebRefGet(p), null, p + ' must NEVER be cached for a week');
+  }
+  // `ref/hotspot/geo` is the trap in that list: it starts with the same six
+  // characters as the directory feed but is a live "what is near me" query.
+  assert.match(HTML, /ref\\\/hotspot\\\/\(\?!geo\)/,
+    'the pattern excludes ref/hotspot/geo explicitly, not by accident');
+  A.ebRefPurge();
+  assert.equal(A.ebRefGet('product/spplist/US-WA'), null, 'and the cache can be cleared');
+  app.window.close();
+});
+
+// Every 429 storm in this app has been a budget problem, and the budget was
+// invisible: the log said which URL was slow, never which SECTION asked.
+test('the debug log reports what each section cost', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.ok(A.costReport, 'the ledger is reachable');
+  // NOT driven through ebird(): with no key that path takes the real retry
+  // ladder — four attempts behind 20s cooldowns — and hangs the suite. The
+  // ledger is fed by costEnter/costNote, so it is exercised directly and the
+  // WIRING is asserted on the source, which is the part that can rot.
+  A.costEnter('Hot hotspots');
+  A.costNote('ref/hotspot/US-WA-033?fmt=json', false);
+  A.costNote('ref/hotspot/US-WA-061?fmt=json', true);
+  A.costEnter('Quick outing');
+  A.costNote('ref/hotspot/geo?lat=47&lng=-122', false);
+  const rep = A.costReport();
+  const hot = rep.find((r) => r.section === 'Hot hotspots');
+  assert.ok(hot, 'the section that spent the call is named');
+  assert.equal(hot.calls, 1, 'live calls are counted');
+  assert.equal(hot.cached, 1, 'and so is what the cache SAVED');
+  // Sorted by LIVE calls, so the expensive sections name themselves.
+  for (let i = 1; i < rep.length; i++) {
+    assert.ok(rep[i - 1].calls >= rep[i].calls, 'most expensive first');
+  }
+  // ebird() must actually feed it, or the ledger stays empty in real use.
+  const eb = HTML.slice(HTML.indexOf('function ebird(path, bg)'),
+    HTML.indexOf('function ebird(path, bg)') + 1600);
+  assert.match(eb, /costNote\(path, true\)/, 'a cache hit is recorded as a saving');
+  assert.match(eb, /costNote\(path, false\)/, 'and a live call as a cost');
+  // ...and showSection must name the section, or every call lands on 'startup'.
+  const show = HTML.slice(HTML.indexOf('function showSection(id)'),
+    HTML.indexOf('function showSection(id)') + 700);
+  assert.match(show, /costEnter\(/, 'opening a section makes it the one being charged');
+  // It has to reach the log the user actually copies, or it is a metric
+  // nobody will ever see.
+  const ctx = HTML.slice(HTML.indexOf('function dbgContext('),
+    HTML.indexOf('function dbgContext(') + 4000);
+  assert.match(ctx, /costReport\(\)/, 'and it is printed in the copied debug log');
+  assert.match(ctx, /most expensive first/, 'with the order stated');
+  app.window.close();
+});
+
+// "Top destinations and Top excursions should not show hotspots with no unseen
+// birds." The ranking is by target count, so a zero sorted to the bottom
+// rather than being excluded — a row that answers the section's own question
+// with "don't go".
+test('destinations and excursions drop hotspots with nothing you need', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.document;
+  const list = [
+    { locId: 'L1', locName: 'Has targets', lat: 47.6, lng: -122.3, dist: 5,
+      score: 9, rare: 1, species: [{ code: 'merlin', name: 'Merlin' }] },
+    { locId: 'L2', locName: 'Nothing here', lat: 47.7, lng: -122.4, dist: 6,
+      score: 0, rare: 0, species: [] },
+  ];
+  A.renderDestinations(list, doc.getElementById('destMap'), doc.getElementById('destResults'));
+  const txt = doc.getElementById('destResults').textContent;
+  assert.match(txt, /Has targets/, 'a hotspot holding a bird you need is kept');
+  assert.ok(!/Nothing here/.test(txt), 'one holding nothing you need is dropped');
+
+  // And when NOTHING qualifies, say so rather than rendering an empty list.
+  A.renderDestinations([list[1]], doc.getElementById('destMap'), doc.getElementById('destResults'));
+  assert.match(doc.getElementById('destResults').textContent, /No hotspot in range/,
+    'an empty section explains itself');
+  app.window.close();
 });

@@ -213,7 +213,7 @@
     .panel h2 { font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { color: var(--muted); font-weight: 600; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
-    #navbar[hidden] { display: none; }
+    #navbar[hidden] { display: none; }  /* redundant now: see [hidden] above */
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
     /* Icon-only chrome. #navTitle is the only element in this row with no
        intrinsic width, so it is the one that gets squeezed -- a text back
@@ -340,6 +340,18 @@
        "📍 Here" +22.8px and "📋 Copy for birdlist-needsverification.md"
        +15px past the viewport. Wrapping keeps the labels legible, which
        shrinking them would not. */
+    /* HIDDEN MEANS HIDDEN.
+       `hidden` is a UA-stylesheet `display: none`, which ANY author rule that
+       sets `display` silently defeats — and this sheet sets `display` on
+       nearly everything. `.row { display: flex }` is why every "Load …" button
+       that had been replaced by the ↻ icon was still on screen: the code set
+       `row.hidden = true`, the property was true, and the row rendered anyway.
+       This file already carried FIVE separate `#thing[hidden] { display: none }`
+       patches — navbar, keybanner, abaCapWarn, sectiondoc, debugPanel — each
+       added the next time someone hit it. One rule replaces all of them.
+       `!important` is right here: `hidden` means "not part of the page", and
+       no layout rule should be able to outvote that. */
+    [hidden] { display: none !important; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
     button:active { transform: translateY(1px); }
@@ -1198,7 +1210,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.60';
+      var APP_VERSION = '1.0.61';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1927,7 +1939,83 @@
       // callers into one request, which is the case that actually happened.
       // Failures are evicted so a retry is still possible.
       var _ebCache = {}, EB_CACHE_MS = 30 * 60 * 1000;
-      function ebClearCache() { _ebCache = {}; }
+      function ebClearCache() { _ebCache = {}; ebRefPurge(); }
+
+      // --- reference feeds are STATIC, so stop paying for them every visit ---
+      //
+      // MEASURED from a device log: opening Hot & Cold hotspots fired four
+      // heavy calls at once — two county `recent?back=30&maxResults=10000`
+      // feeds and two `ref/hotspot/{county}` — and all four 429'd. Two of them
+      // never needed to be there.
+      //
+      // `ref/hotspot/{region}` is the county's HOTSPOT DIRECTORY and
+      // `product/spplist/{region}` is its species checklist. Neither is
+      // observation data: hotspots are created and renamed over months, and a
+      // region's species list moves with taxonomy, once a year. The 30-minute
+      // in-memory memo threw both away on every app restart, so a section that
+      // needed them paid full price several times a day for answers that had
+      // not changed since spring.
+      //
+      // Cached in localStorage for a WEEK, keyed by path. The saving is not
+      // subtle: ref/hotspot for two counties is the single largest pair of
+      // responses the app requests, and they are now fetched about twice a
+      // month instead of on every cold start.
+      var EB_REF_NS = 'bc_ref:', EB_REF_MS = 7 * 24 * 60 * 60 * 1000;
+      // Only feeds whose answer is a DIRECTORY, never a sighting. If a path is
+      // not obviously static, it does not belong here — a stale observation is
+      // a wrong answer, where a stale hotspot list is merely a slightly short
+      // one.
+      var EB_REF_RE = /^(ref\/hotspot\/(?!geo)|product\/spplist\/|ref\/taxonomy\/)/;
+      function ebRefGet(path) {
+        if (!EB_REF_RE.test(path)) return null;
+        try {
+          var raw = localStorage.getItem(EB_REF_NS + path);
+          if (!raw) return null;
+          var o = JSON.parse(raw);
+          if (!o || (Date.now() - o.t) > EB_REF_MS) return null;
+          return o.v;
+        } catch (e) { return null; }
+      }
+      function ebRefPut(path, v) {
+        if (!EB_REF_RE.test(path)) return;
+        try {
+          localStorage.setItem(EB_REF_NS + path, JSON.stringify({ t: Date.now(), v: v }));
+        } catch (e) {
+          // A directory too big for the quota is not worth evicting real data
+          // for; it just goes back to being fetched.
+          try { localStorage.removeItem(EB_REF_NS + path); } catch (_) {}
+        }
+      }
+      function ebRefPurge() {
+        try {
+          var kill = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(EB_REF_NS) === 0) kill.push(k);
+          }
+          kill.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+        } catch (e) {}
+      }
+
+      // --- what each section actually COSTS -------------------------------
+      //
+      // Every 429 storm in this app has been a budget problem, and the budget
+      // was invisible: the log said which URL was slow, never which SECTION
+      // asked for it. This counts calls against whichever section is on screen
+      // when they go out, so "Hot & Cold costs four heavy feeds" is something
+      // you can read rather than something you have to reconstruct from
+      // timestamps. Shown in the debug panel; costs nothing when unread.
+      var _apiCost = {}, _costSection = 'startup';
+      function costEnter(label) { _costSection = label || 'startup'; }
+      function costNote(path, cached) {
+        var e = _apiCost[_costSection] || (_apiCost[_costSection] = { calls: 0, cached: 0 });
+        if (cached) e.cached++; else e.calls++;
+      }
+      function costReport() {
+        return Object.keys(_apiCost).map(function (k) {
+          return { section: k, calls: _apiCost[k].calls, cached: _apiCost[k].cached };
+        }).sort(function (a, b) { return b.calls - a.calls; });
+      }
       // `bg` marks a call nobody is waiting on — the detached phase-2 species
       // wave. It is only a QUEUE POSITION, never a different rate: both lanes
       // share the token bucket, the rolling window and the AIMD gap.
@@ -1938,15 +2026,28 @@
           // dropped calls; "cached" is the difference between a bug and a
           // saving, and it is invisible unless it is printed.
           dbg('net', 'CACHED ' + path);
+          costNote(path, true);
           return hit.p;
         }
+        // A reference directory survives app restarts, so check the durable
+        // cache before spending a call on it.
+        var ref = ebRefGet(path);
+        if (ref != null) {
+          dbg('net', 'CACHED(ref, up to 7d) ' + path);
+          costNote(path, true);
+          var rp = Promise.resolve(ref);
+          _ebCache[path] = { t: Date.now(), p: rp };
+          return rp;
+        }
         dbg('net', 'GET ' + path);
+        costNote(path, false);
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
         var t0 = Date.now();
         var p = fgAttempt(path, 0, bg)
           .then(function (v) {
             release(); fgNoteOk();
+            ebRefPut(path, v);
             // The queue depth and the current gap are the two numbers that
             // explain a slow load, and neither was in the log before: without
             // them a 3-second pause between calls is indistinguishable from a
@@ -5207,8 +5308,22 @@
         });
       }
       function renderDestinations(list, mapEl, listEl) {
+        // A hotspot with NO unseen birds is not a destination. The ranking is
+        // by target count, so a zero lands at the bottom rather than being
+        // excluded — but "0 targets" is a row that answers the section's own
+        // question with "don't go", and printing it makes you read past it.
+        // It happens whenever the feed knows a hotspot is active but every
+        // species it has reported is already on your year list.
+        list = (list || []).filter(function (d) {
+          return d && d.species && d.species.length > 0;
+        });
         renderMap(mapEl, list, getHome(), false);
         listEl.innerHTML = '';
+        if (!list.length) {
+          listEl.innerHTML = '<div class="status">No hotspot in range is holding '
+            + 'a bird you still need right now.</div>';
+          return;
+        }
         list.forEach(function (d, i) {
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
@@ -9943,6 +10058,9 @@
         // Leaving the section closes any sub-page it had open, or coming back
         // later lands you on a bird's profile with no memory of choosing it.
         if (_abaOpen) abaCloseBird();
+        // Everything fetched from here on is this section's cost.
+        var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
+        costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
         var menu = $('menuPanel'); if (menu) menu.hidden = true;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
@@ -10446,6 +10564,24 @@
             : (navigator.geolocation ? 'web API only (will NOT prompt on device)' : 'NONE')));
         } catch (e) {}
         try { add('UA: ' + (navigator.userAgent || '')); } catch (e) {}
+        // WHAT THIS SESSION COST, by section. Every 429 storm here has been a
+        // budget problem, and the budget was invisible: the log said which URL
+        // was slow, never which section asked for it. Sorted by live calls, so
+        // the expensive sections name themselves. `cached` is the saving —
+        // the number of calls that did NOT go out.
+        try {
+          var rep = costReport().filter(function (r) { return r.calls || r.cached; });
+          if (rep.length) {
+            add('api cost this session (live/cached), most expensive first:');
+            rep.slice(0, 12).forEach(function (r) {
+              add('  ' + String(r.calls).padStart(4) + ' live · '
+                + String(r.cached).padStart(4) + ' cached  ' + r.section);
+            });
+            var tot = rep.reduce(function (a, r) { return a + r.calls; }, 0);
+            var sav = rep.reduce(function (a, r) { return a + r.cached; }, 0);
+            add('  ' + tot + ' live calls total, ' + sav + ' served from cache');
+          }
+        } catch (e) {}
         return out.join('\n');
       }
       // --- The sideways drag, take four: let the DEVICE do the measuring ----
@@ -11167,6 +11303,8 @@
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifIconic: gbifIconic, gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,
+        costReport: costReport, costEnter: costEnter, costNote: costNote,
+        ebRefGet: ebRefGet, ebRefPut: ebRefPut, ebRefPurge: ebRefPurge,
         packJson: packJson, unpackJson: unpackJson,
         saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
         chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
