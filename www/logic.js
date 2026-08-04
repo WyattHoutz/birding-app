@@ -27,11 +27,21 @@
     CUTOFF_DAYS: 2,         // analyze.CUTOFF_DAYS (daily-section recency)
     GEO_DIST_KM: 50,        // regions.py geo_dist_km
     DAILY_DRIVE_MI: 12,     // regions.py _WA daily_drive_mi
-    // How far you will actually drive for one bird. report.CHASE_MAX_MI.
+    // How far you will actually drive for one bird. report.chase_max_mi().
     // Written down once for Closest spots, then every other chase section
     // quietly went unbounded — Today's rarity reports was listing birds 60+
     // miles out beside one four miles from the house.
-    CHASE_MAX_MI: 30,
+    //
+    // 35, up from 30, and per-region on the report side (regions.Region
+    // .chase_max_mi, rebound by analyze.set_region). This is the DEFAULT and the
+    // value for WA; the app reads a per-region override from settings.
+    //
+    // STRAIGHT-LINE, always. Travel zones produce "effective miles" that price
+    // in ferries and water, and those are right for ranking and for labelling a
+    // trip — but never for inclusion. Murden Cove is 17 straight-line miles and
+    // 52 effective; a real Arctic Tern chase went there, and a penalised radius
+    // would have dropped it. eBird's own dist= is a straight-line radius too.
+    CHASE_MAX_MI: 35,
     CLUSTER_RADIUS_M: 250,  // report._cluster_by_proximity radius_m
     STAKEOUT_MIN_CHECKLISTS: 3,  // report.STAKEOUT_MIN_CHECKLISTS
     STAKEOUT_CLUSTER_M: 300,     // report.STAKEOUT_CLUSTER_M
