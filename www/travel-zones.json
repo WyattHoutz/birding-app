@@ -50,56 +50,261 @@
   "default_label": "mainland",
   "zones": [
     {
+      "id": "olympic-west",
+      "label": "Olympic W coast",
+      "_why": "The outer Pacific coast, reached by driving US-101 south around through Olympia, Aberdeen and Forks - NO FERRY. Split from `olympic` on 2026-08-04 after scripts/zones_geojson.py showed 126 hotspots, including Third Beach, Toleak Point and Destruction Island, being told to catch a boat. Boundary from the DATA, not taste: the peninsula's hotspots are bimodal in longitude with a trough at -123.5 (3 hotspots) between clusters of 80 and 43, and -123.5 is also where US-101 turns from the north shore down the west side. The lat 47.85 edge keeps the north-west ferry corridor - Neah Bay, Forks, Third Beach are all faster via the ferry and Port Angeles - and is about the Hoh River, where the two routes cross over. 47.85, 47.80 and 47.75 all classify the nine named places identically, so this sits in a stable band rather than on a knife-edge.",
+      "poly": [
+        [
+          47.2,
+          -124.9
+        ],
+        [
+          47.85,
+          -124.9
+        ],
+        [
+          47.85,
+          -123.5
+        ],
+        [
+          47.2,
+          -123.5
+        ]
+      ]
+    },
+    {
       "id": "vashon",
       "label": "Vashon I.",
-      "poly": [[47.52, -122.51], [47.52, -122.42], [47.33, -122.44], [47.33, -122.54]]
+      "poly": [
+        [
+          47.52,
+          -122.51
+        ],
+        [
+          47.52,
+          -122.42
+        ],
+        [
+          47.33,
+          -122.44
+        ],
+        [
+          47.33,
+          -122.54
+        ]
+      ]
     },
     {
       "id": "whidbey",
       "label": "Whidbey I.",
-      "poly": [[48.03, -122.35], [48.05, -122.55], [48.24, -122.78], [48.41, -122.70],
-               [48.35, -122.58], [48.16, -122.45], [48.07, -122.31]]
+      "poly": [
+        [
+          48.03,
+          -122.35
+        ],
+        [
+          48.05,
+          -122.55
+        ],
+        [
+          48.24,
+          -122.78
+        ],
+        [
+          48.41,
+          -122.7
+        ],
+        [
+          48.35,
+          -122.58
+        ],
+        [
+          48.16,
+          -122.45
+        ],
+        [
+          48.07,
+          -122.31
+        ]
+      ]
     },
     {
       "id": "kitsap",
       "label": "Kitsap pen.",
-      "poly": [[47.95, -122.70], [47.93, -122.45], [47.55, -122.45], [47.35, -122.62],
-               [47.38, -122.80], [47.75, -122.78]]
+      "poly": [
+        [
+          47.95,
+          -122.7
+        ],
+        [
+          47.93,
+          -122.45
+        ],
+        [
+          47.55,
+          -122.45
+        ],
+        [
+          47.35,
+          -122.62
+        ],
+        [
+          47.38,
+          -122.8
+        ],
+        [
+          47.75,
+          -122.78
+        ]
+      ]
     },
     {
       "id": "olympic",
       "label": "Olympic pen.",
-      "poly": [[48.20, -122.66], [48.40, -122.80], [48.40, -124.80], [47.30, -124.80],
-               [47.20, -123.10], [47.45, -122.95], [47.95, -122.80]]
+      "poly": [
+        [
+          48.2,
+          -122.66
+        ],
+        [
+          48.4,
+          -122.8
+        ],
+        [
+          48.4,
+          -124.8
+        ],
+        [
+          47.3,
+          -124.8
+        ],
+        [
+          47.2,
+          -123.1
+        ],
+        [
+          47.45,
+          -122.95
+        ],
+        [
+          47.95,
+          -122.8
+        ]
+      ]
     },
     {
       "id": "gig",
       "label": "Gig Harbor / Key pen.",
-      "poly": [[47.42, -122.62], [47.42, -122.52], [47.24, -122.55], [47.16, -122.78],
-               [47.35, -122.80]]
+      "poly": [
+        [
+          47.42,
+          -122.62
+        ],
+        [
+          47.42,
+          -122.52
+        ],
+        [
+          47.24,
+          -122.55
+        ],
+        [
+          47.16,
+          -122.78
+        ],
+        [
+          47.35,
+          -122.8
+        ]
+      ]
     }
   ],
   "hops": {
-    "mainland|kitsap":  { "minutes": 60, "via": "⛴ Edmonds–Kingston ferry" },
-    "mainland|whidbey": { "minutes": 45, "via": "⛴ Mukilteo–Clinton ferry" },
-    "mainland|vashon":  { "minutes": 65, "via": "⛴ Fauntleroy–Vashon ferry" },
-    "mainland|olympic": { "minutes": 90, "via": "⛴ ferry, then the Hood Canal Bridge" },
-    "mainland|gig":     { "minutes": 25, "via": "Tacoma Narrows Bridge" },
-    "kitsap|olympic":   { "minutes": 20, "via": "Hood Canal Bridge" },
-    "kitsap|vashon":    { "minutes": 45, "via": "⛴ Southworth–Vashon ferry" },
-    "kitsap|whidbey":   { "minutes": 55, "via": "⛴ Port Townsend–Coupeville ferry" },
-    "whidbey|olympic":  { "minutes": 60, "via": "⛴ Coupeville–Port Townsend ferry" },
-    "gig|olympic":      { "minutes": 70, "via": "around the south sound" },
-    "gig|vashon":       { "minutes": 40, "via": "⛴ Point Defiance–Tahlequah ferry" },
-    "gig|kitsap":       { "minutes": 35, "via": "around via Purdy" },
-    "whidbey|vashon":   { "minutes": 90, "via": "two ferries" },
-    "whidbey|gig":      { "minutes": 80, "via": "⛴ ferry, then the length of the sound" },
-    "vashon|olympic":   { "minutes": 85, "via": "⛴ ferry, then the Hood Canal Bridge" }
+    "mainland|kitsap": {
+      "minutes": 60,
+      "via": "⛴ Edmonds–Kingston ferry"
+    },
+    "mainland|whidbey": {
+      "minutes": 45,
+      "via": "⛴ Mukilteo–Clinton ferry"
+    },
+    "mainland|vashon": {
+      "minutes": 65,
+      "via": "⛴ Fauntleroy–Vashon ferry"
+    },
+    "mainland|olympic": {
+      "minutes": 90,
+      "via": "⛴ ferry, then the Hood Canal Bridge"
+    },
+    "mainland|gig": {
+      "minutes": 25,
+      "via": "Tacoma Narrows Bridge"
+    },
+    "kitsap|olympic": {
+      "minutes": 20,
+      "via": "Hood Canal Bridge"
+    },
+    "kitsap|vashon": {
+      "minutes": 45,
+      "via": "⛴ Southworth–Vashon ferry"
+    },
+    "kitsap|whidbey": {
+      "minutes": 55,
+      "via": "⛴ Port Townsend–Coupeville ferry"
+    },
+    "whidbey|olympic": {
+      "minutes": 60,
+      "via": "⛴ Coupeville–Port Townsend ferry"
+    },
+    "gig|olympic": {
+      "minutes": 70,
+      "via": "around the south sound"
+    },
+    "gig|vashon": {
+      "minutes": 40,
+      "via": "⛴ Point Defiance–Tahlequah ferry"
+    },
+    "gig|kitsap": {
+      "minutes": 35,
+      "via": "around via Purdy"
+    },
+    "whidbey|vashon": {
+      "minutes": 90,
+      "via": "two ferries"
+    },
+    "whidbey|gig": {
+      "minutes": 80,
+      "via": "⛴ ferry, then the length of the sound"
+    },
+    "vashon|olympic": {
+      "minutes": 85,
+      "via": "⛴ ferry, then the Hood Canal Bridge"
+    },
+    "mainland|olympic-west": {
+      "minutes": 60,
+      "via": "the long way round via Aberdeen"
+    }
   },
   "bands": [
-    { "id": "quick", "label": "under an hour each way", "max_round_trip_h": 2.0 },
-    { "id": "half",  "label": "half day",               "max_round_trip_h": 3.0 },
-    { "id": "full",  "label": "full day",               "max_round_trip_h": 4.5 },
-    { "id": "trip",  "label": "a trip, not a day out",  "max_round_trip_h": null }
+    {
+      "id": "quick",
+      "label": "under an hour each way",
+      "max_round_trip_h": 2.0
+    },
+    {
+      "id": "half",
+      "label": "half day",
+      "max_round_trip_h": 3.0
+    },
+    {
+      "id": "full",
+      "label": "full day",
+      "max_round_trip_h": 4.5
+    },
+    {
+      "id": "trip",
+      "label": "a trip, not a day out",
+      "max_round_trip_h": null
+    }
   ]
 }
