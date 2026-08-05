@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # the release job below creates a tag and a Release
 
 jobs:
   # Fast self-contained unit + syntax + DOM suite (BirdLogic, index.html inline
@@ -127,3 +127,89 @@ jobs:
           name: BirdChaser-unsigned-ipa
           path: BirdChaser-unsigned.ipa
           if-no-files-found: error
+
+  # Publish a Release when package.json's version changes.
+  #
+  # v1.0.62 and v1.0.63 both shipped as commits and were never published: the
+  # newest Release sat at v1.0.61 while the app had moved two versions past it,
+  # because bumping the version and cutting the Release were separate manual
+  # steps and only the first one is forced by anything. This closes that gap.
+  #
+  # Idempotent by design. It asks GitHub whether the tag already has a Release
+  # and exits quietly if so, which means it is safe on every push to main,
+  # including the many pushes that do not touch the version at all. No "did the
+  # version change" diffing against the previous commit, because that gets the
+  # answer wrong on a rebase, a revert, or a re-run.
+  #
+  # The .ipa attached is the artifact THIS run built from THIS commit, so the
+  # binary provably matches the tag rather than being a later rebuild.
+  release:
+    name: Publish Release when the version changes
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # commit subject/body become the release notes
+
+      - name: Read the version
+        id: ver
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          echo "Version in package.json: $V"
+
+      - name: Has this version already been released?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${{ steps.ver.outputs.tag }} is already released - nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "${{ steps.ver.outputs.tag }} has no Release yet - publishing."
+          fi
+
+      - name: Download the IPA this run built
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: BirdChaser-unsigned-ipa
+
+      - name: Write the release notes from the commit
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          # The commit that set the version explains the release better than any
+          # generated changelog, because it was written by hand to do exactly
+          # that. Subject becomes the title, body becomes the notes.
+          git log -1 --pretty=%s > .release-title
+          git log -1 --pretty=%b > .release-notes
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "The \`.ipa\` below is UNSIGNED and was built by CI from \`${GITHUB_SHA:0:7}\`,"
+            echo "the commit this Release points at. Sideload with AltStore."
+          } >> .release-notes
+          echo "Title: $(cat .release-title)"
+
+      - name: Create the Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            BirdChaser-unsigned.ipa \
+            --target "$GITHUB_SHA" \
+            --title "$(cat .release-title)" \
+            --notes-file .release-notes
+          echo "Published ${{ steps.ver.outputs.tag }}"
