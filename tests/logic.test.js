@@ -687,7 +687,7 @@ test('F9: a phase-2 row of a notable species is still a rarity', () => {
 // that keeps it safe: the penalty ranks and labels, it never filters.
 const TZ = require(path.join(__dirname, '..', 'www', 'travel-zones.json'));
 
-const HOME = [47.75458, -122.15889];
+const HOME = [47.76, -122.14];
 const KINGSTON = [47.7970, -122.4960];
 const MURDEN = [47.6470, -122.4950];   // Bainbridge — ferry-gated
 const OCEAN = [46.9260, -124.1710];    // Ocean Shores — plain mainland
@@ -826,7 +826,7 @@ test('travel zones: a missing or empty config degrades to no penalty', () => {
 // disagree about whether you can get somewhere this month.
 test('travel zones: a gate can be shut for the season', () => {
   const cfg = JSON.parse(JSON.stringify(TZ));
-  const home = [47.7616, -122.1447];
+  const home = [47.76, -122.14];
   const kitsap = [47.9120, -122.5260];
 
   const open = BL.travelHopMinutes(cfg, home[0], home[1], kitsap[0], kitsap[1], 7);

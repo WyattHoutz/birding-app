@@ -91,7 +91,27 @@ function destProj(c) {
   };
 }
 const gotDest = cv.destinations.map(destProj);
-ok(JSON.stringify(gotDest) === JSON.stringify(expDest),
+
+// Compare structure exactly, distance with a tolerance.
+//
+// This used to be JSON.stringify(got) === JSON.stringify(exp), which compares
+// IEEE doubles as text across two language runtimes. It held only by luck:
+// blurring the home anchor for privacy changed the haversine inputs and Node
+// then produced 11.818642470627928 where CPython wrote ...925 — a 3-ulp gap,
+// about 5 nanometres, failing a test whose job is to prove the app fetches and
+// keys the right feeds. Parity already checks the arithmetic. 1e-6 mi is 1.6 mm:
+// tight enough that any real disagreement still fails.
+const DIST_TOL_MI = 1e-6;
+function destsMatch(got, exp) {
+  if (got.length !== exp.length) return false;
+  return got.every(function (g, i) {
+    const e = exp[i];
+    return g.loc === e.loc && g.score === e.score && g.rareCount === e.rareCount &&
+      JSON.stringify(g.species) === JSON.stringify(e.species) &&
+      Math.abs(g.distMi - e.distMi) < DIST_TOL_MI;
+  });
+}
+ok(destsMatch(gotDest, expDest),
   'wired destinations != golden\n  got=' + JSON.stringify(gotDest) + '\n  exp=' + JSON.stringify(expDest));
 
 // Every rendered destination is a fully-formed app render object.

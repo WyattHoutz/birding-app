@@ -76,7 +76,7 @@
         { slug: 'king', code: 'US-WA-033', label: 'King' },
         { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }
       ],
-      home: { lat: 47.7616, lng: -122.1447 }, homeLabel: 'Woodinville, WA',
+      home: { lat: 47.76, lng: -122.14 }, homeLabel: 'Woodinville, WA',
       geoDistKm: 50, dailyDriveMi: 12, tideStation: '9447130',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: '',
       tzStdOffset: -8, tzObservesDst: true
@@ -88,7 +88,7 @@
         { slug: 'clay', code: 'US-MO-047', label: 'Clay' },
         { slug: 'jackson', code: 'US-MO-095', label: 'Jackson' }
       ],
-      home: { lat: 39.2152, lng: -94.7468 }, homeLabel: 'Parkville, MO',
+      home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'mo', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
@@ -100,7 +100,7 @@
         { slug: 'johnson', code: 'US-KS-091', label: 'Johnson' },
         { slug: 'leavenworth', code: 'US-KS-103', label: 'Leavenworth' }
       ],
-      home: { lat: 39.2152, lng: -94.7468 }, homeLabel: 'Parkville, MO',
+      home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ks', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
@@ -111,7 +111,7 @@
         { slug: 'maricopa', code: 'US-AZ-013', label: 'Maricopa' },
         { slug: 'yavapai', code: 'US-AZ-025', label: 'Yavapai' }
       ],
-      home: { lat: 33.8539, lng: -112.1133 }, homeLabel: 'Anthem, AZ',
+      home: { lat: 33.85, lng: -112.11 }, homeLabel: 'Anthem, AZ',
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'az', seenFromRegion: 'lower48',
       tzStdOffset: -7, tzObservesDst: false
@@ -122,7 +122,7 @@
         { slug: 'placer', code: 'US-CA-061', label: 'Placer' },
         { slug: 'sacramento', code: 'US-CA-067', label: 'Sacramento' }
       ],
-      home: { lat: 38.7622, lng: -121.1850 }, homeLabel: 'Granite Bay, CA',
+      home: { lat: 38.76, lng: -121.19 }, homeLabel: 'Granite Bay, CA',
       geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ca', seenFromRegion: 'lower48',
       tzStdOffset: -8, tzObservesDst: true

@@ -5762,7 +5762,7 @@ test('the time zone is derived from longitude, which is right where it matters',
   // time-of-day labels, so an error costs a mislabelled hour, not a wrong bird.
   assert.equal(tzFromLng(-123.3656).tzStdOffset, -8, 'Victoria BC is PST');
   assert.equal(tzFromLng(-155.8).tzStdOffset, -10, 'Waikoloa is HST');
-  assert.equal(tzFromLng(-122.1447).tzStdOffset, -8, 'Woodinville is PST');
+  assert.equal(tzFromLng(-122.14).tzStdOffset, -8, 'Woodinville is PST');
   assert.equal(tzFromLng(-155.8).tzObservesDst, false,
     'Hawaii does not observe DST, and it is the one common zone that does not');
   assert.equal(tzFromLng(-123.3656).tzObservesDst, true, 'British Columbia does');
