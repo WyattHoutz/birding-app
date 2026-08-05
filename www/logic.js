@@ -1346,6 +1346,51 @@
 
 
   // Collapse repeat obs of same species at same location (keep max howMany).
+  // ---- Checklist evidence: photos, recordings and the observer's note -------
+  //
+  // eBird returns both on product/checklist/view as obs[].mediaCounts (P photo,
+  // A audio, V video) and obs[].comments. The app ALREADY fetches that endpoint
+  // to hydrate the finder's name, so these ride along on a call it was making
+  // anyway - the same free ride report.py takes, and the reason this costs no
+  // extra eBird traffic.
+  //
+  // Mirrors report.py's media_icon/comment_icon exactly: the app and the report
+  // must not disagree about what a row says.
+  //
+  // Photo and video share the camera; audio gets its own mark. For a skulking
+  // rail or an empidonax the recording IS the identification, so a camera over
+  // a sound file would be quietly wrong.
+  var MEDIA_ICON = '\ud83d\udcf7';     // camera
+  var AUDIO_ICON = '\ud83d\udd0a';     // speaker
+  var COMMENT_ICON = '\ud83e\uddfe';   // receipt
+
+  // One obs entry -> {m: 'AP', c: 'note'}. Empty keys are omitted, so a missing
+  // key means "nothing there" while a missing ENTRY means "never looked" - the
+  // distinction that stops an icon's absence being read as a claim.
+  function checklistDetail(ob) {
+    var out = {};
+    if (!ob) return out;
+    var counts = ob.mediaCounts || {};
+    var letters = Object.keys(counts).map(function (k) {
+      return String(k).charAt(0).toUpperCase();
+    }).sort().join('');
+    if (letters) out.m = letters;
+    var c = String(ob.comments || '').trim();
+    if (c) out.c = c;
+    return out;
+  }
+
+  // Marks for one row, always in the same order so rows line up when scanned:
+  // photo, then recording, then note.
+  function checklistIcons(detail) {
+    if (!detail) return '';
+    var m = String(detail.m || ''), out = '';
+    if (m.indexOf('P') >= 0 || m.indexOf('V') >= 0) out += MEDIA_ICON;
+    if (m.indexOf('A') >= 0) out += AUDIO_ICON;
+    if (detail.c) out += COMMENT_ICON;
+    return out;
+  }
+
   function dedupeObs(obs) {
     var idx = {}, out = [];
     (obs || []).forEach(function (o) {
@@ -1822,6 +1867,11 @@
     travelDayBand: travelDayBand,
     travelHalfHours: travelHalfHours,
     travelNote: travelNote,
+    MEDIA_ICON: MEDIA_ICON,
+    AUDIO_ICON: AUDIO_ICON,
+    COMMENT_ICON: COMMENT_ICON,
+    checklistDetail: checklistDetail,
+    checklistIcons: checklistIcons,
     dedupeObs: dedupeObs
   };
 }));

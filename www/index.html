@@ -1280,7 +1280,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.63';
+      var APP_VERSION = '1.0.64';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7810,6 +7810,26 @@
           var sub = slot.getAttribute('data-sub');
           return ebird('product/checklist/view/' + encodeURIComponent(sub))
             .then(function (d) {
+              // The call was already being made for the name. mediaCounts and
+              // comments come back in the SAME response, so the evidence marks
+              // cost nothing extra — which was the condition for having them.
+              var code = slot.getAttribute('data-code') || '';
+              if (code) {
+                var ob = ((d && d.obs) || []).filter(function (o) {
+                  return o && o.speciesCode === code;
+                })[0];
+                var marks = BirdLogic.checklistIcons(BirdLogic.checklistDetail(ob));
+                if (marks) {
+                  var span = document.createElement('span');
+                  span.className = 'evid';
+                  span.textContent = ' ' + marks;
+                  // The note itself, for a long-press/hover, because on a rare
+                  // bird the note IS the evidence.
+                  var det = BirdLogic.checklistDetail(ob);
+                  if (det.c) span.title = det.c;
+                  slot.parentNode.insertBefore(span, slot.nextSibling);
+                }
+              }
               var who = d && d.userDisplayName;
               if (!who) return;
               slot.textContent = who;
@@ -7951,6 +7971,7 @@
                 (fr.found
                   ? '<span class="when fbwho"' +
                       (fr.r.subId && !fr.r.userDisplayName ? ' data-sub="' + esc(fr.r.subId) + '"' : '') +
+                      (fr.r.subId ? ' data-code="' + esc(fr.r.speciesCode || o.speciesCode || '') + '"' : '') +
                       '>' + (fr.r.userDisplayName ? esc(fr.r.userDisplayName) : '') + '</span>' +
                     (fr.r.userDisplayName ? ' · ' : '') + esc(fmtDateTime(fr.r.obsDt))
                   : '<span class="when">' + esc(fmtDateTime(fr.r.obsDt)) + '</span>' +
