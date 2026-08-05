@@ -1487,15 +1487,47 @@
   // Between two POINTS, never a property of the hotspot — which is the point.
   // Standing in Kingston, Point No Point is free and Marymoor costs an hour;
   // a `ferry: true` flag on the hotspot could not express that.
-  function travelHopMinutes(cfg, lat1, lng1, lat2, lng2) {
+  // What a gate costs when it is shut for the season with no detour. Mirrors
+  // travel.CLOSED_GATE_MINUTES. Large enough that every band lands on the far
+  // end, without an "unreachable" sentinel every arithmetic caller must know.
+  var TRAVEL_CLOSED_GATE_MINUTES = 480;
+
+  // Is this gate shut in the given month? THE GATE NEED NOT BE WATER: Puget
+  // Sound's are ferries and bridges, but the mechanism is just a fixed time
+  // cost between two zones with a human-readable reason, so a mountain pass, a
+  // border crossing, a toll road or a flight all fit. Seasonal closure is the
+  // one thing a fixed cost cannot express, and it is not hypothetical even
+  // here — SR-20 over Rainy and Washington Passes shuts roughly November to
+  // May every year, and Chinook Pass with it.
+  function travelGateShut(entry, month) {
+    var closed = entry && entry.closed_months;
+    if (!closed || !closed.length) return false;
+    var m = (month == null) ? (new Date().getMonth() + 1) : Number(month);
+    for (var i = 0; i < closed.length; i++) {
+      if (Number(closed[i]) === m) return true;
+    }
+    return false;
+  }
+
+  function travelHopMinutes(cfg, lat1, lng1, lat2, lng2, month) {
     var e = travelHop(cfg, travelZoneOf(cfg, lat1, lng1), travelZoneOf(cfg, lat2, lng2));
-    var m = e && Number(e.minutes);
+    if (!e) return 0;
+    if (travelGateShut(e, month)) {
+      var c = Number(e.closed_minutes);
+      return (c && isFinite(c)) ? Math.round(c) : TRAVEL_CLOSED_GATE_MINUTES;
+    }
+    var m = Number(e.minutes);
     return (m && isFinite(m)) ? Math.round(m) : 0;
   }
 
-  function travelHopVia(cfg, lat1, lng1, lat2, lng2) {
+  function travelHopVia(cfg, lat1, lng1, lat2, lng2, month) {
     var e = travelHop(cfg, travelZoneOf(cfg, lat1, lng1), travelZoneOf(cfg, lat2, lng2));
-    return (e && e.via) ? String(e.via) : '';
+    if (!e) return '';
+    if (travelGateShut(e, month)) {
+      return String(e.closed_via
+        || ((e.via || 'the crossing') + ' — closed this season'));
+    }
+    return e.via ? String(e.via) : '';
   }
 
   // Virtual extra MILES rather than minutes, so every existing numeric

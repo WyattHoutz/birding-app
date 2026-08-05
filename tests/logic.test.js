@@ -812,3 +812,37 @@ test('travel zones: a missing or empty config degrades to no penalty', () => {
   assert.equal(BL.travelNote({}, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]), '');
   assert.equal(BL.travelZoneOf(TZ, null, undefined), 'mainland');
 });
+
+// A SEASONAL GATE. The zone mechanism is not water-specific -- it is a fixed
+// time cost between two zones with a human-readable reason, so a mountain pass,
+// a border crossing, a toll road or a flight fit it as well as a ferry. Puget
+// Sound's gates happen to be ferries; other regions have other kinds.
+//
+// The one thing a fixed cost CANNOT express is a gate that shuts, and that is
+// not hypothetical even here: SR-20 over Rainy and Washington Passes closes
+// roughly November to May every year, Chinook Pass with it.
+//
+// Mirrors travel.hop_minutes / travel.hop_via, so the app and the report cannot
+// disagree about whether you can get somewhere this month.
+test('travel zones: a gate can be shut for the season', () => {
+  const cfg = JSON.parse(JSON.stringify(TZ));
+  const home = [47.7616, -122.1447];
+  const kitsap = [47.9120, -122.5260];
+
+  const open = BL.travelHopMinutes(cfg, home[0], home[1], kitsap[0], kitsap[1], 7);
+  cfg.hops['mainland|kitsap'].closed_months = [11, 12, 1, 2, 3, 4];
+
+  assert.equal(BL.travelHopMinutes(cfg, home[0], home[1], kitsap[0], kitsap[1], 7), open,
+    'an open month is unaffected by the closure list');
+
+  const shut = BL.travelHopMinutes(cfg, home[0], home[1], kitsap[0], kitsap[1], 1);
+  assert.ok(shut > open,
+    `a shut gate must cost more than an open one (got ${shut} vs ${open})`);
+  assert.ok(shut >= 400,
+    'a shut gate must dominate every band, or somewhere unreachable until May '
+    + 'reads as a normal day out');
+
+  const via = BL.travelHopVia(cfg, home[0], home[1], kitsap[0], kitsap[1], 1);
+  assert.match(via, /closed/i,
+    '"closed until May" is the most useful thing the app can say about such a place');
+});
