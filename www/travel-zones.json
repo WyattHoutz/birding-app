@@ -99,7 +99,7 @@
   "bands": [
     { "id": "quick", "label": "under an hour each way", "max_round_trip_h": 2.0 },
     { "id": "half",  "label": "half day",               "max_round_trip_h": 3.0 },
-    { "id": "full",  "label": "full day",               "max_round_trip_h": 4.0 },
+    { "id": "full",  "label": "full day",               "max_round_trip_h": 4.5 },
     { "id": "trip",  "label": "a trip, not a day out",  "max_round_trip_h": null }
   ]
 }
