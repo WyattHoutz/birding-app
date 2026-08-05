@@ -222,67 +222,148 @@
   "hops": {
     "mainland|kitsap": {
       "minutes": 60,
-      "via": "⛴ Edmonds–Kingston ferry"
+      "via": "⛴ Edmonds–Kingston ferry",
+      "gate": "ferry",
+      "measured_minutes": 47,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     },
     "mainland|whidbey": {
-      "minutes": 45,
-      "via": "⛴ Mukilteo–Clinton ferry"
+      "minutes": 37,
+      "via": "⛴ Mukilteo–Clinton ferry",
+      "gate": "ferry",
+      "measured_minutes": 24,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     },
     "mainland|vashon": {
-      "minutes": 65,
-      "via": "⛴ Fauntleroy–Vashon ferry"
+      "minutes": 41,
+      "via": "⛴ Fauntleroy–Vashon ferry",
+      "gate": "ferry",
+      "measured_minutes": 28,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     },
     "mainland|olympic": {
-      "minutes": 90,
-      "via": "⛴ ferry, then the Hood Canal Bridge"
+      "minutes": 47,
+      "via": "⛴ ferry, then the Hood Canal Bridge",
+      "gate": "ferry",
+      "measured_minutes": 34,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120,
+      "hood_canal_closure_minutes": 55,
+      "hood_canal_detour_ferries": [
+        "Mukilteo-Clinton Ferry",
+        "Port Townsend-Coupeville Ferry"
+      ]
     },
     "mainland|gig": {
-      "minutes": 25,
-      "via": "Tacoma Narrows Bridge"
+      "minutes": 3,
+      "via": "Tacoma Narrows Bridge",
+      "gate": "road",
+      "measured_minutes": 3,
+      "queue_minutes": 0
     },
     "kitsap|olympic": {
-      "minutes": 20,
-      "via": "Hood Canal Bridge"
+      "minutes": 23,
+      "via": "Hood Canal Bridge",
+      "gate": "road",
+      "measured_minutes": 23,
+      "queue_minutes": 0,
+      "hood_canal_closure_minutes": 105,
+      "hood_canal_detour_ferries": []
     },
     "kitsap|vashon": {
-      "minutes": 45,
-      "via": "⛴ Southworth–Vashon ferry"
+      "minutes": 34,
+      "via": "⛴ Southworth–Vashon ferry",
+      "gate": "road",
+      "measured_minutes": 34,
+      "queue_minutes": 0
     },
     "kitsap|whidbey": {
-      "minutes": 55,
-      "via": "⛴ Port Townsend–Coupeville ferry"
+      "minutes": 84,
+      "via": "⛴ Port Townsend–Coupeville ferry",
+      "gate": "ferry",
+      "measured_minutes": 71,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120,
+      "hood_canal_closure_minutes": 36,
+      "hood_canal_detour_ferries": [
+        "Mukilteo-Clinton Ferry"
+      ]
     },
     "whidbey|olympic": {
-      "minutes": 60,
-      "via": "⛴ Coupeville–Port Townsend ferry"
+      "minutes": 71,
+      "via": "⛴ Coupeville–Port Townsend ferry",
+      "gate": "ferry",
+      "measured_minutes": 58,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     },
     "gig|olympic": {
-      "minutes": 70,
-      "via": "around the south sound"
+      "minutes": 0,
+      "via": "around the south sound",
+      "gate": "road",
+      "measured_minutes": 0,
+      "queue_minutes": 0,
+      "hood_canal_closure_minutes": 58,
+      "hood_canal_detour_ferries": []
     },
     "gig|vashon": {
-      "minutes": 40,
-      "via": "⛴ Point Defiance–Tahlequah ferry"
+      "minutes": 35,
+      "via": "⛴ Point Defiance–Tahlequah ferry",
+      "gate": "road",
+      "measured_minutes": 35,
+      "queue_minutes": 0
     },
     "gig|kitsap": {
-      "minutes": 35,
-      "via": "around via Purdy"
+      "minutes": 0,
+      "via": "around via Purdy",
+      "gate": "road",
+      "measured_minutes": 0,
+      "queue_minutes": 0
     },
     "whidbey|vashon": {
-      "minutes": 90,
-      "via": "two ferries"
+      "minutes": 84,
+      "via": "two ferries",
+      "gate": "ferry",
+      "measured_minutes": 58,
+      "queue_minutes": 26,
+      "ferry_count": 2,
+      "queue_risk_minutes": 240
     },
     "whidbey|gig": {
-      "minutes": 80,
-      "via": "⛴ ferry, then the length of the sound"
+      "minutes": 35,
+      "via": "⛴ ferry, then the length of the sound",
+      "gate": "ferry",
+      "measured_minutes": 22,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     },
     "vashon|olympic": {
-      "minutes": 85,
-      "via": "⛴ ferry, then the Hood Canal Bridge"
+      "minutes": 22,
+      "via": "⛴ ferry, then the Hood Canal Bridge",
+      "gate": "road",
+      "measured_minutes": 22,
+      "queue_minutes": 0,
+      "hood_canal_closure_minutes": 58,
+      "hood_canal_detour_ferries": [
+        "Vashon Island - Southworth Ferry"
+      ]
     },
     "mainland|olympic-west": {
-      "minutes": 60,
-      "via": "the long way round via Aberdeen"
+      "minutes": 41,
+      "via": "the long way round via Aberdeen",
+      "gate": "road",
+      "measured_minutes": 44,
+      "queue_minutes": 0
     }
   },
   "bands": [
@@ -306,5 +387,6 @@
       "label": "a trip, not a day out",
       "max_round_trip_h": null
     }
-  ]
+  ],
+  "_measured_note": "Hop minutes are measured (scripts/measure_routes.py, Valhalla) plus 13 min per ferry for queueing, which free-flow routing cannot see. Regenerate with scripts/apply_measured_hops.py; do not hand-tune."
 }
