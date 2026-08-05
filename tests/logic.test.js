@@ -702,8 +702,12 @@ test('travel zones: real places land in the zone they belong to', () => {
     // Island COUNTY, reached by a bridge — free.
     ['Camano Island', [48.2100, -122.4800], 'mainland'],
     ['Ocean Shores', OCEAN, 'mainland'],
-    ['Murden Cove', MURDEN, 'kitsap'],
+    ['Murden Cove', MURDEN, 'bainbridge'],
     ['Point No Point', [47.9120, -122.5260], 'kitsap'],
+    // Split out of kitsap 2026-08-05. Manchester is 1.6 km from Bainbridge's
+    // south tip but on the mainland, and drives round the Narrows with no boat.
+    ['Manchester SP', [47.5780, -122.5450], 'kitsap-south'],
+    ['Bremerton', [47.5670, -122.6300], 'kitsap-south'],
     ['Crockett Lake', [48.1900, -122.6600], 'whidbey'],
     ['Port Townsend', [48.1120, -122.7600], 'olympic'],
     ['Vashon Island', [47.4180, -122.4600], 'vashon'],
