@@ -1,0 +1,59 @@
+name: App unit + DOM tests
+
+# These 286 tests used to run in the PRIVATE birding repo, where Actions minutes
+# are metered. They cost 234 seconds of every run — about 85% of that workflow —
+# and in the first four days of August alone CI there burned 277 minutes out of
+# a 2,000-minute monthly allowance.
+#
+# This repository is PUBLIC, so standard-runner minutes are free. The tests are
+# entirely self-contained (node --test tests/*.test.js touches nothing outside
+# this checkout — verified; the only mentions of the birding repo in the test
+# files are comments and error strings), so nothing is lost by running them
+# where they cost nothing.
+#
+# What deliberately did NOT move, and must not:
+#
+#   Daily birding report   Needs the eBird API key and writes the private data
+#                          cache, which holds 4,163 real birders' names. Putting
+#                          either in a public workflow would be a key leak and a
+#                          personal-data leak in one step.
+#
+#   Cross-language parity  Compares the app against the Markdown report's golden
+#   App-glue smoke test    fixtures, which live in the private repo. Running them
+#                          here would mean giving a public workflow credentials
+#                          to check out a private repo full of PII. They stay put
+#                          and are cheap anyway (~40 s).
+#
+# So the split is by what each check needs, not by convenience: anything that can
+# run on public code alone runs here for free, and anything that needs the
+# private data stays behind, on demand only.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # The DOM suite boots www/index.html in jsdom, so devDependencies are
+      # required. logic.js and smoke-wiring.js are stdlib-only, but the DOM
+      # tests are not.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit, syntax and DOM suites
+        run: npm test
