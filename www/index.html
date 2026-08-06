@@ -1280,7 +1280,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.64';
+      var APP_VERSION = '1.0.65';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2750,6 +2750,11 @@
             locName: r.locName || '', locId: r.locId || '', subId: r.subId || '',
             userDisplayName: r.userDisplayName || '', howMany: r.howMany != null ? r.howMany : '',
             lat: r.lat, lng: r.lng,
+            // Evidence attached to the sighting, straight off the notable feed:
+            // 'P' photo, 'A' audio, 'V' video, 'None'. Costs nothing — the feed
+            // was already fetched — and carries the TYPE, which hasRichMedia
+            // (a bool) cannot. Kept here so the mark survives into the archive.
+            evidence: r.evidence || '', hasComments: !!r.hasComments,
           };
         });
         // A hard cap, oldest first: this is a convenience archive, not a
@@ -7945,7 +7950,8 @@
                 locLink(o.locName || '', o.lat, o.lng, '', true) +
                 (o.howMany != null && o.howMany !== '' ? ' · ×' + esc(o.howMany) : '') +
                 (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') +
-                (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : ''),
+                (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : '') +
+              (BirdLogic.recordIcons(o) ? ' <span class="evid">' + BirdLogic.recordIcons(o) + '</span>' : ''),
               // Credit for the find, and the checklist to cite it from.
               //
               // This is a BEST GUESS and now says so, for two measured reasons
@@ -8028,6 +8034,9 @@
               speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + conf + '</div>' +
               '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, '', true) + ' · ' +
               esc(fmtDate(o.obsDt)) + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') +
+              // Evidence marks, from the feed row this card was built from — a
+              // photo, a recording or the observer's note. Free: no lookup.
+              (BirdLogic.recordIcons(o) ? ' ' + BirdLogic.recordIcons(o) : '') +
               (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
             el.appendChild(li);
           });

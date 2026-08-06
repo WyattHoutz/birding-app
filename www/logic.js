@@ -1391,6 +1391,31 @@
     return out;
   }
 
+  // The version that actually reaches the reader.
+  //
+  // checklistIcons above only knows about checklists something else already
+  // opened, which on most rows is none of them - the marks were invisible, and
+  // the owner reported exactly that twice. The NOTABLE feed carries `evidence`
+  // on every row (P photo, A audio, V video, 'None'), verified against 343 real
+  // rows where it correlated exactly with hasRichMedia. So presence AND type
+  // come free from a feed the app already fetches.
+  //
+  // hasComments is present in the schema but was False on every row sampled -
+  // 343 in the probe and 1,436 in a day's snapshot - so the note mark still
+  // falls back to checklist detail and has only partial coverage. Do not assume
+  // that field works.
+  function recordIcons(rec) {
+    if (!rec) return '';
+    var ev = String(rec.evidence || '');
+    if (ev === 'None') ev = '';
+    var out = '';
+    if (ev.indexOf('P') >= 0 || ev.indexOf('V') >= 0) out += MEDIA_ICON;
+    if (ev.indexOf('A') >= 0) out += AUDIO_ICON;
+    if (rec.hasComments) out += COMMENT_ICON;
+    if (out) return out;
+    return checklistIcons(rec._detail);
+  }
+
   function dedupeObs(obs) {
     var idx = {}, out = [];
     (obs || []).forEach(function (o) {
@@ -1872,6 +1897,7 @@
     COMMENT_ICON: COMMENT_ICON,
     checklistDetail: checklistDetail,
     checklistIcons: checklistIcons,
+    recordIcons: recordIcons,
     dedupeObs: dedupeObs
   };
 }));
