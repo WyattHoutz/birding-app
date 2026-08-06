@@ -81,7 +81,12 @@
       padding: 14px 10px;
       box-shadow: 0 8px 28px rgba(0,0,0,.28);
       background: var(--bg, #fff);
-      margin-inline: auto;
+      /* Explicit left/right rather than the margin-inline shorthand: the
+         shorthand did not centre the frame (it sat hard right), and an
+         auto-margin that silently does nothing is worse than a longhand pair
+         that obviously works. */
+      margin-left: auto;
+      margin-right: auto;
       box-sizing: content-box;
       scrollbar-width: thin;
     }
@@ -114,7 +119,7 @@
       <option value="375">375px</option>
       <option value="402">402px (iPhone 16/17 Pro)</option>
       <option value="430">430px (Pro Max)</option>
-      <option value="phone">iPhone 17 Pro — full device</option>
+      <option value="phone" selected>iPhone 17 Pro — full device</option>
     </select>
     <label><input type="checkbox" id="showUnused" checked /> show unused</label>
   </div>
@@ -283,10 +288,22 @@
         out.classList.toggle('phone', phone);
         out.style.maxWidth = phone ? '402px' : (this.value ? this.value + 'px' : '');
         out.style.outline = (this.value && !phone) ? '1px dashed var(--line)' : '';
+        // Set inline, not left to the stylesheet. The width above is applied
+        // inline, and mixing an inline width with a stylesheet margin is how the
+        // frame ended up hard against the right edge instead of centred. Both
+        // halves of "how wide and where" now live in the same place.
+        out.style.marginLeft = phone ? 'auto' : '';
+        out.style.marginRight = phone ? 'auto' : '';
       });
       document.getElementById('showUnused').addEventListener('change', render);
 
       render();
+      // The phone is the DEFAULT view, so apply it on load rather than
+      // waiting for a change event that never fires. A gallery that opens
+      // full-width teaches you how a card looks somewhere it will never be
+      // used; this app is a phone app, and every layout bug it has shipped
+      // was a long string in a narrow box.
+      document.getElementById('width').dispatchEvent(new Event('change'));
       var loaded = GROUPS.filter(function (g) { return !!g.api; }).length;
       document.getElementById('ver').textContent =
         loaded + ' of ' + GROUPS.length + ' card families loaded \u00b7 no network calls';
