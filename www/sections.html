@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Section gallery — Bird Chaser</title>
+<!--
+  Every REPORT SECTION, rendered as a stack of the cards it actually uses.
+
+  cards.html shows the nine templates one at a time, which answers "is this
+  shape right". It cannot answer "does this SECTION read well", because a
+  section is a heading plus eight of the same card in a row, and the problems
+  that live there — a heading that competes with the rows under it, eight
+  identical distances forming a column of noise, an expander that vanishes at
+  1.75x — only appear in the stack.
+
+  Why this is a gallery and not a screenshot of the app: the app's sections are
+  live panels behind buttons that fetch (surgeBtn, refreshBtn, …). There is no
+  offline entry point to call. So the sections are COMPOSED here from the same
+  card builders the app uses, with the same awkward sample data, and the
+  section->template mapping is taken from docs/CARDS.md.
+
+  NO NETWORK, exactly like the app and like cards.html.
+-->
+<link rel="icon" href="data:," />
+<style>
+  :root {
+    --s: 1;
+    --bg: #fff; --ink: #111; --muted: #666; --line: #e3e3e6; --accent: #0a58ca;
+  }
+  body {
+    margin: 0; padding: 18px 16px 60px; background: #f4f4f6; color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: calc(24px * var(--s)); margin: 0 0 4px; }
+  .lede { color: var(--muted); font-size: calc(14px * var(--s)); margin: 0 0 16px; max-width: 70ch; }
+  .controls {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    padding: 0 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px;
+    font-size: calc(13px * var(--s));
+  }
+  select, label { font-size: inherit; }
+
+  /* The frame, matched to cards.html so the two tools measure the same thing.
+     402 x 874 is the iPhone 17 Pro's CSS viewport (DPR 3, 1206 x 2622
+     physical) — the same logical size as the 16 Pro. */
+  #out { background: var(--bg); }
+  #out.phone {
+    height: 874px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    border: 10px solid #1c1c1e; border-radius: 44px; padding: 14px 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.28);
+    box-sizing: content-box; scrollbar-width: thin;
+  }
+
+  /* A section as the app frames it: a heading, then the rows. Deliberately
+     plain — anything decorative here would be a shape the app does not have. */
+  .sec { border-top: 1px solid var(--line); padding: 14px 0 4px; }
+  .sec:first-child { border-top: 0; }
+  .sechead {
+    font-size: calc(17px * var(--s)); font-weight: 700; margin: 0 0 2px;
+  }
+  .secmeta {
+    font-size: calc(11px * var(--s)); color: var(--muted); margin: 0 0 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .secmeta b { font-weight: 600; color: var(--ink); }
+  .nocards {
+    font-size: calc(12px * var(--s)); color: var(--muted); font-style: italic;
+    padding: 2px 0 8px;
+  }
+  footer { margin-top: 28px; color: var(--muted); font-size: calc(12px * var(--s)); }
+</style>
+</head>
+<body>
+  <h1>Section gallery</h1>
+  <p class="lede">
+    Every section of the report, built from the cards it actually uses, in a
+    phone. Use it to check how a section READS as a stack — the heading against
+    its rows, and the same row repeated eight times. Individual shapes are in
+    <a href="cards.html">cards.html</a>; the mapping is in
+    <a href="../docs/CARDS.md">docs/CARDS.md</a>.
+  </p>
+
+  <div class="controls">
+    <label for="scale">Text scale</label>
+    <select id="scale">
+      <option value="1">1× (default)</option>
+      <option value="1.25">1.25×</option>
+      <option value="1.5">1.5×</option>
+      <option value="1.75">1.75× (largest)</option>
+    </select>
+    <label for="width">Width</label>
+    <select id="width">
+      <option value="phone" selected>iPhone 17 Pro — full device</option>
+      <option value="">full</option>
+      <option value="320">320px</option>
+      <option value="375">375px</option>
+      <option value="402">402px (iPhone 16/17 Pro)</option>
+      <option value="430">430px (Pro Max)</option>
+    </select>
+    <label for="rows">Rows per section</label>
+    <select id="rows">
+      <option value="1">1</option>
+      <option value="3" selected>3</option>
+      <option value="8">8 (a full list)</option>
+    </select>
+  </div>
+
+  <main id="out"></main>
+  <footer id="ver"></footer>
+
+  <script src="cards-species.js"></script>
+  <script src="cards-hotspot.js"></script>
+  <script src="cards-checklist.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      // Same awkward sample data as cards.html, and for the same reason: every
+      // layout bug this app has shipped was a long string in a narrow box, so a
+      // gallery of short tidy strings proves nothing.
+      var LONG_PLACE = 'Marymoor Park--Audubon BirdLoop/Interpretive-Boardwalk';
+      var A = function (t) { return '<a href="#" onclick="return false">' + t + '</a>'; };
+      var PIN = '<a class="ckmap" href="#" onclick="return false" aria-label="Directions">\uD83D\uDDFA</a>';
+      function thumbOf(file, extra) {
+        return '<span class="thumb"><img class="birdpic' + (extra || '') +
+          '" alt="" src="assets/birds/' + file + '"></span>';
+      }
+      // Rotated per row so a stack shows the real mix: most species have a
+      // photo, some fall back, and a few have nothing at all.
+      var THUMBS = [
+        thumbOf('tersan.jpg'), thumbOf('merlin.jpg'),
+        thumbOf('fallback.svg', ' isfallback'),
+        '<span class="thumb nopic"></span>'
+      ];
+      var BIRDS = [
+        ['Terek Sandpiper', 'Edmonds Public Fishing Pier', '11.4'],
+        ['Tufted Puffin', LONG_PLACE, '8.1'],
+        ['Sooty Grouse', 'Bolt Creek Burn', '32.1'],
+        ['Barred Owl', 'Juanita Bay Park', '4.9'],
+        ['Red-throated Loon', 'Murden Cove, Bainbridge Island', '17.0'],
+        ['Black-Throated Gray Warbler', 'Discovery Park', '12.6'],
+        ['American Tree Sparrow', 'Marymoor Park', '8.0'],
+        ['Pectoral Sandpiper', 'Crockett Lake, Whidbey Island', '41.2']
+      ];
+      var PLACES = [
+        [LONG_PLACE, '8.1', '270'], ['Discovery Park', '12.6', '291'],
+        ['Edmonds Marina', '12.0', '243'], ['Juanita Bay Park', '4.9', '214'],
+        ['Bolt Creek Burn', '32.1', '96'], ['Crockett Lake', '41.2', '268'],
+        ['Nisqually NWR', '54.5', '283'], ['Ocean Shores jetty', '110.0', '316']
+      ];
+
+      // Argument shapes copied from cards.html, which is the working
+      // reference. The first version of this file INVENTED them (rank, when,
+      // who, where) and every hotspot and checklist row rendered with empty
+      // placeholders — a gallery showing the wrong shape is worse than no
+      // gallery, because you would tune a layout that does not exist.
+      function speciesMedium(i) {
+        var b = BIRDS[i % BIRDS.length];
+        return window.SpeciesCards.medium({
+          icon: THUMBS[i % THUMBS.length], name: A(b[0]),
+          // The same tag classes the app emits — needflag / dim / stakeflag —
+          // not raw spans. Tags carry their own styling, so bare markup here
+          // would show a layout nobody will ever see.
+          tags: '<span class="needflag">\uD83D\uDD0D</span>'
+              + ' <span class="dim">\u00d71</span>'
+              + ' <span class="stakeflag">\uD83D\uDCCD Day ' + ((i % 5) + 1) + '</span>',
+          // distMi ONLY. Passing `distance` as well printed the mileage twice.
+          distMi: parseFloat(b[2]),
+          sub: A(b[1]) + ' ' + A('Aug 3 10:25a') + ' Neil Pankey'
+        });
+      }
+      function speciesSmall(i) {
+        var b = BIRDS[i % BIRDS.length];
+        return window.SpeciesCards.small({
+          icon: THUMBS[i % THUMBS.length], name: A(b[0]), sub: 'seen ' + (i + 2) + ' Jul'
+        });
+      }
+      function hotspotMedium(i) {
+        var p = PLACES[i % PLACES.length];
+        return window.HotspotCards.medium({
+          num: i + 1, name: A(p[0]),
+          sub: p[2] + ' species all-time \u00b7 latest Jul 30',
+          distance: null, distMi: parseFloat(p[1]),
+          unseen: '<ul class="obs card-sm sppl"><li><div class="name">'
+                + '<span class="ntext">' + BIRDS[i % BIRDS.length][0] + '</span></div></li></ul>',
+          unseenLabel: '1 unseen \uD83D\uDD0D'
+        });
+      }
+      function checklistSmall(i) {
+        var b = BIRDS[i % BIRDS.length];
+        return window.ChecklistCards.small({
+          place: b[1], href: '#', date: 'Aug ' + (i + 1) + ' 10:25 AM',
+          count: 42 - i, distMi: parseFloat(b[2]), map: PIN
+        });
+      }
+
+      // FOUR sections to start, not all twenty-six. These are the ones with
+      // queued layout work, and a gallery you actually read beats a gallery
+      // that renders everything. `builder` names the app function each is built
+      // by (from docs/CARDS.md), so a rename is findable from here.
+      var SECTIONS = [
+        { at: 'refreshBtn', label: '\uD83C\uDF05 Today\u2019s rarity reports',
+          builder: 'refresh',
+          note: 'one medium species row per bird',
+          cards: [speciesMedium] },
+        { at: 'activeBtn', label: '\uD83D\uDEA8 Last 7-Days rarity reports',
+          builder: 'loadActiveRarities + rarityChecklistDetails',
+          note: 'a medium species row per bird, then the checklists behind it',
+          cards: [speciesMedium, checklistSmall] },
+        { at: 'destBtn', label: '\uD83E\uDD47 Top destinations',
+          builder: 'hotspotCard',
+          note: 'every hotspot list in the app goes through this one builder',
+          cards: [hotspotMedium] },
+        { at: 'allUnseenBtn', label: '\uD83D\uDCCB All unseen reports',
+          builder: 'speciesPlacesCard + unseenPlacesHtml',
+          note: 'a medium species row per bird, then one line per checklist under it',
+          cards: [speciesMedium, checklistSmall] }
+      ];
+
+      var out = document.getElementById('out');
+
+      function wrapFor(fn) {
+        // The class the app puts around each family's rows. Kept here rather
+        // than inside the card files because it is the SECTION's job, not the
+        // row's — the same medium card sits in different containers.
+        if (fn === speciesMedium) return 'obs big xl';
+        if (fn === speciesSmall) return 'obs card-sm sppl';
+        if (fn === hotspotMedium) return 'obs dest';
+        return 'cklcards cklcards-sm';
+      }
+
+      function render() {
+        var rows = parseInt(document.getElementById('rows').value, 10) || 3;
+        var html = '';
+        SECTIONS.forEach(function (s) {
+          html += '<section class="sec"><div class="sechead">' + s.label + '</div>';
+          html += '<div class="secmeta">#' + s.at +
+            (s.builder ? ' \u00b7 <b>' + s.builder + '()</b>' : '') + '</div>';
+          if (!s.cards.length) {
+            html += '<div class="nocards">No card template \u2014 this section renders its own shape.</div>';
+          } else {
+            s.cards.forEach(function (fn) {
+              var body = '';
+              for (var i = 0; i < rows; i++) { body += fn(i); }
+              html += '<div class="' + wrapFor(fn) + '">' + body + '</div>';
+            });
+          }
+          html += '</section>';
+        });
+        out.innerHTML = html;
+      }
+
+      document.getElementById('scale').addEventListener('change', function () {
+        document.documentElement.style.setProperty('--s', this.value);
+      });
+      document.getElementById('width').addEventListener('change', function () {
+        var phone = this.value === 'phone';
+        out.classList.toggle('phone', phone);
+        out.style.maxWidth = phone ? '402px' : (this.value ? this.value + 'px' : '');
+        out.style.outline = (this.value && !phone) ? '1px dashed var(--line)' : '';
+        // Inline, alongside the width, so the two cannot disagree — a
+        // stylesheet margin against an inline width is what left the frame
+        // hard against the right edge in cards.html.
+        out.style.marginLeft = phone ? 'auto' : '';
+        out.style.marginRight = phone ? 'auto' : '';
+      });
+      document.getElementById('rows').addEventListener('change', render);
+
+      render();
+      document.getElementById('width').dispatchEvent(new Event('change'));
+
+      var withCards = SECTIONS.filter(function (s) { return s.cards.length; }).length;
+      document.getElementById('ver').textContent =
+        SECTIONS.length + ' sections \u00b7 ' + withCards + ' built from card templates';
+    }());
+  </script>
+</body>
+</html>

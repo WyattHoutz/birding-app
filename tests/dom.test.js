@@ -6117,6 +6117,37 @@ const FAMILIES = {
   ChecklistCards: ['small', 'medium'],
 };
 
+test('the section gallery builds real cards, with no network', async () => {
+  const SECTIONS = fs.readFileSync(path.join(WWW, 'sections.html'), 'utf8');
+
+  // Same invariant as the app and the card gallery.
+  assert.ok(!/https?:\/\/(?!ebird\.org)/.test(
+    SECTIONS.replace(/https?:\/\/www\.w3\.org[^"']*/g, '')),
+    'the section gallery loads nothing off the network');
+  assert.ok(!/fetch\(|XMLHttpRequest/.test(SECTIONS),
+    'and makes no calls of its own');
+
+  // It must call the REAL card builders. A gallery that hand-rolls its own
+  // markup drifts from the app silently, which is the whole failure this
+  // family of files exists to prevent.
+  for (const call of ['SpeciesCards.medium(', 'HotspotCards.medium(', 'ChecklistCards.small(']) {
+    assert.ok(SECTIONS.includes('window.' + call),
+      'the section gallery builds rows with ' + call);
+  }
+
+  // And it must pass the arguments those templates actually read. The first
+  // version invented rank/when/who/where, so every hotspot and checklist row
+  // rendered as empty placeholders — which looks like a layout bug and is not
+  // one. Assert the real key names.
+  for (const key of ['num:', 'place:', 'distMi:', 'unseenLabel:']) {
+    assert.ok(SECTIONS.includes(key),
+      'the section gallery passes ' + key + ' - the key the template reads');
+  }
+  // distance AND distMi together printed the mileage twice.
+  assert.ok(!/distance:\s*'\d/.test(SECTIONS),
+    'distance is left to distMi, so the mileage is not printed twice');
+});
+
 test('the card gallery renders every template, with no network', async () => {
   const app = await boot();
   const w = app.window;
