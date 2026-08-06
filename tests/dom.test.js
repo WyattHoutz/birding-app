@@ -6139,8 +6139,17 @@ test('the card gallery renders every template, with no network', async () => {
         'the gallery has a ' + family + ' group');
     }
   }
-  assert.equal((GALLERY.match(/size: '/g) || []).length, total,
-    'the gallery has exactly one entry per template (' + total + ')');
+  // Every template must appear; extra entries are allowed because a template
+  // can have more than one state worth seeing. The small species card is
+  // shown three times on purpose — with a bundled photo, with the shared
+  // fallback image, and with no picture at all (.thumb.nopic collapses the
+  // slot). A gallery that only ever renders the happy path cannot tell you
+  // the fallback is too dark or that a collapsed row loses its gutter.
+  //
+  // The per-template loop above is what guards coverage; this only guards
+  // against a template silently disappearing from the count.
+  assert.ok((GALLERY.match(/size: '/g) || []).length >= total,
+    'the gallery has at least one entry per template (' + total + ')');
   // NO RUNTIME GITHUB OR NETWORK DEPENDENCY, same invariant as the app.
   assert.ok(!/https?:\/\/(?!ebird\.org)/.test(GALLERY.replace(/https?:\/\/www\.w3\.org[^"']*/g, '')),
     'the gallery loads nothing off the network');

@@ -66,6 +66,29 @@
     .demo { list-style: none; margin: 0; padding: 0; }
     .err { color: #b42318; font-weight: 700; }
     footer { margin-top: 30px; color: var(--muted); font-size: calc(12px * var(--s)); }
+
+    /* The whole device, not just its width. 402 x 874 is the iPhone 17 Pro's
+       CSS viewport; the height is the point, because it is what decides how
+       much lands above the fold and whether a card survives scrolling in a
+       window rather than on an endless desktop page. The bezel is deliberately
+       plain - this is a measuring tool, not a marketing shot. */
+    #out.phone {
+      height: 874px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border: 10px solid #1c1c1e;
+      border-radius: 44px;
+      padding: 14px 10px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.28);
+      background: var(--bg, #fff);
+      margin-inline: auto;
+      box-sizing: content-box;
+      scrollbar-width: thin;
+    }
+    /* The rounded corners clip content at the very top and bottom on a real
+       handset too, so the gallery must not quietly pad that away. */
+    #out.phone > *:first-child { margin-top: 8px; }
+    #out.phone > *:last-child { margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -89,8 +112,9 @@
       <option value="">full</option>
       <option value="320">320px</option>
       <option value="375">375px</option>
-      <option value="402">402px (iPhone 16 Pro)</option>
+      <option value="402">402px (iPhone 16/17 Pro)</option>
       <option value="430">430px (Pro Max)</option>
+      <option value="phone">iPhone 17 Pro — full device</option>
     </select>
     <label><input type="checkbox" id="showUnused" checked /> show unused</label>
   </div>
@@ -113,8 +137,21 @@
       var ADDRESS = '1730 North 122nd Street, Seattle, Washington, US (47.718, -122.335)';
       var A = function (t) { return '<a href="#" onclick="return false">' + t + '</a>'; };
       var PIN = '<a class="ckmap" href="#" onclick="return false" aria-label="Directions">\uD83D\uDDFA</a>';
-      var THUMB = '<span class="thumb" style="background:var(--line);border-radius:10px;'
-        + 'display:inline-block"></span>';
+
+      // The thumb used to be a grey stub drawn by this file, which meant the
+      // gallery could not show the one thing you most want to check: how a card
+      // looks with a real photo in it, and how it looks when the photo is
+      // missing. Both now use the SAME markup the app builds (assets/birds/,
+      // img.birdpic), so what you see here is what ships.
+      //
+      // Three states, because all three occur in the wild:
+      function thumbOf(file, extraClass) {
+        return '<span class="thumb"><img class="birdpic' + (extraClass || '') +
+          '" alt="" src="assets/birds/' + file + '"></span>';
+      }
+      var THUMB = thumbOf('tersan.jpg');            // a bundled species photo
+      var THUMB_FALLBACK = thumbOf('fallback.svg', ' isfallback');  // the default
+      var THUMB_NONE = '<span class="thumb nopic"></span>';         // collapses away
 
       var GROUPS = [
         {
@@ -127,6 +164,18 @@
             { size: 'small', used: true,
               why: 'the bird lists nested inside a hotspot card',
               v: { icon: THUMB, name: A('Merlin'), sub: 'seen 12 Jul' } },
+            // The same template in its other two picture states. 627 species
+            // ship with a photo; everything else gets the shared fallback, and
+            // a row whose thumb fails to resolve collapses the slot entirely.
+            // All three are normal, so all three belong in the gallery - a
+            // gallery that only ever shows the happy path cannot tell you the
+            // fallback is too dark or that the collapsed row loses its gutter.
+            { size: 'small', used: true,
+              why: 'DEFAULT IMAGE - any species without a bundled photo',
+              v: { icon: THUMB_FALLBACK, name: A('Sooty Grouse'), sub: 'seen 2 Aug' } },
+            { size: 'small', used: true,
+              why: 'no picture at all - the slot collapses (.thumb.nopic)',
+              v: { icon: THUMB_NONE, name: A('Barred Owl'), sub: 'seen 9 Jul' } },
             { size: 'medium', used: true,
               why: "Today's rarities · Species lookup · Active rarities · Latest ticks · All unseen",
               v: { icon: THUMB, name: A('Tufted Puffin'),
@@ -223,8 +272,17 @@
         document.documentElement.style.setProperty('--s', this.value);
       });
       document.getElementById('width').addEventListener('change', function () {
-        out.style.maxWidth = this.value ? this.value + 'px' : '';
-        out.style.outline = this.value ? '1px dashed var(--line)' : '';
+        // "phone" is the whole device, not just its width. A card can look fine
+        // at 402px wide and still be wrong on the handset, because what a phone
+        // actually constrains is HEIGHT — how many rows land above the fold, and
+        // whether a card survives being scrolled inside a 874px window rather
+        // than an infinite desktop page. 402 x 874 is the iPhone 17 Pro's CSS
+        // viewport (verified: DPR 3, 1206 x 2622 physical), which is the same
+        // logical size as the 16 Pro, hence the shared label above.
+        var phone = this.value === 'phone';
+        out.classList.toggle('phone', phone);
+        out.style.maxWidth = phone ? '402px' : (this.value ? this.value + 'px' : '');
+        out.style.outline = (this.value && !phone) ? '1px dashed var(--line)' : '';
       });
       document.getElementById('showUnused').addEventListener('change', render);
 
