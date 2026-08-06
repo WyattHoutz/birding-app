@@ -6146,6 +6146,32 @@ test('the section gallery builds real cards, with no network', async () => {
   // distance AND distMi together printed the mileage twice.
   assert.ok(!/distance:\s*'\d/.test(SECTIONS),
     'distance is left to distMi, so the mileage is not printed twice');
+
+  // A section this gallery has NOT mirrored must say so on its face. Sketch
+  // content that looks finished is the trap: you would tune a layout the app
+  // does not have, which is exactly what the invented card arguments above
+  // nearly caused. Greyed, badged, and captioned - all three.
+  assert.ok(SECTIONS.includes('todo: true'),
+    'unmirrored sections are marked, not quietly omitted');
+  assert.ok(/\.sec\.todo\s*\{[^}]*opacity/.test(SECTIONS),
+    'a sketch is visibly greyed');
+  assert.ok(SECTIONS.includes('sketch'),
+    'a sketch carries a badge saying so');
+  assert.ok(SECTIONS.includes('not its layout'),
+    'and says in words that it is content, not layout');
+
+  // Every sketch must actually carry stub content: a greyed EMPTY section
+  // reads as "this section is empty in the app", which is a different and
+  // wrong claim.
+  //
+  // Counts `todo: true,` WITH the comma — the property as written in a section
+  // entry. Counting the bare phrase also matched the comment above the list
+  // that explains what the flag means, which reported one sketch more than
+  // exists.
+  const sketches = (SECTIONS.match(/todo: true,/g) || []).length;
+  const stubs = (SECTIONS.match(/stub: \[/g) || []).length;
+  assert.equal(stubs, sketches,
+    'every sketched section has stub data (' + sketches + ' sketches, ' + stubs + ' stubs)');
 });
 
 test('the card gallery renders every template, with no network', async () => {

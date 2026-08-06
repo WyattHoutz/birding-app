@@ -68,6 +68,25 @@
     font-size: calc(12px * var(--s)); color: var(--muted); font-style: italic;
     padding: 2px 0 8px;
   }
+
+  /* Greyed, not hidden. A section missing from the gallery reads as "done";
+     a section visibly greyed reads as "not done yet", which is the truth. */
+  .sec.todo { opacity: .55; }
+  .sec.todo .sechead { color: var(--muted); }
+  .pill {
+    margin-left: 8px; font-size: calc(10px * var(--s)); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em;
+    color: #8a6d1f; background: #fdf3d7; border: 1px solid #edd9a3;
+    border-radius: 999px; padding: 1px 7px; vertical-align: middle;
+  }
+  .secnote {
+    font-size: calc(12px * var(--s)); color: var(--muted); margin: 0 0 8px;
+  }
+  .stub { border-left: 3px solid var(--line); padding: 6px 0 6px 10px; margin-bottom: 6px; }
+  .stubrow { font-size: calc(13px * var(--s)); margin: 0 0 3px; }
+  .stubwhy {
+    font-size: calc(11px * var(--s)); color: var(--muted); font-style: italic; margin-top: 5px;
+  }
   footer { margin-top: 28px; color: var(--muted); font-size: calc(12px * var(--s)); }
 </style>
 </head>
@@ -187,6 +206,14 @@
           unseenLabel: '1 unseen \uD83D\uDD0D'
         });
       }
+      function checklistMedium(i) {
+        var pl = PLACES[i % PLACES.length];
+        return window.ChecklistCards.medium({
+          num: i + 1, place: pl[0], href: '#', species: 60 - i * 3,
+          date: 'Aug ' + (i + 1) + ' 12:31 PM', distMi: parseFloat(pl[1]),
+          who: 'Dan McDougall-Treacy'
+        });
+      }
       function checklistSmall(i) {
         var b = BIRDS[i % BIRDS.length];
         return window.ChecklistCards.small({
@@ -195,27 +222,100 @@
         });
       }
 
-      // FOUR sections to start, not all twenty-six. These are the ones with
-      // queued layout work, and a gallery you actually read beats a gallery
-      // that renders everything. `builder` names the app function each is built
-      // by (from docs/CARDS.md), so a rename is findable from here.
+      // ALL the report's sections. `cards` names the real app builders where
+      // the section is made of card templates (mapping from docs/CARDS.md);
+      // `todo: true` marks a section whose shape this gallery does NOT yet
+      // mirror, and those render greyed with a clearly-labelled stub.
+      //
+      // The stub for a `todo` section is a SKETCH, deliberately plain, and it
+      // says so. It exists to show the section is not empty and roughly what it
+      // carries — not to be tuned against. Dressing it up to look finished is
+      // how you end up refining a layout the app does not have, which this file
+      // already nearly shipped once.
       var SECTIONS = [
+        { at: 'surgeBtn', label: '\uD83D\uDD34 Happening now', todo: true,
+          builder: 'checkSurges', note: 'a twitch in progress: species, place, how many birders',
+          stub: ['<b>Tufted Puffin</b> \u2014 6 observers in 3 h',
+                 'Edmonds Public Fishing Pier \u00b7 11.4 mi'] },
+        { at: 'wxBtn', label: '\uD83C\uDF24 Conditions for chasing', todo: true,
+          builder: 'weather.py', note: 'wind, rain and tide for the day ahead',
+          stub: ['Sat 07:00 \u2014 12 \u00b0C, SW 8 mph, no rain',
+                 'Low tide 06:41 \u00b7 high 13:02'] },
+        { at: 'rankBtn', label: '\uD83C\uDFC6 eBird Rankings & Top 100', todo: true,
+          builder: 'loadRankings', note: 'your standing plus the Top 100 board',
+          stub: ['You: #42 in King County, 201 species',
+                 '1. Neil Pankey 284 \u00b7 2. Dan McDougall-Treacy 279'] },
         { at: 'refreshBtn', label: '\uD83C\uDF05 Today\u2019s rarity reports',
-          builder: 'refresh',
-          note: 'one medium species row per bird',
+          builder: 'refresh', note: 'one medium species row per bird',
           cards: [speciesMedium] },
         { at: 'activeBtn', label: '\uD83D\uDEA8 Last 7-Days rarity reports',
           builder: 'loadActiveRarities + rarityChecklistDetails',
           note: 'a medium species row per bird, then the checklists behind it',
           cards: [speciesMedium, checklistSmall] },
+        { at: 'abaBtn', label: '\uD83E\uDD85 ABA Code 3+ rarities', todo: true,
+          builder: 'renderAbaAlert', note: 'continent-wide megas, grouped by state',
+          stub: ['<b>Terek Sandpiper</b> \u2014 WA \u00b7 26 reports',
+                 '<b>Steller\u2019s Sea-Eagle</b> \u2014 ME \u00b7 4 reports'] },
+        { at: 'lastNewBtn', label: '\uD83D\uDD2D Latest ticks on the leaderboard',
+          builder: 'lastNewCard',
+          note: 'a medium species row per bird, then its recent checklists',
+          cards: [speciesMedium, checklistSmall] },
+        { at: 'tripBtn', label: '\uD83E\uDDED Trip planner',
+          builder: 'hotspotCard', note: 'a route of hotspots for one outing',
+          cards: [hotspotMedium] },
         { at: 'destBtn', label: '\uD83E\uDD47 Top destinations',
           builder: 'hotspotCard',
           note: 'every hotspot list in the app goes through this one builder',
           cards: [hotspotMedium] },
+        { at: 'targetsBtn', label: '\uD83D\uDCCD Closest spots with unseen birds',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
+        { at: 'quickBtn', label: '\uD83D\uDEB6 Quick outing',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
+        { at: 'excBtn', label: '\uD83D\uDE97 Top excursions',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
+        { at: 'hotBtn', label: '\uD83D\uDD25 Hot hotspots \u2014 recent surges',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
+        { at: 'coldBtn', label: '\uD83E\uDD76 Cold hotspots \u2014 overlooked gems',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
+        { at: 'cklBtn', label: '\uD83E\uDD9C Birdiest checklists',
+          builder: 'loadBirdiest', note: 'one medium checklist row per list',
+          cards: [checklistMedium] },
+        { at: 'convoyBtn', label: '\uD83D\uDC65 Birder convoys',
+          builder: 'speciesListHtml', note: 'the small bird rows, nested per convoy',
+          cards: [speciesSmall] },
+        { at: 'favResults', label: '\uD83D\uDCCD Favorite hotspots',
+          builder: 'hotspotCard', cards: [hotspotMedium] },
         { at: 'allUnseenBtn', label: '\uD83D\uDCCB All unseen reports',
           builder: 'speciesPlacesCard + unseenPlacesHtml',
-          note: 'a medium species row per bird, then one line per checklist under it',
-          cards: [speciesMedium, checklistSmall] }
+          note: 'a medium species row per bird, then one line per checklist',
+          cards: [speciesMedium, checklistSmall] },
+        { at: 'spLookupBtn', label: '\uD83D\uDD0E Species lookup',
+          builder: 'renderSpeciesLookup', cards: [speciesMedium] },
+        { at: 'easyBtn', label: '\uD83E\uDD5A Easy misses',
+          builder: 'speciesPlacesCard + unseenPlacesHtml',
+          cards: [speciesMedium, checklistSmall] },
+        { at: 'nvResults', label: '\uD83D\uDD0D Needs verification',
+          builder: 'speciesPlacesCard', cards: [speciesMedium] },
+        { at: 'migBtn', label: '\uD83D\uDEEC Migration outlook', todo: true,
+          builder: 'loadMigration', note: 'what is arriving and leaving this week',
+          stub: ['Arriving: Pectoral Sandpiper, Baird\u2019s Sandpiper',
+                 'Leaving: Rufous Hummingbird'] },
+        { at: 'bcBody', label: '\uD83C\uDF19 Nightly migration \u2014 BirdCast', todo: true,
+          builder: 'loadBirdCast', note: 'last night\u2019s migration intensity',
+          stub: ['Last night: <b>Medium</b> \u2014 42,000 birds/km',
+                 'Peak 01:00 \u00b7 mostly NNE'] },
+        { at: 'todBtn', label: '\u23F0 Time-of-day specialists', todo: true,
+          builder: 'todSpecialists', note: 'birds far likelier at dawn or dusk',
+          stub: ['Dawn: Barred Owl, Swainson\u2019s Thrush',
+                 'Dusk: Common Nighthawk, Black Swift'] },
+        { at: 'myYearBody', label: '\uD83D\uDCC5 My year', todo: true,
+          builder: 'renderMyYear', note: 'your year list and its shape over time',
+          stub: ['201 species in Washington, 143 in King',
+                 'Latest: Red-throated Loon, Aug 5'] },
+        { at: 'settingsPanel', label: '\u2699\uFE0F Settings', todo: true,
+          builder: '\u2014', note: 'keys, home location, radius, data controls',
+          stub: ['Home: Woodinville, WA \u00b7 chase radius 35 mi',
+                 'eBird API key \u00b7 erase all my data'] }
       ];
 
       var out = document.getElementById('out');
@@ -233,14 +333,27 @@
       function render() {
         var rows = parseInt(document.getElementById('rows').value, 10) || 3;
         var html = '';
-        SECTIONS.forEach(function (s) {
-          html += '<section class="sec"><div class="sechead">' + s.label + '</div>';
-          html += '<div class="secmeta">#' + s.at +
-            (s.builder ? ' \u00b7 <b>' + s.builder + '()</b>' : '') + '</div>';
-          if (!s.cards.length) {
-            html += '<div class="nocards">No card template \u2014 this section renders its own shape.</div>';
+        SECTIONS.forEach(function (sec) {
+          var todo = !!sec.todo;
+          html += '<section class="sec' + (todo ? ' todo' : '') + '">';
+          html += '<div class="sechead">' + sec.label +
+            (todo ? '<span class="pill">sketch</span>' : '') + '</div>';
+          html += '<div class="secmeta">#' + sec.at +
+            (sec.builder ? ' \u00b7 <b>' + sec.builder + '()</b>' : '') + '</div>';
+          if (sec.note) { html += '<div class="secnote">' + sec.note + '</div>'; }
+
+          if (todo) {
+            // A sketch, and labelled as one. It shows the section is not empty
+            // and roughly what it carries; it is NOT the app's markup, so it
+            // must never be mistaken for a layout to tune.
+            html += '<div class="stub">';
+            (sec.stub || []).forEach(function (line) {
+              html += '<div class="stubrow">' + line + '</div>';
+            });
+            html += '<div class="stubwhy">Not yet mirrored from the app \u2014 ' +
+              'this is a sketch of the content, not its layout.</div></div>';
           } else {
-            s.cards.forEach(function (fn) {
+            sec.cards.forEach(function (fn) {
               var body = '';
               for (var i = 0; i < rows; i++) { body += fn(i); }
               html += '<div class="' + wrapFor(fn) + '">' + body + '</div>';
@@ -270,9 +383,10 @@
       render();
       document.getElementById('width').dispatchEvent(new Event('change'));
 
-      var withCards = SECTIONS.filter(function (s) { return s.cards.length; }).length;
+      var built = SECTIONS.filter(function (x) { return !x.todo; }).length;
       document.getElementById('ver').textContent =
-        SECTIONS.length + ' sections \u00b7 ' + withCards + ' built from card templates';
+        SECTIONS.length + ' sections \u00b7 ' + built + ' built from the app\u2019s card templates \u00b7 ' +
+        (SECTIONS.length - built) + ' still sketches';
     }());
   </script>
 </body>
