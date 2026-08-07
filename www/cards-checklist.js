@@ -77,6 +77,9 @@
 
   var CSS = [
     '.cklcards { list-style: none; margin: 6px 0 4px; padding: 0; }',
+    /* Sits against the place name it qualifies, and never wraps away from
+       it onto a line of its own. */
+    '.cklcard-sm .ckevid { margin-left: 4px; white-space: nowrap; }',
     /* ONE LINE, and the HOTSPOT NAME is what truncates to keep it there.
        `flex-basis: 0` on the lead is the whole fix, and it is one word. With
        `auto` the lead claimed its content width first and only then shrank in
@@ -228,6 +231,14 @@
           ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
             + esc(leadText) + '</a>'
           : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
+      }
+      // Evidence marks sit RIGHT AFTER the place, not at the end of the row.
+      // They qualify the sighting you just read the location of - "there is a
+      // photo of this, at this place" - and a mark parked after the distance
+      // reads as though it belongs to the mileage. Pre-escaped by the caller:
+      // this is a fixed set of marks the app builds, not user text.
+      if (v.icons) {
+        bits.push('<span class="ckevid">' + v.icons + '</span>');
       }
       if (v.place && v.date) {
         bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');

@@ -2061,8 +2061,11 @@ test('the medium species card gives distance its own column', async () => {
   const css = SpeciesCards.css;
   assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\) auto/,
     'three columns: icon · name · distance');
-  assert.match(css, /\.spdist[^}]*grid-column: 3; grid-row: 1 \/ span 2/,
-    'the distance spans both rows, like the hotspot card number does');
+  // ROW 1 only. The distance used to span both rows, like the hotspot card's
+  // number; the sub-header now runs the full width underneath it, so spanning
+  // would put the mileage on top of that text.
+  assert.match(css, /\.spdist[^}]*grid-column: 3; grid-row: 1;/,
+    'the distance occupies row 1, above the full-width sub-header');
   app.window.close();
 });
 
@@ -3759,10 +3762,15 @@ test('the medium card is a real 2x2 grid, not a float', async () => {
   // of the row grid. Inherited typography still passes through it.
   assert.match(css, /> \.name, \.obs\.card-md > li > \.name \{ display: contents/,
     '.name must dissolve so its children can be grid cells');
-  assert.match(css, /> \.thumb[^}]*grid-row: 1 \/ span 2/, 'the photo spans both rows');
+  assert.match(css, /> \.thumb[^}]*grid-row: 1;/, 'the photo occupies row 1');
   assert.match(css, /> \.ntext[^}]*grid-column: 2; grid-row: 1/, 'the header is row 1');
-  assert.match(css, /> \.meta, \.obs\.card-md > li > \.meta \{[\s\S]{0,60}grid-row: 2/,
-    'the sub-header is row 2, always, whatever the title did');
+  // ROW 2 SPANS ALL THREE COLUMNS — under the photo, out under the mileage.
+  // It used to sit in column 2 only, boxed between them, which gave it about
+  // half the card: a place, a time and an observer wrapped to three ragged
+  // lines in a gutter while the space under the photo and the number sat
+  // empty. This is additional information about the row, not a third column.
+  assert.match(css, /> \.meta, \.obs\.card-md > li > \.meta \{[\s\S]{0,80}grid-column: 1 \/ -1; grid-row: 2/,
+    'the sub-header spans the full width on row 2, whatever the title did');
   assert.match(css, /> li > \*, \.obs\.card-md > li > \* \{ grid-column: 1 \/ -1/,
     'everything else spans the full width on its own row');
   // A medium card CONTAINS a small-card species list (a hotspot's unseen birds).

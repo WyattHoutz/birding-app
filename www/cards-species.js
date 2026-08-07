@@ -165,19 +165,26 @@
        row whose photo failed to resolve (.thumb.nopic is display:none) closes
        up completely instead of keeping an empty 14px indent. */
     '.obs.xl > li > .name > .thumb, .obs.card-md > li > .name > .thumb {',
-    '  float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1 / span 2; align-self: start; }',
+    '  float: none; margin: 0 14px 0 0; grid-column: 1; grid-row: 1; align-self: start; }',
     '.obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {',
-    /* CENTRED in its row, not top-aligned. The photo beside it spans both
-       rows, so a one-line name pinned to the top of row 1 sat high against a
-       70px picture and read as though it had come loose from it. */
+    /* CENTRED against the photo, which shares row 1 with it. A one-line name
+       pinned to the top sat high against a 70px picture and read as though it
+       had come loose from it. */
     '  grid-column: 2; grid-row: 1; align-self: center; }',
+    /* THE FULL WIDTH of row 2 — starting under the photo and running out
+       under the distance, like the one-line checklist row does.
+       It used to sit in column 2 only, boxed between the photo and the
+       mileage, which left it about half the card's width: "Edmonds Public
+       Fishing Pier Aug 3 10:25a Neil Pankey" wrapped to three ragged lines
+       inside a gutter while the space under the photo and the number sat
+       empty. This is additional information about the row, not a third
+       column of it. */
     '.obs.xl > li > .meta, .obs.card-md > li > .meta {',
-    '  grid-column: 2; grid-row: 2; align-self: start; margin: 2px 0 0; }',
-    /* The distance column spans both rows, like .hsnum does on the hotspot
-       card, so the number sits against the full height of the text block
-       rather than floating beside one line of it. */
+    '  grid-column: 1 / -1; grid-row: 2; align-self: start; margin: 4px 0 0; }',
+    /* Row 1 only, now that the sub-header runs the full width beneath it —
+       spanning both rows would put the number on top of that text. */
     '.obs.xl > li > .name > .spdist, .obs.card-md > li > .name > .spdist {',
-    '  grid-column: 3; grid-row: 1 / span 2; align-self: start; justify-self: end;',
+    '  grid-column: 3; grid-row: 1; align-self: start; justify-self: end;',
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',

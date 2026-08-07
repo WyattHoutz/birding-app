@@ -214,11 +214,16 @@
           who: 'Dan McDougall-Treacy'
         });
       }
+      // The evidence marks the app derives from the feed's `evidence` field
+      // (P photo, A audio, V video) and the observer's note. Rotated so a stack
+      // shows the real mix rather than the same row eight times.
+      var MARKS = ['\uD83D\uDCF7', '\uD83D\uDD0A', '\uD83D\uDCF7\uD83E\uDDFE', '', '\uD83D\uDCF7\uD83D\uDD0A\uD83E\uDDFE'];
       function checklistSmall(i) {
         var b = BIRDS[i % BIRDS.length];
         return window.ChecklistCards.small({
           place: b[1], href: '#', date: 'Aug ' + (i + 1) + ' 10:25 AM',
-          count: 42 - i, distMi: parseFloat(b[2]), map: PIN
+          count: 42 - i, distMi: parseFloat(b[2]), map: PIN,
+          icons: MARKS[i % MARKS.length]
         });
       }
 
