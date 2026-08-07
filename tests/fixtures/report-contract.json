@@ -45,6 +45,30 @@
       "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve"
     },
     {
+      "at": "destBtn",
+      "label": "🥇 Top destinations",
+      "report": "## 🥇 Top destinations",
+      "map": "destMap"
+    },
+    {
+      "at": "excBtn",
+      "label": "🚗 Top excursions",
+      "report": "## 🚗 Top excursions",
+      "map": "excMap"
+    },
+    {
+      "at": "quickBtn",
+      "label": "🚶 Quick outing",
+      "report": "## 🚶 Quick outing",
+      "map": "quickMap"
+    },
+    {
+      "at": "targetsBtn",
+      "label": "📍 Closest spots with unseen birds",
+      "report": "## 📍 Closest spots with unseen birds",
+      "map": "closeMap"
+    },
+    {
       "at": "refreshBtn",
       "label": "🌅 Today’s rarity reports",
       "report": "## 🌅 Today's rarity reports",
@@ -68,36 +92,6 @@
       "report": "## 🔭 Latest ticks on the leaderboard",
       "map": null,
       "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them"
-    },
-    {
-      "at": "tripBtn",
-      "label": "🧭 Trip planner",
-      "report": "## 🧭 Trip planner",
-      "map": "tripMap"
-    },
-    {
-      "at": "destBtn",
-      "label": "🥇 Top destinations",
-      "report": "## 🥇 Top destinations",
-      "map": "destMap"
-    },
-    {
-      "at": "targetsBtn",
-      "label": "📍 Closest spots with unseen birds",
-      "report": "## 📍 Closest spots with unseen birds",
-      "map": "closeMap"
-    },
-    {
-      "at": "quickBtn",
-      "label": "🚶 Quick outing",
-      "report": "## 🚶 Quick outing",
-      "map": "quickMap"
-    },
-    {
-      "at": "excBtn",
-      "label": "🚗 Top excursions",
-      "report": "## 🚗 Top excursions",
-      "map": "excMap"
     },
     {
       "at": "hotBtn",
@@ -197,6 +191,11 @@
     "## 🏅 Your state rankings": "rarity-tracker-only cross-region table; the app scopes to one region by design - switch regions in the nav instead",
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
-    "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead"
-  }
+    "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
+    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
+  },
+  "menuOmittedAts": [
+    "tripBtn"
+  ],
+  "_menuOmittedAtsWhy": "Sections switched off in the app behind `enabled: false` in MENU. They are NOT in `menu` (the app does not list them) but the REPORT still emits them, so section-docs.json still describes them and must not be pruned to match the app. Turning one back on is one word in index.html plus removing it here."
 }

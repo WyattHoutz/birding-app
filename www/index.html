@@ -1302,7 +1302,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.66';
+      var APP_VERSION = '1.0.67';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9944,15 +9944,32 @@
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'You' },
+        // GO BIRDING leads. The report's mission is (1) find unseen birds,
+        // (2) find the best places to go today — and "where do I go" is the
+        // question with a deadline, since a hotspot list is only useful while
+        // there is daylight left to act on it. Rare birds follows.
+        //
+        // Within the group: destinations, then excursions, then a quick
+        // outing, then closest-with-unseen. That is descending by how much of
+        // a day each one asks for, so the list reads as "how much time have
+        // you got".
+        // Within the group: destinations, then excursions, then a quick
+        // outing, then closest-with-unseen. That is descending by how much of
+        // a day each one asks for, so the list reads as "how much time have
+        // you got".
+        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo', group: 'Go birding' },
+        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
+        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo', group: 'Go birding' },
+        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
+        // OFF, not deleted. The section still builds and still works; it is
+        // hidden pending a redesign, because it predates the measured travel
+        // model (hop times, day bands, seasonal gates) and plans a route
+        // without any of it. Flipping `enabled` back is the whole revert.
+        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
         { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo', group: 'Rare birds' },
         { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports', group: 'Rare birds' },
         { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo', group: 'Rare birds' },
         { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
-        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding' },
-        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo', group: 'Go birding' },
-        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
-        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo', group: 'Go birding' },
-        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
         { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county', group: 'Hotspots & birders' },
         { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county', group: 'Hotspots & birders' },
         { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county', group: 'Hotspots & birders' },
@@ -9969,6 +9986,12 @@
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'You' }
       ];
       function menuApplies(m) {
+        // A section can be switched OFF without being deleted. `enabled: false`
+        // keeps the code, the panel and the loader intact while taking it out
+        // of the menu, so turning it back on is one word — not a revert of a
+        // deletion. Used for Trip planner, which works but predates the
+        // measured travel model it ought to be built on.
+        if (m.enabled === false) return false;
         if (m.needs === 'county') return hasCounties();
         if (m.needs === 'geo') return !getReport().isRarityTracker;
         return true;
@@ -10208,6 +10231,11 @@
           if (!sec.id) sec.id = 'sec-' + m.at;
           sec._loader = LOADERS[m.at] || null;
           sec._at = m.at; sec._label = m.label; sec._needs = m.needs || '';
+        // Carried onto the element, because the menu, the Contents links and
+        // the deep-link restore all ask the SECTION whether it applies — not
+        // the MENU row. A flag that lived only on the row would switch the
+        // menu entry off while leaving the section reachable by anchor.
+        sec._enabled = m.enabled !== false;
         sec._group = m.group || '';
           _setH2(sec, m.label);
           addSectionDoc(sec);
@@ -10247,7 +10275,7 @@
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
         var shown = _sections.filter(function (sec) {
-          return menuApplies({ needs: sec._needs });
+          return menuApplies({ needs: sec._needs, enabled: sec._enabled });
         });
         var firstTile = true;
         MENU_GROUPS.forEach(function (group) {
@@ -10550,7 +10578,7 @@
         loadSettings();
         renderMenuList();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
-        if (open && menuApplies({ needs: open._needs })) showSection(open.id); else showMenu();
+        if (open && menuApplies({ needs: open._needs, enabled: open._enabled })) showSection(open.id); else showMenu();
         startBackgroundHistory(3000);
       }
       function loadSettings() {
@@ -11062,8 +11090,11 @@
       // the call site and build nothing.
       var MODE_SETS = {
         quick: [
-          { to: 'quick:home', icon: '\uD83C\uDFE0', label: 'Near home', full: 'Hotspots near home' },
+          // HERE first. The panel's whole reason to exist is "I have twenty
+          // minutes, where am I" — and where you are is the answer more often
+          // than where you live. Home sat first only because it shipped first.
           { to: 'quick:here', icon: '\uD83D\uDCCD', label: 'Here',      full: 'Hotspots near my current location' },
+          { to: 'quick:home', icon: '\uD83C\uDFE0', label: 'Home',      full: 'Hotspots near home' },
           { to: 'quick:find', icon: '\uD83D\uDD0D', label: 'Find\u2026', full: 'Hotspots near a place I name' }
         ],
         checklists: [

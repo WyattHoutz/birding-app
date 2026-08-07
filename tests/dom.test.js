@@ -2836,8 +2836,15 @@ test('every mode switch is built from ONE table', async () => {
     + 'and a place you name — and no longer smuggles three other SECTIONS in '
     + 'beside them');
   assert.deepEqual(JSON.stringify(byGroup.quick),
-    JSON.stringify(['quick:home', 'quick:here', 'quick:find']),
-    'in that order, with home the default');
+    JSON.stringify(['quick:here', 'quick:home', 'quick:find']),
+    // HERE first: the panel exists for "I have twenty minutes, where am I",
+    // and where you are answers that more often than where you live. Home
+    // led only because it shipped first.
+    //
+    // Home stays the DEFAULT though, and that is not an inconsistency: Here
+    // needs a location permission, so opening on it would prompt before the
+    // reader has asked for anything. Offered first, chosen second.
+    'here, home, find — with home still the default');
   // Build order is load-bearing: the checklist chips are addressed by id and
   // get their handlers bound in the init block, so the switch must be built
   // BEFORE that block runs or those handlers land on elements that are about
@@ -3256,7 +3263,18 @@ const DOCS = JSON.parse(
 test('every section in the contract is documented', () => {
   const missing = CONTRACT.menu.map((m) => m.at).filter((at) => !DOCS[at]);
   assert.deepEqual(missing, [], 'undocumented sections: ' + missing.join(', '));
-  const stray = Object.keys(DOCS).filter((at) => !CONTRACT.menu.some((m) => m.at === at));
+  // A doc may also describe a section the APP omits, because the REPORT still
+  // emits it — Trip planner is switched off behind a feature flag, but the
+  // Markdown still carries the section and still needs its explanation, and
+  // this file is vendored into the report repo for exactly that. Deleting the
+  // doc to satisfy the app would strip the explanation from the report.
+  //
+  // The list lives in the CONTRACT, not here: a literal 'tripBtn' in a test is
+  // a second place to remember, and it would keep passing after the flag was
+  // turned back on.
+  const omittedAts = new Set(CONTRACT.menuOmittedAts || []);
+  const stray = Object.keys(DOCS).filter(
+    (at) => !CONTRACT.menu.some((m) => m.at === at) && !omittedAts.has(at));
   assert.deepEqual(stray, [], 'docs for sections that do not exist: ' + stray.join(', '));
   Object.entries(DOCS).forEach(([at, d]) => {
     assert.ok(d.summary && d.summary.length > 20, at + ' has a real summary');
@@ -6380,16 +6398,22 @@ test('navigating away closes the ABA sub-page', async () => {
 test('the place-finding sections are top-level, and grouped as Go birding', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
-  const GO = ['tripBtn', 'destBtn', 'targetsBtn', 'quickBtn', 'excBtn'];
+  // Trip planner is deliberately absent: switched off behind `enabled: false`
+  // pending a redesign. The section, its panel and its loader all still exist,
+  // so this is a hidden entry rather than a deleted one — see menuOmittedAts
+  // in report-contract.json, which is where that fact lives.
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Top destinations', 'Top excursions', 'Quick outing',
-                      'Trip planner', 'Closest spots']) {
+                      'Closest spots']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
+  assert.ok(!labels.some((l) => l && l.includes('Trip planner')),
+    'Trip planner is switched off, so it has no tile');
 
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
@@ -6440,8 +6464,8 @@ test('quick outing offers only its three anchors, and asks for a place only when
   const chips = [...sec.querySelectorAll('.modeswitch .modebtn')]
     .map((b) => b.getAttribute('data-goto'));
   assert.deepEqual(JSON.stringify(chips),
-    JSON.stringify(['quick:home', 'quick:here', 'quick:find']),
-    'near home, here, find — and nothing that is really a different section');
+    JSON.stringify(['quick:here', 'quick:home', 'quick:find']),
+    'here, home, find — and nothing that is really a different section');
   for (const gone of ['sec-destBtn', 'sec-excBtn', 'sec-tripBtn']) {
     assert.ok(!chips.includes(gone), gone + ' is a section, not a quick-outing mode');
   }
