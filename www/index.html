@@ -413,6 +413,28 @@
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
+    /* A heading INSIDE the card list. It is an <li> because the list is a
+       <ul> of cards and splitting it into two <ul>s would give the second one
+       a fresh set of the list's own margins, opening a gap that reads as the
+       section having ended. list-style:none and the reset below keep it from
+       inheriting a card's grid. */
+    .cardgroup {
+      display: block; grid-template-columns: none; list-style: none;
+      margin: 14px 0 6px; padding: 0 0 4px; border: 0;
+      border-bottom: 1px solid var(--line); background: none;
+    }
+    .cardgroup:first-child { margin-top: 2px; }
+    .cghead {
+      display: block; font-size: calc(15px * var(--s)); font-weight: 700;
+      color: var(--ink);
+    }
+    /* Says WHY the group exists, because "Still needed" alone does not tell a
+       reader it means the year list rather than, say, unreviewed records. */
+    .cgwhy {
+      display: block; font-size: calc(12px * var(--s)); color: var(--muted);
+      margin-top: 1px;
+    }
+
     .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
     .obs li { overflow: hidden; }
     .bcnow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
@@ -5976,7 +5998,17 @@
             + ' mi · most recent first · ' + nowTime()
             + (rows.droppedFar ? ' · ' + rows.droppedFar + ' report'
                + (rows.droppedFar === 1 ? '' : 's') + ' farther out not shown' : '');
-          el.innerHTML = rows.map(function (r) {
+          // SPLIT: birds you still need first, birds you already have second —
+          // mirroring report.section_rarities. One list left the 🔍 marker to
+          // carry the whole distinction, which is the thing this section is
+          // FOR: a rarity you have already ticked is interesting, but it is
+          // not a reason to drive anywhere, and it sat at the same weight.
+          //
+          // The marker STAYS on the needed rows. Redundant under the heading
+          // by design — a card that only means "unseen" because of a heading
+          // somewhere above it loses that meaning the moment it is scrolled
+          // past, screenshotted, or read on its own.
+          var rareCard = function (r) {
             var span = (r.first && r.latest && r.first.slice(0, 10) !== r.latest.slice(0, 10))
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
             var stake = r.stakeDays >= 2
@@ -6024,7 +6056,24 @@
               // the list is the evidence for it.
               below: rarityChecklistDetails(r)
             });
-          }).join('');
+          };
+          var stillNeeded = rows.filter(function (r) {
+            return !isSpeciesSeen(r.code, r.name, r.parentOf);
+          });
+          var alreadySeen = rows.filter(function (r) {
+            return isSpeciesSeen(r.code, r.name, r.parentOf);
+          });
+          var rareGroup = function (list, label, why) {
+            if (!list.length) return '';
+            return '<li class="cardgroup"><span class="cghead">' + label
+              + '</span><span class="cgwhy">' + why + '</span></li>'
+              + list.map(rareCard).join('');
+          };
+          el.innerHTML =
+            rareGroup(stillNeeded, '🔍 Still needed',
+              'not on your year list — worth driving for')
+            + rareGroup(alreadySeen, '✅ Already on your year list',
+              'still rare, still worth knowing — but not a new bird');
           hydratePhotos(el);
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
