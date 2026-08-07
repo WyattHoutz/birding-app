@@ -161,6 +161,37 @@ test('app boots: Leaflet loads and the Contents menu is built', async () => {
   app.window.close();
 });
 
+test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
+  // Reported from the device: "species lookup and needs verification both have
+  // similar icons". They were 🔎 and 🔍 — one glyph apart by TILT — and it was
+  // worse than a near-miss, because 🔍 is ALSO the app-wide unseen marker
+  // (`needflag`) and was ALSO the Quick-outing "Find…" chip. One glyph, three
+  // meanings, two of them in the same menu.
+  //
+  // A tile's icon is the only part of it visible at a glance, so it has to be
+  // the part that is unique. This asserts the property rather than the current
+  // assignment, so the next section added cannot quietly re-collide.
+  const icons = CONTRACT.menu.map((m) => [...m.label][0]);
+  const seen = new Map();
+  icons.forEach((ic, i) => {
+    const prev = seen.get(ic);
+    assert.ok(prev === undefined,
+      `two menu tiles share the icon ${ic}: "${CONTRACT.menu[prev || 0].label}" `
+      + `and "${CONTRACT.menu[i].label}" — the glyph is the only part of a tile `
+      + 'read at a glance, so it must be the unique part');
+    seen.set(ic, i);
+  });
+
+  // 🔍 is the unseen marker and NOTHING else. A section titled with it competes
+  // with every row in the app that uses it to mean "you still need this bird".
+  const magnifier = CONTRACT.menu.filter((m) => m.label.includes('\u{1F50D}'));
+  assert.deepEqual(magnifier, [],
+    'no menu tile may use 🔍 — it is the unseen marker, and a colour-blind '
+    + 'reader has only the glyph to go on');
+  assert.match(HTML, /class="needflag">\u{1F50D}/u,
+    'and the unseen marker really is that glyph, so this guard tracks it');
+});
+
 test('Contents menu matches the report section contract (labels + order)', async () => {
   const app = await boot();
   // Tiles split the label into a glyph span and a text span, so textContent
@@ -1542,7 +1573,7 @@ test('latest ticks: the bird outranks the roster of who added it', () => {
 
 test('latest ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
-  assert.match(src, /speciesLink\(sp, info\.code/,
+  assert.match(src, /speciesLink\(sp, code\)/,
     'the bird title is a link to ebird.org/species/<code>/<region>');
   assert.match(src, /LAST_NEW_FRESH_DAYS/,
     'checklists inside the fresh window are never hidden behind "and N more"');
@@ -2480,6 +2511,51 @@ test('a long wave reports staged progress instead of a moving total', async () =
   assert.equal(A.progressState(), null, 'and the stage clears when it is done');
 });
 
+// "I would the loading progress bar to show more granular progress with more
+// detailed descriptions or more specific descriptions of what its doing. its
+// not clear what its loading."
+test('the progress bar names the step, the feed, and any pause', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const text = () => app.$('loadBarText').textContent;
+
+  // 1. WHICH step of how many. A bar with no end in sight reads as a hang even
+  //    when it is moving.
+  A.progressStage('Recent sightings near you', 8, 1, 2);
+  assert.match(text(), /^Step 1 of 2 · Recent sightings near you — 0 of 8/,
+    'the label says which step this is');
+
+  // 2. WHAT just finished. The feeds run concurrently, so "in flight" is
+  //    several things at once and cannot be reported honestly — the last one
+  //    to land can.
+  A.progressStep(1, A.feedLabel({ src: 'King County', kind: 'notable' }));
+  assert.match(text(), /1 of 8 · King County · rare birds/,
+    'and names the feed that just landed');
+  assert.equal(A.feedLabel({ src: 'Snohomish County', kind: 'recent' }),
+    'Snohomish County · everything reported',
+    'a plain recent feed says so in words');
+  assert.equal(A.feedLabel({ src: 'Geo50km', kind: 'recent' }),
+    'within 31 mi of home · everything reported',
+    'and "Geo50km" is turned into a distance a reader recognises — in the '
+    + 'miles the rest of the app uses, not the km the eBird parameter takes');
+
+  // 3. A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
+  //    nothing completes for up to a minute: the count freezes, the bar sits
+  //    still, and the app reads as hung. A countdown is visibly progress even
+  //    while the completed count is not moving.
+  A.fgSetNextAt(Date.now() + 12000);
+  A.fgProgressSync();
+  assert.match(text(), /paused 1[12]s — eBird rate limit/,
+    'a rate-limit hold says how long it is holding for');
+  assert.ok(!/going slowly/.test(text()),
+    'and does not also mutter about the gap — the countdown is the message');
+
+  A.fgSetNextAt(0);
+  A.fgProgressSync();
+  assert.ok(!/paused/.test(text()), 'and the notice clears when the lane reopens');
+  A.progressEnd();
+});
+
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
 // all built, parity-tested, and wired to nothing — the same failure as a button
 // bound to no handler, except harder to notice because the code looks finished.
@@ -2867,12 +2943,14 @@ test('every mode switch is built from ONE table', async () => {
 test('All unseen reports respects the chase radius, and sorts far places apart', async () => {
   const app = await boot();
   const A = app.window.__app;
-  const R = A.CHASE_MAX_MI;
+  const R = A.chaseMaxMi();
   assert.ok(R > 0, 'there is a shared chase radius');
   const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
     HTML.indexOf('function unseenPlacesHtml('));
-  assert.match(fn, /p\.distMi > CHASE_MAX_MI/,
-    'places are partitioned by the SAME radius the rarity section uses');
+  assert.match(fn, /p\.distMi > chaseMaxMi\(\)/,
+    'places are partitioned by the SAME radius the rarity section uses — and '
+    + 'by CALLING it, because the radius is a setting now and a var read at '
+    + 'load time would keep filtering by whatever it was when the app booted');
   // The far places are no longer given a per-card expander. Every card carried
   // one, so a single section repeated "there is more, further away" dozens of
   // times — a second fold under the one that already folds the extra places.
@@ -2883,8 +2961,57 @@ test('All unseen reports respects the chase radius, and sorts far places apart',
   assert.match(fn, /more species only further out/,
     'the status line says how many species are ONLY further out, so the '
     + 'partition is still visible without repeating it on every card');
-  assert.match(fn, /within ' \+ CHASE_MAX_MI \+ ' mi/,
+  assert.match(fn, /within ' \+ chaseMaxMi\(\) \+ ' mi/,
     'the status line states the radius rather than implying the list is everything');
+  app.window.close();
+});
+
+// "Also, Id like the option to choose the chase radius."
+test('the chase radius is a setting, and every list obeys the live value', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+
+  assert.equal(A.chaseMaxMi(), A.CHASE_DEFAULT_MI,
+    'unset, it is the radius shared with report.CHASE_MAX_MI');
+  const sel = doc.getElementById('chaseMi');
+  assert.ok(sel, 'Settings offers a control');
+  assert.equal(sel.value, String(A.CHASE_DEFAULT_MI),
+    'showing the value actually in force, not a hardcoded first option');
+
+  app.window.localStorage.setItem(A.CHASE_MI_KEY, '75');
+  assert.equal(A.chaseMaxMi(), 75, 'a stored radius wins');
+  A.syncChaseMi();
+  assert.equal(sel.value, '75', 'and the control reflects it');
+
+  // The mechanism, not a slogan. eBird caps `dist` on its around-me feeds at
+  // 50 km, so past ~31 mi the extra reach is county coverage — which is not a
+  // circle. A control that implied otherwise would be lying about the data.
+  const hint = doc.getElementById('chaseMiHint');
+  assert.match(hint.textContent, /31 mi/,
+    'past the geo-feed cap the hint says where the extra range comes from');
+  assert.match(hint.textContent, /counties/, 'and names the mechanism');
+  assert.match(hint.textContent, new RegExp(A.CHASE_DEFAULT_MI + ' mi'),
+    'and warns that the Markdown report still uses its own radius');
+
+  // A value with no matching <option> must not blank the control.
+  app.window.localStorage.setItem(A.CHASE_MI_KEY, '42');
+  A.syncChaseMi();
+  assert.equal(sel.value, '42', 'an unlisted radius is added rather than lost');
+
+  // THE TRAP: the radius only filters, so nothing is re-fetched — but a list
+  // already on screen was built against the old number and its own status line
+  // still claims it. Changing the setting has to clear those lists, or the
+  // section reads "within 30 mi" over rows chosen by a different rule.
+  const src = HTML.slice(HTML.indexOf("$('chaseMi').addEventListener"),
+    HTML.indexOf("$('chaseMi').addEventListener") + 700);
+  assert.match(src, /_autoLoaded = \{\}/, 'the loaded-section marks are cleared');
+  assert.match(src, /RESET_ON_REPORT_CHANGE/,
+    'and the rendered lists with them, so no list outlives the radius it was '
+    + 'built for');
+  assert.ok(!/clearChaseCache/.test(src),
+    'but the fetched rows are KEPT — the radius filters what was fetched, it '
+    + 'never changes what to fetch, so re-fetching would spend the rate limit '
+    + 'for nothing');
   app.window.close();
 });
 
@@ -6012,12 +6139,12 @@ test('the section you are looking at is not queued behind the background wave', 
 test('latest ticks paints the board before the checklists arrive', () => {
   const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
                           HTML.indexOf('function lastNewKey('));
-  assert.match(load, /renderLastNew\(groups, \{\}, region\);/,
+  assert.match(load, /renderLastNew\(groups, \{\}, region, codeIdx\)/,
     'the board is painted from the leaderboard read, with no checklists yet');
-  assert.ok(load.indexOf('renderLastNew(groups, {}, region);')
+  assert.ok(load.indexOf('renderLastNew(groups, {}, region, codeIdx)')
             < load.indexOf('lastNewChecklists('),
     'and painted BEFORE the per-species fetches start');
-  assert.match(load, /lastNewPatch\(sp, groups\[sp\], info, region\)/,
+  assert.match(load, /lastNewPatch\(sp, groups\[sp\], info, region, codeIdx/,
     'each row is replaced as its own feed lands');
 
   // The order must be decided by the leaderboard alone, or rows would jump
@@ -6041,8 +6168,71 @@ test('latest ticks paints the board before the checklists arrive', () => {
   // A pending row still says something useful rather than looking broken.
   const card = HTML.slice(HTML.indexOf('function lastNewCard('),
                           HTML.indexOf('function loadAbaAlert('));
-  assert.match(card, /var pending = !info;/, 'a row knows whether its feed has landed');
+  assert.match(card, /var pending = !info && !!code;/,
+    'a row knows whether its feed has landed — and a species with no code has '
+    + 'no feed coming, so it must not wait forever');
   assert.match(card, /finding recent checklists/, 'and says so while it waits');
+});
+
+// "I would like the latest ticks on the leaderboard to be split, showing the
+// unseen birds first and seen birds second." The list is the longest in the
+// app and the magnifier was carrying the whole distinction on its own.
+//
+// This asserts on the RENDERED DOM rather than the source, because the failure
+// mode that matters is not the markup — it is `data-sp`, which renderLastNew
+// stamps positionally. Interleaving heading rows shifts every index by one, and
+// a mis-stamped list means lastNewPatch silently updates the WRONG bird as each
+// checklist feed lands. Source regexes cannot see that.
+test('latest ticks splits unseen birds from seen ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ zzseen1: 1 }));
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  // Synthetic species on purpose: every real bird the leaderboard shows is a
+  // WA bird, and isSpeciesSeen also matches against the bundled year-list
+  // NAMES, so a real name would resolve as seen no matter what is in storage.
+  //
+  // The SEEN bird deliberately outranks the unseen one on the board (two
+  // birders to one). Board order alone would put it first, so this proves the
+  // split really regroups rather than the fixture agreeing by accident.
+  const groups = {
+    'Zzz Junco': { birders: [{ name: 'A', rank: 1, date: '2026-07-30' },
+                             { name: 'B', rank: 2, date: '2026-07-29' }],
+                   latest: '2026-07-30' },
+    'Zzz Sandpiper': { birders: [{ name: 'C', rank: 3, date: '2026-07-30' }],
+                       latest: '2026-07-30' }
+  };
+  const codeIdx = { 'zzz junco': 'zzseen1', 'zzz sandpiper': 'zzneed1' };
+  assert.equal(A.isSpeciesSeen('zzseen1', 'Zzz Junco'), true, 'fixture: junco is seen');
+  assert.equal(A.isSpeciesSeen('zzneed1', 'Zzz Sandpiper'), false,
+    'fixture: sandpiper is not');
+  A.renderLastNew(groups, {}, 'US-WA', codeIdx);
+
+  const out = doc.getElementById('lastNewResults');
+  const heads = [...out.querySelectorAll('.cardgroup .cghead')].map(e => e.textContent);
+  assert.equal(heads.length, 2, 'both groups render a heading');
+  assert.match(heads[0], /Still needed/, 'the birds you can still add come FIRST');
+  assert.match(heads[1], /Already on your year list/, 'the ones you have come second');
+
+  const kids = [...out.children];
+  const stamps = kids.map(e => e.getAttribute('data-sp'));
+  assert.deepEqual(stamps,
+    [null, 'Zzz Sandpiper', null, 'Zzz Junco'],
+    'data-sp lands on the CARDS and skips the headings — lastNewPatch finds '
+    + 'rows by this attribute, so an off-by-one here updates the wrong bird');
+
+  // The marker stays on the needed row even though the heading already says so:
+  // these are cards, and a card read on its own loses a heading scrolled past.
+  const need = kids[1].innerHTML, have = kids[3].innerHTML;
+  assert.match(need, /needflag/, 'an unseen bird still carries its own marker');
+  assert.ok(!/needflag/.test(have), 'and a seen bird never does');
+
+  // The code must be known at PAINT time, or a row would start under one
+  // heading and jump to the other once its own feed landed.
+  assert.match(need, /zzneed1/, 'the card is built with the code from the index');
+  app.window.close();
 });
 
 // The generalised form of the bug behind "it doesn't seem to be using the
@@ -6256,7 +6446,6 @@ test('docs/CARDS.md matches the code it documents', () => {
   const src = { SpeciesCards: HTML, HotspotCards: HTML, ChecklistCards: HTML };
   const documentedUnused = [
     ['SpeciesCards', 'large'],
-    ['HotspotCards', 'small'],
     ['HotspotCards', 'large'],
     ['HotspotCards', 'marker'],
   ];
@@ -6552,6 +6741,65 @@ test('the convoy already-seen list is collapsed', () => {
   assert.ok(!/<div class="convoyhead">Already seen this year/.test(HTML),
     'and the old always-open heading is gone, not merely bypassed');
   assert.match(HTML, /\.convoyseen > summary \{/, 'and it is styled as one');
+});
+
+// "In the birder convoy section, id like the list of stops to use the small
+// hotspot card. each stop should show the number icon corresponding to the stop
+// on the map. if possible, show a different color theme for map pins for each
+// convoy."
+//
+// A render probe, not a source scan: HotspotCards.small had NO caller before
+// this — docs/CARDS.md listed it as unused — so its markup had never been
+// exercised against a real stack, and the failure mode is layout that only
+// exists at runtime.
+test('convoy stops render as small hotspot cards, numbered to match the map', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  const stop = (name, lat, lng, sub, t) => ({
+    locId: 'L' + sub, subId: 'S' + sub, _subs: ['S' + sub], obsTime: t,
+    numSpecies: 21, loc: { locName: name, name: name, latitude: lat, longitude: lng }
+  });
+  const routes = [
+    { day: '2026-07-30', members: ['a', 'b'],
+      stops: [stop('Edmonds Marsh', 47.80, -122.38, 1, '07:10'),
+              stop('Marina Beach Park', 47.81, -122.39, 2, '08:20')] },
+    { day: '2026-07-29', members: ['c', 'd'],
+      stops: [stop('Juanita Bay Park', 47.70, -122.22, 3, '09:00'),
+              stop('Marymoor Park', 47.66, -122.11, 4, '10:15')] }
+  ];
+  A.renderConvoys(routes, []);
+
+  const cards = [...doc.querySelectorAll('#convoyResults .hscard-sm')];
+  assert.equal(cards.length, 4, 'every stop is a small hotspot card');
+  assert.ok(!doc.querySelector('#convoyResults ul.obs.dest'),
+    'and the hand-rolled list it replaced is gone, not merely hidden');
+
+  // The number is the whole point: it is what ties a row to a pin.
+  const nums = [...doc.querySelectorAll('#convoyResults .hscard-sm .hsnum')]
+    .map((e) => e.textContent.trim());
+  assert.deepEqual(nums, ['1', '2', '1', '2'],
+    'each convoy numbers its own stops from 1, exactly as its own map does');
+
+  // Per-convoy tone. Colour is the SECONDARY cue — the number above already
+  // carries the map correspondence — so this asserts the two convoys differ,
+  // not that either wears a particular colour.
+  const wraps = [...doc.querySelectorAll('#convoyResults .convoywrap')];
+  const toneOf = (w) => w.querySelector('.hsnum').getAttribute('style');
+  assert.notEqual(toneOf(wraps[0]), toneOf(wraps[1]),
+    'two convoys on one screen are two colours');
+  assert.match(toneOf(wraps[0]), /^--pin:\s*#[0-9a-f]{6}/i,
+    'delivered as a CSS variable, so the palette has one definition');
+  assert.equal(A.pinTone(A.PIN_TONES.length), A.PIN_TONES[0],
+    'and the palette cycles rather than running out');
+
+  // Nothing the old markup carried may have been dropped on the way.
+  const first = wraps[0].querySelector('.hscard-sm').innerHTML;
+  assert.match(first, /Edmonds Marsh/, 'the place is still named');
+  assert.match(first, /07:10/, 'and still says when they were there');
+  assert.match(first, /21 sp/, 'and how many species they logged');
+  assert.match(first, /S1/, 'and still links its checklist');
+  assert.match(first, /data-q="47\.8,-122\.38"/, 'and still opens a map');
+  app.window.close();
 });
 
 // "Remove the Load latest ticks button, since there's already a refresh

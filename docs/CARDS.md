@@ -44,7 +44,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 |---|---|---|
 | `small` | `speciesListHtml` | the bird lists nested inside a hotspot card ("3 unseen 🔍" / "40 more species already seen") |
 | `medium` | `refresh` | 🌅 Today's rarity reports |
-| `medium` | `renderSpeciesLookup` | 🔎 Species lookup |
+| `medium` | `renderSpeciesLookup` | 📖 Species lookup |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Latest ticks on the leaderboard |
 | `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
@@ -55,7 +55,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | template | built by | section |
 |---|---|---|
 | `medium` | `hotspotCard` | 🥇 Top destinations · 🚗 Top excursions · 🧭 Trip planner · 🚶 Quick outing · 📍 Closest spots · 🔥 Hot hotspots · ❄️ Cold hotspots — **every** hotspot list in the app goes through this one builder |
-| `small` | — | **unused** |
+| `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
 | `large` | — | **unused** |
 | `marker` | — | **unused** (Leaflet pins are built in `renderMap`) |
 

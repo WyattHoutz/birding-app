@@ -109,7 +109,7 @@
     '.hsnum {',
     '  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;',
     '  box-sizing: border-box; border-radius: 50%;',
-    '  background: #e5484d; color: #fff; border: 2px solid #fff;',
+    '  background: var(--pin, #e5484d); color: #fff; border: 2px solid #fff;',
     '  box-shadow: 0 1px 3px rgba(0,0,0,.4);',
     '  font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1;',
     '  width: calc(46px * var(--s)); height: calc(46px * var(--s));',
@@ -307,7 +307,14 @@
   function markerHtml(v) {
     if (v.icon) return v.icon;
     if (v.num == null || v.num === '') return '';
-    return '<span class="hsnum' + (v.home ? ' home' : '') + '">' + v.num + '</span>';
+    // `tone` recolours the badge to match its map pin. It is delivered as a
+    // CSS variable rather than a class so the palette has ONE definition, in
+    // the app, instead of a colour list here and an identical one beside
+    // .pinbubble. Validated because it lands in a style attribute, and this
+    // module's contract is that it never has to trust a caller's escaping.
+    var tone = /^#[0-9a-fA-F]{6}$/.test(String(v.tone || '')) ? v.tone : '';
+    return '<span class="hsnum' + (v.home ? ' home' : '') + '"'
+      + (tone ? ' style="--pin:' + tone + '"' : '') + '>' + v.num + '</span>';
   }
 
   // Unseen is a plain list because it is the answer; seen is a <details>

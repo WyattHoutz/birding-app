@@ -120,7 +120,7 @@
     },
     {
       "at": "favResults",
-      "label": "📍 Favorite hotspots",
+      "label": "🔖 Favorite hotspots",
       "report": "## 📍 Favorite hotspots",
       "map": null
     },
@@ -133,7 +133,7 @@
     },
     {
       "at": "spLookupBtn",
-      "label": "🔎 Species lookup",
+      "label": "📖 Species lookup",
       "report": null,
       "map": null,
       "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
@@ -147,7 +147,7 @@
     },
     {
       "at": "nvResults",
-      "label": "🔍 Needs verification",
+      "label": "❓ Needs verification",
       "report": "## 🔍 Watchlist",
       "map": null,
       "why": "the report renders the watchlist as a chase list; the app also MANAGES it (search to add, reorder, remove) because the authored file lives in the private pipeline repo the app cannot write to"
