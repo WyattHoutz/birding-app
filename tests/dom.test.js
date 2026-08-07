@@ -4115,7 +4115,11 @@ test('the hotspot card text block is taller than the number it sits beside', () 
     assert.ok(m, 'could not read ' + re);
     return parseFloat(m[1]);
   };
-  const badge = px(/\.hsnum \{[\s\S]*?height: calc\((\d+)px \* var\(--s\)\)/);
+  // The MEDIUM card's badge, not the base .hsnum. This regex used to match the
+  // base rule (46px) while every other value it reads comes from .hscard-md,
+  // whose badge is 40px — so the check was 6px stricter than the card it was
+  // describing, and would have rejected a correct size.
+  const badge = px(/\.hscard-md \.hsnum \{[\s\S]*?height: calc\((\d+)px \* var\(--s\)\)/);
   const name = px(/\.hscard-md > \.name > \.ntext \{[\s\S]*?font-size: calc\((\d+)px \* var\(--s\)\)/);
   const nameLh = px(/\.hscard-md > \.name > \.ntext \{[\s\S]*?line-height: ([\d.]+)/);
   const meta = px(/\.hscard-md > \.meta \{[\s\S]*?font-size: calc\((\d+)px \* var\(--s\)\)/);
@@ -4123,6 +4127,23 @@ test('the hotspot card text block is taller than the number it sits beside', () 
 
   assert.ok(name > meta,
     'the hotspot name outranks its own sub-header (' + name + ' vs ' + meta + ')');
+  // ...and by a real margin. Reducing the name alone (asked for twice) would
+  // have left 17 against 16, which is not a hierarchy — it is two sizes that
+  // happen to differ. The species card sets its own subject 1.2x its meta, so
+  // that is the ratio pinned here rather than either raw number.
+  assert.ok(name / meta >= 1.15,
+    'and does so by enough to read as the subject (' + name + '/' + meta
+    + ' = ' + (name / meta).toFixed(2) + ', want >= 1.15)');
+  // A hotspot name must not outshout a BIRD name on a card of the same rank.
+  // This is what "the medium hotspot name is too big" actually was: nothing
+  // was wrong with 21px in isolation, it was wrong beside the 17px the medium
+  // species card gives its subject — and hotspot names are the long ones.
+  const spName = parseFloat(
+    CARDS_SPECIES.match(/\.obs\.xl > li > \.name \{ font-size: calc\((\d+)px/)[1]);
+  assert.ok(name <= spName + 1,
+    'the medium hotspot name (' + name + 'px) may not exceed the medium '
+    + 'species name (' + spName + 'px) — same rank of card, same weight for '
+    + 'its subject');
   // .hsnum spans BOTH grid rows. A grid distributes a spanning item's minimum
   // height across the rows it spans, so a text block shorter than the badge
   // makes the rows STRETCH — which is the reported blank line and the dead
@@ -4478,8 +4499,9 @@ test('latest ticks: names are a list sorted newest first, not a run-on', () => {
   assert.match(src, /Who added it[\s\S]{0,80}class="wholine"|class="wholine"[\s\S]{0,80}Who added it/,
     'the birders render as ONE labelled sentence — the table was the tallest '
     + 'thing on the card and the least scanned');
-  assert.match(src, /recent checklist[\s\S]{0,160}ChecklistCards\.list\('small'/,
-    'and the checklists carrying the bird follow as their own shared-card list');
+  assert.match(src, /checklistDetails\([\s\S]{0,900}'recent checklist'/,
+    'and the checklists carrying the bird follow as their own shared-card '
+    + 'list, through the helper the other three sections use');
 });
 
 // The expander mirrors report._rarity_reports_cell: a section whose rows ARE the
@@ -4488,8 +4510,12 @@ test('latest ticks: names are a list sorted newest first, not a run-on', () => {
 test('Last 7-Days rarities can expand the full checklist list', () => {
   const src = HTML.slice(HTML.indexOf('function rarityChecklistDetails('),
     HTML.indexOf('function loadQuickOuting('));
-  assert.match(src, /<details class="ckall">/, 'the full list is behind an expander');
-  assert.match(src, /<summary/, 'with a summary that states the total');
+  assert.match(src, /checklistDetails\(/,
+    'the full list is behind an expander — the SHARED one, so this section '
+    + 'cannot drift from the three others that show the same thing');
+  assert.match(HTML, /function checklistDetails\([\s\S]{0,400}<details class="ckall">/,
+    'and that helper really is the <details> wrapper');
+  assert.match(src, /' — show every report'/, 'with a summary that states the total');
   // A <details> holding one row is a control that does nothing.
   assert.match(src, /< 2|<= 1|length < 2/,
     'a single checklist needs no expander — that is a control that does nothing');
@@ -6232,6 +6258,106 @@ test('latest ticks splits unseen birds from seen ones', async () => {
   // The code must be known at PAINT time, or a row would start under one
   // heading and jump to the other once its own feed landed.
   assert.match(need, /zzneed1/, 'the card is built with the code from the index');
+  app.window.close();
+});
+
+// "the medium hotspots card should include the collapsed list of recent
+// checklists. this is missing from top destinations."
+test('a hotspot card shows its recent checklists, and pays nothing extra', async () => {
+  const lists = [
+    { subId: 'S1', numSpecies: 34, isoObsDate: '2026-07-31 07:10',
+      userDisplayName: 'A Birder',
+      loc: { locId: 'L1', locName: 'Big Park', latitude: 47.7, longitude: -122.2 } },
+    { subId: 'S2', numSpecies: 21, isoObsDate: '2026-07-30 09:00',
+      userDisplayName: 'B Birder',
+      loc: { locId: 'L1', locName: 'Big Park', latitude: 47.7, longitude: -122.2 } },
+    { subId: 'S3', numSpecies: 9, isoObsDate: '2026-07-30 06:00',
+      userDisplayName: 'C Birder',
+      loc: { locId: 'L9', locName: 'Somewhere Else', latitude: 47.1, longitude: -122.9 } },
+  ];
+  const seen = [];
+  const app = await boot({
+    fetch(url) {
+      seen.push(String(url));
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        return [{ speciesCode: 'sp0', comName: 'Bird 0', obsDt: '2026-07-31 08:00' }];
+      }
+      return null;
+    },
+  });
+  const doc = app.window.document;
+  app.window.__app.renderHot({
+    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
+            birds: [{ name: 'Bird 0', code: 'sp0', unseen: true }] }],
+  });
+  await new Promise((r) => setTimeout(r, 900));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const det = card.querySelector('.hsckl details.ckall');
+  assert.ok(det, 'the card carries a collapsed checklist list');
+  assert.ok(!det.open, 'collapsed — it is the evidence, not the decision');
+  assert.match(det.querySelector('summary').textContent, /2 recent checklists/,
+    'the summary counts only the checklists filed AT THIS HOTSPOT');
+  const rows = det.querySelectorAll('.cklcard-sm');
+  assert.equal(rows.length, 2, 'and lists them');
+  assert.match(det.innerHTML, /S1/, 'each row links its checklist');
+  assert.ok(!/Somewhere Else/.test(det.innerHTML),
+    'another park\'s checklists are not this park\'s evidence');
+
+  // The point of building it this way. product/lists is the per-county feed
+  // Birdiest, Convoys and Happening now already share through one cached
+  // promise, so indexing it by locId costs NOTHING — whereas one
+  // product/lists/<locId> per card would be a call for every row of every
+  // hotspot list in the app.
+  const perLoc = seen.filter((u) => /product\/lists\/L1/.test(u));
+  assert.equal(perLoc.length, 0,
+    'no per-hotspot checklist fetch: the county feed already in memory has '
+    + 'every row, and it carries the locId to index them by');
+  app.window.close();
+});
+
+// "the ...and X more should be a link to expand and show the additional x more
+// checklists." It was dead text stating a count the reader already had.
+test('"…and N more" opens, and costs nothing until it does', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+
+  let built = 0;
+  const host = doc.createElement('div');
+  host.innerHTML = A.checklistDetails(['<li class="cklcard cklcard-sm">shown</li>'],
+    9, 'recent checklist', '',
+    A.moreDetails(8, 'checklists', function () {
+      built++;
+      return '<ul class="cklcards"><li class="cklcard cklcard-sm">hidden row</li></ul>';
+    }));
+  doc.body.appendChild(host);
+
+  const more = host.querySelector('details.ckmore');
+  assert.ok(more, 'the count is a disclosure, not a dead line');
+  assert.match(more.querySelector('summary').textContent, /…and 8 more checklists/,
+    'and still states how many, because that was the useful half');
+
+  // LAZY is the whole design. These caps exist because the enumeration is
+  // expensive — one latest-ticks row reached 18 KB — so building the remainder
+  // up front would hand all of that back for a disclosure most readers never
+  // open.
+  assert.equal(built, 0, 'the hidden rows are NOT built at render time');
+  assert.ok(!/hidden row/.test(host.innerHTML), 'and are nowhere in the markup');
+
+  more.querySelector('summary').dispatchEvent(
+    new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(built, 1, 'opening it builds them, once');
+  assert.match(host.innerHTML, /hidden row/, 'and they appear');
+
+  more.querySelector('summary').dispatchEvent(
+    new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(built, 1, 'closing and reopening does not rebuild them');
+
+  // A count of zero is not a disclosure with nothing behind it — it is nothing.
+  assert.equal(A.moreDetails(0, 'checklists', () => 'x'), '',
+    'no remainder, no control');
   app.window.close();
 });
 

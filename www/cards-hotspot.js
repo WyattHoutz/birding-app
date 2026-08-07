@@ -189,8 +189,18 @@
        instead), so that coupling is gone and the name is free to set row 1's
        height on its own.
        break-word (not `anywhere`) keeps it wrapping between words, and only
-       splits a token like "Marsh--Willow" when that token alone cannot fit. */
-    '  font-size: calc(21px * var(--s)); font-weight: 700; line-height: 1.15;',
+       splits a token like "Marsh--Willow" when that token alone cannot fit.
+
+       18px, down from 21. Reported twice: the first pass took it 26 -> 21 and
+       the owner still read it as too big on the device. The reason it looked
+       oversized is comparative — the medium SPECIES card sets its subject at
+       17px, so a hotspot name shouted louder than a bird name on a card of the
+       same rank, and hotspot names are the long ones ("Edmonds Public Fishing
+       Pier & Olympic Beach") that wrap to two or three lines at that size. The
+       sub-header steps down with it, 16 -> 15, so the name still outranks it by
+       the same 1.2 ratio the species card uses; dropping the name alone would
+       have left the two nearly equal and cost the card its subject. */
+    '  font-size: calc(18px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     /* The sub-header spans ALL THREE columns on its own row, rather than
        sitting under the name in column 2. Row 1 is now three real cells —
@@ -201,7 +211,7 @@
        it was the first thing to wrap. */
     '.hscard-md > .meta {',
     '  grid-column: 1 / -1; grid-row: 2; align-self: start; min-width: 0;',
-    '  font-size: calc(16px * var(--s)); line-height: 1.35;',
+    '  font-size: calc(15px * var(--s)); line-height: 1.35;',
     '  font-weight: 500; color: var(--muted); }',
     /* The distance column. Big enough to scan down the edge of a list, and
        the unit is a caption on it rather than a second number — "8.0 mi" read

@@ -710,6 +710,29 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🔭 Latest ticks on the leaderboard | **Latest ticks on the leaderboard** | ✅ | v1.0.13 scoped this to the report’s **own** board in BOTH repos. Both sides pooled every board they fetched (WA also fetches Lower 48 for `section_year_list`), so a Washington chase board listed Palila, California Gnatcatcher and Yellow-headed Amazon — 20 of 33 rows unchaseable — each flagged 🔍 as a WA target. Guards: `tests/parity/test_last_new.py` + a `dom.test.js` fetch-count check. v1.0.15: large icon + title, the bird links to its region-scoped species page (`/species/{code}/{state}`), and `LAST_NEW_FRESH_DAYS = 3` means every checklist from the last three days is shown — the 5-row cap is now a floor, not a ceiling, because a 3-day-old list is still chaseable. **v1.0.30 fixes the type ranking, which had it backwards.** The roster of who added the bird was set at the same size as everything else, so a list of eight names visually outweighed the species it was about. Sizes are now assigned by what a list *is* rather than by which section shows it: the bird name **29px** (it is the subject) > the checklist rows **17px** (they are the thing you act on) > the roster **14px** (it is corroboration, read at a glance). A guard parses the actual px values so the ranking cannot silently invert again. **v1.0.68 splits the board into 🔍 Still needed and ✅ Already on your year list**, in BOTH repos — it is the longest table in the report and the magnifier was carrying the whole distinction alone. A tick you already have says what is moving; it is not a reason to go anywhere, and interleaved it sat at the same weight as a bird you could add. The app resolves every species code from its ONE region-wide feed *before* the board paints, so a row cannot start under one heading and jump to the other as its own checklist feed lands. |
 | 🏅 Your state rankings | — | ➖ | Rarity-tracker-only cross-region table (`section_state_leaderboards`). The app scopes to one region by design — switch regions in the nav to see another. |
 
+### "…and N more" — a real expander in the app, a link in the report
+
+Every capped list said *"…and 188 more checklists"* and gave the reader no way
+to reach them: dead text stating the one thing they already knew.
+
+**In the app it now opens**, and it builds the hidden rows only when it is
+actually opened. That laziness is the design, not an optimisation: the caps
+exist because the enumeration is genuinely expensive — one Latest-ticks row
+measured 18 KB and the section 205 KB, 38% of the whole report, which is what
+`LAST_NEW_MAX_CHECKLISTS` was introduced to stop. Rendering the remainder up
+front would hand all of it back for a disclosure most readers never open.
+
+**In the report it cannot open**, and this is a deliberate asymmetry rather
+than an oversight. A committed Markdown file has no lazy tier: a nested
+`<details>` there would enumerate every row into the file and undo the measured
+size decision above. So the report keeps the cap — but the remainder stops
+being dead. It links to eBird's own species page, which already lists every
+recent report, so one line reaches what two hundred rows would have cost.
+
+Both sides still state the same count from the same data. They differ only in
+what the reader can do with it, which is the difference between a phone and a
+file.
+
 ## App structure
 
 | Report piece | App equivalent | Status | Notes |

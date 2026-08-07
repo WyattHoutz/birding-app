@@ -526,6 +526,12 @@
     .ckall { margin-top: 10px; }
     .ckall summary { cursor: pointer; font-weight: 700; color: var(--accent);
                      font-size: calc(15px * var(--s)); padding: 4px 0; }
+    /* The nested "…and N more" expander. Quieter than the list it sits inside:
+       it is a way to keep reading, not a second decision. */
+    .ckmore { margin: 4px 0 2px; }
+    .ckmore > summary { cursor: pointer; font-weight: 600; color: var(--accent);
+                        font-size: calc(13px * var(--s)); padding: 3px 0; }
+    .ckmore > .ckmorebody:empty { display: none; }
     /* `.sppl` is a LONG species list nested inside another row (a hotspot's
        birds, a convoy stop's birds). It used to hand-roll its own flex row and
        34px thumb, which was .card-sm at a second, slightly different size —
@@ -1314,7 +1320,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.68';
+      var APP_VERSION = '1.0.69';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5479,7 +5485,7 @@
           seen: seen.length ? speciesListHtml(seen) : '',
           seenLabel: seen.length
             ? (seen.length + ' more species already seen') : '',
-          below: o.below || '',
+          below: '<div class="hsckl"></div>' + (o.below || ''),
           actions: '<div class="hsact">' + acts + '</div>'
         });
         // The template returns a full <li>; unwrap it so callers keep appending
@@ -5532,6 +5538,81 @@
       // Runs AFTER paint on purpose: the card is useful immediately with the
       // approximate list, and correcting it in place beats holding the whole
       // section back on N sequential reads.
+      // "the medium hotspots card should include the collapsed list of recent
+      // checklists. this is missing from top destinations."
+      //
+      // COSTS NO EXTRA NETWORK, which is the whole reason it is built this way.
+      // recentLists() is the per-county product/lists read that Birdiest,
+      // Convoys and Happening now already share through one cached promise, and
+      // every row in it carries its own locId. So the checklists for a hotspot
+      // are already in memory — they only had to be indexed by place. Fetching
+      // product/lists/<locId> per card instead would have been one call per row
+      // of every hotspot list in the app, which is exactly the traffic the
+      // owner cache and the rate limiter exist to avoid.
+      //
+      // It hydrates AFTER paint AND after the species lists, like
+      // hydrateLocSpecies: the card is useful without this, and the section
+      // must not wait on a feed to show a name and a distance it already has.
+      //
+      // The ordering is load-bearing, not tidiness. Firing this alongside
+      // hydrateLocSpecies made the county reads race the location read for the
+      // rate limiter's tokens and win, so the SPECIES list — the thing the card
+      // exists to answer — arrived after the checklists that are only its
+      // evidence. A test that counts feeds in an 80 ms window caught it; a
+      // person would have seen a card that filled in backwards.
+      var HOTSPOT_CKL_SHOWN = 5;
+      function hotspotChecklistIndex() {
+        return recentLists().then(function (lists) {
+          var by = {};
+          sortRecentLists(lists).forEach(function (chk) {
+            var loc = chk.loc || {};
+            var lid = loc.locId || chk.locId;
+            if (!lid) return;
+            (by[lid] || (by[lid] = [])).push(chk);
+          });
+          return by;
+        }).catch(function () { return {}; });
+      }
+      function hydrateHotspotChecklists(root) {
+        if (!root || !getKey()) return Promise.resolve();
+        var cards = [].slice.call(root.querySelectorAll('[data-hsloc]'))
+          .filter(function (el) { return el.getAttribute('data-hsloc'); });
+        if (!cards.length) return Promise.resolve();
+        return hotspotChecklistIndex().then(function (by) {
+          var home = getHome();
+          var mkCkl = function (chk) {
+            var loc = chk.loc || {};
+            var lat = +loc.latitude, lng = +loc.longitude;
+            var sub = chk.subId || chk.subID || '';
+            return ChecklistCards.small({
+              place: loc.locName || loc.name || '',
+              href: sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : '',
+              date: fmtDateTime(chk.isoObsDate || chk.obsDt),
+              count: chk.numSpecies != null ? chk.numSpecies + ' sp' : '',
+              distMi: (home && isFinite(lat) && isFinite(lng))
+                ? haversineMi(home.lat, home.lng, lat, lng) : null,
+              distQ: distQ(lat, lng),
+              who: chk.userDisplayName ? esc(chk.userDisplayName) : ''
+            });
+          };
+          cards.forEach(function (el) {
+            var got = by[el.getAttribute('data-hsloc')];
+            if (!got || !got.length) return;
+            // The slot is created empty at build time so this never has to
+            // guess where in the card the list belongs.
+            var slot = el.querySelector('.hsckl');
+            if (!slot || slot.getAttribute('data-done')) return;
+            slot.setAttribute('data-done', '1');
+            var rows = got.slice(0, HOTSPOT_CKL_SHOWN).map(mkCkl);
+            slot.innerHTML = checklistDetails(rows, got.length, 'recent checklist', '',
+              moreDetails(got.length - HOTSPOT_CKL_SHOWN, 'checklists', function () {
+                return ChecklistCards.list('small',
+                  got.slice(HOTSPOT_CKL_SHOWN).map(mkCkl));
+              }));
+          });
+        });
+      }
+
       function hydrateLocSpecies(root) {
         if (!root || !getKey()) return Promise.resolve();
         var cards = [].slice.call(root.querySelectorAll('[data-hsloc]'))
@@ -5604,7 +5685,8 @@
           }));
         });
         hydratePhotos(listEl);
-        hydrateLocSpecies(listEl);
+        hydrateLocSpecies(listEl).then(function () { return hydrateHotspotChecklists(listEl); })
+          .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
       }
 
       // Shared status for reports where hotspot chasing doesn't apply (Lower 48 /
@@ -6212,6 +6294,76 @@
       // place, observer and a direct checklist link. The markdown report makes
       // this a <details> cell; the app uses the same element so "tap the count
       // to see them all" means the same thing in both.
+      // ONE collapsed checklist list, for every section that shows "here is
+      // what was actually reported". Three sections had rebuilt this
+      // <details>/<summary> wrapper independently and were already disagreeing
+      // about the summary wording; a fourth (the medium hotspot card) is what
+      // finally made that a problem worth fixing rather than noting.
+      //
+      // Collapsed because the list is the EVIDENCE for the row above it. The
+      // decision is made from the summary — which bird, or which place, and how
+      // far — and the checklists are what you open once you have decided.
+      // "the ...and X more should be a link to expand and show the additional
+      // x more checklists." It was dead text stating a count — the one thing
+      // the reader already knew — with no way to reach what it named.
+      //
+      // LAZY, and that is the point. These caps exist because the enumeration
+      // is genuinely expensive: one latest-ticks row reached 18 KB and the
+      // section reached 205 KB, which is what LAST_NEW_MAX_CHECKLISTS was
+      // introduced to stop. Rendering the remainder eagerly inside a nested
+      // <details> would hand all of that straight back for a disclosure most
+      // readers never open. So the markup carries only the summary, and the
+      // rows are built the first time it is actually opened.
+      //
+      // A nested <details> rather than a bespoke control: the platform already
+      // gives keyboard, screen-reader and open-state behaviour for free, and
+      // this sits inside a <details> that works the same way.
+      var _moreFills = {}, _moreSeq = 0, MORE_REGISTRY_MAX = 300;
+      function moreDetails(n, noun, fill) {
+        if (!(n > 0) || typeof fill !== 'function') return '';
+        var id = 'm' + (++_moreSeq);
+        // Bounded so a long session re-rendering sections cannot accumulate
+        // closures over row arrays that nobody will ever open.
+        var keys = Object.keys(_moreFills);
+        if (keys.length >= MORE_REGISTRY_MAX) {
+          keys.slice(0, keys.length - MORE_REGISTRY_MAX + 1)
+            .forEach(function (k) { delete _moreFills[k]; });
+        }
+        _moreFills[id] = fill;
+        return '<details class="ckmore" data-more="' + id + '"><summary>…and '
+          + n + ' more' + (noun ? ' ' + esc(noun) : '')
+          + '</summary><div class="ckmorebody"></div></details>';
+      }
+      // `toggle` does not bubble, so the delegation hangs off the summary click
+      // that precedes it. One listener covers every section, including any
+      // added later.
+      document.addEventListener('click', function (ev) {
+        var t = ev.target;
+        var s = t && t.closest ? t.closest('details.ckmore > summary') : null;
+        if (!s) return;
+        var d = s.parentNode;
+        if (d.getAttribute('data-filled')) return;
+        d.setAttribute('data-filled', '1');
+        var body = d.querySelector('.ckmorebody');
+        var fill = _moreFills[d.getAttribute('data-more')];
+        delete _moreFills[d.getAttribute('data-more')];
+        if (!body) return;
+        try { body.innerHTML = fill ? fill() : ''; }
+        catch (e) {
+          body.innerHTML = '<span class="dim">could not show the rest</span>';
+          dbg('warn', 'expander: ' + ((e && e.message) || e));
+        }
+      });
+
+      function checklistDetails(rows, total, label, suffix, inside) {
+        if (!rows || !rows.length) return '';
+        var n = total == null ? rows.length : total;
+        return '<details class="ckall"><summary>' + n + ' '
+          + (label || 'checklist') + (n === 1 ? '' : 's') + (suffix || '')
+          + '</summary>' + ChecklistCards.list('small', rows)
+          + (inside || '') + '</details>';
+      }
+
       function rarityChecklistDetails(r) {
         var seen = {}, items = [];
         (r.recs || []).slice().sort(function (a, b) {
@@ -6237,9 +6389,8 @@
             who: x.observer ? esc(x.observer) : ''
           });
         });
-        return '<details class="ckall"><summary>' + items.length + ' checklist'
-          + (items.length === 1 ? '' : 's') + ' — show every report</summary>'
-          + ChecklistCards.list('small', rows) + '</details>';
+        return checklistDetails(rows, items.length, 'checklist',
+          ' — show every report');
       }
 
       // Last 7-Days rarity reports for the rare-bird-tracker reports: the public ABA alert,
@@ -7873,24 +8024,25 @@
             // same card filled them elsewhere — the drift a shared template is
             // supposed to make impossible, hiding in the CALLER.
             var home = getHome();
-            ck = '<details class="ckall"><summary>' + uniq.length + ' recent checklist'
-              + (uniq.length === 1 ? '' : 's') + '</summary>'
-              + ChecklistCards.list('small', uniq.slice(0, nShow).map(function (o) {
-                var d = (home && isFinite(o.lat) && isFinite(o.lng))
-                  ? haversineMi(home.lat, home.lng, +o.lat, +o.lng) : null;
-                return ChecklistCards.small({
-                  place: o.locName || '',
-                  href: o.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(o.subId) : '',
-                  date: fmtDateTime(o.obsDt),
-                  count: o.howMany,
-                  distMi: d,
-                  distQ: distQ(o.lat, o.lng),
-                  map: mapPin(o.lat, o.lng),
-                  who: o.userDisplayName ? esc(o.userDisplayName) : ''
-                });
-              }))
-              + (uniq.length > nShow ? '<div class="dim">…and ' + (uniq.length - nShow) + ' more</div>' : '')
-              + '</details>';
+            var mkRow = function (o) {
+              var d = (home && isFinite(o.lat) && isFinite(o.lng))
+                ? haversineMi(home.lat, home.lng, +o.lat, +o.lng) : null;
+              return ChecklistCards.small({
+                place: o.locName || '',
+                href: o.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(o.subId) : '',
+                date: fmtDateTime(o.obsDt),
+                count: o.howMany,
+                distMi: d,
+                distQ: distQ(o.lat, o.lng),
+                map: mapPin(o.lat, o.lng),
+                who: o.userDisplayName ? esc(o.userDisplayName) : ''
+              });
+            };
+            ck = checklistDetails(uniq.slice(0, nShow).map(mkRow),
+              uniq.length, 'recent checklist', '',
+              moreDetails(uniq.length - nShow, 'checklists', function () {
+                return ChecklistCards.list('small', uniq.slice(nShow).map(mkRow));
+              }));
           }
           return SpeciesCards.medium({
             icon: photoSlot(sp, code),
@@ -8177,17 +8329,21 @@
             var o = g.latest;
             // The report's own rows, one per line, so the card still carries
             // every report the table cell would have listed.
-            var lines = g.rs.slice().sort(function (a, b) {
-              return String(b.obsDt).localeCompare(String(a.obsDt));
-            }).slice(0, ABA_CARD_REPORTS).map(function (r) {
+            var abaRow = function (r) {
               return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>' +
                 '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>' +
                 '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, '', true) +
                 (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span>' +
                 (r.userDisplayName ? '<span class="who">' + esc(r.userDisplayName) + '</span>' : '') + '</li>';
-            }).join('');
-            var more = g.rs.length > ABA_CARD_REPORTS
-              ? '<div class="dim">…and ' + (g.rs.length - ABA_CARD_REPORTS) + ' more</div>' : '';
+            };
+            var sorted = g.rs.slice().sort(function (a, b) {
+              return String(b.obsDt).localeCompare(String(a.obsDt));
+            });
+            var lines = sorted.slice(0, ABA_CARD_REPORTS).map(abaRow).join('');
+            var more = moreDetails(g.rs.length - ABA_CARD_REPORTS, 'reports', function () {
+              return '<ul class="abareports">'
+                + sorted.slice(ABA_CARD_REPORTS).map(abaRow).join('') + '</ul>';
+            });
             var since = abaArchiveSince(region);
             var fr = firstReport(g.rs, coverageStart(region));
             var stats = rarityStats(g.rs, 'reports in ' + (getReport().label || 'this region'),
@@ -8917,7 +9073,8 @@
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
-        hydrateLocSpecies(el);
+        hydrateLocSpecies(el).then(function () { return hydrateHotspotChecklists(el); })
+          .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
         // Numbered pins match the list ranks, mirroring the report's section map.
         renderMap($('hotMap'), top, getHome(), false);
       }
@@ -8939,7 +9096,8 @@
         } else html += '<div class="status">No overlooked high-diversity hotspots within ' + HOTSPOT_MAX_DIST_MI + ' mi.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
-        hydrateLocSpecies(el);
+        hydrateLocSpecies(el).then(function () { return hydrateHotspotChecklists(el); })
+          .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
         renderMap($('coldMap'), top, getHome(), false);
       }
       // Hot and cold share ONE scan (2 API calls per county). Either section's
@@ -9563,12 +9721,18 @@
             // A leaderboard row on its own is not actionable: it says a bird is
             // gettable but never says where. These are the real reports behind
             // it, so the row ends in somewhere to drive and a list to cite.
-            var spots = (c.recent || []).slice(0, CASCADE_SPOTS).map(function (r) {
+            var cascadeSpot = function (r) {
               return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>'
                 + '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>'
                 + '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, r.locId)
                 + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>';
-            }).join('');
+            };
+            var spots = (c.recent || []).slice(0, CASCADE_SPOTS).map(cascadeSpot).join('');
+            var moreSpots = moreDetails((c.recent || []).length - CASCADE_SPOTS, 'reports',
+              function () {
+                return '<ul class="cklrows">'
+                  + c.recent.slice(CASCADE_SPOTS).map(cascadeSpot).join('') + '</ul>';
+              });
             return '<li>'
               // The board prints a NAME, never a code; photoSlot's network tier
               // resolves by name, so the row still gets its bird.
@@ -9577,8 +9741,7 @@
               + '<div class="meta">' + c.birders.length + ' of the top 100 added it · latest ' + esc(c.latest) + '</div>'
               + (spots
                 ? '<div class="lanesub">Where it is being reported</div><ul class="cklrows">' + spots + '</ul>'
-                  + ((c.recent || []).length > CASCADE_SPOTS
-                    ? '<div class="dim">…and ' + (c.recent.length - CASCADE_SPOTS) + ' more reports</div>' : '')
+                  + moreSpots
                 : '<div class="dim">' + (c.code
                     ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
                     : 'Not in this region’s species list, so there is nowhere to link to — likely a first record the list has not caught up with.') + '</div>')
@@ -11830,6 +11993,9 @@
         renderConvoys: renderConvoys, pinTone: pinTone, PIN_TONES: PIN_TONES,
         markBirdiestUnseen: markBirdiestUnseen,
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
+        hydrateHotspotChecklists: hydrateHotspotChecklists,
+        checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
+        moreDetails: moreDetails,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
