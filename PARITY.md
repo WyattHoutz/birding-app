@@ -710,6 +710,23 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🔭 Latest ticks on the leaderboard | **Latest ticks on the leaderboard** | ✅ | v1.0.13 scoped this to the report’s **own** board in BOTH repos. Both sides pooled every board they fetched (WA also fetches Lower 48 for `section_year_list`), so a Washington chase board listed Palila, California Gnatcatcher and Yellow-headed Amazon — 20 of 33 rows unchaseable — each flagged 🔍 as a WA target. Guards: `tests/parity/test_last_new.py` + a `dom.test.js` fetch-count check. v1.0.15: large icon + title, the bird links to its region-scoped species page (`/species/{code}/{state}`), and `LAST_NEW_FRESH_DAYS = 3` means every checklist from the last three days is shown — the 5-row cap is now a floor, not a ceiling, because a 3-day-old list is still chaseable. **v1.0.30 fixes the type ranking, which had it backwards.** The roster of who added the bird was set at the same size as everything else, so a list of eight names visually outweighed the species it was about. Sizes are now assigned by what a list *is* rather than by which section shows it: the bird name **29px** (it is the subject) > the checklist rows **17px** (they are the thing you act on) > the roster **14px** (it is corroboration, read at a glance). A guard parses the actual px values so the ranking cannot silently invert again. **v1.0.68 splits the board into 🔍 Still needed and ✅ Already on your year list**, in BOTH repos — it is the longest table in the report and the magnifier was carrying the whole distinction alone. A tick you already have says what is moving; it is not a reason to go anywhere, and interleaved it sat at the same weight as a bird you could add. The app resolves every species code from its ONE region-wide feed *before* the board paints, so a row cannot start under one heading and jump to the other as its own checklist feed lands. |
 | 🏅 Your state rankings | — | ➖ | Rarity-tracker-only cross-region table (`section_state_leaderboards`). The app scopes to one region by design — switch regions in the nav to see another. |
 
+### Today's rarities: the card head opens the CHECKLIST
+
+Everywhere else a species card is ABOUT A BIRD, so its icon and name go to the
+eBird species page. Today's rarities is not: it is one row per **report**, and
+what you want when a rarity turns up is the checklist that reported it — the
+photos, the notes, exactly where the observer was standing. So in the app the
+icon and the name both open the checklist. A row with no submission id falls
+back to the species page rather than rendering a dead name.
+
+The Markdown report keeps the species link, and that is not drift: a table has
+room for both, and it already prints the checklist in its own cell. The app's
+card head is a tap target on a phone, where the choice is exclusive.
+
+The species page is one section away either way — Last 7-Days is these same
+birds seen as species rather than as reports, and Species lookup answers for any
+bird by name.
+
 ### "…and N more" — a real expander in the app, a link in the report
 
 Every capped list said *"…and 188 more checklists"* and gave the reader no way

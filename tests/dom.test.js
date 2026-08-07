@@ -691,8 +691,11 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   // of submission id stop being printed.
   assert.doesNotMatch(today, /class="lbl">(Observer|Latest)</,
     'no labelled Observer/Latest rows — they are one line under the name now');
-  assert.match(today, /sub: '<span class="rarewhere">'/,
-    'place, time and observer are ONE sub-line');
+  assert.match(today, /sub: speciesMetaRow\(\{/,
+    'place, time and observer are ONE sub-line — built by the SHARED row, so '
+    + 'this section and Last 7-Days cannot drift apart again');
+  assert.match(HTML, /function speciesMetaRow[\s\S]{0,900}class="rarewhere"/,
+    'and that row really is the one-line sub-header');
   assert.match(today, /checklistLink\(r\.subId, when\)/,
     'the time is the checklist link, so the submission id is not printed too');
   assert.doesNotMatch(today, /checklistLink\(r\.subId, r\.subId\)/,
@@ -704,12 +707,19 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   // The NAME row carries the name alone. 🔍, ×count and 📍 Day N are facts
   // about the sighting, so they sit with the rest of them on the sub-line.
   assert.match(today, /tags: ''/, 'the header is the bird, and nothing else');
-  assert.match(today, /class="rareflags"/, 'the flags moved to the sub-line');
-  const flagIdx = today.indexOf('class="rareflags"');
-  const locIdx = today.indexOf('class="rareloc"');
-  assert.ok(flagIdx > -1 && locIdx > flagIdx,
-    'and read before the place: do I need it, how many, has it stuck around, '
-    + 'then where');
+  assert.match(today, /flags: flags/, 'the flags moved to the sub-line');
+  // The ORDER now lives in one function instead of at each call site, so it is
+  // asserted there — and it holds for every section that uses the row, not
+  // just this one.
+  const row = HTML.slice(HTML.indexOf('function speciesMetaRow('),
+    HTML.indexOf('function speciesMetaRow(') + 1400);
+  const flagIdx = row.indexOf('class="rareflags"');
+  const locIdx = row.indexOf('class="rareloc"');
+  const whenIdx = row.indexOf('class="when"');
+  const cntIdx = row.indexOf('class="rarecount"');
+  assert.ok(flagIdx > -1 && locIdx > flagIdx && whenIdx > locIdx && cntIdx > whenIdx,
+    'and read in the order the questions are asked: do I need it, how many, '
+    + 'has it stuck around, is there proof — then where, when, how many people');
 });
 
 // Reported from the device: the place name and its 🗺 link broke across two
@@ -3099,17 +3109,25 @@ test('the unseen list sizes its icon to the seed it actually shows', async () =>
 });
 
 // That is exactly how the unseen list ended up with 20px names in a 29px card.
-test('All unseen reports uses the medium species card wrapper, not a lookalike', () => {
-  const m = HTML.match(/<ul id="allUnseenResults"[^>]*class="([^"]*)"/)
-        || HTML.match(/<ul[^>]*class="([^"]*)"[^>]*id="allUnseenResults"/);
-  assert.ok(m, 'the unseen list still exists');
+test('every medium-card list carries the medium wrapper, not a lookalike', () => {
   const wrapper = (CARDS_SPECIES.match(/medium: *'([^']+)'/)
                || CARDS_SPECIES.match(/medium: *"([^"]+)"/) || [])[1];
   assert.ok(wrapper, 'cards-species.js still names the medium wrapper class');
-  for (const cls of wrapper.split(/\s+/)) {
-    assert.ok(m[1].split(/\s+/).includes(cls),
-      'the unseen list must carry "' + cls + '" — the medium card\'s own wrapper — '
-      + 'or it renders at another size than the template it uses');
+  // "todays rarity should be using medium species card, and so should last
+  // 7-days rarity report" — so both are pinned here beside the unseen list
+  // rather than trusted. A list that calls SpeciesCards.medium but wears
+  // another wrapper renders the medium template at a different size, which is
+  // exactly how the unseen list ended up with 20px names in a 29px card.
+  const lists = ['allUnseenResults', 'results', 'activeResults', 'lastNewResults'];
+  for (const id of lists) {
+    const m = HTML.match(new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"'))
+          || HTML.match(new RegExp('<ul[^>]*class="([^"]*)"[^>]*id="' + id + '"'));
+    assert.ok(m, 'the ' + id + ' list still exists');
+    for (const cls of wrapper.split(/\s+/)) {
+      assert.ok(m[1].split(/\s+/).includes(cls),
+        id + ' must carry "' + cls + '" — the medium card\'s own wrapper — '
+        + 'or it renders at another size than the template it uses');
+    }
   }
 });
 
@@ -6358,6 +6376,120 @@ test('"…and N more" opens, and costs nothing until it does', async () => {
   // A count of zero is not a disclosure with nothing behind it — it is nothing.
   assert.equal(A.moreDetails(0, 'checklists', () => 'x'), '',
     'no remainder, no control');
+  app.window.close();
+});
+
+// SPEC 2026-08-06: row 2 of the medium species card carries "number of reports
+// (ONLY if more than 1), datetime of the latest observation, and all the icons
+// — day #, unseen icon, unverified icon, media icon, number of observers."
+//
+// Today's rarities and Last 7-Days had each built this row independently from
+// the same five span classes and had already drifted: only one showed the span,
+// only one counted observers, and NEITHER showed the media mark.
+test('the medium species card has one second row, and it obeys the spec', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // "ONLY if more than 1" — a card that IS one report must not say "1 report".
+  const one = A.speciesMetaRow({ loc: 'Edmonds Marsh', when: 'Jul 31, 7:10 am',
+    reports: 1, observers: 1 });
+  assert.ok(!/1 report/.test(one), 'one report is what a row already is');
+  assert.ok(!/1 observer/.test(one), 'and one observer likewise');
+
+  const many = A.speciesMetaRow({ loc: 'Edmonds Marsh', when: 'Jul 31',
+    reports: 6, observers: 4 });
+  assert.match(many, /6 reports/, 'more than one is worth stating');
+  assert.match(many, /4 observers/, 'and so is the crowd behind them');
+
+  // A card that knows WHO must not degrade to a count of one.
+  assert.match(A.speciesMetaRow({ observer: 'A Birder' }), /A Birder/,
+    'a single report names its observer rather than saying "1 observer"');
+
+  // The icons the spec lists, in the order the questions are asked.
+  const full = A.speciesMetaRow({
+    flags: '<span class="needflag">🔍</span><span class="stakeflag">📍 Day 3</span>⚠️',
+    icons: '📷', loc: 'Edmonds Marsh', when: 'Jul 31', span: '4 days',
+    reports: 6, observers: 4,
+  });
+  ['🔍', '📍 Day 3', '⚠️', '📷'].forEach((ic) => {
+    assert.ok(full.indexOf(ic) > -1, 'row 2 carries ' + ic);
+  });
+  assert.ok(full.indexOf('📷') < full.indexOf('Edmonds Marsh'),
+    'the evidence marks sit with the other flags, before the place');
+
+  // Nothing is rendered empty. An absent fact is an absent span, not a blank.
+  const bare = A.speciesMetaRow({ loc: 'Somewhere' });
+  assert.ok(!/rareflags/.test(bare), 'no flags, no flag span');
+  assert.ok(!/rarecount/.test(bare), 'no counts, no count span');
+  assert.ok(!/rarespan/.test(bare), 'no span, no span span');
+  assert.ok(!/undefined|NaN|null/.test(bare), 'and nothing leaks a placeholder');
+
+  // The point of extracting it: both sections feed the SAME builder, so the
+  // media mark that only ABA showed now reaches the two rarity sections.
+  const src = HTML.slice(HTML.indexOf('function loadActiveRarities'),
+    HTML.indexOf('function loadActiveRarities') + 6000);
+  assert.match(src, /icons: BirdLogic\.recordIcons\(/,
+    'Last 7-Days passes the evidence marks it always had in its feed');
+  app.window.close();
+});
+
+// "in todays rarities, if i click on the species icon or name, then link to the
+// checklist on ebird."
+//
+// A render probe, because the icon is not an <a> anywhere else in the app and
+// the risk is layout: `.thumb` and `.extlink` set competing display/margin at
+// EQUAL specificity, so which one wins is decided by source order — something
+// no source regex can see.
+test('Today\u2019s rarities: the icon and the name open the checklist', async () => {
+  const app = await boot();
+  const doc = app.window.document, w = app.window;
+  const host = doc.createElement('ul');
+  host.className = 'obs big xl';
+  host.innerHTML = w.SpeciesCards.medium({
+    icon: w.BirdIcons.photoSlot('Terek Sandpiper', 'tersan',
+      'https://ebird.org/checklist/S12345'),
+    name: '<a class="extlink" data-href="https://ebird.org/checklist/S12345">Terek Sandpiper</a>',
+    tags: '', sub: 'somewhere',
+  });
+  doc.body.appendChild(host);
+
+  const icon = host.querySelector('.thumb');
+  assert.equal(icon.tagName, 'A', 'the icon is a link');
+  assert.match(icon.getAttribute('data-href'), /checklist\/S12345/,
+    'and it goes to the CHECKLIST, not the species page');
+  assert.ok(icon.classList.contains('extlink'),
+    'wearing the class the delegated opener listens for');
+  assert.ok(icon.getAttribute('data-bird'),
+    'and it is still a photo slot, so hydratePhotos still fills it');
+
+  // The layout must be untouched. `.thumb` and `.extlink` set competing
+  // display/margin at EQUAL specificity, so which wins is decided by source
+  // order. If that ever flips, the icon becomes an 8px-margin inline-block and
+  // the card head collapses. (In a MEDIUM card the thumb is a grid item, so
+  // the thing to check is its box, not a float.)
+  const cs = w.getComputedStyle(icon);
+  const span = doc.createElement('span');
+  assert.ok(/^(70px|calc)/.test(cs.width) || parseFloat(cs.width) >= 46,
+    'the icon keeps the medium card\u2019s box, got width ' + cs.width);
+  assert.ok(!/^8px/.test(cs.marginTop),
+    'and did not inherit .extlink\u2019s 8px top margin (got ' + cs.marginTop + ')');
+  assert.equal(cs.cursor, 'pointer', 'it looks tappable, because it is');
+  void span;
+
+  const name = host.querySelector('.ntext a');
+  assert.match(name.getAttribute('data-href'), /checklist\/S12345/,
+    'the name goes to the same checklist');
+
+  // The section really wires it that way.
+  const src = HTML.slice(HTML.indexOf('function refresh()'),
+    HTML.indexOf('function refresh()') + 12000);
+  assert.match(src, /photoSlot\(r\.name, r\.code, r\.subId \? checklistUrl\(r\.subId\)/,
+    'Today\u2019s rarities passes the checklist url to the icon');
+  assert.match(src, /r\.subId \? checklistLink\(r\.subId, r\.name\)/,
+    'and links the name to it');
+  assert.match(src, /: speciesLink\(r\.name, r\.code\)/,
+    'a row with no submission id falls back to the species page rather than '
+    + 'rendering a dead name');
   app.window.close();
 });
 

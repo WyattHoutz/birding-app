@@ -413,6 +413,11 @@
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
+    /* The icon is a link in Today's rarities (it opens the checklist), so it
+       says so. `.thumb` is declared after `.extlink` above and wins the size
+       and float it needs at equal specificity — this only adds the affordance,
+       and must not re-introduce .extlink's inline-block/margin-top. */
+    .thumb.thumblink { cursor: pointer; }
     /* A heading INSIDE the card list. It is an <li> because the list is a
        <ul> of cards and splitting it into two <ul>s would give the second one
        a fresh set of the list's own margins, opening a gap that reads as the
@@ -1320,7 +1325,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.69';
+      var APP_VERSION = '1.0.70';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3037,15 +3042,25 @@
             // many, has it stuck around, where, when, who.
             var when = fmtDateTime(r.dateStr);
             var flags = needTag(r.code, r.name) + flock + stake + warn;
-            var bits = [];
-            if (flags) bits.push('<span class="rareflags">' + flags + '</span>');
-            bits.push('<span class="rareloc">' + recLocLink(r) + '</span>');
-            bits.push('<span class="when">'
-              + (r.subId ? checklistLink(r.subId, when) : esc(when)) + '</span>');
-            if (r.observer) bits.push('<span class="who">' + esc(r.observer) + '</span>');
             return SpeciesCards.medium({
-              icon: photoSlot(r.name, r.code),
-              name: speciesLink(r.name, r.code),
+              // "in todays rarities, if i click on the species icon or name,
+              // then link to the checklist on ebird."
+              //
+              // Every other section's card is ABOUT A BIRD, so its head goes to
+              // the species page. This one is not: Today's rarities is one row
+              // per REPORT, and what you want when a rarity turns up is the
+              // checklist that reported it — the photos, the notes, exactly
+              // where the observer was standing. So the head of the card points
+              // at its own subject.
+              //
+              // The species page is not lost: Last 7-Days is these same birds
+              // seen as species rather than as reports, and Species lookup
+              // answers for any bird by name. A row with no submission id
+              // (rare, but the alert feed can omit it) falls back to the
+              // species page rather than rendering a dead name.
+              icon: photoSlot(r.name, r.code, r.subId ? checklistUrl(r.subId) : ''),
+              name: r.subId ? checklistLink(r.subId, r.name)
+                            : speciesLink(r.name, r.code),
               // The header is the NAME and nothing else.
               tags: '',
               // The medium card carries distance in its own column, so it
@@ -3053,7 +3068,15 @@
               // something you can scan down the edge of the list.
               distMi: r.distMi,
               distQ: distQ(r.lat, r.lon != null ? r.lon : r.lng),
-              sub: '<span class="rarewhere">' + bits.join('') + '</span>'
+              sub: speciesMetaRow({
+                flags: flags,
+                // 📷/🔊/🧾 come free: the notable feed carries `evidence` on
+                // every row, and this section is built from that feed.
+                icons: BirdLogic.recordIcons(r),
+                loc: recLocLink(r),
+                when: r.subId ? checklistLink(r.subId, when) : esc(when),
+                observer: r.observer || ''
+              })
             });
           }
           var html = rows.length ? rows.map(card).join('')
@@ -4301,6 +4324,41 @@
         return locLink(r.loc || r.locName || '', r.lat, (r.lon != null ? r.lon : r.lng),
           r.locId || '', r.location_private || r.locationPrivate);
       }
+
+      // ONE second row for the medium species card.
+      //
+      // Today's rarities and Last 7-Days had each built this independently out
+      // of the same five span classes, and had already drifted: only one showed
+      // how long the bird had been around, only one counted observers, and
+      // NEITHER showed whether anyone photographed it — even though the notable
+      // feed carries `evidence` on every row and the app already decodes it
+      // two sections away.
+      //
+      // Order is the order the questions get asked: do I still need it, how
+      // many, has it stuck around, is it confirmed, is there proof — then
+      // where, when, how long, and how many people.
+      //
+      // Every part is OPTIONAL and an absent one is omitted rather than printed
+      // empty. A card that IS one report must not say "1 report", which the
+      // spec calls out; and a card that knows the observer's NAME prints it
+      // rather than degrading to "1 observer".
+      function speciesMetaRow(o) {
+        o = o || {};
+        var flags = (o.flags || '') + (o.icons || '');
+        var bits = [];
+        if (flags) bits.push('<span class="rareflags">' + flags + '</span>');
+        if (o.loc) bits.push('<span class="rareloc">' + o.loc + '</span>');
+        if (o.when) bits.push('<span class="when">' + o.when + '</span>');
+        if (o.span) bits.push('<span class="rarespan">' + o.span + '</span>');
+        var counts = [];
+        if (o.reports > 1) counts.push(o.reports + ' reports');
+        if (o.observers > 1) counts.push(o.observers + ' observers');
+        else if (!(o.observers > 1) && o.observer) counts.push(esc(o.observer));
+        if (counts.length) {
+          bits.push('<span class="rarecount">' + counts.join(' · ') + '</span>');
+        }
+        return '<span class="rarewhere">' + bits.join('') + '</span>';
+      }
       // 🔍 = not on the active report's year list; ★ = eBird-flagged rarity.
       // Both trail the species name so the photo icon and name stay adjacent.
       function needTag(code, name, parentOf) { return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>'; }
@@ -4573,10 +4631,20 @@
       // Species code is optional so older call sites keep working, but passing
       // it is what lets tier 1 and tier 2 hit at all — codes are stable, common
       // names are not.
-      function photoSlot(name, code) {
+      // `href` turns the icon itself into the link. The class list keeps
+      // `thumb` first so hydratePhotos still finds it and the layout rules
+      // (float, and the grid cell on the medium card) still apply — an <a> and
+      // a <span> style identically here, so this changes what the icon DOES
+      // without changing what it looks like. `extlink` is what the delegated
+      // opener listens for, and data-href is how every other external link in
+      // the app is expressed.
+      function photoSlot(name, code, href) {
         if (!name && !code) return '';
-        return '<span class="thumb" data-bird="' + esc(name || '') + '"' +
-          (code ? ' data-code="' + esc(code) + '"' : '') + '></span>';
+        return '<' + (href ? 'a' : 'span') + ' class="thumb' + (href ? ' extlink thumblink' : '')
+          + '" data-bird="' + esc(name || '') + '"' +
+          (code ? ' data-code="' + esc(code) + '"' : '') +
+          (href ? ' data-href="' + esc(href) + '"' : '') +
+          '></' + (href ? 'a' : 'span') + '>';
       }
       // The card photo. Same pipeline, opposite tier order: the bundled seed is
       // 60px wide, which is fine at 46px in a list and a smear across a card, so
@@ -6250,19 +6318,20 @@
               // in full beside them. The sub-header already spans all three
               // columns, which is the widest line on the card and the one
               // place these actually fit.
-              sub: '<span class="rarewhere">'
-                + (flags ? '<span class="rareflags">' + flags + '</span>' : '')
-                + '<span class="rareloc">' + recLocLink(r.closest) + '</span>'
-                + '<span class="when">' + staleTag(r.latest)
-                + (r.closest && r.closest.subId
-                    ? checklistLink(r.closest.subId, fmtDateTime(r.latest))
-                    : esc(fmtDateTime(r.latest))) + '</span>'
-                + '<span class="rarespan">' + span + '</span>'
-                + '<span class="rarecount">' + r.reports + ' report'
-                + (r.reports === 1 ? '' : 's')
-                + (r.observers ? ' · ' + r.observers + ' observer'
-                    + (r.observers === 1 ? '' : 's') : '') + '</span>'
-                + '</span>',
+              sub: speciesMetaRow({
+                flags: flags,
+                // The mark for "somebody photographed it", which this section
+                // never showed even though its own feed carries the evidence.
+                icons: BirdLogic.recordIcons(r.closest || r),
+                loc: recLocLink(r.closest),
+                when: staleTag(r.latest)
+                  + (r.closest && r.closest.subId
+                      ? checklistLink(r.closest.subId, fmtDateTime(r.latest))
+                      : esc(fmtDateTime(r.latest))),
+                span: span,
+                reports: r.reports,
+                observers: r.observers
+              }),
               // The checklists stay collapsed: the summary is the decision and
               // the list is the evidence for it.
               below: rarityChecklistDetails(r)
@@ -11978,6 +12047,7 @@
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         unseenPlacesHtml: unseenPlacesHtml, UNSEEN_PLACES_SHOWN: UNSEEN_PLACES_SHOWN,
         speciesPlacesCard: speciesPlacesCard, easySpotsToPlaces: easySpotsToPlaces,
+        speciesMetaRow: speciesMetaRow,
         renderEasyMisses: renderEasyMisses,
         buildClosestSpots: buildClosestSpots,
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
