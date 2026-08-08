@@ -417,6 +417,15 @@
     .rarebadge { display: inline-block; vertical-align: -0.14em; color: #b3261e;
                  margin-left: 0.3em; line-height: 0; }
     .rarebadge svg { width: 1.05em; height: 1.05em; display: block; }
+    /* The tiny-pin marker for a personal checklist location. The fill is set in
+       the SVG (it is a red map pin, not text), so no colour is inherited here.
+       A faint shadow keeps the white outline from vanishing on a white card —
+       the same trick .pinbubble uses on the map. Sized in em so it tracks the
+       text at every UI scale. */
+    .perspin { display: inline-block; vertical-align: -0.16em;
+               margin-left: 0.25em; line-height: 0;
+               filter: drop-shadow(0 0.5px 1px rgba(0,0,0,.35)); }
+    .perspin svg { width: 0.95em; height: 0.95em; display: block; }
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
@@ -1371,7 +1380,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.77';
+      var APP_VERSION = '1.0.78';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3933,7 +3942,13 @@
           return BL.computeChaseViews(profile, {
             rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
             seen: getReportSeen(), ownName: getDisplayName(), snapshotDate: todayStr(),
-            home: getHome(), dailyDriveMi: profile.dailyDriveMi
+            home: getHome(), dailyDriveMi: profile.dailyDriveMi,
+            // F29. Read from the PERSISTED reference cache only — never
+            // fetched here — so a personal pin beside a public hotspot becomes
+            // chaseable at no API cost at all. On a cold cache this is empty
+            // and the rule simply does not fire, which is the old behaviour
+            // rather than a broken one.
+            hotspots: cachedHotspots(profile)
           });
         }
         function finish(codes, stale) {
@@ -4387,6 +4402,39 @@
         var e = locId && _scopeMap[locId];
         return (e && e.why) || '';
       }
+      // Drawn from the eBird map marker the owner shared: an inverted raindrop,
+      // SOLID red with a light outline. The shape is the meaning — a dropped
+      // pin — so it reads without relying on the colour, which matters here.
+      //
+      // Inline SVG, not 📍: that emoji is already the stakeout "Day N" flag and
+      // the Closest-spots menu tile, and one glyph meaning three things is the
+      // defect this app keeps removing. The red is #e5484d, the same red the
+      // app's own map pins use, so a marker in a list and a pin on a map are
+      // recognisably the same object.
+      function personalPin(title) {
+        var t = esc(title || 'A personal checklist location, not a public hotspot');
+        return '<span class="perspin" title="' + t + '" role="img" aria-label="'
+          + t + '"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+          + '<path d="M12 22.2c0 0 7.1-8.6 7.1-13.2a7.1 7.1 0 1 0-14.2 0'
+          + 'c0 4.6 7.1 13.2 7.1 13.2z" fill="#e5484d" stroke="#fff"'
+          + ' stroke-width="1.7" stroke-linejoin="round"/>'
+          + '</svg></span>';
+      }
+
+      // The county hotspot lists, from the persistent reference cache ONLY.
+      // `ref/hotspot/{county}` matches EB_REF_RE, so once any section has
+      // fetched it, it is on disk for a week and this costs nothing. Returns
+      // [] when nothing is cached rather than fetching, because the caller
+      // (the chase wave) must not grow a new request.
+      function cachedHotspots(profile) {
+        var out = [];
+        ((profile && profile.counties) || []).forEach(function (c) {
+          var v = ebRefGet('ref/hotspot/' + encodeURIComponent(c.code) + '?fmt=json');
+          if (Array.isArray(v)) out = out.concat(v);
+        });
+        return out;
+      }
+
       function locLink(name, lat, lng, locId, isPrivate) {
         name = name || locId || '';
         var scope = scopeBadge(locId);
@@ -4400,7 +4448,9 @@
             ? '<span class="mapwrap">\u00a0(' + mapA(lat, lng, '🗺') + ')</span>' : '';
           return extA(hotspotUrl(locId), name) + scope + maps;
         }
-        return mapA(lat, lng, name) + scope;
+        // Every private location goes through here, so this is the one place
+        // the marker has to be added to reach all of them.
+        return mapA(lat, lng, name) + personalPin() + scope;
       }
       function recLocLink(r) {
         return locLink(r.loc || r.locName || '', r.lat, (r.lon != null ? r.lon : r.lng),
@@ -12661,6 +12711,7 @@
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
+        personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,

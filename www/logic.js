@@ -700,6 +700,76 @@
     return out;
   }
 
+  // ---- personal checklist locations (F29) ---------------------------------
+  //
+  // "with rare birds, often people make checklists from custom checklist
+  // locations. these tiny pins are visible on the ebird map."
+  //
+  // They are already IN the feeds, flagged locationPrivate — 23 of 189 King
+  // County notable rows over 14 days when this was measured. isReachable drops
+  // them unless they are a stakeout, which kept 5 and dropped 18, and the 18
+  // include the day-one rarity at a roadside pull-out, which is when chasing
+  // matters most.
+  //
+  // What separates a public pin from somebody's garden is PROXIMITY TO A KNOWN
+  // HOTSPOT, not how many people reported it (requiring 2+ observers rescued
+  // only 6 of 23). Within 500 m: Sandel Lookout 92 m, Union Bay 105 m,
+  // Discovery Park 438 m — all people dropping a pin inside a major hotspot
+  // rather than selecting it.
+  //
+  // *** CAVEAT KEPT DELIBERATELY VISIBLE FOR REVIEW ***
+  // "Ravenna apartment" sits 516 m from Ravenna Park — it fails by SIXTEEN
+  // METRES. Distance is therefore NOT the safety net and must not be treated
+  // as one: a house 400 m from a park would be published by distance alone.
+  // The residential name test below is what actually protects a private
+  // address. Note also that name SIMILARITY would get that case exactly
+  // backwards, since "Ravenna apartment" and "Ravenna Park" share a word —
+  // which is why this compares NAMES AGAINST A DENYLIST and never against the
+  // hotspot's name.
+  var PERSONAL_NEAR_HOTSPOT_M = 500;
+  var _RESIDENTIAL_RE = new RegExp(
+    '\\b(' +
+    'apartment|apartments|apt|condo|townhouse|duplex|' +
+    'house|home|residence|residential|' +
+    'yard|backyard|back\\s*yard|front\\s*yard|garden|driveway|balcony|patio|deck|' +
+    'feeder|feeders|birdbath|bird\\s*bath|' +
+    'my\\s|our\\s|casa|villa|cabin|cottage|farmhouse' +
+    ')\\b', 'i');
+  // A bare street address is a home even when it says so in no other way.
+  var _STREET_RE = /^\s*\d{3,6}\s+\S+.*\b(ave|avenue|st|street|rd|road|dr|drive|ln|lane|way|blvd|ct|court|pl|place|ter|terrace|cir|circle|hwy|highway)\b/i;
+
+  function looksResidential(name) {
+    var n = String(name || '');
+    if (!n) return true;                 // unnamed is not something to publish
+    return _RESIDENTIAL_RE.test(n) || _STREET_RE.test(n);
+  }
+
+  // locIds of PRIVATE locations that sit beside a public hotspot and are not
+  // named like a home. `hotspots` = [{lat,lng}|{latitude,longitude}].
+  function publicPersonalLocids(allRecs, hotspots) {
+    var out = {};
+    var hs = (hotspots || []).map(function (h) {
+      return { lat: +(h.lat != null ? h.lat : h.latitude),
+               lng: +(h.lng != null ? h.lng : h.longitude) };
+    }).filter(function (h) { return isFinite(h.lat) && isFinite(h.lng); });
+    if (!hs.length) return out;
+    (allRecs || []).forEach(function (r) {
+      if (!r.locId || out[r.locId]) return;
+      if (!(r.location_private || r.locationPrivate)) return;
+      if (looksResidential(r.loc || r.locName)) return;
+      var la = +(r.lat != null ? r.lat : r.latitude);
+      var ln = +(r.lon != null ? r.lon : (r.lng != null ? r.lng : r.longitude));
+      if (!isFinite(la) || !isFinite(ln)) return;
+      for (var i = 0; i < hs.length; i++) {
+        if (haversineKm(la, ln, hs[i].lat, hs[i].lng) * 1000 <= PERSONAL_NEAR_HOTSPOT_M) {
+          out[r.locId] = 1;
+          return;
+        }
+      }
+    });
+    return out;
+  }
+
   // ---- notable (mirror report.section_today) -------------------------------
   // TODAY's rarities from the notable feeds, deduped by checklist (sub_id),
   // newest first. `records` = merged snapshot; `snapshotDate` = 'YYYY-MM-DD'.
@@ -1290,6 +1360,13 @@
     annotateDistance(allRecs, home);
 
     var stakeout = computeStakeoutLocids(allRecs, seen);
+    // F29: a personal pin beside a public hotspot is a public place, so it
+    // joins the same set of "private but chaseable anyway" locIds rather than
+    // needing its own parameter threaded through every caller. `hotspots` is
+    // the list the caller already has; with none supplied this is a no-op and
+    // behaviour is exactly as before.
+    var publicPins = publicPersonalLocids(allRecs, opts.hotspots);
+    Object.keys(publicPins).forEach(function (k) { stakeout[k] = 1; });
     var unseenAll = computeUnseen(allRecs, seen, { excludeOwn: false });
     var unseen = computeUnseen(allRecs, seen, { excludeOwn: true, ownName: ownName });
     var near = unseen.filter(function (r) { return inTargetCounties(r, countyLabels); });
@@ -2024,6 +2101,9 @@
     isReachable: isReachable,
     isChaseable: isChaseable,
     computeStakeoutLocids: computeStakeoutLocids,
+    publicPersonalLocids: publicPersonalLocids,
+    looksResidential: looksResidential,
+    PERSONAL_NEAR_HOTSPOT_M: PERSONAL_NEAR_HOTSPOT_M,
     scoreDestinationClusters: scoreDestinationClusters,
     fresh24Count: fresh24Count,
     sortClusterSpecies: sortClusterSpecies,

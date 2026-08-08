@@ -1535,6 +1535,84 @@ test('tides: the rising rows are visually marked, not just labelled', async () =
 // Due back soon wants an arrival window per unseen species, which is one GBIF
 // request each, and there are ~40 unseen species on a normal day. The budget is
 // therefore spent in rank order rather than on whoever sorts first.
+// F29. "with rare birds, often people make checklists from custom checklist
+// locations. these tiny pins are visible on the ebird map."
+//
+// They were already in the feeds (23 of 189 King County notable rows over 14
+// days) and were being FILTERED OUT: isReachable drops a private location
+// unless it is a stakeout, which kept 5 and dropped 18.
+//
+// *** THE CAVEATS BELOW ARE KEPT DELIBERATELY, FOR REVIEW AFTER ITERATION 1 ***
+test('a personal pin beside a public hotspot becomes chaseable', async () => {
+  const app = await boot();
+  const BL = app.window.BirdLogic;
+  const hotspots = [{ lat: 47.6570, lng: -122.2900, name: 'Union Bay Natural Area' }];
+  const recs = [
+    // Measured cases, at their real distances from the nearest hotspot.
+    { locId: 'L1', loc: 'Union Bay Natural Area', lat: 47.6579, lon: -122.2900,
+      location_private: true },                                    // ~100 m
+    { locId: 'L2', loc: 'Ravenna apartment', lat: 47.6617, lon: -122.2900,
+      location_private: true },                                    // ~520 m
+    { locId: 'L3', loc: 'Sandel Lookout', lat: 47.6578, lon: -122.2900,
+      location_private: true },                                    // ~90 m
+    { locId: 'L4', loc: 'Big Park', lat: 47.6570, lon: -122.2900 }, // a hotspot
+  ];
+  const pub = BL.publicPersonalLocids(recs, hotspots);
+  assert.ok(pub.L1, 'a pin inside a hotspot is a public place');
+  assert.ok(pub.L3, 'and so is one 90 m away');
+  assert.ok(!pub.L2, 'somebody\u2019s apartment is not, even at the same distance');
+  assert.ok(!pub.L4, 'a public hotspot is not a personal pin and is not listed here');
+
+  // CAVEAT 1 — DISTANCE IS NOT THE SAFETY NET. "Ravenna apartment" is 516 m
+  // from Ravenna Park: it fails by SIXTEEN METRES. A home 400 m from a park
+  // would pass on distance alone, so the NAME test is what actually protects a
+  // private address. This asserts the name test stands on its own.
+  const closeApartment = [{ locId: 'L9', loc: 'Ravenna apartment',
+    lat: 47.6572, lon: -122.2900, location_private: true }];       // ~20 m
+  assert.ok(!BL.publicPersonalLocids(closeApartment, hotspots).L9,
+    'a home 20 m from a hotspot is STILL not published — the name decides, '
+    + 'not the distance');
+
+  // CAVEAT 2 — NAME SIMILARITY WOULD GET THIS BACKWARDS. "Ravenna apartment"
+  // and "Ravenna Park" share a word, so any match against the hotspot's name
+  // would publish exactly the case that must not be. The test is a DENYLIST.
+  assert.equal(BL.looksResidential('Ravenna apartment'), true);
+  assert.equal(BL.looksResidential('Sandel Lookout'), false);
+  assert.equal(BL.looksResidential('1234 NE 8th St'), true, 'a bare address is a home');
+  assert.equal(BL.looksResidential('my yard'), true);
+  assert.equal(BL.looksResidential(''), true, 'and an unnamed pin is never published');
+  app.window.close();
+});
+
+test('the personal-location rule costs no eBird call', async () => {
+  const seen = [];
+  const app = await boot({ fetch(url) { seen.push(String(url)); return null; } });
+  const A = app.window.__app;
+  // Reads the PERSISTED reference cache only. Cold cache -> [] and the rule
+  // does not fire, which is the old behaviour rather than a broken one.
+  const before = seen.length;
+  const hs = A.cachedHotspots({ counties: [{ code: 'US-WA-033' }, { code: 'US-WA-061' }] });
+  assert.ok(Array.isArray(hs), 'it always returns a list');
+  assert.equal(seen.length, before, 'and never fetches — the chase wave must not grow a call');
+  app.window.close();
+});
+
+test('a personal location is marked with the tiny pin', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const priv = A.locLink('Ravenna apartment', 47.66, -122.29, 'L9', true);
+  const hot = A.locLink('Union Bay Natural Area', 47.65, -122.29, 'L1', false);
+  assert.match(priv, /perspin/, 'a personal pin is marked');
+  assert.ok(!/perspin/.test(hot), 'a public hotspot is not');
+  // 📍 is already the stakeout Day-N flag and the Closest-spots tile. A third
+  // meaning is the defect this app keeps removing, so this is drawn, not typed.
+  assert.ok(!/\u{1F4CD}/u.test(A.personalPin()),
+    'the marker is an inline SVG, not the pin emoji that already means two '
+    + 'other things');
+  assert.match(A.personalPin(), /aria-label=/, 'and it is announced, not just drawn');
+  app.window.close();
+});
+
 test('the GBIF budget is spent on the commonest unseen birds first', async () => {
   const app = await boot();
   const A = app.window.__app;
