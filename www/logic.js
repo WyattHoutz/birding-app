@@ -425,6 +425,22 @@
         subId: r.subId || '',
         valid: r.obsValid == null ? true : !!r.obsValid,
         location_private: !!r.locationPrivate,
+        // Evidence attached to the observation, straight off the notable feed
+        // — no checklist lookup, so this costs NOTHING. 'P' photo, 'A' audio,
+        // 'V' video; 'None' is normalised to '' so absence reads as absence.
+        //
+        // This was being DROPPED here, and dropping it is what made checklist
+        // rows slow: the media mark had to be recovered later with one
+        // product/checklist/view per row, which the eBird token bucket serves
+        // at ~0.37/s — 2.7 seconds each to re-learn a letter the feed had
+        // already handed over. analyze.py has carried it since the report
+        // gained evidence marks; the app simply never copied the line.
+        //
+        // NOTE the plain data/obs/{region}/recent feed carries NEITHER field,
+        // so these are empty for non-notable records. Empty means "unknown",
+        // not "no photo" — nothing may render absence as a claim.
+        evidence: (r.evidence && r.evidence !== 'None') ? r.evidence : '',
+        has_comments: !!r.hasComments,
         sources: e.sources.slice()
       });
     });
@@ -1652,11 +1668,79 @@
     var ev = String(rec.evidence || '');
     if (ev === 'None') ev = '';
     var out = '';
-    if (ev.indexOf('P') >= 0 || ev.indexOf('V') >= 0) out += MEDIA_ICON;
+    // Photo, video and audio each get their OWN mark, exactly as report.py's
+    // record_icons does. This used to fold V into the camera, which threw away
+    // the distinction the `evidence` letters carry for free and — worse — made
+    // the same row change glyph when the slower checklist pass upgraded it,
+    // because checklistIcons above has always split them.
+    if (ev.indexOf('P') >= 0) out += MEDIA_ICON;
+    if (ev.indexOf('V') >= 0) out += VIDEO_ICON;
     if (ev.indexOf('A') >= 0) out += AUDIO_ICON;
-    if (rec.hasComments) out += COMMENT_ICON;
+    // NO note badge on a rarity row, and the field is spelled BOTH ways: raw
+    // feed rows carry `hasComments`, records built by mergeSnapshot carry
+    // `has_comments` (the name analyze.py uses). Reading only one of them is
+    // how a mark silently stops appearing. Mirrors report.py's record_icons,
+    // rarity suppression included — eBird REQUIRES details on a flagged
+    // species, so a badge there is a column of identical glyphs.
+    var note = rec.has_comments != null ? rec.has_comments : rec.hasComments;
+    if (note && rec.kind !== 'Rarity') out += COMMENT_ICON;
     if (out) return out;
     return checklistIcons(rec._detail);
+  }
+
+  // ---- How long a stored checklist stays believable -----------------------
+  //
+  // "checklists are sometimes posted and then later updated with media, but
+  // then they do not change very often. so they are good candidates to cache,
+  // esp if they have media attached already."
+  //
+  // A checklist is not a feed. It is one person's morning, filed once and then
+  // almost never touched again. The cache was scoped to the DAY because of the
+  // single thing that does change after filing — media, uploaded hours or days
+  // later — and it paid for that caution by re-buying EVERY checklist EVERY
+  // day at roughly 2.7 seconds each, which is the eBird token bucket's price
+  // for one call, not a network cost we can optimise away.
+  //
+  // Volatility decays with age, and it collapses once the media has landed:
+  //
+  //   filed in the last 2 days -> 1 day.  Still settling. Species get added,
+  //                                       photos are still being uploaded.
+  //   already carries media    -> 30 days. THE THING THE SHORT TTL WAS WAITING
+  //                                       FOR HAS ALREADY HAPPENED. Re-buying
+  //                                       it cannot change the mark it
+  //                                       produced, so the daily re-fetch was
+  //                                       pure cost.
+  //   older, still silent      -> 7 days.  Media can still appear late, but a
+  //                                       week-old checklist that never had
+  //                                       any rarely speaks up now.
+  //
+  // Deliberately NOT permanent even when settled: a checklist can be edited or
+  // withdrawn, and a cache with no expiry is a cache you can never correct.
+  var CKL_TTL_SETTLING_AGE_D = 2;
+  var CKL_TTL_SETTLING_D = 1, CKL_TTL_WITH_MEDIA_D = 30, CKL_TTL_QUIET_D = 7;
+
+  function dayNum(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    if (!m) return NaN;
+    return Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000);
+  }
+
+  // TTL in days for an entry: { o: the checklist's own date, m: has media }.
+  function checklistCacheTtl(entry, today) {
+    var e = entry || {};
+    var age = dayNum(today) - dayNum(e.o);
+    // An unknown or future date is treated as brand new. Guessing "old" here
+    // would hand a long TTL to the rows most likely to still be changing.
+    if (!isFinite(age) || age < CKL_TTL_SETTLING_AGE_D) return CKL_TTL_SETTLING_D;
+    return e.m ? CKL_TTL_WITH_MEDIA_D : CKL_TTL_QUIET_D;
+  }
+
+  function checklistCacheFresh(entry, today) {
+    var e = entry || {};
+    if (!e.v) return false;
+    var since = dayNum(today) - dayNum(e.d);
+    if (!isFinite(since) || since < 0) return false;   // clock moved backwards
+    return since < checklistCacheTtl(e, today);
   }
 
   function dedupeObs(obs) {
@@ -2150,6 +2234,10 @@
     checklistDetail: checklistDetail,
     checklistIcons: checklistIcons,
     recordIcons: recordIcons,
+    checklistCacheTtl: checklistCacheTtl,
+    checklistCacheFresh: checklistCacheFresh,
+    CKL_TTL_WITH_MEDIA_D: CKL_TTL_WITH_MEDIA_D,
+    CKL_TTL_QUIET_D: CKL_TTL_QUIET_D,
     dedupeObs: dedupeObs
   };
 }));

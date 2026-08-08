@@ -1380,7 +1380,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.80';
+      var APP_VERSION = '1.0.81';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6786,35 +6786,55 @@
       // several KB of protocol and effort metadata that nothing here touches,
       // and localStorage is a few MB in total.
       var CKL_NS = 'bc_ckl:';
+      var CKL_CACHE_MAX = 900;
       var _cklView = {};
+      function cklEntry(k) {
+        try {
+          var raw = localStorage.getItem(k);
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) { return null; }
+      }
+      // Boot-time prune. This USED to delete every entry not written today,
+      // which is what made the cache die at each restart — the store was
+      // durable, the policy was not.
       function pruneChecklistCache() {
         try {
-          var today = todayStr(), drop = [];
+          var today = todayStr(), drop = [], keep = [];
           for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i);
-            if (k && k.indexOf(CKL_NS) === 0) {
-              var raw = localStorage.getItem(k);
-              if (!raw || raw.indexOf('"' + today + '"') < 0) drop.push(k);
-            }
+            if (!k || k.indexOf(CKL_NS) !== 0) continue;
+            var o = cklEntry(k);
+            if (BirdLogic.checklistCacheFresh(o, today)) keep.push({ k: k, d: (o && o.d) || '' });
+            else drop.push(k);
+          }
+          // A cap, oldest-fetched first. localStorage is a few MB and a 30-day
+          // TTL means entries now accumulate instead of clearing nightly, so
+          // the ceiling has to be explicit rather than "whatever fits before
+          // setItem starts throwing".
+          if (keep.length > CKL_CACHE_MAX) {
+            keep.sort(function (a, b) { return String(a.d).localeCompare(String(b.d)); });
+            keep.slice(0, keep.length - CKL_CACHE_MAX)
+              .forEach(function (x) { drop.push(x.k); });
           }
           drop.forEach(function (k) { localStorage.removeItem(k); });
         } catch (e) { /* a full or disabled store is not worth reporting */ }
       }
       try { pruneChecklistCache(); } catch (e) { /* never blocks boot */ }
 
+      function cklCached(sub) {
+        if (!sub) return false;
+        if (_cklView[sub]) return true;
+        return BirdLogic.checklistCacheFresh(cklEntry(CKL_NS + sub), todayStr());
+      }
+
       function checklistView(sub, bg) {
         if (!sub) return Promise.resolve(null);
         if (_cklView[sub]) return _cklView[sub];
-        try {
-          var raw = localStorage.getItem(CKL_NS + sub);
-          if (raw) {
-            var o = JSON.parse(raw);
-            if (o && o.d === todayStr() && o.v) {
-              _cklView[sub] = Promise.resolve(o.v);
-              return _cklView[sub];
-            }
-          }
-        } catch (e) { /* fall through to the network */ }
+        var o = cklEntry(CKL_NS + sub);
+        if (BirdLogic.checklistCacheFresh(o, todayStr())) {
+          _cklView[sub] = Promise.resolve(o.v);
+          return _cklView[sub];
+        }
         _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), !!bg)
           .then(function (d) {
             var v = {
@@ -6827,8 +6847,20 @@
               })
             };
             try {
-              localStorage.setItem(CKL_NS + sub,
-                JSON.stringify({ d: todayStr(), v: v }));
+              // `o` is the checklist's OWN date and `m` whether any media has
+              // landed: the two facts the TTL is a function of. Storing them
+              // beside the payload is what lets a settled checklist be trusted
+              // for a month instead of being re-bought every morning.
+              var hasMedia = v.obs.some(function (x) {
+                var mc = x.mediaCounts;
+                if (!mc) return false;
+                for (var kk in mc) { if (mc[kk]) return true; }
+                return false;
+              });
+              localStorage.setItem(CKL_NS + sub, JSON.stringify({
+                d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
+                m: hasMedia ? 1 : 0, v: v
+              }));
             } catch (e) {
               // A full quota is not a failure worth surfacing: the app works,
               // it just pays again next launch.
@@ -6859,11 +6891,30 @@
       // Rows carry what they need to ask: which checklist, which bird, and
       // where the bird was (the oracle a typed waypoint is checked against).
       var CKL_EVID_CONC = 3;
+      // How many rows are worth a CALL. Every row already shows its media mark
+      // for free from the feed's `evidence`, and on a rarity list the note mark
+      // is suppressed on purpose (eBird makes comments compulsory there, so it
+      // would be a column of identical glyphs). What a fetch still buys is the
+      // 🎯 WAYPOINT — and nothing else. That is worth ~2.7s of token budget for
+      // the newest reports, which are the ones you would actually drive to, and
+      // not worth it for the twentieth report from last Tuesday.
+      var CKL_EVID_MAX = 8;
       function hydrateChecklistEvidence(root) {
         if (!root || !getKey()) return Promise.resolve();
         var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
         if (!rows.length) return Promise.resolve();
         rows.forEach(function (el) { el.setAttribute('data-ev-done', '1'); });
+        // Rows are built newest-first, so this keeps the freshest reports.
+        // A row that is cached costs nothing, so it is NOT counted against the
+        // budget — the cap exists to bound CALLS, not rows.
+        var budget = CKL_EVID_MAX;
+        rows = rows.filter(function (el) {
+          var sub = el.getAttribute('data-ev-sub');
+          if (sub && cklCached(sub)) return true;
+          if (budget <= 0) return false;
+          budget--;
+          return true;
+        });
         return pool(rows, CKL_EVID_CONC, function (el) {
           var sub = el.getAttribute('data-ev-sub');
           var code = el.getAttribute('data-ev-code') || '';
@@ -7002,7 +7053,14 @@
             distMi: x.distMi,
             distQ: distQ(x.lat, lng),
             who: x.observer ? esc(x.observer) : '',
-            // Hooks for hydrateChecklistEvidence. The coordinate travels with
+            // PAINTED NOW, FROM DATA ALREADY IN HAND. The notable feed carries
+            // `evidence` (P/A/V) on every row — measured at 400/400 live WA
+            // rows, 265 with media and 135 an explicit 'None' — so the media
+            // mark needs NO call and appears the instant the list opens.
+            // It used to wait for a per-row product/checklist/view, which the
+            // eBird token bucket serves at ~0.37/s: 2.7 seconds of blank row,
+            // each, to print something the app already knew.
+            icons: BirdLogic.recordIcons({ evidence: x.evidence || '' }),            // Hooks for hydrateChecklistEvidence. The coordinate travels with
             // them because it is the ORACLE a typed waypoint is checked
             // against — without it a note reading "47.658, 122.298" would be
             // believed as written and point at China.
@@ -12836,6 +12894,7 @@
         checklistView: checklistView, pruneChecklistCache: pruneChecklistCache,
         CKL_NS: CKL_NS,
         checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
+        CKL_EVID_MAX: CKL_EVID_MAX, cklCached: cklCached,
         moreDetails: moreDetails,
         hydrateChecklistEvidence: hydrateChecklistEvidence,
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,

@@ -967,3 +967,107 @@ test('a note has to be a note', () => {
   assert.ok(BL.hasNote('heard only'), 'but ten characters of English is');
   assert.ok(BL.hasNote('in willows'), 'and so is a place');
 });
+
+
+// ---- how long a cached checklist stays believable -------------------------
+//
+// "checklists are sometimes posted and then later updated with media, but then
+// they do not change very often. so they are good candidates to cache, esp if
+// they have media attached already. durable between app restarts."
+//
+// The cache was scoped to the DAY, and the boot-time prune deleted everything
+// not written today — so the store was durable and the policy was not, and
+// every checklist was re-bought each morning at ~2.7s of token budget each.
+test('a settled checklist is cached for a month, a fresh one for a day', () => {
+  const T = '2026-08-08';
+  const ttl = (e) => BL.checklistCacheTtl(e, T);
+
+  // Filed today: still settling. Species get added, photos are still going up.
+  assert.equal(ttl({ o: '2026-08-08', m: 0 }), 1, 'today is volatile');
+  assert.equal(ttl({ o: '2026-08-08', m: 1 }), 1,
+    'and media already present does NOT settle a checklist filed this morning '
+    + '— more can follow the same day');
+
+  // Old and already carrying media: the one thing the short TTL was waiting
+  // for has HAPPENED. Re-buying it cannot change the mark it produced.
+  assert.equal(ttl({ o: '2026-07-30', m: 1 }), 30, 'settled, with the media in');
+  // Old and still silent: media can still arrive late, so not a month.
+  assert.equal(ttl({ o: '2026-07-30', m: 0 }), 7, 'settled, but still able to speak');
+
+  // An unknown or future date is treated as BRAND NEW, never as old. Guessing
+  // "old" would hand the longest TTL to the rows most likely to change.
+  assert.equal(ttl({ o: '', m: 1 }), 1, 'no date is not permission to trust it');
+  assert.equal(ttl({ o: '2026-09-01', m: 1 }), 1, 'nor is a date in the future');
+});
+
+test('a cached checklist survives restarts, but never outlives its TTL', () => {
+  const T = '2026-08-08', v = { obs: [] };
+  const fresh = (e) => BL.checklistCacheFresh(e, T);
+
+  // THE BUG THIS EXISTS TO PREVENT. Fetched three weeks ago, filed before that,
+  // media already attached — the old policy threw this away at the next launch
+  // and paid 2.7s to fetch a byte-identical answer.
+  assert.ok(fresh({ d: '2026-07-19', o: '2026-07-10', m: 1, v }),
+    'three weeks old, settled, still believed');
+  assert.ok(!fresh({ d: '2026-06-29', o: '2026-07-10', m: 1, v }),
+    'but a month is the limit — a checklist can be edited or withdrawn, and a '
+    + 'cache with no expiry is one you can never correct');
+
+  assert.ok(fresh({ d: '2026-08-03', o: '2026-07-10', m: 0, v }), 'silent: 7 days');
+  assert.ok(!fresh({ d: '2026-07-30', o: '2026-07-10', m: 0, v }), 'silent: not 9');
+
+  assert.ok(!fresh({ d: T, o: T, m: 1 }), 'an entry with no payload is not a hit');
+  assert.ok(!fresh(null, T), 'nor is a missing one');
+  // Travel and DST move the clock. A negative age must not read as fresh.
+  assert.ok(!fresh({ d: '2026-08-09', o: T, m: 1, v }, T),
+    'a stamp from the future is refetched, not trusted');
+});
+
+// The letters the notable feed hands over for free, and what each one means.
+// Measured on 400 live WA notable rows: 254 P, 8 A, 3 V, 135 None — every row
+// answered, which is why no call is needed to mark a checklist row.
+test('evidence letters become one mark each, and video is not a camera', () => {
+  const ic = (r) => BL.recordIcons(r);
+  assert.equal(ic({ evidence: 'P' }), '\u{1F4F7}', 'photo');
+  assert.equal(ic({ evidence: 'A' }), '\u{1F50A}', 'audio');
+  assert.equal(ic({ evidence: 'V' }), '\u{1F3A5}',
+    'VIDEO GETS ITS OWN GLYPH. It used to fold into the camera, throwing away a '
+    + 'distinction the feed carries for free — and making a row change glyph '
+    + 'when the slower checklist pass upgraded it, because checklistIcons has '
+    + 'always split them');
+  assert.equal(ic({ evidence: 'None' }), '', '"None" is an answer, not a mark');
+  assert.equal(ic({ evidence: '' }), '', 'and silence stays silent');
+
+  // The note field is spelled both ways: raw feed rows say hasComments, records
+  // built by makeRecords say has_comments. Reading one is how a mark vanishes.
+  assert.equal(ic({ evidence: '', hasComments: true }), '🧾', 'feed spelling');
+  assert.equal(ic({ evidence: '', has_comments: true }), '🧾', 'record spelling');
+  // ...and never on a rarity, where eBird makes the comment compulsory, so the
+  // badge would be a column of identical glyphs. Mirrors report.py exactly.
+  assert.equal(ic({ evidence: '', has_comments: true, kind: 'Rarity' }), '',
+    'a mark that is always there is not a mark');
+});
+
+// The field was being DROPPED at the point records are built, which is what
+// made checklist rows slow: the media mark had to be recovered later with one
+// call per row. analyze.py has carried it for as long as the report has had
+// evidence marks; the app simply never copied the line.
+test('mergeSnapshot keeps the evidence the notable feed paid for', () => {
+  const recs = BL.mergeSnapshot([{ src: 'notable', kind: 'notable', rows: [{
+    obsId: 'OBS1', speciesCode: 'larspa', comName: 'Lark Sparrow',
+    obsDt: '2026-08-07 11:39', locName: 'Union Bay', locId: 'L1',
+    lat: 47.6, lng: -122.3, subId: 'S1', userDisplayName: 'A Birder',
+    evidence: 'P', hasComments: true,
+  }] }]);
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].evidence, 'P', 'the letter survives into the record');
+  assert.equal(recs[0].has_comments, true, 'and so does the note flag');
+
+  // 'None' means "asked and answered: nothing", and normalising it to '' is
+  // what lets absence read as absence rather than as an unknown.
+  const none = BL.mergeSnapshot([{ src: 'notable', kind: 'notable', rows: [{
+    obsId: 'OBS2', speciesCode: 'x', comName: 'X', obsDt: '2026-08-07 11:39',
+    locName: 'L', lat: 1, lng: 2, subId: 'S2', evidence: 'None',
+  }] }]);
+  assert.equal(none[0].evidence, '', '"None" is stored as empty');
+});

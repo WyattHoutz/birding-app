@@ -6938,6 +6938,63 @@ const LARK_WP = '47.65798\u00b0 N, 122.29830\u00b0 W thanks Alec and Louis! Cont
 const LARK_PLAIN = 'Harlequin pattern of rusty brown and white. Light gray breast '
   + 'with dark spot on central breast.  Thanks Alec!!! Lifer';
 
+test('a rarity checklist marks its media instantly, spending nothing', async () => {
+  const asked = [];
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        asked.push(String(url));
+        return { obs: [{ speciesCode: 'larspa', comments: 'a bird, no coordinates' }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  // Twenty reports is an ordinary rarity: a good bird gets chased all week.
+  const recs = [];
+  for (let i = 0; i < 20; i++) {
+    recs.push({ subId: 'S' + i, loc: 'Park', lat: 47.6, lng: -122.3,
+                dateStr: '2026-08-0' + (1 + (i % 7)) + ' 08:00', observer: 'B' + i,
+                evidence: ['P', 'A', 'V'][i % 3] });
+  }
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityChecklistDetails({ code: 'larspa', recs });
+  doc.body.appendChild(host);
+
+  // THE POINT. The notable feed already said which reports carry a photo, a
+  // recording or a video — `evidence`, present on 400 of 400 live WA rows. So
+  // every mark is on screen before a single call is made. This used to cost
+  // one product/checklist/view PER ROW, which eBird's token bucket serves at
+  // ~0.37/s: twenty rows sat blank and filled in over the best part of a
+  // minute, to print letters the app was already holding.
+  const marked = [...host.querySelectorAll('.ckevid')]
+    .filter((s) => s.textContent.trim());
+  assert.equal(asked.length, 0, 'not one call');
+  assert.equal(marked.length, 20, 'and every row is already marked');
+  // The TYPE survives, which a bool like hasRichMedia could never carry.
+  assert.equal(marked[0].textContent, '\u{1F4F7}', 'P is a photo');
+  assert.equal(marked[1].textContent, '\u{1F50A}', 'A is a recording');
+  assert.equal(marked[2].textContent, '\u{1F3A5}', 'V is a video, not a camera');
+
+  // What a CALL still buys is the waypoint, and only the waypoint — the note
+  // badge is suppressed here because eBird makes comments compulsory on a
+  // flagged species. So the fetch is capped: the newest reports are the ones
+  // you would drive to, and the twentieth from last Tuesday is not worth
+  // 2.7 seconds of the shared token budget.
+  const det = host.querySelector('details.ckall');
+  det.open = true;
+  await A.hydrateChecklistEvidence(det);
+  await new Promise((r) => setTimeout(r, 900));
+  assert.ok(asked.length <= A.CKL_EVID_MAX,
+    `opening 20 rows costs at most ${A.CKL_EVID_MAX} calls, not 20`);
+  assert.ok(asked.length > 0, 'but the waypoint hunt still happens');
+  // And nothing the free pass painted was taken away by the slow one.
+  assert.equal([...host.querySelectorAll('.ckevid')]
+    .filter((s) => s.textContent.trim()).length, 20,
+    'a row the fetch could not improve keeps the mark it already had');
+  app.window.close();
+});
+
 test('a rarity checklist surfaces the waypoint, and only the waypoint', async () => {
   const asked = [];
   const app = await boot({
