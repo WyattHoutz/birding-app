@@ -710,6 +710,31 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 | 🔭 Latest ticks on the leaderboard | **Latest ticks on the leaderboard** | ✅ | v1.0.13 scoped this to the report’s **own** board in BOTH repos. Both sides pooled every board they fetched (WA also fetches Lower 48 for `section_year_list`), so a Washington chase board listed Palila, California Gnatcatcher and Yellow-headed Amazon — 20 of 33 rows unchaseable — each flagged 🔍 as a WA target. Guards: `tests/parity/test_last_new.py` + a `dom.test.js` fetch-count check. v1.0.15: large icon + title, the bird links to its region-scoped species page (`/species/{code}/{state}`), and `LAST_NEW_FRESH_DAYS = 3` means every checklist from the last three days is shown — the 5-row cap is now a floor, not a ceiling, because a 3-day-old list is still chaseable. **v1.0.30 fixes the type ranking, which had it backwards.** The roster of who added the bird was set at the same size as everything else, so a list of eight names visually outweighed the species it was about. Sizes are now assigned by what a list *is* rather than by which section shows it: the bird name **29px** (it is the subject) > the checklist rows **17px** (they are the thing you act on) > the roster **14px** (it is corroboration, read at a glance). A guard parses the actual px values so the ranking cannot silently invert again. **v1.0.68 splits the board into 🔍 Still needed and ✅ Already on your year list**, in BOTH repos — it is the longest table in the report and the magnifier was carrying the whole distinction alone. A tick you already have says what is moving; it is not a reason to go anywhere, and interleaved it sat at the same weight as a bird you could add. The app resolves every species code from its ONE region-wide feed *before* the board paints, so a row cannot start under one heading and jump to the other as its own checklist feed lands. |
 | 🏅 Your state rankings | — | ➖ | Rarity-tracker-only cross-region table (`section_state_leaderboards`). The app scopes to one region by design — switch regions in the nav to see another. |
 
+### Go birding: one anchor, four algorithms — and it is app-only
+
+Quick outing could always be ranked from **Here**, **Home** or a place you
+**Find**. Since v1.0.74 so can **Top destinations**, **Top excursions** and
+**Closest spots with unseen birds**: the same three options, in the same order,
+on all four.
+
+They are one template with four algorithms, not four menus. `getAnchors()` was
+already the single point every section's ranking flowed through, so honouring
+the chosen origin there gave all four the behaviour at once — each keeps its own
+question (best all-time hotspots, multi-stop routes, an impulse detour, the
+nearest bird you still need) and they now all answer it from the same place.
+
+Quick outing's chips NAVIGATE (it is the destination you are switching between);
+the other three RE-RANK in place. Different verb, identical options.
+
+**This is app-only and cannot be brought to parity.** The Markdown report ranks
+from a fixed anchor because it is generated hours before it is read — it cannot
+ask where you are standing. Home remains the default precisely so that an
+untouched section still matches the report exactly; the divergence only exists
+once the reader chooses otherwise, which is a thing only a phone can offer.
+
+Same asymmetry, same reasoning as F1 decision 2, which retired the stored work
+anchor in favour of near-my-current-location.
+
 ### Today's rarities: the card head opens the CHECKLIST
 
 Everywhere else a species card is ABOUT A BIRD, so its icon and name go to the

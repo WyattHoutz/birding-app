@@ -1510,6 +1510,89 @@ test('tides: the rising rows are visually marked, not just labelled', async () =
 // a set that does not — and then, one level down, matched the bird by NAME
 // against a pool unioned across every region. Two sources of truth for the one
 // question the whole app is built on, disagreeing on the same card.
+// "add the icon everywhere a rare species appears. if its a rare bird it should
+// be in the 7 day rare bird list."
+//
+// That is an invariant about two sections agreeing, so it is pinned at the
+// SOURCE they agree through rather than by comparing two rendered lists: both
+// the hotspot species index and the Last 7-Days builder read `kind === 'Rarity'`
+// off the same cv.merged records. If either ever grows its own idea of rare,
+// this fails.
+// "the here, home, find menu in the quick outings - id like these same options
+// for top destinations, top excursions, and closest spot with unseen birds. all
+// four of these go birding menus can have one common template shared across all
+// four. the difference is the algorithm."
+test('all four Go birding sections offer the same anchor, and rank from it', async () => {
+  const app = await boot();
+  const doc = app.window.document, A = app.window.__app;
+
+  // Quick outing NAVIGATES between anchors (it is the destination); the other
+  // three RE-RANK in place. Different verbs, same three options in the same
+  // order — that is what makes it one template rather than four menus.
+  const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
+  assert.equal(rows.length, 3,
+    'Top destinations, Top excursions and Targets near you each carry the switch');
+  for (const r of rows) {
+    const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
+    assert.deepEqual(chips, ['here', 'home', 'find'],
+      'the same three options, in the same order, as Quick outing');
+  }
+  const quick = [...doc.querySelectorAll('.modeswitch[data-modes="quick"] .modebtn')]
+    .map((b) => (b.getAttribute('data-goto') || '').replace('quick:', ''));
+  assert.deepEqual(quick, ['here', 'home', 'find'],
+    'and Quick outing still offers exactly those, so the four agree');
+
+  // The single choke point. Every section's ranking already flowed through
+  // getAnchors(), which is what let four sections share an anchor without
+  // four separate changes — and is what makes this assertion worth making.
+  const src = HTML.slice(HTML.indexOf('function getAnchors('),
+    HTML.indexOf('function getAnchors(') + 700);
+  assert.match(src, /quickAnchor\(quickOrigin\)/,
+    'getAnchors honours the chosen origin, so the algorithms need not each know');
+  assert.match(src, /getHome\(\)/,
+    'and falls back to home, so an untouched section still matches the report, '
+    + 'which ranks from a fixed anchor and cannot ask where you are standing');
+  app.window.close();
+});
+
+test('rare means the same thing on a hotspot card and in the 7-day list', () => {
+  const idx = HTML.slice(HTML.indexOf('function locSpeciesIndex('),
+    HTML.indexOf('function locSpeciesIndex(') + 1200);
+  assert.match(idx, /rare: r\.kind === 'Rarity' \? 1 : 0/,
+    'the hotspot index takes rare straight off the record');
+  const act = HTML.slice(HTML.indexOf('function buildActiveRarities('),
+    HTML.indexOf('function buildActiveRarities(') + 2200);
+  assert.match(act, /r\.kind !== 'Rarity'/,
+    'and the 7-day list selects on the very same field');
+  // Both are built from cv.merged, so a bird cannot be rare in one and not the
+  // other. The ONE legitimate divergence is distance: the 7-day list is bounded
+  // by the chase radius, so a rarity further out is still badged on its hotspot
+  // card and still absent from that list.
+  assert.match(act, /chaseMaxMi\(\)/,
+    'the only difference is the chase radius, and it is applied here');
+});
+
+// The R badge, and why it is not a star.
+test('the rare badge is an R tile, and ⭐ no longer means two things', () => {
+  const src = HTML.slice(HTML.indexOf('function rareBadge('),
+    HTML.indexOf('function rareBadge(') + 1400);
+  assert.match(src, />R</, 'the badge is a letter R');
+  assert.match(src, /<rect[^>]*rx=/, 'in a rounded square');
+  assert.match(src, /fill="none"/,
+    'OUTLINED — eBird\u2019s mark is a solid tile, and this one must not be a copy');
+  assert.match(src, /aria-label=/, 'and it is announced, not just drawn');
+  // The collision it removes: ⭐ was the rarity mark AND the save-hotspot
+  // control, so one glyph meant "this bird is rare" and "pin this place".
+  const lists = HTML.slice(HTML.indexOf('function speciesListHtml('),
+    HTML.indexOf('function speciesListHtml(') + 1400);
+  assert.ok(!/class="star">\u2b50/.test(lists),
+    'a species row no longer wears the save control\u2019s glyph');
+  assert.match(lists, /x\.rare \? rareBadge\(\)/, 'it wears the R badge instead');
+  // Sized in em so it tracks the text at every UI scale.
+  assert.match(HTML, /\.rarebadge svg \{ width: 1\.05em/,
+    'and scales with the text rather than pinning itself to 16px');
+});
+
 test('a watchlist bird is unseen on the ROW as well as in the heading', async () => {
   const app = await boot({ fetch: () => null });
   const A = app.window.__app;
@@ -2913,11 +2996,22 @@ test('a searched place is not confused with where you are standing', async () =>
   const A = app.window.__app;
   // Two different anchors, deliberately kept apart: a later tap on Current
   // location must mean the device's position, not the last thing you typed.
-  const src = HTML.slice(HTML.indexOf('function quickFindPlace('),
+  const src = HTML.slice(HTML.indexOf('function resolveHere('),
     HTML.indexOf('function loadQuickOuting('));
-  assert.match(src, /quickFound = \{/, 'a searched place lands in its own anchor');
-  assert.ok(!/quickHere = \{/.test(src),
+  // The two resolvers are now separate functions, so the rule can be stated
+  // per resolver instead of over one blob: each writes ITS OWN anchor and
+  // never the other's. That is what keeps a later tap on Current location
+  // meaning the device's position rather than the last thing you typed.
+  const here = HTML.slice(HTML.indexOf('function resolveHere('),
+    HTML.indexOf('function resolveFound('));
+  const found = HTML.slice(HTML.indexOf('function resolveFound('),
+    HTML.indexOf('function quickUseHere('));
+  assert.match(found, /quickFound = \{/, 'a searched place lands in its own anchor');
+  assert.ok(!/quickHere = \{/.test(found),
     'and never overwrites the device-location anchor');
+  assert.match(here, /quickHere = \{/, 'the device location lands in its own anchor');
+  assert.ok(!/quickFound = \{/.test(here),
+    'and never overwrites the searched place');
   assert.match(src, /loadQuickOuting\('find'\)/, 'then loads as the find origin');
   assert.match(HTML, /QUICK_ORIGINS = \{ home: 1, here: 1, find: 1 \}/,
     'find is a first-class origin, so every "near X" path accepts it');
@@ -2970,7 +3064,10 @@ test('every mode switch is built from ONE table', async () => {
   const byGroup = {};
   // A chip is keyed by data-goto when it NAVIGATES and by id when it TOGGLES a
   // mode inside its own panel — both are chips, so read whichever it carries.
-  const keyOf = (b) => b.getAttribute('data-goto') || b.id;
+  // ...and by data-anchor when it RE-RANKS the panel it is already in.
+  const keyOf = (b) => b.getAttribute('data-goto')
+    || (b.getAttribute('data-anchor') ? 'anchor:' + b.getAttribute('data-anchor') : '')
+    || b.id;
   rows.forEach((r) => {
     const g = r.getAttribute('data-modes');
     const gotos = [...r.querySelectorAll('.modebtn')].map(keyOf);

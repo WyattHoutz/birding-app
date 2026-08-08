@@ -912,6 +912,7 @@
 
     <section class="panel">
       <h2>🎯 Targets near you <span class="dim" id="targetRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="targetsBtn">Load targets</button>
       </div>
@@ -949,6 +950,7 @@
 
     <section class="panel">
       <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
       </div>
@@ -959,6 +961,7 @@
 
     <section class="panel">
       <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
       </div>
@@ -1368,7 +1371,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.73';
+      var APP_VERSION = '1.0.74';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4269,8 +4272,36 @@
       // There is one FIXED anchor. The stored workplace was retired in F1
       // step 1 — it was a guess about where you would be, and the transient
       // `here` / `find` anchors below are not.
+      // ONE anchor for every Go birding section.
+      //
+      // "the here, home, find menu in the quick outings - id like these same
+      // options for top destinations, top excursions, and closest spot with
+      // unseen birds. all four of these go birding menus can have one common
+      // template shared across all four. the difference is the algorithm."
+      //
+      // getAnchors() is the single point every ranking already flowed through,
+      // so the four sections become one template by making THIS honour the
+      // chosen origin. Each section keeps its own algorithm — best all-time
+      // hotspots, multi-stop routes, an impulse detour, nearest unseen bird —
+      // and they now all answer it from the same place.
+      //
+      // Home stays the default, so a section opened without touching anything
+      // still matches the Markdown report, which ranks from a fixed anchor and
+      // cannot ask where you are standing.
       function getAnchors() {
+        var a = quickAnchor(quickOrigin);
+        if (a && isFinite(a.lat) && isFinite(a.lng)) {
+          return BL.anchorsFor(null, { home: { lat: a.lat, lng: a.lng } });
+        }
         return BL.anchorsFor(null, { home: getHome() });
+      }
+      // Where the reader has chosen to measure from, for a section that wants
+      // to say so or draw a map pin there.
+      function anchorPoint() {
+        var a = quickAnchor(quickOrigin);
+        return (a && isFinite(a.lat) && isFinite(a.lng))
+          ? { lat: a.lat, lng: a.lng, label: a.label || 'home' }
+          : getHome();
       }
       function anchorNote(a) {
         return a && a !== 'home' ? ' from ' + a : '';
@@ -7011,10 +7042,30 @@
         });
       }
 
+      // Resolving WHERE is separate from what any one section does with it.
+      // Quick outing owned both halves; the other three Go birding sections
+      // now need the first half and their own second, so it is split rather
+      // than copied three times.
+      function resolveHere() {
+        return getDeviceLocation().then(function (c) {
+          quickHere = { lat: c.lat, lng: c.lng, label: 'your location' };
+          return quickHere;
+        });
+      }
+      function resolveFound(q) {
+        return geocodePlace(q).then(function (r) {
+          // A typed place is NOT "here". Keeping them apart means the label
+          // says where you actually asked about, and a later tap on Current
+          // location still means the device's position rather than the last
+          // thing you searched for.
+          quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
+          return quickFound;
+        });
+      }
+
       function quickUseHere() {
         $('quickStatus').textContent = 'Asking for your location\u2026';
-        getDeviceLocation().then(function (c) {
-          quickHere = { lat: c.lat, lng: c.lng, label: 'your location' };
+        resolveHere().then(function () {
           $('quickHereRow').hidden = true;
           loadQuickOuting('here');
         }).catch(function (e) {
@@ -7025,12 +7076,7 @@
       function quickFindPlace() {
         var q = ($('quickHerePlace').value || '').trim();
         $('quickStatus').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
-        geocodePlace(q).then(function (r) {
-          // A typed place is NOT "here". Keeping them apart means the label
-          // says where you actually asked about, and a later tap on Current
-          // location still means the device's position rather than the last
-          // thing you searched for.
-          quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
+        resolveFound(q).then(function () {
           $('quickHereRow').hidden = true;
           loadQuickOuting('find');
         }).catch(function (e) { $('quickStatus').textContent = e.message || String(e); });
@@ -11925,8 +11971,17 @@
           // means nothing else; this chip searches for a PLACE.
           { to: 'quick:find', icon: '\uD83D\uDD0E', label: 'Find\u2026', full: 'Hotspots near a place I name' }
         ],
-        checklists: [
-          { id: 'cklModeBest', icon: '\uD83E\uDD9C', label: 'Birdiest', full: 'Checklists with the most species' },
+        // The SAME three options as Quick outing, for the other three Go
+        // birding sections. They differ from the `quick` set in one way: those
+        // NAVIGATE to Quick outing, while these re-rank the section you are
+        // already in. Same labels, same order, same state — one template, four
+        // algorithms.
+        anchor: [
+          { anchor: 'here', icon: '\uD83D\uDCCD', label: 'Here', full: 'Rank from my current location' },
+          { anchor: 'home', icon: '\uD83C\uDFE0', label: 'Home', full: 'Rank from home' },
+          { anchor: 'find', icon: '\uD83D\uDD0E', label: 'Find\u2026', full: 'Rank from a place I name' }
+        ],
+        checklists: [          { id: 'cklModeBest', icon: '\uD83E\uDD9C', label: 'Birdiest', full: 'Checklists with the most species' },
           { id: 'cklModeNew',  icon: '\uD83D\uDD52', label: 'Newest',   full: 'The most recently submitted checklists' }
         ],
         unseen: [
@@ -11951,9 +12006,11 @@
           if (!set) return;
           var cur = row.getAttribute('data-current') || '';
           row.innerHTML = set.map(function (m) {
-            var key = m.to || m.id;
+            var key = m.to || m.id || ('anchor:' + m.anchor);
             return '<button class="modebtn" type="button"'
-              + (m.to ? ' data-goto="' + m.to + '"' : ' id="' + m.id + '"')
+              + (m.to ? ' data-goto="' + m.to + '"'
+                      : (m.anchor ? ' data-anchor="' + m.anchor + '"'
+                                  : ' id="' + m.id + '"'))
               + ' aria-pressed="' + (key === cur ? 'true' : 'false') + '"'
               + ' aria-label="' + esc(m.full) + '">'
               + '<span class="mbico" aria-hidden="true">' + m.icon + '</span>'
@@ -11967,6 +12024,80 @@
       // silently leave two dead buttons.
       buildModeSwitches();
       $('mapProvider').addEventListener('change', function () { setMapProvider(this.value); });
+      // The shared Go birding anchor. Unlike the Quick outing chips, which
+      // navigate, these re-rank the section you are already looking at: the
+      // four sections differ by ALGORITHM, not by where they measure from.
+      document.addEventListener('click', function (ev) {
+        var b = ev.target && ev.target.closest ? ev.target.closest('.modebtn[data-anchor]') : null;
+        if (!b) return;
+        var which = b.getAttribute('data-anchor');
+        var open = _sections.filter(function (s) { return !s.hidden; })[0];
+        var reload = function () {
+          syncQuickButtons();
+          syncAnchorSwitches();
+          if (!open) return;
+          _autoLoaded[open.id] = false;
+          autoLoad(open);
+        };
+        // "Here" and "Find…" have to RESOLVE before anything can be ranked
+        // from them, and both can fail — location denied, a place that does
+        // not geocode. Quick outing already owns those flows, so they are
+        // reused rather than reimplemented three more times.
+        if (which === 'here') {
+          quickOrigin = 'here';
+          reload();
+          if (!quickHere) {
+            resolveHere().then(reload).catch(function (e) {
+              quickOrigin = 'home'; syncAnchorSwitches();
+              showSheet('Location unavailable',
+                (e && e.message) || 'Your device would not share a position.',
+                '<div class="evnote">Ranking from home instead. Use <b>Find…</b> '
+                + 'to name a place.</div>');
+            });
+          }
+          return;
+        }
+        if (which === 'find') {
+          // The typed-place row lives inside Quick outing, so it cannot serve
+          // the other three sections. The sheet can, and already exists.
+          showSheet('Rank from a place', 'City, address, or "lat, lng"',
+            '<input id="anchorFind" type="search" placeholder="Name a place\u2026" '
+            + 'autocomplete="off" style="width:100%;box-sizing:border-box" />'
+            + '<p class="hint" id="anchorFindMsg"></p>'
+            + '<button id="anchorFindGo" type="button">Rank from here</button>');
+          try { $('anchorFind').focus(); } catch (e) {}
+          var go = function () {
+            var q = ($('anchorFind').value || '').trim();
+            if (!q) return;
+            $('anchorFindMsg').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
+            resolveFound(q).then(function () {
+              quickOrigin = 'find';
+              hideSheet();
+              reload();
+            }).catch(function (e) {
+              $('anchorFindMsg').textContent = (e && e.message) || String(e);
+            });
+          };
+          $('anchorFindGo').addEventListener('click', go);
+          $('anchorFind').addEventListener('keydown', function (kev) {
+            if (kev.key === 'Enter') { kev.preventDefault(); go(); }
+          });
+          return;
+        }
+        quickOrigin = 'home';
+        reload();
+      });
+      function syncAnchorSwitches() {
+        var rows = document.querySelectorAll('.modeswitch[data-modes="anchor"]');
+        for (var i = 0; i < rows.length; i++) {
+          rows[i].setAttribute('data-current', 'anchor:' + quickOrigin);
+          var btns = rows[i].querySelectorAll('.modebtn[data-anchor]');
+          for (var j = 0; j < btns.length; j++) {
+            btns[j].setAttribute('aria-pressed',
+              btns[j].getAttribute('data-anchor') === quickOrigin ? 'true' : 'false');
+          }
+        }
+      }
       // The radius only ever FILTERS what is already fetched, so nothing has to
       // be re-fetched — but the rendered lists were built against the old
       // number, so they are cleared and the visible one reloads. Leaving them
