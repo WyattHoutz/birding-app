@@ -1522,6 +1522,74 @@ test('tides: the rising rows are visually marked, not just labelled', async () =
 // for top destinations, top excursions, and closest spot with unseen birds. all
 // four of these go birding menus can have one common template shared across all
 // four. the difference is the algorithm."
+// F27, item 1. product/checklist/view is 66% of every eBird call the report
+// makes (206 of 310, measured), and the app reads it from four places for the
+// same checklists on the same day. It was memoised in memory for 30 minutes, so
+// every relaunch bought them all again at 0.37 calls/second.
+//
+// The test that matters is the RELAUNCH, because that is the case the old cache
+// could not serve: same localStorage, brand new window.
+test('a checklist is bought once a day, not once a launch', async () => {
+  const calls = [];
+  const view = {
+    userDisplayName: 'A Birder',
+    obs: [{ speciesCode: 'larspa', mediaCounts: { P: 2 }, comments: 'by the helipad' },
+          { speciesCode: 'amerob' }],
+    // Fields nothing reads, to prove they are not carried into storage.
+    protocolId: 'P22', effortDistanceKm: 1.4, subAux: [{ a: 1 }],
+  };
+  const fetch = (url) => {
+    if (/product\/checklist\/view\//.test(url)) { calls.push(String(url)); return view; }
+    return null;
+  };
+
+  const a = await boot({ fetch });
+  const got = await a.window.__app.checklistView('S1');
+  assert.equal(calls.length, 1, 'the first read costs a call');
+  assert.equal(got.userDisplayName, 'A Birder', 'and returns what callers use');
+  assert.equal(got.obs.length, 2, 'with every species');
+  assert.deepEqual(got.obs[0].mediaCounts, { P: 2 }, 'and the evidence');
+  assert.equal(got.obs[0].comments, 'by the helipad', 'and the note');
+
+  await a.window.__app.checklistView('S1');
+  assert.equal(calls.length, 1, 'a second read in the same session costs nothing');
+
+  // Carry the store across a relaunch, exactly as the device does.
+  const saved = {};
+  for (let i = 0; i < a.window.localStorage.length; i++) {
+    const k = a.window.localStorage.key(i);
+    saved[k] = a.window.localStorage.getItem(k);
+  }
+  const stored = saved[a.window.__app.CKL_NS + 'S1'];
+  assert.ok(stored, 'the checklist really is persisted');
+  assert.ok(!/protocolId|effortDistanceKm|subAux/.test(stored),
+    'and ONLY the three fields anything reads — the rest is protocol metadata '
+    + 'that nothing here touches and localStorage is a few MB in total');
+  a.window.close();
+
+  const b = await boot({ fetch, storage: saved });
+  const again = await b.window.__app.checklistView('S1');
+  assert.equal(calls.length, 1,
+    'a NEW LAUNCH serves it from disk — this is the case the 30-minute '
+    + 'in-memory cache could not, and it is 66% of the traffic');
+  assert.equal(again.obs[0].comments, 'by the helipad', 'intact across the relaunch');
+  b.window.close();
+});
+
+// The pacing was budgeting for a competitor that no longer exists.
+test('the rate limiter is sized for the key it actually has to itself', () => {
+  const m = HTML.match(/var FG_GAP_MAX = \d+, FG_BUCKET = (\d+), FG_REFILL_PER_S = ([\d.]+)/);
+  assert.ok(m, 'the limiter constants are still readable');
+  // Measured in prototypes/ebird-ratelimit-*.py: a bucket of ~10 refilling
+  // ~1/s short-term, and ~0.37/s sustained. They were held at 8 and 0.3 to
+  // leave room for the scheduled report job sharing the key.
+  assert.equal(+m[1], 10, 'bucket at the measured burst');
+  assert.ok(Math.abs(+m[2] - 0.37) < 0.001, 'refill at the measured sustained rate');
+  assert.ok(+m[2] <= 0.37,
+    'and never ABOVE it — the ceiling is eBird\u2019s, and one 429 pauses every '
+    + 'queued call for a 20s cooldown');
+});
+
 test('all four Go birding sections offer the same anchor, and rank from it', async () => {
   const app = await boot();
   const doc = app.window.document, A = app.window.__app;

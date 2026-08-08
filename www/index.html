@@ -1371,7 +1371,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.74';
+      var APP_VERSION = '1.0.75';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1957,8 +1957,16 @@
       //
       // So: burst under the measured bucket, sustain under the measured
       // ceiling, and let AIMD find the rest.
+      //
+      // RAISED 2026-08-08 to the SOLO ceiling. The contention paragraph above
+      // is no longer true: every cron in .github/workflows is commented out, so
+      // the scheduled report job does not run and the phone has the whole key.
+      // The measurement said bucket ~10 and ~0.37/s sustained; those were being
+      // held at 8 and 0.3 to leave room for a competitor that no longer exists.
+      // Re-tighten if the schedules ever come back — that is the ONLY reason
+      // these two numbers are not simply the measured ones.
       var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250, FG_MAX_RETRY = 4;
-      var FG_GAP_MAX = 15000, FG_BUCKET = 8, FG_REFILL_PER_S = 0.3;
+      var FG_GAP_MAX = 15000, FG_BUCKET = 10, FG_REFILL_PER_S = 0.37;
       var FG_COOLDOWN_MS = 20000, FG_EASE_AFTER = 12;
       // THE SUSTAINED LIMIT, enforced as a sliding window rather than inferred
       // from the bucket. This is the half the first implementation missed.
@@ -6265,7 +6273,7 @@
         var codesBySlot = [], allCodes = {};
         return pool(slots, CONVOY_FETCH_CONC, function (slot) {
           var sub = slot.getAttribute('data-sub');
-          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+          return checklistView(sub)
             .then(function (d) {
               var seenHere = {}, list = [];
               ((d && d.obs) || []).forEach(function (o) {
@@ -6639,11 +6647,85 @@
       // reader OPENS a checklist list — at which point they are looking at four
       // or five rows for one bird they have already decided to care about.
       // Cached per checklist for the session, because the same list re-opens.
+      // ONE checklist read, persisted for the day.
+      //
+      // product/checklist/view is SIXTY-SIX PERCENT of every eBird call the
+      // report makes (206 of 310, measured 2026-08-07), and the app hits it
+      // from four places — convoy species, finder names, birdiest-unseen, and
+      // the 🎯 evidence marks — often for the very same checklists on the same
+      // day. It was memoised in `_ebCache` for 30 minutes IN MEMORY, so every
+      // relaunch bought them all again at eBird's 0.37 calls/second.
+      //
+      // Not folded into ebRefGet/ebRefPut: that cache is explicitly for feeds
+      // "whose answer is a DIRECTORY, never a sighting", and a checklist is a
+      // sighting. It also has a `lastEditedDt` — species and media get added
+      // after filing — so it is scoped to the DAY rather than the week that
+      // the reference feeds use. Stale by a few hours is fine here; stale by a
+      // week would quietly hide a photo somebody uploaded.
+      //
+      // Only the three fields anything reads are stored. The full response is
+      // several KB of protocol and effort metadata that nothing here touches,
+      // and localStorage is a few MB in total.
+      var CKL_NS = 'bc_ckl:';
+      var _cklView = {};
+      function pruneChecklistCache() {
+        try {
+          var today = todayStr(), drop = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(CKL_NS) === 0) {
+              var raw = localStorage.getItem(k);
+              if (!raw || raw.indexOf('"' + today + '"') < 0) drop.push(k);
+            }
+          }
+          drop.forEach(function (k) { localStorage.removeItem(k); });
+        } catch (e) { /* a full or disabled store is not worth reporting */ }
+      }
+      try { pruneChecklistCache(); } catch (e) { /* never blocks boot */ }
+
+      function checklistView(sub, bg) {
+        if (!sub) return Promise.resolve(null);
+        if (_cklView[sub]) return _cklView[sub];
+        try {
+          var raw = localStorage.getItem(CKL_NS + sub);
+          if (raw) {
+            var o = JSON.parse(raw);
+            if (o && o.d === todayStr() && o.v) {
+              _cklView[sub] = Promise.resolve(o.v);
+              return _cklView[sub];
+            }
+          }
+        } catch (e) { /* fall through to the network */ }
+        _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), !!bg)
+          .then(function (d) {
+            var v = {
+              userDisplayName: (d && d.userDisplayName) || '',
+              obs: ((d && d.obs) || []).map(function (x) {
+                var r = { speciesCode: x.speciesCode };
+                if (x.mediaCounts) r.mediaCounts = x.mediaCounts;
+                if (x.comments) r.comments = x.comments;
+                return r;
+              })
+            };
+            try {
+              localStorage.setItem(CKL_NS + sub,
+                JSON.stringify({ d: todayStr(), v: v }));
+            } catch (e) {
+              // A full quota is not a failure worth surfacing: the app works,
+              // it just pays again next launch.
+              try { dbg('warn', 'checklist not cached: ' + (e && e.name)); } catch (_) {}
+            }
+            return v;
+          })
+          .catch(function () { _cklView[sub] = null; return null; });
+        return _cklView[sub];
+      }
+
       var _cklDetail = {};                       // subId -> Promise<obs map>
       function checklistObs(sub) {
         if (!sub) return Promise.resolve(null);
         if (_cklDetail[sub]) return _cklDetail[sub];
-        _cklDetail[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), true)
+        _cklDetail[sub] = checklistView(sub, true)
           .then(function (d) {
             var by = {};
             ((d && d.obs) || []).forEach(function (o) {
@@ -8695,7 +8777,7 @@
         if (!slots.length) return Promise.resolve();
         return pool(slots, CONVOY_FETCH_CONC, function (slot) {
           var sub = slot.getAttribute('data-sub');
-          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+          return checklistView(sub)
             .then(function (d) {
               // The call was already being made for the name. mediaCounts and
               // comments come back in the SAME response, so the evidence marks
@@ -10021,7 +10103,7 @@
       function loadConvoySpecies(subs, box) {
         box.innerHTML = '<span class="dim">Loading species…</span>';
         var list = (subs || '').split(',').filter(Boolean), codes = {};        return pool(list, CONVOY_FETCH_CONC, function (sub) {
-          return ebird('product/checklist/view/' + encodeURIComponent(sub))
+          return checklistView(sub)
             .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); })
             .catch(function () {});
         }).then(function () {
@@ -12554,6 +12636,8 @@
         markBirdiestUnseen: markBirdiestUnseen,
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         hydrateHotspotChecklists: hydrateHotspotChecklists,
+        checklistView: checklistView, pruneChecklistCache: pruneChecklistCache,
+        CKL_NS: CKL_NS,
         checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
         moreDetails: moreDetails,
         hydrateChecklistEvidence: hydrateChecklistEvidence,
