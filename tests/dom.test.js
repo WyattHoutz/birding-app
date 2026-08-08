@@ -1529,6 +1529,59 @@ test('tides: the rising rows are visually marked, not just labelled', async () =
 //
 // The test that matters is the RELAUNCH, because that is the case the old cache
 // could not serve: same localStorage, brand new window.
+// "do 10 but prioritize unseen birds by how common the species appears" —
+// clarified as: rank the GBIF CALLS.
+//
+// Due back soon wants an arrival window per unseen species, which is one GBIF
+// request each, and there are ~40 unseen species on a normal day. The budget is
+// therefore spent in rank order rather than on whoever sorts first.
+test('the GBIF budget is spent on the commonest unseen birds first', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // computeEasyMisses already measures this: distinct DAY+PLACE pairs, not raw
+  // report count, because eight reports from one feeder is one lucky yard.
+  const rows = [
+    { code: 'rare1', name: 'Rare One', siteDays: 1, freq: 0.05 },
+    { code: 'commo', name: 'Common One', siteDays: 40, freq: 0.9 },
+    { code: 'mid01', name: 'Middling', siteDays: 12, freq: 0.5 },
+    { code: 'onefe', name: 'One Feeder', siteDays: 2, freq: 0.8 },
+  ];
+  const order = A.gbifScanOrder(rows, 3).map((r) => r.code);
+  assert.deepEqual(order, ['commo', 'mid01', 'onefe'],
+    'ranked by site-days, and the rarest is the one that misses out');
+  assert.equal(A.gbifScanOrder(rows, 3).length, 3, 'the budget is a hard cap');
+  assert.ok(A.GBIF_SCAN_MAX > 0 && A.GBIF_SCAN_MAX <= 20,
+    'and the default cap is small — this runs UNASKED against a courtesy API');
+
+  // A bird ranked below a one-feeder bird would be the wrong trade: frequency
+  // breaks ties, but spread wins, which is the whole point of site-days.
+  const tie = A.gbifScanOrder([
+    { code: 'a', name: 'A', siteDays: 5, freq: 0.1 },
+    { code: 'b', name: 'B', siteDays: 5, freq: 0.9 },
+  ], 2).map((r) => r.code);
+  assert.deepEqual(tie, ['b', 'a'], 'frequency breaks a site-days tie');
+  app.window.close();
+});
+
+// A bird due back on 5 January is 20 days away on 16 December, not -345 — and
+// this section exists to catch exactly that bird.
+test('an arrival window wraps the year boundary', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const d = A.daysUntilMonthDay;
+  const today = new Date();
+  const mm = String(today.getMonth() + 1), dd = String(today.getDate());
+  assert.equal(d(mm + '-' + dd), 0, 'today is zero days away');
+  assert.equal(d('bogus'), null, 'and a value that is not a date is not a date');
+  for (const s of ['1-5', '12-25', '6-15', '3-1']) {
+    const n = d(s);
+    assert.ok(n >= -180 && n <= 185,
+      s + ' resolves to a nearby offset (' + n + '), never most of a year');
+  }
+  app.window.close();
+});
+
 test('a checklist is bought once a day, not once a launch', async () => {
   const calls = [];
   const view = {

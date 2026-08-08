@@ -1371,7 +1371,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.76';
+      var APP_VERSION = '1.0.77';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9281,6 +9281,80 @@
           });
         }, Promise.resolve()).then(function () { return acc; });
       }
+      // --- Due back soon: which unseen birds are worth a GBIF call ----------
+      //
+      // "do 10 but prioritize unseen birds by how common the species appears"
+      // — and, clarified: rank the GBIF CALLS.
+      //
+      // The section wants an arrival window per unseen species, which is one
+      // GBIF request each. There are ~40 unseen species on a normal day and
+      // they are not equally worth asking about, so the budget is spent in
+      // rank order rather than on whoever happens to sort first.
+      //
+      // COMMONNESS IS ALREADY MEASURED. computeEasyMisses counts, per unseen
+      // species, the distinct DAY+PLACE pairs that reported it — deliberately
+      // not raw report count, because eight reports from one feeder is one
+      // lucky yard rather than a common bird. That is exactly the ranking
+      // wanted here, from data already fetched, at no extra cost.
+      //
+      // A common bird you still need is the better question in both
+      // directions: it is the one you are most likely to connect with, and the
+      // one whose absence from your list is most likely a matter of timing —
+      // which is the whole premise of asking when it comes back.
+      var GBIF_SCAN_MAX = 12;
+      function gbifScanOrder(rows, limit) {
+        var n = (limit == null) ? GBIF_SCAN_MAX : limit;
+        return (rows || []).slice()
+          // siteDays first, then how many days of the window it appeared on.
+          // Both already computed; neither costs a request.
+          .sort(function (a, b) {
+            return (b.siteDays - a.siteDays) || (b.freq - a.freq)
+              || String(a.name).localeCompare(String(b.name));
+          })
+          .slice(0, Math.max(0, n));
+      }
+
+      // How near an arrival window has to be to be worth surfacing unasked.
+      var DUE_BACK_WINDOW_DAYS = 21;
+      function dueBackSoon(rows, stateName, limit) {
+        var order = gbifScanOrder(rows, limit);
+        if (!order.length || !stateName) return Promise.resolve([]);
+        var out = [];
+        // Serial through the shared pool: GBIF is a courtesy API and this runs
+        // unasked, so it must never look like a scrape.
+        return pool(order, 2, function (r) {
+          var sci = sciNameFor(r.code, r.name);
+          if (!sci) return Promise.resolve();
+          return gbifArrival(sci, stateName).then(function (a) {
+            if (!a || !a.day) return;
+            var d = daysUntilMonthDay(a.day);
+            if (d == null || d < 0 || d > DUE_BACK_WINDOW_DAYS) return;
+            out.push({ code: r.code, name: r.name, inDays: d,
+                       day: a.day, records: a.records || 0,
+                       siteDays: r.siteDays || 0, spots: r.spots || [] });
+          }).catch(function () {});
+        }).then(function () {
+          out.sort(function (a, b) { return a.inDays - b.inDays; });
+          return out;
+        });
+      }
+      // Days from today to an "MM-DD", WRAPPING AT THE YEAR BOUNDARY. A bird
+      // due back on 5 January is 20 days away on 16 December, not -345 — and
+      // this section exists to catch exactly that bird, so the wrap is the
+      // whole point rather than an edge case.
+      function daysUntilMonthDay(mmdd) {
+        var m = /^(\d{1,2})-(\d{1,2})$/.exec(String(mmdd || ''));
+        if (!m) return null;
+        var now = new Date();
+        var y = now.getFullYear();
+        var target = new Date(y, +m[1] - 1, +m[2]);
+        var today = new Date(y, now.getMonth(), now.getDate());
+        var d = Math.round((target - today) / 86400000);
+        if (d < -180) d += 365;
+        if (d > 185) d -= 365;
+        return d;
+      }
+
       function computeEasyMisses(obs, totalDays, parentOf) {
         var per = {};
         (obs || []).forEach(function (o) {
@@ -12601,6 +12675,9 @@
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
+        gbifScanOrder: gbifScanOrder, dueBackSoon: dueBackSoon,
+        daysUntilMonthDay: daysUntilMonthDay, GBIF_SCAN_MAX: GBIF_SCAN_MAX,
+        DUE_BACK_WINDOW_DAYS: DUE_BACK_WINDOW_DAYS,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
