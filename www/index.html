@@ -410,6 +410,13 @@
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 4px; }
     .star { color: #e5a300; }
+    /* Crimson, not eBird's gold, and outlined rather than filled. Sized in em
+       so it tracks whatever text it sits beside — a rarity mark that stays
+       16px while the reader scales the app to 1.75x stops being legible
+       exactly when it is needed most. */
+    .rarebadge { display: inline-block; vertical-align: -0.14em; color: #b3261e;
+                 margin-left: 0.3em; line-height: 0; }
+    .rarebadge svg { width: 1.05em; height: 1.05em; display: block; }
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
@@ -465,14 +472,18 @@
       margin-top: 1px;
     }
 
-    /* `object-position` is 35% down, not centred. The bundled icons keep their
-       natural aspect (60x40 landscape, 60x90 portrait — 56 distinct shapes),
-       and a square slot with `cover` therefore crops the TOP off a portrait
-       photo. That is the reported "some of the bird photos crop the birds head
-       off": on a standing bird the head is in the upper third and dead centre
-       lands on the breast. 35% keeps the head and still shows the body, and it
-       costs nothing on a landscape source, where cover crops the sides. */
-    .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; display: block; }
+    /* `contain`, not `cover`. A square slot with `cover` always throws away
+       part of the picture, and which part depends on the photo's aspect — 56
+       distinct shapes are bundled, from 3:2 landscape to 2:3 portrait. That
+       produced two separate reports: portrait shots lost the head off the top,
+       and Wilson's Phalarope (250x156 landscape) lost the bird off the sides.
+       `object-position` can only trade one of those for the other.
+
+       So the icon is never cropped now. It is letterboxed against the slot's
+       own background instead, which at 46-70px is barely visible and, unlike
+       any crop rule, cannot cut the bird in half. The bundled photos are 240px
+       wide, so there is resolution to spare for the smaller rendered box. */
+    .thumb .birdpic { width: 100%; height: 100%; object-fit: contain; display: block; }
     .obs li { overflow: hidden; }
     .bcnow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
       background: #f6f8f6; font-size: calc(18px * var(--s)); line-height: 1.4; }
@@ -1357,7 +1368,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.72';
+      var APP_VERSION = '1.0.73';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4394,7 +4405,34 @@
       // 🔍 = not on the active report's year list; ★ = eBird-flagged rarity.
       // Both trail the species name so the photo icon and name stay adjacent.
       function needTag(code, name, parentOf) { return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>'; }
-      function rareTag(kind) { return kind === 'Rarity' ? '<span class="star">⭐</span>' : ''; }
+      // The RARE badge — a rounded square with an R.
+      //
+      // Deliberately NOT eBird's mark. Theirs is a solid goldenrod tile; this
+      // is an OUTLINED crimson one with a different corner radius and letter
+      // weight. Same idea, independently drawn, so it reads instantly to
+      // anyone who knows eBird without copying the thing itself.
+      //
+      // It replaces ⭐ on rarity rows, which is a fix in its own right: ⭐ was
+      // also the "save this hotspot" control, so one glyph meant both "this
+      // bird is rare" and "pin this place" — the same one-glyph-two-meanings
+      // defect the menu icons had.
+      //
+      // Inline SVG rather than an emoji or a file: it scales with the text
+      // (all sizes are in `em`), needs no network, and renders identically on
+      // every device — where emoji do not. The LETTER carries the meaning, so
+      // the colour is decoration and the badge is legible to a reader who
+      // cannot see it.
+      function rareBadge(title) {
+        var t = esc(title || 'Rare here — eBird flags this species at this location');
+        return '<span class="rarebadge" title="' + t + '" role="img" aria-label="'
+          + t + '"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">'
+          + '<rect x="1.4" y="1.4" width="17.2" height="17.2" rx="5.2"'
+          + ' fill="none" stroke="currentColor" stroke-width="2.2"/>'
+          + '<text x="10" y="14.4" text-anchor="middle"'
+          + ' font-size="12" font-weight="800" fill="currentColor">R</text>'
+          + '</svg></span>';
+      }
+      function rareTag(kind) { return kind === 'Rarity' ? rareBadge() : ''; }
 
       // 🕒 = no fresh report in 48h+, so the bird may have moved on. Mirrors
       // report.section_rarities, which measures from local midnight of the
@@ -4732,27 +4770,20 @@
         }
         pumpPhotos();
       }
-      // The bundled seed icons are 60px wide. That is exactly right for a list
-      // row and a smear anywhere bigger, and "bigger" now includes a place it
-      // did not when this was written: the MEDIUM species card's thumb is 70
-      // CSS px, which is 122 at the largest text size and ~366 device pixels on
-      // a 3x phone. A 60px source stretched over 366 is the "some of the 7 day
-      // rarities photos are blurry" report.
-      //
-      // So the tier is chosen by the BOX, not by a flag. Measure what the slot
-      // will actually occupy; if the seed cannot fill it, go to the network
-      // first and keep the seed as the fallback — the same order a hero uses,
-      // for the same reason.
-      var SEED_PX = 60;
-      // 1.5x, not 1x: a seed shown at 90 device pixels is still perfectly
-      // readable, and spending a network call to sharpen a thumbnail nobody is
-      // squinting at is how a photo pipeline turns into a rate-limit problem.
+      // The bundled seeds are 240px wide (they were 60). That covers the
+      // medium species card's 70px thumb at 3x with room to spare, which was
+      // the "some of the 7 day rarities photos are blurry" report — and it
+      // fixes it WITHOUT a network call, which is the only way it can be fixed
+      // for a list of forty birds under a rate limiter of 0.37 calls/second.
+      var SEED_PX = 240;
+      // How far past its own width a seed may be stretched before it is worth
+      // asking the network for more. 1.5x is generous on purpose: a photo
+      // shown slightly soft is a far better outcome than an empty grey box
+      // while a paced queue works through forty of them.
       var SEED_STRETCH_OK = 1.5;
       function slotNeedsPx(el) {
         var w = 0;
         try { w = Math.round(el.getBoundingClientRect().width); } catch (e) { w = 0; }
-        // Unmeasurable (not laid out yet, or a DOM with no layout engine):
-        // keep the cheap local path rather than guessing the expensive one.
         if (!w) return 0;
         var dpr = 1;
         try { dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1)); } catch (e) { dpr = 1; }
@@ -4760,18 +4791,22 @@
       }
       function queueSlot(el) {
         var code = el.getAttribute('data-code') || '', nm = el.getAttribute('data-bird') || '';
-        // Tier 1: a bundled file is a local read, so try it inline rather than
-        // paying the observer/queue overhead. Filenames follow a convention
-        // (<code>.jpg, a few .png) instead of a manifest — a miss just falls
-        // through to the network path, which is what a manifest lookup would
-        // have done anyway, and one fewer file has to stay in sync.
+        // SEED FIRST, ALWAYS. A bundled file is a local read that cannot fail
+        // slowly, and it is the only tier that works with no connection.
+        //
+        // An earlier version of this chose ONE tier by measuring the slot, and
+        // sent anything bigger than the seed straight to the network. On a 3x
+        // phone that was every icon in the app: the nested species lists, the
+        // small cards and the medium cards all crossed the line at once, so a
+        // Quick outing rendered a column of empty grey boxes while a queue
+        // paced at 0.37 calls/second worked through them. The screenshot of
+        // that is why this is now an UPGRADE rather than a choice — the seed
+        // paints immediately and the network only ever replaces it.
         if (code && !el.hasAttribute('data-hero')) {
           var need = slotNeedsPx(el);
-          if (need > SEED_PX * SEED_STRETCH_OK) {
-            el.setAttribute('data-need', String(need));
-            enqueue(el, nm); pumpPhotos(); return;
-          }
-          trySeed(el, code, nm, 0); return;
+          if (need > SEED_PX * SEED_STRETCH_OK) el.setAttribute('data-need', String(need));
+          trySeed(el, code, nm, 0);
+          return;
         }
         enqueue(el, nm);
       }
@@ -5467,14 +5502,20 @@
           list.sort(function (a, b) { return (b.rare - a.rare) || (a.comName < b.comName ? -1 : 1); });
         }
         var lis = list.map(function (x) {
-            // ⭐ not ★: every rarity marker in the Markdown report is ⭐, and a
-            // section whose own legend says "rarities (⭐)" must not then print
-            // a different glyph on the rows that legend describes.
+            // ⭐ is gone from here. It was ALSO the "save this hotspot"
+            // control, so one glyph meant both "this bird is rare" and "pin
+            // this place"; rareBadge() is an R tile that means only the first.
             var tags = (x.tag != null) ? x.tag
-              : needTag(x.code, x.comName) + (x.rare ? '<span class="star">⭐</span>' : '');
+              : needTag(x.code, x.comName) + (x.rare ? rareBadge() : '');
+            // "in the small species card, the bird photo and name should link
+            // to most recent checklist with that bird." The row already knows
+            // which checklist reported it here; without the link the reader has
+            // the bird's name and no way to see the evidence for it.
+            var href = x.subId ? checklistUrl(x.subId) : '';
             return SpeciesCards.small({
-              icon: photoSlot(x.comName, x.code),
-              name: speciesLink(x.comName, x.code),
+              icon: photoSlot(x.comName, x.code, href),
+              name: href ? checklistLink(x.subId, x.comName)
+                         : speciesLink(x.comName, x.code),
               tags: tags,
               sub: x.sub || ''
             });
@@ -5662,7 +5703,11 @@
         return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + LOC_SPECIES_DAYS)
           .then(function (rows) {
             var out = (Array.isArray(rows) ? rows : []).map(function (o) {
-              return { code: o.speciesCode, name: o.comName || o.speciesCode, dateStr: o.obsDt || '' };
+              // subId travels with the row now: the feed already carries it,
+              // and without it the nested species list cannot link to the
+              // checklist that actually holds the bird.
+              return { code: o.speciesCode, name: o.comName || o.speciesCode,
+                       dateStr: o.obsDt || '', subId: o.subId || '' };
             }).filter(function (o) { return o.code; });
             try { localStorage.setItem(key, JSON.stringify({ d: today, v: out })); } catch (e) {}
             return out;
@@ -5758,13 +5803,24 @@
           return locRecentSpecies(lid).then(function (rows) {
             if (!rows.length) return;
             var unseen = [], seen = [], dedupe = {};
+            // Which birds eBird flags as notable AT THIS PLACE. The location
+            // feed does not say, but the chase view already knows — it is the
+            // same source the card's own "1 rarity" sub-header counts. Without
+            // it this pass rewrote every row as `rare: 0` and the rarity the
+            // header was counting had no marker on any row.
+            var bucket = lid ? (locSpeciesIndex()[lid] || {}) : {};
             rows.forEach(function (o) {
               if (dedupe[o.code]) return;
               dedupe[o.code] = 1;
               var hit = isSeen(o.code, o.name);
+              var b = bucket[o.code];
               (hit ? seen : unseen).push({
-                comName: o.name, code: o.code, rare: 0,
+                comName: o.name, code: o.code,
+                // Seen rows carry no flags: the marks mean "worth chasing".
+                rare: hit ? 0 : ((b && b.rare) ? 1 : 0),
+                subId: o.subId || '',
                 tag: hit ? '' : '<span class="needflag">🔍</span>'
+                  + ((b && b.rare) ? rareBadge() : '')
               });
             });
             function byName(a, b) { return String(a.comName).localeCompare(String(b.comName)); }
@@ -6289,7 +6345,7 @@
           byCode[r.code].push(r);
         });
         var out = order.map(function (code) {
-          var rs = byCode[code], subs = {}, obs = {}, closest = null, first = '', latest = '';
+          var rs = byCode[code], subs = {}, obs = {}, closest = null, first = '', latest = '', newest = null;
           rs.forEach(function (r) {
             if (r.subId) subs[r.subId] = 1;
             if (r.observer) obs[r.observer] = 1;
@@ -6298,6 +6354,10 @@
             var d = r.dateStr || '';
             if (d && (!first || d < first)) first = d;
             if (d && (!latest || d > latest)) latest = d;
+            // The MOST RECENT report, kept as a record rather than just a
+            // date: the card head links to its checklist, and "is it still
+            // there" is answered by the newest sighting, not the nearest one.
+            if (r.subId && (!newest || d > (newest.dateStr || ''))) newest = r;
           });
           if (!closest) closest = { rec: rs[0], distMi: null };
           return {
@@ -6305,6 +6365,7 @@
             reports: Object.keys(subs).length || rs.length,
             observers: Object.keys(obs).length,
             closest: closest.rec, distMi: closest.distMi,
+            newest: newest,
             first: first, latest: latest,
             // Every report behind the counts, so the card can expand into the
             // same full checklist list report._rarity_reports_cell renders.
@@ -6367,8 +6428,16 @@
             // renders through the shared template, so the distance becomes a
             // real third column instead of a token inside the sub-header.
             return SpeciesCards.medium({
-              icon: photoSlot(r.name, r.code),
-              name: speciesLink(r.name, r.code),
+              // Same rule as Today's rarities: this card is about a SIGHTING,
+              // so its head opens the checklist that reported it — and here it
+              // is the MOST RECENT one, because the question a 7-day list
+              // raises is "is it still there", which the newest report answers
+              // and the nearest one does not.
+              icon: photoSlot(r.name, r.code,
+                r.newest && r.newest.subId ? checklistUrl(r.newest.subId) : ''),
+              name: (r.newest && r.newest.subId)
+                ? checklistLink(r.newest.subId, r.name)
+                : speciesLink(r.name, r.code),
               // The header is the NAME alone, exactly as in Today's rarities:
               // the flags are facts ABOUT the sighting and belong with the
               // rest of them, not mixed into the thing you are scanning for.
@@ -7169,20 +7238,54 @@
       function baseSpeciesName(name) {
         return String(name || '').replace(/\s*\([^()]*\)\s*$/, '').trim();
       }
+      // ONE definition of "have I seen this bird", and it is the same one the
+      // LISTS are built from.
+      //
+      // Reported with a screenshot: a Quick outing card headed "3 unseen 🔍"
+      // whose three rows showed the marker on one of them. The three unmarked
+      // birds — Short-billed Dowitcher, Western Sandpiper, Peregrine Falcon —
+      // are all on the WATCHLIST. getReportSeen() subtracts the watchlist, so
+      // the list correctly called them unseen; this function was reading
+      // getSeen(), which does not, so the row marker called them seen. Two
+      // sources of truth for the one question the whole app is built on.
+      //
+      // The NAME pools are the same defect one level down: they are a union of
+      // year and life lists across every region, so they will happily report a
+      // Lower 48 bird as seen in Washington. They are consulted only when
+      // there is no code to match on, which is the only case where they are
+      // the best answer available rather than a worse one.
       function isSpeciesSeen(code, name, parentOf) {
-        var seen = getSeen(), field = getField();
+        var seen = getReportSeen(), field = getField();
         if (field === 'speciesCode' && code) {
           if (seen[String(code).toLowerCase()]) return true;
           var parent = resolveSpecies(code, parentOf);
           if (parent && parent !== code && seen[String(parent).toLowerCase()]) return true;
+          // THE WATCHLIST WINS OVER ANY NAME MATCH. It is an explicit "I have
+          // not confirmed this bird", and the name pools below know nothing
+          // about it — so without this the species is subtracted from the seen
+          // set (correctly, it becomes a target) and then re-added by its own
+          // name one line later. That was the reported card headed "3 unseen
+          // 🔍" whose rows carried no marker: Short-billed Dowitcher, Western
+          // Sandpiper and Peregrine Falcon are all on the watchlist.
+          var w = watchCodes();
+          if (w[String(code).toLowerCase()]) return false;
+          if (parent && w[String(parent).toLowerCase()]) return false;
         }
         if (!name) return false;
         var names = [String(name).toLowerCase()], base = baseSpeciesName(name).toLowerCase();
         if (base && names.indexOf(base) < 0) names.push(base);
         try {
-          var ys = JSON.parse(localStorage.getItem('ebird_year_names') || '[]');
-          var ls = JSON.parse(localStorage.getItem('ebird_life_names') || '[]');
-          var pool = ys.concat(ls);
+          // THIS REPORT'S OWN year-list names first. The `ebird_year_names` /
+          // `ebird_life_names` pools are a union across every region, so
+          // matching against them reports a Lower 48 bird as seen in
+          // Washington — the same cross-region leak that put a Yellow-headed
+          // Blackbird under "already on your year list". They stay as a
+          // fallback for reports that bundle no name list of their own.
+          var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
+          var rep = seed && seed.seenByReport && seed.seenByReport[slug];
+          var pool = (rep && rep.names && rep.names.length) ? rep.names
+            : JSON.parse(localStorage.getItem('ebird_year_names') || '[]')
+                .concat(JSON.parse(localStorage.getItem('ebird_life_names') || '[]'));
           for (var i = 0; i < pool.length; i++) {
             var have = String(pool[i]).toLowerCase();
             for (var k = 0; k < names.length; k++) {
@@ -12270,6 +12373,7 @@
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
+        needTag: needTag, watchCodes: watchCodes,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,

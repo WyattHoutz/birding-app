@@ -59,6 +59,22 @@ const localFiles = requestInterceptor((request) => {
 });
 
 /** Boot the app in jsdom with a seeded key/home. Resolves once scripts ran. */
+// isSpeciesSeen reads getReportSeen(), which prefers the BUNDLED per-report
+// codes over any imported set — the same set the LISTS are built from. A
+// fixture therefore has to drive that set, not localStorage, or it is pinning
+// a path the app does not take. (That gap is the bug this comment exists
+// because of: a card headed "3 unseen" whose rows disagreed with the heading.)
+function seedSeen(app, codes, names) {
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[app.window.__app.getReportSlug()];
+  rep.codes = codes.slice();
+  rep.watchHeld = [];
+  // The NAME fallback is scoped to this report's own year list too, so a
+  // fixture that relies on it (subspecies forms resolving by base name) has to
+  // supply it here rather than through the cross-region localStorage pools.
+  if (names) rep.names = names.slice();
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+}
+
 function boot(opts = {}) {
   const state = { fetches: [], errors: [] };
   const virtualConsole = new VirtualConsole();
@@ -1484,6 +1500,61 @@ test('tides: the rising rows are visually marked, not just labelled', async () =
   app.window.close();
 });
 
+// Reported with a screenshot: a Quick outing card headed "3 unseen 🔍" whose
+// three rows showed the marker on exactly one of them. All three unmarked birds
+// — Short-billed Dowitcher, Western Sandpiper, Peregrine Falcon — are on the
+// WATCHLIST.
+//
+// The list membership came from getReportSeen(), which subtracts the watchlist,
+// so the heading was right. The row marker came from isSpeciesSeen(), which read
+// a set that does not — and then, one level down, matched the bird by NAME
+// against a pool unioned across every region. Two sources of truth for the one
+// question the whole app is built on, disagreeing on the same card.
+test('a watchlist bird is unseen on the ROW as well as in the heading', async () => {
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+
+  // Exactly the shipped shape: the species is on the year list, is held back by
+  // the watchlist, and its NAME is still in the report's own name list.
+  rep.codes = ['shbdow'];
+  rep.watchHeld = ['shbdow'];
+  rep.names = ["Short-billed Dowitcher"];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  app.window.localStorage.setItem('ebird_watchlist_v1',
+    JSON.stringify([{ code: 'shbdow', name: "Short-billed Dowitcher" }]));
+
+  assert.equal(A.getReportSeen()['shbdow'], undefined,
+    'the LIST calls it unseen — that is what the watchlist is for');
+  assert.equal(A.isSpeciesSeen('shbdow', "Short-billed Dowitcher"), false,
+    'and so must the ROW. A name match must not undo an explicit '
+    + '"I have not confirmed this"');
+  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), /needflag/,
+    'so the marker is actually rendered');
+  app.window.close();
+});
+
+// The cross-region half of the same defect: the name pools are a union across
+// every report, so matching against them called a Lower 48 bird seen in
+// Washington. The pool is now this report's OWN year-list names.
+test('a name match is scoped to the report, not unioned across regions', async () => {
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = [];
+  rep.watchHeld = [];
+  rep.names = ['Dark-eyed Junco'];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  // A bird on some OTHER region's list, and on the life list.
+  app.window.localStorage.setItem('ebird_life_names',
+    JSON.stringify(['Yellow-headed Blackbird']));
+  assert.equal(A.isSpeciesSeen('', 'Yellow-headed Blackbird'), false,
+    'seen somewhere else is not seen here');
+  assert.equal(A.isSpeciesSeen('', 'Dark-eyed Junco'), true,
+    'but this report\u2019s own list still answers');
+  app.window.close();
+});
+
 test('convoys: a subspecies of a bird on your year list is NOT unseen', async () => {
   // Reported bug: "Dark-eyed Junco (Oregon)" showed as unseen although a
   // Dark-eyed Junco is on the year list. isSpeciesSeen only ever compared the
@@ -1491,12 +1562,10 @@ test('convoys: a subspecies of a bird on your year list is NOT unseen', async ()
   // positive. analyze.py has always followed reportAs; the app now does too.
   const app = await boot({ fetch: () => null });
   const A = app.window.__app;
-  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1 }));
-  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
-  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Dark-eyed Junco']));
+  seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
   assert.equal(A.isSpeciesSeen('daejun', 'Dark-eyed Junco'), true, 'the parent itself');
   // Named nothing like the parent, so ONLY the reportAs chain can answer this.
-  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1, norfli: 1 }));
+  seedSeen(app, ['daejun', 'norfli'], ['Dark-eyed Junco']);
   assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker', { yeflic1: 'norfli' }),
     true, 'the form resolves to its parent via reportAs');
   assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker'), false,
@@ -1683,10 +1752,10 @@ test('easy misses: ranked by location-days, excluding birds on your year list', 
   // many reports it got - eight reports from one feeder is one lucky yard.
   const app = await boot({ fetch: () => null });
   const A = app.window.__app;
-  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ daejun: 1 }));
-  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
-  // The bundled seed IS the WA year list, which of course has robins on it.
-  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Dark-eyed Junco']));
+  // The bundled seed IS the WA year list, which of course has robins on it —
+  // so the fixture replaces both halves of the set, codes and names, or the
+  // real list decides the answer instead of the fixture.
+  seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
 
   const obs = [];
   const add = (code, name, day, loc) => obs.push({
@@ -4367,8 +4436,14 @@ test('a bird ticked in another region is still a target in this report', async (
   assert.ok(elsewhere.length,
     `the shipped seed must diverge for this guard to mean anything (${slug})`);
   const other = elsewhere[0];
-  assert.ok(A.isSpeciesSeen(other, null),
-    'precondition: the combined set really does call this bird seen');
+  // isSpeciesSeen now reads the PER-REPORT set, so it agrees with the scan
+  // instead of contradicting it. This assertion used to be the opposite —
+  // "precondition: the combined set really does call this bird seen" — which
+  // documented the divergence rather than objecting to it, and the divergence
+  // is what the section then had to work around.
+  assert.ok(!A.isSpeciesSeen(other, null),
+    'a bird ticked in ANOTHER region is not seen in this one, and the marker '
+    + 'says so as plainly as the scan does');
 
   // HOT_MIN_FRESH is 5, so pad with four birds the report genuinely has.
   const mine = Object.keys(perReport).slice(0, 4);
@@ -6231,7 +6306,7 @@ test('latest ticks splits unseen birds from seen ones', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
-  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ zzseen1: 1 }));
+  seedSeen(app, ['zzseen1']);
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
 
   // Synthetic species on purpose: every real bird the leaderboard shows is a
