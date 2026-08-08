@@ -8242,3 +8242,91 @@ test('a radius chosen before this migrates into the report it was chosen in', as
   assert.equal(A.chaseMaxMi(), 35, 'other reports keep their own default');
   app.window.close();
 });
+
+
+// ---- the class of bug jsdom cannot see -------------------------------------
+//
+// "the new search fields dont work. i tried searching for everett in top
+// destinations and it didnt work in the ui of the app."
+//
+// Search was dead on device while every test passed, because NODE'S FETCH DOES
+// NOT ENFORCE CORS. The suite happily resolved a place the phone could never
+// reach. Measured 2026-08-08 against every external host the app uses:
+//
+//   api.ebird.org ................ Access-Control-Allow-Origin: *
+//   api.tidesandcurrents.noaa.gov  Access-Control-Allow-Origin: *
+//   en.wikipedia.org ............. Access-Control-Allow-Origin: *
+//   nominatim.openstreetmap.org .. NO CORS HEADER AT ALL   <-- the geocoder
+//   photon.komoot.io ............. Access-Control-Allow-Origin: *
+//
+// So this cannot verify CORS from Node — it pins the DECISION instead. Moving
+// the geocoder to a host somebody has not checked should require editing this
+// test and reading why.
+test('the geocoder points at a host that a webview can actually read', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+
+  // Verified to send Access-Control-Allow-Origin. Add to this list only after
+  // measuring the header — not after a URL works in a terminal, which proves
+  // nothing about a webview.
+  const CORS_OK = ['photon.komoot.io', 'geocoding-api.open-meteo.com'];
+  const m = HTML.match(/var GEOCODER_HOST = '([^']+)'/);
+  assert.ok(m, 'the geocoder host is a named constant, so it can be pinned');
+  assert.ok(CORS_OK.includes(m[1]),
+    `geocoder host ${m[1]} is not on the CORS-verified list ${CORS_OK.join(', ')}`);
+
+  // The specific host that was broken, named so it cannot quietly come back.
+  assert.ok(!/https:\/\/nominatim/.test(HTML),
+    'nominatim.openstreetmap.org sends no Access-Control-Allow-Origin header, so a '
+    + 'WKWebView blocks the response before any app code sees it');
+});
+
+// User-Agent is a FORBIDDEN header name: a browser drops it silently. Setting
+// it was the one thing the broken geocoder call did that no working call in the
+// app does, and a header that cannot be set is at best a comment in the wrong
+// place.
+test('no fetch tries to set a header the platform forbids', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const FORBIDDEN = ['User-Agent', 'Referer', 'Origin', 'Host', 'Cookie'];
+  for (const h of FORBIDDEN) {
+    assert.ok(!new RegExp("'" + h + "'\\s*:\\s*'").test(HTML),
+      `${h} is a forbidden header name — the browser drops it, so setting it is `
+      + 'a false assurance that the request identified itself');
+  }
+});
+
+
+// "there needs to be a clearer distinction between unseen and seen. add more
+// contrast to the divider and make the sections separate."
+//
+// This is the most important distinction in the app — a bird you still need is
+// a REASON TO DRIVE, one you have is just news — and it was carried by a 1px
+// #e4e8e4 hairline, which measures 1.15:1 against the page. On a phone in
+// daylight that reads as one more row.
+test('the seen / unseen divider is a real separator, not a hairline', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const css = HTML.slice(HTML.indexOf('.cardgroup {'), HTML.indexOf('.cghead {'));
+
+  // A rule you can see. --accent measures 4.98:1 on light and 9.60:1 on dark,
+  // against 1.15:1 and 1.36:1 for the --line hairline it replaced.
+  assert.match(css, /border-top:\s*3px solid var\(--accent\)/,
+    'the top edge is an accent rule, not a grey line');
+  assert.ok(!/border-bottom:\s*1px solid var\(--line\);\s*background:\s*none/.test(css),
+    'and the group is no longer JUST a hairline with nothing behind it');
+
+  // A tint behind the heading, so it reads as a header rather than a card that
+  // lost its picture. Named per theme rather than color-mix() so it renders on
+  // any WebKit the app is sideloaded onto.
+  assert.match(css, /background:\s*var\(--band\)/, 'the heading sits on a band');
+  assert.match(HTML, /--band:\s*#[0-9a-f]{6}/i, 'light mode defines the band');
+  assert.equal((HTML.match(/--band:\s*#[0-9a-f]{6}/gi) || []).length, 2,
+    'and dark mode picks its own rather than inheriting a wash of the accent');
+
+  // SPACE is what actually makes two lists look like two lists; contrast alone
+  // does not. The gap above the heading must be large and must NOT apply to the
+  // first group, where 30px of air at the top of a list looks like a fault.
+  const top = /margin:\s*(\d+)px/.exec(css);
+  assert.ok(top && Number(top[1]) >= 24,
+    `the gap above a group is ${top && top[1]}px — it separates the two lists`);
+  assert.match(HTML, /\.cardgroup:first-child\s*\{[^}]*margin-top:\s*2px/,
+    'but the first group keeps its place at the top of the list');
+});

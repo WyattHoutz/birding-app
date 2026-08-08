@@ -71,6 +71,11 @@
       --accent: #0f7a52;
       --accent-ink: #ffffff;
       --line: #e4e8e4;
+      /* The tint behind a group heading. A named colour rather than a
+         color-mix() so it renders on every WebKit the app might be sideloaded
+         onto, and so dark mode can pick its own rather than inherit a
+         wash of the accent. */
+      --band: #d3e5da;
       --shadow: 0 1px 3px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.04);
     }
     @media (prefers-color-scheme: dark) {
@@ -82,6 +87,7 @@
         --accent: #37d391;
         --accent-ink: #06120c;
         --line: #26302a;
+        --band: #273a30;
         --shadow: none;
       }
     }
@@ -464,21 +470,37 @@
        a fresh set of the list's own margins, opening a gap that reads as the
        section having ended. list-style:none and the reset below keep it from
        inheriting a card's grid. */
+    /* THE SEPARATOR BETWEEN "still needed" AND "already seen".
+       It used to be a 1px --line hairline (#e4e8e4) carrying the whole weight
+       of the most important distinction in the app — whether a bird is a
+       REASON TO DRIVE or just news. On a phone, in daylight, against white
+       cards, that reads as another row. So the band is now the thing that
+       separates, and the rule is a real edge:
+         - a 3px accent rule on top, not a 1px grey one;
+         - a tinted band behind the heading, so the group reads as a HEADER
+           rather than as a card that lost its picture;
+         - a wide gap ABOVE, which is what actually makes two lists look like
+           two lists. Contrast alone does not separate; space does. */
     .cardgroup {
       display: block; grid-template-columns: none; list-style: none;
-      margin: 14px 0 6px; padding: 0 0 4px; border: 0;
-      border-bottom: 1px solid var(--line); background: none;
+      margin: 30px 0 12px; padding: 12px 12px 10px; border: 0;
+      border-top: 3px solid var(--accent);
+      border-bottom: 1px solid var(--line);
+      border-radius: 12px 12px 0 0;
+      background: var(--band);
     }
+    /* The first group needs no gap: there is nothing above it to separate from,
+       and 30px of air at the top of a list looks like a rendering fault. */
     .cardgroup:first-child { margin-top: 2px; }
     .cghead {
-      display: block; font-size: calc(15px * var(--s)); font-weight: 700;
-      color: var(--ink);
+      display: block; font-size: calc(16px * var(--s)); font-weight: 800;
+      color: var(--ink); letter-spacing: .01em;
     }
     /* Says WHY the group exists, because "Still needed" alone does not tell a
        reader it means the year list rather than, say, unreviewed records. */
     .cgwhy {
       display: block; font-size: calc(12px * var(--s)); color: var(--muted);
-      margin-top: 1px;
+      margin-top: 2px;
     }
 
     /* `contain`, not `cover`. A square slot with `cover` always throws away
@@ -1309,7 +1331,7 @@
           <dt>Migration — <a href="https://birdcast.info/" target="_blank" rel="noopener">BirdCast</a></dt>
           <dd>Cornell Lab of Ornithology / Colorado State University.</dd>
           <dt>Maps — OpenStreetMap</dt>
-          <dd>© OpenStreetMap contributors, © CARTO. Geocoding via Nominatim.</dd>
+          <dd>&#169; OpenStreetMap contributors, &#169; CARTO. Geocoding via Photon (OpenStreetMap data).</dd>
         </dl>
         <p>This app is free and non-commercial, is not affiliated with or endorsed by the
           Cornell Lab of Ornithology, and stores everything only on your device.</p>
@@ -4359,9 +4381,12 @@
       }
 
       // Geocode a free-text place (city / address / waypoint name) OR parse a
-      // pasted "lat, lng" pair. Uses OpenStreetMap Nominatim (keyless). On device
-      // the request goes through CapacitorHttp (no CORS; custom User-Agent honored)
-      // exactly like the eBird and NOAA calls.
+      // pasted "lat, lng" pair. Keyless.
+      //
+      // The one external host whose CORS support the app depends on for search.
+      // Kept as a name so a test can assert it, because a geocoder a webview
+      // cannot read is indistinguishable from a typo at runtime.
+      var GEOCODER_HOST = 'photon.komoot.io';
       function geocodePlace(q) {
         q = (q || '').trim();
         if (!q) return Promise.reject(new Error('Enter a city, address, or "lat, lng" first.'));
@@ -4371,15 +4396,59 @@
           if (isFinite(la) && isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180)
             return Promise.resolve({ lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5) });
         }
-        var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q);
+        // GEOCODER: photon.komoot.io. Search was reported dead on device —
+        // "i tried searching for everett in top destinations and it didnt work"
+        // — and that kills the anchor Top destinations, Top excursions, Hot,
+        // Cold and Quick outing all rank from.
+        //
+        // Two things were wrong with the old call, and WKWebView cannot be run
+        // from here to prove which one bit, so BOTH are removed rather than
+        // guessed between:
+        //
+        // 1. The host. nominatim.openstreetmap.org sends **no
+        //    Access-Control-Allow-Origin header at all** — measured
+        //    2026-08-08, with and without an Origin, against every other host
+        //    the app uses (eBird, NOAA tides, Wikipedia all return `*`).
+        //    CapacitorHttp is enabled and is supposed to bypass CORS, so this
+        //    is only fatal if the patch does not intercept — which is exactly
+        //    the kind of thing not worth betting a feature on.
+        // 2. The `User-Agent` header. It is a FORBIDDEN header name: a browser
+        //    drops it silently, and it is the one thing this call did that no
+        //    working call in the app does.
+        //
+        // Photon is the same OpenStreetMap data, returns
+        // Access-Control-Allow-Origin: *, needs no key, and sends no custom
+        // headers — so it works whichever transport is in play.
+        //
+        // THE TESTS COULD NOT HAVE CAUGHT THIS. Node's fetch does not enforce
+        // CORS, so the jsdom suite resolved a place the phone never could.
+        // Hence GEOCODER_HOST is a named constant a test can pin.
+        //
+        // The lat/lon BIAS is what makes a one-word query land on the Everett
+        // you meant instead of the one in England.
+        var near = quickAnchor(quickOrigin) || getHome();
+        var url = 'https://' + GEOCODER_HOST + '/api/?limit=1&q=' + encodeURIComponent(q)
+          + (near && isFinite(near.lat) && isFinite(near.lng)
+             ? '&lat=' + near.lat.toFixed(4) + '&lon=' + near.lng.toFixed(4) : '');
         dbg('net', 'geocode ' + q);
-        return fetch(url, { headers: { 'User-Agent': 'BirdChaser/1.0 (+https://github.com/WyattHoutz/birding-app)', 'Accept': 'application/json' } })
+        // NO User-Agent header. It is a forbidden header name, so a browser
+        // drops it silently — it was decoration that only ever made the
+        // request look like it had identified itself.
+        return fetch(url, { headers: { 'Accept': 'application/json' } })
           .then(function (r) { if (!r.ok) throw new Error('geocoder returned HTTP ' + r.status + '.'); return r.json(); })
-          .then(function (arr) {
-            if (!Array.isArray(arr) || !arr.length) throw new Error('No match for "' + q + '".');
-            var top = arr[0], la = parseFloat(top.lat), lo = parseFloat(top.lon);
+          .then(function (j) {
+            var f = (j && j.features) || [];
+            if (!f.length) throw new Error('No match for "' + q + '".');
+            var top = f[0], c = (top.geometry && top.geometry.coordinates) || [];
+            var lo = parseFloat(c[0]), la = parseFloat(c[1]);
             if (!(isFinite(la) && isFinite(lo))) throw new Error('Geocoder returned no coordinates.');
-            return { lat: la, lng: lo, label: top.display_name || q };
+            var p = top.properties || {};
+            // Name, then the region that disambiguates it. Photon has no single
+            // display string, and "Everett" alone would not tell you which one
+            // the bias picked.
+            var label = [p.name, p.state || p.city || p.county, p.country]
+              .filter(Boolean).join(', ');
+            return { lat: la, lng: lo, label: label || q };
           });
       }
 
@@ -10752,7 +10821,11 @@
 
       // --- Conditions: NOAA weather + tides + local sun/moon (no GitHub) ---
       function wxGet(url) {
-        return fetch(url, { headers: { 'User-Agent': 'BirdChaser/1.0 (+https://github.com/WyattHoutz/birding-app)', 'Accept': 'application/geo+json' } })
+        // No User-Agent. It is a forbidden header name, so the browser drops it
+        // — this was the same dead weight the geocoder carried. api.weather.gov
+        // returns Access-Control-Allow-Origin: * and answers fine without one
+        // (measured 2026-08-08), so nothing here depended on it.
+        return fetch(url, { headers: { 'Accept': 'application/geo+json' } })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       }
       function wxErr(e) {
@@ -12868,6 +12941,7 @@
         needTag: needTag, watchCodes: watchCodes,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
+        geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
         migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
