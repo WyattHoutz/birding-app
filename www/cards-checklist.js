@@ -213,9 +213,26 @@
     return String(q == null ? '' : q).replace(/[^0-9.,-]/g, '');
   }
 
+  /* `data` lets a SECTION hang its own hooks on the row without this file
+     learning what they mean. The evidence hydration needs to know which
+     checklist, which bird, and where the bird was — three facts the caller has
+     and the template must never interpret. Keys are restricted to data-* names
+     and values are escaped, so a section cannot inject an attribute here. */
+  function attrsHtml(v) {
+    var d = v && v.data;
+    if (!d) return '';
+    var out = '';
+    Object.keys(d).forEach(function (k) {
+      if (!/^[a-z][a-z0-9-]*$/.test(k)) return;
+      var val = d[k];
+      if (val == null || val === '') return;
+      out += ' data-' + k + '="' + esc(String(val)) + '"';
+    });
+    return out;
+  }
+
   function build(tpl, v, isMedium) {
-    v = v || {};
-    var bits = [];
+    v = v || {};    var bits = [];
     if (isMedium) {
       // MEDIUM: the place is the headline and carries the link, so the facts
       // line leads with a PLAIN date. Two links to the same checklist in one
@@ -287,8 +304,8 @@
       // HTML that browsers silently un-nest — which would break the pin. The
       // name stays a REAL link, so keyboard and screen-reader users still get
       // one; the row click is an enhancement over it, not a replacement.
-      .replace('{{rowlink}}', (v.href && !isMedium)
-        ? ' data-href="' + esc(v.href) + '"' : '')
+      .replace('{{rowlink}}', ((v.href && !isMedium)
+        ? ' data-href="' + esc(v.href) + '"' : '') + attrsHtml(v))
       .replace('{{num}}', v.num != null && v.num !== ''
         ? '<span class="cknum">' + esc(v.num) + '</span>' : '')
       .replace('{{tally}}', (v.species != null && v.species !== '')

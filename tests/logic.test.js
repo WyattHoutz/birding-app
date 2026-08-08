@@ -850,3 +850,120 @@ test('travel zones: a gate can be shut for the season', () => {
   assert.match(via, /closed/i,
     '"closed until May" is the most useful thing the app can say about such a place');
 });
+
+/* ---------------------------------------------------------------- waypoints
+ * "often rare bird observations will contain waypoints, so id primarily like
+ *  to highlight comments with waypoints because they clarify chasing. todays
+ *  lark sparrow had a waypoint that pointed to a helipad in union bay hotspot"
+ *
+ * The fixture below is the REAL comment from that bird, pulled from
+ * product/checklist/view/S380897123 on 2026-08-07. Union Bay Natural Area is
+ * ~100 acres; the hotspot pin puts you in the car park and the waypoint puts
+ * you at the helipad.
+ */
+const LARK = '47.65798\u00b0 N, 122.29830\u00b0 W thanks Alec and Louis! Continuing '
+  + 'sparrow with reddish well defined streaks on head.  Foraging on far side of '
+  + 'helipad, viewable from parking lot side of helipad. Photos';
+const UNION_BAY = { lat: 47.6580, lng: -122.2980 };
+
+test('a waypoint is read out of a real rare-bird comment', () => {
+  const w = BL.waypointFrom(LARK, UNION_BAY);
+  assert.ok(w, 'the coordinates are found inside the prose');
+  assert.ok(Math.abs(w.lat - 47.65798) < 1e-6, 'latitude');
+  // The trap: the longitude is written POSITIVE with a W. Taken at face value
+  // this is Kazakhstan.
+  assert.ok(Math.abs(w.lng - -122.29830) < 1e-6,
+    'the W is honoured, so the longitude is negative');
+  assert.ok(!w.repaired, 'a well-formed waypoint is not "repaired" into something else');
+});
+
+test('a backwards or unsigned waypoint is repaired, but only against the sighting', () => {
+  // "sometimes waypoints are backwards, so they may need to be flipped so they
+  //  dont point to china by accident"
+  const cases = [
+    ['47.65798, 122.29830', 'sign'],          // the minus was eaten -> Heilongjiang
+    ['-122.29830, 47.65798', 'swapped'],      // longitude typed first
+    ['122.29830, 47.65798', 'swapped + sign'],
+  ];
+  for (const [text, fix] of cases) {
+    const w = BL.waypointFrom(text, UNION_BAY);
+    assert.ok(w, 'a repairable pair still yields a waypoint: ' + text);
+    assert.ok(Math.abs(w.lat - 47.65798) < 1e-6, 'lat for ' + text);
+    assert.ok(Math.abs(w.lng - -122.29830) < 1e-6, 'lng for ' + text);
+    assert.equal(w.repaired, fix, 'and says how it was read: ' + text);
+  }
+
+  // The oracle is what makes any of that safe. A coordinate that is nowhere
+  // near the bird is REJECTED rather than bent until it fits.
+  assert.equal(BL.waypointFrom('40.7128, -74.0060', UNION_BAY), null,
+    'Manhattan is not a waypoint for a bird at Union Bay');
+  // ...and with no oracle, nothing is guessed at all.
+  const blind = BL.waypointFrom('47.65798, 122.29830', null);
+  assert.ok(blind && blind.lng > 0,
+    'with nothing to check against, the literal reading stands rather than a guess');
+});
+
+test('an explicitly labelled pair is never reordered', () => {
+  // N/S/E/W says which number is which. Only an UNLABELLED pair is ambiguous,
+  // so only an unlabelled pair may be swapped.
+  const w = BL.waypointFrom('47.65798\u00b0 N, 122.29830\u00b0 W', UNION_BAY);
+  assert.ok(w && !w.repaired, 'the labels are believed as written');
+  assert.equal(BL.waypointFrom('12.0\u00b0 N, 34.0\u00b0 E', UNION_BAY), null,
+    'and a labelled pair that lands far away is dropped, not swapped into range');
+});
+
+test('DMS and plain prose', () => {
+  const w = BL.waypointFrom('47\u00b039\u203228.7"N 122\u00b017\u203254.0"W', UNION_BAY);
+  assert.ok(w, 'degrees/minutes/seconds parse');
+  assert.ok(Math.abs(w.lat - 47.6580) < 0.01 && Math.abs(w.lng - -122.2983) < 0.01, 'and land at the site');
+  assert.equal(BL.waypointFrom('Foraging by the helipad, no coords', UNION_BAY), null,
+    'prose with no numbers is not a waypoint');
+  assert.equal(BL.waypointFrom('2 birds, 1.5 hours', UNION_BAY), null,
+    'and counts are not coordinates');
+});
+
+test('on a rare bird the NOTE badge is noise, the WAYPOINT badge is signal', () => {
+  // "rare birds require comments in observations, so all rare bird observations
+  //  are not interesting, but some have chasing details like waypoints"
+  //
+  // eBird demands details on a flagged species, so every rarity row has a
+  // comment. A mark that is always present is not a mark.
+  const plain = BL.checklistDetail(
+    { comments: 'Harlequin pattern of rusty brown and white. Thanks Alec!!! Lifer' },
+    UNION_BAY);
+  const wp = BL.checklistDetail({ comments: LARK, mediaCounts: { P: 4 } }, UNION_BAY);
+
+  assert.ok(BL.checklistIcons(plain).includes(BL.COMMENT_ICON),
+    'an ordinary list still marks that a note exists');
+  assert.ok(!BL.checklistIcons(plain, { noteRequired: true })
+    .includes(BL.COMMENT_ICON),
+    'but where a note is MANDATORY the badge says nothing and is dropped');
+  assert.ok(BL.checklistIcons(wp, { noteRequired: true })
+    .includes(BL.WAYPOINT_ICON),
+    'a waypoint is never dropped — it is the one somebody chose to give you');
+  assert.ok(BL.checklistIcons(wp, { noteRequired: true })
+    .includes(BL.MEDIA_ICON),
+    'and the photo mark survives alongside it');
+  assert.ok(!BL.checklistIcons(wp).includes(BL.COMMENT_ICON),
+    'a waypoint REPLACES the generic note badge rather than doubling it');
+});
+
+test('photo, video and audio are three marks, not two', () => {
+  const ic = (m) => BL.checklistIcons({ m: m });
+  assert.equal(ic('P'), BL.MEDIA_ICON, 'photo');
+  assert.equal(ic('V'), BL.VIDEO_ICON, 'video is no longer collapsed into the camera');
+  assert.equal(ic('A'), BL.AUDIO_ICON, 'audio');
+  assert.notEqual(BL.VIDEO_ICON, BL.MEDIA_ICON, 'and the glyphs differ');
+  const all = ic('APV');
+  for (const g of [BL.MEDIA_ICON, BL.VIDEO_ICON, BL.AUDIO_ICON]) {
+    assert.ok(all.includes(g), 'a checklist with everything shows everything');
+  }
+});
+
+test('a note has to be a note', () => {
+  assert.ok(!BL.hasNote('2'), 'a bare count is not a note');
+  assert.ok(!BL.hasNote(''), 'nor is nothing');
+  assert.ok(!BL.hasNote('++'), 'nor punctuation');
+  assert.ok(BL.hasNote('heard only'), 'but ten characters of English is');
+  assert.ok(BL.hasNote('in willows'), 'and so is a place');
+});

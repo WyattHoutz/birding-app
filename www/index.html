@@ -418,6 +418,31 @@
        and float it needs at equal specificity — this only adds the affordance,
        and must not re-introduce .extlink's inline-block/margin-top. */
     .thumb.thumblink { cursor: pointer; }
+    /* The evidence marks are a BUTTON: a waypoint you cannot tap is a fact you
+       have to retype into a maps app. */
+    .evidbtn { background: none; border: 0; padding: 0 2px; margin: 0; cursor: pointer;
+               font: inherit; line-height: 1; }
+    .sheetwrap { position: fixed; inset: 0; z-index: 200; }
+    .sheetwrap[hidden] { display: none; }
+    .sheetback { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 82vh;
+             overflow: auto; background: var(--card); border-radius: 16px 16px 0 0;
+             padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+             box-shadow: 0 -4px 24px rgba(0,0,0,.28); }
+    .sheethead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .sheettitle { font-size: calc(18px * var(--s)); font-weight: 800; line-height: 1.2; }
+    .sheetsub { font-size: calc(13px * var(--s)); margin-top: 2px; }
+    .sheetclose { background: none; border: 0; font-size: calc(20px * var(--s));
+                  line-height: 1; padding: 4px 6px; cursor: pointer; color: var(--muted); }
+    .sheetbody { margin-top: 10px; }
+    /* The waypoint block leads, because it is the thing you act on. */
+    .evwp { border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+            margin-bottom: 10px; }
+    .evwplabel { font-weight: 700; font-size: calc(14px * var(--s)); margin-bottom: 4px; }
+    .evwpfix { font-size: calc(12px * var(--s)); margin-top: 4px; }
+    .evnote { font-size: calc(15px * var(--s)); line-height: 1.45; white-space: pre-wrap;
+              margin-bottom: 10px; }
+    .evmedia { font-size: calc(14px * var(--s)); color: var(--muted); margin-bottom: 10px; }
     /* A heading INSIDE the card list. It is an <li> because the list is a
        <ul> of cards and splitting it into two <ul>s would give the second one
        a fresh set of the list's own margins, opening a gap that reads as the
@@ -440,7 +465,14 @@
       margin-top: 1px;
     }
 
-    .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* `object-position` is 35% down, not centred. The bundled icons keep their
+       natural aspect (60x40 landscape, 60x90 portrait — 56 distinct shapes),
+       and a square slot with `cover` therefore crops the TOP off a portrait
+       photo. That is the reported "some of the bird photos crop the birds head
+       off": on a standing bird the head is in the upper third and dead centre
+       lands on the breast. 35% keeps the head and still shows the body, and it
+       costs nothing on a landscape source, where cover crops the sides. */
+    .thumb .birdpic { width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; display: block; }
     .obs li { overflow: hidden; }
     .bcnow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
       background: #f6f8f6; font-size: calc(18px * var(--s)); line-height: 1.4; }
@@ -1325,7 +1357,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.71';
+      var APP_VERSION = '1.0.72';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4700,6 +4732,32 @@
         }
         pumpPhotos();
       }
+      // The bundled seed icons are 60px wide. That is exactly right for a list
+      // row and a smear anywhere bigger, and "bigger" now includes a place it
+      // did not when this was written: the MEDIUM species card's thumb is 70
+      // CSS px, which is 122 at the largest text size and ~366 device pixels on
+      // a 3x phone. A 60px source stretched over 366 is the "some of the 7 day
+      // rarities photos are blurry" report.
+      //
+      // So the tier is chosen by the BOX, not by a flag. Measure what the slot
+      // will actually occupy; if the seed cannot fill it, go to the network
+      // first and keep the seed as the fallback — the same order a hero uses,
+      // for the same reason.
+      var SEED_PX = 60;
+      // 1.5x, not 1x: a seed shown at 90 device pixels is still perfectly
+      // readable, and spending a network call to sharpen a thumbnail nobody is
+      // squinting at is how a photo pipeline turns into a rate-limit problem.
+      var SEED_STRETCH_OK = 1.5;
+      function slotNeedsPx(el) {
+        var w = 0;
+        try { w = Math.round(el.getBoundingClientRect().width); } catch (e) { w = 0; }
+        // Unmeasurable (not laid out yet, or a DOM with no layout engine):
+        // keep the cheap local path rather than guessing the expensive one.
+        if (!w) return 0;
+        var dpr = 1;
+        try { dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1)); } catch (e) { dpr = 1; }
+        return Math.round(w * dpr);
+      }
       function queueSlot(el) {
         var code = el.getAttribute('data-code') || '', nm = el.getAttribute('data-bird') || '';
         // Tier 1: a bundled file is a local read, so try it inline rather than
@@ -4707,7 +4765,14 @@
         // (<code>.jpg, a few .png) instead of a manifest — a miss just falls
         // through to the network path, which is what a manifest lookup would
         // have done anyway, and one fewer file has to stay in sync.
-        if (code && !el.hasAttribute('data-hero')) { trySeed(el, code, nm, 0); return; }
+        if (code && !el.hasAttribute('data-hero')) {
+          var need = slotNeedsPx(el);
+          if (need > SEED_PX * SEED_STRETCH_OK) {
+            el.setAttribute('data-need', String(need));
+            enqueue(el, nm); pumpPhotos(); return;
+          }
+          trySeed(el, code, nm, 0); return;
+        }
         enqueue(el, nm);
       }
       function trySeed(el, code, nm, i, onMiss) {
@@ -4729,13 +4794,14 @@
         var el = _photoQueue.shift();
         var name = el.getAttribute('data-bird') || '', code = el.getAttribute('data-code') || '';
         var hero = el.hasAttribute('data-hero');
-        // Hero bytes are cached under their own key: the same species has a
-        // 60px list icon and a full-width card photo, and one must not serve as
-        // the other. The WIDTH is part of the key because raising HERO_PX is
-        // otherwise a silent no-op — every device holding the narrower
-        // rendition keeps serving it forever, which is exactly how a "photos
-        // are blurry" fix ships and changes nothing on the phone that reported it.
-        var key = (hero ? 'h' + HERO_PX + ':' : '') + (code || ('n:' + name));
+        // What this particular slot needs, in device pixels. A hero asks for
+        // HERO_PX; a card thumb asks for its own box. Both are part of the
+        // cache KEY, because raising a width is otherwise a silent no-op —
+        // every device holding the narrower rendition keeps serving it forever,
+        // which is exactly how a "photos are blurry" fix ships and changes
+        // nothing on the phone that reported it.
+        var need = hero ? HERO_PX : (parseInt(el.getAttribute('data-need'), 10) || 0);
+        var key = (need ? 'w' + ladderWidth(need) + ':' : '') + (code || ('n:' + name));
         var cached = Object.prototype.hasOwnProperty.call(photoCache(), name);
         var done = function (fast) {
           _photoBusy = false;
@@ -4745,7 +4811,7 @@
         // rather than straight to the silhouette — a small real photo of the
         // right bird beats a generic outline of no bird.
         var giveUp = function () {
-          if (hero && code) trySeed(el, code, name, 0, function () { showFallback(el); });
+          if (code) trySeed(el, code, name, 0, function () { showFallback(el); });
           else showFallback(el);
         };
         // A hero is ONE lookup per card, not one per row, so a negative result
@@ -4765,8 +4831,8 @@
             // the 60px seed by a mile — dropping straight to the seed is what
             // made a failed request look like a bad photo.
             var narrow = src;
-            if (hero) src = widenThumb(src, HERO_PX);
-            var wideFailed = (hero && src !== narrow)
+            if (need) src = widenThumb(src, need);
+            var wideFailed = (src !== narrow)
               ? function () { putImg(el, narrow, name, giveUp); }
               : giveUp;
             putImg(el, src, name, wideFailed);
@@ -6408,6 +6474,27 @@
       // added later.
       document.addEventListener('click', function (ev) {
         var t = ev.target;
+        if (!t || !t.closest) return;
+        if (t.closest('[data-sheet-close]')) { hideSheet(); return; }
+        // Opening a checklist list is the moment the reader has committed to
+        // ONE bird and four or five rows. That is when the notes are worth a
+        // call each, and not one moment sooner.
+        var sum = t.closest('details.ckall > summary, details.ckmore > summary');
+        if (sum) {
+          var det = sum.parentNode;
+          setTimeout(function () {
+            if (det.open) hydrateChecklistEvidence(det);
+          }, 0);
+        }
+        var b = t.closest('.evidbtn[data-evid]');
+        if (b) { ev.preventDefault(); openEvidence(b.getAttribute('data-evid')); }
+      });
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') hideSheet();
+      });
+
+      document.addEventListener('click', function (ev) {
+        var t = ev.target;
         var s = t && t.closest ? t.closest('details.ckmore > summary') : null;
         if (!s) return;
         var d = s.parentNode;
@@ -6433,6 +6520,163 @@
           + (inside || '') + '</details>';
       }
 
+      // --- 🎯 chasing details from the observer's own note -------------------
+      //
+      // "often rare bird observations will contain waypoints, so id primarily
+      // like to highlight comments with waypoints because they clarify chasing.
+      // todays lark sparrow had a waypoint that pointed to a helipad in union
+      // bay hotspot"
+      //
+      // ...and the reason the plain note badge is suppressed here:
+      //
+      // "rare birds require comments in observations, so all rare bird
+      // observations are not interesting, but some have chasing details like
+      // waypoints"
+      //
+      // LAZY, and deliberately so. The note lives in product/checklist/view,
+      // one call per checklist, and that is exactly the traffic this project
+      // keeps refusing to spend speculatively. So nothing is fetched until the
+      // reader OPENS a checklist list — at which point they are looking at four
+      // or five rows for one bird they have already decided to care about.
+      // Cached per checklist for the session, because the same list re-opens.
+      var _cklDetail = {};                       // subId -> Promise<obs map>
+      function checklistObs(sub) {
+        if (!sub) return Promise.resolve(null);
+        if (_cklDetail[sub]) return _cklDetail[sub];
+        _cklDetail[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), true)
+          .then(function (d) {
+            var by = {};
+            ((d && d.obs) || []).forEach(function (o) {
+              if (o.speciesCode) by[o.speciesCode] = o;
+            });
+            return { obs: by, note: (d && d.comments) || '' };
+          })
+          .catch(function () { return null; });
+        return _cklDetail[sub];
+      }
+
+      // Rows carry what they need to ask: which checklist, which bird, and
+      // where the bird was (the oracle a typed waypoint is checked against).
+      var CKL_EVID_CONC = 3;
+      function hydrateChecklistEvidence(root) {
+        if (!root || !getKey()) return Promise.resolve();
+        var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
+        if (!rows.length) return Promise.resolve();
+        rows.forEach(function (el) { el.setAttribute('data-ev-done', '1'); });
+        return pool(rows, CKL_EVID_CONC, function (el) {
+          var sub = el.getAttribute('data-ev-sub');
+          var code = el.getAttribute('data-ev-code') || '';
+          var la = parseFloat(el.getAttribute('data-ev-lat'));
+          var ln = parseFloat(el.getAttribute('data-ev-lng'));
+          return checklistObs(sub).then(function (got) {
+            if (!got) return;
+            var ob = got.obs[code];
+            // No entry for this species is NOT "no evidence" — it means the
+            // feed named the bird differently (a subspecies row, say). Saying
+            // nothing is the honest answer.
+            if (!ob) return;
+            var near = (isFinite(la) && isFinite(ln)) ? { lat: la, lng: ln } : null;
+            var det = BirdLogic.checklistDetail(ob, near);
+            // noteRequired: these lists hang under ONE species, and the ones
+            // that matter most are rarities, where eBird makes the note
+            // compulsory. See the note on checklistIcons.
+            var marks = BirdLogic.checklistIcons(det, { noteRequired: true });
+            if (!marks) return;
+            var slot = el.querySelector('.ckevid');
+            if (!slot) {
+              slot = document.createElement('span');
+              slot.className = 'ckevid';
+              el.appendChild(slot);
+            }
+            // The marks OPEN the note rather than merely announcing it: a
+            // waypoint you cannot tap is a fact you have to retype.
+            _evidStore[sub + '|' + code] = {
+              det: det, place: el.getAttribute('data-ev-place') || '',
+              when: el.getAttribute('data-ev-when') || '', sub: sub
+            };
+            slot.innerHTML = '<button type="button" class="evidbtn" data-evid="'
+              + esc(sub + '|' + code) + '" aria-label="Show the observer\u2019s notes">'
+              + marks + '</button>';
+          });
+        });
+      }
+      var _evidStore = {};
+
+      // The note, in a sheet, with the waypoint made tappable.
+      function openEvidence(key) {
+        var e = _evidStore[key];
+        if (!e) return;
+        var d = e.det, w = d.w;
+        var body = '';
+        if (w) {
+          body += '<div class="evwp"><div class="evwplabel">🎯 The observer gave a waypoint</div>'
+            + '<a class="maplink" data-q="' + esc(w.lat + ',' + w.lng) + '">🗺 '
+            + esc(w.lat.toFixed(5) + ', ' + w.lng.toFixed(5)) + ' — open in Maps</a>'
+            + (w.repaired
+                ? '<div class="dim evwpfix">read as ' + esc(w.repaired)
+                  + ' — the note as typed pointed elsewhere</div>'
+                : '')
+            + '</div>';
+        }
+        if (d.c) body += '<div class="evnote">' + esc(d.c) + '</div>';
+        var m = String(d.m || '');
+        if (m) {
+          // eBird's checklist feed reports that media EXISTS but returns no
+          // asset id, so the photos cannot be shown in-app without a second,
+          // undocumented API. Linking to the checklist is the honest version:
+          // that page shows them, and it is one tap.
+          body += '<div class="evmedia">' + BirdLogic.checklistIcons({ m: m })
+            + ' This checklist has '
+            + [m.indexOf('P') >= 0 ? 'photos' : '', m.indexOf('V') >= 0 ? 'video' : '',
+               m.indexOf('A') >= 0 ? 'audio' : ''].filter(Boolean).join(' · ')
+            + '</div>';
+        }
+        body += '<a class="extlink" data-href="' + esc(checklistUrl(e.sub))
+          + '">Open the checklist on eBird ↗</a>';
+        showSheet((e.place || 'Observer notes'), (e.when || ''), body);
+      }
+
+      // A small bottom sheet. Built lazily rather than living in the markup so
+      // it cannot be counted as a section, and dismissed by tap-outside, the
+      // close button, or Escape — three ways out, because a sheet you cannot
+      // leave on a phone is a trap.
+      var _sheetPrevFocus = null;
+      function sheetEl() {
+        var el = document.getElementById('appSheet');
+        if (el) return el;
+        el = document.createElement('div');
+        el.id = 'appSheet';
+        el.className = 'sheetwrap';
+        el.hidden = true;
+        el.innerHTML =
+          '<div class="sheetback" data-sheet-close="1"></div>'
+          + '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">'
+          + '<div class="sheethead"><div><div class="sheettitle" id="sheetTitle"></div>'
+          + '<div class="sheetsub dim"></div></div>'
+          + '<button type="button" class="sheetclose" data-sheet-close="1" '
+          + 'aria-label="Close">✕</button></div>'
+          + '<div class="sheetbody"></div></div>';
+        document.body.appendChild(el);
+        return el;
+      }
+      function showSheet(title, sub, bodyHtml) {
+        var el = sheetEl();
+        el.querySelector('.sheettitle').textContent = title || '';
+        el.querySelector('.sheetsub').textContent = sub || '';
+        el.querySelector('.sheetbody').innerHTML = bodyHtml || '';
+        el.hidden = false;
+        try { _sheetPrevFocus = document.activeElement; } catch (e) { _sheetPrevFocus = null; }
+        try { el.querySelector('.sheetclose').focus(); } catch (e) {}
+      }
+      function hideSheet() {
+        var el = document.getElementById('appSheet');
+        if (!el || el.hidden) return;
+        el.hidden = true;
+        el.querySelector('.sheetbody').innerHTML = '';
+        try { if (_sheetPrevFocus && _sheetPrevFocus.focus) _sheetPrevFocus.focus(); } catch (e) {}
+        _sheetPrevFocus = null;
+      }
+
       function rarityChecklistDetails(r) {
         var seen = {}, items = [];
         (r.recs || []).slice().sort(function (a, b) {
@@ -6448,14 +6692,25 @@
         // count, a map pin and the checklist id. This used to be a bespoke
         // three-column grid with the observer tucked into a nested span.
         var rows = items.map(function (x) {
+          var lng = x.lng != null ? x.lng : x.lon;
           return ChecklistCards.small({
             place: x.loc || x.locName || '',
             href: x.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(x.subId) : '',
             date: fmtDateTime(x.dateStr),
             count: x.count,
             distMi: x.distMi,
-            distQ: distQ(x.lat, x.lng != null ? x.lng : x.lon),
-            who: x.observer ? esc(x.observer) : ''
+            distQ: distQ(x.lat, lng),
+            who: x.observer ? esc(x.observer) : '',
+            // Hooks for hydrateChecklistEvidence. The coordinate travels with
+            // them because it is the ORACLE a typed waypoint is checked
+            // against — without it a note reading "47.658, 122.298" would be
+            // believed as written and point at China.
+            data: {
+              'ev-sub': x.subId || '', 'ev-code': r.code || '',
+              'ev-lat': x.lat, 'ev-lng': lng,
+              'ev-place': x.loc || x.locName || '',
+              'ev-when': fmtDateTime(x.dateStr)
+            }
           });
         });
         return checklistDetails(rows, items.length, 'checklist',
@@ -12066,6 +12321,9 @@
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
         moreDetails: moreDetails,
+        hydrateChecklistEvidence: hydrateChecklistEvidence,
+        openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
+        rarityChecklistDetails: rarityChecklistDetails,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,

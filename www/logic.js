@@ -1357,17 +1357,161 @@
   // Mirrors report.py's media_icon/comment_icon exactly: the app and the report
   // must not disagree about what a row says.
   //
-  // Photo and video share the camera; audio gets its own mark. For a skulking
-  // rail or an empidonax the recording IS the identification, so a camera over
-  // a sound file would be quietly wrong.
-  var MEDIA_ICON = '\ud83d\udcf7';     // camera
-  var AUDIO_ICON = '\ud83d\udd0a';     // speaker
-  var COMMENT_ICON = '\ud83e\uddfe';   // receipt
+  // Photo, VIDEO, audio and note each get their own mark. Photo and video used
+  // to share the camera, which threw away the one distinction the `evidence`
+  // letters were already carrying for free — and a video of a bird moving is a
+  // different kind of proof from a still. For a skulking rail or an empidonax
+  // the recording IS the identification, so a camera over a sound file would be
+  // quietly wrong in the other direction.
+  var MEDIA_ICON = '\ud83d\udcf7';     // camera  — P, a photo
+  var VIDEO_ICON = '\ud83c\udfa5';     // movie camera — V
+  var AUDIO_ICON = '\ud83d\udd0a';     // speaker — A
+  var COMMENT_ICON = '\ud83e\uddfe';   // receipt — a written note
+  var WAYPOINT_ICON = '\ud83c\udfaf';  // target  — a note carrying COORDINATES
 
-  // One obs entry -> {m: 'AP', c: 'note'}. Empty keys are omitted, so a missing
-  // key means "nothing there" while a missing ENTRY means "never looked" - the
-  // distinction that stops an icon's absence being read as a claim.
-  function checklistDetail(ob) {
+  // A note that carries coordinates is a different object from a note.
+  //
+  // "often rare bird observations will contain waypoints, so id primarily like
+  // to highlight comments with waypoints because they clarify chasing. todays
+  // lark sparrow had a waypoint that pointed to a helipad in union bay hotspot"
+  //
+  // That is the real one, and it is the case this was written against:
+  //
+  //   "47.65798° N, 122.29830° W thanks Alec and Louis! Continuing sparrow with
+  //    reddish well defined streaks on head. Foraging on far side of helipad,
+  //    viewable from parking lot side of helipad. Photos"
+  //
+  // Union Bay Natural Area is ~100 acres. The hotspot pin puts you in the car
+  // park; the waypoint puts you at the helipad. Everything else on the card —
+  // species, distance, how many people saw it — tells you whether to go. This
+  // is the only thing that tells you where to stand when you arrive.
+  //
+  // Note the trap in that string: the longitude is written POSITIVE with a W.
+  // Taking it at face value puts the bird in Kazakhstan.
+  var _DMS = /(\d{1,3})\s*°\s*(\d{1,2})\s*['\u2032]\s*([\d.]+)\s*["\u2033]?\s*([NSns])[\s,]+(\d{1,3})\s*°\s*(\d{1,2})\s*['\u2032]\s*([\d.]+)\s*["\u2033]?\s*([EWew])/;
+  var _DEC_HEMI = /(\d{1,3}(?:\.\d+)?)\s*°?\s*([NSns])[\s,]+(\d{1,3}(?:\.\d+)?)\s*°?\s*([EWew])/;
+  // Bare signed pair. THREE decimals minimum: "1.5, 2.0" is a count, not a
+  // place, and at two decimals a coordinate is only good to ~1 km anyway — far
+  // too coarse to be the waypoint someone bothered to type.
+  var _DEC_PAIR = /(-?\d{1,3}\.\d{3,})\s*[,\s]\s*(-?\d{1,3}\.\d{3,})/;
+
+  function _wp(lat, lng) {
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    if (lat === 0 && lng === 0) return null;      // null island is a parse bug
+    return { lat: lat, lng: lng };
+  }
+
+  // How far a typed waypoint may sit from the sighting it annotates before we
+  // stop believing it. A note pins a spot INSIDE a site — the far side of a
+  // helipad, the second pond — so a couple of miles is generous. Past that it
+  // is a parse artefact (a count, an elevation, a date read as a coordinate),
+  // and sending someone to the wrong county is far worse than showing no mark.
+  var WAYPOINT_MAX_MI = 5;
+
+  // Best-effort read. `explicit` records whether the text NAMED which number is
+  // which (N/S/E/W, or DMS) — because that is exactly what decides whether the
+  // pair may later be swapped.
+  function parseWaypointParts(text) {
+    var s = String(text == null ? '' : text);
+    if (!s) return null;
+    var m = _DMS.exec(s);
+    if (m) {
+      var la = +m[1] + (+m[2]) / 60 + (+m[3]) / 3600;
+      var lo = +m[5] + (+m[6]) / 60 + (+m[7]) / 3600;
+      if (/[Ss]/.test(m[4])) la = -la;
+      if (/[Ww]/.test(m[8])) lo = -lo;
+      return { lat: la, lng: lo, explicit: true };
+    }
+    m = _DEC_HEMI.exec(s);
+    if (m) {
+      var la2 = +m[1], lo2 = +m[3];
+      if (/[Ss]/.test(m[2])) la2 = -la2;
+      // The hemisphere letter WINS over the sign. eBird notes are typed by hand
+      // and "122.29830° W" is the common shape; honouring the letter is what
+      // keeps that from landing on the wrong side of the planet.
+      if (/[Ww]/.test(m[4])) lo2 = -Math.abs(lo2);
+      return { lat: la2, lng: lo2, explicit: true };
+    }
+    m = _DEC_PAIR.exec(s);
+    // Nothing here says which number is which, and nothing says the signs
+    // survived being retyped. Both are repairable — but only against an oracle.
+    if (m) return { lat: +m[1], lng: +m[2], explicit: false };
+    return null;
+  }
+
+  function parseWaypoint(text) {
+    var p = parseWaypointParts(text);
+    return p ? _wp(p.lat, p.lng) : null;
+  }
+
+  // THE SIGHTING'S OWN COORDINATE IS THE ORACLE.
+  //
+  // "sometimes waypoints are backwards, so they may need to be flipped so they
+  // dont point to china by accident"
+  //
+  // Two ways a hand-typed pair goes wrong, and both are common:
+  //   * the MINUS is lost. "47.658, 122.298" is Union Bay with the sign eaten,
+  //     and read literally it is Heilongjiang — the China case, exactly.
+  //   * the pair is BACKWARDS, longitude first.
+  //
+  // Guessing between those is not safe in the abstract. It is completely safe
+  // against a reference point: the bird was reported somewhere, so a reading is
+  // only accepted if it lands beside where the bird actually was. A repair that
+  // cannot be checked is not applied at all — with no oracle we return only
+  // what was already unambiguous.
+  //
+  // Order matters: the literal reading is tried first, so a correct waypoint is
+  // never "repaired" into something else.
+  function waypointFrom(text, near) {
+    var p = parseWaypointParts(text);
+    if (!p) return null;
+    var haveNear = near && isFinite(near.lat) && isFinite(near.lng);
+    if (!haveNear) return _wp(p.lat, p.lng);
+
+    var tries = [{ w: _wp(p.lat, p.lng), fix: '' }];
+    // A sign can be lost whichever way the numbers were typed.
+    tries.push({ w: _wp(p.lat, -p.lng), fix: 'sign' });
+    if (!p.explicit) {
+      // Only an UNLABELLED pair may be reordered. "122° W" said which it was.
+      tries.push({ w: _wp(p.lng, p.lat), fix: 'swapped' });
+      tries.push({ w: _wp(p.lng, -p.lat), fix: 'swapped + sign' });
+      tries.push({ w: _wp(-p.lng, p.lat), fix: 'swapped + sign' });
+    }
+    for (var i = 0; i < tries.length; i++) {
+      var t = tries[i];
+      if (!t.w) continue;
+      if (haversineMi(near.lat, near.lng, t.w.lat, t.w.lng) <= WAYPOINT_MAX_MI) {
+        if (t.fix) t.w.repaired = t.fix;
+        return t.w;
+      }
+    }
+    return null;
+  }
+
+  // Is a comment worth a mark?
+  //
+  // eBird's species comment is free text and is very often not a note at all —
+  // a bare count ("2"), a plus sign, a stray character left by a submission
+  // app. Marking those trains the reader to ignore the glyph, which costs the
+  // real notes their meaning. The bar is deliberately LOW, though: "in willows"
+  // and "heard only" are ten characters and both tell you something you cannot
+  // get anywhere else, and on a rare bird the note is frequently the only
+  // record of exactly where the bird was standing.
+  function hasNote(text) {
+    var c = String(text == null ? '' : text).trim();
+    if (c.length < 3) return false;
+    return /[a-z]{3}/i.test(c);          // at least one real word
+  }
+
+  // One obs entry -> {m: 'AP', c: 'note', w: {lat,lng}}. Empty keys are omitted,
+  // so a missing key means "nothing there" while a missing ENTRY means "never
+  // looked" - the distinction that stops an icon's absence being read as a
+  // claim.
+  //
+  // `near` is the observation's own coordinate when the caller has it, and is
+  // what makes a parsed waypoint trustworthy rather than merely well-formed.
+  function checklistDetail(ob, near) {
     var out = {};
     if (!ob) return out;
     var counts = ob.mediaCounts || {};
@@ -1376,18 +1520,40 @@
     }).sort().join('');
     if (letters) out.m = letters;
     var c = String(ob.comments || '').trim();
-    if (c) out.c = c;
+    if (hasNote(c)) out.c = c;
+    var w = c ? waypointFrom(c, near) : null;
+    if (w) out.w = w;
     return out;
   }
 
-  // Marks for one row, always in the same order so rows line up when scanned:
-  // photo, then recording, then note.
-  function checklistIcons(detail) {
+  // Marks for one row, in a fixed order so a column of rows stays readable.
+  // Nothing outranks anything else - these are kinds of evidence, not a ladder.
+  //
+  // `opts.noteRequired` DROPS the plain note mark, and that is the whole point
+  // rather than a tidying option:
+  //
+  //   "rare birds require comments in observations, so all rare bird
+  //    observations are not interesting, but some have chasing details like
+  //    waypoints"
+  //
+  // eBird demands details on a flagged species, so on a rarity every single row
+  // has a comment. A mark that is always present is not a mark - it is a column
+  // of identical glyphs that teaches the eye to skip the place where the real
+  // signal appears. So on those lists the note badge is suppressed and the
+  // WAYPOINT badge is not: one is mandatory, the other is somebody choosing to
+  // tell you where to stand.
+  //
+  // The comment itself is never hidden - it is still read through the row, and
+  // "foraging on the far side of the helipad" is worth more than most columns
+  // on the card. Only the redundant BADGE goes.
+  function checklistIcons(detail, opts) {
     if (!detail) return '';
     var m = String(detail.m || ''), out = '';
-    if (m.indexOf('P') >= 0 || m.indexOf('V') >= 0) out += MEDIA_ICON;
+    if (m.indexOf('P') >= 0) out += MEDIA_ICON;
+    if (m.indexOf('V') >= 0) out += VIDEO_ICON;
     if (m.indexOf('A') >= 0) out += AUDIO_ICON;
-    if (detail.c) out += COMMENT_ICON;
+    if (detail.w) out += WAYPOINT_ICON;
+    else if (detail.c && !(opts && opts.noteRequired)) out += COMMENT_ICON;
     return out;
   }
 
@@ -1893,8 +2059,14 @@
     travelHalfHours: travelHalfHours,
     travelNote: travelNote,
     MEDIA_ICON: MEDIA_ICON,
+    VIDEO_ICON: VIDEO_ICON,
     AUDIO_ICON: AUDIO_ICON,
     COMMENT_ICON: COMMENT_ICON,
+    WAYPOINT_ICON: WAYPOINT_ICON,
+    parseWaypoint: parseWaypoint,
+    waypointFrom: waypointFrom,
+    hasNote: hasNote,
+    WAYPOINT_MAX_MI: WAYPOINT_MAX_MI,
     checklistDetail: checklistDetail,
     checklistIcons: checklistIcons,
     recordIcons: recordIcons,

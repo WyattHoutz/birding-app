@@ -6379,6 +6379,90 @@ test('"…and N more" opens, and costs nothing until it does', async () => {
   app.window.close();
 });
 
+// "often rare bird observations will contain waypoints, so id primarily like to
+// highlight comments with waypoints because they clarify chasing. todays lark
+// sparrow had a waypoint that pointed to a helipad in union bay hotspot"
+//
+// ...and why the plain note badge is suppressed on these lists:
+//
+// "rare birds require comments in observations, so all rare bird observations
+// are not interesting, but some have chasing details like waypoints"
+//
+// The fixture is the REAL pair of comments on that bird, pulled from
+// product/checklist/view on 2026-08-07. One carries a waypoint; the other is a
+// perfectly good description that tells you nothing about where to stand. eBird
+// made BOTH observers write something, so a "has a note" badge would appear on
+// both and mean nothing on either.
+const LARK_WP = '47.65798\u00b0 N, 122.29830\u00b0 W thanks Alec and Louis! Continuing '
+  + 'sparrow with reddish well defined streaks on head.  Foraging on far side of '
+  + 'helipad, viewable from parking lot side of helipad. Photos';
+const LARK_PLAIN = 'Harlequin pattern of rusty brown and white. Light gray breast '
+  + 'with dark spot on central breast.  Thanks Alec!!! Lifer';
+
+test('a rarity checklist surfaces the waypoint, and only the waypoint', async () => {
+  const asked = [];
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        asked.push(String(url));
+        if (/S1/.test(url)) {
+          return { obs: [{ speciesCode: 'larspa', mediaCounts: { P: 4 }, comments: LARK_WP }] };
+        }
+        return { obs: [{ speciesCode: 'larspa', comments: LARK_PLAIN }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityChecklistDetails({
+    code: 'larspa',
+    recs: [
+      { subId: 'S1', loc: 'Union Bay Natural Area', lat: 47.658, lng: -122.298,
+        dateStr: '2026-08-07 11:39', observer: 'Andrew Eller' },
+      { subId: 'S2', loc: 'Union Bay Natural Area', lat: 47.658, lng: -122.298,
+        dateStr: '2026-08-07 11:05', observer: 'Tom Gergen' },
+    ],
+  });
+  doc.body.appendChild(host);
+
+  // NOTHING is fetched until the list is opened. The note lives one
+  // product/checklist/view call away per row, and that is the traffic this
+  // project keeps refusing to spend on a disclosure nobody has touched.
+  assert.equal(asked.length, 0, 'a closed list costs no calls');
+  assert.equal(host.querySelectorAll('[data-ev-sub]').length, 2,
+    'but every row carries what it would need to ask');
+
+  const det = host.querySelector('details.ckall');
+  det.open = true;
+  await A.hydrateChecklistEvidence(det);
+  await new Promise((r) => setTimeout(r, 600));
+
+  const btns = [...host.querySelectorAll('.evidbtn')];
+  assert.equal(btns.length, 1,
+    'exactly ONE row earns a mark. Both observers wrote a comment because eBird '
+    + 'made them; only one said where the bird was');
+  assert.equal(btns[0].getAttribute('data-evid'), 'S1|larspa');
+  assert.ok(btns[0].textContent.includes('\u{1F3AF}'), 'the waypoint is marked');
+  assert.ok(btns[0].textContent.includes('\u{1F4F7}'), 'and the photos with it');
+
+  // The mark OPENS the note. A waypoint you cannot tap is a fact you retype.
+  A.openEvidence('S1|larspa');
+  const sheet = doc.getElementById('appSheet');
+  assert.equal(sheet.hidden, false, 'the sheet opens');
+  assert.equal(sheet.querySelector('.sheettitle').textContent, 'Union Bay Natural Area');
+  const body = sheet.querySelector('.sheetbody').innerHTML;
+  assert.match(body, /data-q="47\.65798,-122\.2983"/,
+    'with the waypoint as a maps link — and the longitude NEGATIVE, though the '
+    + 'observer typed it positive with a W');
+  assert.match(body, /helipad/, 'the note itself is readable in-app');
+  assert.match(body, /photos/, 'and the media is named');
+
+  A.hideSheet();
+  assert.equal(sheet.hidden, true, 'and it closes');
+  app.window.close();
+});
+
 // SPEC 2026-08-06: row 2 of the medium species card carries "number of reports
 // (ONLY if more than 1), datetime of the latest observation, and all the icons
 // — day #, unseen icon, unverified icon, media icon, number of observers."

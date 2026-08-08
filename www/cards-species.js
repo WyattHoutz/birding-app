@@ -272,7 +272,7 @@
        card photo into a full-width 46px band with a tiny contained image. */
     '.bchero { width: 100%; height: auto; aspect-ratio: 3 / 2; float: none; margin: 0;',
     '  border-radius: 0; background: #eceff3; display: block; overflow: hidden; }',
-    '.bchero .birdpic { width: 100%; height: 100%; object-fit: cover; display: block; }',
+    '.bchero .birdpic { width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; display: block; }',
     /* The photo fills the frame edge to edge and lets the card's own
        overflow:hidden clip the corners. A contained image on a grey mat reads
        as a thumbnail someone forgot to finish. The generic silhouette is the
