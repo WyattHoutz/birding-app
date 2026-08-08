@@ -77,7 +77,7 @@
         { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }
       ],
       home: { lat: 47.76, lng: -122.14 }, homeLabel: 'Woodinville, WA',
-      geoDistKm: 50, dailyDriveMi: 12, tideStation: '9447130',
+      geoDistKm: 50, dailyDriveMi: 12, chaseMaxMi: 35, tideStation: '9447130',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: '',
       tzStdOffset: -8, tzObservesDst: true
     },
@@ -89,7 +89,7 @@
         { slug: 'jackson', code: 'US-MO-095', label: 'Jackson' }
       ],
       home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'mo', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
     },
@@ -101,7 +101,7 @@
         { slug: 'leavenworth', code: 'US-KS-103', label: 'Leavenworth' }
       ],
       home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ks', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
     },
@@ -112,7 +112,7 @@
         { slug: 'yavapai', code: 'US-AZ-025', label: 'Yavapai' }
       ],
       home: { lat: 33.85, lng: -112.11 }, homeLabel: 'Anthem, AZ',
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'az', seenFromRegion: 'lower48',
       tzStdOffset: -7, tzObservesDst: false
     },
@@ -123,7 +123,7 @@
         { slug: 'sacramento', code: 'US-CA-067', label: 'Sacramento' }
       ],
       home: { lat: 38.76, lng: -121.19 }, homeLabel: 'Granite Bay, CA',
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ca', seenFromRegion: 'lower48',
       tzStdOffset: -8, tzObservesDst: true
     },
@@ -134,7 +134,7 @@
       // used only to centre maps. Conditions must ask for a real home rather
       // than report the weather in a field near Lebanon, Kansas.
       homeIsPlaceholder: true,
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'lower48', seenFromRegion: '',
       // eBird subnational1 codes dropped from the rarity feed (non-CONUS).
       excludeSubnational1: ['US-AK', 'US-HI', 'US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
@@ -144,7 +144,7 @@
       slug: 'aba', label: 'ABA Area', kind: 'region', stateCode: 'aba',
       counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'ABA Area',
       homeIsPlaceholder: true,
-      geoDistKm: 50, dailyDriveMi: 20, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'aba', seenFromRegion: '',
       // Inclusive companion to Lower 48: keeps HI + Canada, drops only US territories.
       excludeSubnational1: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
@@ -157,7 +157,7 @@
         { slug: 'jefferson', code: 'US-WA-031', label: 'Jefferson' }
       ],
       home: { lat: 48.1607, lng: -122.6776 }, homeLabel: 'Fort Casey, Whidbey Island',
-      geoDistKm: 40, dailyDriveMi: 15, tideStation: '9444900',
+      geoDistKm: 40, dailyDriveMi: 15, chaseMaxMi: 35, tideStation: '9444900',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: 'wa',
       excludeLocIds: ['L7706326', 'L34755635'],
       excludeNameSubstrings: ['Smith Island', 'Partridge Bank'],
@@ -168,7 +168,7 @@
       slug: 'waikoloa', label: 'Waikoloa / Big Island Trip', kind: 'trip', stateCode: 'US-HI',
       counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
       home: { lat: 19.9223, lng: -155.8836 }, homeLabel: 'Vista Waikoloa, Big Island',
-      geoDistKm: 50, dailyDriveMi: 25, tideStation: '1617433',
+      geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 35, tideStation: '1617433',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
       tzStdOffset: -10, tzObservesDst: false,
       activeFrom: '2026-08-27', activeTo: '2026-09-18'

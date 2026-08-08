@@ -3421,7 +3421,7 @@ test('the chase radius is a setting, and every list obeys the live value', async
   assert.equal(sel.value, String(A.CHASE_DEFAULT_MI),
     'showing the value actually in force, not a hardcoded first option');
 
-  app.window.localStorage.setItem(A.CHASE_MI_KEY, '75');
+  app.window.localStorage.setItem(A.chaseMiKey(), '75');
   assert.equal(A.chaseMaxMi(), 75, 'a stored radius wins');
   A.syncChaseMi();
   assert.equal(sel.value, '75', 'and the control reflects it');
@@ -3437,7 +3437,7 @@ test('the chase radius is a setting, and every list obeys the live value', async
     'and warns that the Markdown report still uses its own radius');
 
   // A value with no matching <option> must not blank the control.
-  app.window.localStorage.setItem(A.CHASE_MI_KEY, '42');
+  app.window.localStorage.setItem(A.chaseMiKey(), '42');
   A.syncChaseMi();
   assert.equal(sel.value, '42', 'an unlisted radius is added rather than lost');
 
@@ -8183,5 +8183,62 @@ test('rarity reports are bounded by the chase radius, not by the flag', async ()
   const onlyFar = A.buildActiveRarities(recs.slice(2), home);
   assert.equal(onlyFar.length, 0,
     'a species with nothing inside the radius gets no row - there is nowhere to go');
+  app.window.close();
+});
+
+
+// ---- F1 step 3: the chase radius belongs to the report ---------------------
+//
+// The home coordinate has been per-report since v1.0.45 — "chasing from
+// Woodinville is meaningless on the Big Island" — but the RADIUS from that home
+// stayed global across all nine reports. regions.py has carried chase_max_mi on
+// every Region since Regions existed and analyze.set_region() rebinds it, so
+// the Markdown report was already per-region while the app was not.
+test('the chase radius is per report, not one knob for all nine', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window;
+
+  // The DEFAULT comes from the profile, which mirrors regions.py — so the two
+  // repos cannot pick different radii for the same report.
+  W.localStorage.setItem('ebird_report', 'wa');
+  assert.equal(A.chaseMaxMi(), A.chaseDefaultMi(), 'unset means the profile value');
+  assert.equal(A.chaseDefaultMi(), 35, 'which is regions.py Region.chase_max_mi');
+
+  // Set a continent-sized radius on the ABA tracker, where 35 miles is a
+  // meaningless filter for a report that spans a continent.
+  W.localStorage.setItem('ebird_report', 'aba');
+  W.localStorage.setItem(A.chaseMiKey(), '2000');
+  assert.equal(A.chaseMaxMi(), 2000, 'the ABA tracker reaches as far as it needs');
+
+  // THE POINT. Washington must be untouched. With one global key this was
+  // impossible: widening the tracker widened home birding with it.
+  W.localStorage.setItem('ebird_report', 'wa');
+  assert.equal(A.chaseMaxMi(), 35,
+    'Washington keeps its own radius — the whole reason this became per report');
+
+  // Keys are namespaced by slug, exactly as homeKey and tideKey are.
+  W.localStorage.setItem('ebird_report', 'waikoloa');
+  assert.notEqual(A.chaseMiKey(), 'ebird_chase_mi', 'never the bare global key');
+  assert.ok(A.chaseMiKey().endsWith(':waikoloa'), 'one key per report');
+  app.window.close();
+});
+
+test('a radius chosen before this migrates into the report it was chosen in', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window;
+  // A value stored under the OLD global key by an earlier build, while the
+  // reader had Washington open.
+  W.localStorage.setItem('ebird_report', 'wa');
+  W.localStorage.setItem('ebird_chase_mi', '75');
+  A.migrateHomeKeys();
+
+  assert.equal(A.chaseMaxMi(), 75, 'the choice survives the upgrade');
+  assert.equal(W.localStorage.getItem('ebird_chase_mi'), null,
+    'and the global key is gone, so it cannot shadow the per-report one later');
+
+  // It lands in the report that was open — NOT applied to all nine, which
+  // would be inventing a decision the reader never made.
+  W.localStorage.setItem('ebird_report', 'aba');
+  assert.equal(A.chaseMaxMi(), 35, 'other reports keep their own default');
   app.window.close();
 });

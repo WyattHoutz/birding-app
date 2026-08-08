@@ -1380,7 +1380,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.81';
+      var APP_VERSION = '1.0.82';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1397,9 +1397,24 @@
       // changed what is fetched would change that plan from under the parity
       // suite. Past 31 miles the extra reach comes from the COUNTY feeds, and
       // the hint says so rather than implying a circle that is not there.
-      function chaseMaxMi() {
-        var v = parseFloat(localStorage.getItem(CHASE_MI_KEY));
+      //
+      // PER REPORT (F1 step 3), for the same reason the home coordinate is:
+      // regions.py has carried `chase_max_mi` on each Region since it existed,
+      // and analyze.set_region() rebinds it — so the REPORT was already
+      // per-region while the app kept ONE global knob for all nine. Moving it
+      // widened Washington too, which makes "35 mi at home, continent-wide on
+      // the ABA tracker" impossible to express. The default now comes from the
+      // profile, which mirrors regions.py, so the two repos cannot pick
+      // different radii for the same report.
+      function chaseMiKey() { return CHASE_MI_KEY + ':' + getReportSlug(); }
+      function chaseDefaultMi() {
+        var p = getReport();
+        var v = p && p.chaseMaxMi;
         return (isFinite(v) && v > 0) ? v : CHASE_DEFAULT_MI;
+      }
+      function chaseMaxMi() {
+        var v = parseFloat(localStorage.getItem(chaseMiKey()));
+        return (isFinite(v) && v > 0) ? v : chaseDefaultMi();
       }
       // Kept as a name because the debug panel and the seam still read it; it
       // is the DEFAULT, not the live value. Anything deciding what to show must
@@ -1432,10 +1447,15 @@
               + 'so the extra range comes from your report\u2019s counties \u2014 it '
               + 'reaches as far as they do, not evenly in every direction.');
           }
-          if (mi !== CHASE_DEFAULT_MI) {
-            bits.push('The Markdown report keeps its own ' + CHASE_DEFAULT_MI
+          if (mi !== chaseDefaultMi()) {
+            bits.push('The Markdown report keeps this report\u2019s own '
+              + chaseDefaultMi()
               + ' mi, so the two will disagree about what counts as close.');
           }
+          // The setting is per report, and saying so is what stops a reader
+          // changing it in Washington and wondering why Arizona ignored them.
+          bits.push('This radius applies to ' + esc(getReport().label || getReportSlug())
+            + ' only \u2014 each report keeps its own.');
           hint.textContent = bits.join(' ');
         }
       }
@@ -1760,6 +1780,14 @@
         if (t !== null) {
           if (localStorage.getItem(tideKey()) === null) localStorage.setItem(tideKey(), t);
           localStorage.removeItem('ebird_tide_station');
+        }
+        // The chase radius became per-report at the same time and for the same
+        // reason. A value chosen while one report was open migrates into THAT
+        // report rather than being applied to all nine.
+        var c = localStorage.getItem(CHASE_MI_KEY);
+        if (c !== null) {
+          if (localStorage.getItem(chaseMiKey()) === null) localStorage.setItem(chaseMiKey(), c);
+          localStorage.removeItem(CHASE_MI_KEY);
         }
       }
       // eBird region code for the active report (US-WA, lower48, aba, …), used by
@@ -12437,7 +12465,7 @@
       // up would show "within 30 mi" over a list the setting no longer
       // describes, which is the bug this control would otherwise introduce.
       if ($('chaseMi')) $('chaseMi').addEventListener('change', function () {
-        localStorage.setItem(CHASE_MI_KEY, String(parseFloat(this.value) || CHASE_DEFAULT_MI));
+        localStorage.setItem(chaseMiKey(), String(parseFloat(this.value) || chaseDefaultMi()));
         syncChaseMi();
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
@@ -12840,6 +12868,8 @@
         needTag: needTag, watchCodes: watchCodes,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
+        chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
+        migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, homeKey: homeKey, tideKey: tideKey,
