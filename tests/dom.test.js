@@ -1584,6 +1584,63 @@ test('a personal pin beside a public hotspot becomes chaseable', async () => {
   app.window.close();
 });
 
+// THE REAL CASE, cached. Reported with a screenshot 2026-08-08: an Eastern
+// Kingbird at Meadowbrook Farm that is not at the hotspot pin — it is at a
+// cluster of personal locations by the Three Forks off-leash dog park, "all
+// walking distance".
+//
+// Every coordinate is MEASURED FROM THE API AND FROZEN HERE. eBird can delete a
+// personal location, rename it, or let a checklist age out of a feed, at which
+// point a test that re-fetched them would pass for the wrong reason or fail for
+// a reason unrelated to this code. The numbers are the evidence.
+test('the Meadowbrook kingbird cluster is rescued', async () => {
+  const app = await boot();
+  const BL = app.window.BirdLogic;
+  const hotspots = [
+    // The nearest hotspot is Centennial Fields Park, NOT Meadowbrook (390-475 m).
+    { locId: 'L3394586', lat: 47.5216668, lng: -121.8092769, name: 'Centennial Fields Park' },
+    { locId: 'L6819955', lat: 47.5198295, lng: -121.8088592, name: 'Meadowbrook Farm' },
+    { locId: 'L735303', lat: 47.523852, lng: -121.7963326, name: 'Three Forks Park' },
+    { locId: 'L461493', lat: 47.6721788, lng: -122.3064566, name: 'Ravenna Park / Cowen Park' },
+  ];
+  const pins = [
+    // S249215207 — 319 m from Centennial Fields Park
+    { locId: 'L47366737', loc: '3 Forks Dog Park',
+      lat: 47.5226349, lon: -121.8052727, location_private: true },
+    // S143661718 — 383 m
+    { locId: 'L3958031', loc: 'Three Forks Dog Park',
+      lat: 47.5229536, lon: -121.8045509, location_private: true },
+    // S71126999 — 279 m. Auto-named by eBird, coordinates and all: it must not
+    // be read as a street address.
+    { locId: 'L11830067',
+      loc: 'Three Forks Natural Area Snoqualmie, Snoqualmie US-WA 47.52270, -121.80589',
+      lat: 47.522704, lon: -121.805891, location_private: true },
+    // S117296561 — 445 m from Three Forks Park, the furthest of the four and
+    // the one that cleared the OLD 500 m radius by only 55 m.
+    { locId: 'L20623016',
+      loc: 'Snoqualmie Valley Trail, North Bend, Washington, US (47.524, -121.802)',
+      lat: 47.523530, lon: -121.802237, location_private: true },
+  ];
+  const got = BL.publicPersonalLocids(pins, hotspots);
+  for (const p of pins) {
+    assert.ok(got[p.locId],
+      p.loc.slice(0, 34) + ' is rescued — the kingbird is HERE, not at the hotspot pin');
+  }
+
+  // The measured negative, at its real coordinates: 516 m from Ravenna Park.
+  // The OLD radius excluded it by 16 m; the new one does not exclude it at all,
+  // and it is still rejected — by NAME. That is why walking distance was safe.
+  const apartment = [{ locId: 'L31750674', loc: 'Ravenna apartment',
+    lat: 47.6721517, lon: -122.2995618, location_private: true }];
+  assert.ok(!BL.publicPersonalLocids(apartment, hotspots).L31750674,
+    'the apartment is still excluded at 1000 m, where distance no longer helps '
+    + 'at all — the name is carrying it');
+  assert.equal(BL.PERSONAL_NEAR_HOTSPOT_M, 1000,
+    'walking distance: a pin you could walk to from the hotspot is part of the '
+    + 'same birding site');
+  app.window.close();
+});
+
 test('the personal-location rule costs no eBird call', async () => {
   const seen = [];
   const app = await boot({ fetch(url) { seen.push(String(url)); return null; } });

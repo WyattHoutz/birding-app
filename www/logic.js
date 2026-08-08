@@ -726,7 +726,7 @@
   // backwards, since "Ravenna apartment" and "Ravenna Park" share a word —
   // which is why this compares NAMES AGAINST A DENYLIST and never against the
   // hotspot's name.
-  var PERSONAL_NEAR_HOTSPOT_M = 500;
+  var PERSONAL_NEAR_HOTSPOT_M = 1000;
   var _RESIDENTIAL_RE = new RegExp(
     '\\b(' +
     'apartment|apartments|apt|condo|townhouse|duplex|' +
