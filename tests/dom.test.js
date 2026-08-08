@@ -3545,9 +3545,9 @@ test('the watchlist tells "never edited" apart from "emptied"', async () => {
   junk.window.close();
 });
 
-// analyze.py computes seen = (birdlist union seen_codes) - watchlist, and the
-// bundled seed already has the AUTHORED list subtracted. Device edits are a
-// delta on top, and the delta has to be right in BOTH directions.
+// analyze.py computes seen = birdlist − watchlist, and the bundled seed
+// already has the AUTHORED list subtracted. Device edits are a delta on top,
+// and the delta has to be right in BOTH directions.
 test('editing the watchlist moves species in and out of the seen set', async () => {
   const app = await boot();
   const A = app.window.__app;

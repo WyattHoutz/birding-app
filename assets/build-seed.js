@@ -134,17 +134,14 @@ fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f)
     if (text.trim()) usedFiles.push(f);
   });
 
-// seen_codes.txt — plain species codes, one per line (WA "seen" union; the
-// report treats it as authoritative for the WA report ONLY).
-const scCodes = Object.create(null);
-const scPath = path.join(srcRoot, 'seen_codes.txt');
-if (fs.existsSync(scPath)) {
-  fs.readFileSync(scPath, 'utf8').split(/\r?\n/).forEach(function (line) {
-    const c = line.trim().toLowerCase();
-    if (/^[a-z0-9]+$/.test(c)) scCodes[c] = 1;
-  });
-  usedFiles.push('seen_codes.txt');
-}
+// seen_codes.txt is RETIRED and deliberately not read — see the long note in
+// analyze.py::set_region. It was a union persisted every run, so a code could
+// enter the WA "seen" set but never leave it. Measured 2026-08-07: it had
+// accreted 89 codes from other regions' lists (Blue Jay, Baltimore Oriole,
+// Bridled Titmouse — trip birds, not Washington birds) plus 4 real WA birds
+// from a PREVIOUS year, and it hid 93 species from the chase lists of a report
+// whose whole job is finding birds you still need. It bought nothing: it was a
+// strict superset of birdlist-wa.md.
 
 // needsverification.md — a numbered list of NAMES (a watchlist). The report
 // SUBTRACTS these from every region's seen set so they resurface as targets.
@@ -157,7 +154,17 @@ const nvEntries = [];
 const nvPath = path.join(srcRoot, 'birdlist-needsverification.md');
 if (fs.existsSync(nvPath)) {
   fs.readFileSync(nvPath, 'utf8').split(/\r?\n/).forEach(function (line) {
-    const m = /^\s*\d+\.\s*(.+?)\s*$/.exec(line);
+    // Numbered "1." or bulleted "-" both count, mirroring
+    // analyze.py::set_region. The list is a SET of species whose order means
+    // nothing, so the hand-maintained numbers were dropped — and this parser
+    // was not updated with it. It silently matched NOTHING from that moment on,
+    // so the app subtracted an empty watchlist while the report subtracted 18
+    // species: every bird awaiting verification was marked "already seen" in
+    // the app and correctly shown as a target in the Markdown. Found
+    // 2026-08-07 while fixing the seen_codes.txt ratchet — the same class of
+    // bug, a parser and its file drifting apart with nothing asserting they
+    // still agree.
+    const m = /^\s*(?:\d+\.|[-*+])\s*(.+?)\s*$/.exec(line);
     if (!m) return;
     const code = nameToCodeAll[normName(m[1])];
     if (code) nvCodes[code] = 1;
@@ -178,7 +185,8 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   const srcList = listBySlug[birdlistSlugToKey(seenSrcSlug)] || { codes: {}, codeToName: {} };
   const set = Object.create(null);
   Object.keys(srcList.codes).forEach(function (c) { set[c] = 1; });
-  if (reportSlug === 'wa') Object.keys(scCodes).forEach(function (c) { set[c] = 1; }); // WA-only
+  // The WA-only seen_codes.txt union used to be applied here and is gone with
+  // the file — see the note above and analyze.py::set_region.
   // Which watchlist codes this report actually HOLDS back — i.e. birds that
   // would be "seen" here if they were not awaiting verification. Editing the
   // watchlist on device has to be able to put them back, and only these are
@@ -208,7 +216,6 @@ const codeUnion = Object.create(null);
 Object.keys(listBySlug).forEach(function (slug) {
   Object.keys(listBySlug[slug].codes).forEach(function (c) { codeUnion[c] = 1; });
 });
-Object.keys(scCodes).forEach(function (c) { codeUnion[c] = 1; });
 const codeList = Object.keys(codeUnion).sort();
 const nameList = Object.keys(codeToNameAll)
   .map(function (c) { return codeToNameAll[c]; })
