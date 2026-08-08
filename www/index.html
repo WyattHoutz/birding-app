@@ -1380,7 +1380,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.79';
+      var APP_VERSION = '1.0.80';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5671,11 +5671,29 @@
           if (!r.locId || !r.code) return;
           var b = idx[r.locId] || (idx[r.locId] = {});
           var prev = b[r.code];
-          // One row per species per place, keeping the most recent report.
-          if (prev && String(prev.dateStr) >= String(r.dateStr || '')) return;
+          // RARITY IS STICKY PER SPECIES AND PLACE; the date is not.
+          //
+          // Reported from the device: a Tufted Puffin wearing the R at Edmonds
+          // Waterfront and not at Marina Beach Park, while BOTH cards said
+          // "1 rarity" in their own sub-header. The same sighting arrives in
+          // two feeds — `recent` as a plain Sighting and `notable` as a Rarity
+          // — so taking `rare` from whichever row happened to be newest made
+          // the badge depend on feed ordering rather than on the bird.
+          //
+          // If ANY report of this species at this place was flagged notable,
+          // the species is rare here. That is also what the sub-header's own
+          // "N rarities" count means, so the two now agree.
+          var rare = (prev && prev.rare) || (r.kind === 'Rarity' ? 1 : 0);
+          // One row per species per place, keeping the most recent report —
+          // but an older row still contributes its rarity flag even when it
+          // loses the date comparison, which is what this used to discard.
+          if (prev && String(prev.dateStr) >= String(r.dateStr || '')) {
+            if (rare) prev.rare = 1;
+            return;
+          }
           b[r.code] = {
             comName: r.name || r.code, code: r.code, dateStr: r.dateStr || '',
-            rare: r.kind === 'Rarity' ? 1 : 0,
+            rare: rare,
             seen: isSeen(r.code, r.name)
           };
         });
@@ -5866,17 +5884,51 @@
           cards.forEach(function (el) {
             var got = by[el.getAttribute('data-hsloc')];
             if (!got || !got.length) return;
+            // ONLY THE CHECKLISTS THAT HOLD A BIRD YOU STILL NEED.
+            //
+            // "dont show checklists without unseen birds." A hotspot card
+            // exists to answer "is this worth the drive?", and a list of twelve
+            // checklists that between them prove nothing you want is not
+            // evidence — it is other people's mornings, pushing the next
+            // hotspot off the screen.
+            //
+            // hydrateLocSpecies runs first in this chain and leaves the subIds
+            // that reported an unseen species here, so this costs nothing.
+            // Three states, and they are NOT the same: a card whose species
+            // pass has not run keeps the full list (absence of the hint is not
+            // a claim that none qualify); a card that ran and found NO unseen
+            // birds shows none; and a card with unseen birds whose feed named
+            // no checklist for them keeps the full list, because it cannot
+            // rule any of them out.
+            var want = (el.getAttribute('data-unseen-subs') || '')
+              .split(',').filter(Boolean);
+            var nUnseen = el.getAttribute('data-unseen-n');
+            if (nUnseen === '0') return;
+            var all = got.length;
+            if (want.length) {
+              got = got.filter(function (chk) {
+                return want.indexOf(chk.subId || chk.subID || '') >= 0;
+              });
+              if (!got.length) return;    // nothing qualifies: show no list
+            }
             // The slot is created empty at build time so this never has to
             // guess where in the card the list belongs.
             var slot = el.querySelector('.hsckl');
             if (!slot || slot.getAttribute('data-done')) return;
             slot.setAttribute('data-done', '1');
             var rows = got.slice(0, HOTSPOT_CKL_SHOWN).map(mkCkl);
-            slot.innerHTML = checklistDetails(rows, got.length, 'recent checklist', '',
+            // The label says WHAT was kept, or a reader who knows the place
+            // had twelve lists today reads a count of three as a bug.
+            var label = want.length ? 'checklist with a bird you need'
+                                    : 'recent checklist';
+            slot.innerHTML = checklistDetails(rows, got.length, label, '',
               moreDetails(got.length - HOTSPOT_CKL_SHOWN, 'checklists', function () {
                 return ChecklistCards.list('small',
                   got.slice(HOTSPOT_CKL_SHOWN).map(mkCkl));
-              }));
+              })
+              + (want.length && all > got.length
+                 ? '<div class="dim">' + (all - got.length) + ' more here today '
+                   + 'without a bird you need</div>' : ''));
           });
         });
       }
@@ -5914,6 +5966,23 @@
             });
             function byName(a, b) { return String(a.comName).localeCompare(String(b.comName)); }
             unseen.sort(byName); seen.sort(byName);
+            // "dont show checklists without unseen birds." The checklists that
+            // reported a bird you still NEED are the evidence for the card
+            // above them; the rest are just other people's mornings. The
+            // location feed already carries a subId per species, so the set of
+            // useful checklists is known here at no cost — it is handed to
+            // hydrateHotspotChecklists, which runs next in the same chain.
+            var wantSubs = [];
+            unseen.forEach(function (u) {
+              if (u.subId && wantSubs.indexOf(u.subId) < 0) wantSubs.push(u.subId);
+            });
+            el.setAttribute('data-unseen-subs', wantSubs.join(','));
+            // The COUNT is published separately because an empty subId list is
+            // ambiguous on its own: it means "no unseen birds here" AND "there
+            // are unseen birds but the feed gave no checklist for them", and
+            // those want opposite answers. Only the first should empty the
+            // list; the second must not throw away evidence it cannot rule on.
+            el.setAttribute('data-unseen-n', String(unseen.length));
             var slot = el.querySelector('.hslists');
             if (!slot) return;
             slot.innerHTML = HotspotCards.splitLists({

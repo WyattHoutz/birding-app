@@ -1813,9 +1813,20 @@ test('all four Go birding sections offer the same anchor, and rank from it', asy
 
 test('rare means the same thing on a hotspot card and in the 7-day list', () => {
   const idx = HTML.slice(HTML.indexOf('function locSpeciesIndex('),
-    HTML.indexOf('function locSpeciesIndex(') + 1200);
-  assert.match(idx, /rare: r\.kind === 'Rarity' \? 1 : 0/,
-    'the hotspot index takes rare straight off the record');
+    HTML.indexOf('function locSpeciesIndex(') + 2400);
+  assert.match(idx, /r\.kind === 'Rarity' \? 1 : 0/,
+    'the hotspot index reads rare off the same field');
+  // RARITY IS STICKY per species and place. Reported from the device: a Tufted
+  // Puffin wearing the R at Edmonds Waterfront and not at Marina Beach Park,
+  // while both cards said "1 rarity" in their own sub-header. The same sighting
+  // arrives twice — `recent` as a Sighting, `notable` as a Rarity — so taking
+  // the flag from whichever row was newest made the badge depend on feed
+  // ordering rather than on the bird.
+  assert.match(idx, /var rare = \(prev && prev\.rare\) \|\|/,
+    'and ORs it across every row for that species at that place');
+  assert.match(idx, /if \(rare\) prev\.rare = 1;/,
+    'including a row that loses the date comparison — discarding that was the '
+    + 'bug, because the older row is often the notable one');
   const act = HTML.slice(HTML.indexOf('function buildActiveRarities('),
     HTML.indexOf('function buildActiveRarities(') + 2200);
   assert.match(act, /r\.kind !== 'Rarity'/,
@@ -6709,6 +6720,106 @@ test('latest ticks splits unseen birds from seen ones', async () => {
 
 // "the medium hotspots card should include the collapsed list of recent
 // checklists. this is missing from top destinations."
+// "the checklists should be filtered to only showing ones with the unseen
+// birds… dont show checklists without unseen birds."
+//
+// A hotspot card answers ONE question — is this worth the drive? — and a list
+// of twelve checklists that between them prove nothing you want is not
+// evidence for it, it is other people's mornings pushing the next hotspot off
+// the screen. This runs the real chain (hydrateLocSpecies → hydrateHotspot-
+// Checklists) against a hotspot where exactly one of three checklists reported
+// the bird you need.
+test('a hotspot lists the checklists with a bird you need, and says how many it dropped', async () => {
+  const lists = ['S1', 'S2', 'S3'].map((s, i) => ({
+    subId: s, numSpecies: 20 + i, isoObsDate: '2026-08-0' + (7 - i) + ' 08:00',
+    userDisplayName: 'Birder ' + i,
+    loc: { locId: 'L1', locName: 'Big Park', latitude: 47.7, longitude: -122.2 },
+  }));
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        return [
+          // The bird you need — reported on S1, and ONLY on S1.
+          { speciesCode: 'sp0', comName: 'Needed Bird', obsDt: '2026-08-07 08:00', subId: 'S1' },
+          // Already on the year list, so S2 is not a reason to drive anywhere.
+          { speciesCode: 'daejun', comName: 'Dark-eyed Junco', obsDt: '2026-08-06 08:00', subId: 'S2' },
+        ];
+      }
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  A.renderHot({
+    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            fresh: 2, checklists: 3, share: 5, latest: '2026-08-07',
+            birds: [{ name: 'Needed Bird', code: 'sp0', unseen: true }] }],
+  });
+  await new Promise((r) => setTimeout(r, 900));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const det = card.querySelector('.hsckl details.ckall');
+  assert.ok(det, 'the qualifying checklist is still shown');
+  assert.equal(det.querySelectorAll('.cklcard-sm').length, 1,
+    'one of three checklists reported a bird you need, so one is listed');
+  assert.match(det.innerHTML, /S1/, 'and it is the one that reported it');
+  assert.ok(!/S2|S3/.test(det.innerHTML),
+    'a checklist holding only birds you already have is not evidence for a drive');
+
+  // The label has to say WHICH checklists these are, or a reader who knows the
+  // park had a dozen lists today reads "1 checklist" as a bug in the fetch.
+  assert.match(det.querySelector('summary').textContent, /bird you need/,
+    'the summary states the filter it applied rather than implying a total');
+  // ...and the dropped ones are COUNTED, not silently deleted. "3 checklists
+  // here today, 1 of them useful to you" is a different fact from "1 checklist
+  // here today", and only the first tells you the place is alive.
+  assert.match(det.textContent, /2 more here today without a bird you need/,
+    'the filtered-out lists survive as a count');
+  app.window.close();
+});
+
+// The same pass, at a hotspot where you need NOTHING. This is the case the
+// first implementation got wrong: an empty subId list was read as "no hint
+// available" and the card fell back to printing all twelve.
+test('a hotspot with nothing you need lists no checklists at all', async () => {
+  const lists = ['S1', 'S2'].map((s, i) => ({
+    subId: s, numSpecies: 30, isoObsDate: '2026-08-0' + (7 - i) + ' 08:00',
+    userDisplayName: 'Birder ' + i,
+    loc: { locId: 'L1', locName: 'Big Park', latitude: 47.7, longitude: -122.2 },
+  }));
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        return [{ speciesCode: 'daejun', comName: 'Dark-eyed Junco',
+                  obsDt: '2026-08-07 08:00', subId: 'S1' }];
+      }
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  A.renderHot({
+    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            fresh: 2, checklists: 2, share: 5, latest: '2026-08-07', birds: [] }],
+  });
+  await new Promise((r) => setTimeout(r, 900));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  assert.equal(card.getAttribute('data-unseen-n'), '0',
+    'the species pass ran and found nothing you need');
+  assert.ok(!card.querySelector('.hsckl details'),
+    'so there is no checklist list — every one of them is somebody else\'s morning');
+  app.window.close();
+});
+
 test('a hotspot card shows its recent checklists, and pays nothing extra', async () => {
   const lists = [
     { subId: 'S1', numSpecies: 34, isoObsDate: '2026-07-31 07:10',
