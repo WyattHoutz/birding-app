@@ -145,6 +145,29 @@
       ]
     },
     {
+      "id": "san-juan",
+      "label": "San Juan Is.",
+      "_why": "The San Juan Islands, reached ONLY by the Anacortes ferry - there is no bridge and no drive-around. Added 2026-08-08 after classifying every WA hotspot showed 161 of San Juan County's 162 sitting in NO zone at all, so a 2 h 54 min trip involving a boat was being ranked as open road. Rectangle rather than a traced coastline because the county is islands in open water: the nearest thing that is not San Juan County is Fidalgo/Anacortes at -122.61, comfortably east of the -122.72 edge, and Deception Pass is east of it too. Ordered AFTER whidbey so any overlap in the water between them resolves to Whidbey, which is the one you can drive to.",
+      "poly": [
+        [
+          48.31,
+          -123.3
+        ],
+        [
+          48.85,
+          -123.3
+        ],
+        [
+          48.85,
+          -122.72
+        ],
+        [
+          48.31,
+          -122.72
+        ]
+      ]
+    },
+    {
       "id": "bainbridge",
       "label": "Bainbridge Is.",
       "_why": "Bainbridge Island, served by the Seattle-Bainbridge boat or by Agate Pass onto north Kitsap and then the Kingston ferry - either way a crossing. Split from `kitsap` on 2026-08-05 after measurement showed Fort Ward (47.580,-122.523) costs 70 min and takes a boat while Manchester (47.578,-122.545), 1.6 km away on the mainland, costs 60 and takes none. The outline follows the island, including Rich Passage on the south side, because no straight cut separates those two points.",
@@ -1538,6 +1561,15 @@
       "gate": "road",
       "measured_minutes": 32,
       "queue_minutes": 0
+    },
+    "mainland|san-juan": {
+      "minutes": 80,
+      "via": "⛴ Anacortes–Friday Harbor ferry",
+      "gate": "ferry",
+      "measured_minutes": 67,
+      "queue_minutes": 13,
+      "ferry_count": 1,
+      "queue_risk_minutes": 120
     }
   },
   "bands": [
