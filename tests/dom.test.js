@@ -8346,6 +8346,28 @@ test('the seen / unseen divider is a real separator, not a hairline', () => {
 });
 
 
+
+// Wait for a CONDITION, not for a duration.
+//
+// The rarity tests below drive a real async wave (fetch -> merge -> render) and
+// were written with fixed setTimeout waits tuned on a fast laptop. They passed
+// locally and failed on CI, which is slower — the classic flake. Polling for
+// the thing the assertion is about removes the whole class: it returns the
+// moment the app is ready and only spends the full budget when something is
+// genuinely wrong.
+async function waitFor(fn, what, ms = 15000) {
+  const t0 = Date.now();
+  for (;;) {
+    let v;
+    try { v = fn(); } catch (e) { v = false; }
+    if (v) return v;
+    if (Date.now() - t0 > ms) {
+      throw new Error(`timed out after ${ms}ms waiting for: ${what}`);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 // ---- "refresh button does nothing" -----------------------------------------
 //
 // It was an accurate description of the code. getChase() memoises for 30
@@ -8419,8 +8441,8 @@ test('both rarity lists sort by date or distance, from one control', async () =>
 
   A.setRaritySort('date');
   A.refresh();
-  await new Promise((r) => setTimeout(r, 1400));
-  const pick = doc.getElementById('todaySort');
+  const pick = await waitFor(() => doc.getElementById('todaySort'),
+    'the sort control to render');
   assert.ok(pick, 'the control is on the status line, where the order is claimed');
   assert.match(doc.getElementById('status').textContent, /newest first/,
     'and the line SAYS which order it is in — a sorted list that does not say '
@@ -8430,7 +8452,8 @@ test('both rarity lists sort by date or distance, from one control', async () =>
 
   // Switching order is local work on rows already in hand and must not refetch.
   pick.querySelector('.sortbtn[data-sort="distance"]').click();
-  await new Promise((r) => setTimeout(r, 1200));
+  await waitFor(() => /nearest first/.test(doc.getElementById('status').textContent),
+    'the list to re-sort by distance');
   assert.match(doc.getElementById('status').textContent, /nearest first/,
     'the claim changes with the order');
   const byDist = names();
@@ -8483,13 +8506,16 @@ test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
   const doc = app.window.document, A = app.window.__app;
 
   A.refresh();
-  await new Promise((r) => setTimeout(r, 1500));
-
+  await waitFor(() => doc.querySelector('#results [data-hsloc], #results .cardname, #results li'),
+    'the first load to render');
   const first = calls.slice();
   calls = [];
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled,
+    'the first load to release the button');
   doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
-  await new Promise((r) => setTimeout(r, 1800));
-
+  await waitFor(() => calls.some((u) => /notable/.test(u)),
+    'the alert feeds to be re-read');
+  await new Promise((r) => setTimeout(r, 400));   // let any stragglers land
   const notable = calls.filter((u) => /notable/.test(u));
   assert.ok(notable.length > 0,
     'the alert feeds ARE re-read — that is the whole point of the button');
@@ -8520,7 +8546,7 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
   const badges = () => (doc.getElementById('results').innerHTML.match(/newflag/g) || []).length;
 
   A.refresh();
-  await new Promise((r) => setTimeout(r, 1500));
+  await waitFor(() => badges() === 1, 'the first sighting to render as NEW');
   assert.equal(badges(), 1, 'the first sighting you have never seen is NEW');
   assert.match(doc.getElementById('status').textContent, /1 new since you last looked/,
     'and the count is on the status line, so you know without reading the list');
@@ -8528,15 +8554,23 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
   // Marked seen only AFTER rendering — marking on the way in would clear the
   // badge you were about to read.
   A.refresh();
-  await new Promise((r) => setTimeout(r, 1200));
+  await waitFor(() => badges() === 0 &&
+    !/new since you last looked/.test(doc.getElementById('status').textContent),
+    'the second view to drop the badge');
   assert.equal(badges(), 0, 'looking again does not re-announce what you just saw');
   assert.doesNotMatch(doc.getElementById('status').textContent, /new since you last looked/,
     'and the count goes with it');
 
   // A genuinely new bird turns up.
   rows = rows.concat([mk('wantat', 'Wandering Tattler', '2026-08-08 15:10', 'S2')]);
+  // The section's own Load button is disabled while a load is in flight, and a
+  // DISABLED button does not fire click — so pressing refresh too early is
+  // silently a no-op. Wait for the previous run to finish releasing it.
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled,
+    'the previous load to release the button');
   doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
-  await new Promise((r) => setTimeout(r, 1800));
+  await waitFor(() => /Wandering Tattler/.test(doc.getElementById('results').textContent)
+    && badges() === 1, 'the new arrival to appear and be marked');
   assert.equal(badges(), 1, 'the arrival is marked');
   assert.match(doc.getElementById('results').textContent, /Wandering Tattler/,
     'and it is the bird that actually arrived');
