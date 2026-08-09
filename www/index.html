@@ -514,20 +514,24 @@
            rather than as a card that lost its picture;
          - a wide gap ABOVE, which is what actually makes two lists look like
            two lists. Contrast alone does not separate; space does. */
+    /* The first attempt over-corrected into a filled, rounded, full-bleed
+       band: "the new still needed header is ugly and the text runs against the
+       edge". It ran to the edge because the band was full-bleed while the
+       cards around it are inset, so its text started where nothing else's did.
+       What separates two lists is SPACE and a clear rule, not a slab of
+       colour. */
     .cardgroup {
       display: block; grid-template-columns: none; list-style: none;
-      margin: 30px 0 12px; padding: 12px 12px 10px; border: 0;
+      margin: 24px 2px 10px; padding: 12px 2px 6px; border: 0;
       border-top: 3px solid var(--accent);
-      border-bottom: 1px solid var(--line);
-      border-radius: 12px 12px 0 0;
-      background: var(--band);
+      background: none;
     }
     /* The first group needs no gap: there is nothing above it to separate from,
        and 30px of air at the top of a list looks like a rendering fault. */
-    .cardgroup:first-child { margin-top: 2px; }
+    .cardgroup:first-child { margin-top: 4px; padding-top: 8px; }
     .cghead {
       display: block; font-size: calc(16px * var(--s)); font-weight: 800;
-      color: var(--ink); letter-spacing: .01em;
+      color: var(--ink); letter-spacing: .01em; line-height: 1.25;
     }
     /* Says WHY the group exists, because "Still needed" alone does not tell a
        reader it means the year list rather than, say, unreviewed records. */
@@ -1435,7 +1439,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.87';
+      var APP_VERSION = '1.0.88';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3199,7 +3203,7 @@
           rows = raritySorted(rows, order);
           far = raritySorted(far, order);
           // What arrived since you last looked at this section.
-          var known = raritySeenIds();
+          var known = rarityKnownFor(all.map(rarityRowId));
           var fresh = rows.filter(function (r) {
             var id = rarityRowId(r);
             return id && !known[id];
@@ -3271,6 +3275,7 @@
                 // every row, and this section is built from that feed.
                 icons: BirdLogic.recordIcons(r),
                 loc: recLocLink(r),
+                alert: countyAlertLink(r),
                 when: r.subId ? checklistLink(r.subId, when) : esc(when),
                 observer: r.observer || ''
               })
@@ -4030,13 +4035,48 @@
         try { return JSON.parse(localStorage.getItem(raritySeenKey()) || '{}') || {}; }
         catch (e) { return {}; }
       }
+      // Is there a baseline at all? "the first time i opened the 7 day rarity,
+      // it had a new icon on every bird."
+      //
+      // Of course it did — nothing had been seen, so everything qualified. But
+      // "new" against no history is not news, it is just the list, and a badge
+      // on every row marks nothing. The FIRST look establishes the baseline
+      // silently; the second onwards report arrivals against it.
+      function rarityHasBaseline() {
+        try { return localStorage.getItem(raritySeenKey()) != null; } catch (e) { return false; }
+      }
+      // The badge set for the view currently on screen.
+      //
+      // "i toggled the new/nearest and the new icon disappeared." Re-sorting
+      // re-renders, and the first render had already written the baseline — so
+      // the second render found nothing new and silently cleared every badge.
+      // A RE-SORT IS NOT A NEW VISIT. The set is therefore pinned to the DATA:
+      // recomputed when the rows change (a real reload brought something in)
+      // and reused when they have not (you only changed the order).
+      var _rarityView = { key: '', known: null };
+      function rarityKnownFor(ids) {
+        var key = getReportSlug() + '|' + ids.slice().sort().join(',');
+        if (_rarityView.key === key && _rarityView.known) return _rarityView.known;
+        // No baseline yet: treat everything as already known, so a first look
+        // is quiet, and let the mark below record it.
+        var known = rarityHasBaseline() ? raritySeenIds() : (function () {
+          var all = {};
+          ids.forEach(function (id) { if (id) all[id] = 1; });
+          return all;
+        })();
+        _rarityView = { key: key, known: known };
+        return known;
+      }
       // Written AFTER the section renders, never before: the point is that THIS
       // view shows you what arrived since the last one. Marking on the way in
       // would clear the badge you were about to read.
       function markRaritySeen(ids) {
-        var have = raritySeenIds(), n = 0;
+        var have = raritySeenIds(), n = 0, first = !rarityHasBaseline();
         ids.forEach(function (id) { if (id && !have[id]) { have[id] = 1; n++; } });
-        if (!n) return 0;
+        // Always write on a first look, even if nothing changed the object:
+        // the baseline's EXISTENCE is the fact that makes the next visit able
+        // to say what arrived.
+        if (!n && !first) return 0;
         try { localStorage.setItem(raritySeenKey(), JSON.stringify(have)); } catch (e) {}
         // Yesterday's sets are dead weight; drop them when today's is written.
         try {
@@ -4791,6 +4831,28 @@
       // empty. A card that IS one report must not say "1 report", which the
       // spec calls out; and a card that knows the observer's NAME prints it
       // rather than degrading to "1 observer".
+      // The county rare-bird alert the sighting appeared in.
+      //
+      // "id like a link added to the daily rarities and 7 day rarities to the
+      // county alert pages it appeared in. like the king county rare bird
+      // alert. use an abbreviation to keeo it small."
+      //
+      // /region/{code}/rare-birds is the PUBLIC page. eBird's own /rba/{code}
+      // redirects to a Cornell sign-in, so it is useless to anyone not logged
+      // in on that device — checked before wiring it.
+      //
+      // "King RBA", not "King County Rare Bird Alert": the row already carries
+      // a date, a place, an observer and up to five marks, and RBA is what
+      // birders call it.
+      function countyAlertLink(rec) {
+        var code = rec && rec.county, name = (rec && rec.countyName) || '';
+        if (!code) return '';
+        var label = (name || code) + ' RBA';
+        return '<a class="rbalink" data-href="https://ebird.org/region/'
+          + encodeURIComponent(code) + '/rare-birds" title="'
+          + esc((name || code) + ' County rare bird alert') + '">' + esc(label) + '</a>';
+      }
+
       function speciesMetaRow(o) {
         o = o || {};
         var flags = (o.flags || '') + (o.icons || '');
@@ -4806,6 +4868,7 @@
         // build through here, so they stay identical to each other.
         if (o.when) bits.push('<span class="when">' + o.when + '</span>');
         if (o.loc) bits.push('<span class="rareloc">' + o.loc + '</span>');
+        if (o.alert) bits.push('<span class="rarealert">' + o.alert + '</span>');
         if (o.span) bits.push('<span class="rarespan">' + o.span + '</span>');
         var counts = [];
         if (o.reports > 1) counts.push(o.reports + ' reports');
@@ -6196,14 +6259,22 @@
             var lat = +loc.latitude, lng = +loc.longitude;
             var sub = chk.subId || chk.subID || '';
             return ChecklistCards.small({
-              place: loc.locName || loc.name || '',
-              href: sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : '',
+              // NO PLACE. These rows sit under the hotspot's own heading, so
+              // the name was printed once per row to say nothing — and it was
+              // taking the width from the facts that do differ between rows.
+              // The DATE leads and carries the link instead.
               date: fmtDateTime(chk.isoObsDate || chk.obsDt),
-              count: chk.numSpecies != null ? chk.numSpecies + ' sp' : '',
+              href: sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : '',
+              sp: chk.numSpecies != null ? chk.numSpecies : '',
               distMi: (home && isFinite(lat) && isFinite(lng))
                 ? haversineMi(home.lat, home.lng, lat, lng) : null,
               distQ: distQ(lat, lng),
-              who: chk.userDisplayName ? esc(chk.userDisplayName) : ''
+              who: chk.userDisplayName ? esc(chk.userDisplayName) : '',
+              // Hook for the media pass, which only runs once the list is
+              // opened — the county day-list carries no media, and one
+              // checklist fetch per row is not worth spending on a list
+              // nobody has expanded.
+              data: { 'ckl-sub': sub }
             });
           };
           cards.forEach(function (el) {
@@ -6229,12 +6300,24 @@
               .split(',').filter(Boolean);
             var nUnseen = el.getAttribute('data-unseen-n');
             if (nUnseen === '0') return;
-            var all = got.length;
+            var all = got.length, kept = false;
             if (want.length) {
-              got = got.filter(function (chk) {
+              var hit = got.filter(function (chk) {
                 return want.indexOf(chk.subId || chk.subID || '') >= 0;
               });
-              if (!got.length) return;    // nothing qualifies: show no list
+              // NOTHING MATCHED IS NOT "NOTHING QUALIFIES". The subIds come
+              // from the LOCATION feed, which reaches back LOC_SPECIES_DAYS;
+              // the checklist index comes from the county day-list, which only
+              // holds recent submissions. A bird reported here three days ago
+              // therefore names a checklist the index has never heard of — and
+              // the card went blank while announcing five unseen birds, which
+              // is what was reported at Discovery Park--West Point.
+              //
+              // So an empty intersection falls back to the full list under the
+              // neutral label. The card cannot prove these checklists hold a
+              // bird you need, so it stops claiming they do rather than
+              // deleting the only evidence it has.
+              if (hit.length) { got = hit; kept = true; }
             }
             // The slot is created empty at build time so this never has to
             // guess where in the card the list belongs.
@@ -6244,17 +6327,26 @@
             var rows = got.slice(0, HOTSPOT_CKL_SHOWN).map(mkCkl);
             // The label says WHAT was kept, or a reader who knows the place
             // had twelve lists today reads a count of three as a bug.
-            var label = want.length ? 'checklist with a bird you need'
-                                    : 'recent checklist';
+            var label = kept
+              ? { one: 'checklist with a bird you need',
+                  many: 'checklists with a bird you need' }
+              : 'recent checklist';
             slot.innerHTML = checklistDetails(rows, got.length, label, '',
               moreDetails(got.length - HOTSPOT_CKL_SHOWN, 'checklists', function () {
                 return ChecklistCards.list('small',
                   got.slice(HOTSPOT_CKL_SHOWN).map(mkCkl));
               })
-              + (want.length && all > got.length
-                 ? '<div class="dim">' + (all - got.length) + ' more here today '
+              + (kept && all > got.length                 ? '<div class="dim">' + (all - got.length) + ' more here today '
                    + 'without a bird you need</div>' : ''));
           });
+            // Media only once somebody opens the list, and only for the rows
+            // they can see.
+            var det = slot.querySelector('details.ckall');
+            if (det) {
+              det.addEventListener('toggle', function () {
+                if (det.open) hydrateChecklistMedia(det);
+              });
+            }
         });
       }
 
@@ -6968,6 +7060,7 @@
                 // never showed even though its own feed carries the evidence.
                 icons: BirdLogic.recordIcons(r.closest || r),
                 loc: recLocLink(r.closest),
+                alert: countyAlertLink(r.closest || r),
                 when: staleTag(r.latest)
                   + (r.closest && r.closest.subId
                       ? checklistLink(r.closest.subId, fmtDateTime(r.latest))
@@ -7096,8 +7189,17 @@
       function checklistDetails(rows, total, label, suffix, inside) {
         if (!rows || !rows.length) return '';
         var n = total == null ? rows.length : total;
+        // The plural belongs to the NOUN, not to the end of the sentence.
+        // Appending "s" to a whole phrase produced "3 checklist with a bird you
+        // needs", which is the kind of thing that makes a careful reader
+        // distrust everything else on the card. A label may therefore be a
+        // plain noun (pluralised by adding s) or a { one, many } pair when the
+        // phrase has words after the noun.
+        var text = (label && typeof label === 'object')
+          ? (n === 1 ? label.one : label.many)
+          : ((label || 'checklist') + (n === 1 ? '' : 's'));
         return '<details class="ckall"><summary>' + n + ' '
-          + (label || 'checklist') + (n === 1 ? '' : 's') + (suffix || '')
+          + text + (suffix || '')
           + '</summary>' + ChecklistCards.list('small', rows)
           + (inside || '') + '</details>';
       }
@@ -7308,6 +7410,51 @@
         });
       }
       var _evidStore = {};
+
+      // Media marks for a whole checklist, not for one species in it.
+      //
+      // "show media icons" on the rows under a hotspot. The county day-list
+      // carries no media at all, so this is the one place the app has to buy
+      // the answer — and it buys it ONLY when the list is opened, only for the
+      // rows on screen, and only for checklists the durable cache has not
+      // already paid for.
+      var CKL_MEDIA_MAX = 6;
+      function hydrateChecklistMedia(root) {
+        if (!root || !getKey()) return Promise.resolve();
+        var rows = [].slice.call(root.querySelectorAll('[data-ckl-sub]:not([data-ckl-done])'));
+        if (!rows.length) return Promise.resolve();
+        var budget = CKL_MEDIA_MAX;
+        rows = rows.filter(function (el) {
+          var sub = el.getAttribute('data-ckl-sub');
+          if (!sub) return false;
+          if (cklCached(sub)) return true;
+          if (budget <= 0) return false;
+          budget--;
+          return true;
+        });
+        rows.forEach(function (el) { el.setAttribute('data-ckl-done', '1'); });
+        return pool(rows, CKL_EVID_CONC, function (el) {
+          return checklistView(el.getAttribute('data-ckl-sub'), true).then(function (d) {
+            var m = '';
+            ((d && d.obs) || []).forEach(function (o) {
+              var mc = o.mediaCounts || {};
+              for (var k in mc) { if (mc[k]) m += k; }
+            });
+            if (!m) return;
+            // The row says "this checklist has a photo", not "of your bird" —
+            // it is one line under a hotspot, and the honest claim is the
+            // weaker one.
+            var marks = BirdLogic.checklistIcons({ m: m });
+            if (!marks) return;
+            var lead = el.querySelector('.cklead');
+            if (!lead) return;
+            var span = document.createElement('span');
+            span.className = 'ckevid';
+            span.innerHTML = marks;
+            lead.insertAdjacentElement('afterend', span);
+          }).catch(function () {});
+        });
+      }
 
       // The note, in a sheet, with the waypoint made tappable.
       function openEvidence(key) {

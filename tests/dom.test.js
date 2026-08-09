@@ -2422,7 +2422,12 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
     'the name repeats only because each row is a different report you can open');
   assert.match(html, /class="cklead"><a[^>]*ebird\.org\/checklist\/S1[^>]*>Penny Creek/,
     'and the NAME is the link to the checklist, not a hotspot page');
-  assert.match(html, /class="ckdate">Jul 31/, 'when it was reported');
+  // The date is numeric now — "abbreviate the date time more" — so a rarity
+  // with fifteen checklists filed the same afternoon stops printing the month
+  // name fifteen times. The month is kept as a NUMBER rather than dropped,
+  // because these lists span days and a bare time would make yesterday look
+  // like this morning.
+  assert.match(html, /class="ckdate">7\/31/, 'when it was reported');
   assert.match(html, /class="ckdist[^"]*"[^>]*>8\.1 mi/,
     'and how far it is, on the same line — the class may now carry `maplink` '
     + 'too, because the distance opens maps');
@@ -2431,13 +2436,18 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
   const full = CK.small({ place: 'Marymoor Park--Audubon BirdLoop', date: 'Jul 30 9:29 AM',
                           href: 'https://ebird.org/checklist/S1', count: 42, distMi: 4.24 });
-  assert.match(full, /class="ckcount">×42</,
-    'the count is compact on a one-line row — "42 birds" is four times the width');
+  // NO BIRD COUNT ON A SMALL ROW. "remove the bird count." On a rarity's
+  // checklist list it was "×1" over and over — the whole point of a rare bird
+  // is that there is one of it — and it was spending width the PLACE NAME
+  // needed. The medium card keeps it, where the row is about a visit.
+  assert.ok(!/class="ckcount"/.test(full),
+    'the bird count is gone from the one-line row');
   assert.match(CK.medium({ place: 'P', count: 1 }), /1 bird</,
     'the medium card has a whole line, so it spells it out and pluralises');
   assert.match(full, /class="ckdist">4\.2 mi/, 'and how far, when the caller has it');
-  assert.match(full, /class="ckdate">Jul 30 9:29a/,
-    'the time is shortened — "9:29a" saves three characters a 320px row cannot spare');
+  assert.match(full, /class="ckdate">7\/30 9:29a/,
+    'the time is shortened AND the month is numeric — "7/30 9:29a" against '
+    + '"Jul 30 9:29 AM" is six characters a 320px row cannot spare');
   // The observer is the one field of unbounded width. The layout sweep caught
   // it hanging 247px past a 320px row at 1.75x text scale, so the small card
   // drops it and the medium card keeps it.
@@ -4984,7 +4994,7 @@ test('Last 7-Days rarities can expand the full checklist list', () => {
   assert.match(src, /checklistDetails\(/,
     'the full list is behind an expander — the SHARED one, so this section '
     + 'cannot drift from the three others that show the same thing');
-  assert.match(HTML, /function checklistDetails\([\s\S]{0,400}<details class="ckall">/,
+  assert.match(HTML, /function checklistDetails\([\s\S]{0,900}<details class="ckall">/,
     'and that helper really is the <details> wrapper');
   assert.match(src, /' — show every report'/, 'with a summary that states the total');
   // A <details> holding one row is a control that does nothing.
@@ -7654,8 +7664,8 @@ test('a checklist row is the requested one-liner, and the whole row is the link'
   const li = d.querySelector('body > ul.cklcards-sm > li.cklcard-sm');
   const txt = li.textContent.replace(/\s+/g, ' ').trim();
   assert.match(txt, /33014 NE 138th St/, 'the hotspot name leads');
-  assert.match(txt, /Aug 3 5:14a/, 'then when');
-  assert.match(txt, /×3/, 'then how many');
+  assert.match(txt, /8\/3 5:14a/, 'then when — numerically, to leave room for the name');
+  assert.ok(!/×3/.test(txt), 'and NOT the bird count, which said ×1 over and over');
   assert.match(txt, /12\.4 mi/,
     'then how far, to ONE DECIMAL — it used to round anything over 10mi to '
     + '"12 mi", and on a list you scan to pick a drive the tenth is what '
@@ -8330,10 +8340,13 @@ test('the seen / unseen divider is a real separator, not a hairline', () => {
   // A tint behind the heading, so it reads as a header rather than a card that
   // lost its picture. Named per theme rather than color-mix() so it renders on
   // any WebKit the app is sideloaded onto.
-  assert.match(css, /background:\s*var\(--band\)/, 'the heading sits on a band');
+  // NOT a filled band any more: "the new still needed header is ugly and the
+  // text runs against the edge". A full-bleed slab of colour sat outside the
+  // inset the cards use, so its text started where nothing else's did. Space
+  // and a rule separate two lists; colour was never doing that work.
+  assert.match(css, /background:\s*none/, 'the heading is not a slab of colour');
+  assert.ok(!/border-radius/.test(css), 'and not a rounded box pretending to be a card');
   assert.match(HTML, /--band:\s*#[0-9a-f]{6}/i, 'light mode defines the band');
-  assert.equal((HTML.match(/--band:\s*#[0-9a-f]{6}/gi) || []).length, 2,
-    'and dark mode picks its own rather than inheriting a wash of the accent');
 
   // SPACE is what actually makes two lists look like two lists; contrast alone
   // does not. The gap above the heading must be large and must NOT apply to the
@@ -8341,8 +8354,9 @@ test('the seen / unseen divider is a real separator, not a hairline', () => {
   const top = /margin:\s*(\d+)px/.exec(css);
   assert.ok(top && Number(top[1]) >= 24,
     `the gap above a group is ${top && top[1]}px — it separates the two lists`);
-  assert.match(HTML, /\.cardgroup:first-child\s*\{[^}]*margin-top:\s*2px/,
-    'but the first group keeps its place at the top of the list');
+  assert.match(HTML, /\.cardgroup:first-child\s*\{[^}]*margin-top:\s*\dpx/,
+    'but the first group keeps its place at the top of the list — 24px of air '
+    + 'above the very first heading reads as a rendering fault');
 });
 
 
@@ -8561,21 +8575,27 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
   const doc = app.window.document, A = app.window.__app;
   const badges = () => (doc.getElementById('results').innerHTML.match(/newflag/g) || []).length;
 
+  // A FIRST LOOK IS QUIET. "the first time i opened the 7 day rarity, it had a
+  // new icon on every bird" — of course it did, nothing had been seen, so
+  // everything qualified. But "new" against no history is not news, it is just
+  // the list, and a badge on every row marks nothing. The first view
+  // establishes the baseline silently.
   A.refresh();
-  await waitFor(() => badges() === 1, 'the first sighting to render as NEW');
-  assert.equal(badges(), 1, 'the first sighting you have never seen is NEW');
-  assert.match(doc.getElementById('status').textContent, /1 new since you last looked/,
-    'and the count is on the status line, so you know without reading the list');
+  await waitFor(() => /rarity report/.test(doc.getElementById('status').textContent),
+    'the first view to render');
+  assert.equal(badges(), 0, 'a first look has nothing to compare against, so it is quiet');
+  assert.doesNotMatch(doc.getElementById('status').textContent, /new since you last looked/);
 
-  // Marked seen only AFTER rendering — marking on the way in would clear the
-  // badge you were about to read.
+  // Re-sorting is NOT a new visit. "i toggled the new/nearest and the new icon
+  // disappeared": the first render had already written the baseline, so the
+  // second found nothing new and cleared every badge. The set is pinned to the
+  // DATA, so changing only the order cannot change what is marked.
+  A.setRaritySort('distance');
   A.refresh();
-  await waitFor(() => badges() === 0 &&
-    !/new since you last looked/.test(doc.getElementById('status').textContent),
-    'the second view to drop the badge');
-  assert.equal(badges(), 0, 'looking again does not re-announce what you just saw');
-  assert.doesNotMatch(doc.getElementById('status').textContent, /new since you last looked/,
-    'and the count goes with it');
+  await waitFor(() => /nearest first/.test(doc.getElementById('status').textContent),
+    'the re-sorted view');
+  assert.equal(badges(), 0, 'still quiet — the rows have not changed');
+  A.setRaritySort('date');
 
   // A genuinely new bird turns up.
   rows = rows.concat([mk('wantat', 'Wandering Tattler', todayFixtureDate() + ' 15:10', 'S2')]);
@@ -8587,7 +8607,7 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
   doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
   await waitFor(() => /Wandering Tattler/.test(doc.getElementById('results').textContent)
     && badges() === 1, 'the new arrival to appear and be marked');
-  assert.equal(badges(), 1, 'the arrival is marked');
+  assert.equal(badges(), 1, 'the arrival is marked — and ONLY the arrival');
   assert.match(doc.getElementById('results').textContent, /Wandering Tattler/,
     'and it is the bird that actually arrived');
   assert.match(doc.getElementById('status').textContent, /1 new since you last looked/);
@@ -8645,4 +8665,43 @@ test('the Go birding sections refresh observations, not the world', () => {
     'Hot passes the flag');
   assert.match(HTML, /coldBtn:\s*\{ fn: function \(\) \{ runHotspotScan\(\{ force: takeForce\(\) \}\)/,
     'Cold passes the flag');
+});
+
+
+// "theres no need to repeat the hotspot name on the chrcklists under a hotspot,
+// instead it should say the date time, submitters name, count, and show media
+// icons." — and "update the template so its chsnged everywhere", so this is
+// asserted on the shared card, not on one section's copy of it.
+test('a checklist under a hotspot names the visit, not the place again', () => {
+  const CK = require(require('node:path')
+    .join(__dirname, '..', 'www', 'cards-checklist.js'));
+
+  // No place: the caller has already printed it as the card's heading.
+  const row = CK.small({ date: 'Aug 8 2:26 PM', href: 'https://ebird.org/checklist/S1',
+                         sp: 5, distMi: 17.3, who: 'Barb Chan', data: { 'ckl-sub': 'S1' } });
+  const txt = row.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  assert.match(txt, /8\/8 2:26p/, 'the DATE leads, and carries the link');
+  assert.match(row, /class="cklead"><a[^>]*checklist\/S1[^>]*>8\/8 2:26p</,
+    'so the row still has something to tap without repeating the heading');
+  assert.match(txt, /Barb Chan/, 'who filed it — one of the few facts that differs per row');
+  assert.match(txt, /5 sp/, 'how many SPECIES they found');
+  assert.match(txt, /17\.3 mi/, 'and how far away it is');
+  assert.match(row, /data-ckl-sub="S1"/, 'with the hook the media pass needs');
+
+  // SPECIES count and BIRD count are different facts. Keeping them apart is
+  // what lets a rarity row drop "×1" while a hotspot row keeps "19 sp".
+  assert.ok(!/ckcount/.test(row), 'no bird count here');
+  assert.ok(!/Marymoor|Charles Richey/.test(txt), 'and no place name');
+
+  // The medium card still spells out the bird count: it has a whole line, and
+  // it describes a visit rather than one row under a heading.
+  assert.match(CK.medium({ place: 'P', count: 3 }), /3 birds</,
+    'the medium card is unchanged');
+
+  // The place still leads when there ISN'T a heading above it to lean on.
+  const rarity = CK.small({ place: 'Union Bay Natural Area/Montlake Fill',
+    date: 'Aug 7 11:39 AM', href: 'https://ebird.org/checklist/S2', distMi: 9.3 });
+  assert.match(rarity.replace(/<[^>]+>/g, ' '), /Union Bay Natural Area/,
+    'a row with no heading above it still names its place');
 });

@@ -142,7 +142,24 @@
     '.cklcard a.ckdist { margin-top: 0; font-size: inherit; font-weight: inherit;',
     '                    color: var(--accent); text-decoration: none; }',
     '.cklcard .ckmapwrap a, .cklcard .ckmap { text-decoration: none; }',
+    /* THE LINK IS NOT A DEFAULT LINK. `.ckgo` carried no colour or decoration
+       of its own, so fifteen rows of a rarity's checklists rendered as fifteen
+       underlined browser-blue links — "i dont the format of the checklist
+       rows: remove the line". The underline IS the line. Everything else the
+       app links is accent-green and undecorated; the row is already tappable
+       edge to edge, so the name does not need to advertise it twice. */
+    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo,',
+    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo:visited {',
+    '  color: var(--accent); text-decoration: none; }',
+    /* ...and a bullet in place of the rule, so a row still reads as one item
+       in a list without a horizontal line per row. It is a marker, not a
+       fact: it never shrinks, never wraps, and is not part of the flex
+       content. */
+    '.cklcards-sm > .cklcard-sm::before {',
+    '  content: "\\2022"; flex: 0 0 auto; color: var(--line);',
+    '  font-size: calc(11px * var(--s)); line-height: 1; }',
     '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
+    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
 
     /* MEDIUM: laid out exactly like the medium hotspot card — rank | headline |
        the one number that ranks it, over a full-width facts line. Same shape,
@@ -197,6 +214,11 @@
      sub-area is what goes first; a `/` alternative name goes with it. What is
      left is capped, because a name long enough to fill the row defeats the
      one-line layout however it was built. */
+  /* Longer than the old 34: dropping the bird count and shortening the date
+     freed the width, and "see if the name can be longer" is what that width
+     was freed FOR. */
+  var SMALL_NAME_MAX = 44;
+
   function condense(name, max) {
     var s = String(name == null ? '' : name).trim();
     max = max || 34;
@@ -242,7 +264,15 @@
       // SMALL: the LEAD is the link. Its text is the abbreviated place when
       // there is one, and otherwise the date — so a row always has something
       // clickable without ever printing a place its heading has already given.
-      var leadText = v.place ? condense(v.place, v.max) : shortWhen(v.date);
+      //
+      // "theres no need to repeat the hotspot name on the chrcklists under a
+      // hotspot, instead it should say the date time, submitters name, count,
+      // and show media icons." So a caller that has already named the place
+      // omits `place`, and the DATE becomes the link. Fifteen rows repeating
+      // the heading above them is fifteen rows of no information, and it was
+      // eating the width the useful facts needed.
+      var leadText = v.place ? condense(v.place, v.max || SMALL_NAME_MAX)
+                             : shortWhen(v.date, true);
       if (leadText) {
         bits.push('<span class="cklead">' + (v.href
           ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
@@ -258,13 +288,28 @@
         bits.push('<span class="ckevid">' + v.icons + '</span>');
       }
       if (v.place && v.date) {
-        bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+        bits.push('<span class="ckdate">' + esc(shortWhen(v.date, true)) + '</span>');
+      }
+      // WHO, on a small row, but only when the place is not being printed.
+      // Small rows used to drop the observer unconditionally; under a hotspot
+      // heading the name is one of the few facts that distinguishes one row
+      // from the next.
+      if (v.who && !v.place) bits.push('<span class="ckwho">' + v.who + '</span>');
+      // How many SPECIES the checklist held. Not the same fact as `count`,
+      // which is how many of ONE bird — keeping them separate is what lets a
+      // rarity row drop "×1" while a hotspot row keeps "19 sp".
+      if (v.sp != null && v.sp !== '') {
+        bits.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
       }
     }
-    if (v.count != null && v.count !== '') {
-      bits.push('<span class="ckcount">' + (isMedium
-        ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
-        : '\u00d7' + esc(v.count)) + '</span>');
+    // NO COUNT ON A SMALL ROW. "remove the bird count." On a rarity's checklist
+    // list it was "×1" fifteen times over — the whole point of a rare bird is
+    // that there is one of it — and it was spending width the PLACE NAME
+    // needed. The medium card keeps it, where the row is about a visit rather
+    // than about one bird.
+    if (isMedium && v.count != null && v.count !== '') {
+      bits.push('<span class="ckcount">' + esc(v.count)
+        + (String(v.count) === '1' ? ' bird' : ' birds') + '</span>');
     }
     if (v.distMi != null && isFinite(v.distMi)) {
       // ONE DECIMAL, always. It used to round anything over 10 mi, so the
@@ -316,12 +361,26 @@
 
   /* "Aug 2 9:29 AM" is longer than a one-line row can afford next to a place
      name. "Aug 2 9:29a" says the same thing and saves three characters, which
-     on a 320px screen is the difference between fitting and truncating. */
-  function shortWhen(s) {
-    return String(s == null ? '' : s)
+     on a 320px screen is the difference between fitting and truncating.
+
+     SMALL rows go further — "abbreviate the date time more" — to a numeric
+     "8/2 9:29a". Another three characters, and on a rarity with fifteen
+     checklists filed the same afternoon the month name was fifteen repetitions
+     of a word nobody was reading. The month is KEPT rather than dropped
+     entirely, because these lists routinely span days and a bare time would
+     make yesterday look like this morning. */
+  function shortWhen(s, numericMonth) {
+    var out = String(s == null ? '' : s)
       .replace(/\s*([AP])M\b/i, function (_m, ap) { return ap.toLowerCase(); })
       .replace(/:00([ap])\b/i, '$1')
       .trim();
+    if (!numericMonth) return out;
+    var MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7,
+                aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+    return out.replace(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})\b/, function (m, mon, day) {
+      var n = MON[mon.toLowerCase()];
+      return n ? n + '/' + day : m;
+    });
   }
 
   var API = {

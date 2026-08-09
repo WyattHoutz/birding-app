@@ -441,6 +441,11 @@
         // not "no photo" — nothing may render absence as a claim.
         evidence: (r.evidence && r.evidence !== 'None') ? r.evidence : '',
         has_comments: !!r.hasComments,
+        // The COUNTY the sighting was filed in, straight off the feed. Free —
+        // detail=full carries subnational2 on every row — and it is what lets a
+        // rarity row link to the county rare-bird alert it appeared in.
+        county: r.subnational2Code || '',
+        countyName: r.subnational2Name || '',
         sources: e.sources.slice()
       });
     });
