@@ -8347,6 +8347,22 @@ test('the seen / unseen divider is a real separator, not a hairline', () => {
 
 
 
+
+// TODAY, as the app computes it.
+//
+// The rarity sections filter to today's reports, so a fixture dated
+// '2026-08-08' is only "today" on a machine whose clock says so. These tests
+// passed here and timed out on CI, which was already into the 9th UTC: the
+// feed returned rows, notableToday() correctly dropped every one as
+// yesterday's, and the section took its empty-list early return — so nothing
+// ever rendered and the wait had nothing to wait for. A fixture that encodes
+// the day it was written is a test with an expiry date.
+function todayFixtureDate() {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
 // Wait for a CONDITION, not for a duration.
 //
 // The rarity tests below drive a real async wave (fetch -> merge -> render) and
@@ -8385,7 +8401,7 @@ async function waitFor(fn, what, ms = 15000) {
 test('Refresh actually refetches; opening the section does not', async () => {
   let waves = 0;
   const rows = [{ speciesCode: 'tufpuf', comName: 'Tufted Puffin',
-    obsDt: '2026-08-08 14:23', locName: 'Marina Beach Park', locId: 'L1',
+    obsDt: todayFixtureDate() + ' 14:23', locName: 'Marina Beach Park', locId: 'L1',
     lat: 47.81, lng: -122.39, subId: 'S1', userDisplayName: 'Barb Chan',
     howMany: 1, evidence: 'P', obsValid: true }];
   const app = await boot({
@@ -8424,11 +8440,11 @@ test('Refresh actually refetches; opening the section does not', async () => {
 test('both rarity lists sort by date or distance, from one control', async () => {
   const rows = [
     // Newest but FURTHEST.
-    { speciesCode: 'tufpuf', comName: 'Tufted Puffin', obsDt: '2026-08-08 14:23',
+    { speciesCode: 'tufpuf', comName: 'Tufted Puffin', obsDt: todayFixtureDate() + ' 14:23',
       locName: 'Far Park', locId: 'L1', lat: 48.05, lng: -122.60, subId: 'S1',
       userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true },
     // Older but NEAREST.
-    { speciesCode: 'wantat', comName: 'Wandering Tattler', obsDt: '2026-08-08 09:05',
+    { speciesCode: 'wantat', comName: 'Wandering Tattler', obsDt: todayFixtureDate() + ' 09:05',
       locName: 'Near Park', locId: 'L2', lat: 47.77, lng: -122.15, subId: 'S2',
       userDisplayName: 'K', howMany: 1, evidence: 'A', obsValid: true },
   ];
@@ -8496,7 +8512,7 @@ test('pull-to-refresh exists, and cannot fire by accident', () => {
 // "is that puffin still there".
 test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
   const rows = [{ speciesCode: 'tufpuf', comName: 'Tufted Puffin',
-    obsDt: '2026-08-08 14:23', locName: 'P', locId: 'L1', lat: 47.8, lng: -122.2,
+    obsDt: todayFixtureDate() + ' 14:23', locName: 'P', locId: 'L1', lat: 47.8, lng: -122.2,
     subId: 'S1', obsId: 'OBS1', userDisplayName: 'B', howMany: 1,
     evidence: 'P', obsValid: true }];
   let calls = [];
@@ -8538,7 +8554,7 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
   const mk = (c, n, t, sub) => ({ speciesCode: c, comName: n, obsDt: t, locName: 'P',
     locId: 'L1', lat: 47.8, lng: -122.2, subId: sub, obsId: 'OBS' + sub,
     userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true });
-  let rows = [mk('tufpuf', 'Tufted Puffin', '2026-08-08 14:23', 'S1')];
+  let rows = [mk('tufpuf', 'Tufted Puffin', todayFixtureDate() + ' 14:23', 'S1')];
   const app = await boot({
     fetch(url) { return /data\/obs\//.test(url) ? rows : null; },
   });
@@ -8562,7 +8578,7 @@ test('a rarity you have not been shown before is marked NEW, once', async () => 
     'and the count goes with it');
 
   // A genuinely new bird turns up.
-  rows = rows.concat([mk('wantat', 'Wandering Tattler', '2026-08-08 15:10', 'S2')]);
+  rows = rows.concat([mk('wantat', 'Wandering Tattler', todayFixtureDate() + ' 15:10', 'S2')]);
   // The section's own Load button is disabled while a load is in flight, and a
   // DISABLED button does not fire click — so pressing refresh too early is
   // silently a no-op. Wait for the previous run to finish releasing it.
