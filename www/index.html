@@ -1439,7 +1439,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.88';
+      var APP_VERSION = '1.0.89';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1921,6 +1921,22 @@
           (hasTime ? ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
       }
       function nowTime() { return new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
+      // WHEN THE DATA WAS READ, not when the page was painted.
+      //
+      // "add a timestamp to the teo raritiespage showing the last uodate time."
+      // The line already said "updated 6:13 PM" — but it printed nowTime(), so
+      // a list served from the 30-minute memo claimed to be seconds old. That
+      // is the same lie as the Refresh button that did nothing: the number
+      // moved, so the data looked new. This prints the chase snapshot's own
+      // timestamp, and says how stale it is once it is worth knowing.
+      function dataTime(c) {
+        var t = c && c.t;
+        if (!t) return nowTime();
+        var mins = Math.floor((Date.now() - t) / 60000);
+        var when = new Date(t).toLocaleTimeString(undefined,
+          { hour: 'numeric', minute: '2-digit' });
+        return when + (mins >= 2 ? ' (' + mins + ' min ago)' : '');
+      }
 
       // One observation row, carrying the same links the Markdown report puts on
       // every row: species page, location (hotspot page + map, or map only for a
@@ -3211,7 +3227,7 @@
           st.innerHTML = esc(rows.length + ' rarity report' + (rows.length === 1 ? '' : 's')
             + ' within ' + chaseMaxMi() + ' mi so far today · '
             + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
-            + ' · updated ' + nowTime())
+            + ' · updated ' + dataTime(c))
             + (fresh.length
                ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
                : '')
@@ -4848,9 +4864,17 @@
         var code = rec && rec.county, name = (rec && rec.countyName) || '';
         if (!code) return '';
         var label = (name || code) + ' RBA';
+        // rank=mrec is eBird's own "most recent first" ordering for a region
+        // page — "sjould link to the resoective ebird aba alert page sorted by
+        // date". NOT verified from here: ebird.org serves a bot check to
+        // anything that is not a browser, so the parameter could not be
+        // exercised. It is safe either way — the rare-birds page is
+        // date-ordered by default, so an ignored parameter costs nothing and a
+        // respected one is what was asked for.
         return '<a class="rbalink" data-href="https://ebird.org/region/'
-          + encodeURIComponent(code) + '/rare-birds" title="'
-          + esc((name || code) + ' County rare bird alert') + '">' + esc(label) + '</a>';
+          + encodeURIComponent(code) + '/rare-birds?rank=mrec" title="'
+          + esc((name || code) + ' County rare bird alert, most recent first')
+          + '">' + esc(label) + '</a>';
       }
 
       function speciesMetaRow(o) {
@@ -5821,12 +5845,38 @@
         if (t.length < 2) return [];
         var terms = t.split(/[^a-z0-9]+/).filter(Boolean);
         if (!terms.length) return [];
-        return (rows || []).filter(function (s) {
+        // BY CODE, TOO. "the species look up shoudl allow searching by bird
+        // codes." eBird codes are what the app's own debug log, the URLs and
+        // every feed row actually carry — "tufpuf" is faster to type than
+        // "Tufted Puffin" and it is unambiguous, which the common name is not.
+        //
+        // Tried as a WHOLE-STRING prefix rather than per word: a code has no
+        // word breaks, and splitting "tufpuf" into terms would make it match
+        // nothing. An exact code sorts to the front, because if you typed a
+        // code you know exactly which bird you meant.
+        var byCode = (rows || []).filter(function (s) {
+          var c = String(s.code || '').toLowerCase();
+          return c && c.indexOf(t.replace(/[^a-z0-9]+/g, '')) === 0;
+        });
+        var exact = {}, out = [];
+        byCode.forEach(function (s) {
+          exact[s.code] = 1;
+          out.push(s);
+        });
+        out.sort(function (a, b) {
+          var ae = String(a.code).toLowerCase() === t ? 0 : 1;
+          var be = String(b.code).toLowerCase() === t ? 0 : 1;
+          return ae !== be ? ae - be : String(a.name).localeCompare(String(b.name));
+        });
+        (rows || []).forEach(function (s) {
+          if (exact[s.code]) return;
           var words = String(s.name).toLowerCase().split(/[^a-z0-9]+/);
-          return terms.every(function (term) {
+          var hit = terms.every(function (term) {
             return words.some(function (w) { return w.indexOf(term) === 0; });
           });
-        }).slice(0, HOTSPOT_HITS);
+          if (hit) out.push(s);
+        });
+        return out.slice(0, HOTSPOT_HITS);
       }
       var NV_SEARCH_IDLE = 'Your tentative IDs awaiting a confirmation sighting. '
         + 'These are held OFF your year list everywhere in the app, so they keep showing up as targets until you drop them.';
@@ -6166,6 +6216,18 @@
         // The locId travels with the card so the species lists can be
         // corrected after paint — see hydrateLocSpecies.
         if (o.locId) el.setAttribute('data-hsloc', o.locId);
+        // ...and so does the list the card was RANKED on. The correction pass
+        // reads a 3-day location feed while the ranking came from 7-day region
+        // feeds, so a bird reported five days ago is a scored target that the
+        // shorter feed has never heard of. Without this the pass replaced
+        // "2 targets" with an empty list and the card contradicted its own
+        // sub-header — reported at Sandel Lookout, ranked #1 with nothing
+        // under it.
+        try {
+          el.setAttribute('data-scored', JSON.stringify(unseen.map(function (u) {
+            return { code: u.code || '', name: u.comName || u.name || '' };
+          }).filter(function (u) { return u.code || u.name; })));
+        } catch (e) { /* a card without this simply keeps the old behaviour */ }
         return el;
       }
 
@@ -6381,6 +6443,32 @@
                   + ((b && b.rare) ? rareBadge() : '')
               });
             });
+            // THE CORRECTION MAY ONLY ADD, NEVER DELETE.
+            //
+            // This feed reaches back LOC_SPECIES_DAYS (3); the ranking that
+            // produced "2 targets" came from the 7-day region feeds. A bird
+            // reported here five days ago is therefore a real scored target
+            // that this feed does not contain — and replacing the list with
+            // what the shorter feed says produced a #1 destination announcing
+            // two targets with nothing under it.
+            //
+            // So the scored birds are folded back in. They are still UNSEEN by
+            // the same resolver, so this cannot resurrect a bird you have
+            // ticked; it only stops a narrower window from deleting one.
+            try {
+              JSON.parse(el.getAttribute('data-scored') || '[]').forEach(function (u) {
+                if (!u || dedupe[u.code]) return;
+                if (isSeen(u.code, u.name)) return;
+                dedupe[u.code] = 1;
+                var b2 = bucket[u.code];
+                unseen.push({
+                  comName: u.name, code: u.code,
+                  rare: (b2 && b2.rare) ? 1 : 0, subId: '',
+                  tag: '<span class="needflag">🔍</span>'
+                    + ((b2 && b2.rare) ? rareBadge() : '')
+                });
+              });
+            } catch (e) { /* no hint on this card: keep the feed's answer */ }
             function byName(a, b) { return String(a.comName).localeCompare(String(b.comName)); }
             unseen.sort(byName); seen.sort(byName);
             // "dont show checklists without unseen birds." The checklists that
@@ -6430,7 +6518,7 @@
         list = (list || []).filter(function (d) {
           return d && d.species && d.species.length > 0;
         });
-        renderMap(mapEl, list, getHome(), false);
+        renderMap(mapEl, list, anchorPoint(), false);
         listEl.innerHTML = '';
         if (!list.length) {
           listEl.innerHTML = '<div class="status">No hotspot in range is holding '
@@ -6461,15 +6549,58 @@
         st.textContent = getReport().label + ' is a rare-bird tracker — hotspot ranking doesn\u2019t apply. See the \uD83D\uDEA8 ABA rare-bird alert and \uD83C\uDFC6 eBird rankings sections.';
       }
 
+      // Re-rank a destination list around wherever the reader has chosen to
+      // measure from.
+      //
+      // "the here button and find buttons still dont work on top excursions and
+      // top destinations, but they do work on wuick outing." They did not work
+      // because these two sections never consulted the anchor at all: the
+      // distances are baked into the chase view from HOME, so pressing Here
+      // re-rendered a byte-identical, home-ranked list.
+      //
+      // Only the DISTANCE is anchor-dependent. The score is a count of birds
+      // you need at that hotspot and does not change because you moved, so the
+      // order stays "most targets first, nearest to break the tie" — the same
+      // rule the list already appeared to follow.
+      function rerankFromAnchor(list) {
+        var a = anchorPoint();
+        if (!a || !isFinite(a.lat) || !isFinite(a.lng)) return list;
+        list.forEach(function (d) {
+          if (isFinite(d.lat) && isFinite(d.lng)) {
+            d.dist = haversineMi(a.lat, a.lng, d.lat, d.lng);
+          }
+        });
+        list.sort(function (x, y) {
+          var sx = x.score == null ? -1 : x.score, sy = y.score == null ? -1 : y.score;
+          if (sx !== sy) return sy - sx;
+          var dx = x.dist == null ? Infinity : x.dist, dy = y.dist == null ? Infinity : y.dist;
+          return dx - dy;
+        });
+        return list;
+      }
+      // "id like the location to be showm so its clear where its locating
+      // from." Named on the status line of every section that ranks by
+      // distance, because a list of distances means nothing until you know
+      // what they are distances FROM — and the anchor is now something the
+      // reader can change.
+      function anchorLabel() {
+        var a = quickAnchor(quickOrigin);
+        if (a && a.label) return a.label;
+        var h = getHome();
+        return (h && h.place) || getReport().homeLabel || 'home';
+      }
+      function fromHere() { return ' · from ' + anchorLabel(); }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
         btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
         getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var dests = c.cv.destinations.map(toDest);
+          var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
-          st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
+            + fromHere() + ' · updated ' + nowTime();
           renderDestinations(dests, $('destMap'), $('destResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -6481,9 +6612,10 @@
         btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + profile.dailyDriveMi + ' mi…';
         getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var exc = c.cv.excursions.map(toDest);
+          var exc = rerankFromAnchor(c.cv.excursions.map(toDest));
           if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + profile.dailyDriveMi + ' mi right now.'; return; }
-          st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's') + ' · updated ' + nowTime();
+          st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's')
+            + fromHere() + ' · updated ' + nowTime();
           renderDestinations(exc, $('excMap'), $('excResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -6959,7 +7091,11 @@
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
+        var snap = null;
         getChase(takeForce() ? 'notable' : false).then(function (c) {
+          // The snapshot's own timestamp, kept so the status line can say when
+          // the DATA was read rather than when the page was painted.
+          snap = c;
           // Rarity trackers (Lower 48 / ABA) have no county feeds; their report
           // builds this section from the ABA alert filtered to unseen species,
           // so do the same rather than showing nothing.
@@ -6997,7 +7133,7 @@
           st.innerHTML = esc(rows.length + ' rare species reported recently · within '
             + chaseMaxMi() + ' mi · '
             + (raritySort() === 'distance' ? 'nearest first' : 'most recent first')
-            + ' · ' + nowTime()
+            + ' · updated ' + dataTime(snap)
             + (droppedFar ? ' · ' + droppedFar + ' report'
                + (droppedFar === 1 ? '' : 's') + ' farther out not shown' : ''))
             + (freshCount

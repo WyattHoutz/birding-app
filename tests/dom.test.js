@@ -8705,3 +8705,104 @@ test('a checklist under a hotspot names the visit, not the place again', () => {
   assert.match(rarity.replace(/<[^>]+>/g, ' '), /Union Bay Natural Area/,
     'a row with no heading above it still names its place');
 });
+
+
+// "top destination had no unseen birds" — Sandel Lookout, ranked #1, reading
+// "score 6 · 2 rarities · 2 targets" with nothing under it but "19 more species
+// already seen".
+//
+// TWO WINDOWS, one card. The ranking that produced "2 targets" comes from the
+// 7-day region feeds; hydrateLocSpecies then CORRECTS the lists from
+// data/obs/{locId}/recent?back=3. A bird reported here five days ago is a real
+// scored target the shorter feed has never heard of — and the correction
+// replaced the list with the empty answer, so the card contradicted its own
+// sub-header.
+//
+// It also explains the second symptom in the same screenshot: with
+// data-unseen-n driven to 0, the checklist filter hides the checklists too. One
+// root cause, two visible bugs.
+test('a shorter feed may correct a hotspot card, but never empty it', async () => {
+  const app = await boot({
+    fetch(url) {
+      // The 3-day feed knows ONLY a bird already on the year list.
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        return [{ speciesCode: 'daejun', comName: 'Dark-eyed Junco',
+                  obsDt: todayFixtureDate() + ' 08:00', subId: 'S9' }];
+      }
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  A.renderHot({ hot: [{ locId: 'L1', name: 'Sandel Lookout', lat: 47.7, lng: -122.2,
+    dist: 10, fresh: 2, checklists: 3, share: 5, latest: todayFixtureDate(),
+    birds: [{ name: 'Tufted Puffin', code: 'tufpuf', unseen: true },
+            { name: 'Common Murre', code: 'commur', unseen: true }] }] });
+
+  const card = await waitFor(
+    () => { const c = doc.querySelector('#hotResults [data-hsloc]');
+            return c && c.getAttribute('data-unseen-n') != null ? c : null; },
+    'the species pass to finish correcting the card');
+
+  const txt = card.textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /Tufted Puffin/, 'the scored target survives the correction');
+  assert.match(txt, /Common Murre/, 'and so does the other one');
+  assert.match(txt, /2 unseen/,
+    'so the list agrees with the "2 targets" the card was ranked on');
+  assert.equal(card.getAttribute('data-unseen-n'), '2',
+    'and the checklist filter is told the truth, which is what stopped it '
+    + 'hiding the checklists as well');
+
+  // The correction still DOES its job: the junco the location feed found is
+  // folded into the already-seen half rather than ignored.
+  assert.match(txt, /1 more species already seen/,
+    'the shorter feed still adds what it knows');
+
+  // ...and it cannot resurrect a bird you have ticked: the scored list is run
+  // through the same resolver, so a target you have since seen stays seen.
+  assert.ok(!/Dark-eyed Junco/.test(txt.split('unseen')[0] || ''),
+    'a bird on the year list is not promoted back into the targets');
+  app.window.close();
+});
+
+
+// "the species look up shoudl allow searching by bird codes."
+//
+// eBird codes are what the debug log, the URLs and every feed row actually
+// carry. "tufpuf" is faster to type than "Tufted Puffin" and it is unambiguous,
+// which a common name is not.
+test('species lookup finds a bird by its eBird code', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [
+    { code: 'tufpuf', name: 'Tufted Puffin' },
+    { code: 'commur', name: 'Common Murre' },
+    { code: 'tuftit', name: 'Tufted Titmouse' },
+    { code: 'purfin', name: 'Purple Finch' },
+  ];
+  // Array.from, not .map: searchSpecies returns an array from the JSDOM realm,
+  // whose Array.prototype is not Node's, and deepStrictEqual compares
+  // prototypes — so identical values fail with an unreadable diff.
+  const find = (q) => Array.from(A.searchSpecies(rows, q), (s) => s.code);
+
+  assert.deepEqual(find('tufpuf'), ['tufpuf'], 'a full code finds exactly its bird');
+  assert.deepEqual(find('commur'), ['commur'], 'and another');
+  // A code PREFIX works, and so does the name — "tuf" is both the start of two
+  // codes and the start of a word in two names, and must not return one bird
+  // twice.
+  assert.deepEqual(find('tuf').sort(), ['tuftit', 'tufpuf'].sort(),
+    'a prefix matches codes and names alike, without duplicating a bird');
+  assert.deepEqual(find('Tufted').sort(), ['tuftit', 'tufpuf'].sort(),
+    'name search is untouched');
+  assert.deepEqual(find('purple'), ['purfin'], 'including a word that is only in the name');
+  assert.deepEqual(find('xyzzy'), [], 'and nothing matches nothing');
+
+  // A code is tried as a WHOLE STRING, not split into word terms: a code has no
+  // word breaks, so splitting "tufpuf" would make it match nothing at all.
+  assert.ok(A.searchSpecies(rows, 'tufpuf').length === 1,
+    'the code is matched whole');
+  app.window.close();
+});
