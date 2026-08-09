@@ -7121,7 +7121,7 @@ test('the medium species card has one second row, and it obeys the spec', async 
   // The point of extracting it: both sections feed the SAME builder, so the
   // media mark that only ABA showed now reaches the two rarity sections.
   const src = HTML.slice(HTML.indexOf('function loadActiveRarities'),
-    HTML.indexOf('function loadActiveRarities') + 6000);
+    HTML.indexOf('function loadActiveRarities') + 8000);
   assert.match(src, /icons: BirdLogic\.recordIcons\(/,
     'Last 7-Days passes the evidence marks it always had in its feed');
   app.window.close();
@@ -8460,4 +8460,139 @@ test('pull-to-refresh exists, and cannot fire by accident', () => {
   assert.match(fn, /dy >= PULL_TRIGGER_PX/, 'and it must be passed to fire');
   assert.match(fn, /\.refreshbtn/,
     'it triggers the SAME reload as the arrow, so it forces too');
+});
+
+
+// "so on the two rarities pages, a full refresh of everything isnt needed.
+// primarily a refresh of the county alerts."
+//
+// Right, and the difference is not small. A full wave is ~47 calls — 6 region
+// feeds plus one per unseen species — which at eBird's ~0.37/s ceiling is over
+// two minutes. The rarity sections read the NOTABLE feeds; the per-species
+// phase answers a different question and does not go stale on the timescale of
+// "is that puffin still there".
+test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
+  const rows = [{ speciesCode: 'tufpuf', comName: 'Tufted Puffin',
+    obsDt: '2026-08-08 14:23', locName: 'P', locId: 'L1', lat: 47.8, lng: -122.2,
+    subId: 'S1', obsId: 'OBS1', userDisplayName: 'B', howMany: 1,
+    evidence: 'P', obsValid: true }];
+  let calls = [];
+  const app = await boot({
+    fetch(url) { calls.push(String(url)); return /data\/obs\//.test(url) ? rows : null; },
+  });
+  const doc = app.window.document, A = app.window.__app;
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const first = calls.slice();
+  calls = [];
+  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  await new Promise((r) => setTimeout(r, 1800));
+
+  const notable = calls.filter((u) => /notable/.test(u));
+  assert.ok(notable.length > 0,
+    'the alert feeds ARE re-read — that is the whole point of the button');
+  // The precise claim: nothing ALREADY PAID FOR is bought again. A species feed
+  // for a bird the refreshed alert just introduced is new work and must happen;
+  // re-running the phase for birds already in the memo is the ~47-call waste
+  // this mode exists to avoid.
+  const repaid = calls.filter((u) => !/notable/.test(u) && first.includes(u));
+  assert.deepEqual(repaid, [],
+    'a targeted refresh re-buys nothing it already had: ' + repaid.join(', '));
+  app.window.close();
+});
+
+// "id like to know quickly if a new rarity has been observed."
+//
+// NEW means "not in the list the last time you looked at this section", which
+// is the only definition matching what a person means by it. Cheap because of
+// the targeted refresh above: asking costs ~3 calls.
+test('a rarity you have not been shown before is marked NEW, once', async () => {
+  const mk = (c, n, t, sub) => ({ speciesCode: c, comName: n, obsDt: t, locName: 'P',
+    locId: 'L1', lat: 47.8, lng: -122.2, subId: sub, obsId: 'OBS' + sub,
+    userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true });
+  let rows = [mk('tufpuf', 'Tufted Puffin', '2026-08-08 14:23', 'S1')];
+  const app = await boot({
+    fetch(url) { return /data\/obs\//.test(url) ? rows : null; },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const badges = () => (doc.getElementById('results').innerHTML.match(/newflag/g) || []).length;
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(badges(), 1, 'the first sighting you have never seen is NEW');
+  assert.match(doc.getElementById('status').textContent, /1 new since you last looked/,
+    'and the count is on the status line, so you know without reading the list');
+
+  // Marked seen only AFTER rendering — marking on the way in would clear the
+  // badge you were about to read.
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1200));
+  assert.equal(badges(), 0, 'looking again does not re-announce what you just saw');
+  assert.doesNotMatch(doc.getElementById('status').textContent, /new since you last looked/,
+    'and the count goes with it');
+
+  // A genuinely new bird turns up.
+  rows = rows.concat([mk('wantat', 'Wandering Tattler', '2026-08-08 15:10', 'S2')]);
+  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  await new Promise((r) => setTimeout(r, 1800));
+  assert.equal(badges(), 1, 'the arrival is marked');
+  assert.match(doc.getElementById('results').textContent, /Wandering Tattler/,
+    'and it is the bird that actually arrived');
+  assert.match(doc.getElementById('status').textContent, /1 new since you last looked/);
+  app.window.close();
+});
+
+
+// "similar logic should go for the four go birding locations: a deep refresh
+// isnt need, but primarily a quick refresh for new observations that changes
+// the results."
+//
+// What moves a hotspot up or down one of these lists is somebody FILING A
+// CHECKLIST. So a refresh re-reads the observation feeds and nothing else: not
+// the per-species phase (a different question, and the expensive half), and not
+// ref/hotspot/{county}, which is a list of PARKS — and parks do not appear
+// between two taps of a button.
+test('the Go birding sections refresh observations, not the world', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+
+  // The three modes are distinct on purpose; a single boolean force would make
+  // every refresh the ~47-call one.
+  assert.match(HTML, /if \(force === 'notable'\) ebClearMatching\(FORCE_NOTABLE_RE\)/,
+    'the rarity pages drop only the alert feeds');
+  assert.match(HTML, /else if \(force === 'obs'\) ebClearMatching\(FORCE_OBS_RE\)/,
+    'the Go birding pages drop only the observation feeds');
+
+  // The regex is the whole contract: it must catch a region or location feed
+  // and must NOT catch a species feed.
+  const m = /var FORCE_OBS_RE = (\/.*\/);/.exec(HTML);
+  assert.ok(m, 'the observation-feed pattern is a named constant');
+  const re = new RegExp(m[1].slice(1, -1));
+  assert.ok(re.test('data/obs/US-WA-033/recent?back=7&detail=full'), 'county feed');
+  assert.ok(re.test('data/obs/US-WA-033/recent/notable?back=7'), 'county alerts');
+  assert.ok(re.test('data/obs/L1234/recent?back=30'), 'a hotspot feed');
+  assert.ok(!re.test('data/obs/US-WA/recent/tufpuf?back=7'),
+    'but NOT a species feed — that is the expensive phase this exists to skip');
+  assert.ok(!re.test('ref/hotspot/US-WA-033'),
+    'and NOT the hotspot directory, which is a list of parks');
+
+  // All four sections wired: destinations and excursions through getChase,
+  // hot and cold through their own scan.
+  const dest = HTML.slice(HTML.indexOf('function loadDestinations'),
+    HTML.indexOf('function loadDestinations') + 1200);
+  assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top destinations');
+  const exc = HTML.slice(HTML.indexOf('function loadExcursions'),
+    HTML.indexOf('function loadExcursions') + 1200);
+  assert.match(exc, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top excursions');
+  const scan = HTML.slice(HTML.indexOf('function runHotspotScan'),
+    HTML.indexOf('function runHotspotScan') + 2600);
+  assert.match(scan, /if \(opts\.force\) ebClearMatching\(FORCE_OBS_RE\)/,
+    'Hot and Cold clear the same feeds');
+  // ...and their ↻ actually sets force, which it did not before: the registry
+  // called runHotspotScan({}) so the button rescanned from cache.
+  assert.match(HTML, /hotBtn:\s*\{ fn: function \(\) \{ runHotspotScan\(\{ force: takeForce\(\) \}\)/,
+    'Hot passes the flag');
+  assert.match(HTML, /coldBtn:\s*\{ fn: function \(\) \{ runHotspotScan\(\{ force: takeForce\(\) \}\)/,
+    'Cold passes the flag');
 });

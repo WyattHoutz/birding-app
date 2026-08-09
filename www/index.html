@@ -225,6 +225,13 @@
       padding: 5px 10px; border: 0; background: var(--card); color: var(--muted);
       cursor: pointer; }
     .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+    /* "id like to know quickly if a new rarity has been observed."
+       A WORD, not a colour: the row already spends colour on distance and on
+       the rarity badge, and a third colour-only signal is one nobody decodes. */
+    .newflag { font-size: calc(10px * var(--s)); font-weight: 800; letter-spacing: .04em;
+      padding: 2px 5px; border-radius: 4px; margin-right: 4px;
+      background: var(--accent); color: var(--accent-ink); }
+    .newcount { font-weight: 700; color: var(--accent); white-space: nowrap; }
     /* Pull to refresh. Fixed, centred, and BEHIND nothing — it has to be the
        thing you see while your finger is still down, or the gesture gives no
        feedback until after it has committed. */
@@ -1425,7 +1432,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.86';
+      var APP_VERSION = '1.0.87';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2336,6 +2343,34 @@
       // "re-read what the birds are doing", not "re-download the map of
       // Washington": clearing both would turn one tap into hundreds of calls.
       function ebClearObsCache() { _ebCache = {}; }
+      // ...and the targeted version. "on the two rarities pages, a full refresh
+      // of everything isnt needed. primarily a refresh of the county alerts."
+      //
+      // Exactly right, and the difference is not small. A full wave is ~47
+      // calls — 6 region feeds plus one per unseen species — and at eBird's
+      // ~0.37 calls/sec that is over two minutes. The rarity sections read the
+      // NOTABLE feeds; the per-species phase behind them answers a different
+      // question and does not go stale on the timescale of "is that puffin
+      // still there". Dropping just the notable entries leaves everything else
+      // in the memo, so the rebuilt wave re-fetches three paths and gets the
+      // rest for nothing.
+      function ebClearMatching(re) {
+        Object.keys(_ebCache).forEach(function (k) {
+          if (re.test(k)) delete _ebCache[k];
+        });
+      }
+      var FORCE_NOTABLE_RE = /notable/;
+      // "similar logic should go for the four go birding locations: a deep
+      // refresh isnt need, but primarily a quick refresh for new observations
+      // that changes the results."
+      //
+      // What moves a hotspot up or down a Go-birding list is somebody FILING A
+      // CHECKLIST — the region and per-location `recent` feeds. Not the
+      // per-species phase (a different question, and the expensive half), and
+      // not the reference data behind it: `ref/hotspot/{county}` is a list of
+      // parks, and parks do not appear between two taps of a button. Matches
+      // `/recent?` and `/recent/notable?` but NOT `/recent/{speciesCode}?`.
+      var FORCE_OBS_RE = /\/recent(\/notable)?\?/;
 
       // --- reference feeds are STATIC, so stop paying for them every visit ---
       //
@@ -3138,7 +3173,7 @@
         // BirdLogic.notableToday IS section_today (today only, deduped by
         // CHECKLIST so each observer's report of the same bird stands, newest
         // first) and is covered by the cross-repo golden, so use it.
-        getChase(takeForce()).then(function (c) {
+        getChase(takeForce() ? 'notable' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var all = c.cv.notableToday || [];
           if (!all.length) {
@@ -3160,10 +3195,20 @@
                         date: function (r) { return r.dateStr; } };
           rows = raritySorted(rows, order);
           far = raritySorted(far, order);
+          // What arrived since you last looked at this section.
+          var known = raritySeenIds();
+          var fresh = rows.filter(function (r) {
+            var id = rarityRowId(r);
+            return id && !known[id];
+          });
           st.innerHTML = esc(rows.length + ' rarity report' + (rows.length === 1 ? '' : 's')
             + ' within ' + chaseMaxMi() + ' mi so far today · '
             + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
-            + ' · updated ' + nowTime()) + ' ' + raritySortControl('todaySort');
+            + ' · updated ' + nowTime())
+            + (fresh.length
+               ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
+               : '')
+            + ' ' + raritySortControl('todaySort');
           wireRaritySort('todaySort', refresh);
           var days = stakeoutDays(c.cv.merged || []);
           // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
@@ -3189,7 +3234,8 @@
             // Order is the order you ask the questions in: do I need it, how
             // many, has it stuck around, where, when, who.
             var when = fmtDateTime(r.dateStr);
-            var flags = needTag(r.code, r.name) + flock + stake + warn;
+            var isNew = (function () { var id = rarityRowId(r); return id && !known[id]; })();
+            var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name) + flock + stake + warn;
             return SpeciesCards.medium({
               // "in todays rarities, if i click on the species icon or name,
               // then link to the checklist on ebird."
@@ -3236,6 +3282,9 @@
           }
           out.innerHTML = html;
           hydratePhotos(out);
+          // Marked only now that they are on screen. Everything in the list,
+          // not just the near half, or the far ones would read as new forever.
+          markRaritySeen(all.map(rarityRowId));
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
@@ -3961,6 +4010,50 @@
       // computation folds in your seen list, your display name and your home
       // location, so a stored RESULT would keep calling a bird unseen after you
       // had logged it. Recomputing is pure local work and costs nothing.
+      // ---- "id like to know quickly if a new rarity has been observed" -------
+      //
+      // Cheap because of the targeted refresh above: re-reading the alert feeds
+      // is ~3 calls, so "has anything turned up?" is a question the app can
+      // afford to answer on demand rather than a full 47-call wave.
+      //
+      // NEW means "not in the list the last time you looked at this section",
+      // which is the only definition that matches what a person means. Keyed by
+      // obsId (eBird's per-observation id, stable across feeds) and scoped to
+      // the report and the DAY — yesterday's answer is never interesting, and
+      // it stops the set growing without limit.
+      var RARITY_SEEN_NS = 'ebird_rarity_seen:';
+      function raritySeenKey() { return RARITY_SEEN_NS + getReportSlug() + ':' + todayStr(); }
+      function raritySeenIds() {
+        try { return JSON.parse(localStorage.getItem(raritySeenKey()) || '{}') || {}; }
+        catch (e) { return {}; }
+      }
+      // Written AFTER the section renders, never before: the point is that THIS
+      // view shows you what arrived since the last one. Marking on the way in
+      // would clear the badge you were about to read.
+      function markRaritySeen(ids) {
+        var have = raritySeenIds(), n = 0;
+        ids.forEach(function (id) { if (id && !have[id]) { have[id] = 1; n++; } });
+        if (!n) return 0;
+        try { localStorage.setItem(raritySeenKey(), JSON.stringify(have)); } catch (e) {}
+        // Yesterday's sets are dead weight; drop them when today's is written.
+        try {
+          var keep = raritySeenKey(), drop = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(RARITY_SEEN_NS) === 0 && k !== keep) drop.push(k);
+          }
+          drop.forEach(function (k) { localStorage.removeItem(k); });
+        } catch (e) {}
+        return n;
+      }
+      function rarityRowId(r) {
+        return (r && (r.obsId || (r.subId && r.code && (r.subId + '|' + r.code)))) || '';
+      }
+      // A row you have not been shown before. Deliberately a WORD, not a colour:
+      // the list already spends colour on distance and the rarity badge, and a
+      // third colour-only signal is one nobody decodes.
+      function newRarityTag() { return '<span class="newflag">NEW</span>'; }
+
       var CHASE_NS = 'ebird_chase_v1:';
       // Set by the ↻ button and by pull-to-refresh, consumed by whichever
       // loader runs next. A flag rather than an argument because the ↻ works by
@@ -4082,7 +4175,14 @@
           // rebuilt the snapshot from 30-minute-old memoised responses, so a
           // forced reload still produced byte-identical rows — the same "does
           // nothing" one level down.
-          ebClearObsCache();
+          //
+          // 'notable' drops ONLY the alert feeds. The rebuilt wave then
+          // re-requests every path as usual, but all the non-notable ones are
+          // still in the memo and cost nothing — so the rarity sections reload
+          // for ~3 calls instead of ~47.
+          if (force === 'notable') ebClearMatching(FORCE_NOTABLE_RE);
+          else if (force === 'obs') ebClearMatching(FORCE_OBS_RE);
+          else ebClearObsCache();
           c = null;
         }
         // 30 minutes, not 10. This wave is ~47 calls (6 region feeds, then one
@@ -6270,7 +6370,7 @@
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
         btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
-        getChase().then(function (c) {
+        getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var dests = c.cv.destinations.map(toDest);
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
@@ -6284,7 +6384,7 @@
         if (!getKey()) { $('excStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('excBtn'), st = $('excStatus'), profile = getReport();
         btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + profile.dailyDriveMi + ' mi…';
-        getChase().then(function (c) {
+        getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var exc = c.cv.excursions.map(toDest);
           if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + profile.dailyDriveMi + ' mi right now.'; return; }
@@ -6764,7 +6864,7 @@
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
-        getChase(takeForce()).then(function (c) {
+        getChase(takeForce() ? 'notable' : false).then(function (c) {
           // Rarity trackers (Lower 48 / ABA) have no county feeds; their report
           // builds this section from the ABA alert filtered to unseen species,
           // so do the same rather than showing nothing.
@@ -6788,12 +6888,26 @@
                         date: function (r) { return r.latest; } };
           var droppedFar = rows.droppedFar;
           rows = raritySorted(rows, order);
+          // Same "what's new" rule as Today's rarities. Here a row is a
+          // SPECIES, so it counts as new when its most recent report is one you
+          // have not been shown — which is what "a new rarity has been
+          // observed" means for a list grouped by bird.
+          var known = raritySeenIds();
+          var freshCount = 0;
+          rows.forEach(function (r) {
+            var id = rarityRowId(r.newest || r.closest);
+            r.isNew = !!(id && !known[id]);
+            if (r.isNew) freshCount++;
+          });
           st.innerHTML = esc(rows.length + ' rare species reported recently · within '
             + chaseMaxMi() + ' mi · '
             + (raritySort() === 'distance' ? 'nearest first' : 'most recent first')
             + ' · ' + nowTime()
             + (droppedFar ? ' · ' + droppedFar + ' report'
                + (droppedFar === 1 ? '' : 's') + ' farther out not shown' : ''))
+            + (freshCount
+               ? ' <span class="newcount">' + freshCount + ' new since you last looked</span>'
+               : '')
             + ' ' + raritySortControl('activeSort');
           wireRaritySort('activeSort', loadActiveRarities);
           // SPLIT: birds you still need first, birds you already have second —
@@ -6813,7 +6927,7 @@
               ? '<span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = (r.closest && r.closest.valid === false)
               ? '<span class="dim" title="not yet reviewed">⚠️</span>' : '';
-            var flags = needTag(r.code, r.name) + stake + warn;
+            var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name) + stake + warn;
             // This used to hand-roll a .name/.meta/.cklrows lookalike of the
             // medium card. That is the same drift Easy misses had before it was
             // unified: two copies of one layout that quietly diverge. It now
@@ -6882,6 +6996,10 @@
             + rareGroup(alreadySeen, '✅ Already on your year list',
               'still rare, still worth knowing — but not a new bird');
           hydratePhotos(el);
+          // Same rule as Today's rarities: marked only once they are on screen.
+          markRaritySeen(rows.map(function (r) {
+            return rarityRowId(r.newest || r.closest);
+          }));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -10160,6 +10278,12 @@
         }
         if ($('hotBtn')) $('hotBtn').disabled = true;
         if ($('coldBtn')) $('coldBtn').disabled = true;
+        // A quick refresh here means "somebody filed a checklist", which is the
+        // per-location `recent` feeds — NOT the hotspot directory behind them.
+        // ref/hotspot/{county} is a list of parks, and parks do not appear
+        // between two taps of a button; it stays in the durable reference
+        // cache, which is what keeps this a few calls instead of hundreds.
+        if (opts.force) ebClearMatching(FORCE_OBS_RE);
         if (!(_hotspotCache && !opts.force)) {
           var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
           if (hotSt) hotSt.textContent = scanMsg; if (coldSt) coldSt.textContent = scanMsg;
@@ -11464,8 +11588,8 @@
         targetsBtn: { fn: loadTargets,      needsKey: true, fromChase: true },
         quickBtn:   { fn: loadQuickOuting,  needsKey: true },
         excBtn:     { fn: loadExcursions,   needsKey: true, fromChase: true },
-        hotBtn:     { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
-        coldBtn:    { fn: function () { runHotspotScan({}); }, needsKey: true, needsHome: true },
+        hotBtn:     { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
+        coldBtn:    { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadChecklists,   needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
@@ -13146,6 +13270,8 @@
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
         raritySort: raritySort, setRaritySort: setRaritySort,
         raritySorted: raritySorted, takeForce: takeForce,
+        raritySeenIds: raritySeenIds, markRaritySeen: markRaritySeen,
+        rarityRowId: rarityRowId,
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
         geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
