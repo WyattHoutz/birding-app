@@ -702,16 +702,25 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   // Neil Pankey" and "LATEST Aug 3 10:25 AM · S379634242". Two labelled rows
   // for two short facts spent three lines of a phone screen on values whose
   // LABELS were longer than the values, and pushed the next bird off screen.
-  // They are now one sub-line: place · time · observer, in the order you read
-  // them, with the TIME carrying the checklist link so the eleven characters
-  // of submission id stop being printed.
+  // They are now one sub-line. The DATE LEADS — "show the date first in the
+  // sentence" — because place names are long and variable ("Charles Richey Sr.
+  // Viewpoint"), so a trailing date landed wherever the name happened to end
+  // and often wrapped. The date is the thing that decides whether a rarity is
+  // still worth chasing, so it is the thing you must be able to scan down.
   assert.doesNotMatch(today, /class="lbl">(Observer|Latest)</,
     'no labelled Observer/Latest rows — they are one line under the name now');
   assert.match(today, /sub: speciesMetaRow\(\{/,
-    'place, time and observer are ONE sub-line — built by the SHARED row, so '
+    'date, place and observer are ONE sub-line — built by the SHARED row, so '
     + 'this section and Last 7-Days cannot drift apart again');
-  assert.match(HTML, /function speciesMetaRow[\s\S]{0,900}class="rarewhere"/,
+  assert.match(HTML, /function speciesMetaRow[\s\S]{0,2400}class="rarewhere"/,
     'and that row really is the one-line sub-header');
+  // Order, pinned: the when-span is emitted BEFORE the loc-span.
+  {
+    const row = HTML.slice(HTML.indexOf('function speciesMetaRow'));
+    const body = row.slice(0, row.indexOf('class="rarewhere"'));
+    assert.ok(body.indexOf('o.when') < body.indexOf('o.loc'),
+      'the date is pushed before the place, not after it');
+  }
   assert.match(today, /checklistLink\(r\.subId, when\)/,
     'the time is the checklist link, so the submission id is not printed too');
   assert.doesNotMatch(today, /checklistLink\(r\.subId, r\.subId\)/,
@@ -728,14 +737,19 @@ test("today's rarities lists checklists; the ABA alert profiles one bird", () =>
   // asserted there — and it holds for every section that uses the row, not
   // just this one.
   const row = HTML.slice(HTML.indexOf('function speciesMetaRow('),
-    HTML.indexOf('function speciesMetaRow(') + 1400);
+    HTML.indexOf('function speciesMetaRow(') + 2400);
   const flagIdx = row.indexOf('class="rareflags"');
   const locIdx = row.indexOf('class="rareloc"');
   const whenIdx = row.indexOf('class="when"');
   const cntIdx = row.indexOf('class="rarecount"');
-  assert.ok(flagIdx > -1 && locIdx > flagIdx && whenIdx > locIdx && cntIdx > whenIdx,
+  // WHEN NOW PRECEDES WHERE. It used to be place-then-date, which put the one
+  // fact that decides whether a rarity is still worth chasing behind a place
+  // name of unpredictable length — so it landed in a different column on every
+  // row, and usually wrapped. Flags stay first (do I need it, how many, has it
+  // stuck around, is there proof) and the people counts stay last.
+  assert.ok(flagIdx > -1 && whenIdx > flagIdx && locIdx > whenIdx && cntIdx > locIdx,
     'and read in the order the questions are asked: do I need it, how many, '
-    + 'has it stuck around, is there proof — then where, when, how many people');
+    + 'has it stuck around, is there proof — then WHEN, where, how many people');
 });
 
 // Reported from the device: the place name and its 🗺 link broke across two
@@ -8329,4 +8343,121 @@ test('the seen / unseen divider is a real separator, not a hairline', () => {
     `the gap above a group is ${top && top[1]}px — it separates the two lists`);
   assert.match(HTML, /\.cardgroup:first-child\s*\{[^}]*margin-top:\s*2px/,
     'but the first group keeps its place at the top of the list');
+});
+
+
+// ---- "refresh button does nothing" -----------------------------------------
+//
+// It was an accurate description of the code. getChase() memoises for 30
+// minutes and Refresh called straight through it, so within that window it
+// repainted byte-identical rows and the only thing that moved was the clock.
+// The comment above the cache had said "Refresh is there for the times it
+// isn't" for months, and nothing implemented that.
+//
+// There were TWO caches to get past. Dropping only the chase snapshot rebuilt
+// it from 30-minute-old memoised eBird responses — the same do-nothing one
+// level down — so the observation memo has to go with it. The durable
+// REFERENCE cache (hotspot lists, region info; static for a week) is kept:
+// refresh means "re-read what the birds are doing", not "re-download the map
+// of Washington".
+test('Refresh actually refetches; opening the section does not', async () => {
+  let waves = 0;
+  const rows = [{ speciesCode: 'tufpuf', comName: 'Tufted Puffin',
+    obsDt: '2026-08-08 14:23', locName: 'Marina Beach Park', locId: 'L1',
+    lat: 47.81, lng: -122.39, subId: 'S1', userDisplayName: 'Barb Chan',
+    howMany: 1, evidence: 'P', obsValid: true }];
+  const app = await boot({
+    fetch(url) {
+      if (/notable/.test(url)) waves++;
+      if (/data\/obs\//.test(url)) return rows;
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1400));
+  const first = waves;
+  assert.ok(first > 0, 'the first load fetches');
+
+  // Re-opening a section must NOT spend the wave again. This is the behaviour
+  // the 30-minute memo exists for and it has to survive the fix.
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 900));
+  assert.equal(waves, first,
+    'reloading from cache costs nothing — a section you open twice is not two waves');
+
+  // ...but the ↻ is a promise to go and look again.
+  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  await new Promise((r) => setTimeout(r, 1600));
+  assert.ok(waves > first,
+    `Refresh must actually refetch: ${first} calls before, ${waves} after`);
+  app.window.close();
+});
+
+// "it needs a way to sort by date or distance." Two different questions:
+// newest-first answers "is it still there", nearest-first answers "what can I
+// actually get to". Shared by BOTH rarity sections, because a reader who wants
+// distance wants it in both — "these reports should look the same".
+test('both rarity lists sort by date or distance, from one control', async () => {
+  const rows = [
+    // Newest but FURTHEST.
+    { speciesCode: 'tufpuf', comName: 'Tufted Puffin', obsDt: '2026-08-08 14:23',
+      locName: 'Far Park', locId: 'L1', lat: 48.05, lng: -122.60, subId: 'S1',
+      userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true },
+    // Older but NEAREST.
+    { speciesCode: 'wantat', comName: 'Wandering Tattler', obsDt: '2026-08-08 09:05',
+      locName: 'Near Park', locId: 'L2', lat: 47.77, lng: -122.15, subId: 'S2',
+      userDisplayName: 'K', howMany: 1, evidence: 'A', obsValid: true },
+  ];
+  const app = await boot({
+    fetch(url) { return /data\/obs\//.test(url) ? rows : null; },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const names = () => [...doc.querySelectorAll('#results .cardname, #results .name a')]
+    .map((e) => e.textContent.trim()).filter(Boolean);
+
+  A.setRaritySort('date');
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1400));
+  const pick = doc.getElementById('todaySort');
+  assert.ok(pick, 'the control is on the status line, where the order is claimed');
+  assert.match(doc.getElementById('status').textContent, /newest first/,
+    'and the line SAYS which order it is in — a sorted list that does not say '
+    + 'how is a list you have to verify by hand');
+  const byDate = names();
+  assert.ok(/Puffin/.test(byDate[0] || ''), 'newest first puts the 14:23 report top');
+
+  // Switching order is local work on rows already in hand and must not refetch.
+  pick.querySelector('.sortbtn[data-sort="distance"]').click();
+  await new Promise((r) => setTimeout(r, 1200));
+  assert.match(doc.getElementById('status').textContent, /nearest first/,
+    'the claim changes with the order');
+  const byDist = names();
+  assert.ok(/Tattler/.test(byDist[0] || ''),
+    'nearest first puts the closer bird top, even though it is older');
+  assert.equal(A.raritySort(), 'distance', 'and the choice is remembered');
+  app.window.close();
+});
+
+// "id like to be able to drag down on a page to refresh like other apps."
+test('pull-to-refresh exists, and cannot fire by accident', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function initPullToRefresh()'),
+    HTML.indexOf('function _setH2('));
+
+  assert.match(fn, /touchstart/, 'it is a drag, not a button');
+  // Only from a genuine top, so it cannot interrupt a scroll that happens to
+  // end near the top.
+  assert.match(fn, /scrollTop > 0/, 'only from the top of the page');
+  // Only a mostly-vertical drag: the app is full of horizontally scrolling
+  // card rows, and a sideways swipe through one must never reload.
+  assert.match(fn, /x > Math\.abs\(y\)/,
+    'a sideways swipe through a scrolling row is not a reload');
+  // A threshold with visible tracking, so it is never a surprise — and
+  // releasing early cancels, which is what makes it safe to try.
+  assert.match(HTML, /PULL_TRIGGER_PX = \d+/, 'there is a threshold');
+  assert.match(fn, /dy >= PULL_TRIGGER_PX/, 'and it must be passed to fire');
+  assert.match(fn, /\.refreshbtn/,
+    'it triggers the SAME reload as the arrow, so it forces too');
 });

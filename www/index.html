@@ -215,6 +215,29 @@
                   border: 1px solid var(--line); background: transparent;
                   color: var(--muted); vertical-align: middle; }
     .refreshbtn:disabled { opacity: .45; }
+    /* The two-state order picker shared by both rarity lists. Deliberately not
+       a <select>: two options, and the one in force must be readable without
+       opening anything. */
+    .sortpick { display: inline-flex; gap: 2px; vertical-align: middle;
+      border: 1px solid var(--line); border-radius: 999px; overflow: hidden;
+      margin-left: 6px; }
+    .sortbtn { font-size: calc(12px * var(--s)); font-weight: 700; line-height: 1;
+      padding: 5px 10px; border: 0; background: var(--card); color: var(--muted);
+      cursor: pointer; }
+    .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+    /* Pull to refresh. Fixed, centred, and BEHIND nothing — it has to be the
+       thing you see while your finger is still down, or the gesture gives no
+       feedback until after it has committed. */
+    .pullhint { position: fixed; top: 6px; left: 50%; z-index: 60;
+      transform: translateX(-50%); opacity: 0; pointer-events: none;
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: calc(18px * var(--s)); color: var(--accent-ink); background: var(--muted);
+      box-shadow: var(--shadow); transition: background .15s linear; }
+    .pullhint.ready { background: var(--accent); }
+    .pullhint.spin { animation: pullspin .8s linear infinite; }
+    @keyframes pullspin { to { transform: translateX(-50%) translateY(70px) rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .pullhint.spin { animation: none; } }
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
     /* Second line of defence for the sideways drag. The clip on <html> above
        provably did NOT stop it on device — WKWebView still pans the visual
@@ -1402,7 +1425,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.85';
+      var APP_VERSION = '1.0.86';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2308,6 +2331,11 @@
       // Failures are evicted so a retry is still possible.
       var _ebCache = {}, EB_CACHE_MS = 30 * 60 * 1000;
       function ebClearCache() { _ebCache = {}; ebRefPurge(); }
+      // Just the OBSERVATION memo, keeping the durable reference cache
+      // (hotspot lists, region info — static for 7 days) intact. Refresh means
+      // "re-read what the birds are doing", not "re-download the map of
+      // Washington": clearing both would turn one tap into hundreds of calls.
+      function ebClearObsCache() { _ebCache = {}; }
 
       // --- reference feeds are STATIC, so stop paying for them every visit ---
       //
@@ -3110,7 +3138,7 @@
         // BirdLogic.notableToday IS section_today (today only, deduped by
         // CHECKLIST so each observer's report of the same bird stands, newest
         // first) and is covered by the cross-repo golden, so use it.
-        getChase().then(function (c) {
+        getChase(takeForce()).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var all = c.cv.notableToday || [];
           if (!all.length) {
@@ -3128,8 +3156,15 @@
             return !(r.distMi > chaseMaxMi());
           });
           var far = all.filter(function (r) { return r.distMi > chaseMaxMi(); });
-          st.textContent = rows.length + ' rarity report' + (rows.length === 1 ? '' : 's') +
-            ' within ' + chaseMaxMi() + ' mi so far today · newest first · updated ' + nowTime();
+          var order = { dist: function (r) { return r.distMi; },
+                        date: function (r) { return r.dateStr; } };
+          rows = raritySorted(rows, order);
+          far = raritySorted(far, order);
+          st.innerHTML = esc(rows.length + ' rarity report' + (rows.length === 1 ? '' : 's')
+            + ' within ' + chaseMaxMi() + ' mi so far today · '
+            + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
+            + ' · updated ' + nowTime()) + ' ' + raritySortControl('todaySort');
+          wireRaritySort('todaySort', refresh);
           var days = stakeoutDays(c.cv.merged || []);
           // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
           // reports — one row per checklist — so it is scanned, not read. It
@@ -3927,6 +3962,66 @@
       // location, so a stored RESULT would keep calling a bird unseen after you
       // had logged it. Recomputing is pure local work and costs nothing.
       var CHASE_NS = 'ebird_chase_v1:';
+      // Set by the ↻ button and by pull-to-refresh, consumed by whichever
+      // loader runs next. A flag rather than an argument because the ↻ works by
+      // clicking the section's own Load button, so there is no call site to
+      // pass anything to.
+      var _forceReload = false;
+      function takeForce() { var f = _forceReload; _forceReload = false; return f; }
+
+      // ---- how the two rarity lists are ordered ------------------------------
+      // "it needs a way to sort by date or distance."
+      //
+      // Both questions are real and they are different questions: newest-first
+      // answers "is it still there", nearest-first answers "what can I get to".
+      // The choice is shared by BOTH rarity sections and remembered, because a
+      // reader who wants distance wants it in both.
+      var RARITY_SORT_KEY = 'ebird_rarity_sort';
+      function raritySort() {
+        return localStorage.getItem(RARITY_SORT_KEY) === 'distance' ? 'distance' : 'date';
+      }
+      function setRaritySort(v) {
+        localStorage.setItem(RARITY_SORT_KEY, v === 'distance' ? 'distance' : 'date');
+      }
+      // One comparator for both sections. `date` is the field each already
+      // sorted by, so choosing "newest first" reproduces the old order exactly
+      // rather than being a new opinion about it.
+      function raritySorted(rows, get) {
+        var mode = raritySort();
+        var out = rows.slice();
+        out.sort(function (a, b) {
+          if (mode === 'distance') {
+            var da = get.dist(a), db = get.dist(b);
+            // A row with no coordinates cannot claim to be nearest. It sorts
+            // last rather than as zero, which would put it at the top.
+            if (!isFinite(da)) da = Infinity;
+            if (!isFinite(db)) db = Infinity;
+            if (da !== db) return da - db;
+          }
+          return String(get.date(b) || '').localeCompare(String(get.date(a) || ''));
+        });
+        return out;
+      }
+      function raritySortControl(id) {
+        var m = raritySort();
+        return '<span class="sortpick" id="' + id + '">'
+          + '<button type="button" class="sortbtn" data-sort="date" aria-pressed="'
+          + (m === 'date') + '">Newest</button>'
+          + '<button type="button" class="sortbtn" data-sort="distance" aria-pressed="'
+          + (m === 'distance') + '">Nearest</button></span>';
+      }
+      function wireRaritySort(id, reload) {
+        var host = document.getElementById(id);
+        if (!host) return;
+        host.addEventListener('click', function (ev) {
+          var b = ev.target.closest ? ev.target.closest('.sortbtn') : null;
+          if (!b) return;
+          setRaritySort(b.getAttribute('data-sort'));
+          // Re-sorting is local work on rows already in hand, so this must NOT
+          // force a reload — changing the order should never cost 47 calls.
+          reload();
+        });
+      }
       function chaseKey(slug) { return CHASE_NS + slug + ':' + todayStr(); }
       function saveChaseSnapshot(slug, codes, rowsByFile) {
         return packJson({ t: Date.now(), codes: codes || null, rows: rowsByFile })
@@ -3965,9 +4060,31 @@
           drop.forEach(function (k) { if (k !== keep) localStorage.removeItem(k); });
         } catch (e) { /* nothing worth reporting */ }
       }
-      function getChase() {
+      function getChase(force) {
         var profile = getReport(), slug = profile.slug;
         var c = _chase[slug];
+        // FORCE is what makes Refresh mean something. The comment below has
+        // always said "Refresh is there for the times it isn't" — but Refresh
+        // called straight through to this cache, so within the 30-minute window
+        // it repainted byte-identical rows and the only thing that moved was
+        // the "updated" clock. "refresh button does nothing" was an accurate
+        // description of the code.
+        //
+        // Forcing drops BOTH the in-memory result and today's stored snapshot,
+        // so the next read is a real wave. That costs ~47 calls, which is
+        // exactly what a person asking for fresh data is asking to spend.
+        if (force) {
+          delete _chase[slug];
+          delete _chaseInflight[slug];
+          try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
+          // ...and the eBird response memo, which is the one that actually
+          // decides whether a call happens. Dropping only the chase caches
+          // rebuilt the snapshot from 30-minute-old memoised responses, so a
+          // forced reload still produced byte-identical rows — the same "does
+          // nothing" one level down.
+          ebClearObsCache();
+          c = null;
+        }
         // 30 minutes, not 10. This wave is ~47 calls (6 region feeds, then one
         // per unseen species), and at 10 minutes a device log showed it fired
         // four separate times in one session - twice within 16 minutes, purely
@@ -4576,8 +4693,16 @@
         var flags = (o.flags || '') + (o.icons || '');
         var bits = [];
         if (flags) bits.push('<span class="rareflags">' + flags + '</span>');
-        if (o.loc) bits.push('<span class="rareloc">' + o.loc + '</span>');
+        // WHEN LEADS. "show the date first in the sentence."
+        //
+        // The place used to come first, and place names are long and variable
+        // ("Charles Richey Sr. Viewpoint") — so the date, which is the thing
+        // that decides whether a rarity is still worth chasing, was pushed to
+        // wherever the name happened to end and often onto the next line. A
+        // column you cannot scan down is not a column. Both rarity sections
+        // build through here, so they stay identical to each other.
         if (o.when) bits.push('<span class="when">' + o.when + '</span>');
+        if (o.loc) bits.push('<span class="rareloc">' + o.loc + '</span>');
         if (o.span) bits.push('<span class="rarespan">' + o.span + '</span>');
         var counts = [];
         if (o.reports > 1) counts.push(o.reports + ' reports');
@@ -6639,7 +6764,7 @@
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
-        getChase().then(function (c) {
+        getChase(takeForce()).then(function (c) {
           // Rarity trackers (Lower 48 / ABA) have no county feeds; their report
           // builds this section from the ABA alert filtered to unseen species,
           // so do the same rather than showing nothing.
@@ -6655,10 +6780,22 @@
         }).then(function (rows) {
           if (!rows) return;
           if (!rows.length) { st.textContent = 'No rarities currently reported in ' + label + '.'; return; }
-          st.textContent = rows.length + ' rare species reported recently · within ' + chaseMaxMi()
-            + ' mi · most recent first · ' + nowTime()
-            + (rows.droppedFar ? ' · ' + rows.droppedFar + ' report'
-               + (rows.droppedFar === 1 ? '' : 's') + ' farther out not shown' : '');
+          // Same control, same comparator, same wording as Today's rarities —
+          // "these reports should look the same except the last 7 days groups
+          // by species". Here a row is a SPECIES, so its date is the latest
+          // report of it and its distance is the closest one.
+          var order = { dist: function (r) { return r.distMi; },
+                        date: function (r) { return r.latest; } };
+          var droppedFar = rows.droppedFar;
+          rows = raritySorted(rows, order);
+          st.innerHTML = esc(rows.length + ' rare species reported recently · within '
+            + chaseMaxMi() + ' mi · '
+            + (raritySort() === 'distance' ? 'nearest first' : 'most recent first')
+            + ' · ' + nowTime()
+            + (droppedFar ? ' · ' + droppedFar + ' report'
+               + (droppedFar === 1 ? '' : 's') + ' farther out not shown' : ''))
+            + ' ' + raritySortControl('activeSort');
+          wireRaritySort('activeSort', loadActiveRarities);
           // SPLIT: birds you still need first, birds you already have second —
           // mirroring report.section_rarities. One list left the 🔍 marker to
           // carry the whole distinction, which is the thing this section is
@@ -11495,9 +11632,75 @@
         btn.type = 'button'; btn.className = 'refreshbtn'; btn.textContent = '\u21BB';
         btn.setAttribute('aria-label',
           (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
-        btn.addEventListener('click', function () { load.click(); });
+        btn.addEventListener('click', function () { _forceReload = true; load.click(); });
         h2.appendChild(btn);
         row.hidden = true;
+      }
+
+      // ---- pull down to reload ----------------------------------------------
+      // "id like to be able to drag down on a page to refresh like other apps."
+      //
+      // The ↻ lives in the section heading, which is off-screen the moment you
+      // start reading — so the gesture is not a shortcut for it, it is the only
+      // way to reload without scrolling back up.
+      //
+      // Rules that keep it from firing by accident:
+      //   * only from a genuine top (scrollTop <= 0), so it cannot interrupt a
+      //     scroll that happens to end near the top;
+      //   * only on a mostly-VERTICAL drag, so a sideways swipe through a
+      //     horizontally scrolling card row is never a reload;
+      //   * only past 70px, with the indicator tracking the finger the whole
+      //     way, so it is always visible that it is about to happen — and
+      //     releasing early cancels it, which is what makes it safe to explore.
+      var PULL_TRIGGER_PX = 70, PULL_MAX_PX = 110;
+      function initPullToRefresh() {
+        var el = document.createElement('div');
+        el.id = 'pullHint'; el.className = 'pullhint'; el.textContent = '↻';
+        document.body.appendChild(el);
+        var startY = 0, startX = 0, pulling = false, dy = 0;
+        function target() {
+          // The section on screen, not a remembered one: whatever the reader is
+          // looking at is what they mean by "this page".
+          var sec = _sections.filter(function (s) { return !s.hidden; })[0];
+          return sec ? sec.querySelector('.refreshbtn') : null;
+        }
+        function reset(t) {
+          pulling = false; dy = 0;
+          el.style.transform = ''; el.style.opacity = '';
+          el.classList.toggle('ready', false);
+          if (t) el.classList.remove('spin');
+        }
+        document.addEventListener('touchstart', function (ev) {
+          if (ev.touches.length !== 1) return;
+          var sc = document.scrollingElement || document.documentElement;
+          if (sc.scrollTop > 0) return;
+          if (!target()) return;
+          startY = ev.touches[0].clientY; startX = ev.touches[0].clientX;
+          pulling = true; dy = 0;
+        }, { passive: true });
+        document.addEventListener('touchmove', function (ev) {
+          if (!pulling || ev.touches.length !== 1) return;
+          var y = ev.touches[0].clientY - startY;
+          var x = Math.abs(ev.touches[0].clientX - startX);
+          if (y <= 0 || x > Math.abs(y)) { reset(); return; }
+          dy = Math.min(y, PULL_MAX_PX);
+          el.style.transform = 'translateX(-50%) translateY(' + dy + 'px) rotate('
+            + Math.round(dy * 3) + 'deg)';
+          el.style.opacity = String(Math.min(1, dy / PULL_TRIGGER_PX));
+          el.classList.toggle('ready', dy >= PULL_TRIGGER_PX);
+        }, { passive: true });
+        document.addEventListener('touchend', function () {
+          if (!pulling) return;
+          var go = dy >= PULL_TRIGGER_PX, btn = target();
+          reset(true);
+          if (go && btn) {
+            el.classList.add('spin');
+            el.style.opacity = '1';
+            el.style.transform = 'translateX(-50%) translateY(' + PULL_TRIGGER_PX + 'px)';
+            btn.click();                       // carries _forceReload with it
+            setTimeout(function () { reset(true); }, 1200);
+          }
+        }, { passive: true });
       }
 
       function _setH2(sec, label) {
@@ -12941,6 +13144,9 @@
         needTag: needTag, watchCodes: watchCodes,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
+        raritySort: raritySort, setRaritySort: setRaritySort,
+        raritySorted: raritySorted, takeForce: takeForce,
+        initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
         geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
         migrateHomeKeys: migrateHomeKeys,
@@ -13061,6 +13267,7 @@
       migrateHomeKeys();
       buildNav();
       bindKeyHelpers();
+      initPullToRefresh();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       loadSettings();
       maybeAutoSeed();
