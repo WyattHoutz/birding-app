@@ -231,7 +231,10 @@
     .newflag { font-size: calc(10px * var(--s)); font-weight: 800; letter-spacing: .04em;
       padding: 2px 5px; border-radius: 4px; margin-right: 4px;
       background: var(--accent); color: var(--accent-ink); }
-    .newcount { font-weight: 700; color: var(--accent); white-space: nowrap; }
+    /* No `white-space: nowrap`. At 320px with the 1.75x accessibility scale
+       "N new since you last looked" is 300px wide and overflowed the screen by
+       27.6px — the status line is prose, and prose wraps. */
+    .newcount { font-weight: 700; color: var(--accent); }
     /* Pull to refresh. Fixed, centred, and BEHIND nothing — it has to be the
        thing you see while your finger is still down, or the gesture gives no
        feedback until after it has committed. */
