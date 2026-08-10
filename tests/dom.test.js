@@ -8940,3 +8940,56 @@ test('learning a bird from your own checklist refreshes what is a target', async
   assert.equal(waves, steady, 'nothing new means nothing re-fetched');
   app.window.close();
 });
+
+
+// A DEVICE LOG caught both of these, and the suite could not have.
+//
+//   [warn] hotspot checklists: Can't find variable: slot
+//   [warn] chase snapshot not saved: QuotaExceededError
+//
+// The first was a ReferenceError thrown AFTER the list had already been
+// written, and the section's own .catch turned it into a warning — so every
+// hotspot list still rendered and only the media wiring silently never
+// happened. Nothing failed, which is exactly why nothing caught it.
+test('the media pass is wired inside the card loop, where slot exists', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function hydrateHotspotChecklists'),
+    HTML.indexOf('function hydrateLocSpecies'));
+
+  const slotDecl = fn.indexOf("var slot = el.querySelector('.hsckl')");
+  const usesSlot = fn.indexOf("var det = slot.querySelector('details.ckall')");
+  assert.ok(slotDecl > -1 && usesSlot > slotDecl,
+    'the media wiring reads slot AFTER it is declared');
+
+  // ...and before the callback that declared it closes. Counting braces is
+  // crude; what matters is that the toggle hook sits inside the forEach body,
+  // so it is checked by position against the loop's own terminator.
+  const loopEnd = fn.lastIndexOf('});\n        });');
+  assert.ok(usesSlot < loopEnd,
+    'and inside the per-card loop, not after it — reading a per-card variable '
+    + 'once the loop has finished is how this broke on device while every test '
+    + 'stayed green');
+});
+
+// The chase snapshot is the most expensive object the app owns — ~47 calls and
+// two minutes — and the device log caught it losing its place to single-call
+// checklist entries. The priority was exactly inverted.
+test('the expensive snapshot evicts cheap caches rather than giving up', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function saveChaseSnapshot'),
+    HTML.indexOf('function loadChaseSnapshot'));
+
+  assert.match(fn, /freeCacheSpace\(/,
+    'a quota failure makes room instead of shrugging');
+  assert.match(fn, /attempt < 3/, 'and retries, rather than dropping the wave');
+  assert.match(fn, /if \(!freeCacheSpace\(80\)\)/,
+    'giving up only when there is genuinely nothing cheap left to drop');
+
+  // The cap came down with it: 900 checklist entries at 1-2 KB each is most of
+  // an iOS origin's 5 MB, before the seed, the photos and the ticks cache.
+  assert.match(HTML, /var CKL_CACHE_MAX = 250;/, 'the checklist cap is 250, not 900');
+  // ...and it is enforced DURING a session. Pruning only at boot is what let a
+  // long session accumulate until the snapshot could not be written.
+  assert.match(HTML, /_cklWrites % 40\) === 0\) pruneChecklistCache\(\)/,
+    'the cache is trimmed as it grows, not only at the next launch');
+});

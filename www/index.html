@@ -1439,7 +1439,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.91';
+      var APP_VERSION = '1.0.92';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4276,14 +4276,28 @@
       function saveChaseSnapshot(slug, codes, rowsByFile) {
         return packJson({ t: Date.now(), codes: codes || null, rows: rowsByFile })
           .then(function (payload) {
-            try {
-              localStorage.setItem(chaseKey(slug), payload);
+            // THIS ONE WINS. It is the most expensive object the app owns —
+            // ~47 calls and two minutes of rate-limited fetching — and a
+            // device log caught it losing its place to single-call checklist
+            // entries. So a quota failure now evicts the cheap thing and
+            // tries again rather than shrugging.
+            var wrote = false;
+            for (var attempt = 0; attempt < 3 && !wrote; attempt++) {
+              try {
+                localStorage.setItem(chaseKey(slug), payload);
+                wrote = true;
+              } catch (e) {
+                try { localStorage.removeItem(chaseKey(slug)); } catch (e2) {}
+                if (!freeCacheSpace(80)) {
+                  // Nothing left to give: the app still works, it just pays
+                  // again next launch.
+                  dbg('warn', 'chase snapshot not saved: ' + (e && e.name ? e.name : e));
+                  break;
+                }
+              }
+            }
+            if (wrote) {
               dbg('net', 'chase snapshot saved (' + Math.round(payload.length / 1024) + ' KB)');
-            } catch (e) {
-              // Out of quota is not a failure the user should ever see: the app
-              // already has the data in memory and works without this.
-              dbg('warn', 'chase snapshot not saved: ' + (e && e.name ? e.name : e));
-              try { localStorage.removeItem(chaseKey(slug)); } catch (e2) {}
             }
             pruneChaseSnapshots();
           })
@@ -6496,17 +6510,22 @@
                 return ChecklistCards.list('small',
                   got.slice(HOTSPOT_CKL_SHOWN).map(mkCkl));
               })
-              + (kept && all > got.length                 ? '<div class="dim">' + (all - got.length) + ' more here today '
+              + (kept && all > got.length
+                 ? '<div class="dim">' + (all - got.length) + ' more here today '
                    + 'without a bird you need</div>' : ''));
-          });
             // Media only once somebody opens the list, and only for the rows
-            // they can see.
+            // they can see. INSIDE the loop: `slot` belongs to this card, and
+            // reading it after the loop closed threw "Can't find variable:
+            // slot" on every hotspot list — swallowed by the .catch into a
+            // warning, so the lists still rendered and only the media never
+            // wired up. A device log is the only thing that showed it.
             var det = slot.querySelector('details.ckall');
             if (det) {
               det.addEventListener('toggle', function () {
                 if (det.open) hydrateChecklistMedia(det);
               });
             }
+          });
         });
       }
 
@@ -7481,8 +7500,41 @@
       // several KB of protocol and effort metadata that nothing here touches,
       // and localStorage is a few MB in total.
       var CKL_NS = 'bc_ckl:';
-      var CKL_CACHE_MAX = 900;
+      // 250, not 900. A checklist entry is a species list — one to two KB —
+      // and iOS gives an origin about five megabytes for EVERYTHING: the
+      // bundled seed, the photo caches, the latest-ticks cache and the chase
+      // snapshot. A device log showed the consequence directly:
+      //
+      //   [warn] chase snapshot not saved: QuotaExceededError
+      //   [warn] latest-ticks cache not stored: QuotaExceededError
+      //
+      // ...with the priority exactly inverted. A chase snapshot costs ~47
+      // calls and two minutes; a checklist costs ONE. The cheap thing was
+      // evicting the expensive one.
+      var CKL_CACHE_MAX = 250;
+      // Make room by dropping the cheapest thing there is. Returns how many
+      // entries went, so a caller can tell whether retrying is worth it.
+      function freeCacheSpace(want) {
+        var keys = [];
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (!k || k.indexOf(CKL_NS) !== 0) continue;
+            var e = cklEntry(k);
+            keys.push({ k: k, d: (e && e.d) || '' });
+          }
+        } catch (e) { return 0; }
+        // Oldest fetch first: the ones least likely to be looked at again.
+        keys.sort(function (a, b) { return String(a.d).localeCompare(String(b.d)); });
+        var n = Math.min(keys.length, want || 60);
+        for (var j = 0; j < n; j++) {
+          try { localStorage.removeItem(keys[j].k); } catch (e) {}
+        }
+        if (n) dbg('warn', 'freed ' + n + ' cached checklists to make room');
+        return n;
+      }
       var _cklView = {};
+      var _cklWrites = 0;
       function cklEntry(k) {
         try {
           var raw = localStorage.getItem(k);
@@ -7556,9 +7608,15 @@
                 d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
                 m: hasMedia ? 1 : 0, v: v
               }));
+              // Counted as it grows, and trimmed IN SESSION. The prune used to
+              // run only at boot, so a long session accumulated without limit
+              // and the chase snapshot was what failed first.
+              if ((++_cklWrites % 40) === 0) pruneChecklistCache();
             } catch (e) {
               // A full quota is not a failure worth surfacing: the app works,
-              // it just pays again next launch.
+              // it just pays again next launch. Make room first, though —
+              // this cache is the cheapest thing in the store.
+              freeCacheSpace(60);
               try { dbg('warn', 'checklist not cached: ' + (e && e.name)); } catch (_) {}
             }
             return v;
