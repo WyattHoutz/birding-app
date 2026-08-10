@@ -1447,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.94';
+      var APP_VERSION = '1.0.95';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6127,9 +6127,32 @@
       // species and the hotspot itself, so re-attach the species codes here.
       function toDest(cluster) {
         var d = BL.toRenderDest(cluster);
-        d.species = (cluster.species || []).map(function (s) {
-          return { comName: s.name || s.code || 'Unknown species', code: s.code || '', rare: s.kind === 'Rarity' };
-        });
+        // ONE DEFINITION OF SEEN, APPLIED HERE.
+        //
+        // The chase view scored these targets against the seen set as it was
+        // when the wave ran. The card's species list is then split against the
+        // set as it is NOW — and those two moments stopped agreeing the day the
+        // app started learning birds from your own checklists: Sandel Lookout
+        // read "score 6 · 2 rarities · 2 targets" with nothing under it,
+        // because the two targets were the Tufted Puffin and Wandering Tattler
+        // you had just been credited with.
+        //
+        // The LIST was right and the FACTS LINE was stale, so the fix belongs
+        // here rather than in the renderer: re-check the scored species against
+        // the current set, and let the count follow the list instead of the
+        // other way round. A hotspot that holds nothing you need then drops out
+        // of the section entirely, which is what renderDestinations already
+        // does with a zero.
+        var isSeen = seenResolver();
+        d.species = (cluster.species || [])
+          .filter(function (s) { return !isSeen(s.code, s.name); })
+          .map(function (s) {
+            return { comName: s.name || s.code || 'Unknown species', code: s.code || '', rare: s.kind === 'Rarity' };
+          });
+        // The rarity count is a count OF THOSE SPECIES, so it has to be
+        // recounted too — otherwise the card says "2 rarities" over a list
+        // holding none, which is the same bug wearing a different number.
+        d.rare = d.species.filter(function (s) { return s.rare; }).length;
         return d;
       }
       // ── THE HOTSPOT CARD ────────────────────────────────────────────────
@@ -13748,7 +13771,7 @@
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
-        chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi,
+        chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
         ownSeenMeta: ownSeenMeta, ownNewSubs: ownNewSubs, isOwnRow: isOwnRow,
         raritySort: raritySort, setRaritySort: setRaritySort,

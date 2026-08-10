@@ -9076,3 +9076,48 @@ test('a number eBird will not give is asked for once a day, not once a load', ()
   assert.match(dbg, /r\.status === 403 && \/\\\/ebirders\\\/count\//,
     'an expected 403 is logged as a warning, not as an error');
 });
+
+
+// "number one has nonunseen birds" — Sandel Lookout, ranked #1, reading
+// "score 6 · 2 rarities · 2 targets" with nothing under it but "15 more species
+// already seen".
+//
+// TWO MOMENTS, one card. The chase view scored those targets against the seen
+// set as it was when the wave ran; the card's list is split against the set as
+// it is NOW. Those stopped agreeing the day the app began learning birds from
+// your own checklists — the two "targets" were the Tufted Puffin and Wandering
+// Tattler you had just been credited with.
+//
+// So the LIST was right and the FACTS LINE was stale. The count now follows the
+// list rather than the other way round.
+test('a hotspot counts only the targets you still need, right now', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = ['tufpuf', 'wantat1']; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  // Scored as two rarities — but both are birds you have since logged.
+  const stale = A.toDest({ locId: 'L1', locName: 'Sandel Lookout', lat: 47.7, lon: -122.3,
+    score: 6, species: [{ name: 'Tufted Puffin', code: 'tufpuf', kind: 'Rarity' },
+                        { name: 'Wandering Tattler', code: 'wantat1', kind: 'Rarity' }] });
+  assert.equal(stale.species.length, 0,
+    'a bird you have seen is not a target, however it was scored');
+  // The rarity count is a count OF THOSE SPECIES, so it has to move too —
+  // otherwise the card says "2 rarities" over a list holding none, which is the
+  // same bug wearing a different number.
+  assert.equal(stale.rare, 0, 'and the rarity count follows the species, not the score');
+
+  // renderDestinations drops a zero, so the hotspot leaves the section rather
+  // than sitting at #1 answering its own question with "do not go".
+  assert.ok(!(stale.species.length > 0), 'so it is filtered out of the list entirely');
+
+  // A hotspot that genuinely holds something you need is untouched.
+  const real = A.toDest({ locId: 'L2', locName: 'Marina Beach Park', lat: 47.8, lon: -122.4,
+    score: 3, species: [{ name: 'Common Loon', code: 'comloo' },
+                        { name: 'Common Murre', code: 'commur', kind: 'Rarity' }] });
+  assert.equal(real.species.length, 2, 'the birds you still need survive');
+  assert.equal(real.rare, 1, 'with their rarity count intact');
+  assert.equal(real.species[0].comName, 'Common Loon', 'and their names');
+  app.window.close();
+});
