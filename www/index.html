@@ -45,9 +45,17 @@
           return of.apply(this, arguments).then(function (r) {
             // A 404 from Wikipedia's summary endpoint just means that species
             // has no article — expected, not an error worth flagging.
-            var expected = !r.ok && r.status === 404 && /wikipedia\.org\/api\/rest_v1\/page\/summary/.test(String(url));
-            push(r.ok ? 'net' : (expected ? 'warn' : 'error'), [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);
-            return r;
+            //
+            // ...and a 403 from ebirders/count is the FIRST STEP of a
+            // deliberate two-step, not a failure: that endpoint refuses every
+            // public API key (verified against the live API), so the code
+            // expects the refusal and then tries a web token. Logging it as ✖
+            // made a working design look broken in every session log.
+            var u = String(url);
+            var expected = !r.ok && (
+              (r.status === 404 && /wikipedia\.org\/api\/rest_v1\/page\/summary/.test(u))
+              || (r.status === 403 && /\/ebirders\/count/.test(u)));
+            push(r.ok ? 'net' : (expected ? 'warn' : 'error'), [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);            return r;
           }, function (err) {
             push('error', [method + ' FAILED (' + (Date.now() - t0) + 'ms) ' + short + ' — ' + str(err)]);
             throw err;
@@ -1439,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.93';
+      var APP_VERSION = '1.0.94';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8945,12 +8953,18 @@
         if (hit && hit.date === todayStr()) return Promise.resolve(hit.n);
         var path = 'product/region/' + encodeURIComponent(regionCode) + '/ebirders/count?yr=cur';
         function store(n) {
-          if (n == null) return null;
+          // A NULL IS WORTH REMEMBERING TOO. This endpoint 403s for every
+          // public API key — verified against the live API, so it is not a
+          // key problem — and the fallback scrapes a web token out of
+          // ebird.org. When that comes up empty the whole dance repeats on
+          // every rankings load: one dead call plus one HTML fetch, each time,
+          // for a number the card simply omits. Recording the failure for the
+          // day makes it cost once.
           try {
-            cache[regionCode] = { date: todayStr(), n: n };
+            cache[regionCode] = { date: todayStr(), n: (n == null ? null : Math.round(n)) };
             localStorage.setItem(EBIRDERS_CACHE_KEY, JSON.stringify(cache));
           } catch (e) {}
-          return n;
+          return n == null ? null : Math.round(n);
         }
         function read(token) {
           return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': token } })
@@ -8960,11 +8974,23 @@
               return (typeof v === 'number' && isFinite(v)) ? store(Math.round(v)) : null;
             });
         }
-        return read(getKey())
-          .catch(function () {
-            return ebirdWebKey().then(function (k) { return k ? read(k) : null; });
-          })
-          .catch(function () { return null; });
+        var settled = false;
+        function done(n) {
+          if (settled) return n;
+          settled = true;
+          return n == null ? store(null) : n;
+        }
+        return Promise.race([
+          read(getKey())
+            .catch(function () {
+              return ebirdWebKey().then(function (k) { return k ? read(k) : null; });
+            })
+            .catch(function () { return null; }),
+          // 12s: long enough for a page fetch on a phone, short enough that a
+          // stalled one does not keep the promise — and the negative cache —
+          // pending for the whole session.
+          new Promise(function (res) { setTimeout(function () { res(null); }, 12000); })
+        ]).then(done);
       }
 
       // Thousands separators, matching the report's `#{rank:,}` formatting.
@@ -13744,7 +13770,7 @@
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
-        extractWebKey: extractWebKey,
+        extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         gbifScanOrder: gbifScanOrder, dueBackSoon: dueBackSoon,
         daysUntilMonthDay: daysUntilMonthDay, GBIF_SCAN_MAX: GBIF_SCAN_MAX,

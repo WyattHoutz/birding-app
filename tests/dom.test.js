@@ -9038,3 +9038,41 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
     'and never deletes the guard that makes that possible');
   app.window.close();
 });
+
+
+// "✖ [error] GET 403 api.ebird.org/v2/product/region/US-WA/ebirders/count"
+//
+// Not a bug, and not a key problem: that endpoint refuses EVERY public API key
+// — verified against the live API — so the 403 is the deliberate first step of
+// a two-step that then tries a web token scraped from ebird.org. Logging it as
+// an ERROR made a working design look broken in every session log.
+//
+// What WAS wrong is that the whole dance repeated on every rankings load — one
+// dead call plus one HTML fetch each time — for a number the card simply omits
+// when it cannot be had.
+test('a number eBird will not give is asked for once a day, not once a load', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function ebirderCount('),
+    HTML.indexOf('function rankNum('));
+
+  // The failure is remembered. store() used to return early on null, so only
+  // successes were cached and a failure was retried forever.
+  assert.match(fn, /n == null \? null : Math\.round\(n\)/,
+    'a null is written to the cache rather than discarded');
+  assert.match(fn, /n == null \? store\(null\) : n/,
+    'and the failing path actually calls store');
+
+  // ...and it always settles. The fallback fetches a PAGE, and a request that
+  // never resolves would leave this pending — which would also mean the
+  // negative result is never recorded, so the dead call returns every load
+  // anyway. Verified functionally: the second call costs zero attempts.
+  assert.match(fn, /Promise\.race\(/, 'the attempt is capped');
+  assert.match(fn, /setTimeout\(function \(\) \{ res\(null\); \}, 12000\)/,
+    'at 12 seconds — long enough for a page on a phone, short enough that a '
+    + 'stall does not hold the promise for the session');
+
+  // The log line is honest about what it is.
+  const dbg = HTML.slice(0, HTML.indexOf('</script>'));
+  assert.match(dbg, /r\.status === 403 && \/\\\/ebirders\\\/count\//,
+    'an expected 403 is logged as a warning, not as an error');
+});
