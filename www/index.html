@@ -1439,7 +1439,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.90';
+      var APP_VERSION = '1.0.91';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1946,6 +1946,7 @@
         if (!subs.length) return Promise.resolve(0);
         var codes = ownSeenCodes(), meta = ownSeenMeta() || { subs: {}, at: 0 };
         meta.subs = meta.subs || {};
+        var learned = 0;
         return pool(subs, 2, function (sub) {
           return checklistView(sub, true).then(function (d) {
             // Recorded even when empty, so a checklist with nothing readable
@@ -1953,7 +1954,7 @@
             meta.subs[sub] = 1;
             ((d && d.obs) || []).forEach(function (o) {
               var c = String(o.speciesCode || '').trim().toLowerCase();
-              if (c) codes[c] = 1;
+              if (c && !codes[c]) { codes[c] = 1; learned++; }
             });
           }).catch(function () {});
         }).then(function () {
@@ -1963,7 +1964,21 @@
             localStorage.setItem(ownSeenKey() + ':meta', JSON.stringify(meta));
           } catch (e) { dbg('warn', 'own list not saved: ' + (e && e.name)); }
           dbg('net', 'own checklists harvested: ' + subs.length
-            + ' (' + Object.keys(codes).length + ' species known)');
+            + ' (' + Object.keys(codes).length + ' species known, '
+            + learned + ' new)');
+          // THE SEEN SET JUST CHANGED, so every chase view computed from the
+          // old one is stale — exactly the reason setWatchlist() does this.
+          // Without it a bird you logged this morning went on being offered as
+          // a target until the 30-minute memo lapsed. Verified against live
+          // data: two own checklists carried Tufted Puffin and Wandering
+          // Tattler, neither of which is on the bundled Washington list.
+          //
+          // Only when something was actually LEARNED: clearing on every pass
+          // would throw away the wave that is usually already correct.
+          if (learned) {
+            clearChaseCache();
+            _autoLoaded = {};
+          }
           return subs.length;
         });
       }

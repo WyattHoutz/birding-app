@@ -8885,3 +8885,58 @@ test('a bird you are holding back is not ticked by your own checklist', async ()
     + 'watchlist, never after');
   app.window.close();
 });
+
+
+// The seen set just changed, so every chase view computed from the old one is
+// stale — the same reason setWatchlist() clears it. Without this a bird you
+// logged this morning went on being offered as a target until the 30-minute
+// memo lapsed. Verified against live data on 2026-08-09: two of this reader's
+// own checklists carried Tufted Puffin and Wandering Tattler, neither of which
+// is on the bundled Washington year list.
+test('learning a bird from your own checklist refreshes what is a target', async () => {
+  let waves = 0;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/product\/checklist\/view\/S1/.test(u)) return { obs: [{ speciesCode: 'tufpuf' }] };
+      if (/notable/.test(u)) waves++;
+      if (/data\/obs\//.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  const doc = () => app.window.document;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+
+  A.refresh();
+  await waitFor(() => waves > 0, 'the first wave');
+  const before = waves;
+
+  // A checklist of yours appears carrying a bird the bundle does not know.
+  const n = await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]);
+  assert.equal(n, 1, 'the checklist was read');
+  assert.ok(A.getReportSeen().tufpuf, 'and the bird now counts as seen');
+
+  // The next look must recompute rather than serve the memo that still calls
+  // it a target.
+  A.refresh();
+  await waitFor(() => waves > before, 'the chase view to be rebuilt');
+  assert.ok(waves > before,
+    'learning a bird invalidates the cached chase view, exactly as changing '
+    + 'the watchlist does');
+
+  // ...but ONLY when something was learned. Re-running with nothing new must
+  // not throw away a wave that is already correct.
+  //
+  // Sampled only once the rebuild has SETTLED: the chase result is written at
+  // the END of the wave, so a count taken while it is still in flight makes the
+  // next read a miss and the test measures its own impatience.
+  await waitFor(() => !doc().getElementById('refreshBtn').disabled,
+    'the rebuild to finish');
+  const steady = waves;
+  assert.equal(await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]), 0);
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(waves, steady, 'nothing new means nothing re-fetched');
+  app.window.close();
+});
