@@ -9121,3 +9121,178 @@ test('a hotspot counts only the targets you still need, right now', async () => 
   assert.equal(real.species[0].comName, 'Common Loon', 'and their names');
   app.window.close();
 });
+
+
+// "top deatination is showing dated checklist format that doesnt have the media
+// icons or newly added formating. check template cards"
+//
+// The rows DID go through the shared card already — what they never got was the
+// evidence. The checklist entry each row is built from was dropping `evidence`
+// on the way out of the cluster builder, so recordIcons had nothing to render
+// and this was the last list still showing bare rows.
+test('unseen place rows carry the media mark, like every other list', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const html = A.unseenPlacesHtml([{
+    loc: 'The Produce Market', locId: 'L1', lat: 47.8, lon: -122.2,
+    distMi: 5.1, dateStr: '2026-08-09 16:46',
+    checklists: [
+      { subId: 'S1', dateStr: '2026-08-09 16:46', count: 1, valid: true, evidence: 'P' },
+      { subId: 'S2', dateStr: '2026-08-08 09:23', count: 1, valid: true, evidence: '' },
+    ],
+  }]);
+
+  assert.match(html, /\u{1F4F7}/u, 'the checklist with a photo says so');
+  // ...and only that one. A mark on a row with no media would be worse than
+  // none, because it is a claim about evidence that does not exist.
+  assert.equal((html.match(/\u{1F4F7}/gu) || []).length, 1,
+    'and the one without stays bare');
+
+  // The rest of the shared formatting reaches here too, which is the point of
+  // it being shared: numeric date, and no per-bird count.
+  assert.match(html, /8\/9 4:46p/, 'the abbreviated date');
+  assert.ok(!/ckcount/.test(html), 'and no bird count on a one-line row');
+});
+
+// "in main menu, move go birding section above rare birds."
+//
+// The MENU array already listed Go birding first. MENU_GROUPS is the array that
+// actually decides the order, and it disagreed — two orderings for one menu,
+// the same shape as every heading that disagreed with its own rows.
+test('the menu leads with Go birding, not Rare birds', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const m = /var MENU_GROUPS = \[([^\]]+)\]/.exec(HTML);
+  assert.ok(m, 'the group order is a named array');
+  const groups = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
+  const go = groups.indexOf('Go birding'), rare = groups.indexOf('Rare birds');
+  assert.ok(go > -1 && rare > -1, 'both groups exist');
+  assert.ok(go < rare,
+    `Go birding (${go}) comes before Rare birds (${rare}) — "where do I go" is `
+    + 'the question with a deadline; a rarity keeps');
+});
+
+
+// "new seen birds are missing" — from My year, and ONLY from My year: the same
+// birds had correctly stopped being offered as targets everywhere else.
+//
+// That split is the bug. The harvest stored a set of CODES, which is all "is
+// this bird seen?" needs, and My year is the one section that does not ask
+// that — it renders a list, so it needs a name, a date, a checklist and a
+// place. A code cannot be a row.
+test('a bird harvested from your own checklist is a row, not just a tick', async () => {
+  const lists = [{
+    subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 3,
+    isoObsDate: '2026-08-09 16:46',
+    loc: { locId: 'L4321', name: 'Edmonds Waterfront', isHotspot: true },
+  }];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/product\/checklist\/view\/S1/.test(u)) return { obs: [{ speciesCode: 'tuftpu' }] };
+      // ONE taxonomy call turns the codes into names. Fetched here, before the
+      // record is stored, rather than lazily at paint time — where a failure
+      // would leave a permanent blank in the list.
+      if (/ref\/taxonomy\/ebird/.test(u)) {
+        assert.match(u, /species=tuftpu/, 'and it asks only for what was learned');
+        return [{ speciesCode: 'tuftpu', comName: 'Tufted Puffin' }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await A.harvestOwnChecklists(lists);
+
+  // The tick is durable BEFORE the name lookup is awaited. That ordering is
+  // the load-bearing part: a name is a rendering detail, and a taxonomy call
+  // that never returns must not be able to hold up the thing that stops a bird
+  // you logged this morning being offered as a target.
+  assert.ok(A.getReportSeen().tuftpu, 'seen the moment the checklist is read');
+  await A.nameOwnCodes();
+
+  const rec = A.ownSeenCodes().tuftpu;
+  assert.equal(typeof rec, 'object', 'the entry is a record now');
+  assert.equal(rec.n, 'Tufted Puffin', 'with the name My year needs to print');
+  // The date, the place and the subId were ALREADY in the product/lists row —
+  // this costs no extra call, it just stopped throwing them away.
+  assert.equal(rec.d, '9 Aug 2026', "in the export's own date shape");
+  assert.equal(rec.s, 'S1', 'the checklist it came from');
+  assert.equal(rec.l, 'Edmonds Waterfront', 'and where');
+
+  const merged = A.mergedYearList();
+  const row = merged.filter((e) => e.code === 'tuftpu')[0];
+  assert.ok(row, 'so it reaches the list');
+  assert.equal(row.name, 'Tufted Puffin');
+  assert.ok(row.own, 'flagged, because it is the reason the count now runs '
+    + 'ahead of the eBird page the heading links to');
+
+  // ...and it still does the job it already did.
+  assert.ok(A.getReportSeen().tuftpu, 'while still counting as seen');
+  app.window.close();
+});
+
+// A name lookup that fails leaves a record that cannot be rendered — so the
+// next harvest simply tries again, at no cost when there is nothing to fix.
+test('a name that failed to resolve is retried, not lost', async () => {
+  let allow = false;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/product\/checklist\/view\/S1/.test(u)) return { obs: [{ speciesCode: 'tuftpu' }] };
+      if (/ref\/taxonomy\/ebird/.test(u)) {
+        return allow ? [{ speciesCode: 'tuftpu', comName: 'Tufted Puffin' }] : { __status: 500 };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await A.harvestOwnChecklists([{
+    subId: 'S1', userDisplayName: 'Birder Wyatt', isoObsDate: '2026-08-09 16:46',
+    loc: { locId: 'L1', name: 'Here', isHotspot: true },
+  }]);
+  await A.nameOwnCodes();
+  assert.equal(A.ownSeenCodes().tuftpu.n, '', 'no name yet');
+  assert.ok(A.getReportSeen().tuftpu, 'but the bird is still seen — that half never depended on it');
+  assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 0,
+    'and it is kept OUT of the list rather than rendered as a blank row');
+
+  allow = true;
+  await A.nameOwnCodes();
+  assert.equal(A.ownSeenCodes().tuftpu.n, 'Tufted Puffin', 'the retry fills it in');
+  assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 1, 'and now it is a row');
+  app.window.close();
+});
+
+// The export is newest-first. A harvested bird is INSERTED at the first row it
+// is newer than, rather than the whole list being re-sorted on a date field
+// some rows may not have — a rebuild would reorder the export using a weaker
+// key than the one that built it.
+test('the export keeps its own order when new birds are merged in', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window;
+  const seed = A.reportYearList();
+  if (!seed.length) { app.window.close(); return; }
+  W.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
+    aaaaaa: { n: 'Brand New Bird', d: '9 Aug 2026', s: 'S1', l: 'Here', i: 'L1', h: 1 },
+    // A bare 1 is what harvests before this change stored. It still marks the
+    // bird seen; it simply has no name, and a row with no name is worse than
+    // no row.
+    bbbbbb: 1,
+  }));
+  const merged = A.mergedYearList();
+  assert.equal(merged.length, seed.length + 1, 'one row added, one skipped');
+  assert.equal(merged[0].code, 'aaaaaa', 'the newest bird leads');
+  assert.deepEqual(merged.filter((e) => !e.own).map((e) => e.code), seed.map((e) => e.code),
+    'and the export is in exactly the order it arrived in');
+
+  A.updateMyYear();
+  const rows = W.document.getElementById('myYearList').querySelectorAll('li');
+  assert.equal(rows.length, seed.length + 1);
+  // report.py numbers the OLDEST #1, so a newly added bird is #N.
+  assert.match(rows[0].textContent, new RegExp('^' + (seed.length + 1) + '\\.'),
+    'numbered as the newest, not renumbered from the top');
+  assert.match(rows[0].textContent, /new since the export/,
+    'and it says why it is not on the eBird page');
+  app.window.close();
+});
