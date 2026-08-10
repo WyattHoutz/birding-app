@@ -8993,3 +8993,48 @@ test('the expensive snapshot evicts cheap caches rather than giving up', () => {
   assert.match(HTML, /_cklWrites % 40\) === 0\) pruneChecklistCache\(\)/,
     'the cache is trimmed as it grows, not only at the next launch');
 });
+
+
+// A device log caught two waves overlapping — started 23 seconds apart,
+// finishing "phase 2 done in 185.8s" and "163.1s" back to back, both writing a
+// snapshot, both fighting the same token bucket. The limiter sat at window
+// 21/20 with single calls stalling 30 to 60 seconds.
+//
+// The cause was the force path deleting the in-flight promise, which is the
+// very guard that stops a second wave starting. You cannot be more up to date
+// than a fetch that is in progress.
+test('a forced refresh joins a running wave instead of racing it', async () => {
+  let waves = 0;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/notable/.test(u)) waves++;
+      if (/data\/obs\//.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+
+  // Start a wave and, WITHOUT waiting, force another. The second must not
+  // start a rival.
+  A.refresh();
+  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  A.refresh();
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled, 'the wave to finish');
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Six region feeds per wave, three of them notable. More than one wave's
+  // worth here means two ran at once.
+  assert.ok(waves <= 3,
+    `one wave's worth of alert feeds, not two: ${waves}`);
+
+  // ...and the guard is the in-flight promise, kept rather than deleted.
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const gc = HTML.slice(HTML.indexOf('function getChase('),
+    HTML.indexOf('function getChase(') + 2200);
+  assert.match(gc, /if \(_chaseInflight\[slug\]\) return _chaseInflight\[slug\];/,
+    'a force joins the running wave');
+  assert.ok(!/delete _chaseInflight\[slug\];/.test(gc),
+    'and never deletes the guard that makes that possible');
+  app.window.close();
+});

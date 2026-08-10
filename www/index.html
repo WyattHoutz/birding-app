@@ -1439,7 +1439,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.92';
+      var APP_VERSION = '1.0.93';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4338,8 +4338,17 @@
         // so the next read is a real wave. That costs ~47 calls, which is
         // exactly what a person asking for fresh data is asking to spend.
         if (force) {
+          // A WAVE ALREADY RUNNING IS ALREADY FRESH. Deleting the in-flight
+          // promise here destroyed the guard that stops two waves overlapping:
+          // a device log caught two starting 23 seconds apart, finishing
+          // "phase 2 done in 185.8s" and "163.1s" back to back, both writing a
+          // snapshot, both fighting the same token bucket — which is why the
+          // limiter sat at window 21/20 with single calls stalling 30-60s.
+          //
+          // You cannot be more up to date than a fetch that is in progress, so
+          // a force during a wave joins it rather than starting a rival.
+          if (_chaseInflight[slug]) return _chaseInflight[slug];
           delete _chase[slug];
-          delete _chaseInflight[slug];
           try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
           // ...and the eBird response memo, which is the one that actually
           // decides whether a call happens. Dropping only the chase caches
