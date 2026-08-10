@@ -8806,3 +8806,82 @@ test('species lookup finds a bird by its eBird code', async () => {
     'the code is matched whole');
   app.window.close();
 });
+
+
+// "is there a way for the app to get my birdlist dynamically?"
+//
+// Not directly — an eBird API key identifies an APP, not a person, so there is
+// no "my life list" endpoint to call. But your checklists are PUBLIC, and
+// product/lists/{county} carries userDisplayName on every row. That is a feed
+// this app ALREADY fetches for Birder convoys, so the incremental half costs
+// nothing: measured 2026-08-09, 200 rows covers the last 2-3 days in King and
+// Snohomish and contained this reader's own checklists in both.
+test('your own checklists top up the year list, for free', async () => {
+  const lists = [
+    { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 10,
+      loc: { locId: 'L1', locName: 'Charles Richey' } },
+    { subId: 'S2', userDisplayName: 'Someone Else', numSpecies: 5,
+      loc: { locId: 'L1', locName: 'Charles Richey' } },
+  ];
+  const viewed = [];
+  const app = await boot({
+    fetch(url) {
+      const m = /product\/checklist\/view\/(S\d)/.exec(String(url));
+      if (m) {
+        viewed.push(m[1]);
+        return { obs: m[1] === 'S1'
+          ? [{ speciesCode: 'tufpuf' }, { speciesCode: 'commur' }]
+          : [{ speciesCode: 'shouldnotappear' }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+
+  assert.equal(A.isOwnRow(lists[0]), true, 'your checklist is yours');
+  assert.equal(A.isOwnRow(lists[1]), false, 'and somebody else\'s is not');
+
+  assert.equal(await A.harvestOwnChecklists(lists), 1, 'one checklist to read');
+  assert.deepEqual(Array.from(viewed), ['S1'],
+    'ONLY yours is fetched — reading the whole county would be the expensive '
+    + 'thing this exists to avoid');
+  assert.deepEqual(Object.keys(A.ownSeenCodes()).sort(), ['commur', 'tufpuf'],
+    'and its species are now known');
+
+  // Idempotent: a checklist already read is never bought twice, however many
+  // times the feed returns it.
+  viewed.length = 0;
+  assert.equal(await A.harvestOwnChecklists(lists), 0, 'nothing new to do');
+  assert.deepEqual(Array.from(viewed), [], 'and nothing re-fetched');
+
+  // The point: a bird you filed since the bundle was built stops being a target.
+  assert.ok(A.getReportSeen().tufpuf, 'a bird you reported counts as seen');
+  assert.ok(!A.getReportSeen().shouldnotappear,
+    'and a bird from somebody else\'s checklist does not');
+  app.window.close();
+});
+
+// The watchlist still wins. A tentative ID is deliberately HELD OFF the year
+// list so it keeps resurfacing as a target — and you filed a checklist for it,
+// which is exactly why it is tentative. Your own checklist must not tick it.
+test('a bird you are holding back is not ticked by your own checklist', async () => {
+  const app = await boot({
+    fetch(url) {
+      return /product\/checklist\/view\/S1/.test(String(url))
+        ? { obs: [{ speciesCode: 'tufpuf' }] } : null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]);
+  assert.ok(A.getReportSeen().tufpuf, 'ticked while nothing is held');
+
+  // Now hold it back.
+  W.localStorage.setItem('ebird_watchlist_v1',
+    JSON.stringify([{ code: 'tufpuf', name: 'Tufted Puffin' }]));
+  assert.ok(!A.getReportSeen().tufpuf,
+    'the watchlist subtracts it again — the union is applied BEFORE the '
+    + 'watchlist, never after');
+  app.window.close();
+});
