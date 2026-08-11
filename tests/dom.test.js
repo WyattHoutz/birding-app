@@ -9666,3 +9666,24 @@ test('a card photo frame follows the photo, within limits', async () => {
   assert.equal(li.style.aspectRatio, '', 'a list thumb is not a hero and is left alone');
   app.window.close();
 });
+
+
+// The work-item tracker checks itself. A tracker nobody verifies is wrong
+// within a week, and this repo has been bitten repeatedly by two things that
+// were supposed to agree and quietly stopped.
+//
+// It earned its keep on the first run: it found that the commit which shipped
+// 1.0.84 has a subject reading "v1.0.83", and that 1.0.82's subject does not
+// start with its version at all. A subject line is a human sentence; the tag is
+// what was published.
+test('WORK-ITEMS.md is consistent with the repo it describes', () => {
+  const { validate } = require(path.join(__dirname, '..', 'scripts', 'work-items.js'));
+  const { open, shipped, problems } = validate();
+  assert.deepEqual(problems, [], 'every id, release, guard and feature reference resolves');
+  assert.ok(shipped.length > 0, 'there is something in it');
+
+  // The status model is one empty column, not a status field: an item under
+  // Open must not name a release, and one under Shipped must.
+  open.forEach((r) => assert.ok(!r[4], `${r[0]} is open and names no release`));
+  shipped.forEach((r) => assert.ok(r[4], `${r[0]} is shipped and names one`));
+});
