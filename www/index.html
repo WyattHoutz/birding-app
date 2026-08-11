@@ -631,6 +631,13 @@
        the section is for — but present, because a rarity is still worth a
        longer drive on the right day and this is the only place it is listed. */
     .farrare { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+    /* The host row exists to make the markup legal and the nested list a real
+       child of a `.obs` — so it must NOT be styled as a card itself. Without
+       this it inherits `.obs.xl > li`'s grid and border and draws an empty
+       card frame around the expander. */
+    .obs > li.farhost { display: block; grid-template-columns: none; border: 0;
+                        padding: 0; margin: 0; background: none; overflow: visible; }
+    .obs > li.farhost > .farrare > ul { margin: 8px 0 0; padding: 0; }
     .farrare > summary { cursor: pointer; color: var(--muted); font-size: calc(14px * var(--s)); }    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
     .wxtable th { color: var(--muted); font-weight: 600; font-size: calc(12px * var(--s)); }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
@@ -1447,7 +1454,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.1.0';
+      var APP_VERSION = '1.1.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3385,7 +3392,7 @@
       function refresh() {
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
-        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading today\u2019s rarity reports for ' + label + '…';
+        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading the last 24 hours of rarity reports for ' + label + '\u2026';
         // Was a raw notable-feed read: eBird's default 14-day window, deduped by
         // species+location and left in feed order. That is a different section
         // from the report's — it showed 31 rows spanning two weeks where the
@@ -3397,7 +3404,7 @@
           if (c.rarity) { rarityRedirect(st); return; }
           var all = c.cv.notableToday || [];
           if (!all.length) {
-            st.textContent = 'No rarity reports yet today. eBird processes notable submissions faster ' +
+            st.textContent = 'No rarity reports in the last 24 hours. eBird processes notable submissions faster ' +
               'than common-bird checklists, so this fills in through the morning.';
             return;
           }
@@ -3422,7 +3429,7 @@
             return id && !known[id];
           });
           st.innerHTML = esc(rows.length + ' rarity report' + (rows.length === 1 ? '' : 's')
-            + ' within ' + chaseMaxMi() + ' mi so far today · '
+            + ' within ' + chaseMaxMi() + ' mi in the last 24 h · '
             + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
             + ' · updated ' + dataTime(c))
             + (fresh.length
@@ -3502,9 +3509,26 @@
           var html = rows.length ? rows.map(card).join('')
             : '<div class="status">Nothing rare within ' + chaseMaxMi() + ' mi today.</div>';
           if (far.length) {
-            html += '<details class="farrare"><summary>' + far.length
+            // THE ROWS INSIDE HERE GET NO GRID unless they are direct children
+            // of a `.obs.card-md` list.
+            //
+            // "some of the species items are not spanning the width of the
+            // screen, and the mile distance is not right aligned" — these
+            // ones. The medium card's CSS is child-scoped (`.obs.xl > li`) on
+            // purpose, so a nested small-card list cannot inherit the outer
+            // row's grid; but that also means a <li> sitting inside a
+            // <details> is not a child of the list and falls back to the
+            // pre-grid float layout. The name stops filling the row and the
+            // distance stops being a column.
+            //
+            // It was invalid markup too: <details> is not a permitted child of
+            // <ul>, and neither is a bare <li> of <details>. A host <li>
+            // carrying its own nested list fixes the layout and the HTML at
+            // once.
+            html += '<li class="farhost"><details class="farrare"><summary>' + far.length
               + ' more beyond ' + chaseMaxMi() + ' mi</summary>'
-              + far.map(card).join('') + '</details>';
+              + '<ul class="obs big xl">' + far.map(card).join('') + '</ul>'
+              + '</details></li>';
           }
           out.innerHTML = html;
           hydratePhotos(out);
@@ -5188,15 +5212,23 @@
         var code = rec && rec.county, name = (rec && rec.countyName) || '';
         if (!code) return '';
         var label = (name || code) + ' RBA';
-        // rank=mrec is eBird's own "most recent first" ordering for a region
-        // page — "sjould link to the resoective ebird aba alert page sorted by
-        // date". NOT verified from here: ebird.org serves a bot check to
-        // anything that is not a browser, so the parameter could not be
-        // exercised. It is safe either way — the rare-birds page is
-        // date-ordered by default, so an ignored parameter costs nothing and a
-        // respected one is what was asked for.
+        // SORTED NEWEST FIRST. "the RBA tag should link to the corresponding
+        // ebird rare bird alert page sorted by date time."
+        //
+        // The URL the reader quoted is an ALERT page —
+        // `/alert/summary?sid=SN35705&sortBy=obsDt&o=desc` — and `sid` is a
+        // personal alert SUBSCRIPTION id. eBird publishes no way to derive one
+        // from a county code, and this app has exactly one on hand (the ABA
+        // sid in Settings), so a county tag cannot become an alert link
+        // without the reader pasting a sid per county. See W51.
+        //
+        // What the region page CAN take is the same ordering, so both spellings
+        // go on: `rank=mrec` is eBird's own "most recent first" for a region
+        // page, and `sortBy=obsDt&o=desc` is the pair the alert page uses. An
+        // ignored parameter costs nothing; between them the page is
+        // date-ordered, which is what was actually asked for.
         return '<a class="rbalink" data-href="https://ebird.org/region/'
-          + encodeURIComponent(code) + '/rare-birds?rank=mrec" title="'
+          + encodeURIComponent(code) + '/rare-birds?rank=mrec&sortBy=obsDt&o=desc" title="'
           + esc((name || code) + ' County rare bird alert, most recent first')
           + '">' + esc(label) + '</a>';
       }
@@ -8311,7 +8343,10 @@
         aba: { country: null, exclude: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'] }
       };
       function abaActiveRarities() {
-        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid());
+        // Newest first, the pair the reader quoted. This is the one alert URL the
+        // app has a sid for, so it is the one place the exact form applies.
+        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid())
+          + '&sortBy=obsDt&o=desc';
         var scope = RARITY_SCOPE[getReportSlug()] || RARITY_SCOPE.lower48;
         var drop = {}; scope.exclude.forEach(function (c) { drop[c] = 1; });
         return fetchPublicHTML(url).then(function (html) {
@@ -10050,7 +10085,10 @@
       }
 
       function loadAbaAlert() {
-        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid());
+        // Newest first, the pair the reader quoted. This is the one alert URL the
+        // app has a sid for, so it is the one place the exact form applies.
+        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid())
+          + '&sortBy=obsDt&o=desc';
         var btn = $('abaBtn'), st = $('abaStatus');
         btn.disabled = true; $('abaResults').innerHTML = ''; st.textContent = 'Loading the ABA rarities alert…';
         // aba_rba.py scrapes this exact page with no credentials — the alert

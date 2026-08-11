@@ -9716,3 +9716,34 @@ test('a card photo frame follows the photo, within limits', async () => {
 
 
 
+
+
+// "some of the species items are not spanning the width of the screen, and the
+// mile distance is not right aligned."
+//
+// The rows inside the "N more beyond X mi" expander. The medium card's CSS is
+// child-scoped (`.obs.xl > li`) ON PURPOSE, so a nested small-card list cannot
+// inherit the outer row's grid — but that also means an <li> sitting inside a
+// <details> is not a child of the list and falls back to the pre-grid float
+// layout: the name stops filling the row and the distance stops being a
+// column. It was invalid markup too; <details> is not a permitted child of
+// <ul>, nor a bare <li> of <details>.
+test('the far-rarity expander keeps its rows inside a real list', () => {
+  const src = HTML.slice(HTML.indexOf('if (far.length) {'),
+                         HTML.indexOf('if (far.length) {') + 1400);
+  assert.match(src, /<li class="farhost">/,
+    'a host <li> makes the expander a legal child of the results <ul>');
+  assert.match(src, /<ul class="obs big xl">/,
+    'and the far rows sit in their own list, so the medium-card grid applies');
+  // The wrapper class must match the medium card's own, or those rows render
+  // at a different size than the identical rows above them.
+  const wrapper = (CARDS_SPECIES.match(/medium: *'([^']+)'/)
+               || CARDS_SPECIES.match(/medium: *"([^"]+)"/) || [])[1];
+  assert.ok(wrapper, 'cards-species.js still names the medium wrapper');
+  assert.ok(src.indexOf('<ul class="' + wrapper + '">') >= 0,
+    'the nested list wears the medium wrapper "' + wrapper + '", not a lookalike');
+  // ...and the host must opt OUT of being a card itself, or it draws an empty
+  // frame around the expander.
+  assert.match(HTML, /\.obs > li\.farhost \{[^}]*display: block/,
+    'the host row is not styled as a card');
+});

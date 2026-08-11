@@ -210,23 +210,55 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
 });
 
-test('computeChaseViews: notableToday keeps one row per checklist, newest first', () => {
+test('computeChaseViews: the rarity view is a rolling 24 hours, one row per checklist', () => {
   const wa = BL.profileFor('wa');
   const SNAP = '2026-01-15';
+  // Pinned to just after midnight — the exact moment the old calendar-day
+  // filter emptied the section. "when it hits midnight, the list goes blank
+  // and every morning I see no rare birds in the app."
+  const NOW = Date.parse('2026-01-15T00:30:00');
   const today = waSnapshot({
     'king-notable.json': [
-      OBS({ obsId: 'o-a', subId: 'S1', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: SNAP + ' 08:30' }),
-      OBS({ obsId: 'o-b', subId: 'S2', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: SNAP + ' 11:00' }),
-      OBS({ obsId: 'o-c', subId: 'S3', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-14 08:30' })
+      OBS({ obsId: 'o-a', subId: 'S1', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: '2026-01-15 00:10' }),
+      OBS({ obsId: 'o-b', subId: 'S2', speciesCode: 'buffle', comName: 'Bufflehead', obsDt: '2026-01-14 23:50' }),
+      OBS({ obsId: 'o-c', subId: 'S3', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-14 06:00' }),
+      OBS({ obsId: 'o-d', subId: 'S4', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-13 12:00' })
     ]
   });
   const cv = BL.computeChaseViews(wa, {
-    rowsToday: today, rowsPrior: waSnapshot({}),
+    rowsToday: today, rowsPrior: waSnapshot({}), nowMs: NOW,
     seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: wa.home, dailyDriveMi: wa.dailyDriveMi
   });
   const subs = cv.notableToday.map((r) => r.subId);
-  assert.deepEqual(subs, ['S2', 'S1'], 'both of today\'s checklists kept, newest first');
-  assert.ok(!subs.includes('S3'), 'yesterday\'s rarity is not in today\'s report');
+
+  // THE POINT: last night's birds survive midnight. Under the old rule S2 and
+  // S3 both vanished at 00:00 and the reader saw one row, or none.
+  assert.deepEqual(subs, ['S1', 'S2', 'S3'], 'everything from the last 24 h, newest first');
+  assert.ok(!subs.includes('S4'), 'and nothing older than the window');
+
+  // Deduped by CHECKLIST, not species: S1 and S2 are both Bufflehead and both
+  // stand, because two observers reporting the same bird are two places you
+  // could drive to.
+  assert.equal(subs.filter((s) => s === 'S1').length, 1, 'one row per checklist');
+
+  // The boundary is the window, not the date: same rows, a day later, gone.
+  const later = BL.computeChaseViews(wa, {
+    rowsToday: today, rowsPrior: waSnapshot({}), nowMs: NOW + 36 * 3600000,
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: wa.home, dailyDriveMi: wa.dailyDriveMi
+  });
+  assert.deepEqual(later.notableToday.map((r) => r.subId), [],
+    'the window really is rolling, not a date comparison in disguise');
+});
+
+// The old calendar-day helper is KEPT, and still means one calendar day. An
+// archived report is a dated document: re-reading 2026-01-15 should show what
+// was around on the 15th, not what is around now.
+test('notableToday still means one calendar day, for dated documents', () => {
+  const mk = (d, s) => ({ kind: 'Rarity', dateStr: d, subId: s });
+  const rows = [mk('2026-01-15 00:10', 'A'), mk('2026-01-14 23:50', 'B')];
+  assert.deepEqual(BL.notableToday(rows, '2026-01-15').map((r) => r.subId), ['A'],
+    'only the named day');
+  assert.equal(BL.NOTABLE_WINDOW_H, 24, 'and the live window is a named constant');
 });
 
 // --- render adapter --------------------------------------------------------

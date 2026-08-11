@@ -792,8 +792,51 @@
   }
 
   // ---- notable (mirror report.section_today) -------------------------------
-  // TODAY's rarities from the notable feeds, deduped by checklist (sub_id),
-  // newest first. `records` = merged snapshot; `snapshotDate` = 'YYYY-MM-DD'.
+  // Rarities from the notable feeds in the LAST 24 HOURS, deduped by checklist
+  // (sub_id), newest first.
+  //
+  // "when it hits midnight, the list goes blank and every morning I see no
+  // rare birds in the app."
+  //
+  // It used to be the CALENDAR DAY — `date_str.startswith(snapshotDate)` — and
+  // that is exactly the reported behaviour, not a bug on top of it. At 00:01
+  // the set of rows dated "today" is empty, and stays near-empty through the
+  // morning because eBird's own processing lag means the night's checklists
+  // arrive later. The section that exists to answer "what is around right now"
+  // was blank precisely when a birder was deciding where to go.
+  //
+  // A rolling window has no such edge. `nowMs` is passed in rather than read
+  // from the clock so the report (built once, at a known time) and the app
+  // (live) can both use this one function and the golden can pin it.
+  var NOTABLE_WINDOW_H = 24;
+  function notableRecent(records, nowMs, hours) {
+    var now = isFinite(nowMs) ? nowMs : Date.now();
+    var span = (isFinite(hours) ? hours : NOTABLE_WINDOW_H) * 3600000;
+    var seenSubs = {}, out = [];
+    (records || []).forEach(function (r) {
+      if (r.kind !== 'Rarity') return;
+      var t = Date.parse(String(r.dateStr || '').replace(' ', 'T'));
+      // An unreadable date is DROPPED, not kept: this list is a claim about
+      // when something happened, and a row that cannot support the claim has
+      // no business leading it.
+      if (!isFinite(t)) return;
+      var age = now - t;
+      // A little slack forward for clock skew between the phone and the
+      // observer's device — the same tolerance BirdLogic.isFresh allows.
+      if (age > span || age < -span) return;
+      var sub = r.subId;
+      if (sub && seenSubs[sub]) return;
+      if (sub) seenSubs[sub] = 1;
+      out.push(r);
+    });
+    out.sort(function (a, b) {
+      return a.dateStr < b.dateStr ? 1 : (a.dateStr > b.dateStr ? -1 : 0);
+    });
+    return out;
+  }
+  // Kept as the old name so a caller that really does want one calendar day
+  // still has it — the report's archived days are dated documents, not live
+  // views, and re-reading one should show that day.
   function notableToday(records, snapshotDate) {
     var seenSubs = {}, out = [];
     (records || []).forEach(function (r) {
@@ -1413,7 +1456,8 @@
 
     var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi });
     var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi });
-    var notable = notableToday(unseenAll, snapshotDate);
+    // The live view is a rolling 24 hours; see notableRecent.
+    var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
     return {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
@@ -2228,6 +2272,7 @@
     destinations: destinations,
     excursions: excursions,
     notableToday: notableToday,
+    notableRecent: notableRecent, NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,
     SURGE: SURGE,
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
