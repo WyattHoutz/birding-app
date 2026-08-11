@@ -9552,3 +9552,117 @@ test('choosing Find lights Find, not Home', () => {
       + 'must not disagree with the label it sits above');
   });
 });
+
+
+// "The quick outing report should display data the same way as top
+// destinations." It already built the SAME card — hotspotCard — so the
+// structure matched; what it never did was HYDRATE it. Every row was a name, a
+// distance and an all-time count, with no unseen/seen split and no checklists,
+// because renderDestinations ends with three calls Quick outing never made.
+test('quick outing hydrates its cards like top destinations does', async () => {
+  const locCalls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/ref\/hotspot\/geo/.test(u)) {
+        return [{ locId: 'L1', locName: 'Yakima Sportsman SP', lat: 46.60, lng: -120.45,
+                  numSpeciesAllTime: 210, latestObsDt: '2026-08-10 07:00' }];
+      }
+      if (/data\/obs\/(L\d+)\/recent/.test(u)) {
+        locCalls.push(u.match(/data\/obs\/(L\d+)/)[1]);
+        return [
+          { speciesCode: 'tuftpu', comName: 'Tufted Puffin', subId: 'S1', obsDt: '2026-08-10 07:00' },
+          { speciesCode: 'amecro', comName: 'American Crow', subId: 'S1', obsDt: '2026-08-10 07:00' },
+        ];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app, W = app.window, D = W.document;
+  W.localStorage.setItem('ebird_home_lat', '46.60');
+  W.localStorage.setItem('ebird_home_lng', '-120.45');
+  A.loadQuickOuting('home');
+
+  const el = () => D.getElementById('quickResults');
+  // Wait for the CALL, not for .hslists — that slot is part of the card
+  // template and exists before anything hydrates it, so waiting on it returns
+  // immediately and measures nothing.
+  await waitFor(() => locCalls.length >= 1, 'the per-hotspot species feed');
+
+  // The per-hotspot feed is data/obs/{locId}/recent — scoped to the LOCATION,
+  // not to the report's counties, which is why this works from any anchor.
+  assert.match(locCalls[0], /^L\d+$/, 'it asks each hotspot what has been reported there');
+
+  const txt = () => el().textContent.replace(/\s+/g, ' ');
+  await waitFor(() => /unseen/.test(txt()), 'the unseen split');
+  assert.match(txt(), /unseen/, 'a bird you still need is called out');
+
+  // ...and the all-time count is NOT rewritten. hydrateLocSpecies corrects a
+  // species count that came from a location feed; numSpeciesAllTime off
+  // ref/hotspot/geo is a different, correct fact, and rewriting it produced
+  // "210 species in 3d all-time".
+  assert.match(txt(), /210 species all-time/, 'the all-time count survives intact');
+  assert.ok(!/in 3d all-time/.test(txt()),
+    'the 3-day correction does not collide with a fact it does not own');
+  app.window.close();
+});
+
+
+// "the bird photos in the aba alert large cards are getting cropped weird,
+// cutting off parts of the bird."
+//
+// Measured against the photos the app actually fetches (Wikipedia summary API,
+// 20 species): 11 of 20 are exactly 3:2 and lose nothing, which is why a fixed
+// `aspect-ratio: 3/2` with `object-fit: cover` looked fine for so long. But
+// Sharp-shinned Hawk is 2178x3132 and Yellow-headed Blackbird 1367x1914 —
+// PORTRAIT shots, which lost 53% of their height. Tufted Puffin (760x667) lost
+// 24%, Gray-crowned Rosy-Finch 22%, Ruddy Turnstone 17%. With object-position
+// biased to 35% it is the bottom that goes: legs, tail, and most of a perched
+// bird.
+test('a card photo frame follows the photo, within limits', async () => {
+  const app = await boot();
+  const A = app.window.BirdIcons, D = app.window.document;
+  const shot = (w, h, cls) => {
+    const el = D.createElement('span');
+    el.setAttribute('data-hero', '1');
+    const img = D.createElement('img');
+    if (cls) img.className = cls;
+    Object.defineProperty(img, 'naturalWidth', { value: w });
+    Object.defineProperty(img, 'naturalHeight', { value: h });
+    A.fitHeroFrame(el, img);
+    return el.style.aspectRatio ? parseFloat(el.style.aspectRatio) : null;
+  };
+
+  // The common case is untouched: a 3:2 photo still gets a 3:2 frame.
+  assert.ok(Math.abs(shot(5478, 3652) - 1.5) < 0.01, '3:2 stays 3:2 — no crop, as before');
+
+  // The ones that were being mutilated. Clamped rather than obeyed, so a card
+  // cannot become a skyscraper.
+  const hawk = shot(2178, 3132);          // 0.695 natural
+  assert.equal(hawk, A.HERO_AR_MIN, 'a portrait photo is clamped, not squashed into 3:2');
+  const lost = 1 - (2178 / 3132) / hawk;  // fraction of height still cropped
+  assert.ok(lost < 0.15,
+    `Sharp-shinned Hawk now loses ${Math.round(lost * 100)}% of its height, not 53%`);
+
+  // Between the clamps nothing is cropped at all.
+  assert.ok(Math.abs(shot(760, 667) - 760 / 667) < 0.01, 'Tufted Puffin is shown whole');
+  assert.ok(Math.abs(shot(2838, 2271) - 2838 / 2271) < 0.01, 'and so is Ruddy Turnstone');
+
+  // A panorama is clamped the other way rather than making a letterbox sliver.
+  assert.equal(shot(4000, 1000), A.HERO_AR_MAX, 'very wide is clamped too');
+
+  // The two images that are NOT photographs of this bird must not reshape the
+  // card: the bundled seed is a 60px list icon on a mat, and the fallback is a
+  // generic silhouette.
+  assert.equal(shot(60, 60, 'birdpic isseed'), null, 'the bundled seed icon does not reshape the card');
+  assert.equal(shot(512, 512, 'birdpic isfallback'), null, 'nor does the generic silhouette');
+
+  // A non-hero thumb keeps its fixed 46px box.
+  const li = D.createElement('span');
+  const img = D.createElement('img');
+  Object.defineProperty(img, 'naturalWidth', { value: 2178 });
+  Object.defineProperty(img, 'naturalHeight', { value: 3132 });
+  A.fitHeroFrame(li, img);
+  assert.equal(li.style.aspectRatio, '', 'a list thumb is not a hero and is left alone');
+  app.window.close();
+});

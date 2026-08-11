@@ -1447,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.98';
+      var APP_VERSION = '1.0.99';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5550,15 +5550,50 @@
       // paying for 1920. The value is snapped through ladderWidth() anyway, so
       // this cannot go off-ladder again.
       var HERO_PX = 1280;
+      // A card photo's frame follows the PHOTO, within limits.
+      //
+      // "the bird photos in the aba alert large cards are getting cropped
+      // weird, cutting off parts of the bird." Measured against the photos the
+      // app actually fetches: 11 of 20 species are exactly 3:2 and lose
+      // nothing, which is why this looked fine for so long — but Sharp-shinned
+      // Hawk (2178x3132) and Yellow-headed Blackbird (1367x1914) are PORTRAIT
+      // shots, and a fixed `aspect-ratio: 3/2` with `object-fit: cover` threw
+      // away 53% of their height. Tufted Puffin lost 24%, Rosy-Finch 22%.
+      // With object-position biased to 35% it is the bottom that goes: legs,
+      // tail, and most of a perched bird.
+      //
+      // So the frame takes the image's own ratio once it is known, clamped so
+      // a card cannot become a skyscraper or a letterbox. Inside the clamp
+      // nothing is cropped at all; outside it the crop is bounded to ~12%
+      // instead of over half.
+      var HERO_AR_MIN = 0.8;          // 4:5 — the tallest a card may get
+      var HERO_AR_MAX = 16 / 9;       // the widest, before the sides are cropped
+      function fitHeroFrame(el, img) {
+        if (!el || !el.hasAttribute('data-hero')) return;
+        // The bundled seed is a 60px list icon rendered at its natural size on
+        // a mat, and the silhouette is not a photo OF this bird — neither one
+        // should reshape the card.
+        if (img.classList.contains('isseed') || img.classList.contains('isfallback')) return;
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) return;
+        var ar = Math.min(HERO_AR_MAX, Math.max(HERO_AR_MIN, w / h));
+        el.style.aspectRatio = String(ar);
+      }
       function putImg(el, src, name, onErr, extraClass) {
         var img = document.createElement('img');
         img.className = 'birdpic' + (extraClass ? ' ' + extraClass : '');
         img.alt = name || ''; img.src = src;
+        img.addEventListener('load', function () { fitHeroFrame(el, img); });
         img.addEventListener('error', function () {
           if (el.firstChild) el.removeChild(img);
+          // A frame shaped for a photo that then failed would leave the
+          // fallback sitting in someone else's box.
+          try { el.style.aspectRatio = ''; } catch (e) {}
           if (onErr) onErr(); else showFallback(el);
         });
         el.appendChild(img);
+        // A cached image can be complete before the listener is attached.
+        if (img.complete) fitHeroFrame(el, img);
       }
       // Last resort: a generic silhouette, drawn for this project so it carries
       // no licence obligation of its own. Better than hiding the slot — an
@@ -5705,7 +5740,8 @@
       // the tiering logic would be reachable only through the network paths it
       // exists to avoid. Mirrors how logic.js exposes BirdLogic.
       window.BirdIcons = {
-        photoSlot: photoSlot,
+        photoSlot: photoSlot, fitHeroFrame: fitHeroFrame,
+        HERO_AR_MIN: HERO_AR_MIN, HERO_AR_MAX: HERO_AR_MAX,
         hydratePhotos: hydratePhotos,
         showFallback: showFallback,
         dir: ICON_DIR,
@@ -6848,8 +6884,12 @@
             // itself on its own line.
             var meta = el.querySelector('.meta');
             if (meta) {
+              // Only a count that CAME from a location feed may be corrected.
+              // Quick outing's "N species all-time" is numSpeciesAllTime off
+              // ref/hotspot/geo — a different, correct fact — and rewriting it
+              // produced "N species in 3d all-time".
               meta.innerHTML = meta.innerHTML.replace(
-                /\d+ species/, rows.length + ' species in ' + LOC_SPECIES_DAYS + 'd');
+                /\d+ species(?! all-time)/, rows.length + ' species in ' + LOC_SPECIES_DAYS + 'd');
             }
             hydratePhotos(slot);
           }).catch(function () {});
@@ -8514,6 +8554,23 @@
               ]
             }));
           });
+          // "The quick outing report should display data the same way as top
+          // destinations." It already built the SAME card — what it never did
+          // was hydrate it, so every row was a name, a distance and an
+          // all-time count, with no unseen/seen split and no checklists.
+          //
+          // These are the three calls renderDestinations ends with. The
+          // per-hotspot feed they use is data/obs/{locId}/recent, which is
+          // scoped to the LOCATION and not to the report's counties — so this
+          // works from any anchor, including one outside them.
+          //
+          // Costs one call per card (up to QUICK_OUTING_TOP = 10), which is
+          // what Top destinations pays for the same rows. Chained, not
+          // parallel: the checklist pass consumes the unseen subIds the
+          // species pass publishes.
+          hydratePhotos(el);
+          hydrateLocSpecies(el).then(function () { return hydrateHotspotChecklists(el); })
+            .catch(function (e) { dbg('warn', 'quick outing hotspots: ' + ((e && e.message) || e)); });
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btns.forEach(function (b) { if (b) b.disabled = false; }); });
       }
