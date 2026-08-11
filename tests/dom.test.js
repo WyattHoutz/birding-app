@@ -6586,8 +6586,10 @@ test('getChase resolves on phase 1 so the screen can come up', () => {
   // publishing phase 1 into the cache and then CONTINUING to await phase 2
   // before resolving — on a cold start every section is blocked on that very
   // promise, so the "publish" had no audience.
+  // Sliced to the end of runWave, not a magic character count — a fixed-length
+  // window silently stops covering the function as soon as anything is added.
   const src = HTML.slice(HTML.indexOf('function runWave()'),
-                         HTML.indexOf('function runWave()') + 5200);
+                         HTML.indexOf('// A cold start had nothing in memory'));
   assert.match(src, /var first = finish\(codes, false\);/,
     'phase 1 produces the result that is returned');
   assert.match(src, /return first;/,
@@ -8389,7 +8391,10 @@ async function waitFor(fn, what, ms = 15000) {
   const t0 = Date.now();
   for (;;) {
     let v;
-    try { v = fn(); } catch (e) { v = false; }
+    // AWAITED. Without this an async predicate returns a promise, which is
+    // always truthy, so waitFor returns immediately and the test measures
+    // nothing. Sync predicates are unaffected.
+    try { v = await fn(); } catch (e) { v = false; }
     if (v) return v;
     if (Date.now() - t0 > ms) {
       throw new Error(`timed out after ${ms}ms waiting for: ${what}`);
@@ -8908,8 +8913,25 @@ test('learning a bird from your own checklist refreshes what is a target', async
   const doc = () => app.window.document;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
 
+  // Settling is measured by the CALL COUNT going quiet, not by the Refresh
+  // button. The button re-enables as soon as the rarity feeds land — the
+  // rarity list is complete at that point — while the rest of the wave is
+  // still in flight, so it never answered "has the wave finished".
+  const waitQuiet = async (what) => {
+    let last = -1;
+    await waitFor(async () => {
+      if (last === waves) return true;
+      last = waves;
+      await new Promise((r) => setTimeout(r, 400));
+      return last === waves;
+    }, what);
+  };
+
   A.refresh();
   await waitFor(() => waves > 0, 'the first wave');
+  // Sampled once the first wave is DONE. Sampling mid-wave made the next
+  // assertion measure the tail of this wave rather than a new one.
+  await waitQuiet('the first wave to finish');
   const before = waves;
 
   // A checklist of yours appears carrying a bird the bundle does not know.
@@ -8927,12 +8949,7 @@ test('learning a bird from your own checklist refreshes what is a target', async
 
   // ...but ONLY when something was learned. Re-running with nothing new must
   // not throw away a wave that is already correct.
-  //
-  // Sampled only once the rebuild has SETTLED: the chase result is written at
-  // the END of the wave, so a count taken while it is still in flight makes the
-  // next read a miss and the test measures its own impatience.
-  await waitFor(() => !doc().getElementById('refreshBtn').disabled,
-    'the rebuild to finish');
+  await waitQuiet('the rebuild to finish');
   const steady = waves;
   assert.equal(await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]), 0);
   A.refresh();
@@ -8981,9 +8998,38 @@ test('the expensive snapshot evicts cheap caches rather than giving up', () => {
 
   assert.match(fn, /freeCacheSpace\(/,
     'a quota failure makes room instead of shrugging');
-  assert.match(fn, /attempt < 3/, 'and retries, rather than dropping the wave');
-  assert.match(fn, /if \(!freeCacheSpace\(80\)\)/,
+  // Was `attempt < 3`. A device log showed three attempts freeing two
+  // checklists between them and failing anyway: the retry count was never the
+  // limit, the size of the drawer was. Retries are cheap (a failed setItem
+  // throws immediately) so the loop now runs until it fits or there is
+  // genuinely nothing disposable left.
+  assert.match(fn, /attempt < 12/, 'and retries until it fits, rather than dropping the wave');
+  assert.match(fn, /if \(!n\) \{/,
     'giving up only when there is genuinely nothing cheap left to drop');
+  // Our own expired copies go BEFORE the write. pruneChaseSnapshots ran after
+  // it, so every attempt competed with yesterday's garbage — the one thing in
+  // the store guaranteed to be worthless.
+  assert.ok(fn.indexOf('pruneChaseSnapshots()') < fn.indexOf('localStorage.setItem(chaseKey'),
+    "yesterday's snapshots are dropped before the write, not after it");
+  // A failure now names what actually filled the store, so the next device log
+  // is evidence instead of inference.
+  assert.match(fn, /storeComposition\(\)/, 'and a failure says what the store is made of');
+
+  // The eviction can reach more than one namespace. "freed 2 cached
+  // checklists to make room" followed by a failed write proved the drawer we
+  // were opening was nearly empty while the rest of the store sat untouched.
+  assert.match(HTML, /var DISPOSABLE = \[/, 'there is a ranked list of what may be dropped');
+  const disposable = /var DISPOSABLE = \[([\s\S]*?)\];/.exec(HTML)[1];
+  assert.match(disposable, /'bc_ckl:'/, 'cheapest first: a checklist costs one call');
+  assert.match(disposable, /'ebird_photos_v2'/, 'and it reaches the big blob caches too');
+  // The rule that matters: nothing the network cannot hand back.
+  [['ebird_watchlist_v1', 'your watchlist'],
+   ['ebird_own_seen:', 'birds harvested from your own checklists'],
+   ['ebird_rankhist:', 'rank history accumulated a day at a time'],
+   ['ebird_rarity_seen:', 'which rarities you have already been shown'],
+   ['ebird_api_key', 'your key']].forEach(([k, what]) => {
+    assert.ok(disposable.indexOf(k) < 0, `${what} (${k}) is not a cache and is never evicted`);
+  });
 
   // The cap came down with it: 900 checklist entries at 1-2 KB each is most of
   // an iOS origin's 5 MB, before the seed, the photos and the ticks cache.
@@ -9295,4 +9341,157 @@ test('the export keeps its own order when new birds are merged in', async () => 
   assert.match(rows[0].textContent, /new since the export/,
     'and it says why it is not on the eBird page');
   app.window.close();
+});
+
+
+// The device log that forced this open:
+//
+//   [warn] freed 2 cached checklists to make room
+//   [warn] chase snapshot not saved: QuotaExceededError
+//
+// Three attempts, two checklists freed between them, and 141 seconds plus 48
+// calls discarded. The retry count was never the limit — the drawer we were
+// opening was nearly empty while megabytes of other caches sat untouched.
+test('a full store gives up its cheapest caches, not the wave', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window;
+
+  W.localStorage.setItem('bc_ckl:S1', JSON.stringify({ d: '2026-08-01', o: '2026-08-01' }));
+  W.localStorage.setItem('ebird_photos_v2', JSON.stringify({ a: 'https://x/1.jpg' }));
+  W.localStorage.setItem('ebird_birdinfo_v2', JSON.stringify({ a: 'blurb' }));
+  W.localStorage.setItem('easymiss_v1:x', '[]');
+  // ...and the things that are not caches at all.
+  W.localStorage.setItem('ebird_watchlist_v1', 'Tufted Puffin');
+  W.localStorage.setItem('ebird_own_seen:wa', JSON.stringify({ tuftpu: { n: 'Tufted Puffin' } }));
+  W.localStorage.setItem('ebird_rankhist:wa', '[1,2,3]');
+  W.localStorage.setItem('ebird_rarity_seen:wa', '{}');
+
+  const freed = A.freeCacheSpace(100);
+  assert.ok(freed >= 4, `every disposable cache is reachable, not just checklists (freed ${freed})`);
+  assert.equal(W.localStorage.getItem('bc_ckl:S1'), null, 'the cheapest thing goes');
+  assert.equal(W.localStorage.getItem('ebird_photos_v2'), null, 'and so do the big blobs');
+
+  // The rule that matters. A full disk is not a reason to lose something the
+  // network cannot hand back.
+  assert.equal(W.localStorage.getItem('ebird_watchlist_v1'), 'Tufted Puffin',
+    'your watchlist survives');
+  assert.ok(W.localStorage.getItem('ebird_own_seen:wa'),
+    'so do the birds harvested from your own checklists');
+  assert.equal(W.localStorage.getItem('ebird_rankhist:wa'), '[1,2,3]',
+    'and the rank history, which is accumulated a day at a time and cannot be refetched');
+  assert.ok(W.localStorage.getItem('ebird_rarity_seen:wa') != null,
+    'and which rarities you have already been shown');
+
+  // Nothing left to give is reported honestly, rather than looping.
+  assert.equal(A.freeCacheSpace(100), 0, 'an empty drawer says so');
+  app.window.close();
+});
+
+
+// "speed up the load time, especially of the rare bird alerts"
+//
+// Phase 1 is six calls and, with FG_MAX_CONC = 1, they are serial — a device
+// log measured 20.8s before anything painted. Three of those six are the
+// `notable` feeds, and in phase 1 a row is a Rarity if and ONLY if a notable
+// feed carried it: mergeSnapshot sets kind='Rarity' from notableIds, and the
+// `recent` feeds carry no rarity flag at all. So a rarity list built from the
+// notable feeds alone is not an early approximation — it IS the phase-1 answer.
+// Making it wait for the other three calls bought nothing.
+test('the rarity feeds are fetched first, and paint without waiting for the rest', async () => {
+  const order = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      // Must RESOLVE: the foreground gate admits one call at a time, so a
+      // stub that never settles means only ever one request goes out and the
+      // order of the rest is unobservable.
+      if (/data\/obs\/.*recent/.test(u)) {
+        order.push(/notable/.test(u) ? 'notable' : 'recent');
+        return [];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  A.getChase(false);
+  // The three notable feeds go out before any of the recent feeds — the order
+  // in which they are FETCHED, which planFeeds deliberately does not decide.
+  await waitFor(() => order.length >= 3, 'the first three feeds');
+  assert.deepEqual(Array.from(order).slice(0, 3), ['notable', 'notable', 'notable'],
+    'rarity feeds lead, because they answer a whole section on their own');
+  app.window.close();
+});
+
+// planFeeds is a cross-repo contract — the golden pins `feeds` and `mergeOrder`
+// separately — so the app reorders only what it FETCHES. Results are keyed by
+// file, which is what makes that safe.
+test('fetch order is the app\'s business; merge order is the contract', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const profile = {
+    slug: 'wa', counties: [{ slug: 'king', code: 'US-WA-033', label: 'King' },
+                           { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }],
+    home: { lat: 47.75, lng: -122.16 }, geoDistKm: 50,
+  };
+  const kinds = BL.planFeeds(profile).map((f) => f.kind);
+  assert.deepEqual(kinds, ['recent', 'notable', 'recent', 'notable', 'recent', 'notable'],
+    'planFeeds still returns the report\'s order, untouched');
+
+  const run = HTML.slice(HTML.indexOf('function runWave()'),
+                         HTML.indexOf('// A cold start had nothing in memory'));
+  assert.match(run, /f\.kind === 'notable' \? early : rest/,
+    'and the split that reorders the fetch lives in the app, not in the plan');
+  // A profile with no notable feeds (or no recent ones) must not end up
+  // fetching an empty first group and publishing a view built from nothing.
+  assert.match(run, /if \(!early\.length \|\| !rest\.length\) \{ early = feeds; rest = \[\]; \}/,
+    'a profile that does not split simply runs as one group');
+});
+
+// The partial is complete for rarities and badly incomplete for everything
+// else, so it must never reach the cache every other section reads. "All
+// unseen reports" rendering from notable feeds alone would confidently show
+// almost nothing.
+test('the early rarity view never leaks into the shared chase cache', () => {
+  const src = HTML.slice(HTML.indexOf('function runWave()'),
+                         HTML.indexOf('// A cold start had nothing in memory'));
+  assert.match(src, /_chaseRarity\[slug\] = \{/, 'the partial has its own home');
+  // `_chase` is assigned in exactly one place — finish(), which is only ever
+  // called with a complete phase-1 view. Asserting the ABSENCE of the
+  // assignment inside runWave is what makes this hard to defeat by accident.
+  assert.ok(!/_chase\[slug\]\s*=/.test(src),
+    'and runWave never writes the shared cache itself — finish() does that, '
+    + 'and only with a complete phase-1 view');
+  assert.match(src, /delete _chaseRarity\[slug\];/,
+    'and it is dropped the moment the real phase-1 view exists');
+  // Only the two rarity sections repaint on it.
+  const early = HTML.slice(HTML.indexOf('function onRarityEarly'),
+                           HTML.indexOf('function getChase(force)'));
+  assert.match(early, /\['refreshBtn', 'activeBtn'\]/,
+    'exactly the two sections a notable feed can answer');
+  assert.match(early, /if \(!_autoLoaded\[id\]\) return;/,
+    'and only if they are actually open');
+});
+
+
+// A document that quotes constants goes stale silently — API-CALLS.md spent
+// several releases telling readers the app paced at 0.3/s and a bucket of 8
+// after both had been raised, and recommending four things that had shipped.
+// If the numbers are worth writing down they are worth pinning.
+test('the API docs quote the constants the app actually uses', () => {
+  const docs = ['API-CALLS.md', 'QUERY-PLAN.md'].map((f) =>
+    fs.readFileSync(path.join(__dirname, '..', 'docs', f), 'utf8')).join('\n');
+  const constants = [
+    /var FG_MAX_CONC = (\d+)/, /FG_MIN_GAP_MS = (\d+)/, /FG_BUCKET = (\d+)/,
+    /FG_REFILL_PER_S = ([\d.]+)/, /FG_WINDOW_MS = (\d+)/, /FG_WINDOW_MAX = (\d+)/,
+  ];
+  constants.forEach((re) => {
+    const m = re.exec(HTML);
+    assert.ok(m, `${re} is still a named constant`);
+    assert.ok(docs.indexOf(m[1]) >= 0,
+      `the docs quote ${re.source} as ${m[1]}; update them when it changes`);
+  });
+  // The checklist cap and the eviction rule are quoted too.
+  assert.match(HTML, /var CKL_CACHE_MAX = 250;/);
+  assert.ok(/250/.test(docs), 'the checklist cap is quoted');
+  // And the two files cross-reference rather than drifting into two accounts.
+  assert.match(docs, /QUERY-PLAN\.md/, 'API-CALLS points at the query plan');
 });

@@ -1447,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.96';
+      var APP_VERSION = '1.0.97';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3393,7 +3393,7 @@
         // BirdLogic.notableToday IS section_today (today only, deduped by
         // CHECKLIST so each observer's report of the same bird stands, newest
         // first) and is covered by the cross-repo golden, so use it.
-        getChase(takeForce() ? 'notable' : false).then(function (c) {
+        getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var all = c.cv.notableToday || [];
           if (!all.length) {
@@ -4228,6 +4228,11 @@
       var CHASE_TTL_MS = 30 * 60 * 1000;
       var SPECIES_BATCH = 2;
       var _chaseInflight = {};
+      // The rarity-only view that exists between the notable feeds landing and
+      // the rest of phase 1 finishing. Deliberately NOT _chase: it is complete
+      // for rarities and badly incomplete for everything else, and _chase is
+      // what every other section reads.
+      var _chaseRarity = {};
       // Phase 2 runs detached so the screen can come up on phase 1. This holds
       // its promise per region, for the rare caller (and the tests) that needs
       // the complete answer rather than the fast one.
@@ -4386,30 +4391,45 @@
       function saveChaseSnapshot(slug, codes, rowsByFile) {
         return packJson({ t: Date.now(), codes: codes || null, rows: rowsByFile })
           .then(function (payload) {
+            // Our OWN expired copies go first, before the write rather than
+            // after it. The comment on pruneChaseSnapshots already said that
+            // keeping them "is how a cache quietly becomes the reason the next
+            // write fails" — and then it ran after the save, so every attempt
+            // competed with yesterday's garbage. A device log caught the
+            // result: 141 seconds and 48 calls, not stored.
+            pruneChaseSnapshots();
             // THIS ONE WINS. It is the most expensive object the app owns —
             // ~47 calls and two minutes of rate-limited fetching — and a
             // device log caught it losing its place to single-call checklist
             // entries. So a quota failure now evicts the cheap thing and
             // tries again rather than shrugging.
-            var wrote = false;
-            for (var attempt = 0; attempt < 3 && !wrote; attempt++) {
+            var wrote = false, freed = 0;
+            for (var attempt = 0; attempt < 12 && !wrote; attempt++) {
               try {
                 localStorage.setItem(chaseKey(slug), payload);
                 wrote = true;
               } catch (e) {
                 try { localStorage.removeItem(chaseKey(slug)); } catch (e2) {}
-                if (!freeCacheSpace(80)) {
+                var n = freeCacheSpace(80);
+                if (!n) {
                   // Nothing left to give: the app still works, it just pays
-                  // again next launch.
-                  dbg('warn', 'chase snapshot not saved: ' + (e && e.name ? e.name : e));
+                  // again next launch. Say what the store is actually made of,
+                  // so the next device log is evidence rather than a guess —
+                  // the last one said "freed 2 cached checklists" and then
+                  // failed anyway, which only proved the drawer we opened was
+                  // the wrong one.
+                  dbg('warn', 'chase snapshot not saved ('
+                    + Math.round(payload.length / 1024) + ' KB, freed ' + freed
+                    + '): ' + storeComposition());
                   break;
                 }
+                freed += n;
               }
             }
             if (wrote) {
-              dbg('net', 'chase snapshot saved (' + Math.round(payload.length / 1024) + ' KB)');
+              dbg('net', 'chase snapshot saved (' + Math.round(payload.length / 1024) + ' KB'
+                + (freed ? ', freed ' + freed + ' to fit' : '') + ')');
             }
-            pruneChaseSnapshots();
           })
           .catch(function () { /* packing failed; nothing to store */ });
       }
@@ -4433,6 +4453,37 @@
           }
           drop.forEach(function (k) { if (k !== keep) localStorage.removeItem(k); });
         } catch (e) { /* nothing worth reporting */ }
+      }
+      // What the two rarity sections read. A rarity list needs the notable
+      // feeds and nothing else, so it must not be made to wait for the half of
+      // phase 1 that exists to score destinations.
+      //
+      // getChase() still runs the wave; this only decides which answer to
+      // render while that wave is in flight. Once _chase is populated the
+      // partial is gone and this is an ordinary getChase().
+      function getChaseRarity(force) {
+        var slug = getReport().slug;
+        var full = _chase[slug];
+        if (!force && full && (Date.now() - full.t) < CHASE_TTL_MS) return Promise.resolve(full);
+        var p = _chaseRarity[slug];
+        if (!force && p) {
+          // Keep the wave running underneath — this is a head start, not a
+          // substitute for it, and onRarityEarly repaints when it completes.
+          getChase(force);
+          return Promise.resolve(p);
+        }
+        return getChase(force);
+      }
+      // Repaint ONLY the rarity sections. The others would be rendering a view
+      // that has no `recent` feeds in it yet, which is how a section ends up
+      // confidently showing nothing.
+      function onRarityEarly(slug) {
+        if (!slug || slug !== getReport().slug) return;
+        ['refreshBtn', 'activeBtn'].forEach(function (id) {
+          if (!_autoLoaded[id]) return;         // never opened; nothing to repaint
+          var spec = LOADERS[id];
+          if (spec && spec.fn) { try { spec.fn(); } catch (e) {} }
+        });
       }
       function getChase(force) {
         var profile = getReport(), slug = profile.slug;
@@ -4547,8 +4598,45 @@
           dbg('net', 'WAVE start · ' + feeds.length + ' region feeds');
           // Stage 1 of 2, named for what it is fetching. Its total is fixed.
           progressStage('Recent sightings near you', feeds.length, 1, 2);
-          return fetchAll(feeds, true).then(function (results) {
+          // THE RARITY FEEDS GO FIRST, and the rarity sections paint as soon as
+          // they land instead of waiting for the other half of phase 1.
+          //
+          // With FG_MAX_CONC = 1 every call is serial, so phase 1 is six calls
+          // end to end — a device log measured 20.8 s. Three of those six are
+          // the `notable` feeds, and in phase 1 a row is a Rarity if and ONLY
+          // if a notable feed carried it (mergeSnapshot sets kind='Rarity' from
+          // notableIds; the `recent` feeds carry no rarity flag at all). So the
+          // rarity view computed from the notable feeds alone is not an
+          // approximation of the phase-1 answer — for the rows it shows, it IS
+          // the phase-1 answer.
+          //
+          // The `recent` feeds still matter, for the unseen lists and for
+          // scoring destinations, which is why they are fetched immediately
+          // after and why ONLY the rarity sections repaint here.
+          //
+          // planFeeds order is left alone deliberately: it is a cross-repo
+          // contract (the golden pins `feeds` and `mergeOrder` separately) and
+          // results are keyed by file, so fetching in a different order cannot
+          // change the merge.
+          var early = [], rest = [];
+          feeds.forEach(function (f) { (f.kind === 'notable' ? early : rest).push(f); });
+          if (!early.length || !rest.length) { early = feeds; rest = []; }
+          return fetchAll(early, true).then(function (rs) {
+            rs.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+            if (rest.length && anyRows(rowsByFile)) {
+              // NOT into _chase. A view built from notable feeds alone is
+              // complete for rarities and badly incomplete for everything
+              // else, and _chase is what every other section reads.
+              _chaseRarity[slug] = { t: Date.now(), profile: profile, cv: compute(null),
+                                     rarity: false, partial: true };
+              dbg('net', 'rarities ready in ' + ((Date.now() - _t0) / 1000).toFixed(1)
+                + 's · ' + early.length + ' of ' + feeds.length + ' feeds');
+              try { onRarityEarly(slug); } catch (e) {}
+            }
+            return fetchAll(rest, true);
+          }).then(function (results) {
             results.forEach(function (r) { rowsByFile[r.file] = r.rows; });
+            delete _chaseRarity[slug];
             dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
 
             // Every feed failing leaves rowsByFile empty, and computing views
@@ -4671,7 +4759,7 @@
         }
         return false;
       }      function clearChaseCache() {
-        _chase = {}; _chaseInflight = {}; resetHotspotCache(); resetListsCache();
+        _chase = {}; _chaseInflight = {}; _chaseRarity = {}; resetHotspotCache(); resetListsCache();
         // The per-URL memo has to go with it, or Refresh is answered from the
         // in-memory copy of the very feeds it is trying to re-read.
         ebClearCache();
@@ -7355,7 +7443,7 @@
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
         var snap = null;
-        getChase(takeForce() ? 'notable' : false).then(function (c) {
+        getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
           // The snapshot's own timestamp, kept so the status line can say when
           // the DATA was read rather than when the page was painted.
           snap = c;
@@ -7654,26 +7742,96 @@
       // calls and two minutes; a checklist costs ONE. The cheap thing was
       // evicting the expensive one.
       var CKL_CACHE_MAX = 250;
-      // Make room by dropping the cheapest thing there is. Returns how many
-      // entries went, so a caller can tell whether retrying is worth it.
-      function freeCacheSpace(want) {
-        var keys = [];
+      // Everything the network can hand back, cheapest to replace first.
+      //
+      // The old version of this could free ONE thing — cached checklists — and
+      // a device log showed exactly what that is worth when there are only two
+      // of them: "freed 2 cached checklists to make room", then the write
+      // failed anyway. Opening the right drawer matters more than opening one
+      // harder.
+      //
+      // Nothing the network CANNOT return appears here, and that is the whole
+      // rule: your watchlist, your own harvested checklists, the rank history
+      // accumulated a day at a time, which rarities you have already been
+      // shown, your key, your home, your settings. Those are not caches, and a
+      // full disk is not a reason to lose them.
+      var DISPOSABLE = [
+        'bc_ckl:',              // one call each — the cheapest thing there is
+        'ebird_photos_neg_v1',  // remembered misses
+        'bc_ref:',              // reference lookups
+        'bc_lastnew:',
+        'easymiss_v1:',
+        'ebird_birdinfo_v2',    // Wikipedia text
+        'ebird_photos_v2',      // image URLs (the bytes live in IndexedDB)
+        'ebird_gbif_v1',
+        'ebird_aba_archive_v1',
+        'ebird_rank_cache_v2',
+      ];
+      function storeKeys(prefix) {
+        var out = [];
         try {
           for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i);
-            if (!k || k.indexOf(CKL_NS) !== 0) continue;
-            var e = cklEntry(k);
-            keys.push({ k: k, d: (e && e.d) || '' });
+            if (k && k.indexOf(prefix) === 0) out.push(k);
           }
-        } catch (e) { return 0; }
-        // Oldest fetch first: the ones least likely to be looked at again.
-        keys.sort(function (a, b) { return String(a.d).localeCompare(String(b.d)); });
-        var n = Math.min(keys.length, want || 60);
-        for (var j = 0; j < n; j++) {
-          try { localStorage.removeItem(keys[j].k); } catch (e) {}
+        } catch (e) { /* enumeration failed; nothing to offer */ }
+        return out;
+      }
+      // What is actually in there, biggest first. Printed only when a write
+      // has already failed, so the next device log names the culprit instead
+      // of leaving it to inference.
+      function storeComposition() {
+        var by = {};
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i) || '';
+            var v = localStorage.getItem(k) || '';
+            var ns = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
+            var name = ns ? ns[1] : k;
+            by[name] = (by[name] || 0) + k.length + v.length;
+          }
+        } catch (e) { return 'unreadable'; }
+        return Object.keys(by)
+          .sort(function (a, b) { return by[b] - by[a]; })
+          .slice(0, 6)
+          .map(function (n) { return n + ' ' + Math.round(by[n] / 1024) + 'KB'; })
+          .join(', ');
+      }
+      // Make room by dropping the cheapest thing there is. Returns how many
+      // entries went, so a caller can tell whether retrying is worth it.
+      function freeCacheSpace(want) {
+        want = want || 60;
+        var freed = 0;
+        for (var t = 0; t < DISPOSABLE.length && freed < want; t++) {
+          var pre = DISPOSABLE[t], keys = storeKeys(pre);
+          if (!keys.length) continue;
+          // Within a namespace of many entries, oldest fetch first: the ones
+          // least likely to be looked at again. Single-blob caches have no
+          // order to respect.
+          if (pre === CKL_NS) {
+            keys = keys.map(function (k) {
+              var e = cklEntry(k);
+              return { k: k, d: (e && e.d) || '' };
+            }).sort(function (a, b) {
+              return String(a.d).localeCompare(String(b.d));
+            }).map(function (x) { return x.k; });
+          }
+          for (var j = 0; j < keys.length && freed < want; j++) {
+            try { localStorage.removeItem(keys[j]); freed++; } catch (e) {}
+          }
         }
-        if (n) dbg('warn', 'freed ' + n + ' cached checklists to make room');
-        return n;
+        // Other reports' snapshots last: expensive to rebuild, but a snapshot
+        // for a region you are not looking at is worth less than the one you
+        // are looking at right now.
+        if (freed < want) {
+          var mine = chaseKey(getReport().slug);
+          storeKeys(CHASE_NS).forEach(function (k) {
+            if (k === mine || freed >= want) return;
+            try { localStorage.removeItem(k); freed++; } catch (e) {}
+          });
+        }
+        if (freed) dbg('warn', 'freed ' + freed + ' cached items to make room');
+        return freed;
       }
       var _cklView = {};
       var _cklWrites = 0;
@@ -14046,6 +14204,7 @@
         packJson: packJson, unpackJson: unpackJson,
         saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
         chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
+        freeCacheSpace: freeCacheSpace, storeComposition: storeComposition,
         FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
       FG_WINDOW_MAX: FG_WINDOW_MAX, FG_WINDOW_MS: FG_WINDOW_MS,
       FG_BUCKET: FG_BUCKET, FG_REFILL_PER_S: FG_REFILL_PER_S,

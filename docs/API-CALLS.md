@@ -56,16 +56,19 @@ the bill more than everything else put together.
 ```mermaid
 graph LR
   subgraph SHARED["shared, fetched once"]
-    W["chase wave<br/>6 calls"]
+    W1["chase wave 1a<br/>3 notable calls"]
+    W2["chase wave 1b<br/>3 recent calls"]
     L["product/lists<br/>2 calls"]
     T["taxonomy / spplist<br/>2 calls, persisted"]
   end
 
-  W --> TODAY["Today's rarities<br/>+0"]
-  W --> RARE["Last 7-Days rarities<br/>+0"]
-  W --> UNSEEN["All unseen<br/>+41 species feeds"]
-  W --> CLOSEST["Closest spots<br/>+0"]
-  W --> EASY["Easy misses<br/>+0"]
+  W1 --> TODAY["Today's rarities<br/>+0, ready first"]
+  W1 --> RARE["Last 7-Days rarities<br/>+0, ready first"]
+  W1 --> W2
+  W2 --> UNSEEN["All unseen<br/>+~39 species feeds"]
+  W2 --> CLOSEST["Closest spots<br/>+0"]
+  W2 --> EASY["Easy misses<br/>+0"]
+  W2 --> DEST["Top destinations<br/>+0"]
 
   L --> BIRD["Birdiest checklists<br/>+0"]
   L --> CONV["Birder convoys<br/>+~50 checklist views"]
@@ -84,12 +87,13 @@ graph LR
 
 | Section | Calls on a first open | Why |
 |---|---:|---|
-| Chase wave (shared) | **6** | 2 counties × (recent + notable) + 2 geo |
-| ↳ phase 2 | **~41** | one `recent/{species}` per bird you still need |
-| Today's rarities | 0 | reads the wave |
-| Last 7-Days rarities | 0 | reads the wave |
+| Chase wave — group 1a (notable) | **3** | 2 counties + geo; completes both rarity sections on its own |
+| ↳ group 1b (recent) | **3** | completes phase 1 |
+| ↳ phase 2 | **~39** | one `recent/{species}` per bird you still need |
+| Today's rarities | 0 | reads the wave — ready at group **1a** |
+| Last 7-Days rarities | 0 | reads the wave — ready at group **1a** |
 | Closest spots / Easy misses / All unseen | 0 | read the wave |
-| 🎯 evidence (new) | 0 until opened, then **1 per row** | lazy — see below |
+| 🎯 evidence | 0 | carried on the notable feed; painted at build time |
 | Birdiest checklists | **2** | `product/lists` per county, then shared |
 | Happening now | 0 | same cached promise |
 | Birder convoys | **~50** | one `checklist/view` per checklist on the routes |
@@ -99,6 +103,9 @@ graph LR
 | Species lookup | **1–2** | spplist + one species feed |
 | Favourites | 1 per saved spot | one `{locId}/recent` each |
 | Time of day | 1 per county | |
+
+A same-day snapshot replaces the whole first column with **0**. See
+`QUERY-PLAN.md` §2.
 
 ---
 
@@ -130,26 +137,34 @@ not a client bug and no amount of re-pacing fixes it.
 Open three of those in a session and it is **~7 minutes of paced fetching**,
 because they all draw from one bucket on one key.
 
-### The app is currently pacing below even that ceiling
+### The app now paces at the measured ceiling
 
 ```js
 var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250;
-var FG_BUCKET = 8, FG_REFILL_PER_S = 0.3;
+var FG_BUCKET = 10, FG_REFILL_PER_S = 0.37;
+var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 20;
 ```
 
-`0.3/s` against a measured `0.37/s`, and a bucket of `8` against a measured
-`~10`. The derivation in the source says why:
+This used to read `FG_BUCKET = 8, FG_REFILL_PER_S = 0.3`, budgeting for a
+competitor that no longer exists:
 
 > **AND THE REPORT JOB SHARES THIS KEY.** At 1660 calls × 4 s it runs at 0.25/s
 > for 111 minutes out of every 3 hours — 68% of the sustainable budget, 61% of
 > the time. That leaves ~0.12/s for the phone.
 
-**That is no longer true.** Every cron in `.github/workflows/` is commented out
-— the scheduled report job does not run. The phone now has the whole key to
-itself, and is still budgeting for a competitor that no longer exists.
+Every cron in `.github/workflows/` is commented out; the phone has the key to
+itself. The constants were raised to the measured solo ceiling, and a **rolling
+60-second window of 20 starts** was added alongside the token bucket — the
+bucket alone let a burst through that the sustained limit then punished.
 
-This is worth ~25% on its own (0.3 → 0.37) and more on the burst (8 → 10). It
-is not the big win, but it is nearly free.
+The debug line reports both, which is how you tell which one is binding:
+
+```
+done 1802ms · 46 calls · queue 0+0bg/1 · gap 250ms · tokens 7.7 · window 21/20
+```
+
+`tokens 7.7` with `window 21/20` means the bucket is full and the **window** is
+what is holding the lane — the correct reading of a ~27 s stall.
 
 ### `FG_MAX_CONC = 1` makes every other concurrency constant decorative
 
@@ -164,6 +179,10 @@ deliberate — concurrency 2 was what made 429s arrive in pairs — but it means
 tuning those numbers cannot make anything faster, and reading them as if it
 could is a trap.
 
+It also means **every call is serial**, so a section's wall-clock cost is just
+its call count ÷ 0.37/s, and *anything extra you prefetch delays something
+else.* See `QUERY-PLAN.md` §5 for what that rules out.
+
 ### And one 429 is very expensive
 
 A refusal doubles the gap globally, empties the bucket, and pauses **every**
@@ -172,30 +191,95 @@ showed one 429 costing ~100 s of wall clock and cascading into ~25 more.
 
 ---
 
-## 4. Where the time actually goes — and what would fix it
+## 4. Where the time actually goes — and what was done about it
 
-Ranked by how much they would save:
+Ranked by how much they saved. The first four have shipped.
 
-1. **Persist `product/checklist/view` across launches.** It is 66% of the
+1. ✅ **Persist `product/checklist/view` across launches.** It was 66% of the
    report's calls and a large share of the app's. A checklist is effectively
-   immutable once filed, yet the app re-fetches it every session — `_ebCache`
-   is in-memory and 30 minutes. A day-scoped (or permanent) IndexedDB cache
-   would remove most of the convoy and evidence cost outright.
+   immutable once filed, yet the app re-fetched it every session. Now a durable
+   `bc_ckl:` cache with an **age-aware TTL** — 1 day while a checklist is still
+   settling, 30 days once it carries media, 7 days if it never will
+   (`checklistCacheTtl`).
 
-2. **Share the checklist cache between sections.** Convoys, Birdiest, finder
-   names and the new 🎯 evidence all read the same endpoint for the same
-   checklists on the same day, through four different code paths.
+2. ✅ **Share the checklist cache between sections.** Convoys, Birdiest, finder
+   names and 🎯 evidence read one cache through one path.
 
-3. **Do not re-derive what a snapshot already knows.** The chase wave's phase 2
+   And the biggest part of this turned out not to need the endpoint at all:
+   **the notable feed already carries `evidence` (P/A/V) on 400 of 400 live
+   rows.** The media icons were being dropped at hand-off, not fetched. Three
+   separate hand-offs have now been found dropping that field. `hasComments`,
+   by contrast, is `false` on all 400 — do not trust it.
+
+3. ✅ **Raise the pacing to the solo ceiling** — bucket 8→10, refill
+   0.3→0.37, plus the 20-per-60 s window the bucket alone was missing.
+
+4. ✅ **Serve the stored snapshot first.** A same-day snapshot is painted
+   immediately and refreshed behind; within 30 minutes it *is* the answer and
+   costs nothing. This is worth more than everything else here combined — but
+   only if the write survives, which is why storage priority (§5) is now part
+   of the design rather than an afterthought.
+
+5. ✅ **Fetch the rarity feeds first.** In phase 1 a row is a `Rarity` if and
+   only if a notable feed carried it, so the three notable feeds complete two
+   whole sections on their own. They now run as their own group and those
+   sections paint after 3 calls instead of 6. See `QUERY-PLAN.md` §3.
+
+Still open:
+
+6. **Do not re-derive what a snapshot already knows.** The chase wave's phase 2
    already writes every unseen species' recent reports to a snapshot. Latest
-   ticks then asks for many of the same species again through its own cache.
+   ticks then asks for many of the same species again through its own cache —
+   at a different `back=` window, which is what stops them sharing.
 
-4. **Raise the pacing to the solo ceiling** now that nothing shares the key —
-   bucket 8→10, refill 0.3→0.37. Small, safe, and immediate.
-
-5. **Prefetch while the reader is reading.** The board paints from a leaderboard
+7. **Prefetch while the reader is reading.** The board paints from a leaderboard
    read in a second; the following two minutes are spent on rows nobody has
    scrolled to yet. Fetching in scroll order — or only what is on screen —
    would put the same information in front of the user far sooner.
 
-See `BACKLOG.md` → **Optimise loading** for the tracked version of this.
+---
+
+## 5. Storage is part of the budget
+
+iOS gives the origin roughly **5 MB** for everything. A write that fails is a
+query plan that repeats itself — and a device log caught exactly that:
+
+```
+[warn] freed 2 cached checklists to make room
+[warn] chase snapshot not saved: QuotaExceededError
+```
+
+141 seconds and 48 calls, discarded. Two things were wrong, and neither was the
+retry count:
+
+* `pruneChaseSnapshots()` ran **after** the write, so every attempt competed
+  with yesterday's snapshots — the one thing in the store guaranteed to be
+  worthless.
+* eviction could only reach `bc_ckl:`. "Freed 2" was not stubbornness, it was
+  an empty drawer, while the rest of the store sat untouched.
+
+Priority is by **what it costs to fetch again**, and the rule that bounds it is
+that nothing the network cannot hand back is ever evicted — not your watchlist,
+not birds harvested from your own checklists, not the rank history accumulated
+a day at a time, not which rarities you have already been shown.
+
+---
+
+## 6. Reading the in-app ledger
+
+The debug panel attributes each call to whichever section was **open when it
+completed**, not to the section that caused it. A shared wave appears charged
+to whatever you were looking at:
+
+```
+26 live · 0 cached  🚶 Quick outing
+22 live · 0 cached  🥇 Top destinations
+  50 live calls total, 2 served from cache
+```
+
+That is one 47-call wave plus one hotspot call. The ledger measures **when**,
+not **why**. (`2 served from cache` out of 50 is itself the signature of the
+snapshot write failing.)
+
+See `QUERY-PLAN.md` for the full per-section plan and `BACKLOG.md` →
+**Optimise loading** for the tracked version of the open items.
