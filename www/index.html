@@ -656,6 +656,9 @@
     .helpone { grid-column: 2; font-size: calc(13px * var(--s)); color: var(--muted); }
     .helpdoc { padding: 0 13px 12px; }
 
+    .farplaces { margin-top: 8px; }
+    .farplaces > summary { cursor: pointer; color: var(--muted);
+                           font-size: calc(13px * var(--s)); padding: 4px 0; }
     .farrare { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
     /* The host row exists to make the markup legal and the nested list a real
        child of a `.obs` — so it must NOT be styled as a card itself. Without
@@ -1486,7 +1489,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.2.0';
+      var APP_VERSION = '1.2.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2332,10 +2335,27 @@
       // burst credit with eBird's short window and none at all with its long
       // one.
       //
-      // So: a hard cap on how many calls may start in any rolling 60 s. Set
-      // under the measured ~30 because the scheduled report job spends part of
-      // the same budget whenever it is running.
-      var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 20;
+      // So: a hard cap on how many calls may start in any rolling 60 s.
+      //
+      // 22, NOT 20 — and the difference was measured, not guessed. Driving the
+      // real scheduler over 300 calls showed 21 starts inside a 60 s window
+      // against a declared cap of 20, and a steady rate of 0.348/s against a
+      // declared 0.333/s. The two limiters DISAGREED: the bucket refills at
+      // 0.37/s and the window allowed 20/60s = 0.333/s, so the bucket won
+      // wherever the window's boundary arithmetic let a call through, and the
+      // window — the backstop — was quietly being exceeded by its own
+      // scheduler. Reporting `window 21/20` was the symptom.
+      //
+      // 22/60 s is 0.367/s, the same rate the bucket already paces at and the
+      // same rate that was measured off the live API. Both halves now express
+      // ONE number, and the same simulation lands on exactly 22 in 60 s with a
+      // steady 0.3666/s against a 0.3667/s cap.
+      var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 22;
+      // A millisecond of daylight, so a start never lands EXACTLY on the
+      // boundary it is waiting for. eBird's clock is not ours and its window
+      // edge may well be inclusive; landing on the tick is a coin flip, and the
+      // measurement shows it is the difference between 21 and 20 in a window.
+      var FG_WINDOW_EPS_MS = 1;
       var _fgStarts = [];
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [], _fgBgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
@@ -2485,8 +2505,24 @@
         var cut = startAt - FG_WINDOW_MS;
         while (_fgStarts.length && _fgStarts[0] <= cut) _fgStarts.shift();
         if (_fgStarts.length < FG_WINDOW_MAX) return 0;
-        // Wait for the oldest call in the window to age out of it.
-        return Math.max(0, _fgStarts[_fgStarts.length - FG_WINDOW_MAX] + FG_WINDOW_MS - startAt);
+        // Wait for the oldest call in the window to age out of it, plus a
+        // millisecond so the new start is strictly PAST the boundary rather
+        // than on it. See FG_WINDOW_EPS_MS.
+        return Math.max(0, _fgStarts[_fgStarts.length - FG_WINDOW_MAX] + FG_WINDOW_MS
+                          + FG_WINDOW_EPS_MS - startAt);
+      }
+      // What the window ACTUALLY holds right now.
+      //
+      // The debug line used to print `_fgStarts.length`, which is the raw array
+      // — pruned only when a reservation happens, so it keeps entries that have
+      // already aged out and reported things like "window 21/20". A count that
+      // can exceed its own cap teaches the reader to distrust the number rather
+      // than the limiter, which is the wrong lesson: this one is a display, and
+      // the real overrun (measured, and fixed above) was a different bug.
+      function fgWindowUsed() {
+        var cut = Date.now() - FG_WINDOW_MS, n = 0;
+        for (var i = 0; i < _fgStarts.length; i++) if (_fgStarts[i] > cut) n++;
+        return n;
       }
       // TWO LANES, not one queue.
       //
@@ -2745,7 +2781,7 @@
             dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + ' calls'
               + ' · queue ' + _fgWaiters.length + '+' + _fgBgWaiters.length + 'bg/' + _fgActive
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
-              + ' · window ' + _fgStarts.length + '/' + FG_WINDOW_MAX
+              + ' · window ' + fgWindowUsed() + '/' + FG_WINDOW_MAX
               + ' · ' + path);
             return v;
           }, function (e) {
@@ -4156,16 +4192,17 @@
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
-          // Same third column as All unseen. A lookup deliberately does NOT
-          // filter by chase distance — you asked about this bird, so every
-          // place it has been is the answer, however far.
+          // Same third column as All unseen. The lookup itself is not filtered
+          // — you asked about this bird, so every place it has been is the
+          // answer, however far. What IS filtered is the DEFAULT VIEW of that
+          // answer; see below.
           distMi: g.distMi,
           sub: [
             g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
             g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
             seenIt ? 'already on your year list' : 'not on your year list'
           ].filter(Boolean).join(' · '),
-          below: unseenPlacesHtml(g.places)
+          below: spLookupPlacesHtml(g.places)
         });
         hydratePhotos(out);
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
@@ -4174,6 +4211,39 @@
         });
       }
 
+      // Within a chase by default; the rest one tap away.
+      //
+      // "when I sort the results by date it has too many that are outside of
+      // the chase distance, and this makes the list difficult to read. Sorting
+      // by distance doesnt cause the problem."
+      //
+      // Exactly so, and the reason is worth stating: sorting by DISTANCE puts
+      // everything you could actually drive to at the top, so the far rows fall
+      // off the end and cost nothing. Sorting by DATE interleaves them, and a
+      // bird reported this morning 200 miles away outranks one reported
+      // yesterday down the road — true, and not what the list is for.
+      //
+      // So the far places are collapsed rather than dropped. The lookup still
+      // answers "everywhere this bird has been", which is the whole point of
+      // being able to ask about a bird you have already seen; it just stops
+      // making you read the unreachable half first.
+      function spLookupPlacesHtml(places) {
+        var all = places || [];
+        var lim = chaseMaxMi();
+        var near = all.filter(function (p) { return !(p.distMi > lim); });
+        var far = all.filter(function (p) { return p.distMi > lim; });
+        // Nothing within range is a real answer, not an empty list: show the
+        // far ones outright rather than an expander over the only rows there
+        // are.
+        if (!near.length) return unseenPlacesHtml(all);
+        var html = unseenPlacesHtml(near);
+        if (far.length) {
+          html += '<details class="farplaces"><summary>' + far.length + ' more place'
+            + (far.length === 1 ? '' : 's') + ' beyond ' + lim + ' mi</summary>'
+            + unseenPlacesHtml(far) + '</details>';
+        }
+        return html;
+      }
       function setSpeciesLookupSort(mode) {
         _spLookupSort = mode === 'dist' ? 'dist' : 'date';
         renderSpeciesLookup();
@@ -14540,6 +14610,7 @@
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
         geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
         coverageNote: coverageNote, chaseMaxMi: chaseMaxMi, countyLabelStr: countyLabelStr,
+        spLookupPlacesHtml: spLookupPlacesHtml,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
         migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,

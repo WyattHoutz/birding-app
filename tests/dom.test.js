@@ -9890,3 +9890,91 @@ test('convoy species are read when scrolled to, not all at once', () => {
   assert.ok(!/<details|<summary/.test(render),
     'convoys remain plain lists — lazy loading did not smuggle in a toggle');
 });
+
+
+// "in the species lookup, by default do not show the checklists that are
+// beyond the chase distance... when I sort the results by date it has too many
+// that are outside of the chase distance, and this makes the list difficult to
+// read. Sorting by distance doesnt cause the problem."
+//
+// Exactly so, and the reason is the useful part: sorting by DISTANCE puts
+// everything reachable at the top, so the far rows fall off the end and cost
+// nothing. Sorting by DATE interleaves them, and a bird reported this morning
+// 200 miles away outranks one reported yesterday down the road — true, and not
+// what the list is for.
+test('species lookup shows what you can drive to first, and keeps the rest', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const lim = A.chaseMaxMi();
+  const mk = (n, d) => ({ loc: n, locId: 'L' + n, lat: 47.8, lng: -122.2, distMi: d,
+    dateStr: '2026-08-11 08:00',
+    checklists: [{ subId: 'S' + n, dateStr: '2026-08-11 08:00', count: 1, valid: true, evidence: 'P' }] });
+
+  const html = A.spLookupPlacesHtml([mk('Near', 5), mk('AlsoNear', lim - 1),
+                                     mk('Far', lim + 1), mk('Farther', 200)]);
+  assert.match(html, /farplaces/, 'the far places are collapsed, not dropped');
+  assert.match(html, new RegExp('2 more places beyond ' + lim + ' mi'),
+    'and the summary says how many and from what radius');
+  // Order matters: reachable first, unreachable behind the fold.
+  assert.ok(html.indexOf('Near') < html.indexOf('farplaces'), 'reachable places lead');
+  assert.ok(html.indexOf('Farther') > html.indexOf('farplaces'), 'the rest sit inside');
+
+  // THE BOUNDARY IS THE CHASE RADIUS, not a magic number, and it is inclusive
+  // — a place exactly at the limit is still a chase.
+  const edge = A.spLookupPlacesHtml([mk('Edge', lim)]);
+  assert.ok(!/farplaces/.test(edge), 'a place exactly at the radius is not "beyond" it');
+
+  // Nothing within range is a real answer, not an empty list. An expander over
+  // the only rows there are would hide the whole result.
+  const allFar = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
+  assert.ok(!/farplaces/.test(allFar), 'with nothing in range the far places show outright');
+  assert.match(allFar, /OnlyFar/, 'so the lookup still answers the question that was asked');
+  app.window.close();
+});
+
+
+// "what is the plan for the window 21/20?"
+//
+// The plan turned out not to be the one I assumed. `window 21/20` was two
+// separate faults wearing one symptom, and only measuring the real scheduler
+// separated them.
+//
+// 1. THE DISPLAY was printing the raw `_fgStarts` array, which is pruned only
+//    when a reservation happens, so it keeps entries that have already aged
+//    out. That alone can read 21/20 while the window is fine.
+// 2. THE LIMITER really was over. Driving the shipped functions over 300 calls
+//    gave 21 starts inside a 60 s window against a declared cap of 20, and a
+//    steady 0.348/s against a declared 0.333/s — because the two limiters
+//    DISAGREED. The bucket paces 0.37/s; the window allowed 20/60s = 0.333/s.
+//    The bucket won wherever the boundary arithmetic let a call through, so
+//    the backstop was being exceeded by its own scheduler.
+//
+// Both halves now express ONE number: 22/60 s is 0.367/s, the rate the bucket
+// already used and the rate measured off the live API.
+test('the two rate limiters agree, and the window is never exceeded', () => {
+  const cfg = (re, n) => { const m = re.exec(HTML); assert.ok(m, re + ' is a named constant'); return +m[n]; };
+  const winMs = cfg(/var FG_WINDOW_MS = (\d+), FG_WINDOW_MAX = (\d+);/, 1);
+  const winMax = cfg(/var FG_WINDOW_MS = (\d+), FG_WINDOW_MAX = (\d+);/, 2);
+  const refill = cfg(/FG_BUCKET = (\d+), FG_REFILL_PER_S = ([\d.]+)/, 2);
+
+  // THE INVARIANT: the sustained window and the bucket must describe the same
+  // rate. When they disagreed, the faster one silently won.
+  const windowRate = winMax / (winMs / 1000);
+  assert.ok(Math.abs(windowRate - refill) < 0.005,
+    `the window allows ${windowRate.toFixed(4)}/s and the bucket paces ${refill}/s — `
+    + 'two limiters describing one budget must describe the same number, or the '
+    + 'looser one is the real limit and the other is decoration');
+
+  // A start must never land exactly on the boundary it waited for: eBird's
+  // clock is not ours and its edge may be inclusive.
+  assert.match(HTML, /var FG_WINDOW_EPS_MS = \d+;/, 'the boundary has a margin');
+  assert.match(HTML, /\+ FG_WINDOW_MS\s*\n?\s*\+ FG_WINDOW_EPS_MS - startAt/,
+    'and the wait actually applies it');
+
+  // The debug line must report what the window HOLDS, not the raw array — a
+  // count that can exceed its own cap teaches the reader to distrust the
+  // number rather than the limiter.
+  assert.match(HTML, /' · window ' \+ fgWindowUsed\(\)/,
+    'the log prints the pruned in-window count');
+  assert.match(HTML, /function fgWindowUsed\(\)/, 'which is a real function');
+});
