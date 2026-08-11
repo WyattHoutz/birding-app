@@ -1008,7 +1008,7 @@
     </section>
 
     <section class="panel">
-      <h2>📖 Species lookup <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <h2>🔎 Species lookup <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row">
         <input id="spLookup" type="search" placeholder="Find a species by name…" autocomplete="off" />
         <button id="spLookupBtn" class="secondary">Search</button>
@@ -1447,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.99';
+      var APP_VERSION = '1.1.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3454,7 +3454,12 @@
             // Order is the order you ask the questions in: do I need it, how
             // many, has it stuck around, where, when, who.
             var when = fmtDateTime(r.dateStr);
-            var isNew = (function () { var id = rarityRowId(r); return id && !known[id]; })();
+            // NEW = reported in the last 24 hours. It used to mean "you have
+            // not opened this list since this row appeared", which answered
+            // "have I looked at this?" instead of "did this just happen?" —
+            // and dropped off a ten-minute-old bird the moment you glanced at
+            // the screen. See BirdLogic.isFresh.
+            var isNew = BL.isFresh(r.dateStr);
             var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name) + flock + stake + warn;
             return SpeciesCards.medium({
               // "in todays rarities, if i click on the species icon or name,
@@ -3877,7 +3882,7 @@
           + '">\uD83D\uDDFA</a>';
       }
 
-      // --- 📖 Species lookup (F12) -----------------------------------------
+      // --- 🔎 Species lookup (F12) -----------------------------------------
       // "Search a bird and show the hotspots where it was seen, sorted by date
       // and distance." App-only, and deliberately so: a Markdown report cannot
       // take a query. The closest report equivalent — All unseen reports —
@@ -6412,6 +6417,13 @@
             // this place"; rareBadge() is an R tile that means only the first.
             var tags = (x.tag != null) ? x.tag
               : needTag(x.code, x.comName) + (x.rare ? rareBadge() : '');
+            // ...and NEW wherever the row knows when it was reported. This is
+            // the "everywhere" half: hotspot species lists, unseen clusters and
+            // anything else built through this template now carry the same
+            // 24-hour badge the rarity lists do, from the same rule, because a
+            // bird found this morning is the reason to go whichever list you
+            // happen to be reading.
+            if (x.dateStr && BL.isFresh(x.dateStr)) tags = newRarityTag() + tags;
             // "in the small species card, the bird photo and name should link
             // to most recent checklist with that bird." The row already knows
             // which checklist reported it here; without the link the reader has
@@ -6594,6 +6606,13 @@
         // The locId travels with the card so the species lists can be
         // corrected after paint — see hydrateLocSpecies.
         if (o.locId) el.setAttribute('data-hsloc', o.locId);
+        // The hotspot's most recent report, when the caller knows it. Quick
+        // outing does — ref/hotspot/geo returns latestObsDt on every row — and
+        // it is what lets the correction pass skip a location feed that cannot
+        // possibly answer. Measured near this reader's home: 6 of the 10
+        // hotspots Quick outing picks had no report in the last 3 days, so 6
+        // of its 10 calls were spent proving a feed was empty.
+        if (o.latest) el.setAttribute('data-hslatest', String(o.latest));
         // ...and so does the list the card was RANKED on. The correction pass
         // reads a 3-day location feed while the ranking came from 7-day region
         // feeds, so a bird reported five days ago is a scored target that the
@@ -6795,6 +6814,26 @@
         });
       }
 
+      // Is a feed date inside the last N days? Tolerant of both the human
+      // ("31 Jul 2026") and the sortable ("2026-07-31 10:24") shapes eBird
+      // mixes, and answers "no idea" as TRUE — an unreadable date must not be
+      // the reason a call is skipped.
+      function withinDays(s, days) {
+        var t = Date.parse(String(s || '').replace(' ', 'T'));
+        if (!isFinite(t)) t = Date.parse(String(s || ''));
+        if (!isFinite(t)) return true;
+        return (Date.now() - t) <= days * 86400000;
+      }
+      // Say the quiet part. A card that reports nothing is a fact about the
+      // hotspot — "rich, but nobody has been lately" — and leaving the slot
+      // blank made a minute of fetching look like a section that had not
+      // loaded.
+      function markNoRecent(el) {
+        var slot = el && el.querySelector('.hslists');
+        if (!slot || slot.innerHTML.trim()) return;   // never overwrite real content
+        slot.innerHTML = '<div class="meta dim">No reports in the last '
+          + LOC_SPECIES_DAYS + ' days.</div>';
+      }
       function hydrateLocSpecies(root) {
         if (!root || !getKey()) return Promise.resolve();
         var cards = [].slice.call(root.querySelectorAll('[data-hsloc]'))
@@ -6803,8 +6842,29 @@
         var isSeen = seenResolver();
         return pool(cards, LOC_SPECIES_CONC, function (el) {
           var lid = el.getAttribute('data-hsloc');
+          // A CALL THAT CANNOT ANSWER IS NOT WORTH MAKING.
+          //
+          // "quick outing took about a minute to fetch all the data, and
+          // afterwards didn't look any different." Measured against the live
+          // hotspot feed around this reader's home: of the 10 hotspots Quick
+          // outing picks, only 4 had any report in the last LOC_SPECIES_DAYS.
+          // The other 6 returned an empty feed, hit the `if (!rows.length)`
+          // below, and rendered nothing — a minute of paced fetching spent
+          // proving six feeds were empty.
+          //
+          // Quick outing ranks on ALL-TIME species, so its hotspots are rich
+          // rather than active; that is the whole point of the section, and it
+          // is why this does not happen to Top destinations, whose candidates
+          // come from feeds that only contain recent reports. ref/hotspot/geo
+          // already told us each hotspot's latest observation date, so the
+          // answer is in hand before the call is made.
+          var latest = el.getAttribute('data-hslatest');
+          if (latest && !withinDays(latest, LOC_SPECIES_DAYS)) {
+            markNoRecent(el);
+            return Promise.resolve();
+          }
           return locRecentSpecies(lid).then(function (rows) {
-            if (!rows.length) return;
+            if (!rows.length) { markNoRecent(el); return; }
             var unseen = [], seen = [], dedupe = {};
             // Which birds eBird flags as notable AT THIS PLACE. The location
             // feed does not say, but the chase view already knows — it is the
@@ -7537,15 +7597,14 @@
                         date: function (r) { return r.latest; } };
           var droppedFar = rows.droppedFar;
           rows = raritySorted(rows, order);
-          // Same "what's new" rule as Today's rarities. Here a row is a
-          // SPECIES, so it counts as new when its most recent report is one you
-          // have not been shown — which is what "a new rarity has been
-          // observed" means for a list grouped by bird.
-          var known = raritySeenIds();
+          // Same "what's new" rule as Today's rarities: reported in the last
+          // 24 hours. Here a row is a SPECIES, so it is the most recent report
+          // that decides — which is what "this bird has just been seen" means
+          // for a list grouped by bird.
           var freshCount = 0;
           rows.forEach(function (r) {
-            var id = rarityRowId(r.newest || r.closest);
-            r.isNew = !!(id && !known[id]);
+            var newest = r.newest || r.closest || {};
+            r.isNew = BL.isFresh(newest.dateStr);
             if (r.isNew) freshCount++;
           });
           st.innerHTML = esc(rows.length + ' rare species reported recently · within '
@@ -12467,8 +12526,17 @@
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
         { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
-        { at: 'spLookupBtn',   label: '📖 Species lookup', group: 'Birds you still need' },
-        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need' },
+        { at: 'spLookupBtn',   label: '🔎 Species lookup', group: 'Birds you still need' },
+        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
+          // OFF, not deleted — the section, its loader and its panel are
+          // untouched. It leaves the MENU because it is not a separate
+          // destination: it and All unseen reports carry the same
+          // `data-modes="unseen"` switch, so both tiles land on one control
+          // with a different chip pressed. Every other mode group in the app
+          // (checklists, quick, anchor) has exactly one tile for exactly this
+          // reason. "Being reported" is the first chip and stays the tile;
+          // Easy misses is one tap away from it, where it already was.
+          enabled: false },
         { at: 'nvResults',     label: '❓ Needs verification', group: 'Birds you still need' },
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Timing' },
         { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county', group: 'Timing' },
@@ -12774,7 +12842,14 @@
         var main = document.querySelector('main'); if (!main) return;
         var menu = document.createElement('nav');
         menu.id = 'menuPanel'; menu.className = 'panel';
-        menu.innerHTML = '<h2>📑 Contents</h2>' +
+        // NO "📑 Contents" heading. It named the only thing on screen — the
+        // menu IS the contents — and cost a heading's worth of vertical space
+        // at the top of the one view whose entire job is to fit as many
+        // destinations above the fold as possible. The panel keeps its
+        // accessible name instead, which is what a screen reader announces and
+        // the only thing the heading was still earning.
+        menu.setAttribute('aria-label', 'Contents');
+        menu.innerHTML =
           '<div class="regionpick"><label for="menuRegion">Region</label>' +
           '<select id="menuRegion"></select></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +

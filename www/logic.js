@@ -1668,6 +1668,35 @@
   // 343 in the probe and 1,436 in a day's snapshot - so the note mark still
   // falls back to checklist detail and has only partial coverage. Do not assume
   // that field works.
+  // NEW means RECENT, not "you have not been shown this before".
+  //
+  // "if an observation is within the last 24 hours it should get the new icon
+  // (everywhere), not just today's rarities."
+  //
+  // The old rule was per-reader state: a row was NEW until you had opened the
+  // list once, which made the badge answer "have I looked at this?" rather
+  // than "did this just happen?". Two problems followed. It could not be used
+  // in any section that does not track what you have been shown, so the badge
+  // existed on exactly one list. And it went stale in the other direction: a
+  // bird found ten minutes ago stopped being NEW the moment you glanced at the
+  // screen, which is the opposite of what the word means to somebody deciding
+  // whether to get in the car.
+  //
+  // A property of the OBSERVATION works everywhere, needs no storage, and
+  // cannot disagree between two sections.
+  var FRESH_HOURS = 24;
+  function isFresh(dateStr, nowMs, hours) {
+    var t = Date.parse(String(dateStr || '').replace(' ', 'T'));
+    if (!isFinite(t)) t = Date.parse(String(dateStr || ''));
+    if (!isFinite(t)) return false;          // unreadable is NOT a claim of fresh
+    var now = isFinite(nowMs) ? nowMs : Date.now();
+    var span = (isFinite(hours) ? hours : FRESH_HOURS) * 3600000;
+    // A future timestamp is a clock disagreement, not a fresher bird — eBird
+    // dates are local to the observation, so a phone a few minutes behind must
+    // not start calling tomorrow's rows stale.
+    return (now - t) <= span && (t - now) <= span;
+  }
+
   function recordIcons(rec) {
     if (!rec) return '';
     var ev = String(rec.evidence || '');
@@ -2239,6 +2268,7 @@
     checklistDetail: checklistDetail,
     checklistIcons: checklistIcons,
     recordIcons: recordIcons,
+    isFresh: isFresh, FRESH_HOURS: FRESH_HOURS,
     checklistCacheTtl: checklistCacheTtl,
     checklistCacheFresh: checklistCacheFresh,
     CKL_TTL_WITH_MEDIA_D: CKL_TTL_WITH_MEDIA_D,

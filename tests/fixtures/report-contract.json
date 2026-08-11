@@ -133,17 +133,10 @@
     },
     {
       "at": "spLookupBtn",
-      "label": "📖 Species lookup",
+      "label": "🔎 Species lookup",
       "report": null,
       "map": null,
       "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
-    },
-    {
-      "at": "easyBtn",
-      "label": "🥚 Easy misses",
-      "report": "## 🥚 Easy misses",
-      "map": null,
-      "why": "common birds you should already have - the highest hit-rate chase list in the report"
     },
     {
       "at": "nvResults",
@@ -192,9 +185,11 @@
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
     "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
-    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
+    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it",
+    "## 🥚 Easy misses": "no TILE of its own: it and All unseen reports are the two modes of one data-modes=\"unseen\" switch, so the menu carries one tile and the chip is how you reach the other - every other mode group in the app (checklists, quick, anchor) has exactly one tile for the same reason. The section, its panel and its loader are intact, and the report still emits it."
   },
   "menuOmittedAts": [
+    "easyBtn",
     "tripBtn"
   ],
   "_menuOmittedAtsWhy": "Sections switched off in the app behind `enabled: false` in MENU. They are NOT in `menu` (the app does not list them) but the REPORT still emits them, so section-docs.json still describes them and must not be pruned to match the app. Turning one back on is one word in index.html plus removing it here."

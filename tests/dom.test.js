@@ -198,14 +198,26 @@ test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
     seen.set(ic, i);
   });
 
-  // 🔍 is the unseen marker and NOTHING else. A section titled with it competes
-  // with every row in the app that uses it to mean "you still need this bird".
+  // 🔍 (U+1F50D) is the unseen marker and NOTHING else. A section titled with
+  // it competes with every row in the app that uses it to mean "you still need
+  // this bird".
+  //
+  // Species lookup is 🔎 (U+1F50E) — a DIFFERENT codepoint, deliberately. The
+  // section really is a magnifying glass and asking for one is reasonable; what
+  // it must not be is the same glyph the rows use, because a colour-blind
+  // reader has only the glyph to go on. The two are checked apart here rather
+  // than trusted to look different.
   const magnifier = CONTRACT.menu.filter((m) => m.label.includes('\u{1F50D}'));
   assert.deepEqual(magnifier, [],
-    'no menu tile may use 🔍 — it is the unseen marker, and a colour-blind '
-    + 'reader has only the glyph to go on');
+    'no menu tile may use 🔍 (U+1F50D) — it is the unseen marker. 🔎 (U+1F50E) '
+    + 'is the one for a lookup, and a colour-blind reader has only the glyph');
   assert.match(HTML, /class="needflag">\u{1F50D}/u,
     'and the unseen marker really is that glyph, so this guard tracks it');
+  // ...and the row-level "look this bird up" button stays 📖 on purpose: it
+  // sits inline beside the needflag, where a second magnifier would be the very
+  // collision the rule above exists to prevent.
+  assert.match(HTML, /aria-label="Look up ' \+ esc\(s\.name\) \+ '">\u{1F4D6}</u,
+    'the per-row lookup button is still the book, not a second magnifier');
 });
 
 test('Contents menu matches the report section contract (labels + order)', async () => {
@@ -3222,7 +3234,15 @@ test('grouped sections offer each other as modes of one report', async () => {
     (groups[key] = groups[key] || []).push(modes.join('|'));
   }
   assert.ok(Object.keys(groups).length >= 2, 'more than one group exists');
-  const ids = new Set(CONTRACT.menu.map((m) => 'sec-' + m.at));
+  // Tiles, PLUS the sections deliberately kept off the menu. A mode target
+  // must be a real section — but "real section" is not the same as "has a
+  // tile". Easy misses and Being reported are two modes of one switch, so the
+  // menu carries one tile and the switch is how you reach the other; Trip
+  // planner is off pending a redesign. Both are listed in `menuOmittedAts`,
+  // which is the SAME allowance tests/parity/test_section_docs.py reads, so
+  // there is one place to change and the two repos cannot disagree about it.
+  const omitted = new Set(CONTRACT.menuOmittedAts || []);
+  const ids = new Set([...CONTRACT.menu.map((m) => m.at), ...omitted].map((at) => 'sec-' + at));
   for (const k of Object.keys(groups)) {
     const modes = groups[k][0].split('|');
     // The switch must appear in every SECTION it offers, or it is a one-way
@@ -8564,59 +8584,86 @@ test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
   app.window.close();
 });
 
-// "id like to know quickly if a new rarity has been observed."
+// "if an observation is within the last 24 hours it should get the new icon
+// (everywhere), not just today's rarities."
 //
-// NEW means "not in the list the last time you looked at this section", which
-// is the only definition matching what a person means by it. Cheap because of
-// the targeted refresh above: asking costs ~3 calls.
-test('a rarity you have not been shown before is marked NEW, once', async () => {
+// NEW used to mean "not in the list the last time you looked", which is a fact
+// about the READER. Two things were wrong with it. It needed per-section
+// memory, so the badge could only ever exist on the one list that kept any —
+// and it went stale backwards: a bird found ten minutes ago stopped being NEW
+// the instant you glanced at the screen, which is the opposite of what the
+// word means to somebody deciding whether to get in the car.
+//
+// It is now a fact about the OBSERVATION: reported in the last 24 hours. That
+// needs no storage, cannot disagree between two sections, and is the same rule
+// everywhere.
+test('NEW means reported in the last 24 hours, on every list', async () => {
+  const B = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const now = Date.parse('2026-08-11T10:00:00');
+  assert.equal(B.isFresh('2026-08-11 09:00', now), true, 'an hour ago is new');
+  assert.equal(B.isFresh('2026-08-10 11:00', now), true, '23 hours ago still is');
+  assert.equal(B.isFresh('2026-08-10 09:00', now), false, '25 hours ago is not');
+  // A clock a few minutes out must not start calling rows stale, and an
+  // unreadable date must not CLAIM freshness it cannot support.
+  assert.equal(B.isFresh('2026-08-11 10:05', now), true, 'a slight clock skew is tolerated');
+  assert.equal(B.isFresh('', now), false, 'an empty date claims nothing');
+  assert.equal(B.isFresh('not a date', now), false, 'and neither does a junk one');
+  assert.equal(B.FRESH_HOURS, 24, 'the window is named, not sprinkled');
+
   const mk = (c, n, t, sub) => ({ speciesCode: c, comName: n, obsDt: t, locName: 'P',
     locId: 'L1', lat: 47.8, lng: -122.2, subId: sub, obsId: 'OBS' + sub,
     userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true });
-  let rows = [mk('tufpuf', 'Tufted Puffin', todayFixtureDate() + ' 14:23', 'S1')];
-  const app = await boot({
-    fetch(url) { return /data\/obs\//.test(url) ? rows : null; },
-  });
+  // One bird from an hour ago, one from three days back.
+  const hourAgo = new Date(Date.now() - 3600000);
+  const pad = (x) => String(x).padStart(2, '0');
+  const stamp = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+    + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const rows = [
+    mk('tufpuf', 'Tufted Puffin', stamp(hourAgo), 'S1'),
+    mk('wantat', 'Wandering Tattler', stamp(new Date(Date.now() - 3 * 86400000)), 'S2'),
+  ];
+  const app = await boot({ fetch(url) { return /data\/obs\//.test(url) ? rows : null; } });
   const doc = app.window.document, A = app.window.__app;
   const badges = () => (doc.getElementById('results').innerHTML.match(/newflag/g) || []).length;
 
-  // A FIRST LOOK IS QUIET. "the first time i opened the 7 day rarity, it had a
-  // new icon on every bird" — of course it did, nothing had been seen, so
-  // everything qualified. But "new" against no history is not news, it is just
-  // the list, and a badge on every row marks nothing. The first view
-  // establishes the baseline silently.
   A.refresh();
-  await waitFor(() => /rarity report/.test(doc.getElementById('status').textContent),
-    'the first view to render');
-  assert.equal(badges(), 0, 'a first look has nothing to compare against, so it is quiet');
-  assert.doesNotMatch(doc.getElementById('status').textContent, /new since you last looked/);
+  // Wait for the ROW, not the status line: the status is written before the
+  // rows are painted, so matching on it returns while #results is still empty.
+  await waitFor(() => /Tufted Puffin/.test(doc.getElementById('results').textContent),
+    'the fresh row to paint');
 
-  // Re-sorting is NOT a new visit. "i toggled the new/nearest and the new icon
-  // disappeared": the first render had already written the baseline, so the
-  // second found nothing new and cleared every badge. The set is pinned to the
-  // DATA, so changing only the order cannot change what is marked.
+  // THE FIRST LOOK IS NOT QUIET ANY MORE, and that is the point: a bird found
+  // an hour ago is news the first time you open the app, which is exactly when
+  // you needed to be told.
+  assert.equal(badges(), 1, 'the fresh bird is marked on the very first view');
+  assert.match(doc.getElementById('results').textContent, /Tufted Puffin/);
+
+  // ...and looking again does not change it. The old rule cleared every badge
+  // on the second render; recency is not consumed by being read.
+  A.refresh();
+  await waitFor(() => /Tufted Puffin/.test(doc.getElementById('results').textContent), 're-render');
+  assert.equal(badges(), 1, 'still marked — reading a list does not age a sighting');
+
+  // Re-sorting is not a new visit either.
   A.setRaritySort('distance');
   A.refresh();
-  await waitFor(() => /nearest first/.test(doc.getElementById('status').textContent),
-    'the re-sorted view');
-  assert.equal(badges(), 0, 'still quiet — the rows have not changed');
+  await waitFor(() => /nearest first/.test(doc.getElementById('status').textContent), 're-sorted');
+  assert.equal(badges(), 1, 'and order has nothing to do with it');
   A.setRaritySort('date');
-
-  // A genuinely new bird turns up.
-  rows = rows.concat([mk('wantat', 'Wandering Tattler', todayFixtureDate() + ' 15:10', 'S2')]);
-  // The section's own Load button is disabled while a load is in flight, and a
-  // DISABLED button does not fire click — so pressing refresh too early is
-  // silently a no-op. Wait for the previous run to finish releasing it.
-  await waitFor(() => !doc.getElementById('refreshBtn').disabled,
-    'the previous load to release the button');
-  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
-  await waitFor(() => /Wandering Tattler/.test(doc.getElementById('results').textContent)
-    && badges() === 1, 'the new arrival to appear and be marked');
-  assert.equal(badges(), 1, 'the arrival is marked — and ONLY the arrival');
-  assert.match(doc.getElementById('results').textContent, /Wandering Tattler/,
-    'and it is the bird that actually arrived');
-  assert.match(doc.getElementById('status').textContent, /1 new since you last looked/);
   app.window.close();
+});
+
+// The badge is not confined to one section. speciesListHtml is the template
+// every hotspot species list, unseen cluster and small bird row is built
+// through, so putting the rule there is what makes "everywhere" true rather
+// than a promise.
+test('the 24-hour badge reaches the shared species row, not just the rarity lists', () => {
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function speciesListHtml'),
+                        HTML.indexOf('function speciesListHtml') + 2600);
+  assert.match(fn, /BL\.isFresh\(x\.dateStr\)/,
+    'the shared small-row template applies the same freshness rule');
+  assert.match(fn, /newRarityTag\(\) \+ tags/, 'and marks the row with the same badge');
 });
 
 
