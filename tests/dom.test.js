@@ -7609,7 +7609,12 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   //    every entry declares a group the renderer knows how to place.
   const order = [...HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',[^\n]*group: '([^']+)'/g)]
     .map((m) => ({ at: m[1], group: m[2] }));
-  assert.equal(order.length, 26, 'every menu entry declares a group');
+  // DERIVED, not a hard-coded 26. The count is not the property being tested —
+  // "every entry declares a group" is — and pinning a number here means adding
+  // a section fails a test about grouping for a reason that has nothing to do
+  // with grouping.
+  const declared = (HTML.match(/\{ at: '[A-Za-z0-9_]+',/g) || []).length;
+  assert.equal(order.length, declared, 'every menu entry declares a group');
   const known = /var MENU_GROUPS = \[([\s\S]*?)\];/.exec(HTML);
   assert.ok(known, 'the group order is DECLARED, not derived from position — '
     + 'a group whose members are scattered has no position to derive from');
@@ -9746,4 +9751,142 @@ test('the far-rarity expander keeps its rows inside a real list', () => {
   // frame around the expander.
   assert.match(HTML, /\.obs > li\.farhost \{[^}]*display: block/,
     'the host row is not styled as a card');
+});
+
+
+// "id like to make a help section that explains what each menu item report
+// does."
+//
+// GENERATED, not written. Every section already carries an ℹ️ block and
+// section-docs.json is the canonical source both this app and report.py read,
+// so a hand-written help page would be a second copy of the same prose, free
+// to drift from the first. This walks the menu and renders the SAME notes
+// through the SAME renderer.
+test('the help section is generated from the notes each section already carries', async () => {
+  const app = await boot();
+  const A = app.window.__app, D = app.window.document;
+  await A.loadHelp();
+  const host = D.getElementById('helpBody');
+
+  // One entry per section that applies, grouped exactly as the menu groups it.
+  const items = host.querySelectorAll('.helpitem');
+  const links = app.links().length;
+  assert.equal(items.length, links,
+    'one help entry per menu tile — a section you can open is a section you can look up');
+  assert.ok(host.querySelectorAll('.helpgroup').length >= 2, 'and it keeps the menu grouping');
+
+  // The three things a reader actually needs, from the shared notes.
+  assert.match(host.innerHTML, /How it is calculated/, 'how it decides');
+  assert.match(host.innerHTML, /cannot tell you/,
+    'and what it cannot tell you — the half a reader can never infer from the output');
+
+  // Collapsed. The point is finding ONE answer without reading the other
+  // twenty-four.
+  assert.equal([...items].filter((d) => d.open).length, 0, 'every entry starts closed');
+  // The manual sits last, after the thing you came in for.
+  const groups = [...host.querySelectorAll('.helpgroup')].map((g) => g.textContent);
+  assert.equal(groups[groups.length - 1], 'Your list & the app',
+    'and the group it lives in is the last one');
+  app.window.close();
+});
+
+// "on the main menu display the ebird username and current ranking."
+//
+// Read from the cache the Rankings section already fills, and only when it is
+// TODAY's and for THIS region. NEVER fetched: the menu is the first thing
+// painted, and at 0.37 calls/s a lookup there delays every section behind a
+// line of text.
+test('the menu names you, from cache, without spending a call', async () => {
+  const app = await boot();
+  const A = app.window.__app, D = app.window.document, W = app.window;
+  const before = app.state.fetches.length;
+
+  // With nothing cached it says who you are and no more — a "—" where a number
+  // belongs reads as a failure rather than as "not looked up".
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  A.renderMenuIdentity();
+  let txt = D.getElementById('menuIdentity').textContent;
+  assert.match(txt, /Birder Wyatt/, 'the name shows');
+  assert.doesNotMatch(txt, /#/, 'and no rank is invented when none is known');
+
+  // With today's board cached for this region, the standing appears.
+  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
+    'US-WA|2026|500|Birder Wyatt': { date: A.todayStr(),
+      data: { region: 'US-WA', me: { rank: 42, species: 331, checklists: 120 } } },
+  }));
+  A.renderMenuIdentity();
+  txt = D.getElementById('menuIdentity').textContent;
+  assert.match(txt, /#42/, 'the cached rank is used');
+
+  // A board for ANOTHER region must not be borrowed.
+  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
+    'US-MO|2026|500|Birder Wyatt': { date: A.todayStr(),
+      data: { region: 'US-MO', me: { rank: 7 } } },
+  }));
+  A.renderMenuIdentity();
+  assert.doesNotMatch(D.getElementById('menuIdentity').textContent, /#7/,
+    'a Missouri standing is not your Washington standing');
+
+  // ...and a YESTERDAY board is not today's.
+  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
+    'US-WA|2026|500|Birder Wyatt': { date: '2001-01-01',
+      data: { region: 'US-WA', me: { rank: 9 } } },
+  }));
+  A.renderMenuIdentity();
+  assert.doesNotMatch(D.getElementById('menuIdentity').textContent, /#9/,
+    'a stale board is not shown as current');
+
+  assert.equal(app.state.fetches.length, before, 'and none of that touched the network');
+  app.window.close();
+});
+
+
+// "anywhere that has a collapsed list of items e.g. checklists, id like to
+// lazy load their contents, so they dont make ebird calls until theyre
+// expanded."
+//
+// Convoys were the app's largest eager spend after the chase wave — a convoy
+// day is ~50 product/checklist/view reads, and a device log measured 35 live
+// calls on this section alone, paid before anyone had asked what any convoy
+// found.
+//
+// But convoys are NOT a collapsed list: "nothing in the section collapses -
+// the user asked for plain lists" is a standing decision with its own guard,
+// and the two requests have to both hold. So the trigger is VISIBILITY, the
+// same one the photos already use: the list stays plain, and a convoy nobody
+// scrolls to costs nothing.
+test('convoy species are read when scrolled to, not all at once', () => {
+  const src = HTML.slice(HTML.indexOf('var CONVOY_FETCH_CONC'),
+                         HTML.indexOf('function pool('));
+
+  assert.match(src, /new IntersectionObserver/,
+    'the boxes are filled on visibility, not in a loop at render time');
+  // ...and the observer is actually USED. Checking only that it is constructed
+  // passed happily with the observe() call replaced by a loop that read every
+  // box up front — which is the exact behaviour being removed.
+  assert.match(src, /_convoyObs\.observe\(/, 'every box is handed to it');
+  assert.ok(!/boxes\.reduce\([^)]*fillConvoyBox/.test(src.replace(/if \(!_convoyObs\)[\s\S]*?\n {8}\}/, '')),
+    'and nothing reads them all in a loop outside the no-observer fallback');
+  assert.match(src, /_convoyObs\.unobserve\(en\.target\)/,
+    'and each is read once, not on every scroll past it');
+  assert.match(src, /rootMargin/, 'starting just before it reaches the screen');
+
+  // A webview without IntersectionObserver must still fill them. A section
+  // that costs too much is a complaint; one that never loads is a bug.
+  assert.match(src, /if \(!_convoyObs\)/, 'there is a fallback when the observer is missing');
+
+  // The observer fires asynchronously, so the box may be gone by then —
+  // fetching into a detached node spends a call on nobody.
+  assert.match(src, /!box\.isConnected/, 'a detached box is not fetched into');
+
+  // ...and it still says something while it works. ~50 reads is over a minute
+  // at the measured rate, and a silent empty box that long reads as a failure.
+  assert.match(src, /loadingdots/, 'a box that is working looks like it');
+  assert.match(HTML, /@keyframes bcdots/, 'and that has an actual animation behind it');
+
+  // The standing decision is untouched: still a plain list, no disclosure.
+  const render = HTML.slice(HTML.indexOf('function renderConvoys('),
+                            HTML.indexOf('function loadConvoySpecies('));
+  assert.ok(!/<details|<summary/.test(render),
+    'convoys remain plain lists — lazy loading did not smuggle in a toggle');
 });

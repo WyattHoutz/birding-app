@@ -449,6 +449,21 @@
         "You can add your own regions for trips. They live only in the app, because the Markdown report's regions are compiled into it, and a new one starts with an empty seen list — on a trip that is very nearly true."
       ],
       "limits": []
+    },
+    "helpBody": {
+      "summary": "What every other section reads, how it decides, and what it cannot tell you.",
+      "inputs": [
+        "section-docs.json, bundled with the app - no network"
+      ],
+      "how": [
+        "Walks the Contents menu in the order the menu itself shows, grouped the same way.",
+        "Each entry renders the SAME notes as that section’s own ℹ️ button, through the same renderer, so the two cannot disagree.",
+        "Sections that do not apply to the current report are left out, exactly as they are left out of the menu."
+      ],
+      "limits": [
+        "It describes how a section is CALCULATED, not what it is showing you today - open the section for that.",
+        "A section with no notes yet says so rather than inventing an explanation."
+      ]
     }
   }
 }

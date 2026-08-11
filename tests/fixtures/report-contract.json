@@ -175,6 +175,13 @@
       "report": null,
       "map": null,
       "why": "app-only: API key / home / report picker"
+    },
+    {
+      "at": "helpBody",
+      "label": "📘 How each section works",
+      "report": null,
+      "map": null,
+      "why": "app-only: the Markdown report explains each section inline, in the section itself, because a reader scrolling a document is already there. On a phone the sections are separate screens, so the explanations need one place you can reach without opening twenty-four of them. Generated from section-docs.json, so it cannot say anything the per-section info button does not."
     }
   ],
   "reportSectionsAppOmits": {

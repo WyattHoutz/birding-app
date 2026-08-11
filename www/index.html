@@ -630,6 +630,32 @@
     /* Rarities outside the chase radius. Collapsed, because they are not what
        the section is for — but present, because a rarity is still worth a
        longer drive on the right day and this is the only place it is listed. */
+    /* Who you are, above the menu. Quiet by design: it is context for the list
+       below, not a headline — the reader came here to pick a section. */
+    /* A working list must LOOK like one. A silent empty box for the minute-plus
+       ~50 checklist reads take reads as a section that failed rather than one
+       that is busy. */
+    @keyframes bcdots { 0%, 20% { opacity: .3 } 50% { opacity: 1 } 100% { opacity: .3 } }
+    .loadingdots { animation: bcdots 1.2s ease-in-out infinite; }
+
+    .menuid { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+              margin: 0 0 10px; }
+    .menuidname { font-size: calc(17px * var(--s)); font-weight: 800; color: var(--ink); }
+    .menuidsub { font-size: calc(13px * var(--s)); color: var(--muted); }
+    /* The manual. One row per section, collapsed, because the whole point is
+       that you can find ONE answer without reading the other twenty-three. */
+    .helpgroup { font-size: calc(13px * var(--s)); text-transform: uppercase;
+                 letter-spacing: .08em; color: var(--muted); font-weight: 800;
+                 margin: 18px 0 6px; }
+    .helpitem { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 8px;
+                background: var(--card); overflow: hidden; }
+    .helpitem > summary { cursor: pointer; padding: 11px 13px; display: grid;
+                          grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+    .helpglyph { grid-row: 1 / span 2; font-size: calc(21px * var(--s)); }
+    .helpname { font-weight: 700; font-size: calc(16px * var(--s)); }
+    .helpone { grid-column: 2; font-size: calc(13px * var(--s)); color: var(--muted); }
+    .helpdoc { padding: 0 13px 12px; }
+
     .farrare { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
     /* The host row exists to make the markup legal and the nested list a real
        child of a `.obs` — so it must NOT be styled as a card itself. Without
@@ -1261,6 +1287,12 @@
       <div id="migResults"></div>
     </section>
 
+    <section class="panel" id="helpPanel">
+      <h2>📘 How each section works</h2>
+      <div id="helpStatus" class="status">Every section, what it reads, how it decides, and what it cannot tell you.</div>
+      <div id="helpBody"></div>
+    </section>
+
     <section class="panel" id="settingsPanel" hidden>
       <h2>⚙️ Settings</h2>
       <label for="uiScale">Text size</label>
@@ -1454,7 +1486,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.1.1';
+      var APP_VERSION = '1.2.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -11554,12 +11586,25 @@
             '<div class="status">' + allSubs.length + ' checklist' +
             (allSubs.length === 1 ? '' : 's') + ' filed</div>';
           var mapId = 'convoyMap' + i;
-          // Species lists are loaded and shown outright — the report does not
-          // hide them behind a disclosure widget, so neither does the app.
+          // LAZY BY VISIBILITY, not by a disclosure widget.
+          //
+          // "anywhere that has a collapsed list of items e.g. checklists, id
+          // like to lazy load their contents, so they dont make ebird calls
+          // until theyre expanded." This was the app's largest eager spend
+          // after the chase wave — a convoy day is ~50 product/checklist/view
+          // reads, and a device log measured 35 live calls on this section
+          // alone, paid before anyone had asked what any convoy found.
+          //
+          // But convoys are NOT a collapsed list: "nothing in the section
+          // collapses - the user asked for plain lists" is a standing decision
+          // with its own guard. So the trigger is the same one the photos
+          // already use — the box fills when it is SCROLLED TO. The list stays
+          // plain, and a convoy nobody reaches costs nothing.
           var spp = '<div class="convoysppbox" data-subs="' + esc(allSubs.join(',')) +
             '" data-title="convoyTitle' + i + '" data-day="' + esc(fmtDate(r.day)) +
             '" data-members="' + r.members.length + '" data-stops="' + r.stops.length +
-            '"><span class="dim">Loading species…</span></div>';
+            '"><span class="dim">' + allSubs.length + ' checklist'
+            + (allSubs.length === 1 ? '' : 's') + ' to read\u2026</span></div>';
           var ul = '<div class="convoyhead">Stops (' + r.stops.length + ')</div>';
           var tone = pinTone(i);
           // Stops are HOTSPOTS, so they render through the hotspot card like
@@ -11609,23 +11654,71 @@
       // CONVOY_FETCH_CONC no matter how many convoys are on screen - firing
       // everything at once would swamp the key the rest of the app shares.
       var CONVOY_FETCH_CONC = 4;
+      // ONE convoy, on demand. hydrateConvoySpecies used to walk every box on
+      // the page and read all of them up front; now each box is filled when it
+      // is scrolled to.
+      function fillConvoyBox(box) {
+        if (!box || box.getAttribute('data-filled')) return Promise.resolve();
+        // The observer fires asynchronously, so by the time it does the box may
+        // have been replaced by a re-render — or the whole document torn down.
+        // Fetching into a detached node spends a call on nobody and, in a test
+        // harness, continues after the window has closed.
+        if (!box.isConnected || !(box.ownerDocument && box.ownerDocument.defaultView)) {
+          return Promise.resolve();
+        }
+        box.setAttribute('data-filled', '1');
+        if (!getKey()) {
+          box.innerHTML = '<span class="dim">Add your eBird API key in Settings to '
+            + 'list this route\u2019s species.</span>';
+          return Promise.resolve();
+        }
+        // Say that something is happening. ~50 reads at the measured rate is
+        // well over a minute, and a silent empty box for that long reads as a
+        // section that failed rather than one that is working.
+        box.innerHTML = '<span class="dim loadingdots">Reading '
+          + (box.getAttribute('data-subs') || '').split(',').filter(Boolean).length
+          + ' checklists\u2026</span>';
+        progressStage('Listing the birds this convoy found', 1, 0, 0);
+        return loadConvoySpecies(box.getAttribute('data-subs') || '', box)
+          .then(progressEnd, function (e) {
+            progressEnd();
+            box.removeAttribute('data-filled');   // a failure may be retried
+            box.innerHTML = '<span class="dim">Could not read this convoy\u2019s '
+              + 'checklists. Close and reopen to try again.</span>';
+            try { dbg('warn', 'convoy species: ' + ((e && e.message) || e)); } catch (_) {}
+          });
+      }
+      // `toggle` does not bubble, so this hangs off the summary click, exactly
+      // as the checklist disclosures do. Convoys have no summary of their own
+      // (plain lists, by standing request), so they use the observer below.
+      var _convoyObs = (typeof IntersectionObserver === 'function')
+        ? new IntersectionObserver(function (entries) {
+            entries.forEach(function (en) {
+              if (!en.isIntersecting) return;
+              _convoyObs.unobserve(en.target);
+              fillConvoyBox(en.target);
+            });
+          }, { rootMargin: '200px' })     // start just before it is on screen
+        : null;
       function hydrateConvoySpecies(root) {
         var boxes = [].slice.call(root.querySelectorAll('.convoysppbox[data-subs]'));
         if (!getKey()) {
-          boxes.forEach(function (b) { b.innerHTML = '<span class="dim">Add your eBird API key in Settings to list this route\u2019s species.</span>'; });
+          boxes.forEach(function (b) {
+            b.innerHTML = '<span class="dim">Add your eBird API key in Settings to '
+              + 'list this route\u2019s species.</span>';
+          });
           return;
         }
-        // A convoy day is ~50 checklist reads. Without a stage the top bar said
-        // only "Loading from eBird…" for the whole pass; now it names the
-        // convoy it is on and how many are left.
-        var total = boxes.length;
-        boxes.reduce(function (p, box, bi) {
-          return p.then(function () {
-            progressStage('Listing the birds each convoy found', total, 0, 0);
-            progressStep(bi, 'convoy ' + (bi + 1) + ' of ' + total);
-            return loadConvoySpecies(box.getAttribute('data-subs') || '', box);
-          });
-        }, Promise.resolve()).then(progressEnd, progressEnd);
+        // No observer (older webview, or a test environment): fall back to the
+        // old behaviour rather than leaving every box unfilled. A section that
+        // costs too much is a complaint; a section that never loads is a bug.
+        if (!_convoyObs) {
+          boxes.reduce(function (p, box) {
+            return p.then(function () { return fillConvoyBox(box); });
+          }, Promise.resolve());
+          return;
+        }
+        boxes.forEach(function (b) { _convoyObs.observe(b); });
       }
       // Run fn over items with at most `limit` in flight. Each worker pulls the
       // next index when its own job settles, so one slow checklist never blocks
@@ -12531,7 +12624,7 @@
       var MENU = [
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'You' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
         // GO BIRDING leads. The report's mission is (1) find unseen birds,
         // (2) find the best places to go today — and "where do I go" is the
         // question with a deadline, since a hotspot list is only useful while
@@ -12579,8 +12672,11 @@
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Timing' },
         { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county', group: 'Timing' },
         { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county', group: 'Timing' },
-        { at: 'myYearBody',    label: '📅 My year', group: 'You' },
-        { at: 'settingsPanel', label: '⚙️ Settings', group: 'You' }
+        { at: 'myYearBody',    label: '📅 My year', group: 'Your list & the app' },
+        { at: 'settingsPanel', label: '⚙️ Settings', group: 'Your list & the app' },
+        // LAST, deliberately: a manual is what you reach for after the thing
+        // you came in for, not before it.
+        { at: 'helpBody',      label: '📘 How each section works', group: 'Your list & the app' }
       ];
       function menuApplies(m) {
         // A section can be switched OFF without being deleted. `enabled: false`
@@ -12628,7 +12724,8 @@
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
-        myYearBody: { fn: updateMyYear }
+        myYearBody: { fn: updateMyYear },
+        helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
       // F17 / phase-1 publish: when the first wave lands, sections that render
@@ -12698,7 +12795,62 @@
         h += list('What it cannot tell you', d.limits, 'doclist doclimits');
         box.innerHTML = h;
       }
-      // A LIVE caveat, shown inside the ℹ dialog rather than above the list.
+      // The whole explanation, in one place.
+      //
+      // "id like to make a help section that explains what each menu item
+      // report does."
+      //
+      // GENERATED, not written. Every section already carries an ℹ️ block, and
+      // section-docs.json is the canonical source both this app and report.py
+      // read — so a hand-written help page would be a second copy of the same
+      // prose, free to drift from the first. This walks the MENU in the order
+      // the menu itself shows and renders the same notes through the same
+      // renderer, which means a new section cannot ship with a help entry that
+      // says something different from its own ℹ️ button.
+      function loadHelp() {
+        var host = $('helpBody');
+        if (!host) return Promise.resolve();
+        host.innerHTML = '<p class="hint">Loading…</p>';
+        return loadSectionDocs().then(function (docs) {
+          var html = '';
+          MENU_GROUPS.forEach(function (g) {
+            var rows = MENU.filter(function (m) {
+              return (m.group || '') === g && menuApplies(m);
+            });
+            if (!rows.length) return;
+            html += '<h3 class="helpgroup">' + esc(g) + '</h3>';
+            rows.forEach(function (m) {
+              var d = docs[m.at];
+              var parts = splitLabel(m.label);
+              html += '<details class="helpitem"><summary>'
+                + '<span class="helpglyph">' + esc(parts.icon) + '</span>'
+                + '<span class="helpname">' + esc(parts.text) + '</span>'
+                + (d && d.summary ? '<span class="helpone">' + esc(d.summary) + '</span>' : '')
+                + '</summary><div class="sectiondoc helpdoc"></div></details>';
+            });
+          });
+          host.innerHTML = html || '<p class="hint">No sections apply to this report.</p>';
+          // Rendered through the SAME function the ℹ️ dialogs use, so the two
+          // cannot say different things about one section.
+          var boxes = host.querySelectorAll('.helpdoc');
+          var flat = [];
+          MENU_GROUPS.forEach(function (g) {
+            MENU.forEach(function (m) {
+              if ((m.group || '') === g && menuApplies(m)) flat.push(m);
+            });
+          });
+          for (var i = 0; i < boxes.length; i++) {
+            if (flat[i]) renderSectionDoc(boxes[i], docs[flat[i].at]);
+          }
+          var n = flat.length;
+          var st = $('helpStatus');
+          if (st) {
+            st.textContent = n + ' section' + (n === 1 ? '' : 's') + ' in '
+              + getReport().label + ' · what each one reads, how it decides, '
+              + 'and what it cannot tell you.';
+          }
+        });
+      }
       //
       // "⚠️ Showing 3 days, not 7. eBird caps this feed at 200 checklists per
       // county…" is true, worth knowing once, and worth nothing on every visit
@@ -12888,6 +13040,7 @@
         // the only thing the heading was still earning.
         menu.setAttribute('aria-label', 'Contents');
         menu.innerHTML =
+          '<div id="menuIdentity"></div>' +
           '<div class="regionpick"><label for="menuRegion">Region</label>' +
           '<select id="menuRegion"></select></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +
@@ -12913,6 +13066,7 @@
           _sections.push(sec);
         });
         bindRegionPickers();
+        renderMenuIdentity();
         renderMenuList();
         renderKeyBanner();
         showMenu();
@@ -12948,8 +13102,60 @@
       // The MENU array already listed Go birding first; this is the array that
       // actually decides, and it disagreed. Two orderings, one menu — the same
       // shape of bug as every heading that disagreed with its own rows.
+      // Group order for the menu. NOTE: keep comments OUT of the array — a
+      // guard parses the quoted names out of this literal, and an apostrophe
+      // in a comment (or a quoted example) pairs with the wrong quote and
+      // silently drops a group.
+      //
+      // The last group was called "You". It holds your standing, your year
+      // list, the app settings and now its manual: half of it is about you and
+      // half is about the app, and "You" named only the first half.
       var MENU_GROUPS = ['Right now', 'Go birding', 'Rare birds',
-        'Hotspots & birders', 'Birds you still need', 'Timing', 'You'];
+        'Hotspots & birders', 'Birds you still need', 'Timing',
+        'Your list & the app'];
+      // Who you are, on the way in. Costs NOTHING.
+      //
+      // "on the main menu display the ebird username and current ranking."
+      //
+      // The rank is read from the cache the Rankings section already fills, and
+      // only when it is TODAY's and for THIS region — never fetched. The menu
+      // is the first thing painted; a network call there would delay every
+      // section behind a line of text, and at 0.37 calls/s that is not a
+      // rounding error. A missing rank simply is not shown, because "—" where
+      // a number belongs reads as a failure rather than as "not looked up".
+      function cachedRankMe(region) {
+        try {
+          var c = JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || '{}');
+          var today = todayStr(), best = null;
+          Object.keys(c).forEach(function (k) {
+            var e = c[k];
+            if (!e || e.date !== today || !e.data) return;
+            if (!rankRegionMatches(region, e.data.region)) return;
+            if (e.data.me) best = e.data.me;
+          });
+          return best;
+        } catch (e) { return null; }
+      }
+      function menuIdentityHtml() {
+        var name = String(getDisplayName() || '').trim();
+        var bits = [];
+        var me = cachedRankMe(getRegion());
+        if (me && me.rank != null) {
+          bits.push('#' + esc(rankNum(me.rank)) + ' in ' + esc(rankRegionName(getRegion())));
+        }
+        var year = 0;
+        try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
+        if (year) bits.push(esc(year) + ' species this year');
+        if (!name && !bits.length) return '';
+        return '<div class="menuid">'
+          + (name ? '<b class="menuidname">' + esc(name) + '</b>' : '')
+          + (bits.length ? '<span class="menuidsub">' + bits.join(' · ') + '</span>' : '')
+          + '</div>';
+      }
+      function renderMenuIdentity() {
+        var el = $('menuIdentity');
+        if (el) el.innerHTML = menuIdentityHtml();
+      }
       function renderMenuList() {
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
@@ -14346,6 +14552,8 @@
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
+        loadHelp: loadHelp, renderMenuIdentity: renderMenuIdentity,
+        menuIdentityHtml: menuIdentityHtml, todayStr: todayStr,
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
