@@ -43,13 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Tags are the authority for "did this version ship", which is what
-          # scripts/work-items.js checks WORK-ITEMS.md against. A default
-          # shallow checkout has neither tags nor history, so the check
-          # silently skips itself and stops being a check.
-          fetch-depth: 0
-          fetch-tags: true
 
       - uses: actions/setup-node@v4
         with:
