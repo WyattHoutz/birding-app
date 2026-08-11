@@ -88,7 +88,8 @@ than itemised: the per-item detail could not be reconstructed from prose commit
 messages accurately, and a tracker that guesses is worse than one that says less.
 
 | Version | Date | Headline |
-|---|---|---|| 1.0.99 | 2026-08-10 | card photos stop cutting the bird in half, and Quick outing shows its data |
+|---|---|---|
+| 1.0.99 | 2026-08-10 | card photos stop cutting the bird in half, and Quick outing shows its data |
 | 1.0.98 | 2026-08-10 | the anchor moves, the data cannot follow it, and now it says so |
 | 1.0.97 | 2026-08-10 | the rarity feeds go first, and the wave stops being thrown away |
 | 1.0.96 | 2026-08-10 | three things the screenshots caught, and one of them was a whole list |
