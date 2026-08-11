@@ -9495,3 +9495,60 @@ test('the API docs quote the constants the app actually uses', () => {
   // And the two files cross-reference rather than drifting into two accounts.
   assert.match(docs, /QUERY-PLAN\.md/, 'API-CALLS points at the query plan');
 });
+
+
+// "none of the locations are near yakima" — correct, and they never could be.
+//
+// The reader searched Yakima, and the header said "6 hotspots · from Yakima"
+// above a list whose nearest entry was 124 mi away in Puget Sound.
+// rerankFromAnchor recomputes distances and re-sorts, but the candidates come
+// from this report's counties plus a 50 km circle around HOME; searching a
+// place outside them re-ranks that same list rather than finding new ones.
+// And the sort is score-first with distance only as a tie-break, so a 124-mile
+// hotspot still led. Neither is a wrong number; together they read as "the best
+// spots near Yakima", which is not what they are.
+test('a list that cannot reach the anchor says what it covers', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // Silent when the list can actually answer the question.
+  assert.equal(A.coverageNote([{ dist: 12 }, { dist: 40 }]), '',
+    'nothing to explain when something is within a chase');
+  assert.equal(A.coverageNote([]), '', 'and nothing to explain about an empty list');
+
+  // ...and explicit when it cannot. This is the screenshot's case.
+  const note = A.coverageNote([{ dist: 124 }, { dist: 150 }]);
+  assert.match(note, /nearest is 124 mi/, 'it leads with the fact that was missing');
+  assert.match(note, new RegExp(A.countyLabelStr().replace(/\+/g, '\\+')),
+    'and names what the report actually covers');
+  assert.match(note, /nothing closer was fetched/,
+    'saying WHY, because "no results nearby" and "we never looked nearby" are '
+    + 'different answers and only one of them is true here');
+
+  // The threshold is the chase radius, not a magic number.
+  const r = A.chaseMaxMi();
+  assert.equal(A.coverageNote([{ dist: r - 1 }]), '', 'inside the chase radius, silent');
+  assert.ok(A.coverageNote([{ dist: r + 1 }]), 'outside it, explained');
+  app.window.close();
+});
+
+// The pill has to move with the anchor. After a successful Find the label read
+// "from Yakima" while the Home pill stayed lit — quickOrigin was set to 'find'
+// and syncAnchorSwitches() was never called, so the control and the status line
+// were two sources of truth for one anchor.
+test('choosing Find lights Find, not Home', () => {
+  const src = HTML.slice(HTML.indexOf('var go = function ()'),
+                         HTML.indexOf('function syncAnchorSwitches'));
+  // Every branch that assigns quickOrigin in the sheet has to re-sync.
+  const assigns = [...src.matchAll(/quickOrigin = '(\w+)';/g)];
+  assert.ok(assigns.length >= 2, 'the sheet sets the anchor in more than one place');
+  assigns.forEach((m, n) => {
+    // Bounded by the NEXT assignment, not a fixed window — otherwise one
+    // branch's re-sync vouches for a neighbour that has none.
+    const end = n + 1 < assigns.length ? assigns[n + 1].index : src.length;
+    const after = src.slice(m.index, end);
+    assert.match(after, /sync(AnchorSwitches|QuickButtons)\(\)/,
+      `${m[0]} is followed by a re-sync before the next branch — the control `
+      + 'must not disagree with the label it sits above');
+  });
+});

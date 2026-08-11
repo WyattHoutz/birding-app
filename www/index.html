@@ -1447,7 +1447,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.0.97';
+      var APP_VERSION = '1.0.98';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6938,6 +6938,33 @@
       }
       function fromHere() { return ' · from ' + anchorLabel(); }
 
+      // The anchor moves; the DATA cannot follow it.
+      //
+      // "none of the locations are near yakima" — correct, and they never
+      // could be. rerankFromAnchor recomputes distances and re-sorts, but the
+      // candidates come from this report's counties (King + Snohomish) plus a
+      // 50 km circle around HOME. Searching Yakima re-ranks that same list; it
+      // cannot discover hotspots in a county nothing was ever fetched for.
+      //
+      // Worse, the sort is score-first with distance only as a tie-break — the
+      // right rule when you are ranking from home, and the reason a 124-mile
+      // hotspot still came first when the reader had deliberately said "rank
+      // from Yakima". Neither is a wrong number, but together they read as
+      // "here are the best spots near Yakima", which is not what they are.
+      //
+      // So the section says what it covers whenever the nearest thing it can
+      // offer is further than a chase.
+      function coverageNote(list) {
+        if (!list || !list.length || !hasCounties()) return '';
+        var near = Infinity;
+        list.forEach(function (d) {
+          if (isFinite(d.dist) && d.dist < near) near = d.dist;
+        });
+        if (!isFinite(near) || near <= chaseMaxMi()) return '';
+        return ' · nearest is ' + Math.round(near) + ' mi — this report covers '
+          + countyLabelStr() + ', so nothing closer was fetched';
+      }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
@@ -6947,7 +6974,7 @@
           var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
           st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
-            + fromHere() + ' · updated ' + nowTime();
+            + fromHere() + coverageNote(dests) + ' · updated ' + nowTime();
           renderDestinations(dests, $('destMap'), $('destResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -6962,7 +6989,7 @@
           var exc = rerankFromAnchor(c.cv.excursions.map(toDest));
           if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + profile.dailyDriveMi + ' mi right now.'; return; }
           st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's')
-            + fromHere() + ' · updated ' + nowTime();
+            + fromHere() + coverageNote(exc) + ' · updated ' + nowTime();
           renderDestinations(exc, $('excMap'), $('excResults'));
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -13683,6 +13710,11 @@
             $('anchorFindMsg').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
             resolveFound(q).then(function () {
               quickOrigin = 'find';
+              // The pill has to move with the anchor. Without this the label
+              // said "from Yakima" while Home stayed lit — the same heading
+              // disagreeing with its own rows that this app keeps hitting,
+              // and the reason a 124-mile list looked like a local one.
+              syncAnchorSwitches();
               hideSheet();
               reload();
             }).catch(function (e) {
@@ -13696,6 +13728,7 @@
           return;
         }
         quickOrigin = 'home';
+        syncAnchorSwitches();
         reload();
       });
       function syncAnchorSwitches() {
@@ -14130,6 +14163,7 @@
         rarityRowId: rarityRowId,
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
         geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
+        coverageNote: coverageNote, chaseMaxMi: chaseMaxMi, countyLabelStr: countyLabelStr,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
         migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
