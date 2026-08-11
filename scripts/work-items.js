@@ -87,11 +87,40 @@ function featureIds() {
   return null;   // not available here; the F column is not checked
 }
 
+function tableProblems(md) {
+  // A markdown table breaks SILENTLY: get the cell count wrong on one row, or
+  // lose the newline between the separator and the first row, and the whole
+  // table renders as a paragraph of pipes. That is exactly what shipped — the
+  // release index was glued to its own `|---|---|---|` — and this validator
+  // did not notice, because it only ever looked at the `| W… |` rows.
+  //
+  // So the SHAPE is checked too, not just the references.
+  const out = [];
+  const lines = md.split(/\r?\n/);
+  let t = null;
+  const close = () => {
+    if (t && !t.sep) out.push(`table at line ${t.start} has no |---| separator row`);
+    t = null;
+  };
+  lines.forEach((ln, i) => {
+    if (!/^\s*\|.*\|\s*$/.test(ln)) { close(); return; }
+    const cells = ln.trim().slice(1, -1).split('|').length;
+    if (!t) t = { start: i + 1, cols: cells, sep: false };
+    if (/^\s*\|[\s:|-]+\|\s*$/.test(ln)) t.sep = true;
+    if (cells !== t.cols) {
+      out.push(`line ${i + 1}: ${cells} cells in a ${t.cols}-column table — `
+        + `the table starting at line ${t.start} will not render`);
+    }
+  });
+  close();
+  return out;
+}
+
 function validate() {
   const md = fs.readFileSync(DOC, 'utf8');
   const open = readRows(md, 'Open');
   const shipped = readRows(md, 'Shipped');
-  const problems = [];
+  const problems = tableProblems(md);
 
   // ---- IDs: unique and sequential across BOTH tables ---------------------
   const all = [...open.map((r) => r[0]), ...shipped.map((r) => r[0])]
