@@ -265,7 +265,39 @@ a day at a time, not which rarities you have already been shown.
 
 ---
 
-## 6. Reading the in-app ledger
+## 6. What the API will not give you
+
+Some things stay undone because the data is not there, not because nobody got
+to them. Measured 2026-08-11 against King County, so the next person who has
+the idea can read the answer instead of buying it again.
+
+**Photos, video and audio cannot be shown in-app.** Every feed says media
+*exists* and says what KIND, and nothing anywhere says WHICH:
+
+| Field | Where | What it gives |
+|---|---|---|
+| `hasRichMedia` | notable / recent rows | a boolean |
+| `evidence` | notable / recent rows | the letters `P` / `V` / `A` |
+| `mediaCounts` | `product/checklist/view` obs entries | `{"P": 1}` — a count per type |
+
+A Macaulay asset id appears in none of them. Probing a checklist known to hold
+a photo returned zero `*[Aa]sset*` keys and zero `ML\d{6,}` tokens anywhere in
+the payload, top level or per-observation. Without an id there is no
+`.../asset/{id}/1200` to point an `<img>` at, so embedding would need a second,
+undocumented Macaulay endpoint — which is a dependency this project does not
+take for a picture.
+
+So a rarity's evidence sheet shows the note and the waypoint, NAMES what media
+the checklist holds, and links out to the checklist that displays it. One tap,
+and honest about which of those two things it is. (W52.)
+
+The corollary worth remembering: `evidence` and `mediaCounts` are still worth
+reading. They are free, they ride on feeds already being fetched, and knowing a
+sighting has a photo is most of why you would open it.
+
+---
+
+## 7. Reading the in-app ledger
 
 The debug panel attributes each call to whichever section was **open when it
 completed**, not to the section that caused it. A shared wave appears charged
