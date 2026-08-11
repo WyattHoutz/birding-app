@@ -45,31 +45,32 @@ function readRows(md, heading) {
 
 function shippedVersions() {
   const out = new Set();
+  let fromGit = false;
   // TAGS FIRST. They are written by the release workflow, so they are the
   // authority — and this check immediately proved why that matters: the commit
   // that shipped 1.0.84 has a subject reading "v1.0.83" (a typo at the time),
   // and 1.0.82's subject does not start with its version at all. A subject line
   // is a human sentence; a tag is what was actually published.
   try {
-    execSync('git tag -l "v*"', { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+    execSync('git tag -l "v*"', { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
       .split('\n').forEach((t) => {
         const m = /^v(\d+\.\d+\.\d+)$/.exec(t.trim());
-        if (m) out.add(m[1]);
+        if (m) { out.add(m[1]); fromGit = true; }
       });
   } catch (e) { /* no git, or a clone without tags: the fallbacks below apply */ }
-  // Subjects as a fallback, for a shallow CI clone that fetched no tags.
+  // Subjects as a fallback, for a clone that fetched no tags.
   try {
-    const log = execSync('git log --pretty=format:%s', { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    const log = execSync('git log --pretty=format:%s', { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
     log.split('\n').forEach((s) => {
       const m = /^v(\d+\.\d+\.\d+)\b/.exec(s.trim());
-      if (m) out.add(m[1]);
+      if (m) { out.add(m[1]); fromGit = true; }
     });
   } catch (e) { /* fall through to package.json alone */ }
-  // ...and the version about to ship, which has neither yet.
+  // ...and the version about to ship, which has neither tag nor subject yet.
   try {
     out.add(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version);
   } catch (e) { /* nothing to add */ }
-  return out;
+  return { versions: out, fromGit };
 }
 
 function testNames() {
@@ -106,11 +107,19 @@ function validate() {
   }
 
   // ---- Release: a version that really shipped ----------------------------
-  const versions = shippedVersions();
+  //
+  // Only checkable where the history IS. A default actions/checkout is shallow
+  // and fetches no tags, and a check that cannot see its evidence must say so
+  // rather than fail — the same rule the F column below follows, and the same
+  // one the parity suite uses for a missing sibling checkout. The workflow asks
+  // for tags so that on CI this really does run.
+  const { versions, fromGit } = shippedVersions();
   shipped.forEach((r) => {
     const id = r[0], rel = r[4];
     if (!rel) { problems.push(`${id} is under Shipped with no release`); return; }
-    if (!versions.has(rel)) problems.push(`${id} claims release ${rel}, which is not in the git history`);
+    if (fromGit && !versions.has(rel)) {
+      problems.push(`${id} claims release ${rel}, which is not in the git history`);
+    }
   });
   open.forEach((r) => {
     if (r.length > 4 && r[4]) problems.push(`${r[0]} is under Open but names a release`);
@@ -136,15 +145,16 @@ function validate() {
     });
   }
 
-  return { open, shipped, problems, checkedFeatures: !!feats };
+  return { open, shipped, problems, checkedFeatures: !!feats, checkedReleases: fromGit };
 }
 
 module.exports = { validate };
 
 if (require.main === module) {
-  const { open, shipped, problems, checkedFeatures } = validate();
+  const { open, shipped, problems, checkedFeatures, checkedReleases } = validate();
   console.log(`${shipped.length} shipped · ${open.length} open`
-    + (checkedFeatures ? '' : ' · F column not checked (BACKLOG.md not found)'));
+    + (checkedFeatures ? '' : ' · F column not checked (BACKLOG.md not found)')
+    + (checkedReleases ? '' : ' · releases not checked (no git history here)'));
   if (open.length) {
     console.log('\nStill open:');
     open.forEach((r) => console.log(`  ${r[0].padEnd(4)} ${r[1]}${r[2] ? '  [' + r[2] + ']' : ''}`));

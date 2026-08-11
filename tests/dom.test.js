@@ -9678,7 +9678,7 @@ test('a card photo frame follows the photo, within limits', async () => {
 // what was published.
 test('WORK-ITEMS.md is consistent with the repo it describes', () => {
   const { validate } = require(path.join(__dirname, '..', 'scripts', 'work-items.js'));
-  const { open, shipped, problems } = validate();
+  const { open, shipped, problems, checkedReleases } = validate();
   assert.deepEqual(problems, [], 'every id, release, guard and feature reference resolves');
   assert.ok(shipped.length > 0, 'there is something in it');
 
@@ -9686,4 +9686,13 @@ test('WORK-ITEMS.md is consistent with the repo it describes', () => {
   // Open must not name a release, and one under Shipped must.
   open.forEach((r) => assert.ok(!r[4], `${r[0]} is open and names no release`));
   shipped.forEach((r) => assert.ok(r[4], `${r[0]} is shipped and names one`));
+
+  // A check that cannot see its evidence skips itself, which is right — and
+  // silently skipping forever is how it stops being a check. CI now asks for
+  // tags (fetch-depth 0 + fetch-tags), so on CI this must actually run.
+  if (process.env.CI) {
+    assert.ok(checkedReleases,
+      'on CI the release column is verified against real tags — if this fails, '
+      + 'the checkout stopped fetching them');
+  }
 });
