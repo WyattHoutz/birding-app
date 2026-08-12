@@ -1061,6 +1061,16 @@
     </section>
 
     <section class="panel">
+      <h2>📆 Due back soon <span class="dim" id="dueBackRegionLabel"></span></h2>
+      <div class="row">
+        <button id="dueBackBtn">Check arrivals</button>
+        <button id="dueBackStop" class="secondary" type="button" hidden>Stop</button>
+      </div>
+      <div id="dueBackStatus" class="status">Every species ever recorded in the region, checked against seven years of GBIF history for when it usually returns — so you know what to expect before it turns up. The first run reads hundreds of records and can be stopped and resumed; after that it is instant.</div>
+      <ul id="dueBackResults" class="obs big xl"></ul>
+    </section>
+
+    <section class="panel">
       <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
@@ -1489,7 +1499,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.2.2';
+      var APP_VERSION = '1.3.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3249,6 +3259,76 @@
           });
         }).catch(function () { return null; });
       }
+
+      // ---- 📆 Due back soon: the whole region list, swept once --------------
+      //
+      // F11 part 2. gbifArrival answers "when does this bird come back" for ONE
+      // species; this asks it of every species ever recorded in the region, so
+      // the question becomes "what is about to arrive" instead of "tell me
+      // about this bird I already thought of".
+      //
+      // Three things make that affordable, and none of them is rate limiting —
+      // GBIF is a public archive with no per-key budget, which is exactly why
+      // this is the one sweep this project is willing to do at all. eBird is
+      // never touched here beyond the species index the lookup already caches.
+      //
+      // 1. NEGATIVES ARE CACHED. gbifArrival returns null for a resident and
+      //    caches nothing, which is right for a lookup (ask again, it is one
+      //    call) and ruinous for a sweep: most of a region's list are residents
+      //    or too sparse to call, so an uncached null means paying for the same
+      //    "no" on every run, forever. Here a null is a RESULT and is stored.
+      //
+      // 2. IT RESUMES. The store is keyed by scientific name and written as it
+      //    goes, so closing the app mid-sweep costs at most the batch in
+      //    flight. Reopening skips everything already answered. There is no
+      //    cursor to keep in sync because the answers themselves are the
+      //    cursor — a species is either in the map or it is not.
+      //
+      // 3. RESIDENTS COST HALF. gbifArrival gives up after the month facet
+      //    when a species is present all year, so the expensive day-level
+      //    facets are only ever bought for genuine migrants.
+      var DUEBACK_NS = 'bc_arrival_v1:';
+      var DUEBACK_POOL = 6;          // GBIF is unmetered; this is politeness
+      var DUEBACK_SAVE_EVERY = 10;   // localStorage writes are the slow part
+      var DUEBACK_AHEAD_D = 30;      // "due back" horizon
+      var DUEBACK_BACK_D = 14;       // ...and how long "just arrived" stays news
+      function dueBackKey(region, state) { return DUEBACK_NS + region + '|' + state; }
+      function loadArrivalStore(region, state) {
+        try {
+          var c = JSON.parse(localStorage.getItem(dueBackKey(region, state)) || 'null');
+          if (c && c.done && typeof c.done === 'object') return c;
+        } catch (e) {}
+        return { at: 0, done: {} };
+      }
+      function saveArrivalStore(region, state, store) {
+        store.at = Date.now();
+        try { localStorage.setItem(dueBackKey(region, state), JSON.stringify(store)); }
+        catch (e) { /* full store: the sweep still works, it just re-reads */ }
+      }
+      // Sweep what is not yet answered. `alive` lets the section stop the work
+      // when it is closed or the report changes — an abandoned sweep writing
+      // into a detached list is the convoy bug in another costume.
+      function sweepArrivals(rows, region, state, store, alive, onTick) {
+        var todo = rows.filter(function (r) {
+          return r.sci && store.done[r.sci] === undefined;
+        });
+        if (!todo.length) return Promise.resolve(0);
+        var n = 0;
+        return pool(todo, DUEBACK_POOL, function (r) {
+          if (!alive()) return Promise.resolve();
+          return gbifArrival(r.sci, state).then(function (v) {
+            // `null` is an answer — "no arrival to predict" — and storing it is
+            // the whole reason this sweep is affordable a second time.
+            store.done[r.sci] = v || null;
+            n++;
+            if (n % DUEBACK_SAVE_EVERY === 0) saveArrivalStore(region, state, store);
+            if (onTick) onTick(n, todo.length, r.name);
+          }).catch(function () {});
+        }).then(function () {
+          saveArrivalStore(region, state, store);
+          return todo.length;
+        });
+      }
       function histLine(h, stateName) {
         if (!h) return '';
         // "898 US records" reads as reassuringly common until you notice 69% of
@@ -4120,6 +4200,118 @@
         }).catch(function (e) { st.textContent = netErr(e); });
       }
 
+      // ---- 📆 Due back soon: the section ------------------------------------
+      //
+      // The only screen in the app that knowingly spends hundreds of calls, so
+      // it is the only one that has to say so before it starts, show real
+      // progress while it runs, stop when asked, and pick up where it left off.
+      var _dueBackRun = 0;
+      function dueBackRows(store, rows, seen, now) {
+        var byS = {};
+        rows.forEach(function (r) { if (r.sci) byS[r.sci] = r; });
+        var out = [];
+        Object.keys(store.done || {}).forEach(function (sci) {
+          var v = store.done[sci], r = byS[sci];
+          if (!v || !v.day || !r) return;              // null = no arrival to predict
+          var d = BL.daysUntil(v.day, now);
+          if (d == null || d > DUEBACK_AHEAD_D || d < -DUEBACK_BACK_D) return;
+          out.push({ code: r.code, name: r.name, sci: sci, day: v.day, days: d,
+                     records: v.records, need: !BL.isSeen(r.code, seen) });
+        });
+        // Soonest first, and a bird already back sorts above one still coming:
+        // it is the one you can act on today.
+        out.sort(function (a, b) { return a.days - b.days || a.name.localeCompare(b.name); });
+        return out;
+      }
+      function dueBackWhen(d) {
+        if (d === 0) return 'due today';
+        if (d === 1) return 'due tomorrow';
+        if (d > 0) return 'due in ' + d + ' day' + (d === 1 ? '' : 's');
+        if (d === -1) return 'due back yesterday';
+        return 'due back ' + Math.abs(d) + ' days ago';
+      }
+      function renderDueBack(store, rows, partial) {
+        var ul = $('dueBackResults'), st = $('dueBackStatus');
+        if (!ul) return;
+        var list = dueBackRows(store, rows, getReportSeen(), new Date());
+        var answered = Object.keys(store.done || {}).length;
+        if (!list.length) {
+          ul.innerHTML = '';
+          if (!partial) {
+            st.textContent = answered
+              ? 'Nothing is due back in the next ' + DUEBACK_AHEAD_D + ' days. '
+                + answered + ' species checked; most are residents, which have no '
+                + 'arrival to predict.'
+              : st.textContent;
+          }
+          return;
+        }
+        ul.innerHTML = list.map(function (r) {
+          // The bird's own name leads; the date is the reason the row exists,
+          // so it sits directly under it rather than in a trailing column.
+          return '<li>'
+            + '<div class="nm">' + (r.need ? '<span class="needflag">🔍</span> ' : '')
+            + esc(r.name) + '</div>'
+            + '<div class="who">' + esc(dueBackWhen(r.days)) + ' · usually back around '
+            + esc(BL.prettyMMDD(r.day))
+            + (r.records ? ' · from ' + fmtInt(r.records) + ' GBIF records' : '')
+            + '</div>'
+            + '</li>';
+        }).join('');
+        st.textContent = list.length + ' bird' + (list.length === 1 ? '' : 's')
+          + ' due back within ' + DUEBACK_AHEAD_D + ' days'
+          + (partial ? ' so far — still checking…' : '')
+          + ' · 🔍 marks the ones you still need'
+          + ' · ' + answered + ' species checked';
+      }
+      function loadDueBack() {
+        var btn = $('dueBackBtn'), stop = $('dueBackStop'), st = $('dueBackStatus');
+        var region = getObsRegion(), state = getReport().label || '';
+        if (!state) { st.textContent = 'Pick a report first — the arrival history is per state.'; return; }
+        var run = ++_dueBackRun;
+        function alive() { return _dueBackRun === run; }
+        btn.disabled = true; stop.hidden = false;
+        st.textContent = 'Loading the region species list…';
+        var store = loadArrivalStore(region, state);
+        loadSpeciesIndex(region).then(function (rows) {
+          if (!alive()) return;
+          rows = (rows || []).filter(function (r) { return r && r.sci; });
+          if (!rows.length) { st.textContent = 'No species list for this region yet.'; return; }
+          renderDueBack(store, rows, true);
+          var left = rows.filter(function (r) { return store.done[r.sci] === undefined; }).length;
+          if (!left) { renderDueBack(store, rows, false); return; }
+          // A fixed total, declared up front, exactly as progressStage requires
+          // — the denominator is how many species are still unanswered, which
+          // cannot grow while the sweep runs.
+          progressStage('Reading arrival history from GBIF', left, 1, 1);
+          var lastPaint = 0;
+          return sweepArrivals(rows, region, state, store, alive, function (n, total, name) {
+            progressStep(1, name);
+            // Repaint occasionally rather than per call: the list is rebuilt
+            // from the whole store each time, and 400 rebuilds is a stutter.
+            if (Date.now() - lastPaint > 900) { lastPaint = Date.now(); renderDueBack(store, rows, true); }
+          }).then(function () {
+            if (!alive()) return;
+            renderDueBack(store, rows, false);
+          });
+        }).catch(function (e) {
+          if (alive()) st.textContent = netErr(e);
+        }).then(function () {
+          if (!alive()) return;
+          progressEnd();
+          btn.disabled = false; stop.hidden = true;
+        });
+      }
+      function stopDueBack() {
+        _dueBackRun++;                       // every in-flight callback goes quiet
+        progressEnd();
+        var btn = $('dueBackBtn'), stop = $('dueBackStop'), st = $('dueBackStatus');
+        if (btn) btn.disabled = false;
+        if (stop) stop.hidden = true;
+        if (st) st.textContent = 'Stopped. Everything already checked is saved — '
+          + 'starting again picks up where this left off.';
+      }
+
       // "Best places for this bird" + "due back" — backlog F11, Proposal A.
       // The engine already existed and was never rendered: gbifIconic annotates
       // the places the LIVE feed found with a long-term multiplier, and
@@ -4168,7 +4360,7 @@
             h += '</ul>';
           }
           if (arr && arr.day) {
-            h += '<div class="status">🗓 Historically back around <b>' + esc(arr.day) + '</b>'
+            h += '<div class="status">🗓 Historically back around <b>' + esc(BL.prettyMMDD(arr.day)) + '</b>'
               + (arr.records ? ' · from ' + arr.records + ' archived records' : '')
               + '. GBIF lags about a year, so this is the long-term pattern, not this season.</div>';
           }
@@ -12694,6 +12886,7 @@
       var MENU = [
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
+        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
         // GO BIRDING leads. The report's mission is (1) find unseen birds,
         // (2) find the best places to go today — and "where do I go" is the
@@ -14251,6 +14444,8 @@
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
+      $('dueBackBtn').addEventListener('click', loadDueBack);
+      $('dueBackStop').addEventListener('click', stopDueBack);
       // A search box that ignores the Return key is broken on a phone, where
       // the keyboard's blue "search" key is the obvious way to submit.
       $('spLookup').addEventListener('keydown', function (e) {
@@ -14673,6 +14868,10 @@
         moreDetails: moreDetails,
         hydrateChecklistEvidence: hydrateChecklistEvidence,
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
+        dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
+        sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
+        saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
+        DUEBACK_AHEAD_D: DUEBACK_AHEAD_D, DUEBACK_BACK_D: DUEBACK_BACK_D,
         rarityChecklistDetails: rarityChecklistDetails,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,

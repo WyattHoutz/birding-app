@@ -57,6 +57,28 @@
         "Tides need a NOAA station id; inland regions leave it blank and get no tide table."
       ]
     },
+    "dueBackBtn": {
+      "summary": "Which birds are about to return to the region, from seven years of archived records.",
+      "report": null,
+      "how": [
+        "Takes every species ever recorded in the region (eBird's region checklist) and asks GBIF when each one historically shows up.",
+        "A species present all year has no arrival to predict and is skipped; only genuine migrants get a date.",
+        "The date is the first day of the season that reaches 5% of the peak day's records, pooled across every year GBIF holds - so it is the long-term pattern, not one unusual spring.",
+        "Shows anything due within 30 days, plus anything that arrived in the last 14, because a bird already back is the one you can act on today.",
+        "🔍 marks a bird you still need; the rest are ones you have already recorded this year."
+      ],
+      "inputs": [
+        "eBird product/spplist for the region (the same cached species index the lookup uses - no extra eBird traffic)",
+        "GBIF occurrence/search month and day facets, per species"
+      ],
+      "limits": [
+        "App-only: the report is built once from a fixed snapshot and committed, and 'what arrives in the next three weeks' is a question whose answer moves every day.",
+        "The first run reads hundreds of GBIF records and takes a few minutes. It can be stopped at any point and resumes where it left off; after that it is instant.",
+        "GBIF lags about a year, so this is the long-term pattern and never this season's actual birds - it says when to start looking, not that anything is here.",
+        "A species too sparse in the archive to give a stable date is left out rather than guessed at.",
+        "Arrival is measured for the whole state, not your chase radius: a bird can be back on the coast a week before it reaches you."
+      ]
+    },
     "rankBtn": {
       "report": "## 🏆 eBird Rankings",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",

@@ -2167,6 +2167,19 @@
     return d;
   }
 
+  // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
+  // is why it is stored that way; it just does not read like a date to a
+  // person scanning a list of them.
+  var _MMDD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function prettyMMDD(mmdd) {
+    if (!mmdd) return '';
+    var p = String(mmdd).split('-');
+    var m = +p[0], d = +p[1];
+    if (!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return String(mmdd);
+    return d + ' ' + _MMDD_MON[m - 1];
+  }
+
   // "Where has this bird been" - the F12 ask. One row per PLACE, not per
   // observation, because a hotspot reported five times is still one place to
   // drive to. Sorted by date then distance, in the user's words.
@@ -2233,6 +2246,7 @@
     iconicLabel: iconicLabel,
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
+    prettyMMDD: prettyMMDD,
     speciesPlaces: speciesPlaces,
     sortSpeciesPlaces: sortSpeciesPlaces,
     ICONIC_BOX_KM: ICONIC_BOX_KM,

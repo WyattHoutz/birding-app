@@ -38,6 +38,13 @@
       "why": "heading is rendered by weather.py, not report.py"
     },
     {
+      "at": "dueBackBtn",
+      "label": "📆 Due back soon",
+      "report": null,
+      "map": null,
+      "why": "app-only (F11 part 2): the arrival dates come from sweeping GBIF for every species in the region - hundreds of calls, resumable, cached on the device. The report is built once from a fixed snapshot and committed; a section whose whole value is 'what changes between now and three weeks from now' is a live question, and printing a static answer to it in a document dated today would be worse than not printing it. Owner decision 2026-08-12: the app may carry sections the report does not, as long as the delta is written down."
+    },
+    {
       "at": "rankBtn",
       "label": "🏆 eBird Rankings & Top 100",
       "report": "## 🏆 eBird Rankings",

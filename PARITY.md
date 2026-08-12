@@ -13,6 +13,36 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## The direction of the delta changed on 2026-08-12
+
+Parity used to mean *the app carries everything the report does*, and the
+traffic was one-way: the report was the source of truth and the app mirrored it.
+That is no longer the whole story. Owner decision, in their words:
+
+> *"Yes, app can have things report doesnt. im migrating to app, just keep
+> parity as much as possible and document delta. better to have in app only
+> than in markdown only."*
+
+So the rule is now asymmetric, and deliberately so:
+
+| direction | allowed? | what it needs |
+|---|---|---|
+| report section missing from the app | only with a reason | `reportSectionsAppOmits` entry **and** a ➖ row here |
+| app section missing from the report | **yes** | `"report": null` in the contract, a `why`, and a row here |
+
+The asymmetry is the point. A section that exists only in the Markdown is a
+section the owner will not see, because the phone is where the birding actually
+gets planned. A section that exists only in the app is simply ahead.
+
+**App-only sections today**
+
+| section | why it cannot be a report section |
+|---|---|
+| 🔎 Species lookup | a Markdown report cannot take a query, and printing every species' places for a region is a phone book, not a section |
+| 📆 Due back soon | the arrival sweep is hundreds of GBIF calls, resumable and cached on the device; the report is built once from a fixed snapshot, and "what arrives in the next three weeks" is a question whose answer moves every day |
+| ⚙️ Settings | API key, home location, report picker — there is nothing to print |
+| 📘 How each section works | the report explains each section inline, where a scrolling reader already is; on a phone the sections are separate screens, so the explanations need one reachable place |
+
 ## v1.0.44 — the chase snapshot survives closing the app
 
 *"I often close the app and then open it again."* Every cold start re-fired the

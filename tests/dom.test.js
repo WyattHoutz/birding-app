@@ -3021,6 +3021,150 @@ test('the progress bar names the step, the feed, and any pause', async () => {
   A.progressEnd();
 });
 
+// ---- 📆 Due back soon (F11 part 2) -----------------------------------------
+//
+// The only screen that knowingly spends hundreds of calls. Three properties are
+// what make that defensible rather than reckless, and each one is a separate
+// test because each fails silently and differently: a lost negative just costs
+// money, a lost resume costs the whole sweep, and a lost `alive` check writes
+// into a list nobody is looking at.
+
+test('a resident is remembered as a resident — the sweep caches its NOs', async () => {
+  // gbifArrival returns null for a bird that is present all year and caches
+  // NOTHING, which is right for a lookup and ruinous for a sweep: most of a
+  // region's list are residents, so an uncached null means paying for the same
+  // "no" on every run, forever. Storing it is what makes the second run free.
+  const app = await boot({
+    fetch(url) {
+      // Everything GBIF answers "no such taxon", which is the cheap path:
+      // gbifArrival gives up at the taxon key and never reaches the facets.
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const store = { at: 0, done: {} };
+  const rows = [{ code: 'norcar', name: 'Northern Cardinal', sci: 'Cardinalis cardinalis' }];
+
+  let calls = 0;
+  const realGbif = app.window.fetch;
+  app.window.fetch = (...args) => { calls++; return realGbif(...args); };
+
+  await a.sweepArrivals(rows, 'US-WA', 'Washington', store, () => true, null);
+  assert.ok('Cardinalis cardinalis' in store.done,
+    'a species the sweep asked about must be recorded even when the answer is '
+    + '"no arrival to predict" — otherwise it is asked again on every run');
+  assert.strictEqual(store.done['Cardinalis cardinalis'], null,
+    'the stored form of "no arrival" is null, which is a RESULT, not a gap');
+
+  // ...and asking again must not spend anything.
+  const before = calls;
+  await a.sweepArrivals(rows, 'US-WA', 'Washington', store, () => true, null);
+  assert.strictEqual(calls, before,
+    'the second sweep re-fetched a species it had already answered — the cache '
+    + 'is not being consulted, so a 400-species region pays full price forever');
+});
+
+test('the sweep resumes instead of restarting', async () => {
+  // The answers ARE the cursor: a species is either in the map or it is not.
+  // That is the whole resume mechanism, so it has to be true that a populated
+  // store means no work.
+  const app = await boot({
+    fetch(url) {
+      // Everything GBIF answers "no such taxon", which is the cheap path:
+      // gbifArrival gives up at the taxon key and never reaches the facets.
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const rows = [
+    { code: 'aaa', name: 'A', sci: 'Genus a' },
+    { code: 'bbb', name: 'B', sci: 'Genus b' },
+    { code: 'ccc', name: 'C', sci: 'Genus c' },
+  ];
+  // Two already answered — one positively, one negatively. Both count as done.
+  const store = { at: 0, done: { 'Genus a': { day: '04-20', records: 10 }, 'Genus b': null } };
+  const asked = [];
+  const n = await a.sweepArrivals(rows, 'US-WA', 'Washington', store,
+    () => true, (done, total, name) => asked.push(name));
+  assert.strictEqual(n, 1,
+    'the sweep should have had exactly one species left to do, not ' + n
+    + ' — a resume that redoes finished work is not a resume');
+  assert.strictEqual(asked.join(','), 'C', 'only the unanswered species is fetched');
+});
+
+test('a sweep whose section has gone away stops asking', async () => {
+  // Same failure as the detached convoy box: work that outlives the thing that
+  // wanted it. Here it also writes to localStorage, so it is not merely wasted.
+  const app = await boot({
+    fetch(url) {
+      // Everything GBIF answers "no such taxon", which is the cheap path:
+      // gbifArrival gives up at the taxon key and never reaches the facets.
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const rows = Array.from({ length: 8 }, (_, i) => (
+    { code: 'c' + i, name: 'Bird ' + i, sci: 'Genus sp' + i }));
+  const store = { at: 0, done: {} };
+  let seen = 0;
+  await a.sweepArrivals(rows, 'US-WA', 'Washington', store,
+    () => false,                     // closed before the first call resolves
+    () => { seen++; });
+  assert.strictEqual(seen, 0,
+    'a dead sweep still reported progress; nothing should be fetched or '
+    + 'recorded once the section it belongs to is gone');
+  assert.strictEqual(Object.keys(store.done).length, 0,
+    'a dead sweep still wrote results');
+});
+
+test('due back soon shows what is coming, soonest first, and what you need', async () => {
+  const app = await boot({
+    fetch(url) {
+      // Everything GBIF answers "no such taxon", which is the cheap path:
+      // gbifArrival gives up at the taxon key and never reaches the facets.
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const rows = [
+    { code: 'weskin', name: 'Western Kingbird', sci: 'Tyrannus verticalis' },
+    { code: 'rufhum', name: 'Rufous Hummingbird', sci: 'Selasphorus rufus' },
+    { code: 'vargre', name: 'Varied Thrush', sci: 'Ixoreus naevius' },
+    { code: 'norcar', name: 'Northern Cardinal', sci: 'Cardinalis cardinalis' },
+    { code: 'farout', name: 'Far Out Warbler', sci: 'Distant warblerus' },
+  ];
+  const store = { at: 0, done: {
+    'Tyrannus verticalis': { day: '04-20', records: 900 },   // +5 days
+    'Selasphorus rufus':   { day: '04-28', records: 400 },   // +13 days
+    'Ixoreus naevius':     { day: '04-05', records: 700 },   // -10, already back
+    'Cardinalis cardinalis': null,                           // resident
+    'Distant warblerus':   { day: '09-01', records: 50 },    // far outside window
+  } };
+  const now = new Date(2026, 3, 15);            // 15 Apr 2026
+  const seen = { rufhum: 1 };                   // already got this one
+  const out = a.dueBackRows(store, rows, seen, now);
+
+  // Joined rather than deepStrictEqual: `out` is built inside jsdom, so its
+  // Array.prototype is a different realm's and a strict deep compare rejects
+  // arrays whose contents are identical.
+  assert.strictEqual(out.map((r) => r.name).join(' | '),
+    ['Varied Thrush', 'Western Kingbird', 'Rufous Hummingbird'].join(' | '),
+    'rows must be soonest-first with an already-arrived bird at the top — it is '
+    + 'the one you can act on today — and must exclude both the resident (no '
+    + 'arrival to predict) and the bird months away');
+  assert.strictEqual(out[0].days, -10, 'a bird already back reads as negative days');
+  assert.strictEqual(out.find((r) => r.code === 'rufhum').need, false,
+    'a bird already on your year list is listed but not flagged as needed');
+  assert.strictEqual(out.find((r) => r.code === 'weskin').need, true,
+    'a bird you have not recorded is flagged');
+  assert.match(a.dueBackWhen(0), /today/);
+  assert.match(a.dueBackWhen(-3), /3 days ago/);
+});
+
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
 // all built, parity-tested, and wired to nothing — the same failure as a button
 // bound to no handler, except harder to notice because the code looks finished.
