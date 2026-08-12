@@ -62,6 +62,33 @@ npm install
 # open www/index.html in a browser to preview the UI
 ```
 
+### Publishing a release
+
+The workflow creates the release and attaches the `.ipa`; the notes are set
+afterwards. Do that through the retry wrapper:
+
+```powershell
+powershell -File scripts/gh-retry.ps1 release edit v1.3.1 --notes-file notes.md
+```
+
+Not ceremony. On 2026-08-12 the notes step failed with `net/http: TLS handshake
+timeout` — nothing wrong with the release, the notes or the build, just a
+handshake. `gh` exited non-zero and the release kept its **auto-generated body**,
+which is indistinguishable from a release that published correctly until
+somebody reads it. The failure was loud; its consequence was silent.
+
+The wrapper retries transport failures (TLS, timeouts, resets, 5xx, secondary
+rate limits) with exponential backoff, and fails **immediately** on anything
+else — a bad tag or a missing file is not worth five attempts. Verified both
+ways: a nonexistent tag fails in 1.4 s, a simulated handshake timeout retries
+twice and succeeds.
+
+Whatever you use, read the notes back before calling it done:
+
+```powershell
+powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
+```
+
 ## Roadmap
 
 - **P0** — Capacitor shell + CI → installable `.ipa`. ✅
