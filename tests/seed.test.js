@@ -67,6 +67,33 @@ test('the watchlist parser accepts the format the file is actually written in', 
     'and must not swallow the heading as a species');
 });
 
+test('every watchlist entry resolves to a species code', () => {
+  // A codeless entry is the quiet version of the bug above: the name still
+  // ships, so the list LOOKS right, but nothing can ever match it and the
+  // bird simply never appears among the verification chases.
+  //
+  // It happened on 2026-08-11. build-seed.js resolved watchlist names only
+  // against the union of the birdlists — the owner's own year lists — while
+  // analyze.py had always fallen back to the full eBird taxonomy. That gap is
+  // invisible until someone adds the very thing a watchlist is FOR: a bird
+  // they have never recorded. Red-necked Phalarope is on none of the nine
+  // birdlists, so the report resolved `renpha` and the app shipped `code: ''`.
+  const bad = (SEED.watchlist || []).filter((w) => !w || !w.code);
+  assert.strictEqual(bad.length, 0,
+    'watchlist entries with no species code: '
+    + JSON.stringify(bad.map((w) => w && w.name))
+    + ' — either the name is misspelled against the eBird taxonomy, or the '
+    + 'taxonomy fallback in build-seed.js stopped working. Both ship a bird '
+    + 'that can never be matched to a sighting');
+
+  // And the fallback has to still BE there: resolving only against the
+  // birdlists is what caused this, and every current entry resolving is not
+  // evidence it would keep working for the next never-recorded bird.
+  assert.match(BUILDER, /taxonomy-en\.json/,
+    'build-seed.js no longer consults the eBird taxonomy for watchlist names, '
+    + 'so the next bird you have never recorded will ship codeless');
+});
+
 test('no report claims to have seen a bird its own year list never names', () => {
   // The seen_codes.txt ratchet, asserted as a PROPERTY so that unioning "one
   // more source" in future cannot quietly reintroduce it.

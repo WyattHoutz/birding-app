@@ -145,12 +145,51 @@ fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f)
 
 // needsverification.md — a numbered list of NAMES (a watchlist). The report
 // SUBTRACTS these from every region's seen set so they resurface as targets.
-// Resolve each name to a code via the union of all birdlist name→code maps.
+// Resolve each name to a code via the union of all birdlist name→code maps,
+// then — for anything left — the full eBird taxonomy.
+//
+// That fallback is not optional, and analyze.py has always had it: the
+// watchlist is the one list that names birds you have NEVER recorded. A
+// tentative ID you want to refind is, by definition, often not on any year
+// list, so the birdlist union cannot resolve it and the entry shipped with
+// `code: ''`. Caught 2026-08-11 adding Red-necked Phalarope, which is on none
+// of the nine birdlists: the report resolved it to `renpha` and the app
+// shipped it codeless, so it could never match a sighting and the Watchlist
+// section would simply never mention the bird the owner had just asked to
+// track. Same two-repos-disagree shape as the numbered/bulleted drift below,
+// and just as silent.
 const nvCodes = Object.create(null);
 // The ORDER is the user's — it is a hand-maintained numbered list, not a set —
 // so it ships as a sequence, and a name that resolves to no code ships too
 // rather than disappearing between the report and the app.
 const nvEntries = [];
+const nvUnresolved = [];
+// Lazily read, because it is a 6 MB file that most runs never need. It lives
+// in the SOURCE repo's gitignored cache, which is the same "run this beside
+// the private repo" assumption every birdlist read above already makes; when
+// it is missing we say so rather than quietly shipping empty codes.
+let taxNameToCode = null;
+function taxonomyLookup(normalised) {
+  if (taxNameToCode === null) {
+    taxNameToCode = Object.create(null);
+    const taxPath = path.join(srcRoot, '.cache', 'taxonomy-en.json');
+    if (fs.existsSync(taxPath)) {
+      try {
+        JSON.parse(fs.readFileSync(taxPath, 'utf8')).forEach(function (t) {
+          const k = normName(t.comName || '');
+          if (k && !taxNameToCode[k]) taxNameToCode[k] = t.speciesCode;
+        });
+      } catch (e) {
+        console.warn('[warn] taxonomy cache unreadable (' + e.message + ')');
+      }
+    } else {
+      console.warn('[warn] no taxonomy cache at ' + taxPath
+        + ' — run any report in the birding repo once to populate it; '
+        + 'watchlist birds absent from every birdlist cannot resolve without it');
+    }
+  }
+  return taxNameToCode[normalised];
+}
 const nvPath = path.join(srcRoot, 'birdlist-needsverification.md');
 if (fs.existsSync(nvPath)) {
   fs.readFileSync(nvPath, 'utf8').split(/\r?\n/).forEach(function (line) {
@@ -166,8 +205,10 @@ if (fs.existsSync(nvPath)) {
     // still agree.
     const m = /^\s*(?:\d+\.|[-*+])\s*(.+?)\s*$/.exec(line);
     if (!m) return;
-    const code = nameToCodeAll[normName(m[1])];
+    const key = normName(m[1]);
+    const code = nameToCodeAll[key] || taxonomyLookup(key);
     if (code) nvCodes[code] = 1;
+    else nvUnresolved.push(m[1]);
     nvEntries.push({ code: code || '', name: m[1] });
   });
   usedFiles.push('birdlist-needsverification.md');
@@ -247,6 +288,14 @@ console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
 console.log('  codes:  ' + codeList.length + ' (combined union)');
 console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length + ' of ' + nvEntries.length + ' entries');
+if (nvUnresolved.length) {
+  // Loud, and mirroring analyze.py's own [warn] line, because the failure is
+  // otherwise invisible: the entry still ships, just with no code, and a
+  // codeless watchlist bird can never match a sighting.
+  console.warn('[warn] could not resolve ' + nvUnresolved.length
+    + ' watchlist name(s): ' + JSON.stringify(nvUnresolved)
+    + ' — check the spelling against the eBird common name');
+}
 console.log('  seenByReport:');
 BirdLogic.REGION_ORDER.forEach(function (slug) {
   console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' +
