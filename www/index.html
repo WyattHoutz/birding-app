@@ -1500,7 +1500,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.4.0';
+      var APP_VERSION = '1.4.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4279,6 +4279,60 @@
         }).catch(function (e) { st.textContent = netErr(e); });
       }
 
+      // ---- warming a region the moment it is added --------------------------
+      //
+      // "when a region is added, it can start downloading seed data for that
+      //  region including gbif"
+      //
+      // A newly added region starts completely cold: no species index, no
+      // arrival history, so the first time you open Due back soon there it
+      // reads the whole state from GBIF while you wait. Everything needed to
+      // avoid that is known at the moment the region is created, and nobody is
+      // waiting for anything right then.
+      //
+      // What it costs, and why that is the right trade:
+      //
+      //   species index   ~7 eBird calls, cached 24 h. Already the cheapest
+      //                   thing the app buys, and every section that names a
+      //                   species needs it.
+      //   arrival sweep   GBIF only, which has no per-key budget — the one API
+      //                   here that can be swept at all. Resumable, so closing
+      //                   the app mid-warm costs the batch in flight.
+      //
+      // Deliberately NOT prefetched: anything on the eBird key. Rarities,
+      // hotspots and checklists are all "what is happening now", they go stale
+      // in hours, and spending a shared budget on a region you have not opened
+      // yet is exactly the speculative traffic this project keeps refusing.
+      // Adding a region should not cost you the rarity feed you are reading.
+      var _warming = {};
+      function warmRegion(profile, onDone) {
+        if (!profile) return Promise.resolve();
+        var slug = profile.slug || '';
+        if (_warming[slug]) return _warming[slug];
+        var region = profile.isRarityTracker ? 'US' : (profile.stateCode || '');
+        var state = BL.stateNameFor(profile);
+        if (!region) return Promise.resolve();
+        var p = loadSpeciesIndex(region).then(function (rows) {
+          rows = (rows || []).filter(function (r) { return r && r.sci; });
+          if (!state || !rows.length) return { species: rows.length, arrivals: 0 };
+          // The bundled table usually answers most of this for free; the sweep
+          // only ever touches what is left.
+          var store = loadArrivalStore(region, state);
+          var left = rows.filter(function (r) { return store.done[r.sci] === undefined; }).length;
+          if (!left) return { species: rows.length, arrivals: 0 };
+          return sweepArrivals(rows, region, state, store,
+            function () { return true; }, null
+          ).then(function (n) { return { species: rows.length, arrivals: n }; });
+        }).catch(function () { return null; })
+          .then(function (r) {
+            delete _warming[slug];
+            if (onDone) { try { onDone(r); } catch (e) {} }
+            return r;
+          });
+        _warming[slug] = p;
+        return p;
+      }
+
       // ---- 📆 Due back soon: the section ------------------------------------
       //
       // The only screen in the app that knowingly spends hundreds of calls, so
@@ -4345,7 +4399,9 @@
       }
       function loadDueBack() {
         var btn = $('dueBackBtn'), stop = $('dueBackStop'), st = $('dueBackStatus');
-        var region = getObsRegion(), state = getReport().label || '';
+        // BL.stateNameFor, not the label: a hand-added region's label is
+        // typed, and GBIF wants the state NAME. See the note in logic.js.
+        var region = getObsRegion(), state = BL.stateNameFor(getReport());
         if (!state) { st.textContent = 'Pick a report first — the arrival history is per state.'; return; }
         var run = ++_dueBackRun;
         function alive() { return _dueBackRun === run; }
@@ -4410,7 +4466,7 @@
         if (!host) return Promise.resolve();
         host.innerHTML = '';
         var sci = sciNameFor(code);
-        var stateName = getReport().label || '';
+        var stateName = BL.stateNameFor(getReport());
         var g = _spLookupGroup;
         if (!sci || !stateName || !g || !g.places || !g.places.length) return Promise.resolve();
         host.innerHTML = '<div class="status">Checking where ' + esc(name)
@@ -10677,7 +10733,7 @@
           // GBIF filters on eBird's own text field, which is the state NAME,
           // not the US-WA code. Verified better than GBIF's spatial join
           // (gadmGid), which silently drops records with imprecise coordinates.
-          var stateName = getReport().label || '';
+          var stateName = BL.stateNameFor(getReport());
           var gbifCountry = String(region).split('-')[0] || 'US';
           // Merge what the alert holds into the archive BEFORE rendering, so a
           // card always reflects everything this device has ever seen.
@@ -14294,9 +14350,26 @@
               if ($(id)) fillRegionSelect($(id));
             });
             if ($('reportSelect')) $('reportSelect').value = getReportSlug();
-            st.textContent = 'Added \u201c' + label + '\u201d' +
-              (code ? ' in ' + code : ' (no eBird region resolved \u2014 it will chase from its own map circle)') +
-              '. Pick it in Default report to start chasing there.';
+            var where = code ? ' in ' + code
+              : ' (no eBird region resolved \u2014 it will chase from its own map circle)';
+            st.textContent = 'Added \u201c' + label + '\u201d' + where
+              + '. Getting its species list and arrival history ready\u2026';
+            // Warm it now, while nobody is waiting. GBIF has no per-key budget
+            // and the species index is ~7 cached calls, so this costs the
+            // rarity feeds nothing. Deliberately not awaited: adding a region
+            // should return immediately whether or not the warm-up finishes.
+            warmRegion(rec, function (r) {
+              if (!r) {
+                st.textContent = 'Added \u201c' + label + '\u201d' + where
+                  + '. Its data will load the first time you open a section.';
+                return;
+              }
+              st.textContent = 'Added \u201c' + label + '\u201d' + where + '. '
+                + (r.species ? r.species + ' species' : 'No species list yet')
+                + (r.arrivals ? ' \u00b7 ' + r.arrivals + ' arrival dates read from GBIF'
+                              : ' \u00b7 arrival history already covered')
+                + '. Pick it in Default report to start chasing there.';
+            });
           });
         }).catch(function (e) {
           st.textContent = (e && e.message) ? e.message : 'Could not find that place.';
@@ -14953,7 +15026,7 @@
         hydrateChecklistEvidence: hydrateChecklistEvidence,
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
         dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
-        seedArrivals: seedArrivals,
+        seedArrivals: seedArrivals, warmRegion: warmRegion,
         sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
         DUEBACK_AHEAD_D: DUEBACK_AHEAD_D, DUEBACK_BACK_D: DUEBACK_BACK_D,

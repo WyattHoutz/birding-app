@@ -3021,6 +3021,102 @@ test('the progress bar names the step, the feed, and any pause', async () => {
   A.progressEnd();
 });
 
+test('a hand-added region asks GBIF for a real state name', async () => {
+  // The built-in regions' `label` IS the state name — "Washington", "Missouri" —
+  // so reading getReport().label worked by coincidence. It stops being a
+  // coincidence the moment a region is added by hand: a trip called "Tucson in
+  // April" would be sent as stateProvince=Tucson%20in%20April, match nothing,
+  // and return null for every species. That is indistinguishable from "this
+  // state has no migrants", which is a real answer, so the failure is silent.
+  const BL = require('../www/logic.js');
+
+  assert.strictEqual(BL.stateNameFor({ stateCode: 'US-WA', label: 'Washington' }),
+    'Washington', 'a built-in region must keep working unchanged');
+  assert.strictEqual(BL.stateNameFor({ stateCode: 'US-AZ', label: 'Tucson in April' }),
+    'Arizona',
+    'a hand-added region must resolve its state from the DERIVED code, not the '
+    + 'typed label');
+  assert.strictEqual(BL.stateNameFor({ stateCode: 'us-mo', label: 'anything' }),
+    'Missouri', 'the code lookup must not be case-sensitive');
+
+  // A continent-wide tracker has no stateProvince, and '' is the honest answer:
+  // scoping a GBIF query to "Lower 48" would return nothing and look like data.
+  assert.strictEqual(BL.stateNameFor({ stateCode: '', label: 'Lower 48' }), '',
+    'a continent-wide region must report NO state rather than a guess');
+  assert.strictEqual(BL.stateNameFor(null), '');
+
+  // Every built-in region must resolve, or a section silently empties there.
+  for (const slug of BL.REGION_ORDER) {
+    const p = BL.REPORTS[slug];
+    const st = BL.stateNameFor(p);
+    if (p.stateCode && /^US-[A-Z]{2}$/.test(p.stateCode)) {
+      assert.ok(st, `${slug} (${p.stateCode}) resolves to no GBIF state name`);
+    }
+  }
+});
+
+test('adding a region warms it, without touching the eBird budget for feeds', async () => {
+  // "when a region is added, it can start downloading seed data for that region
+  //  including gbif"
+  //
+  // The warm-up is allowed to spend the species index (~7 cached eBird calls)
+  // and GBIF (no per-key budget). It must NOT prefetch rarities, hotspots or
+  // checklists: those go stale in hours, and spending a shared budget on a
+  // region you have not opened yet is the speculative traffic this project
+  // keeps refusing. Adding a region must not cost you the feed you are reading.
+  const seen = [];
+  const app = await boot({
+    fetch(url) {
+      seen.push(url);
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      if (/product\/spplist/.test(url)) return ['weskin', 'norcar'];
+      if (/ref\/taxonomy/.test(url)) {
+        return [{ speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis' },
+                { speciesCode: 'norcar', comName: 'Northern Cardinal', sciName: 'Cardinalis cardinalis' }];
+      }
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const before = seen.length;
+  const r = await a.warmRegion({ slug: 'user-test', stateCode: 'US-AZ',
+                                 label: 'Tucson in April' });
+  assert.ok(r, 'the warm-up reported nothing');
+  assert.strictEqual(r.species, 2, 'the species index was not fetched');
+
+  const spent = seen.slice(before);
+  const forbidden = spent.filter((u) =>
+    /data\/obs\/.*\/recent(?!\/)/.test(u) || /notable/.test(u)
+    || /ref\/hotspot/.test(u) || /product\/lists/.test(u)
+    || /product\/checklist/.test(u));
+  assert.deepStrictEqual(forbidden, [],
+    'the warm-up prefetched live eBird feeds: ' + JSON.stringify(forbidden));
+
+  // And the GBIF side was actually asked, using the RESOLVED state name.
+  const gbif = spent.filter((u) => /gbif\.org/.test(u));
+  assert.ok(gbif.length, 'no GBIF call was made, so no arrival history was warmed');
+});
+
+test('warming the same region twice does not do it twice', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      if (/product\/spplist/.test(url)) return ['weskin'];
+      if (/ref\/taxonomy/.test(url)) {
+        return [{ speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis' }];
+      }
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const p1 = a.warmRegion({ slug: 'user-dup', stateCode: 'US-AZ', label: 'x' });
+  const p2 = a.warmRegion({ slug: 'user-dup', stateCode: 'US-AZ', label: 'x' });
+  assert.strictEqual(p1, p2,
+    'a second warm-up for the same region started a second sweep — tapping Add '
+    + 'twice would read the whole state twice');
+  await p1;
+});
+
 test('the bundled arrival table means the phone does not ask GBIF again', async () => {
   // The whole economy of v1.4.0. birding/scripts/harvest_arrivals.py asks these
   // questions once, for everyone, because the answer is identical for every

@@ -2188,6 +2188,57 @@
     return n;
   }
 
+  // US state/territory codes -> the name GBIF indexes them under.
+  //
+  // GBIF's `stateProvince` is a NAME, not a code, and every arrival query in
+  // this app is scoped by it. For the built-in regions that was invisible
+  // because their `label` already IS the state name ("Washington", "Missouri")
+  // — so the code read `getReport().label` and worked by coincidence.
+  //
+  // It stops being a coincidence the moment a region is added by hand. A trip
+  // called "Tucson in April" would be sent to GBIF as
+  // stateProvince=Tucson%20in%20April, match nothing, and return null for every
+  // species — which is indistinguishable from "this state has no migrants".
+  // Silence is the wrong failure for a question whose honest answer is
+  // sometimes "nothing is due back".
+  var US_STATES = {
+    'US-AL': 'Alabama', 'US-AK': 'Alaska', 'US-AZ': 'Arizona', 'US-AR': 'Arkansas',
+    'US-CA': 'California', 'US-CO': 'Colorado', 'US-CT': 'Connecticut',
+    'US-DE': 'Delaware', 'US-DC': 'District of Columbia', 'US-FL': 'Florida',
+    'US-GA': 'Georgia', 'US-HI': 'Hawaii', 'US-ID': 'Idaho', 'US-IL': 'Illinois',
+    'US-IN': 'Indiana', 'US-IA': 'Iowa', 'US-KS': 'Kansas', 'US-KY': 'Kentucky',
+    'US-LA': 'Louisiana', 'US-ME': 'Maine', 'US-MD': 'Maryland',
+    'US-MA': 'Massachusetts', 'US-MI': 'Michigan', 'US-MN': 'Minnesota',
+    'US-MS': 'Mississippi', 'US-MO': 'Missouri', 'US-MT': 'Montana',
+    'US-NE': 'Nebraska', 'US-NV': 'Nevada', 'US-NH': 'New Hampshire',
+    'US-NJ': 'New Jersey', 'US-NM': 'New Mexico', 'US-NY': 'New York',
+    'US-NC': 'North Carolina', 'US-ND': 'North Dakota', 'US-OH': 'Ohio',
+    'US-OK': 'Oklahoma', 'US-OR': 'Oregon', 'US-PA': 'Pennsylvania',
+    'US-RI': 'Rhode Island', 'US-SC': 'South Carolina', 'US-SD': 'South Dakota',
+    'US-TN': 'Tennessee', 'US-TX': 'Texas', 'US-UT': 'Utah', 'US-VT': 'Vermont',
+    'US-VA': 'Virginia', 'US-WA': 'Washington', 'US-WV': 'West Virginia',
+    'US-WI': 'Wisconsin', 'US-WY': 'Wyoming', 'US-PR': 'Puerto Rico'
+  };
+
+  // The name to send GBIF for this report, or '' when there isn't one.
+  //
+  // The state code is the authority, because it is DERIVED (deriveRegionCode
+  // resolves it from the coordinates) while the label is typed. Falling back to
+  // the label keeps every existing region working unchanged, and returning ''
+  // rather than a guess matters for the continent-wide trackers: "Lower 48" is
+  // not a stateProvince, and a query scoped to it would quietly return nothing
+  // instead of saying the question does not apply.
+  function stateNameFor(profile) {
+    if (!profile) return '';
+    var byCode = US_STATES[String(profile.stateCode || '').toUpperCase()];
+    if (byCode) return byCode;
+    var label = String(profile.label || '');
+    for (var k in US_STATES) {
+      if (US_STATES[k] === label) return label;
+    }
+    return '';
+  }
+
   // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
   // is why it is stored that way; it just does not read like a date to a
   // person scanning a list of them.
@@ -2268,6 +2319,8 @@
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
+    stateNameFor: stateNameFor,
+    US_STATES: US_STATES,
     meaningfulMonths: meaningfulMonths,
     ARRIVAL_MONTH_SHARE: 0.01,
     speciesPlaces: speciesPlaces,
