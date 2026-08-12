@@ -2142,9 +2142,15 @@
   // both more robust and 2 calls instead of 14, which matters on a phone.
   // Measured per-year on Western Kingbird / Washington the pooled answer lands
   // inside the seven-year spread (2018-2024 arrivals: Apr 17-23).
-  function arrivalDay(dayCounts, pct) {
+  function arrivalDay(dayCounts, pct, order) {
     pct = pct === undefined ? 0.05 : pct;
-    var keys = Object.keys(dayCounts || {}).sort();
+    // `order` exists because a season can cross the year boundary. Sorting the
+    // keys is right for a spring arrival (03-xx before 04-xx) and wrong for a
+    // winter one: a season running December into January sorts January first,
+    // so the answer comes back as the middle of the season rather than its
+    // start. When the caller knows the chronological order, it passes it.
+    var keys = (order && order.length ? order.slice() : Object.keys(dayCounts || {}).sort())
+      .filter(function (k) { return dayCounts && dayCounts[k] !== undefined; });
     if (!keys.length) return null;
     var peak = 0;
     keys.forEach(function (k) { if (dayCounts[k] > peak) peak = dayCounts[k]; });
@@ -2165,6 +2171,21 @@
     // Already well past this year: the useful answer is next year's return.
     if (d < -30) d = Math.round((new Date(y + 1, +parts[0] - 1, +parts[1]) - now) / day);
     return d;
+  }
+
+  // How many months a species is ACTUALLY present in, ignoring the months that
+  // hold a rounding error's worth of records. See the long note at the call
+  // site in index.html and ARRIVAL_MONTH_SHARE in birding/gbif.py: counting
+  // months with ANY record filed 106 of 295 Washington migrants as residents.
+  function meaningfulMonths(months, share) {
+    var total = 0, i;
+    for (i = 0; i < (months || []).length; i++) total += months[i].n || 0;
+    if (!total) return 0;
+    var n = 0;
+    for (i = 0; i < months.length; i++) {
+      if ((months[i].n || 0) / total >= share) n++;
+    }
+    return n;
   }
 
   // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
@@ -2247,6 +2268,8 @@
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
+    meaningfulMonths: meaningfulMonths,
+    ARRIVAL_MONTH_SHARE: 0.01,
     speciesPlaces: speciesPlaces,
     sortSpeciesPlaces: sortSpeciesPlaces,
     ICONIC_BOX_KM: ICONIC_BOX_KM,

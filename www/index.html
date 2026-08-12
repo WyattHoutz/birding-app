@@ -1499,7 +1499,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.3.0';
+      var APP_VERSION = '1.3.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3236,22 +3236,62 @@
           return gbifJson(base + '&limit=0&facet=month&facetLimit=12').then(function (mj) {
             var months = facetCounts(mj, 'month').map(function (x) { return { m: +x.name, n: x.count }; })
               .filter(function (x) { return x.m >= 1 && x.m <= 12; });
-            if (months.length < 2 || months.length > 9) return null;   // resident: no arrival to predict
+            // Months that MATTER, not months with a record in them.
+            //
+            // MEASURED over all 567 WA species, 2026-08-12. The old test was
+            // months.length, which made "present in 10+ months" true for
+            // almost every migrant that has ever had one straggler:
+            //
+            //   Rufous Hummingbird, Washington, by month:
+            //     Jan 16 · Feb 142 · Mar 12259 · Apr 37825 · May 49771
+            //     Jun 37831 · Jul 23920 · Aug 11342 · Sep 1729 · Oct 109
+            //     Nov 14 · Dec 15
+            //
+            // Twelve months with a record; five of them 0.16% of the data
+            // between them. A textbook migrant filed as a resident and never
+            // shown. Counting only months at or above 1% moves 106 of 295
+            // migrants — 36% — into the section: Snowy Owl, Dunlin,
+            // Rough-legged Hawk, Bohemian Waxwing, Brant, Trumpeter Swan.
+            //
+            // Falsified rather than tuned: eight known year-round residents
+            // still read 12/12 at this threshold while six known migrants all
+            // flip. Mirrors ARRIVAL_MONTH_SHARE in birding/gbif.py — the two
+            // must agree or the bundled table and this live fallback classify
+            // the same bird differently.
+            var realMonths = BL.meaningfulMonths(months, BL.ARRIVAL_MONTH_SHARE);
+            if (realMonths < 2 || realMonths > 9) return null;   // resident: no arrival to predict
             var peakMonth = months.slice().sort(function (a, b) { return b.n - a.n; })[0];
             var total = months.reduce(function (s, x) { return s + x.n; }, 0);
-            // The month BEFORE the peak is where an arrival edge lives.
-            var edge = Math.max(1, peakMonth.m - 1);
+            // The month BEFORE the peak holds the arrival edge, and December is
+            // the month before January.
+            //
+            // This used to be Math.max(1, peakMonth.m - 1), which for a January
+            // peak resolved to January — the same month sampled twice, so the
+            // answer was the first day of it. MEASURED 2026-08-12 over the whole
+            // WA list: 28 of 295 dated species came back "01-01", 26 with a
+            // January peak. Greater Scaup, Common Redpoll, Short-eared Owl,
+            // Bohemian Waxwing — every winter bird told to arrive on New
+            // Year's Day.
+            var edge = peakMonth.m === 1 ? 12 : peakMonth.m - 1;
             return Promise.all([
               gbifJson(base + '&month=' + edge + '&limit=0&facet=day&facetLimit=40'),
               gbifJson(base + '&month=' + peakMonth.m + '&limit=0&facet=day&facetLimit=40')
             ]).then(function (dj) {
-              var days = {};
+              var days = {}, order = [];
               [[edge, dj[0]], [peakMonth.m, dj[1]]].forEach(function (pair) {
+                var got = [];
                 facetCounts(pair[1], 'day').forEach(function (x) {
-                  days[String(pair[0]).replace(/^(\d)$/, '0$1') + '-' + String(x.name).replace(/^(\d)$/, '0$1')] = x.count;
+                  var k = String(pair[0]).replace(/^(\d)$/, '0$1') + '-' + String(x.name).replace(/^(\d)$/, '0$1');
+                  days[k] = x.count;
+                  got.push(k);
                 });
+                // Chronological within the month, then edge-month before
+                // peak-month. Passing this order is what stops a December-into
+                // -January season being read back-to-front by a lexical sort.
+                got.sort();
+                order = order.concat(got);
               });
-              var v = { day: BL.arrivalDay(days), months: months.length, records: total, peakMonth: peakMonth.m };
+              var v = { day: BL.arrivalDay(days, undefined, order), months: realMonths, records: total, peakMonth: peakMonth.m };
               if (!v.day) return null;
               var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
               return v;
