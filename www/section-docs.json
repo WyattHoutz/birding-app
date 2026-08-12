@@ -62,21 +62,25 @@
       "report": null,
       "how": [
         "Takes every species ever recorded in the region (eBird's region checklist) and asks GBIF when each one historically shows up.",
+        "Most of that is already answered: the arrival table is harvested once in the report repo and ships with the app, so the phone only asks about species the table does not cover.",
         "A species present all year has no arrival to predict and is skipped; only genuine migrants get a date.",
+        "\"Present all year\" counts months carrying at least 1% of the species' records, not months with a single straggler in them - the difference moved 106 of 295 Washington migrants out of \"resident\".",
         "The date is the first day of the season that reaches 5% of the peak day's records, pooled across every year GBIF holds - so it is the long-term pattern, not one unusual spring.",
         "Shows anything due within 30 days, plus anything that arrived in the last 14, because a bird already back is the one you can act on today.",
         "🔍 marks a bird you still need; the rest are ones you have already recorded this year."
       ],
       "inputs": [
+        "The bundled arrival table (arrivals.js), harvested from GBIF once per state",
         "eBird product/spplist for the region (the same cached species index the lookup uses - no extra eBird traffic)",
-        "GBIF occurrence/search month and day facets, per species"
+        "GBIF occurrence/search month and day facets, for anything the table does not cover"
       ],
       "limits": [
         "App-only: the report is built once from a fixed snapshot and committed, and 'what arrives in the next three weeks' is a question whose answer moves every day.",
-        "The first run reads hundreds of GBIF records and takes a few minutes. It can be stopped at any point and resumes where it left off; after that it is instant.",
+        "Only Washington is harvested so far. Any other region falls back to reading GBIF live, which takes a few minutes the first time; it can be stopped and resumes where it left off.",
         "GBIF lags about a year, so this is the long-term pattern and never this season's actual birds - it says when to start looking, not that anything is here.",
         "A species too sparse in the archive to give a stable date is left out rather than guessed at.",
-        "Arrival is measured for the whole state, not your chase radius: a bird can be back on the coast a week before it reaches you."
+        "Arrival is measured for the whole state, not your chase radius: a bird can be back on the coast a week before it reaches you.",
+        "A winter bird whose peak is January is measured from December, so its date can read as the start of that window rather than its true arrival in autumn."
       ]
     },
     "rankBtn": {

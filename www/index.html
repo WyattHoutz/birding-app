@@ -1494,12 +1494,13 @@
   <script src="cards-hotspot.js"></script>
   <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
+  <script src="arrivals.js"></script>
   <script>
     (function () {
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.3.1';
+      var APP_VERSION = '1.4.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3334,11 +3335,49 @@
       var DUEBACK_BACK_D = 14;       // ...and how long "just arrived" stays news
       function dueBackKey(region, state) { return DUEBACK_NS + region + '|' + state; }
       function loadArrivalStore(region, state) {
+        var store;
         try {
           var c = JSON.parse(localStorage.getItem(dueBackKey(region, state)) || 'null');
-          if (c && c.done && typeof c.done === 'object') return c;
+          if (c && c.done && typeof c.done === 'object') store = c;
         } catch (e) {}
-        return { at: 0, done: {} };
+        if (!store) store = { at: 0, done: {} };
+        return seedArrivals(store, state);
+      }
+      // The bundled table, laid down UNDER whatever the device has already
+      // learned.
+      //
+      // birding/scripts/harvest_arrivals.py asks GBIF these questions once, for
+      // everyone, because the answer is identical for every user in the state
+      // and comes from an archive that lags a year. Washington ships as 295
+      // dated species and 365 residents in 27 KB — against roughly a thousand
+      // calls to rediscover the same thing on every phone.
+      //
+      // The residents matter more than the dates here. They are the MAJORITY of
+      // a region's list and each one is two calls the device now never makes;
+      // shipping only the dated species would leave the phone rediscovering
+      // "no" 365 times.
+      //
+      // Anything already in `done` wins: a species the device fetched itself is
+      // at worst as old as the bundle and at best newer, and a table shipped in
+      // January must not overwrite what a phone learned in June.
+      function seedArrivals(store, state) {
+        var b = (typeof window !== 'undefined') && window.__ARRIVALS__;
+        var t = b && b.states && b.states[state];
+        if (!t) return store;                 // no harvest for this state yet
+        var i, sci;
+        var a = t.a || {};
+        for (sci in a) {
+          if (store.done[sci] === undefined) {
+            store.done[sci] = { day: a[sci].d, records: a[sci].r,
+                                months: a[sci].m, peakMonth: null };
+          }
+        }
+        var res = t.res || [];
+        for (i = 0; i < res.length; i++) {
+          if (store.done[res[i]] === undefined) store.done[res[i]] = null;
+        }
+        store.seeded = true;
+        return store;
       }
       function saveArrivalStore(region, state, store) {
         store.at = Date.now();
@@ -4321,9 +4360,14 @@
           var left = rows.filter(function (r) { return store.done[r.sci] === undefined; }).length;
           if (!left) { renderDueBack(store, rows, false); return; }
           // A fixed total, declared up front, exactly as progressStage requires
-          // — the denominator is how many species are still unanswered, which
-          // cannot grow while the sweep runs.
-          progressStage('Reading arrival history from GBIF', left, 1, 1);
+          // — the denominator is how many species are still UNANSWERED, which
+          // cannot grow while the sweep runs. With the bundled table in place
+          // that number is usually small or zero, so the honest label says how
+          // many are left rather than implying the whole region is being read.
+          progressStage(left === rows.length
+            ? 'Reading arrival history from GBIF'
+            : 'Checking ' + left + ' species the bundled table does not cover',
+            left, 1, 1);
           var lastPaint = 0;
           return sweepArrivals(rows, region, state, store, alive, function (n, total, name) {
             progressStep(1, name);
@@ -14909,6 +14953,7 @@
         hydrateChecklistEvidence: hydrateChecklistEvidence,
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
         dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
+        seedArrivals: seedArrivals,
         sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
         DUEBACK_AHEAD_D: DUEBACK_AHEAD_D, DUEBACK_BACK_D: DUEBACK_BACK_D,

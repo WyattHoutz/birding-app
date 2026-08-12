@@ -3021,6 +3021,97 @@ test('the progress bar names the step, the feed, and any pause', async () => {
   A.progressEnd();
 });
 
+test('the bundled arrival table means the phone does not ask GBIF again', async () => {
+  // The whole economy of v1.4.0. birding/scripts/harvest_arrivals.py asks these
+  // questions once, for everyone, because the answer is identical for every
+  // user in the state and comes from an archive that lags a year. If the seed
+  // does not actually land in the store, the section still WORKS — it just
+  // quietly spends a thousand calls per phone to rediscover 27 KB it already
+  // shipped with, which is the kind of regression nothing else would catch.
+  const app = await boot({
+    fetch(url) {
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const bundle = app.window.__ARRIVALS__;
+  assert.ok(bundle && bundle.states,
+    'arrivals.js did not load — run `node assets/build-arrivals.js`');
+  const wa = bundle.states.Washington;
+  assert.ok(wa && Object.keys(wa.a).length > 50,
+    'the Washington table is missing or implausibly small');
+  assert.ok((wa.res || []).length > 50,
+    'no residents shipped — they are the MAJORITY of a region and each one is '
+    + 'two calls the device now never makes; shipping only the dated species '
+    + 'leaves the phone rediscovering "no" hundreds of times');
+
+  const store = a.loadArrivalStore('US-WA', 'Washington');
+  const anySci = Object.keys(wa.a)[0];
+  assert.ok(store.done[anySci] && store.done[anySci].day,
+    'a dated species from the bundle is not in the store, so the sweep would '
+    + 'fetch it again');
+  assert.strictEqual(store.done[wa.res[0]], null,
+    'a bundled resident is not recorded as a resident, so the sweep would '
+    + 'spend two calls to be told what the bundle already said');
+
+  // ...and with it seeded, a sweep over those species must do nothing at all.
+  const rows = Object.keys(wa.a).slice(0, 20).map((sci) => ({
+    code: wa.a[sci].c, name: sci, sci,
+  }));
+  let asked = 0;
+  const n = await a.sweepArrivals(rows, 'US-WA', 'Washington', store,
+    () => true, () => { asked++; });
+  assert.strictEqual(n, 0, 'the sweep found work to do on species the bundle covers');
+  assert.strictEqual(asked, 0, 'the sweep fetched a species the bundle covers');
+});
+
+test('the bundle never overwrites what this phone already learned', async () => {
+  // A table shipped in January must not overwrite what a phone learned in June.
+  // Anything the device fetched itself is at worst as old as the bundle and at
+  // best newer, so `done` wins on every collision.
+  const app = await boot({
+    fetch(url) {
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const wa = app.window.__ARRIVALS__.states.Washington;
+  const sci = Object.keys(wa.a)[0];
+  const bundledDay = wa.a[sci].d;
+
+  const mine = { at: 1, done: {} };
+  mine.done[sci] = { day: '02-29', records: 1, months: 3, peakMonth: 3 };
+  const seeded = a.seedArrivals(mine, 'Washington');
+  assert.strictEqual(seeded.done[sci].day, '02-29',
+    `the bundle overwrote a device-learned answer with ${bundledDay}`);
+
+  // A resident the device has since dated must also survive.
+  const res = wa.res[0];
+  const mine2 = { at: 1, done: {} };
+  mine2.done[res] = { day: '05-05', records: 9, months: 4, peakMonth: 5 };
+  assert.ok(a.seedArrivals(mine2, 'Washington').done[res].day === '05-05',
+    'the bundle demoted a species the device had dated back to resident');
+});
+
+test('a state with no harvest still works', async () => {
+  // Only Washington is harvested. Every other region must fall through to the
+  // live sweep rather than showing an empty section, because "we have not
+  // harvested Missouri" is not something a reader should ever have to know.
+  const app = await boot({
+    fetch(url) {
+      if (/gbif\.org/.test(url)) return { results: [], usageKey: 0, count: 0, facets: [] };
+      return null;
+    },
+  });
+  const a = app.window.__app;
+  const store = a.loadArrivalStore('US-MO', 'Missouri');
+  assert.strictEqual(Object.keys(store.done).length, 0,
+    'an unharvested state was seeded with something');
+  assert.ok(!store.seeded, 'an unharvested state claims to be seeded');
+});
+
 // ---- 📆 Due back soon (F11 part 2) -----------------------------------------
 //
 // The only screen that knowingly spends hundreds of calls. Three properties are
