@@ -86,6 +86,30 @@
         "A winter bird whose peak is January is measured from December, so its date can read as the start of that window rather than its true arrival in autumn."
       ]
     },
+    "scoutBtn": {
+      "summary": "A temporary home: what is actually being reported around somewhere else.",
+      "report": null,
+      "how": [
+        "Type a place - a town, a reserve, or a pasted \"lat, lng\" - and it is geocoded, then three calls are made against that point.",
+        "Recent and notable observations within 50 km (eBird's own cap on a geo feed), over the last 7 days.",
+        "Every eBird hotspot within the same 50 km, in ONE call - 246 of them around Yakima.",
+        "Birds you still need lead the list, closest first, one row per species with its nearest place. Distances are from the scouted point, not from home.",
+        "One slot: scouting somewhere new replaces it. It survives a relaunch, because three calls should not be spent twice on the same answer."
+      ],
+      "inputs": [
+        "a geocoder (keyless) to turn typed text into a point",
+        "data/obs/geo/recent and .../notable around that point",
+        "ref/hotspot/geo for the hotspot list"
+      ],
+      "limits": [
+        "App-only: the report is built for one region from a fixed home and committed. \"What is being reported around Yakima right now\" is asked on the way out of the door, and the answer would be stale before a document reached you.",
+        "Three calls, whatever the distance - measured, not estimated. The hotspot list is the cheapest part of it, which is the opposite of how it feels.",
+        "Scoped by RADIUS, not by county, because a temporary home should cover what a home covers. A county feed would be a wider net than the question asked for, and would need a region lookup first.",
+        "50 km is eBird's cap on a geo feed, so a place with its birding an hour further out will not show it.",
+        "It does NOT touch your own report: your seen list decides what counts as needed, and nothing here is written back to it.",
+        "Species feeds (one per unseen bird, ~25 more calls) are deliberately NOT fetched - this is a look, not a move."
+      ]
+    },
     "rankBtn": {
       "report": "## 🏆 eBird Rankings",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",

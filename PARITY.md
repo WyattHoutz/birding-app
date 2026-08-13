@@ -40,6 +40,7 @@ gets planned. A section that exists only in the app is simply ahead.
 |---|---|
 | 🔎 Species lookup | a Markdown report cannot take a query, and printing every species' places for a region is a phone book, not a section |
 | 📆 Due back soon | the arrival sweep is hundreds of GBIF calls, resumable and cached on the device; the report is built once from a fixed snapshot, and "what arrives in the next three weeks" is a question whose answer moves every day |
+| 🧭 Scout another place | a TEMPORARY anchor. The report is built for one region from a fixed home and committed; "what is being reported around Yakima right now" is asked on the way out of the door, and the answer would be stale before a document reached you. The report's equivalent is to add the region properly, which is a different and more permanent act |
 | ⚙️ Settings | API key, home location, report picker — there is nothing to print |
 | 📘 How each section works | the report explains each section inline, where a scrolling reader already is; on a phone the sections are separate screens, so the explanations need one reachable place |
 

@@ -2367,6 +2367,82 @@
     return out;
   }
 
+  // ---- F30 tier 3: a temporary anchor somewhere the report never fetched ---
+  //
+  // "summarize cost of a fresh fetch of feeds for yakima or another county that
+  //  would support showing hotspots outside of chase distance. id like to
+  //  support this kind of lookup. it would be like temporary change of home
+  //  location"
+  //
+  // rerankFromAnchor could always re-rank; it could never DISCOVER. The
+  // candidates came from this report's counties plus a 50 km circle around
+  // home, so "Find Yakima" re-sorted a list that contained nothing near
+  // Yakima. coverageNote (v1.0.98) made that honest; this makes it unnecessary.
+  //
+  // MEASURED 2026-08-13 against the live API, anchored on Yakima city:
+  //   geo recent 50 km   111 species
+  //   geo notable 50 km    0
+  //   ref/hotspot/geo    246 hotspots — in ONE call
+  //   still unseen        33 species
+  //
+  // Three calls, whatever the distance. The hotspot list — the thing actually
+  // asked for — is the CHEAPEST part, which is the opposite of how it feels.
+  //
+  // Scoped by GEO rather than by county on purpose: a temporary home should
+  // cover what a home covers, which is a radius. Adding county feeds would
+  // mean resolving a region code first (a fourth call) to buy a wider net than
+  // the question asked for.
+  function scoutGroups(rows, opts) {
+    opts = opts || {};
+    var seen = opts.seen || {};
+    var at = opts.at || null;
+    var dist = opts.distFn;
+    var byCode = {}, order = [];
+    (rows || []).forEach(function (r) {
+      var code = r && (r.speciesCode || r.code);
+      if (!code) return;
+      var name = r.comName || r.name || code;
+      var lat = r.lat == null ? null : +r.lat;
+      var lng = (r.lng == null ? r.lon : r.lng);
+      lng = lng == null ? null : +lng;
+      var d = (at && dist && lat != null && lng != null)
+        ? dist(at.lat, at.lng, lat, lng) : null;
+      if (!byCode[code]) {
+        byCode[code] = {
+          code: code, name: name, need: !isSeen(code, seen),
+          rare: false, reports: 0, nPlaces: 0, places: {},
+          distMi: null, locId: '', locName: '', subId: '', lat: null, lng: null,
+          latest: ''
+        };
+        order.push(code);
+      }
+      var g = byCode[code];
+      g.reports += 1;
+      if (r.__notable) g.rare = true;
+      var pid = r.locId || r.locName;
+      if (pid && !g.places[pid]) { g.places[pid] = 1; g.nPlaces += 1; }
+      // Nearest place wins the row, because the row is a decision about
+      // driving — the same rule the needs lane uses.
+      if (d != null && isFinite(d) && (g.distMi == null || d < g.distMi)) {
+        g.distMi = d; g.locId = r.locId || ''; g.locName = r.locName || '';
+        g.subId = r.subId || ''; g.lat = lat; g.lng = lng;
+      }
+      var when = r.obsDt || r.isoObsDate || '';
+      if (when > g.latest) g.latest = when;
+    });
+    var all = order.map(function (c) { return byCode[c]; });
+    // Birds you NEED lead, and within that the closest first. A scouting trip
+    // is planned around what you cannot get at home.
+    all.sort(function (a, b) {
+      if (a.need !== b.need) return a.need ? -1 : 1;
+      var ad = a.distMi == null ? Infinity : a.distMi;
+      var bd = b.distMi == null ? Infinity : b.distMi;
+      if (ad !== bd) return ad - bd;
+      return a.name.localeCompare(b.name);
+    });
+    return all;
+  }
+
   // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
   // is why it is stored that way; it just does not read like a date to a
   // person scanning a list of them.
@@ -2447,6 +2523,7 @@
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
+    scoutGroups: scoutGroups,
     needNearby: needNearby,
     yieldBand: yieldBand,
     YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,

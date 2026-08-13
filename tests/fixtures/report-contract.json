@@ -45,6 +45,13 @@
       "why": "app-only (F11 part 2): the arrival dates come from sweeping GBIF for every species in the region - hundreds of calls, resumable, cached on the device. The report is built once from a fixed snapshot and committed; a section whose whole value is 'what changes between now and three weeks from now' is a live question, and printing a static answer to it in a document dated today would be worse than not printing it. Owner decision 2026-08-12: the app may carry sections the report does not, as long as the delta is written down."
     },
     {
+      "at": "scoutBtn",
+      "label": "🧭 Scout another place",
+      "report": null,
+      "map": null,
+      "why": "app-only (F30 tier 3): a TEMPORARY anchor. The report is built for one region from a fixed home and committed; 'what is being reported around Yakima right now' is a question you ask on the way out of the door, and the answer is three live calls that would be stale before a document reached you. The report's own equivalent is to add the region properly, which is a different and more permanent act."
+    },
+    {
       "at": "rankBtn",
       "label": "🏆 eBird Rankings & Top 100",
       "report": "## 🏆 eBird Rankings",

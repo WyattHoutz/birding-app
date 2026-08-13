@@ -7906,13 +7906,18 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // pending a redesign. The section, its panel and its loader all still exist,
   // so this is a hidden entry rather than a deleted one — see menuOmittedAts
   // in report-contract.json, which is where that fact lives.
-  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn'];
+  // Scout joins them (v1.7.0). It belongs here and not in a group of its own:
+  // "where do I go" is the question a reader brings to this cluster, and Scout
+  // is the only member that can answer it about somewhere the report does not
+  // cover. The other four rank places INSIDE your region and cannot discover
+  // anything outside it — which is the entire complaint F30 came from.
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'scoutBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Top destinations', 'Top excursions', 'Quick outing',
-                      'Closest spots']) {
+                      'Closest spots', 'Scout another place']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
@@ -10510,4 +10515,107 @@ test('Happening now leads with what you need, not with the crowd', async () => {
                           HTML.indexOf('function loadSurge') + 4000);
   assert.match(load, /BL\.needNearby\(_merged/,
     'the lane fetches its own data instead of reusing the merged wave');
+});
+
+// ---- F30 tier 3: Scout another place ---------------------------------------
+//
+// "id like to support this kind of lookup. it would be like temporary change
+//  of home location"
+//
+// rerankFromAnchor could always re-RANK and never DISCOVER: the candidates came
+// from this report's counties plus a circle around home, so "Find Yakima"
+// re-sorted a list containing nothing near Yakima. These pin the three claims
+// the section makes, each of which fails quietly if it stops being true.
+
+test('scouting a place costs exactly three calls, however far away it is', async () => {
+  // The cost is the whole argument for shipping this, and it is the thing a
+  // future change is most likely to break — one more feed here would be
+  // invisible on screen and would quadruple what a look costs.
+  const urls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      urls.push(u);
+      if (/ref\/hotspot\/geo/.test(u)) {
+        return [{ locId: 'L1', locName: 'Yakima Sportsman SP', lat: 46.6, lng: -120.5,
+                  numSpeciesAllTime: 210, latestObsDt: '2026-08-12 07:00' }];
+      }
+      if (/data\/obs\/geo\/recent\/notable/.test(u)) return [];
+      if (/data\/obs\/geo\/recent/.test(u)) {
+        return [{ speciesCode: 'zzscout1', comName: 'Zed Scout Bird', locId: 'L1',
+                  locName: 'Yakima Sportsman SP', lat: 46.6, lng: -120.5,
+                  obsDt: '2026-08-12 07:00', subId: 'S1', obsValid: true }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, D = app.document;
+  // A pasted "lat, lng" resolves offline, so the geocoder is out of the
+  // measurement entirely and what is counted is only what eBird was asked for.
+  D.getElementById('scoutPlace').value = '46.6021, -120.5059';
+  A.scoutPlaceRun();
+  await waitFor(() => /hotspot/i.test(D.getElementById('scoutResults').textContent),
+    'the scouted view to paint');
+
+  const ebirdCalls = urls.filter((u) => /\/v2\//.test(u) || /data\/obs|ref\/hotspot/.test(u));
+  assert.strictEqual(ebirdCalls.length, 3,
+    'a scout must cost exactly three eBird calls (geo recent, geo notable, '
+    + 'hotspot index); got ' + ebirdCalls.length + ': ' + JSON.stringify(ebirdCalls));
+
+  // And NOT the expensive one. Species feeds are ~25 more calls and are
+  // deliberately not fetched: this is a look, not a move.
+  // A per-species feed is data/obs/{region}/recent/{code}. Matching on
+  // "recent/<word>" alone also matches .../geo/recent?... and
+  // .../recent/notable, so the pattern has to exclude the two legitimate
+  // shapes rather than just look for a slash.
+  assert.ok(!ebirdCalls.some((u) => /\/recent\/(?!notable)[a-z0-9]+/.test(u)),
+    'a scout fetched per-species feeds, which is the tier it exists to avoid: '
+    + JSON.stringify(ebirdCalls));
+});
+
+test('a scouted place is one slot, and survives a relaunch', async () => {
+  // A chase snapshot is ~800 KB against a phone's ~5 MB budget, and this app
+  // has already lost a finished wave to QuotaExceededError once. A growing
+  // collection of saved places is how that happens again — so scouting
+  // somewhere new REPLACES, and nothing accumulates.
+  const app = await boot({ fetch() { return null; } });
+  const A = app.window.__app, W = app.window;
+  A.saveScout({ v: 1, at: Date.now(), label: 'First', lat: 1, lng: 2, rows: [], hotspots: [] });
+  A.saveScout({ v: 1, at: Date.now(), label: 'Second', lat: 3, lng: 4, rows: [], hotspots: [] });
+  const keys = Object.keys(W.localStorage).filter((k) => /scout/i.test(k));
+  assert.strictEqual(keys.length, 1,
+    'more than one scout slot exists: ' + JSON.stringify(keys));
+  assert.strictEqual(A.loadScout().label, 'Second', 'the newer scout did not replace the older');
+
+  A.clearScout();
+  assert.strictEqual(A.loadScout(), null, 'clearing left the slot behind');
+});
+
+test('a scout ranks what you need first, measured from THERE', () => {
+  // The distances must be from the scouted point, not from home — a list of
+  // distances means nothing until you know what they are distances from, and
+  // getting this wrong is F30's original bug in a new place.
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const at = { lat: 46.6021, lng: -120.5059 };                 // Yakima
+  const mi = (a, b, c, d) => {                                  // rough haversine
+    const R = 3958.8, r = (x) => x * Math.PI / 180;
+    const dLat = r(c - a), dLon = r(d - b);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+  const rows = [
+    { speciesCode: 'need1', comName: 'Needed Far', lat: 46.9, lng: -120.9, locId: 'L1', locName: 'Far', obsDt: '2026-08-12 08:00' },
+    { speciesCode: 'need2', comName: 'Needed Near', lat: 46.61, lng: -120.51, locId: 'L2', locName: 'Near', obsDt: '2026-08-12 09:00' },
+    { speciesCode: 'seen1', comName: 'Already Seen', lat: 46.60, lng: -120.50, locId: 'L3', locName: 'Closest', obsDt: '2026-08-12 10:00' },
+    { speciesCode: 'need2', comName: 'Needed Near', lat: 46.7, lng: -120.7, locId: 'L4', locName: 'Second place', obsDt: '2026-08-12 07:00' },
+  ];
+  const out = BL.scoutGroups(rows, { seen: { seen1: 1 }, at, distFn: mi });
+
+  assert.strictEqual(out.map((g) => g.code).join(','), 'need2,need1,seen1',
+    'birds you NEED must lead, closest first, with seen birds after — a bird '
+    + 'you already have is context, not a reason to drive');
+  assert.strictEqual(out[0].nPlaces, 2, 'the same bird at two places is one row');
+  assert.strictEqual(out[0].locName, 'Near', 'the row carries its NEAREST place');
+  assert.ok(out[0].distMi < 1, 'distance is measured from the scouted point, not from home');
+  assert.strictEqual(out[2].need, false, 'a bird on your list is not marked as needed');
 });

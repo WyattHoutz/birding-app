@@ -1061,6 +1061,17 @@
     </section>
 
     <section class="panel">
+      <h2>🧭 Scout another place <span class="dim" id="scoutRegionLabel"></span></h2>
+      <div class="row">
+        <input id="scoutPlace" type="search" placeholder="Yakima, Nisqually, or &ldquo;lat, lng&rdquo;&hellip;" autocomplete="off" />
+        <button id="scoutBtn" class="secondary">Scout</button>
+        <button id="scoutClear" class="secondary" type="button" hidden>✕ Clear</button>
+      </div>
+      <div id="scoutStatus" class="status">A temporary home. Fetches what is actually being reported around somewhere else — <b>3 calls</b>, whatever the distance — so you can see a county your report never covers. One slot: scouting somewhere new replaces it, and your own report is never touched.</div>
+      <div id="scoutResults"></div>
+    </section>
+
+    <section class="panel">
       <h2>📆 Due back soon <span class="dim" id="dueBackRegionLabel"></span></h2>
       <div class="row">
         <button id="dueBackBtn">Check arrivals</button>
@@ -1500,7 +1511,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.6.0';
+      var APP_VERSION = '1.7.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4382,6 +4393,148 @@
           });
         _warming[slug] = p;
         return p;
+      }
+
+      // ---- 🧭 Scout another place (F30 tier 3) ------------------------------
+      //
+      // A temporary home. Three calls, whatever the distance, and one slot —
+      // scouting somewhere new replaces it. That last part is not tidiness: a
+      // chase snapshot is ~800 KB against a phone's ~5 MB origin budget, this
+      // app has already lost a finished wave to QuotaExceededError once (W33),
+      // and a growing collection of saved places is how that happens again.
+      var SCOUT_KEY = 'bc_scout_v1';
+      var SCOUT_DIST_KM = 50;        // eBird's own cap on a geo feed
+      var SCOUT_BACK_D = 7;
+      function loadScout() {
+        try { return JSON.parse(localStorage.getItem(SCOUT_KEY) || 'null'); }
+        catch (e) { return null; }
+      }
+      function saveScout(v) {
+        try { localStorage.setItem(SCOUT_KEY, JSON.stringify(v)); }
+        catch (e) { /* full store: the view still works, it just will not persist */ }
+      }
+      function clearScout() {
+        try { localStorage.removeItem(SCOUT_KEY); } catch (e) {}
+        _scoutRun++;
+        $('scoutResults').innerHTML = '';
+        $('scoutClear').hidden = true;
+        $('scoutStatus').textContent = 'Cleared. Scout another place to fetch what is '
+          + 'being reported around it.';
+      }
+      var _scoutRun = 0;
+      function renderScout(data, partial) {
+        var host = $('scoutResults'), st = $('scoutStatus');
+        if (!host || !data) return;
+        var groups = BL.scoutGroups(data.rows, {
+          seen: getReportSeen(), at: { lat: data.lat, lng: data.lng },
+          distFn: haversineMi
+        });
+        var needs = groups.filter(function (g) { return g.need; });
+        var hs = (data.hotspots || []).slice();
+        hs.forEach(function (h) {
+          h._d = haversineMi(data.lat, data.lng, +h.lat, +h.lng);
+        });
+        hs.sort(function (a, b) { return a._d - b._d; });
+
+        var h = '';
+        h += '<h3 class="lanehead">🔍 ' + needs.length + ' bird'
+          + (needs.length === 1 ? '' : 's') + ' you need around ' + esc(data.label) + '</h3>';
+        if (!needs.length) {
+          h += '<div class="status">Nothing reported here in the last ' + SCOUT_BACK_D
+            + ' days is missing from your list.</div>';
+        } else {
+          h += '<div class="status">Within ' + Math.round(SCOUT_DIST_KM * 0.621371)
+            + ' mi of ' + esc(data.label) + ', last ' + SCOUT_BACK_D + ' days. '
+            + 'Distances are from there, not from home.</div>';
+          h += '<ul class="obs big xl lanes">' + needs.slice(0, 40).map(function (g) {
+            return '<li><div class="name">' + photoSlot(g.name, g.code)
+              + '<span class="ntext">' + speciesLink(g.name, g.code)
+              + ' <span class="needflag">🔍</span>' + (g.rare ? ' ⭐' : '') + '</span>'
+              + (g.distMi == null ? ''
+                 : '<a class="spdist maplink" data-q="' + esc(distQ(g.lat, g.lng))
+                   + '">' + g.distMi.toFixed(1) + '<small>mi</small></a>')
+              + '</div>'
+              + '<div class="meta"><span class="spcode">' + esc(g.code) + '</span>'
+              + '<span class="spcodesep"> · </span>'
+              + g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
+              + ' · ' + g.reports + ' report' + (g.reports === 1 ? '' : 's') + '</div>'
+              + '<ul class="cklrows"><li><span class="when">Nearest</span>'
+              + '<span class="howmany"></span><span class="where">'
+              + locLink(g.locName || g.locId, g.lat, g.lng, g.locId) + '</span></li></ul></li>';
+          }).join('') + '</ul>';
+        }
+
+        // The hotspot list is the thing that was actually asked for, and it is
+        // one call however many come back — 246 around Yakima. Collapsed
+        // because it is a reference list, not a decision: the birds above are
+        // the decision.
+        h += '<h3 class="lanehead">📍 ' + hs.length + ' hotspot'
+          + (hs.length === 1 ? '' : 's') + ' within '
+          + Math.round(SCOUT_DIST_KM * 0.621371) + ' mi</h3>';
+        h += '<details class="farplaces"><summary>Show the ' + hs.length
+          + ' hotspots, nearest first</summary><ul class="obs card-sm">'
+          + hs.slice(0, 100).map(function (x) {
+            return '<li><div class="name"><span class="ntext">'
+              + locLink(x.locName || x.locId, +x.lat, +x.lng, x.locId)
+              + '</span></div><div class="meta">' + x._d.toFixed(1) + ' mi'
+              + (x.numSpeciesAllTime ? ' · ' + fmtInt(x.numSpeciesAllTime) + ' species all-time' : '')
+              + (x.latestObsDt ? ' · latest ' + esc(fmtDate(x.latestObsDt)) : '')
+              + '</div></li>';
+          }).join('')
+          + '</ul>' + (hs.length > 100 ? '<div class="status">Showing the nearest 100.</div>' : '')
+          + '</details>';
+        host.innerHTML = h;
+        hydratePhotos(host);
+        st.textContent = data.label + ' · ' + groups.length + ' species · '
+          + needs.length + ' you need · ' + hs.length + ' hotspots · '
+          + (partial ? 'loading…' : 'fetched ' + fmtDateTime(new Date(data.at)));
+      }
+
+      function scoutPlaceRun() {
+        if (!getKey()) { $('scoutStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        var q = ($('scoutPlace').value || '').trim();
+        if (!q) { $('scoutStatus').textContent = 'Type a place — a town, a reserve, or "lat, lng".'; return; }
+        var btn = $('scoutBtn'), st = $('scoutStatus');
+        var run = ++_scoutRun;
+        function alive() { return _scoutRun === run; }
+        btn.disabled = true;
+        $('scoutResults').innerHTML = '';
+        st.textContent = 'Finding “' + q + '”…';
+        geocodePlace(q).then(function (place) {
+          if (!alive()) return;
+          st.textContent = 'Reading what is being reported around ' + place.label + ' — 3 calls…';
+          var p = { lat: BL.round4(place.lat), lng: BL.round4(place.lng),
+                    dist: SCOUT_DIST_KM, back: SCOUT_BACK_D, detail: 'full' };
+          var qs = function (extra) {
+            var o = [];
+            Object.keys(p).forEach(function (k) { o.push(k + '=' + encodeURIComponent(p[k])); });
+            (extra || []).forEach(function (x) { o.push(x); });
+            return o.join('&');
+          };
+          return Promise.all([
+            ebird('data/obs/geo/recent?' + qs(['includeProvisional=true'])).catch(function () { return []; }),
+            ebird('data/obs/geo/recent/notable?' + qs()).catch(function () { return []; }),
+            ebird('ref/hotspot/geo?lat=' + p.lat + '&lng=' + p.lng + '&dist=' + p.dist
+                  + '&back=30&fmt=json').catch(function () { return []; })
+          ]).then(function (r) {
+            if (!alive()) return;
+            var recent = r[0] || [], notable = r[1] || [], hotspots = r[2] || [];
+            // Tag the notable rows before merging so a rarity keeps its star.
+            // The two feeds overlap, and the plain feed cannot tell you a bird
+            // was flagged.
+            notable.forEach(function (x) { x.__notable = true; });
+            var data = {
+              v: 1, at: Date.now(), label: place.label,
+              lat: place.lat, lng: place.lng,
+              rows: recent.concat(notable), hotspots: hotspots
+            };
+            saveScout(data);
+            $('scoutClear').hidden = false;
+            renderScout(data, false);
+          });
+        }).catch(function (e) {
+          if (alive()) st.textContent = (e && e.message) ? e.message : netErr(e);
+        }).finally(function () { btn.disabled = false; });
       }
 
       // ---- 📆 Due back soon: the section ------------------------------------
@@ -13159,6 +13312,7 @@
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
+        { at: 'scoutBtn',      label: '🧭 Scout another place', group: 'Go birding' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
         // GO BIRDING leads. The report's mission is (1) find unseen birds,
         // (2) find the best places to go today — and "where do I go" is the
@@ -14733,6 +14887,11 @@
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
+      $('scoutBtn').addEventListener('click', scoutPlaceRun);
+      $('scoutClear').addEventListener('click', clearScout);
+      $('scoutPlace').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); scoutPlaceRun(); }
+      });
       $('dueBackBtn').addEventListener('click', loadDueBack);
       $('dueBackStop').addEventListener('click', stopDueBack);
       // A search box that ignores the Return key is broken on a phone, where
@@ -15159,6 +15318,9 @@
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
         dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
         seedArrivals: seedArrivals, warmRegion: warmRegion,
+        scoutPlaceRun: scoutPlaceRun, renderScout: renderScout,
+        loadScout: loadScout, saveScout: saveScout, clearScout: clearScout,
+        SCOUT_KEY: SCOUT_KEY, SCOUT_DIST_KM: SCOUT_DIST_KM,
         ensureOwnHarvest: ensureOwnHarvest, scheduleOwnHarvest: scheduleOwnHarvest,
         sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
@@ -15230,6 +15392,15 @@
       updateCsvStatus();
       updateMyYear();
       renderFavs();
+      // A scouted place survives a relaunch: it cost three calls and it is one
+      // slot, so re-fetching it because the app restarted would be spending
+      // the budget to redraw something already on disk.
+      (function () {
+        var sc = loadScout();
+        if (sc && sc.rows) {
+          try { renderScout(sc, false); $('scoutClear').hidden = false; } catch (e) {}
+        }
+      })();
       // The harvest is scheduled by refresh(), not from here — see
       // scheduleOwnHarvest for why a boot-time timer was the wrong hook.
       // Prefetch the multi-year history the Migration outlook needs, off the
