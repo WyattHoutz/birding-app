@@ -8815,11 +8815,11 @@ test('Refresh actually refetches; opening the section does not', async () => {
 test('both rarity lists sort by date or distance, from one control', async () => {
   const rows = [
     // Newest but FURTHEST.
-    { speciesCode: 'tufpuf', comName: 'Tufted Puffin', obsDt: todayFixtureDate() + ' 14:23',
+    { speciesCode: 'zztuft1', comName: 'Zed Test Puffin', obsDt: todayFixtureDate() + ' 14:23',
       locName: 'Far Park', locId: 'L1', lat: 48.05, lng: -122.60, subId: 'S1',
       userDisplayName: 'B', howMany: 1, evidence: 'P', obsValid: true },
     // Older but NEAREST.
-    { speciesCode: 'wantat', comName: 'Wandering Tattler', obsDt: todayFixtureDate() + ' 09:05',
+    { speciesCode: 'zztatt1', comName: 'Zed Test Tattler', obsDt: todayFixtureDate() + ' 09:05',
       locName: 'Near Park', locId: 'L2', lat: 47.77, lng: -122.15, subId: 'S2',
       userDisplayName: 'K', howMany: 1, evidence: 'A', obsValid: true },
   ];
@@ -8886,7 +8886,7 @@ test('pull-to-refresh exists, and cannot fire by accident', () => {
 // phase answers a different question and does not go stale on the timescale of
 // "is that puffin still there".
 test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
-  const rows = [{ speciesCode: 'tufpuf', comName: 'Tufted Puffin',
+  const rows = [{ speciesCode: 'zztuft3', comName: 'Zed Test Puffin',
     obsDt: todayFixtureDate() + ' 14:23', locName: 'P', locId: 'L1', lat: 47.8, lng: -122.2,
     subId: 'S1', obsId: 'OBS1', userDisplayName: 'B', howMany: 1,
     evidence: 'P', obsValid: true }];
@@ -8955,8 +8955,8 @@ test('NEW means reported in the last 24 hours, on every list', async () => {
   const stamp = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
     + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   const rows = [
-    mk('tufpuf', 'Tufted Puffin', stamp(hourAgo), 'S1'),
-    mk('wantat', 'Wandering Tattler', stamp(new Date(Date.now() - 3 * 86400000)), 'S2'),
+    mk('zztuft4', 'Zed Test Puffin', stamp(hourAgo), 'S1'),
+    mk('zztatt4', 'Zed Test Tattler', stamp(new Date(Date.now() - 3 * 86400000)), 'S2'),
   ];
   const app = await boot({ fetch(url) { return /data\/obs\//.test(url) ? rows : null; } });
   const doc = app.window.document, A = app.window.__app;
@@ -8965,19 +8965,19 @@ test('NEW means reported in the last 24 hours, on every list', async () => {
   A.refresh();
   // Wait for the ROW, not the status line: the status is written before the
   // rows are painted, so matching on it returns while #results is still empty.
-  await waitFor(() => /Tufted Puffin/.test(doc.getElementById('results').textContent),
+  await waitFor(() => /Zed Test Puffin/.test(doc.getElementById('results').textContent),
     'the fresh row to paint');
 
   // THE FIRST LOOK IS NOT QUIET ANY MORE, and that is the point: a bird found
   // an hour ago is news the first time you open the app, which is exactly when
   // you needed to be told.
   assert.equal(badges(), 1, 'the fresh bird is marked on the very first view');
-  assert.match(doc.getElementById('results').textContent, /Tufted Puffin/);
+  assert.match(doc.getElementById('results').textContent, /Zed Test Puffin/);
 
   // ...and looking again does not change it. The old rule cleared every badge
   // on the second render; recency is not consumed by being read.
   A.refresh();
-  await waitFor(() => /Tufted Puffin/.test(doc.getElementById('results').textContent), 're-render');
+  await waitFor(() => /Zed Test Puffin/.test(doc.getElementById('results').textContent), 're-render');
   assert.equal(badges(), 1, 'still marked — reading a list does not age a sighting');
 
   // Re-sorting is not a new visit either.
@@ -9702,8 +9702,16 @@ test('the export keeps its own order when new birds are merged in', async () => 
   const A = app.window.__app, W = app.window;
   const seed = A.reportYearList();
   if (!seed.length) { app.window.close(); return; }
+  // Dated TODAY rather than a frozen '9 Aug 2026'. The merged list sorts
+  // newest-first, so a hardcoded date silently stops being the newest the
+  // moment a fresher export is pasted - which is exactly what happened on
+  // 2026-08-12. The fixture's premise is "newer than the export", so it should
+  // say that rather than assert a date that used to mean it.
+  const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const _now = new Date();
+  const todayExportDate = _now.getDate() + ' ' + _mon[_now.getMonth()] + ' ' + _now.getFullYear();
   W.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
-    aaaaaa: { n: 'Brand New Bird', d: '9 Aug 2026', s: 'S1', l: 'Here', i: 'L1', h: 1 },
+    aaaaaa: { n: 'Brand New Bird', d: todayExportDate, s: 'S1', l: 'Here', i: 'L1', h: 1 },
     // A bare 1 is what harvests before this change stored. It still marks the
     // bird seen; it simply has no name, and a row with no name is worse than
     // no row.
@@ -9954,7 +9962,7 @@ test('quick outing hydrates its cards like top destinations does', async () => {
       if (/data\/obs\/(L\d+)\/recent/.test(u)) {
         locCalls.push(u.match(/data\/obs\/(L\d+)/)[1]);
         return [
-          { speciesCode: 'tuftpu', comName: 'Tufted Puffin', subId: 'S1', obsDt: '2026-08-10 07:00' },
+          { speciesCode: 'zztuft2', comName: 'Zed Test Puffin', subId: 'S1', obsDt: '2026-08-10 07:00' },
           { speciesCode: 'amecro', comName: 'American Crow', subId: 'S1', obsDt: '2026-08-10 07:00' },
         ];
       }
@@ -10308,4 +10316,56 @@ test('the two rate limiters agree, and the window is never exceeded', () => {
   assert.match(HTML, /' · window ' \+ fgWindowUsed\(\)/,
     'the log prints the pruned in-window count');
   assert.match(HTML, /function fgWindowUsed\(\)/, 'which is a real function');
+});
+
+test('your own checklists are harvested without opening Birdiest or Convoys', async () => {
+  // "my list of seen birds in the app is not updating automatically. i thought
+  //  we fixed this"
+  //
+  // The harvest worked. What it lacked was a reason to run: it was called from
+  // exactly one place, inside recentLists(), so your own new checklists were
+  // read only if you happened to open Birdiest checklists or Birder convoys.
+  // Open the app, look at the rarities, close it — nothing was harvested.
+  //
+  // So the assertion is about the TRIGGER. It hangs off refresh(), which is
+  // what runs when you actually open the app to go birding, rather than off a
+  // boot timer — a timer in every window is a timer in all 300 test windows.
+  const urls = [];
+  const app = await boot({
+    fetch(url) { urls.push(url); return /product\/lists/.test(url) ? [] : null; },
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const A = app.window.__app;
+  assert.strictEqual(typeof A.scheduleOwnHarvest, 'function',
+    'nothing schedules the harvest, so it runs only if another section happens '
+    + 'to want the same feed — which is the bug that was reported');
+  await A.ensureOwnHarvest();
+  assert.ok(urls.some((u) => /product\/lists/.test(u)),
+    'the harvest never reached product/lists, so it could not learn anything');
+  app.window.close();
+});
+
+test('the harvest does not run when it cannot tell which checklists are yours', async () => {
+  // The feed carries userDisplayName and no user id, so that name IS the join
+  // key. Running without one reads checklists and matches nothing.
+  const urls = [];
+  const app = await boot({
+    fetch(url) { urls.push(url); return /product\/lists/.test(url) ? [] : null; },
+  });
+  await app.window.__app.ensureOwnHarvest();
+  assert.strictEqual(urls.filter((u) => /product\/lists/.test(u)).length, 0,
+    'the harvest ran with no display name set — those calls buy nothing');
+  app.window.close();
+});
+
+test('My year says so when it cannot keep itself up to date', async () => {
+  // The silent half of the same bug: with no display name the harvest returned
+  // 0 and said nothing, so a list that never grew looked exactly like a list
+  // with nothing to add.
+  const app = await boot({ fetch() { return null; } });
+  const body = app.document.getElementById('myYearBody');
+  assert.match(body.innerHTML, /display name/i,
+    'My year does not mention the missing display name, so the reader has no '
+    + 'way to know why their list stopped growing');
+  app.window.close();
 });

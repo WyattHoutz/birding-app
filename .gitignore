@@ -17,3 +17,6 @@ npm-debug.log*
 # OS / editor cruft
 .DS_Store
 .vscode/
+
+# Scratch files from test runs (npm test > _t.txt)
+_*.txt

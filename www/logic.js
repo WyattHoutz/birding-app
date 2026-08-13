@@ -2239,6 +2239,52 @@
     return '';
   }
 
+  // ---- "is this a good one?" — a score, said in words ----------------------
+  //
+  // "the score is a random number, it doesnt really communicate anything
+  //  meaningful. Instead of 3.0 id like some value that indicates whether this
+  //  is average or high yield."
+  //
+  // Right, and the number was never comparable to anything. `score 4` is one
+  // rarity plus one target, or four targets, and 4 is only good or bad relative
+  // to what else is on the list today — a quiet Tuesday in January and a fallout
+  // morning in May produce completely different numbers for the same place.
+  //
+  // So the answer is not a better formula, it is a REFERENCE POINT. Every place
+  // is graded against the median of the list it appears in, which is exactly
+  // the comparison a reader makes by eye and the one F31 was blocked on.
+  //
+  // Median, not mean: these distributions have a long tail (one fallout site
+  // can be five times the next), and a mean dragged upwards by a single outlier
+  // would report every other place as "below average" on a good morning.
+  //
+  // Bands rather than a percentage, because "top 23%" invites arithmetic that
+  // the underlying number cannot support — it is a weighted count of birds, not
+  // a measurement.
+  var YIELD_MIN_SAMPLE = 4;      // fewer than this and a "grade" is noise
+  function yieldBand(value, values) {
+    // Number(null) is 0 and Number('') is 0, both of which are finite — so a
+    // MISSING score would grade as "below average" rather than as no grade at
+    // all. Python's float(None) raises and returns '', and the parity test
+    // caught the two disagreeing. A place with no score is not a bad place.
+    if (value === null || value === undefined || value === '') return '';
+    var v = Number(value);
+    if (!isFinite(v)) return '';
+    var nums = (values || []).map(Number).filter(function (x) { return isFinite(x); });
+    // A grade against two other places says more about the sample than the
+    // place. Below this, say nothing rather than something unfounded.
+    if (nums.length < YIELD_MIN_SAMPLE) return '';
+    nums.sort(function (a, b) { return a - b; });
+    var mid = Math.floor(nums.length / 2);
+    var med = nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+    if (!(med > 0)) return '';   // everything is zero: there is nothing to grade
+    var ratio = v / med;
+    if (ratio >= 2) return 'high yield';
+    if (ratio >= 1.25) return 'above average';
+    if (ratio >= 0.75) return 'average';
+    return 'below average';
+  }
+
   // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
   // is why it is stored that way; it just does not read like a date to a
   // person scanning a list of them.
@@ -2319,6 +2365,8 @@
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
+    yieldBand: yieldBand,
+    YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,
     stateNameFor: stateNameFor,
     US_STATES: US_STATES,
     meaningfulMonths: meaningfulMonths,

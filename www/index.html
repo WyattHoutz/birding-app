@@ -1500,7 +1500,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.4.1';
+      var APP_VERSION = '1.5.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2073,6 +2073,52 @@
         }).catch(function () { return 0; });
         return _ownNaming;
       }
+      // Top up the seen list WITHOUT being asked, which is the whole point.
+      //
+      // "my list of seen birds in the app is not updating automatically. i
+      //  thought we fixed this"
+      //
+      // The harvest itself worked. What it did not have was a reason to run:
+      // harvestOwnChecklists was called from exactly one place — inside
+      // recentLists() — so your own new checklists were only ever read if you
+      // happened to open Birdiest checklists or Birder convoys. Open the app,
+      // look at the rarities, close it, and nothing was ever harvested. The
+      // feature existed and was, for most sessions, unreachable.
+      //
+      // It rides on the same product/lists feeds those sections already pay
+      // for (one per county, cached for the session), so running it costs the
+      // two calls those feeds cost and nothing more. Your own new checklists
+      // then cost one read each, capped at OWN_HARVEST_MAX.
+      //
+      // DEFERRED, not immediate. The first version ran it inline at startup
+      // and pushed five tests past their timeouts: those two product/lists
+      // calls join the same rate-limited foreground lane as the chase wave, so
+      // the wave the reader is actually watching arrives later. Nothing about
+      // your own checklists is urgent — they were filed by you, hours ago —
+      // so this waits for the opening burst to clear, exactly as
+      // startBackgroundHistory does for the migration history.
+      //
+      // Fire and forget: nothing on screen waits for it, and a failure must
+      // never be visible as anything other than a list that did not grow.
+      var _ownHarvestStarted = false, _ownHarvestTimer = null;
+      var OWN_HARVEST_DELAY_MS = 6000;
+      function scheduleOwnHarvest(delayMs) {
+        clearTimeout(_ownHarvestTimer);
+        _ownHarvestTimer = setTimeout(ensureOwnHarvest,
+          delayMs == null ? OWN_HARVEST_DELAY_MS : delayMs);
+      }
+      function ensureOwnHarvest() {
+        if (_ownHarvestStarted) return Promise.resolve(0);
+        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+        _ownHarvestStarted = true;
+        return recentLists().then(function () {
+          // recentLists() harvests internally; redraw so a bird learned just
+          // now appears without the reader having to do anything.
+          try { updateMyYear(); } catch (e) {}
+          return 1;
+        }).catch(function () { return 0; });
+      }
+
       function harvestOwnChecklists(lists) {
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         var subs = ownNewSubs(lists).slice(0, OWN_HARVEST_MAX);
@@ -3617,6 +3663,11 @@
       }
 
       function refresh() {
+        // Your own new checklists, read without being asked, once per session.
+        // Hung off the wave rather than off boot: refresh() is the thing that
+        // runs when you actually open the app to go birding, and it is the
+        // moment a stale seen list matters. See scheduleOwnHarvest.
+        scheduleOwnHarvest();
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
         btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading the last 24 hours of rarity reports for ' + label + '\u2026';
@@ -7438,12 +7489,15 @@
             + 'a bird you still need right now.</div>';
           return;
         }
+        // Graded against THIS list, because a raw score is only good or bad
+        // relative to what else is on offer today. See BL.yieldBand.
+        var _scores = list.map(function (x) { return x.score; });
         list.forEach(function (d, i) {
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
             distMi: d.dist,
             facts: [
-              d.score != null ? 'score ' + d.score : '',
+              BL.yieldBand(d.score, _scores),
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
             ],
@@ -7618,6 +7672,10 @@
         _lastRoute = { stops: plan.stops, home: home };
         refreshRouteLink();
         listEl.innerHTML = '';
+        // Graded against the other stops on this route, for the same reason
+        // Top destinations grades against its list: a score means nothing
+        // until you know what the alternatives were.
+        var _excScores = plan.stops.map(function (x) { return x.score; });
         plan.stops.forEach(function (d, i) {
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
@@ -7630,7 +7688,7 @@
             distMi: d.leg,
             distanceLabel: 'mi leg',
             facts: [
-              'score ' + d.score,
+              BL.yieldBand(d.score, _excScores),
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
             ],
             species: d.species
@@ -12970,6 +13028,18 @@
               '<div class="meta">' + (isSeed ? 'bundled sample data' : 'from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date))) + '</div>';
         }
         el.innerHTML = html;
+        // The harvest cannot identify your checklists without your eBird
+        // display name, and until now it returned 0 and said nothing — so a
+        // list that never grew looked exactly like a list with nothing to add.
+        // The feed carries `userDisplayName` and no user id, so that name IS
+        // the join key: without it there is no way to tell your checklist from
+        // anybody else's.
+        if (getKey() && !getDisplayName()) {
+          el.innerHTML += '<div class="meta" style="margin-top:8px">'
+            + '⚠️ Set your <b>eBird display name</b> in Settings and this list '
+            + 'will keep itself up to date from your own checklists. Without it '
+            + 'there is no way to tell which checklists are yours.</div>';
+        }
         // Any bird harvested from your own checklists but not yet named is
         // absent from the list above — a row with no name is worse than no
         // row. This is the ONLY place a name is needed, so it is fetched here
@@ -15027,6 +15097,7 @@
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
         dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
         seedArrivals: seedArrivals, warmRegion: warmRegion,
+        ensureOwnHarvest: ensureOwnHarvest, scheduleOwnHarvest: scheduleOwnHarvest,
         sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
         DUEBACK_AHEAD_D: DUEBACK_AHEAD_D, DUEBACK_BACK_D: DUEBACK_BACK_D,
@@ -15097,6 +15168,8 @@
       updateCsvStatus();
       updateMyYear();
       renderFavs();
+      // The harvest is scheduled by refresh(), not from here — see
+      // scheduleOwnHarvest for why a boot-time timer was the wrong hook.
       // Prefetch the multi-year history the Migration outlook needs, off the
       // critical path, on the rate-limited lane.
       startBackgroundHistory();
