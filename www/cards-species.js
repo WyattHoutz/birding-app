@@ -49,7 +49,7 @@
   var MEDIUM = [
     '<li class="{{cls}}">',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
-    '  <div class="meta">{{sub}}</div>',
+    '  <div class="meta">{{code}}{{sub}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -199,6 +199,19 @@
     '.obs.xl > li > .name > .spdist small, .obs.card-md > li > .name > .spdist small {',
     '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
     '  color: var(--muted); letter-spacing: .02em; }',
+    /* ---- THE SPECIES CODE ----
+       Monospace and muted: it is an IDENTIFIER, not prose, and the thing you
+       do with it is copy it or compare it character by character against
+       eBird. A proportional face makes "renpha" and "rempha" look alike,
+       which is the one job this string has. Sized below the sub-header it
+       sits in front of, so it labels the row without competing with the
+       facts that decide whether to drive there. */
+    '.obs.xl > li > .meta > .spcode, .obs.card-md > li > .meta > .spcode {',
+    '  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
+    '  font-size: calc(12px * var(--s)); letter-spacing: .04em;',
+    '  color: var(--muted); }',
+    '.obs.xl > li > .meta > .spcodesep, .obs.card-md > li > .meta > .spcodesep {',
+    '  color: var(--muted); }',
     '.obs.xl > li > *, .obs.card-md > li > * { grid-column: 1 / -1; min-width: 0; }',
     '.obs.xl > li > .count.big, .obs.card-md > li > .count.big { float: none; display: block;',
     '                     max-width: none; text-align: left; margin: 6px 0 0; }',
@@ -323,6 +336,30 @@
   // caption rather than a second number to parse. Callers pass `distMi`; a
   // caller that still puts "nearest 4.2 mi" in `sub` gets no column, so the
   // two never render the same fact twice.
+  /* ---- The eBird species code, MEDIUM only ----
+     Gated on the template exactly as distHtml is, so "medium only" is a
+     property of this file rather than a rule every caller has to remember.
+     A caller that passes no code gets nothing, and the separator only appears
+     when there is a sub-header to separate it FROM — a dangling "renpha ·" is
+     worse than no code at all.
+
+     Validated, not escaped, for the same reason coordQ is: an eBird species
+     code has a KNOWN SHAPE (lowercase letters and digits, e.g. "renpha",
+     "y00635"), this file has no escaper by design, and stripping everything
+     else is both simpler and stricter than escaping — a value that is not a
+     species code cannot survive it at all. */
+  function codeText(c) {
+    return String(c == null ? '' : c).toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function codeHtml(v, tpl) {
+    if (tpl !== MEDIUM) return '';
+    var c = codeText(v.code);
+    if (!c) return '';
+    var sep = subHtml(v, false) ? '<span class="spcodesep"> · </span>' : '';
+    return '<span class="spcode">' + c + '</span>' + sep;
+  }
+
   function distHtml(v, tpl) {
     if (tpl !== MEDIUM) return '';
     var d = v.distMi;
@@ -360,6 +397,21 @@
       tags: v.tags || '',
       sub: subHtml(v, tpl === SMALL),
       dist: distHtml(v, tpl),
+      // The eBird species code, on MEDIUM cards only.
+      //
+      // Asked for as: "I'd like to include the species code on all the medium
+      // sized cards. I dont want it on the small lists to save space."
+      //
+      // Medium is the DECIDING size — "which bird is this, and is it worth the
+      // drive?" — and the code is what you type into eBird, quote in a rare
+      // bird report, or use to tell two look-alike names apart. Small is the
+      // SCANNING size, nested inside other cards, where a six-character code
+      // on every row is width spent on something you are not reading yet.
+      // Large already gives the bird a full screen and its own links.
+      //
+      // Rendered here rather than folded into each caller's `sub` string so
+      // that it looks identical everywhere and no section can forget it.
+      code: codeHtml(v, tpl),
       // An optional control at the RIGHT EDGE of a small row. It has to be a
       // sibling of `.ntext` rather than inside it, because `.name` is the flex
       // row — anything nested in the text block sits after the words, not at

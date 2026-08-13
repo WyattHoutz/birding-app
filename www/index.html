@@ -1500,7 +1500,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.5.0';
+      var APP_VERSION = '1.5.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4574,6 +4574,7 @@
         out.innerHTML = SpeciesCards.medium({
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
+          code: g.code,
           tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
           // Same third column as All unseen. The lookup itself is not filtered
           // — you asked about this bird, so every place it has been is the
@@ -10565,6 +10566,7 @@
           return SpeciesCards.medium({
             icon: photoSlot(sp, code),
             name: speciesLink(sp, code),
+            code: code,
             tags: needTag(code, sp),
             // The drive is now a real column instead of a phrase in the
             // sub-header. It is measured to the CLOSEST report, not the newest.
@@ -11388,6 +11390,7 @@
         return SpeciesCards.medium({
           icon: photoSlot(o.name, o.code),
           name: speciesLink(o.name, o.code),
+          code: o.code,
           tags: o.tags || '',
           distMi: o.distMi,
           distQ: nearest ? distQ(nearest.lat, nearest.lon != null ? nearest.lon : nearest.lng) : '',

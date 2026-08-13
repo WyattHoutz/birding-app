@@ -10369,3 +10369,54 @@ test('My year says so when it cannot keep itself up to date', async () => {
     + 'way to know why their list stopped growing');
   app.window.close();
 });
+
+test('the species code rides on medium cards and stays off the small ones', () => {
+  // "I'd like to include the species code on all the medium sized cards. I
+  //  dont want it on the small lists to save space."
+  //
+  // Medium is the DECIDING size — "which bird is this, and is it worth the
+  // drive?" — and the code is what you type into eBird or use to tell two
+  // look-alike names apart. Small is the SCANNING size, nested inside other
+  // cards, where six characters on every row is width spent on something you
+  // are not reading yet.
+  const SC = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+
+  const med = SC.medium({ name: 'Red-necked Phalarope', code: 'renpha',
+                          sub: '2 places · 3 reports' });
+  assert.match(med, /renpha/, 'the code is missing from a medium card');
+  assert.match(med, /class="spcode"/, 'the code is not marked up, so it cannot be styled');
+  assert.match(med, /spcodesep/, 'no separator before the sub-header it precedes');
+
+  const small = SC.small({ name: 'Red-necked Phalarope', code: 'renpha',
+                           sub: '2 places' });
+  assert.ok(!/renpha/.test(small),
+    'the code leaked onto a small card — those are nested inside other cards '
+    + 'and the width is the whole reason they are small');
+
+  const large = SC.large({ name: 'Red-necked Phalarope', code: 'renpha', sub: 'x' });
+  assert.ok(!/spcode/.test(large),
+    'large cards give the bird a full screen and their own links; the code '
+    + 'belongs on the deciding size, not everywhere');
+
+  // A card with no sub-header must not render a dangling separator.
+  const bare = SC.medium({ name: 'X', code: 'renpha' });
+  assert.match(bare, /renpha/);
+  assert.ok(!/spcodesep/.test(bare), 'a dangling "renpha ·" is worse than no code');
+
+  // No code, nothing rendered.
+  assert.ok(!/spcode/.test(SC.medium({ name: 'X', sub: 'y' })),
+    'a card with no code still emitted the wrapper');
+
+  // Validated, not escaped — this file has no escaper by design, so a value
+  // that is not a species code must not survive at all.
+  const nasty = SC.medium({ name: 'X', code: '<img src=x onerror=alert(1)>', sub: 'y' });
+  const slot = nasty.match(/<span class="spcode">([^<]*)<\/span>/);
+  assert.ok(slot, 'the code slot did not render at all');
+  // The assertion is that nothing STRUCTURAL survives, not that the letters
+  // are gone: stripping to [a-z0-9] leaves "imgsrcxonerroralert1", which is
+  // inert text. Testing for the substring "onerror" would be testing the
+  // wrong property — it is the angle brackets, quotes and equals signs that
+  // could break out of the span, and none of them can.
+  assert.ok(!/[<>="'`]/.test(slot[1]),
+    'something structural survived the species-code slot: ' + slot[1]);
+});
