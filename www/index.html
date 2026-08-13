@@ -1500,7 +1500,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.5.1';
+      var APP_VERSION = '1.6.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -12327,10 +12327,17 @@
       var CASCADE_BIRDERS = 8;
       var CASCADE_SPOTS = 3;
 
-      function renderSurge(events, cascades, convergence) {
+      function renderSurge(events, cascades, convergence, needs) {
         var box = $('surgeResults');
-        if (!events.length && !cascades.length && !convergence.length) {
-          box.innerHTML = '<div class="status">Nothing is drawing a crowd right now. '
+        needs = needs || [];
+        if (!needs.length && !events.length && !cascades.length && !convergence.length) {
+          // The empty state has to describe all FOUR lanes now. It used to
+          // list only the crowd conditions, which would read as "no crowds"
+          // while quietly also meaning "and nothing you need is nearby" - two
+          // different facts, and the second is the one you came for.
+          box.innerHTML = '<div class="status">Nothing you need has been reported within '
+            + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours, and nothing is '
+            + 'drawing a crowd. '
             + 'This fires when ' + BL.SURGE.MIN_OBSERVERS + '+ birders converge on one species at one spot '
             + 'within ' + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO + '× its local norm, when a bird with '
             + 'no recent reports at all draws ' + BL.SURGE.NOVEL_OBSERVERS + '+ independent observers, when several of '
@@ -12338,6 +12345,51 @@
           return;
         }
         var html = '';
+        // F32 LEADS, and that ordering is the point.
+        //
+        // The three lanes below all answer "what are other birders doing" —
+        // crowd, cascade, convergence. This one answers "what do I still need
+        // that just turned up near me", which is mission #1 of the whole
+        // project where the other three are the crowd's business. A Spotted
+        // Sandpiper at a retention pond draws no crowd, cascades through
+        // nobody's leaderboard, and its pond will never out-rank Marymoor —
+        // so it was invisible to all three, and it was the single most
+        // actionable bird on the phone.
+        if (needs.length) {
+          html += '<h3 class="lanehead">🎯 ' + needs.length + ' bird'
+            + (needs.length === 1 ? '' : 's') + ' you need, reported near you</h3>';
+          html += '<div class="status">Unseen birds reported within '
+            + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours, '
+            + 'closest first — everything here is already fresh, so the drive is '
+            + 'what separates them. One row per BIRD, not per report: the same '
+            + 'bird at three ponds is one decision. Older sightings and ones '
+            + 'further out are in <b>All unseen reports</b>.</div>';
+          html += '<ul class="obs big xl lanes">' + needs.map(function (e) {
+            return '<li>'
+              + '<div class="name">' + photoSlot(e.name, e.code)
+              + '<span class="ntext">' + speciesLink(e.name, e.code)
+              + ' <span class="needflag">🔍</span>'
+              + (e.rare ? ' ⭐' : '') + '</span>'
+              + (e.distMi == null ? ''
+                 : '<a class="spdist maplink" data-q="' + esc(distQ(e.lat, e.lon))
+                   + '">' + e.distMi.toFixed(1) + '<small>mi</small></a>')
+              + '</div>'
+              + '<div class="meta"><span class="spcode">' + esc(e.code) + '</span>'
+              + '<span class="spcodesep"> · </span>'
+              + e.nPlaces + ' place' + (e.nPlaces === 1 ? '' : 's')
+              + ' · ' + e.reports + ' report' + (e.reports === 1 ? '' : 's')
+              + '</div>'
+              + '<ul class="cklrows"><li><span class="when">Nearest</span><span class="howmany"></span>'
+              + '<span class="where">' + locLink(e.locName || e.locId, e.lat, e.lon, e.locId) + '</span></li>'
+              + (e.latest || e.subId
+                ? '<li><span class="when">Latest</span><span class="howmany"></span><span class="where">'
+                  + (e.latest ? esc(fmtDateTime(new Date(e.latest))) : '')
+                  + (e.subId ? (e.latest ? ' · ' : '') + checklistLink(e.subId, e.subId) : '')
+                  + '</span></li>'
+                : '')
+              + '</ul></li>';
+          }).join('') + '</ul>';
+        }
         if (events.length) {
           html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd</h3>';
           html += '<div class="status">Distinct observers '
@@ -12488,9 +12540,16 @@
               saveHotspotHistory(hist);
               return BL.hotspotConvergence(norm, { now: now, history: hist });
             }).catch(function () { return []; });
-        Promise.all([pEvents, pCascades, pConverge]).then(function (r) {
-          renderSurge(r[0], r[1], r[2]);
-          var n = r[0].length + r[1].length + r[2].length;
+        // F32 costs NOTHING: these are the records the chase wave already
+        // merged for pEvents, filtered by two rules that already exist —
+        // isFresh (24 h) and the report's own chase radius.
+        var pNeeds = pEvents.then(function () {
+          return BL.needNearby(_merged, { now: now, seen: getReportSeen(),
+                                          maxMi: chaseMaxMi() });
+        }).catch(function () { return []; });
+        Promise.all([pEvents, pCascades, pConverge, pNeeds]).then(function (r) {
+          renderSurge(r[0], r[1], r[2], r[3]);
+          var n = r[0].length + r[1].length + r[2].length + r[3].length;
           st.textContent = (n ? n + ' active signal' + (n === 1 ? '' : 's') : 'Nothing chasing right now')
             + ' · ' + nowTime();
         }).catch(function (e) { st.textContent = netErr(e); })

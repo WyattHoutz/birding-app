@@ -2285,6 +2285,88 @@
     return 'below average';
   }
 
+  // ---- F32: a bird you NEED just turned up near you -----------------------
+  //
+  // "alerts on unseen birds in chase area... for example the spotted sandpiper
+  //  showed up at redmond retention ponds and i missed it because it was not
+  //  the top destination... maybe a grouped by species list."
+  //
+  // The bird was never missing. It was in All unseen, which fetches every
+  // unseen report in the chase area, so the data was already on the phone.
+  // What failed was SALIENCE: nothing said "this one is new, and it is close".
+  //
+  // Every other Happening-now lane answers "what are other birders doing" —
+  // crowd, cascade, convergence. A Spotted Sandpiper at a retention pond is
+  // invisible to all three BY DESIGN: it draws no crowd (it is not rare), it
+  // cascades through nobody's leaderboard, and the pond will never out-rank
+  // Marymoor. This is the fourth question, and it is the project's mission #1
+  // where the other three are the crowd's business.
+  //
+  // GROUPED BY SPECIES, and that is not cosmetic: one bird at three ponds is
+  // ONE decision, not three rows. Place-first is what Top destinations is for,
+  // and place-first is exactly what buried this bird.
+  //
+  // Costs nothing: these are the records the chase wave already merged, and
+  // both filters already exist — isFresh (24 h, v1.1.0) and the report's own
+  // chaseMaxMi (v1.2.1).
+  function needNearby(records, opts) {
+    opts = opts || {};
+    var now = opts.now == null ? Date.now() : opts.now;
+    var seen = opts.seen || {};
+    var maxMi = opts.maxMi == null ? Infinity : Number(opts.maxMi);
+    var hours = opts.hours == null ? FRESH_HOURS : opts.hours;
+    var from = now - hours * 3600 * 1000;
+
+    var byCode = {}, order = [];
+    (records || []).forEach(function (r) {
+      if (!r || !r.code) return;
+      if (isSeen(r.code, seen)) return;              // not a target for you
+      var t = recTime(r);
+      // A record with an unreadable date cannot be shown to be fresh, and this
+      // lane's whole claim is freshness — so it is dropped rather than assumed.
+      if (!isFinite(t) || t < from || t > now + 86400000) return;
+      var d = r.distMi == null ? null : Number(r.distMi);
+      if (d != null && isFinite(d) && d > maxMi) return;
+      if (!byCode[r.code]) {
+        byCode[r.code] = { code: r.code, name: r.name || r.code, reports: 0,
+                           places: {}, nPlaces: 0, distMi: null, latest: 0,
+                           locId: '', locName: '', subId: '', lat: null, lon: null,
+                           rare: false };
+        order.push(r.code);
+      }
+      var g = byCode[r.code];
+      g.reports += 1;
+      if (r.kind === 'Rarity') g.rare = true;
+      var pid = r.locId || r.loc;
+      if (pid && !g.places[pid]) { g.places[pid] = 1; g.nPlaces += 1; }
+      // The row carries the NEAREST place, because the row is a decision about
+      // driving. The newest report answers "is it still there", which the
+      // freshness filter has already answered for every row here.
+      if (d != null && isFinite(d) && (g.distMi == null || d < g.distMi)) {
+        g.distMi = d;
+        // `loc` and `lon` are the merged record's own field names (see the
+        // projection in mergeSnapshot); reading locName/lng here would
+        // silently produce a row with no place on it.
+        g.locId = r.locId || ''; g.locName = r.loc || r.locName || '';
+        g.subId = r.subId || '';
+        g.lat = r.lat == null ? null : r.lat;
+        g.lon = (r.lon == null ? r.lng : r.lon);
+      }
+      if (t > g.latest) g.latest = t;
+    });
+
+    var out = order.map(function (c) { return byCode[c]; });
+    // Closest first. Everything here is already fresh, so recency cannot
+    // separate the rows; how far you have to drive can.
+    out.sort(function (a, b) {
+      var ad = a.distMi == null ? Infinity : a.distMi;
+      var bd = b.distMi == null ? Infinity : b.distMi;
+      if (ad !== bd) return ad - bd;
+      return b.latest - a.latest;
+    });
+    return out;
+  }
+
   // "04-20" -> "20 Apr". The stored form sorts and compares correctly, which
   // is why it is stored that way; it just does not read like a date to a
   // person scanning a list of them.
@@ -2365,6 +2447,7 @@
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
+    needNearby: needNearby,
     yieldBand: yieldBand,
     YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,
     stateNameFor: stateNameFor,

@@ -10420,3 +10420,94 @@ test('the species code rides on medium cards and stays off the small ones', () =
   assert.ok(!/[<>="'`]/.test(slot[1]),
     'something structural survived the species-code slot: ' + slot[1]);
 });
+
+// ---- F32: a bird you NEED just turned up near you ---------------------------
+//
+// "alerts on unseen birds in chase area... for example the spotted sandpiper
+//  showed up at redmond retention ponds and i missed it because it was not the
+//  top destination... maybe a grouped by species list."
+//
+// The bird was never missing — it was in All unseen. What failed was SALIENCE.
+// These pin the four things that make the lane worth having, each of which
+// fails quietly and differently.
+
+test('a bird you need, reported nearby, is not buried by the place it was at', () => {
+  // The reported case, as data. A Spotted Sandpiper at a retention pond draws
+  // no crowd and its pond will never out-rank Marymoor, so all three existing
+  // lanes are blind to it BY DESIGN.
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const now = Date.parse('2026-08-12T12:00:00');
+  const at = (h) => {
+    const d = new Date(now - h * 3600000), p = (x) => String(x).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  const recs = [
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(2), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1', kind: 'Need' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Need' },
+    { code: 'amecro', name: 'American Crow', distMi: 1, dateStr: at(1), locId: 'L1', loc: 'Yard', subId: 'S3', kind: 'Need' },
+    { code: 'weskin', name: 'Western Kingbird', distMi: 60, dateStr: at(3), locId: 'L7', loc: 'Too far', subId: 'S4', kind: 'Need' },
+    { code: 'rufhum', name: 'Rufous Hummingbird', distMi: 9, dateStr: at(40), locId: 'L6', loc: 'Stale', subId: 'S5', kind: 'Need' },
+    { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(6), locId: 'L5', loc: 'Marsh', subId: 'S6', kind: 'Rarity' },
+  ];
+  const out = BL.needNearby(recs, { now, seen: { amecro: 1 }, maxMi: 35, hours: 24 });
+
+  assert.strictEqual(out.map((r) => r.code).join(','), 'sposan,baisan',
+    'expected the two reachable unseen birds, closest first — a bird already '
+    + 'on your list, one beyond the chase radius and one from yesterday are all '
+    + 'excluded, and each for a different reason');
+
+  // ONE ROW PER BIRD. The same bird at three ponds is one decision, not three;
+  // place-first is what Top destinations is for and is exactly what buried it.
+  const sp = out[0];
+  assert.strictEqual(sp.nPlaces, 2, 'the two ponds collapsed into one row');
+  assert.strictEqual(sp.reports, 2, 'both reports are counted');
+  assert.strictEqual(sp.locName, 'Redmond retention ponds',
+    'the row carries the NEAREST place, because the row is a decision about driving');
+  assert.strictEqual(sp.distMi, 4.2);
+  assert.strictEqual(out[1].rare, true, 'a rarity among them is still marked');
+});
+
+test('the nearby-needs lane spends nothing and drops what it cannot date', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const now = Date.parse('2026-08-12T12:00:00');
+  // This lane's whole claim is freshness, so a record it cannot date must not
+  // be assumed fresh — it is dropped rather than guessed at.
+  const out = BL.needNearby([
+    { code: 'aaa', name: 'A', distMi: 1, dateStr: '', locId: 'L1', loc: 'X' },
+    { code: 'bbb', name: 'B', distMi: 1, dateStr: 'not a date', locId: 'L2', loc: 'Y' },
+  ], { now, seen: {}, maxMi: 35, hours: 24 });
+  assert.strictEqual(out.length, 0,
+    'an undateable record was shown in a lane that exists to say "just now"');
+
+  // A record with no distance is not silently treated as near OR far: it is
+  // kept (absence of a distance is not evidence of distance) but sorts last.
+  const mixed = BL.needNearby([
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W' },
+  ], { now, seen: {}, maxMi: 35, hours: 24 });
+  assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd,ccc',
+    'a row with a known distance must lead one without');
+});
+
+test('Happening now leads with what you need, not with the crowd', async () => {
+  // Ordering IS the feature. The other three lanes answer "what are other
+  // birders doing"; putting this fourth would repeat the original failure.
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const fn = HTML.slice(HTML.indexOf('function renderSurge'),
+                        HTML.indexOf('function loadSurge'));
+  const need = fn.indexOf('you need, reported near you');
+  const crowd = fn.indexOf('species drawing a crowd');
+  assert.ok(need > -1, 'the needs lane is not rendered at all');
+  assert.ok(crowd > -1, 'the crowd lane vanished');
+  assert.ok(need < crowd,
+    'the needs lane must LEAD — it is the one about you, and burying it under '
+    + 'the crowd lanes is the failure that was reported');
+
+  // And it must be fed from the records the wave already merged, not from a
+  // new fetch: a lane that costs calls is a lane that gets switched off.
+  const load = HTML.slice(HTML.indexOf('function loadSurge'),
+                          HTML.indexOf('function loadSurge') + 4000);
+  assert.match(load, /BL\.needNearby\(_merged/,
+    'the lane fetches its own data instead of reusing the merged wave');
+});

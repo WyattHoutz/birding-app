@@ -29,13 +29,16 @@
         "hotspot activity in the same feeds"
       ],
       "how": [
-        "Three independent lanes run over feeds other sections already pay for, so this costs no extra fetching.",
+        "Four independent lanes run over feeds other sections already pay for, so this costs no extra fetching.",
+        "Birds you need, nearby: unseen species reported within your chase distance in the last 24 hours, one row per BIRD rather than per report - the same bird at three ponds is one decision, not three. Closest first, because everything in the lane is already fresh so the drive is what separates them. This lane leads: the other three are about what OTHER birders are doing.",
         "Observation surge: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
         "Leaderboard cascade: 3+ of the region's top 100 adding the same species within 3 days. Sees counties our feeds never cover, lags up to a day.",
-        "Hotspot convergence: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable — which is how a locally-regular bird like Tufted Puffin draws twenty birders without tripping a rarity alert.",
+        "Hotspot convergence: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable — which is how a locally-regular bird draws twenty birders without tripping a rarity alert.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],
       "limits": [
+        "The nearby-needs lane is deliberately SHORT: 24 hours and your chase distance. A bird you need that has been around for a week is still worth having, and it is in All unseen reports - the point of an alert is that it is short enough to read.",
+        "A report whose date cannot be read is dropped from that lane rather than assumed fresh, because \"just now\" is the only thing the lane claims.",
         "The baseline is measured from the data actually fetched (7 days), capped at the configured window, so a short feed cannot inflate every ratio.",
         "With no trailing history at all the row reads \"new here\" and prints no ratio — a ratio over a zero denominator invents precision."
       ]
