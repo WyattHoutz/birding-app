@@ -4397,11 +4397,26 @@
 
       // ---- 🧭 Scout another place (F30 tier 3) ------------------------------
       //
-      // A temporary home. Three calls, whatever the distance, and one slot —
-      // scouting somewhere new replaces it. That last part is not tidiness: a
-      // chase snapshot is ~800 KB against a phone's ~5 MB origin budget, this
-      // app has already lost a finished wave to QuotaExceededError once (W33),
-      // and a growing collection of saved places is how that happens again.
+      // A temporary home. Three calls, whatever the distance, and one slot.
+      //
+      // ONE SLOT IS A UX DECISION, NOT A STORAGE ONE, and this comment used to
+      // claim otherwise. It said a chase snapshot is "~800 KB against a phone's
+      // ~5 MB origin budget", which compares the RAW JSON to the budget while
+      // the store holds the PACKED string. Measured 2026-08-13 over the whole
+      // committed archive:
+      //
+      //   today's WA wave     443 KB raw ->  53 KB stored  (1.0% of 5 MB)
+      //   the biggest ever   1242 KB raw ->  73 KB stored  (1.4%)  17x
+      //
+      // So storage would comfortably carry a dozen scouted places. The reason
+      // there is one is that the owner asked for "a temporary change of home
+      // location" — temporary is the feature. A saved collection is a
+      // different thing (favourites already exist) and would need its own
+      // answer to "which of these is stale".
+      //
+      // The QuotaExceededError that cost a finished wave (W33) was real, but it
+      // was about EVICTION ORDER — the snapshot lost its place to single-call
+      // checklist entries — not about the snapshot being large.
       var SCOUT_KEY = 'bc_scout_v1';
       var SCOUT_DIST_KM = 50;        // eBird's own cap on a geo feed
       var SCOUT_BACK_D = 7;
@@ -4830,6 +4845,17 @@
       // Base64 costs a third back on top of the compressed bytes, which is
       // still an enormous net win — localStorage holds strings, so binary has
       // to be encoded somehow.
+      //
+      // MEASURED 2026-08-13, because the "~800 KB" above is the RAW figure and
+      // has been misread as the stored one at least once (see the note in the
+      // scout section). What the store actually holds:
+      //
+      //   today's WA wave     443 KB raw ->  53 KB stored   8.3x
+      //   the biggest ever   1242 KB raw ->  73 KB stored  17.0x
+      //
+      // Roughly 1% of a 5 MB origin budget. Quote the second number when
+      // arguing about space; the first one is the reason this function
+      // exists, not the cost of using it.
       //
       // Every payload carries its own format tag, so a value written by a build
       // WITHOUT compression stays readable by one with it and vice versa.
