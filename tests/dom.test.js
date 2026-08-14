@@ -10627,3 +10627,57 @@ test('a scout ranks what you need first, measured from THERE', () => {
   assert.ok(out[0].distMi < 1, 'distance is measured from the scouted point, not from home');
   assert.strictEqual(out[2].need, false, 'a bird on your list is not marked as needed');
 });
+
+test('a dead geocoder tells you the way round it', async () => {
+  // Scout is ENTIRELY gated behind a third party this app does not control, and
+  // that geocoder has already been dead on device once: "i tried searching for
+  // everett in top destinations and it didnt work". A bare "geocoder returned
+  // HTTP 503" is a dead end for the whole section.
+  //
+  // The way out is already built — geocodePlace parses a pasted "lat, lng"
+  // locally, before the network is touched — but that was knowledge living
+  // nowhere the reader could find it, which is no use to someone standing in a
+  // car park.
+  const app = await boot({
+    fetch(url) {
+      if (/photon|geocod/i.test(String(url))) {
+        return { __status: 503 };            // geocoder down
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, D = app.document;
+  D.getElementById('scoutPlace').value = 'Yakima';
+  A.scoutPlaceRun();
+  await waitFor(() => /coordinates|paste/i.test(D.getElementById('scoutStatus').textContent),
+    'the fallback to be offered');
+  const msg = D.getElementById('scoutStatus').textContent;
+  assert.match(msg, /paste coordinates/i,
+    'a failed lookup must name the offline way round it, not just report the '
+    + 'third party that failed: ' + JSON.stringify(msg));
+  assert.match(msg, /46\.6021/, 'and show the shape it expects');
+  app.window.close();
+});
+
+test('pasted coordinates never touch the geocoder at all', async () => {
+  // The fallback is only worth offering if it genuinely bypasses the thing that
+  // failed. This is the assertion that makes the advice true.
+  const urls = [];
+  const app = await boot({
+    fetch(url) {
+      urls.push(String(url));
+      if (/ref\/hotspot\/geo/.test(String(url))) return [];
+      if (/data\/obs\/geo/.test(String(url))) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, D = app.document;
+  D.getElementById('scoutPlace').value = '46.6021, -120.5059';
+  A.scoutPlaceRun();
+  await waitFor(() => /hotspot/i.test(D.getElementById('scoutResults').textContent),
+    'the scouted view to paint');
+  assert.ok(!urls.some((u) => /photon|geocod/i.test(u)),
+    'a pasted coordinate still called the geocoder, so the fallback would fail '
+    + 'for exactly the reason it exists');
+  app.window.close();
+});

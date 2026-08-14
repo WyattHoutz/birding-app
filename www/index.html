@@ -4548,7 +4548,23 @@
             renderScout(data, false);
           });
         }).catch(function (e) {
-          if (alive()) st.textContent = (e && e.message) ? e.message : netErr(e);
+          if (!alive()) return;
+          var msg = (e && e.message) ? e.message : netErr(e);
+          // The geocoder is a third party this app does not control, and it has
+          // already been dead on device once — "i tried searching for everett
+          // in top destinations and it didnt work". Scout is ENTIRELY gated
+          // behind it, so a bare "geocoder returned HTTP 503" is a dead end for
+          // the whole section.
+          //
+          // The way out is already built: geocodePlace parses a pasted
+          // "lat, lng" locally, before it ever reaches the network. That was
+          // knowledge living in nobody's head but the author's, which is not
+          // knowledge the reader standing in a car park has.
+          if (/geocoder|no match|coordinates/i.test(msg)) {
+            msg += ' You can paste coordinates instead — "46.6021, -120.5059" — '
+                 + 'which is read here on the phone and needs no lookup.';
+          }
+          st.textContent = msg;
         }).finally(function () { btn.disabled = false; });
       }
 

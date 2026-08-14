@@ -103,6 +103,7 @@
       ],
       "limits": [
         "App-only: the report is built for one region from a fixed home and committed. \"What is being reported around Yakima right now\" is asked on the way out of the door, and the answer would be stale before a document reached you.",
+        "The place lookup uses a third-party geocoder this project does not control, and it has been unreachable on device before. If a name will not resolve, paste coordinates instead - \"46.6021, -120.5059\" - which are read on the phone and need no lookup at all.",
         "Three calls, whatever the distance - measured, not estimated. The hotspot list is the cheapest part of it, which is the opposite of how it feels.",
         "Scoped by RADIUS, not by county, because a temporary home should cover what a home covers. A county feed would be a wider net than the question asked for, and would need a region lookup first.",
         "50 km is eBird's cap on a geo feed, so a place with its birding an hour further out will not show it.",
