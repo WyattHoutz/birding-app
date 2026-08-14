@@ -10574,10 +10574,18 @@ test('scouting a place costs exactly three calls, however far away it is', async
 });
 
 test('a scouted place is one slot, and survives a relaunch', async () => {
-  // A chase snapshot is ~800 KB against a phone's ~5 MB budget, and this app
-  // has already lost a finished wave to QuotaExceededError once. A growing
-  // collection of saved places is how that happens again — so scouting
-  // somewhere new REPLACES, and nothing accumulates.
+  // One slot, and the reason is the ASK, not the storage — this comment used to
+  // say otherwise. "~800 KB" is the raw JSON; localStorage holds the packed
+  // string, and the biggest snapshot ever committed stores in 73 KB (17x), so
+  // a dozen scouted places would fit fine.
+  //
+  // What justifies one slot is that the request was "a temporary change of home
+  // location". Temporary is the feature. A saved collection is a different
+  // product (favourites already exist) and would owe an answer to "which of
+  // these is stale" that nothing here provides.
+  //
+  // So this test pins the BEHAVIOUR — new scout replaces old, clearing leaves
+  // nothing — without pretending a storage limit forced it.
   const app = await boot({ fetch() { return null; } });
   const A = app.window.__app, W = app.window;
   A.saveScout({ v: 1, at: Date.now(), label: 'First', lat: 1, lng: 2, rows: [], hotspots: [] });
