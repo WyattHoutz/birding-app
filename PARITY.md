@@ -40,7 +40,8 @@ gets planned. A section that exists only in the app is simply ahead.
 |---|---|
 | 🔎 Species lookup | a Markdown report cannot take a query, and printing every species' places for a region is a phone book, not a section |
 | 📆 Due back soon | the arrival sweep is hundreds of GBIF calls, resumable and cached on the device; the report is built once from a fixed snapshot, and "what arrives in the next three weeks" is a question whose answer moves every day |
-| 🧭 Scout another place | a TEMPORARY anchor. The report is built for one region from a fixed home and committed; "what is being reported around Yakima right now" is asked on the way out of the door, and the answer would be stale before a document reached you. The report's equivalent is to add the region properly, which is a different and more permanent act |
+| 🎯 Needs nearby lane (`needNearby`) | a fourth Happening-now lane that leads. It answers "has a bird I still need turned up within chase distance in the last 24 h", which is a question about a list the report cannot know at build time — the year list moves as you log birds. Costs nothing: it regroups the merged wave. |
+| 🧭 Scout another place (`scoutGroups`) | a TEMPORARY anchor. The report is built for one region from a fixed home and committed; "what is being reported around Yakima right now" is asked on the way out of the door, and the answer would be stale before a document reached you. The report's equivalent is to add the region properly, which is a different and more permanent act |
 | ⚙️ Settings | API key, home location, report picker — there is nothing to print |
 | 📘 How each section works | the report explains each section inline, where a scrolling reader already is; on a phone the sections are separate screens, so the explanations need one reachable place |
 
@@ -192,10 +193,19 @@ the region at large.
 
 **The engine for this already existed.** `BirdLogic.iconicMultiplier`,
 `iconicLabel`, `arrivalDay`, `gbifBoxWkt`, plus the GBIF callers `gbifIconic`,
-`gbifArrival`, `gbifBoxTotal` and `gbifRegionTotal` — all built, all
-parity-tested, and **wired to nothing**. That is the same failure as a button
-bound to no handler, and harder to notice because the code looks finished. The
-species lookup now renders it.
+`gbifArrival`, `gbifBoxTotal` and `gbifRegionTotal` — all built and **wired to
+nothing**. That is the same failure as a button bound to no handler, and harder
+to notice because the code looks finished. The species lookup now renders it.
+
+> **Correction, 2026-08-14.** This paragraph used to say those functions were
+> "all parity-tested". They are not, and the distinction matters: `arrivalDay`
+> is genuinely covered by `tests/parity/test_arrivals.py`, but
+> `iconicMultiplier` has **no Python counterpart at all** and no cross-repo
+> guard — only a single reference in the app's own `dom.test.js`. It is
+> app-only, which is allowed, but it has to be *declared* app-only rather than
+> described as tested. `docs/ALGORITHMS.md` in the report repo now registers it
+> as such, and `tests/test_algorithms.py` fails if an app-only algorithm is not
+> written down here.
 
 **What you see:** for the places the *live* feed just found, how good each one is
 historically — `10×`, `5.5×`, `0.0×` — and, for a migrant, roughly when it comes

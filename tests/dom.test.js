@@ -9357,7 +9357,14 @@ test('learning a bird from your own checklist refreshes what is a target', async
 // hotspot list still rendered and only the media wiring silently never
 // happened. Nothing failed, which is exactly why nothing caught it.
 test('the media pass is wired inside the card loop, where slot exists', () => {
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  // Line endings normalised on read. core.autocrlf=true and the blob is stored
+  // with LF, so every fresh checkout on Windows hands this file back as CRLF —
+  // and the literal '});\n        });' below then matches nothing, lastIndexOf
+  // returns -1, and the assertion fails on a repo where nothing is wrong. A
+  // guard that depends on how git happened to materialise the file is testing
+  // the checkout, not the code.
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8')
+    .replace(/\r\n/g, '\n');
   const fn = HTML.slice(HTML.indexOf('function hydrateHotspotChecklists'),
     HTML.indexOf('function hydrateLocSpecies'));
 
@@ -10680,4 +10687,88 @@ test('pasted coordinates never touch the geocoder at all', async () => {
     'a pasted coordinate still called the geocoder, so the fallback would fail '
     + 'for exactly the reason it exists');
   app.window.close();
+});
+
+// ---- F122: chase confidence on the card ------------------------------------
+test('chase confidence counts sightings, not the people who filed them', () => {
+  // "if a bird is seen by multiple people at once, or repeatedly over the last
+  //  few days, theres a higher chance for a successful chase."
+  //
+  // The trap that makes this non-obvious: eBird gives every member of a party
+  // its own subId for the same sighting. These two rows are real, from the
+  // 2026-08-13 Washington feeds, and they are the same person twice.
+  const now = new Date('2026-08-14T12:00:00').getTime();
+  const party = BL.chaseConfidence([
+    { locId: 'L2', obsDt: '2026-08-13 10:15', howMany: 1, userDisplayName: 'Bruce and Linda Plakke' },
+    { locId: 'L2', obsDt: '2026-08-13 10:15', howMany: 1, userDisplayName: 'Linda Plakke' },
+  ], { nowMs: now });
+  assert.equal(party.events, 1, 'one sighting filed twice is ONE confirmation');
+  assert.equal(party.observers, 2, 'the names are still reported, just not scored');
+
+  // Same place and minute but a different count is a genuinely different
+  // sighting, and must not be swallowed by the dedupe.
+  const two = BL.chaseConfidence([
+    { locId: 'L3', obsDt: '2026-08-14 08:00', howMany: 1, userDisplayName: 'A' },
+    { locId: 'L3', obsDt: '2026-08-14 08:00', howMany: 4, userDisplayName: 'B' },
+  ], { nowMs: now });
+  assert.equal(two.events, 2, 'a different count is a different sighting');
+});
+
+test('chase confidence lets recency outrank volume', () => {
+  const now = new Date('2026-08-14T12:00:00').getTime();
+  const mk = (day) => BL.chaseConfidence([
+    { locId: 'L', obsDt: day + ' 07:00', howMany: 1, userDisplayName: 'A' },
+    { locId: 'L', obsDt: day + ' 09:00', howMany: 1, userDisplayName: 'B' },
+  ], { nowMs: now });
+  const fresh = mk('2026-08-14'), mid = mk('2026-08-12'), stale = mk('2026-08-08');
+  assert.ok(fresh.score > mid.score && mid.score > stale.score,
+    'ten observers six days ago is a worse bet than two this morning');
+  assert.equal(fresh.events, stale.events, 'the counts themselves are unchanged');
+});
+
+test('a wide-ranging bird is labelled, never quietly rescored', () => {
+  // Raptors are re-found at the same place about half as often (16% vs 31%),
+  // which is n=25 pairs: enough to say so, not enough for a coefficient that
+  // reorders what you drive to.
+  const now = new Date('2026-08-14T12:00:00').getTime();
+  const rows = [{ locId: 'L', obsDt: '2026-08-14 07:00', howMany: 1, userDisplayName: 'A' }];
+  const plain = BL.chaseConfidence(rows, { nowMs: now });
+  const wide = BL.chaseConfidence(rows, { nowMs: now, wideRanging: true });
+  assert.equal(plain.score, wide.score, 'the flag must not move the score');
+  assert.ok(wide.wideRanging && !plain.wideRanging);
+  assert.match(BL.confidenceNote(wide), /wide-ranging/);
+});
+
+test('the confidence badge rides on medium cards and stays off the small ones', () => {
+  const CARDS = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const note = '3 reports · 2 days';
+  const md = CARDS.medium({ name: 'Wandering Tattler', code: 'wantat1', conf: note });
+  assert.ok(md.includes('class="conf"'), 'the medium card carries it');
+  assert.ok(md.includes('3 reports'), 'and states the counts rather than a verdict');
+  const sm = CARDS.small({ name: 'Wandering Tattler', code: 'wantat1', conf: note });
+  assert.ok(!sm.includes('class="conf"'),
+    'the small lists are a scanning surface; an extra line costs one');
+});
+
+test('the confidence badge renders nothing it did not build itself', () => {
+  const CARDS = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const bad = CARDS.medium({ name: 'X', conf: '<img src=x onerror=alert(1)>' });
+  assert.ok(!bad.includes('onerror'), 'anything outside the generated shape is dropped');
+  assert.ok(!CARDS.medium({ name: 'X', conf: '' }).includes('class="conf"'),
+    'no reports means no claim');
+});
+
+test('chase confidence is wired into a section, not built and left dangling', () => {
+  // iconicMultiplier was built, parity-shaped, described in PARITY.md as
+  // "all parity-tested" — and wired to nothing for weeks. That is the same
+  // failure as a button bound to no handler and harder to spot, because the
+  // code looks finished. So the wiring itself is asserted.
+  const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+  assert.match(html, /conf:\s*BL\.confidenceNote\(/,
+    'chaseConfidence has no call site — the badge would never render');
+  assert.match(html, /BL\.chaseConfidence\(r\.recs/,
+    'it must read the rows the section already fetched, not fetch its own');
+  // And the card template has to have somewhere to put it.
+  const cards = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
+  assert.ok(cards.includes('{{conf}}'), 'the medium template has no conf slot');
 });

@@ -2285,6 +2285,99 @@
     return 'below average';
   }
 
+  // ---- F122: is the bird still there? -------------------------------------
+  //
+  // Every other list answers "what has been reported". This answers "can I
+  // still go and get it", which is the question you actually have once you
+  // have decided to drive.
+  //
+  // Two things in the feed speak to it: how many INDEPENDENT confirmations
+  // there are, and whether it kept being found across days. Measured on the
+  // Washington notable feeds (see docs/ALGORITHMS.md for the numbers), 69% of
+  // (species, place) pairs were seen by one observer and 76% on one day, so
+  // corroboration is the minority and saying nothing is the honest default.
+  //
+  // COUNT EVENTS, NOT NAMES. eBird gives every member of a party its own
+  // subId for the same sighting, so three friends read as three independent
+  // confirmations of one pair of eyes. Measured: 10 of 112 distinct names in
+  // one day's feeds would be double-counted, including "Bruce and Linda
+  // Plakke" alongside "Linda Plakke" — the same person twice. Two reports of
+  // the same species at the same place, in the same minute, of the same
+  // count, are ONE event no matter how many names are attached.
+  var CONF_FRESH_H = 24;         // still "now"
+  var CONF_RECENT_H = 72;        // still worth driving to
+  var CONF_STALE_MULT = 0.3;
+  var CONF_RECENT_MULT = 0.6;
+
+  function confEventKey(r) {
+    // Same place, same minute, same count = one sighting, however many
+    // people filed it.
+    return [r.locId || r.loc || '', String(r.obsDt || r.dateStr || '').slice(0, 16),
+            String(r.howMany === undefined || r.howMany === null ? '' : r.howMany)
+           ].join('|');
+  }
+
+  function chaseConfidence(rows, opts) {
+    opts = opts || {};
+    var list = (rows || []).filter(Boolean);
+    var out = { events: 0, observers: 0, days: 0, lastSeenH: null,
+                wideRanging: !!opts.wideRanging, score: 0 };
+    if (!list.length) return out;
+
+    var events = {}, names = {}, days = {}, newest = null;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      events[confEventKey(r)] = 1;
+      var nm = r.userDisplayName || r.observer || '';
+      if (nm) names[nm] = 1;
+      var when = String(r.obsDt || r.dateStr || '');
+      if (when) {
+        days[when.slice(0, 10)] = 1;
+        if (newest === null || when > newest) newest = when;
+      }
+    }
+    out.events = Object.keys(events).length;
+    out.observers = Object.keys(names).length;
+    out.days = Object.keys(days).length;
+
+    // Recency, from a caller-supplied clock so the rule is testable and the
+    // app and the report can be asked the same question about the same
+    // moment. Date.now() inside a render is what made renderTides untestable
+    // (F1.0.35's CI failure), and that lesson is not worth relearning.
+    var nowMs = opts.nowMs;
+    if (newest && nowMs) {
+      var t = parseObsDt(newest);
+      if (t) out.lastSeenH = Math.max(0, (nowMs - t.getTime()) / 3600000);
+    }
+
+    // RECENCY BEATS COUNT: ten observers six days ago is a worse bet than two
+    // this morning.
+    var decay = 1;
+    if (out.lastSeenH !== null) {
+      if (out.lastSeenH > CONF_RECENT_H) decay = CONF_STALE_MULT;
+      else if (out.lastSeenH > CONF_FRESH_H) decay = CONF_RECENT_MULT;
+    }
+    out.score = (out.events + out.days) * decay;
+    return out;
+  }
+
+  // Deliberately NOT scaled for wide-ranging birds. Raptors are re-found at
+  // the same place about half as often (16% vs 31% for >1 observer, 12% vs
+  // 21% for >1 day) — the owner's instinct, confirmed — but that is n=25
+  // (species, place) pairs, which justifies SAYING SO on a card and does not
+  // justify a coefficient that silently reorders what you drive to. The flag
+  // is carried so the card can state it; re-measure on a full year before
+  // letting it move a ranking. docs/ALGORITHMS.md records the same rule.
+  function confidenceNote(c) {
+    if (!c || !c.events) return '';
+    var bits = [];
+    bits.push(c.events + (c.events === 1 ? ' report' : ' reports'));
+    if (c.days > 1) bits.push(c.days + ' days');
+    var s = bits.join(' · ');
+    if (c.wideRanging) s += ' · wide-ranging';
+    return s;
+  }
+
   // ---- F32: a bird you NEED just turned up near you -----------------------
   //
   // "alerts on unseen birds in chase area... for example the spotted sandpiper
@@ -2526,6 +2619,10 @@
     scoutGroups: scoutGroups,
     needNearby: needNearby,
     yieldBand: yieldBand,
+    chaseConfidence: chaseConfidence,
+    confidenceNote: confidenceNote,
+    CONF_FRESH_H: CONF_FRESH_H,
+    CONF_RECENT_H: CONF_RECENT_H,
     YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,
     stateNameFor: stateNameFor,
     US_STATES: US_STATES,

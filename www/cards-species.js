@@ -50,6 +50,7 @@
     '<li class="{{cls}}">',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
     '  <div class="meta">{{code}}{{sub}}</div>',
+    '  {{conf}}',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -212,6 +213,12 @@
     '  color: var(--muted); }',
     '.obs.xl > li > .meta > .spcodesep, .obs.card-md > li > .meta > .spcodesep {',
     '  color: var(--muted); }',
+    /* F122 chase confidence. Muted and small: it is context for a decision,
+       not a claim competing with the bird's name. No colour carries meaning
+       here — the counts ARE the signal, and a colour-only "good/bad" would be
+       unreadable to anyone who cannot separate red from green. */
+    '.obs.xl > li > .conf, .obs.card-md > li > .conf {',
+    '  color: var(--muted); font-size: 13px; margin-top: 2px; }',
     '.obs.xl > li > *, .obs.card-md > li > * { grid-column: 1 / -1; min-width: 0; }',
     '.obs.xl > li > .count.big, .obs.card-md > li > .count.big { float: none; display: block;',
     '                     max-width: none; text-align: left; margin: 6px 0 0; }',
@@ -360,6 +367,21 @@
     return '<span class="spcode">' + c + '</span>' + sep;
   }
 
+  function confHtml(v, tpl) {
+    // MEDIUM only, exactly like the species code and the distance: the small
+    // lists are a scanning surface and every extra line costs one.
+    if (tpl !== MEDIUM) return '';
+    var t = v.conf;
+    if (t == null || t === '') return '';
+    // Validated, not escaped — the same choice codeText makes. This string is
+    // built by BirdLogic.confidenceNote from counts, so anything outside the
+    // shape it produces means something upstream is wrong and the right
+    // answer is to render nothing rather than to sanitise and carry on.
+    var s = String(t);
+    if (!/^[0-9]+ reports? (· [0-9]+ days )?(· wide-ranging )?$|^[0-9]+ reports?( · [0-9]+ days)?( · wide-ranging)?$/.test(s)) return '';
+    return '<div class="conf">' + s + '</div>';
+  }
+
   function distHtml(v, tpl) {
     if (tpl !== MEDIUM) return '';
     var d = v.distMi;
@@ -412,6 +434,7 @@
       // Rendered here rather than folded into each caller's `sub` string so
       // that it looks identical everywhere and no section can forget it.
       code: codeHtml(v, tpl),
+      conf: confHtml(v, tpl),
       // An optional control at the RIGHT EDGE of a small row. It has to be a
       // sibling of `.ntext` rather than inside it, because `.name` is the flex
       // row — anything nested in the text block sits after the words, not at

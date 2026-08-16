@@ -8400,7 +8400,16 @@
                       : esc(fmtDateTime(r.latest))),
                 span: span,
                 reports: r.reports,
-                observers: r.observers
+                observers: r.observers,
+                // F122. `reports` above counts distinct subIds, and eBird hands
+                // every member of a party its own — so a group of three reads
+                // as three confirmations of what one pair of eyes saw.
+                // chaseConfidence counts SIGHTINGS (place + minute + count),
+                // which is the number that answers the question this card's own
+                // comment already names: is it still there. Costs nothing —
+                // r.recs is every row this section already fetched.
+                conf: BL.confidenceNote(
+                  BL.chaseConfidence(r.recs || [], { nowMs: Date.now() }))
               }),
               // The checklists stay collapsed: the summary is the decision and
               // the list is the evidence for it.
