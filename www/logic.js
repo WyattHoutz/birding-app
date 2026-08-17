@@ -2378,7 +2378,56 @@
     return s;
   }
 
-  // ---- F32: a bird you NEED just turned up near you -----------------------
+  // ---- F126: what changed lately, not just since you started looking -----
+  //
+  // The rank card answered "since the first snapshot", which drifts further
+  // from useful every day it records. These are the windows a reader actually
+  // asks about.
+  //
+  // ONE helper, shared with the per-birder arrows (F125), because "how far
+  // has this moved in N days" is one question and the registry exists to stop
+  // it being answered twice.
+  //
+  // A rank is INVERTED: 211 -> 208 is an improvement, so a positive delta
+  // means "moved up", matching the arrow the reader sees.
+  //
+  // Returns null for a window the history does not cover rather than 0.
+  // Absent is not zero — a week with no snapshot a week ago has no answer,
+  // and saying "no change" would be inventing one.
+  var RANK_WINDOWS = [
+    { key: 'day', days: 1, label: '1d' },
+    { key: 'week', days: 7, label: '7d' },
+    { key: 'month', days: 30, label: '30d' }
+  ];
+  function rankDeltas(hist, nowMs) {
+    var out = { day: null, week: null, month: null };
+    var rows = (hist || []).filter(function (h) {
+      return h && h.d && h.rank != null && isFinite(Number(h.rank));
+    });
+    if (rows.length < 2) return out;
+    rows = rows.slice().sort(function (a, b) { return a.d < b.d ? -1 : (a.d > b.d ? 1 : 0); });
+    var last = rows[rows.length - 1];
+    var now = nowMs == null ? Date.now() : nowMs;
+    RANK_WINDOWS.forEach(function (w) {
+      var cutoff = new Date(now - w.days * 86400000);
+      var iso = cutoff.toISOString().slice(0, 10);
+      // The newest snapshot at or before the cutoff. Anything later would
+      // measure a shorter window than the label claims.
+      var prior = null;
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].d <= iso) prior = rows[i]; else break;
+      }
+      if (!prior || prior.d === last.d) return;
+      out[w.key] = {
+        places: Number(prior.rank) - Number(last.rank),
+        from: prior.d,
+        spanDays: Math.max(1, Math.round((Date.parse(last.d) - Date.parse(prior.d)) / 86400000))
+      };
+    });
+    return out;
+  }
+
+
   //
   // "alerts on unseen birds in chase area... for example the spotted sandpiper
   //  showed up at redmond retention ponds and i missed it because it was not
@@ -2621,6 +2670,8 @@
     yieldBand: yieldBand,
     chaseConfidence: chaseConfidence,
     confidenceNote: confidenceNote,
+    rankDeltas: rankDeltas,
+    RANK_WINDOWS: RANK_WINDOWS,
     CONF_FRESH_H: CONF_FRESH_H,
     CONF_RECENT_H: CONF_RECENT_H,
     YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,

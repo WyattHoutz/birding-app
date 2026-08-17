@@ -40,6 +40,7 @@ gets planned. A section that exists only in the app is simply ahead.
 |---|---|
 | 🔎 Species lookup | a Markdown report cannot take a query, and printing every species' places for a region is a phone book, not a section |
 | 📆 Due back soon | the arrival sweep is hundreds of GBIF calls, resumable and cached on the device; the report is built once from a fixed snapshot, and "what arrives in the next three weeks" is a question whose answer moves every day |
+| 🏆 Rank deltas (`rankDeltas`) | your rank over the last day/week/month, built from snapshots this device recorded. The report cannot have it: eBird publishes no historical board, so the only history that exists is the one the app has been keeping since you first opened it. |
 | 🎯 Needs nearby lane (`needNearby`) | a fourth Happening-now lane that leads. It answers "has a bird I still need turned up within chase distance in the last 24 h", which is a question about a list the report cannot know at build time — the year list moves as you log birds. Costs nothing: it regroups the merged wave. |
 | 🧭 Look up a place (`scoutGroups`) | a TEMPORARY anchor. The report is built for one region from a fixed home and committed; "what is being reported around Yakima right now" is asked on the way out of the door, and the answer would be stale before a document reached you. The report's equivalent is to add the region properly, which is a different and more permanent act |
 | ⚙️ Settings | API key, home location, report picker — there is nothing to print |

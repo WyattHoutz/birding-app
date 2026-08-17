@@ -967,8 +967,14 @@
     .ranktrend { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
     .ranktrend span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .ranktrend b { font-size: calc(14px * var(--s)); font-weight: 800; }
-    .ranktrend b.up { color: var(--accent); }
-    .ranktrend b.down { color: #e5484d; }
+    /* NOT red/green. The arrow already carries the direction, so colour is
+       redundant here by design — and red-vs-green is the one pairing this
+       app's reader cannot separate. Okabe-Ito blue and vermillion instead,
+       which stay distinct to everyone. */
+    .ranktrend b.up { color: #0072B2; }
+    .ranktrend b.down { color: #D55E00; }
+    .ranktrend b.rankwin { font-size: calc(12px * var(--s)); letter-spacing: .2px;
+                           white-space: nowrap; }
     .ranktrend b.dim { font-weight: 600; font-size: calc(12px * var(--s)); color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
     .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
     .rankcap { font-size: calc(13px * var(--s)); font-weight: 700; margin: 18px 0 2px; }
@@ -10198,8 +10204,25 @@
         var cls = dRank > 0 ? 'up' : (dRank < 0 ? 'down' : 'flat');
         var bits = [arrow + ' ' + (dRank === 0 ? 'no change' : rankNum(Math.abs(dRank)) + ' place' + (Math.abs(dRank) === 1 ? '' : 's'))];
         if (dSpp) bits.push('+' + rankNum(dSpp) + ' species');
+        // F126: what changed LATELY. "Since the first snapshot" drifts further
+        // from useful every day it records, and the windows a reader asks
+        // about are yesterday, last week, last month. Built from the
+        // snapshots already on the device — no call, no new storage.
+        //
+        // A window the history cannot cover is left out rather than shown as
+        // "no change": there is no answer yet, and inventing a zero would be
+        // the one reading that is definitely wrong.
+        var deltas = BL.rankDeltas(hist);
+        var recent = [];
+        (BL.RANK_WINDOWS || []).forEach(function (w) {
+          var d = deltas[w.key];
+          if (!d || !d.places) return;
+          recent.push(w.label + ' ' + (d.places > 0 ? '▲' : '▼') + rankNum(Math.abs(d.places)));
+        });
+        var recentHtml = recent.length
+          ? '<b class="dim rankwin">' + esc(recent.join(' · ')) + '</b>' : '';
         return '<div class="ranktrend"><span>Since ' + esc(fmtDate(first.d)) + ' · ' + hist.length + ' snapshots</span>' +
-          '<b class="' + cls + '">' + esc(bits.join(' · ')) + '</b>' + rankSparkHTML(hist) + '</div>';
+          '<b class="' + cls + '">' + esc(bits.join(' · ')) + '</b>' + recentHtml + rankSparkHTML(hist) + '</div>';
       }
       // Inline sparkline of your rank over time. Y is inverted (lower rank =
       // higher on the chart) because "up" must read as "better".

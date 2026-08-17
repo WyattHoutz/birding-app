@@ -10804,3 +10804,31 @@ test('a subspecies form is not counted as a new bird on the year list', () => {
   assert.equal(base("Hutton's Vireo (Pacific)"), "Hutton's Vireo");
   assert.equal(base('Tufted Puffin'), 'Tufted Puffin', 'a plain name survives untouched');
 });
+
+test('rank deltas answer recent windows, and say nothing they cannot', () => {
+  // "i would like to see my personal rank changes recently vs last month.
+  //  it can go based on whatever snapshots are cached."
+  const hist = [
+    { d: '2026-07-18', rank: 230 },
+    { d: '2026-08-10', rank: 212 },
+    { d: '2026-08-16', rank: 190 },
+    { d: '2026-08-17', rank: 187 },
+  ];
+  const now = new Date('2026-08-17T12:00:00Z').getTime();
+  const d = BL.rankDeltas(hist, now);
+  // A rank is inverted: 190 -> 187 is an improvement, so positive means up.
+  assert.equal(d.day.places, 3, 'yesterday to today');
+  assert.equal(d.week.places, 25, 'measured from the newest snapshot at or before the cutoff');
+  assert.equal(d.month.places, 43);
+
+  // A window the history cannot cover has NO answer. Reporting 0 would be
+  // inventing one, and "no change" is a claim.
+  const thin = BL.rankDeltas([{ d: '2026-08-17', rank: 187 }], now);
+  assert.equal(thin.day, null);
+  assert.equal(thin.week, null);
+  assert.equal(thin.month, null);
+
+  // Two snapshots on the same day must not report a self-comparison.
+  const same = BL.rankDeltas([{ d: '2026-08-17', rank: 190 }, { d: '2026-08-17', rank: 187 }], now);
+  assert.equal(same.day, null, 'a window whose only prior IS the newest row says nothing');
+});
