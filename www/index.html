@@ -1061,7 +1061,7 @@
     </section>
 
     <section class="panel">
-      <h2>🧭 Scout another place <span class="dim" id="scoutRegionLabel"></span></h2>
+      <h2>🧭 Look up a place <span class="dim" id="scoutRegionLabel"></span></h2>
       <div class="row">
         <input id="scoutPlace" type="search" placeholder="Yakima, Nisqually, or &ldquo;lat, lng&rdquo;&hellip;" autocomplete="off" />
         <button id="scoutBtn" class="secondary">Scout</button>
@@ -4433,7 +4433,7 @@
         _scoutRun++;
         $('scoutResults').innerHTML = '';
         $('scoutClear').hidden = true;
-        $('scoutStatus').textContent = 'Cleared. Scout another place to fetch what is '
+        $('scoutStatus').textContent = 'Cleared. Look up a place to fetch what is '
           + 'being reported around it.';
       }
       var _scoutRun = 0;
@@ -13349,13 +13349,10 @@
             (nOwn ? '<b>' + nOwn + '</b> of these came from your own checklists since the export, '
                   + 'so this is ahead of the eBird link above. ' : '') +
             'First seen links to that checklist; all obs opens every ' + esc(year) + ' checklist for the species.</div>';
-          var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
-          var recent = entries.filter(function (e) { var d = parseYearListDate(e.date); return d && d >= cutoff; }).slice(0, 8);
-          if (recent.length) {
-            html += '<div class="meta" style="margin-top:6px">Added this week: ' + recent.map(function (e) {
-              return speciesLink(e.name, e.code) + ' (' + esc(e.date) + ')';
-            }).join(' · ') + '</div>';
-          }
+      // The "Added this week: ..." paragraph used to sit here, restating rows
+      // already on screen directly beneath it. Those rows now carry the NEW
+      // mark instead, which says the same thing where the reader already is —
+      // the same reasoning that removed a heading naming the only thing on screen.
         } else {
           var yc = meta.yearCount != null ? meta.yearCount : 0;
           var isSeed = meta.source === 'seed';
@@ -13401,6 +13398,14 @@
         // report.py numbers rows so the OLDEST is #1 and the newest is #N, while
         // listing newest first — reproduce that here.
         var total = entries.length;
+        // Through the SHARED medium card, not a hand-rolled lookalike. This used
+        // to build its own <li> with a photo, a number, a name and a .meta line —
+        // the same drift Easy misses had before it was unified, where two copies
+        // of one row shape quietly diverge. Going through the template also brings
+        // the species code column and the layout audit that covers every other
+        // list.
+        list.className = 'obs big xl';
+        var newCutoff = new Date(); newCutoff.setDate(newCutoff.getDate() - 7);
         list.innerHTML = entries.map(function (e, i) {
           var where = String(e.loc || '').split('--')[0].trim();
           var whereHtml = where ? (e.locUrl ? extA(e.locUrl, where) : esc(where)) : '';
@@ -13411,9 +13416,19 @@
           // Said plainly, because this row is the reason the count above no
           // longer matches the eBird page it links to.
           if (e.own) bits.push('<b>new since the export</b>');
-          return '<li>' + photoSlot(e.name, e.code) +
-            '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code) +
-            (bits.length ? '<div class="meta">' + bits.join(' · ') + '</div>' : '') + '</li>';
+          // The NEW mark replaces the "Added this week: …" paragraph that used to
+          // sit above the list restating rows already on screen. The mark says the
+          // same thing where the reader already is, and it is the same tag every
+          // other section uses for "this just happened".
+          var d = parseYearListDate(e.date);
+          var isNew = d && d >= newCutoff;
+          return SpeciesCards.medium({
+            icon: photoSlot(e.name, e.code),
+            name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
+            tags: isNew ? newRarityTag() : '',
+            code: e.code,
+            sub: bits.join(' · ')
+          });
         }).join('');
         hydratePhotos(list);
       }
@@ -13436,7 +13451,6 @@
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
-        { at: 'scoutBtn',      label: '🧭 Scout another place', group: 'Go birding' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
         // GO BIRDING leads. The report's mission is (1) find unseen birds,
         // (2) find the best places to go today — and "where do I go" is the
@@ -13455,6 +13469,17 @@
         { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
         { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo', group: 'Go birding' },
         { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
+    // LAST in the group, deliberately. The four above answer "where should I
+    // go today" from the report you are already in, which is the common case;
+    // looking up a place you are not at is the exception, so it reads last.
+    // Same reasoning as the group order itself — the menu leads with what you
+    // do most.
+    //
+    // "Look up a place" rather than "Scout another place": the tile answers
+    // "what is being reported around X right now", and naming the JOB beats
+    // naming the mechanism. It also stops "Scout" colliding with the compass
+    // metaphor Trip planner already uses.
+    { at: 'scoutBtn',      label: '🧭 Look up a place', group: 'Go birding' },
         // OFF, not deleted. The section still builds and still works; it is
         // hidden pending a redesign, because it predates the measured travel
         // model (hop times, day bands, seasonal gates) and plans a route

@@ -7917,7 +7917,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Top destinations', 'Top excursions', 'Quick outing',
-                      'Closest spots', 'Scout another place']) {
+                      'Closest spots', 'Look up a place']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
@@ -9739,7 +9739,10 @@ test('the export keeps its own order when new birds are merged in', async () => 
   const rows = W.document.getElementById('myYearList').querySelectorAll('li');
   assert.equal(rows.length, seed.length + 1);
   // report.py numbers the OLDEST #1, so a newly added bird is #N.
-  assert.match(rows[0].textContent, new RegExp('^' + (seed.length + 1) + '\\.'),
+  // .trim() because the row now renders through the shared medium card, whose
+  // template indents its markup — the assertion is about the NUMBER, and
+  // leading whitespace was incidental to the hand-rolled <li> it replaced.
+  assert.match(rows[0].textContent.trim(), new RegExp('^' + (seed.length + 1) + '\\.'),
     'numbered as the newest, not renumbered from the top');
   assert.match(rows[0].textContent, /new since the export/,
     'and it says why it is not on the eBird page');
@@ -10524,7 +10527,7 @@ test('Happening now leads with what you need, not with the crowd', async () => {
     'the lane fetches its own data instead of reusing the merged wave');
 });
 
-// ---- F30 tier 3: Scout another place ---------------------------------------
+// ---- F30 tier 3: Look up a place (was Scout another place) ---------------------------------------
 //
 // "id like to support this kind of lookup. it would be like temporary change
 //  of home location"
