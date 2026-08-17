@@ -10867,3 +10867,26 @@ test('the needs lane leads with the bird people keep re-finding', () => {
   assert.equal(out[0].sightings, 3, 'sightings are counted as events');
   assert.equal(out[1].sightings, 1, 'and a single report is still shown, just lower');
 });
+
+test('the board records itself so each birder can show movement', async () => {
+  // "i would like to see up and down arrows on each person for position
+  //  changes ... avoid wrapping."
+  //
+  // eBird publishes no historical board, so the app has to record one. Arrows
+  // can only appear once there are two days to compare — a blank column is
+  // honest, an invented zero is not.
+  const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+  assert.match(html, /function boardHistRecord\(/, 'the board is never snapshotted');
+  assert.match(html, /boardMoveHTML\(boardDeltasFor\(/, 'rows carry no movement');
+  // It must reuse the ONE period helper, not grow a second one.
+  assert.match(html, /BL\.rankDeltas\(mine, nowMs\)/,
+    'board movement must share rankDeltas with the personal card');
+  // The column has to be in the header too, or the grid loses a cell.
+  assert.match(html, /<span class="mv"><\/span>/, 'the header has no movement cell');
+  // And it must not wrap.
+  assert.match(html, /\.rankrow \.mv \{[^}]*white-space: nowrap/,
+    'the movement column can wrap, which is the one thing that was ruled out');
+  // Direction must not be carried by colour alone, and must not be red/green.
+  assert.ok(!/\.rankrow \.mv\.down \{ color: #e5484d/.test(html), 'red/green pairing is back');
+  assert.match(html, /\.rankrow \.mv\.up \{ color: #0072B2/);
+});
