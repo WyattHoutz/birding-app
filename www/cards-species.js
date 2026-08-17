@@ -239,7 +239,7 @@
        is the thing that looks wrong. 17px still outranks the 16px sub-header,
        which is the rank that has to survive: the bird is the subject and the
        sighting is the evidence. */
-    '.obs.xl > li > .name { font-size: calc(17px * var(--s)); gap: 12px; }',
+    '.obs.xl > li > .name { font-size: calc(21px * var(--s)); gap: 12px; }',
     '.obs.xl > li > .name > .thumb { width: calc(70px * var(--s)); height: calc(70px * var(--s)); border-radius: 12px; }',
     /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
        The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a

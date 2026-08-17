@@ -1511,7 +1511,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.8.0';
+      var APP_VERSION = '1.9.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -11843,6 +11843,39 @@
         return { unseen: unseen, seen: seen };
       }
       var _hotspotCache = null, _hotspotPromise = null;
+      // The scan result also lives on DISK, not just in this variable. _hotspotCache
+      // is lost the moment the app is closed, so every cold open used to show
+      // "Scanning hotspots in King + Snohomish…" against an empty card for the
+      // length of a full scan — and if eBird is pacing us, that includes the
+      // "paused 23s — rate limit" the status bar reports. The data is a ranking of
+      // parks; yesterday's answer is a perfectly good thing to read while today's
+      // is being fetched, and showing it costs nothing.
+      var HOTCACHE_KEY = 'bc_hotspots_v1';
+      function hotCacheKey() {
+        return HOTCACHE_KEY + ':' + getReportSlug() + ':' + countyLabelStr();
+      }
+      function hotCacheSave(r) {
+        if (!r) return;
+        try {
+          localStorage.setItem(hotCacheKey(),
+            packJson({ t: Date.now(), hot: r.hot || [], cold: r.cold || [] }));
+        } catch (e) { /* a full store is not a reason to lose the scan */ }
+      }
+      function hotCacheLoad() {
+        try {
+          var v = unpackJson(localStorage.getItem(hotCacheKey()));
+          return (v && v.hot) ? v : null;
+        } catch (e) { return null; }
+      }
+      function hotCacheAge(t) {
+        var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+        if (mins < 1) return 'just now';
+        if (mins < 60) return mins + ' min ago';
+        var h = Math.round(mins / 60);
+        if (h < 24) return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+        var d = Math.round(h / 24);
+        return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+      }
       function resetHotspotCache() { _hotspotCache = null; _hotspotPromise = null; }
       function scanHotspots(force) {
         if (force) resetHotspotCache();
@@ -11929,10 +11962,24 @@
         // cache, which is what keeps this a few calls instead of hundreds.
         if (opts.force) ebClearMatching(FORCE_OBS_RE);
         if (!(_hotspotCache && !opts.force)) {
-          var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
-          if (hotSt) hotSt.textContent = scanMsg; if (coldSt) coldSt.textContent = scanMsg;
+          // Paint the last scan FIRST, then say it is being refreshed. A ranking of
+          // parks does not go stale in an hour, so an empty card with a spinner is
+          // strictly worse than yesterday's answer plus a note — especially when
+          // the scan is pacing against the eBird rate limit and the wait is
+          // measured in tens of seconds.
+          var cached = hotCacheLoad();
+          if (cached) {
+            renderHot(cached); renderCold(cached);
+            var age = 'as of ' + hotCacheAge(cached.t) + ' · refreshing…';
+            if (hotSt) hotSt.textContent = age;
+            if (coldSt) coldSt.textContent = age;
+          } else {
+            var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
+            if (hotSt) hotSt.textContent = scanMsg; if (coldSt) coldSt.textContent = scanMsg;
+          }
         }
         scanHotspots(opts.force).then(function (r) {
+          hotCacheSave(r);
           renderHot(r); renderCold(r);
           if (hotSt) hotSt.textContent = r.hot.length + ' running hot within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
           if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem' + (r.cold.length === 1 ? '' : 's') + ' within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
