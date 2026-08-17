@@ -10836,18 +10836,29 @@ test('rank deltas answer recent windows, and say nothing they cannot', () => {
 test('the needs lane leads with the bird people keep re-finding', () => {
   // "this ten birds you need - is not valuable. use recent burst algorithm to
   //  filter only birds that have many recent reports in chase area."
-  const now = new Date('2026-08-17T12:00:00Z').getTime();
+  //
+  // Timestamps are built FROM `now` in local time. eBird's obsDt has no zone,
+  // so parseObsDt reads it as local — a fixture with hard-coded strings and a
+  // UTC `now` passes in PDT and fails on a UTC runner, which is exactly what
+  // it did.
+  const now = new Date(2026, 7, 17, 12, 0, 0).getTime();
+  const p2 = (n) => (n < 10 ? '0' : '') + n;
+  const at = (hoursAgo) => {
+    const d = new Date(now - hoursAgo * 3600000);
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate())
+      + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  };
   const mk = (code, name, mi, rows) => rows.map((r) => Object.assign(
     { code, name, distMi: mi, locId: 'L' + code, loc: name + ' Park', lat: 47, lon: -122 }, r));
   const records = [].concat(
     // ONE person, once, and very close.
     mk('aaaaaa', 'Lonely Warbler', 1, [
-      { obsDt: '2026-08-17 09:00', dateStr: '2026-08-17 09:00', howMany: 1, userDisplayName: 'A' }]),
-    // A crowd, further away, over two days.
+      { obsDt: at(3), dateStr: at(3), howMany: 1, userDisplayName: 'A' }]),
+    // A crowd, further out, spanning two calendar days but all inside 24 h.
     mk('bbbbbb', 'Crowd Puffin', 20, [
-      { obsDt: '2026-08-17 08:00', dateStr: '2026-08-17 08:00', howMany: 1, userDisplayName: 'A' },
-      { obsDt: '2026-08-17 10:30', dateStr: '2026-08-17 10:30', howMany: 2, userDisplayName: 'B' },
-      { obsDt: '2026-08-16 07:00', dateStr: '2026-08-16 07:00', howMany: 1, userDisplayName: 'C' }]),
+      { obsDt: at(2), dateStr: at(2), howMany: 1, userDisplayName: 'A' },
+      { obsDt: at(4), dateStr: at(4), howMany: 2, userDisplayName: 'B' },
+      { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C' }]),
   );
   const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
   assert.equal(out.length, 2, 'both birds are still here — this RANKS, never filters');
