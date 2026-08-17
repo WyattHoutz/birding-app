@@ -12651,7 +12651,14 @@
               + '<div class="meta"><span class="spcode">' + esc(e.code) + '</span>'
               + '<span class="spcodesep"> · </span>'
               + e.nPlaces + ' place' + (e.nPlaces === 1 ? '' : 's')
-              + ' · ' + e.reports + ' report' + (e.reports === 1 ? '' : 's')
+              // SIGHTINGS, not rows. e.reports counts feed rows, and a birding
+              // party files one sighting under several names, so a group of three
+              // read as three independent confirmations. The lane is now ORDERED
+              // by this too (F132), so the number it sorts on is the number it
+              // shows.
+              + ' · ' + (e.sightings == null ? e.reports : e.sightings)
+              + ' sighting' + ((e.sightings == null ? e.reports : e.sightings) === 1 ? '' : 's')
+              + (e.conf && e.conf.days > 1 ? ' · ' + e.conf.days + ' days' : '')
               + '</div>'
               + '<ul class="cklrows"><li><span class="when">Nearest</span><span class="howmany"></span>'
               + '<span class="where">' + locLink(e.locName || e.locId, e.lat, e.lon, e.locId) + '</span></li>'

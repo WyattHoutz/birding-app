@@ -2473,10 +2473,11 @@
         byCode[r.code] = { code: r.code, name: r.name || r.code, reports: 0,
                            places: {}, nPlaces: 0, distMi: null, latest: 0,
                            locId: '', locName: '', subId: '', lat: null, lon: null,
-                           rare: false };
+                           rare: false, rows: [] };
         order.push(r.code);
       }
       var g = byCode[r.code];
+      g.rows.push(r);
       g.reports += 1;
       if (r.kind === 'Rarity') g.rare = true;
       var pid = r.locId || r.loc;
@@ -2498,9 +2499,30 @@
     });
 
     var out = order.map(function (c) { return byCode[c]; });
-    // Closest first. Everything here is already fresh, so recency cannot
-    // separate the rows; how far you have to drive can.
+    // F132: how many people keep finding it, not just how far away it is.
+    //
+    // "this ten birds you need is not valuable. use recent burst algorithm to
+    //  filter only birds that have many recent reports in chase area."
+    //
+    // A bird one person saw once used to sit level with a bird twenty people
+    // are watching, because the only ordering was distance. chaseConfidence
+    // already answers this from the rows the lane has, so it costs nothing.
+    //
+    // It RANKS and never filters — F1 decision 5, and the reason is on the
+    // record: a penalised radius would have silently dropped the exact bird
+    // that was chased. A single-report bird is still here, just lower.
+    out.forEach(function (g) {
+      g.conf = chaseConfidence(g.rows, { nowMs: now });
+      // The corroborated count, which is NOT g.reports: that counts rows, and
+      // a birding party files one sighting several times over.
+      g.sightings = g.conf.events;
+      g.rows = null;                    // grouping detail, not render data
+    });
     out.sort(function (a, b) {
+      var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;
+      if (as !== bs) return bs - as;    // most corroborated first
+      // Everything here is already fresh, so once corroboration ties, how far
+      // you have to drive is what separates the rows.
       var ad = a.distMi == null ? Infinity : a.distMi;
       var bd = b.distMi == null ? Infinity : b.distMi;
       if (ad !== bd) return ad - bd;

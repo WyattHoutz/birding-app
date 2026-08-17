@@ -10832,3 +10832,27 @@ test('rank deltas answer recent windows, and say nothing they cannot', () => {
   const same = BL.rankDeltas([{ d: '2026-08-17', rank: 190 }, { d: '2026-08-17', rank: 187 }], now);
   assert.equal(same.day, null, 'a window whose only prior IS the newest row says nothing');
 });
+
+test('the needs lane leads with the bird people keep re-finding', () => {
+  // "this ten birds you need - is not valuable. use recent burst algorithm to
+  //  filter only birds that have many recent reports in chase area."
+  const now = new Date('2026-08-17T12:00:00Z').getTime();
+  const mk = (code, name, mi, rows) => rows.map((r) => Object.assign(
+    { code, name, distMi: mi, locId: 'L' + code, loc: name + ' Park', lat: 47, lon: -122 }, r));
+  const records = [].concat(
+    // ONE person, once, and very close.
+    mk('aaaaaa', 'Lonely Warbler', 1, [
+      { obsDt: '2026-08-17 09:00', dateStr: '2026-08-17 09:00', howMany: 1, userDisplayName: 'A' }]),
+    // A crowd, further away, over two days.
+    mk('bbbbbb', 'Crowd Puffin', 20, [
+      { obsDt: '2026-08-17 08:00', dateStr: '2026-08-17 08:00', howMany: 1, userDisplayName: 'A' },
+      { obsDt: '2026-08-17 10:30', dateStr: '2026-08-17 10:30', howMany: 2, userDisplayName: 'B' },
+      { obsDt: '2026-08-16 07:00', dateStr: '2026-08-16 07:00', howMany: 1, userDisplayName: 'C' }]),
+  );
+  const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
+  assert.equal(out.length, 2, 'both birds are still here — this RANKS, never filters');
+  assert.equal(out[0].code, 'bbbbbb',
+    'the corroborated bird leads, even though the other one is 19 miles closer');
+  assert.equal(out[0].sightings, 3, 'sightings are counted as events');
+  assert.equal(out[1].sightings, 1, 'and a single report is still shown, just lower');
+});
