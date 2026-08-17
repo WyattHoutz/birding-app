@@ -135,7 +135,15 @@
       min-height: 100vh;
     }
     header {
-      padding: calc(env(safe-area-inset-top) + 14px) 20px 14px;
+      /* F135. Half the screen was gone before the first menu tile: a 76px
+         mark, a kicker, a 27px title, then the identity line, the region
+         picker and a full-width button. The banner is the cheapest of
+         those to shrink, because the nav bar above it ALREADY carries the
+         same mark and the app has exactly one user, who knows what it is
+         called. Padding and mark come down together - the mark is the
+         header's height and the padding is its air, so trimming one alone
+         just changes which looks wrong. */
+      padding: calc(env(safe-area-inset-top) + 8px) 20px 8px;
       background: linear-gradient(160deg, var(--accent), #0b5a3c);
       color: var(--accent-ink);
     }
@@ -147,14 +155,14 @@
        baked in, so one alpha-free file serves both sites and the iOS icon.
        76px rather than 58px: this is the only place the bird is ever seen at
        size, and the header is now short enough to give it the room. */
-    .brandmark { width: 76px; height: 76px; flex: 0 0 auto; border-radius: 50%;
+    .brandmark { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%;
                  object-fit: cover; background: #dfe6e2;
                  box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 2px rgba(255,255,255,.85); }
     .brandtext { min-width: 0; }
     .brandmark.small { width: 26px; height: 26px;
                        box-shadow: 0 0 0 1.5px rgba(255,255,255,.8); }
     header .kicker { font-size: calc(12px * var(--s)); letter-spacing: .08em; text-transform: uppercase; opacity: .85; margin: 0 0 3px; }
-    header h1 { font-size: calc(27px * var(--s)); margin: 0; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    header h1 { font-size: calc(21px * var(--s)); margin: 0; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
     header p { margin: 6px 0 0; font-size: calc(14px * var(--s)); opacity: .9; max-width: 34ch; }
     main { padding: 18px 16px 40px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1004,7 +1012,7 @@
   </div>
   <header>
     <div class="brand">
-      <img class="brandmark" src="assets/brand/mark.png" width="76" height="76"
+      <img class="brandmark" src="assets/brand/mark.png" width="44" height="44"
            alt="Bird Chaser">
       <div class="brandtext">
         <p class="kicker">Personal eBird tracker</p>
