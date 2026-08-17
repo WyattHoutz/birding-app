@@ -10772,3 +10772,32 @@ test('chase confidence is wired into a section, not built and left dangling', ()
   const cards = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
   assert.ok(cards.includes('{{conf}}'), 'the medium template has no conf slot');
 });
+
+test('a subspecies form is not counted as a new bird on the year list', () => {
+  // "208 huttons vireo pacific is not a new bird on list. (pacific) doesnt
+  //  count as different species as hutton vireo."
+  //
+  // eBird forms carry their OWN species code, so a code-only comparison let
+  // "Hutton's Vireo (Pacific)" onto a list that already held Hutton's Vireo:
+  // the total inflated and a bird already ticked was announced as newly added.
+  const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+  const fn = html.slice(html.indexOf('function mergedYearList'),
+                        html.indexOf('function updateMyYear'));
+
+  // The form test has to be GATED on the name actually being a form. Matching
+  // every entry by base name also swallowed plain birds and broke "a bird
+  // harvested from your own checklist is a row, not just a tick".
+  assert.ok(fn.includes('.test(raw)'),
+    'the form check is gone, or no longer gated on the entry being a form');
+  assert.ok(fn.includes('haveName[n]'), 'the parent-name index is never consulted');
+
+  // And the rule itself, driven rather than described.
+  const isForm = (nm) => /\([^()]*\)\s*$/.test(String(nm || ''));
+  const base = (nm) => String(nm || '').replace(/\s*\([^()]*\)\s*$/, '').trim();
+  assert.ok(isForm("Hutton's Vireo (Pacific)"), 'a form must be recognised');
+  assert.ok(isForm('Rock Pigeon (Feral Pigeon)'));
+  assert.ok(!isForm('Tufted Puffin'), 'a plain species must NOT be treated as a form');
+  assert.ok(!isForm('Cassin\u2019s Vireo'));
+  assert.equal(base("Hutton's Vireo (Pacific)"), "Hutton's Vireo");
+  assert.equal(base('Tufted Puffin'), 'Tufted Puffin', 'a plain name survives untouched');
+});

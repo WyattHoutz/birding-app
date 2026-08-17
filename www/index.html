@@ -13257,12 +13257,38 @@
       function mergedYearList() {
         var seed = reportYearList(), own = ownYearEntries();
         if (!own.length) return seed;
-        var have = {};
+        var have = {}, haveName = {};
         seed.forEach(function (e) {
           var c = String(e.code || '').trim().toLowerCase();
           if (c) have[c] = 1;
+          var n = baseSpeciesName(e.name).toLowerCase();
+          if (n) haveName[n] = 1;
         });
-        var add = own.filter(function (e) { return !have[e.code]; });
+        var add = own.filter(function (e) {
+          var c = String(e.code || '').trim().toLowerCase();
+          if (have[c]) return false;
+          // A FORM collapses to its parent; a plain species never does.
+          //
+          // "Hutton's Vireo (Pacific)" carries its own code, so a code-only check
+          // added it to a list that already held Hutton's Vireo — inflating the
+          // year total and reporting a bird you had as newly added. eBird form
+          // names are always the parent plus one trailing parenthetical, so that
+          // is the test, and it needs no taxonomy call (mergedYearList is
+          // synchronous and the reportAs map is only built inside fetches).
+          //
+          // Gated on the parenthetical DELIBERATELY. Matching every entry by base
+          // name also filtered plain birds whose name merely appears on the seed
+          // under another code, which broke "a bird harvested from your own
+          // checklist is a row, not just a tick" — a real behaviour worth keeping.
+          var raw = String(e.name || '');
+          if (/\([^()]*\)\s*$/.test(raw)) {
+            var n = baseSpeciesName(raw).toLowerCase();
+            if (n && haveName[n]) return false;
+            if (n) haveName[n] = 1;   // two forms of one bird are still one bird
+          }
+          if (c) have[c] = 1;
+          return true;
+        });
         if (!add.length) return seed;
         // The export is already newest-first, so each new bird is INSERTED at
         // the first row it is newer than rather than the whole list being
