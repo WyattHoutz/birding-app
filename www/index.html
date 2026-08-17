@@ -77,6 +77,7 @@
       --ink: #16211b;
       --muted: #5c6b63;
       --accent: #0f7a52;
+    --link: #0072B2;
       --accent-ink: #ffffff;
       --line: #e4e8e4;
       /* The tint behind a group heading. A named colour rather than a
@@ -93,6 +94,7 @@
         --ink: #eaf1ec;
         --muted: #9fb0a6;
         --accent: #37d391;
+    --link: #56B4E9;
         --accent-ink: #06120c;
         --line: #26302a;
         --band: #273a30;
@@ -202,8 +204,7 @@
     /* A button, not an <a href="#">, so it is reachable by keyboard and screen
        readers as the control it actually is, and cannot hijack the URL. */
     .linkish { background: none; border: 0; padding: 0; margin: 0;
-               color: inherit; font: inherit; text-decoration: underline;
-               cursor: pointer; }
+               color: inherit; font: inherit;                cursor: pointer; }
     #sourcesPanel dt { font-weight: 600; margin-top: 10px; }
     #sourcesPanel dd { margin: 2px 0 0; opacity: .85; }
 
@@ -999,6 +1000,16 @@
        rather than two columns. */
     .rankrow .mv { font-size: calc(12px * var(--s)); font-weight: 700; text-align: right;
                    white-space: nowrap; color: var(--muted); }
+    /* F128. The county RBA tag is an <a> with data-href and no href, so it
+       matched no link pseudo-class and rendered as body text - reported as
+       "should link to the webpage". The URL was always right (F83 settled it:
+       a per-county ALERT page needs a personal sid eBird does not publish, so
+       it points at the region page carrying both orderings). What was missing
+       was that it neither looked nor behaved like a link, so it now carries
+       .ebirdlink - the class the tap handler already opens in the in-app
+       browser - and says so visually. */
+    .rbalink { color: var(--link); text-decoration: underline;
+               text-underline-offset: 2px; cursor: pointer; }
     .rankrow .mv.up { color: #0072B2; }
     .rankrow .mv.down { color: #D55E00; }
     .rankrow .mv small { font-weight: 600; opacity: .75; margin-left: 2px;
@@ -5933,7 +5944,7 @@
         // page, and `sortBy=obsDt&o=desc` is the pair the alert page uses. An
         // ignored parameter costs nothing; between them the page is
         // date-ordered, which is what was actually asked for.
-        return '<a class="rbalink" data-href="https://ebird.org/region/'
+        return '<a class="ebirdlink rbalink" data-href="https://ebird.org/region/'
           + encodeURIComponent(code) + '/rare-birds?rank=mrec&sortBy=obsDt&o=desc" title="'
           + esc((name || code) + ' County rare bird alert, most recent first')
           + '">' + esc(label) + '</a>';

@@ -10890,3 +10890,31 @@ test('the board records itself so each birder can show movement', async () => {
   assert.ok(!/\.rankrow \.mv\.down \{ color: #e5484d/.test(html), 'red/green pairing is back');
   assert.match(html, /\.rankrow \.mv\.up \{ color: #0072B2/);
 });
+
+test('the county RBA tag is BOTH styled and tap-wired (F128)', () => {
+  // It was neither. The <a> carries data-href and no href, so it matched no
+  // link pseudo-class and rendered as body text; and the delegated handler
+  // only knew .cklcard-sm[data-href] and .ebirdlink, so tapping did nothing.
+  // Two independent failures with one symptom - "it should link to the
+  // webpage" - so both halves are pinned separately here.
+  const html = HTML;
+
+  const tag = html.match(/return '<a class="([^"]*rbalink[^"]*)"/);
+  assert.ok(tag, 'countyAlertLink still emits an .rbalink anchor');
+
+  // half 1: it must reach a tap handler. .ebirdlink is the one that opens
+  // eBird in the in-app browser, and an eBird region page is exactly that.
+  assert.ok(/\bebirdlink\b/.test(tag[1]),
+     'the RBA tag carries a class the tap handler actually listens for');
+  assert.ok(/closest\('\.ebirdlink'\)/.test(html),
+     'the .ebirdlink delegated handler still exists to receive it');
+
+  // half 2: it must LOOK tappable. Without an href there is no default
+  // styling, so the rule is the only thing making it read as a link.
+  const css = html.match(/\.rbalink\s*\{([^}]*)\}/);
+  assert.ok(css, '.rbalink has a CSS rule at all - it had none, which is why it read as prose');
+  assert.ok(/text-decoration:\s*underline/.test(css[1]),
+     'the RBA tag is underlined, so colour is not the only thing marking it a link');
+  assert.ok(/color:\s*var\(--link\)/.test(css[1]),
+     'it uses the colour-blind-safe link colour, not the green --accent');
+});
