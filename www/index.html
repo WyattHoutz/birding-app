@@ -1673,7 +1673,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.20.0';
+      var APP_VERSION = '1.21.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -10576,10 +10576,43 @@
         }
         return null;
       }
+      // F2. The wall is DETECTED here, not defeated. That distinction is the
+      // whole feature: this scrape has been returning eBird's 4,130-byte "not a
+      // bot" interstitial rather than a region page, extractWebKey found no
+      // token in it, and the card quietly dropped "of 13,303 birders". Graceful
+      // and completely silent - nobody would notice it had been gone for weeks.
+      //
+      // Detecting it needs no browser view and no cookie, so unlike the rest of
+      // the wall work this ships today. The failure is RECORDED so the app can
+      // say which of two very different things went wrong: a wall that pushes
+      // back, or a page that simply changed shape.
+      var WALL_SEEN_KEY = 'bc_wall_seen';
+      function noteWall(kind, url) {
+        try {
+          localStorage.setItem(WALL_SEEN_KEY, JSON.stringify({
+            kind: kind, url: url, at: new Date().toISOString()
+          }));
+        } catch (e) {}
+        dbg('warn', 'blocked by ' + kind + ' \u00b7 ' + url);
+      }
+      function wallSeen() {
+        try { return JSON.parse(localStorage.getItem(WALL_SEEN_KEY) || 'null'); }
+        catch (e) { return null; }
+      }
       function ebirdWebKey() {
         if (_webKeyPromise) return _webKeyPromise;
         _webKeyPromise = fetchPublicHTML('https://ebird.org/region/US-WA')
-          .then(function (html) { return extractWebKey(html); })
+          .then(function (html) {
+            var v = wallVerdict(html);
+            if (v !== 'OPEN') { noteWall(v === 'ANUBIS' ? 'eBird\u2019s bot filter' : 'an eBird login wall',
+              'ebird.org/region/US-WA'); return null; }
+            var key = extractWebKey(html);
+            // A page that IS reachable but yields no token is a different
+            // fault - eBird changed the page - and must not be reported as a
+            // block, or the fix goes looking in the wrong place entirely.
+            if (!key) dbg('warn', 'region page loaded but carried no web token \u2014 eBird changed the page shape');
+            return key;
+          })
           .catch(function () { return null; });
         return _webKeyPromise;
       }
@@ -15434,6 +15467,14 @@
       } catch (e) {}
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
+        // F2. A block that leaves no trace is a block nobody fixes: the eBirder
+        // field size vanished from the card and the app said nothing at all.
+        try {
+          var _w = wallSeen();
+          if (_w) add('\u26d4 blocked by ' + _w.kind + ' at ' + _w.url
+            + ' (last seen ' + String(_w.at).slice(0, 16).replace('T', ' ') + ')');
+          else add('no eBird block recorded');
+        } catch (e) {}
         // Names the plugin key that matched, not just yes/no. "NOT available"
         // on its own sent me looking for a missing dependency that was in fact
         // installed - the app was simply checking the wrong key.

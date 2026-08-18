@@ -11430,3 +11430,30 @@ test('the wall probe measures before AND after, and judges by content', () => {
   assert.ok(/THROUGH THE WALL/.test(fn), 'it does not say plainly when it works');
   assert.ok(/ITP/.test(fn), 'it does not name the likely cause when it fails');
 });
+
+test('F2: being blocked is recorded and reported, never silently absorbed', () => {
+  // The eBirder field size ("of 13,303") disappeared from the rankings card and
+  // the app said nothing, because the scrape returned eBird's bot-filter page,
+  // no token was found in it, and the card simply omitted the number. Graceful
+  // and silent - and silence is why it could have been gone for weeks.
+  //
+  // This half needs no browser view and no cookie: DETECTING a wall is not
+  // defeating one, which is why F2 shipped while F8/F11/F19 still wait.
+  const fn = HTML.slice(HTML.indexOf('function ebirdWebKey'),
+    HTML.indexOf('function ebirdWebKey') + 1400);
+  assert.ok(/wallVerdict\(html\)/.test(fn), 'the scrape does not check what it actually got');
+  assert.ok(/noteWall\(/.test(fn), 'a block is not recorded anywhere');
+
+  // The two failures must stay distinguishable. A reachable page with no token
+  // means eBird changed the page; reporting that as a block sends the fix
+  // looking in entirely the wrong place.
+  assert.ok(/changed the page shape/.test(fn),
+    'a page that loads but yields no token is conflated with being blocked');
+
+  assert.ok(/WALL_SEEN_KEY/.test(HTML), 'nothing persists the observation');
+  // It has to reach the log the owner actually pastes.
+  const ctx = HTML.slice(HTML.indexOf('no eBird block recorded') - 800,
+    HTML.indexOf('no eBird block recorded') + 200);
+  assert.ok(/wallSeen\(\)/.test(ctx), 'the debug header never reads it');
+  assert.ok(/blocked by/.test(ctx), 'the debug header does not say it plainly');
+});
