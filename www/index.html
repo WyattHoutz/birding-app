@@ -384,6 +384,13 @@
        text scale on the narrowest phone a long label pushed the tile past the
        screen instead of wrapping. */
     .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere; }
+    /* F134: a count pill, and a leading dot when it is NEW since you last
+       looked. The dot and the number are the signal - colour is a second
+       channel only, because red/green is unreadable for this owner. */
+    .tilebadge { margin-left: auto; flex: 0 0 auto; font-size: calc(11px * var(--s));
+                 line-height: 1; padding: 3px 7px; border-radius: 999px;
+                 border: 1px solid var(--line); color: var(--muted); }
+    .tilebadge.isnew { border-color: #0072B2; color: #0072B2; font-weight: 700; }
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
@@ -14281,6 +14288,7 @@
           var a = document.createElement('button');
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
+          a.setAttribute('data-sec', sec.id);
           var parts = splitLabel(sec._label);
           if (parts.icon) {
             var ic = document.createElement('span');
@@ -14290,11 +14298,107 @@
           var tx = document.createElement('span');
           tx.className = 'tilelabel'; tx.textContent = parts.text;
           a.appendChild(tx);
+          // F134: only if the section has something to say. Reads cache only.
+          var bh = menuBadgeHTML(menuBadge(sec.id));
+          if (bh) {
+            var bw = document.createElement('span');
+            bw.innerHTML = bh;
+            if (bw.firstChild) a.appendChild(bw.firstChild);
+          }
           (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
           li.appendChild(a); list.appendChild(li);
           });
         });
       }
+      // ---- F134: what changed since you last looked ------------------------
+      //
+      // "this feature is more of an alert that something is new. if there's no
+      //  update, then it shouldnt show this indicator badge."
+      //
+      // Three rules, and they decide every tile:
+      //
+      //   1. It is an ALERT, not a dashboard. A number that has not moved is
+      //      furniture, and furniture teaches you to stop looking. No news, no
+      //      badge.
+      //   2. A badge NEVER fetches. The menu opens dozens of times a session and
+      //      must not cost an API call, so a badge may only read what a section
+      //      has already cached. This is what rules several tiles out entirely.
+      //   3. "New" needs a per-tile last-seen mark, which is the only new
+      //      storage here.
+      //
+      // Eleven of twenty-eight tiles get nothing on purpose. Top destinations
+      // and the outing planners re-rank whenever anything moves, so they would
+      // badge on every visit; Settings and the manual have no news at all.
+      var SEEN_NS = 'bc_seen_v1:';
+      function seenKey(id) { return SEEN_NS + String(id || ''); }
+      function seenGet(id) {
+        try { return JSON.parse(localStorage.getItem(seenKey(id)) || 'null'); }
+        catch (e) { return null; }
+      }
+      function seenMark(id, sig) {
+        try { localStorage.setItem(seenKey(id), JSON.stringify(sig)); } catch (e) {}
+      }
+
+      // A section's badge is declared here or it does not have one. Each entry
+      // returns { n, kind } - kind 'new' for things that appeared since you
+      // looked, 'count' for a standing total worth knowing - or null for
+      // "nothing to say", which is the common case and must stay cheap.
+      var MENU_BADGES = {};
+
+      // Count how many ids in `now` are absent from the last-seen list. This is
+      // the shape almost every badge wants: not "how many are there" but "how
+      // many are there that were not there before".
+      function newSince(id, ids) {
+        var prev = seenGet(id), seen = {}, n = 0, i;
+        if (prev && prev.ids) for (i = 0; i < prev.ids.length; i++) seen[prev.ids[i]] = 1;
+        for (i = 0; i < ids.length; i++) if (!seen[ids[i]]) n++;
+        // Never looked at all? Then nothing is NEW - everything is simply
+        // unread, and marking it all as news on first run is noise.
+        return prev ? n : 0;
+      }
+
+      function menuBadge(id) {
+        var fn = MENU_BADGES[id];
+        if (!fn) return null;
+        try { return fn(id) || null; } catch (e) { return null; }
+      }
+
+      // LAZY, and never blocking. A badge is a pure read of what is already
+      // cached, so an unknown value simply yields no badge rather than a
+      // spinner, a zero, or a fetch - "if the value isnt known, dont show it
+      // until its computed". Nothing about drawing the menu waits on anything.
+      //
+      // When a section's data does land later, this repaints just the badge
+      // spans in place. It never re-renders the menu, because rebuilding the
+      // list under someone's finger is how you make them tap the wrong tile.
+      function refreshMenuBadges() {
+        var list = $('menuList');
+        if (!list) return;
+        var tiles = list.querySelectorAll('.toclink');
+        for (var i = 0; i < tiles.length; i++) {
+          var a = tiles[i], id = a.getAttribute('data-sec');
+          if (!id) continue;
+          var cur = a.querySelector('.tilebadge');
+          var html = menuBadgeHTML(menuBadge(id));
+          if (!html) { if (cur) cur.parentNode.removeChild(cur); continue; }
+          var box = document.createElement('span');
+          box.innerHTML = html;
+          var next = box.firstChild;
+          if (cur) { if (cur.outerHTML !== next.outerHTML) a.replaceChild(next, cur); }
+          else a.appendChild(next);
+        }
+      }
+
+      function menuBadgeHTML(b) {
+        if (!b || !b.n) return '';
+        // The glyph carries it, not the colour: a dot for news, a count for a
+        // total. Same rule as the board's movement column.
+        var isNew = b.kind === 'new';
+        return '<span class="tilebadge' + (isNew ? ' isnew' : '') + '" title="'
+          + esc(b.n + (isNew ? ' new since you last looked' : ' now')) + '">'
+          + (isNew ? '\u2022 ' : '') + esc(String(b.n)) + '</span>';
+      }
+
       function showSection(id) {
         // Leaving the section closes any sub-page it had open, or coming back
         // later lands you on a bird's profile with no memory of choosing it.
