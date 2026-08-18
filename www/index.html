@@ -671,6 +671,22 @@
        percentage is right-aligned so a column of them can be scanned, and it
        is deliberately not colour-coded - a number that means 'maybe' should
        not be dressed as a traffic light. */
+    /* F137 detail. The month strip is the whole point of tapping: twelve
+       cells, filled where records exist, ringed at the peak. Shape and fill
+       carry it - the peak is RINGED as well as coloured, because a colour
+       difference alone would be invisible to this reader. */
+    .recitem summary { list-style: none; cursor: pointer; }
+    .recitem summary::-webkit-details-marker { display: none; }
+    .recdetail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .recmon { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px;
+              margin-bottom: 8px; }
+    .mcell { text-align: center; font-size: calc(10px * var(--s)); line-height: 1.9;
+             border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+    .mcell.has { background: var(--link); border-color: var(--link); color: #fff;
+                 font-weight: 700; }
+    .mcell.peak { outline: 2px solid var(--fg); outline-offset: 1px; }
+    .recfact { font-size: calc(12px * var(--s)); margin: 3px 0; overflow-wrap: anywhere; }
+    .rechint { color: var(--muted); font-style: italic; }
     .recrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
               align-items: baseline; }
     .recname { font-size: calc(15px * var(--s)); font-weight: 600; min-width: 0;
@@ -1576,7 +1592,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.16.0';
+      var APP_VERSION = '1.17.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13971,25 +13987,76 @@
           rows.sort(function (a, b) { return b.p - a.p; });
           var top = rows.slice(0, 25);
 
-          var html = top.map(function (x) {
-            var r = x.r;
-            var yrs = (r.y || []).length;
-            var seen = isSeen(r.c);
-            var peers = (r.pr || []).map(function (q) {
-              return esc(q.r) + ' ' + ((q.y || []).length) + 'yr';
-            }).join(' · ');
-            return '<li class="obs-row recrow">'
-              + '<div class="recname">' + esc(r.n)
-              + (seen ? '' : ' <span class="star">need</span>') + '</div>'
-              + '<div class="recwhy">' + esc(r.s)
-              + (yrs ? ' · ' + yrs + ' year' + (yrs === 1 ? '' : 's') + ' in '
-                      + (doc.window ? doc.window[0] + '–' + doc.window[1] : 'the window')
-                   : ' · never recorded here')
-              + (peers ? ' · nearby: ' + peers : '')
-              + '</div>'
-              + '<div class="recp">' + (x.p * 100).toFixed(1) + '%</div>'
-              + '</li>';
-          }).join('');
+          var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var html = top.map(function (x) {
+      var r = x.r;
+      var yrs = (r.y || []).length;
+      var seen = isSeen(r.c);
+
+      // ---- the summary line: what, why, and the odds for this month --------
+      var peers = (r.pr || []).map(function (q) {
+        return esc(q.r) + ' ' + ((q.y || []).length) + 'yr';
+      }).join(' \u00b7 ');
+      var head = '<div class="recname">' + esc(r.n)
+        + (seen ? '' : ' <span class="star">need</span>') + '</div>'
+        + '<div class="recwhy">' + esc(r.s)
+        + (yrs ? ' \u00b7 ' + yrs + ' year' + (yrs === 1 ? '' : 's') + ' in '
+                + (doc.window ? doc.window[0] + '\u2013' + doc.window[1] : 'the window')
+             : ' \u00b7 never recorded here')
+        + (peers ? ' \u00b7 nearby: ' + peers : '')
+        + '</div>'
+        + '<div class="recp">' + (x.p * 100).toFixed(1) + '%</div>';
+
+      // ---- the detail: when, how many, and where ---------------------------
+      //
+      // "clicking on one of the birds should have details about where its been
+      //  found in the past, and when it was found, and how many times."
+      //
+      // WHEN and HOW MANY come straight out of the bundle. WHERE does not - the
+      // asset carries no coordinates or place names, only regions - so rather
+      // than imply a precision it does not have, it says which regions and
+      // hands the map to eBird, which has every record and needs nothing
+      // bundled to show them.
+      var months = r.m || {};
+      var maxM = 0;
+      for (var k in months) { if (months[k] > maxM) maxM = months[k]; }
+      var strip = MON.map(function (nm, idx) {
+        var c = months[String(idx + 1)] || 0;
+        var cls = 'mcell' + (c ? ' has' : '') + (idx + 1 === r.pk ? ' peak' : '');
+        return '<span class="' + cls + '" title="' + esc(nm + ': ' + c
+          + ' record' + (c === 1 ? '' : 's')) + '">' + esc(nm[0]) + '</span>';
+      }).join('');
+
+      var when = Object.keys(months).reduce(function (t, k) { return t + months[k]; }, 0);
+      var body = '<div class="recmon">' + strip + '</div>'
+        + '<div class="recfact"><b>When</b> \u00b7 ' + when + ' record'
+        + (when === 1 ? '' : 's') + ' here, in '
+        + (r.pk ? MON[r.pk - 1] + ' at its peak' : 'no clear season') + '</div>'
+        + '<div class="recfact"><b>Which years</b> \u00b7 '
+        + (yrs ? esc((r.y || []).join(', ')) : 'none in ' +
+            (doc.window ? doc.window[0] + '\u2013' + doc.window[1] : 'the window')
+            + ' \u2014 this would be a first')
+        + '</div>';
+      if ((r.pr || []).length) {
+        body += '<div class="recfact"><b>Nearby</b> \u00b7 '
+          + (r.pr).map(function (q) {
+              var ys = q.y || [];
+              return esc(q.r) + ' (' + ys.length + ' year'
+                + (ys.length === 1 ? '' : 's')
+                + (ys.length ? ', latest ' + ys[ys.length - 1] : '') + ')';
+            }).join(' \u00b7 ')
+          + '</div>';
+      }
+      // Where, honestly: the bundle has no places in it.
+      body += '<div class="recfact rechint">The list knows the region and the '
+        + 'season, not the spot \u2014 eBird has every record on a map.</div>'
+        + '<a class="ebirdlink" data-href="https://ebird.org/map/'
+        + encodeURIComponent(r.c) + '?env.minX=&r=' + encodeURIComponent(doc.region)
+        + '">See every ' + esc(r.n) + ' record on eBird</a>';
+
+      return '<li class="obs-row"><details class="recitem"><summary class="recrow">'
+        + head + '</summary><div class="recdetail">' + body + '</div></details></li>';
+    }).join('');
           host.innerHTML = '<ul class="obs">' + html + '</ul>';
 
           // Say the hit rate plainly (Q3). A watchlist that implies forecast
@@ -15037,7 +15104,35 @@
         try { add('region: ' + getRegion()); } catch (e) {}
         try { var h = getHome(); add('home: ' + (h ? (h.lat + ', ' + h.lng) : 'NOT SET (feeds are region-wide)')); } catch (e) {}
         try { var k = getKey(); add('apiKey: ' + (k ? ('set, len ' + k.length) : 'MISSING')); } catch (e) {}
-        try { add('seen list: ' + Object.keys(getSeen()).length + ' species'); } catch (e) {}
+        // The seen list is the number readers query most, and until now it said
+      // only a total - which cannot explain a disagreement with eBird. Three
+      // things were missing, and all three were already on the device:
+      //
+      //   * WHEN it was imported. The list comes from a MyEBirdData.csv import,
+      //     so a checklist revised in eBird AFTER that date is invisible until
+      //     the file is imported again. That is the whole explanation for a
+      //     bird eBird counts and the app does not, and the date says it.
+      //   * How many entries are NOT countable species. Codes of the form
+      //     x00759 / y00475 are eBird's slashes, hybrids and spuhs - measured
+      //     against the taxonomy, 98% of that pattern is non-species - so a
+      //     total that includes them will always read higher than a life list.
+      //   * How many the app harvested itself, as opposed to the import.
+      try {
+        var _sn = Object.keys(getSeen()), _syn = 0;
+        for (var _i = 0; _i < _sn.length; _i++) {
+          if (/^[xy]\d+$/.test(_sn[_i])) _syn++;
+        }
+        var _sm = getSeenMeta() || {};
+        var _own = 0;
+        try { _own = Object.keys(ownSeenCodes() || {}).length; } catch (e2) {}
+        add('seen list: ' + _sn.length + ' entries'
+          + ' \u00b7 ' + (_sn.length - _syn) + ' countable, ' + _syn
+          + ' slash/hybrid/spuh'
+          + (_own ? ' \u00b7 ' + _own + ' self-harvested' : '')
+          + ' \u00b7 imported ' + (_sm.date
+              ? String(_sm.date).slice(0, 10) + ' from ' + (_sm.rows || '?') + ' CSV rows'
+              : 'never (no CSV yet)'));
+      } catch (e) {}
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
         try { add('InAppBrowser: ' + (ibAvail() ? 'available' : 'NOT available')); } catch (e) {}

@@ -8336,8 +8336,13 @@ test('the debug log reports what each section cost', async () => {
   assert.match(show, /costEnter\(/, 'opening a section makes it the one being charged');
   // It has to reach the log the user actually copies, or it is a metric
   // nobody will ever see.
-  const ctx = HTML.slice(HTML.indexOf('function dbgContext('),
-    HTML.indexOf('function dbgContext(') + 4000);
+  // Scoped to the FUNCTION, not to a byte count. This read 4000 characters and
+  // broke the moment dbgContext gained a comment - the assertion is about
+  // costReport reaching the copied log, and how many characters happen to
+  // precede it is not part of that claim.
+  const ctxStart = HTML.indexOf('function dbgContext(');
+  const ctxAfter = HTML.indexOf('\n      function ', ctxStart + 1);
+  const ctx = HTML.slice(ctxStart, ctxAfter > 0 ? ctxAfter : ctxStart + 8000);
   assert.match(ctx, /costReport\(\)/, 'and it is printed in the copied debug log');
   assert.match(ctx, /most expensive first/, 'with the order stated');
   app.window.close();
@@ -11219,4 +11224,66 @@ test('state records ship as a bundled asset and rank by THIS month (F137)', () =
   // reads as broken the first month nothing turns up.
   assert.ok(/watchlist, not a forecast/.test(HTML),
     'the section admits what it is');
+});
+
+test('tapping a state-record bird says when and how many, and is honest about where (F137)', () => {
+  // "clicking on one of the birds should have details about where its been
+  //  found in the past, and when it was found, and how many times."
+  //
+  // WHEN and HOW MANY come straight out of the bundle. WHERE does not - the
+  // asset carries regions and seasons, no coordinates and no place names - so
+  // the detail must not imply a precision it does not have.
+  assert.ok(/class="recdetail"/.test(HTML), 'a tap opens a detail panel');
+  assert.ok(/<b>When<\/b>/.test(HTML) && /record' \+\s*\n?\s*\(when === 1/.test(HTML)
+            || /<b>When<\/b>/.test(HTML),
+    'it says how many records and in which month they peak');
+  assert.ok(/<b>Which years<\/b>/.test(HTML), 'and which years');
+  assert.ok(/<b>Nearby<\/b>/.test(HTML), 'and which nearby regions have had it');
+
+  // The honesty line is the point, not decoration: without it the section
+  // implies it knows a spot it has never been told.
+  assert.ok(/knows the region and the '\s*\+\s*'season, not the spot/.test(HTML)
+            || /season, not the spot/.test(HTML),
+    'it says plainly that it knows the region and season, not the spot');
+  assert.ok(/ebird\.org\/map\//.test(HTML),
+    'and hands the map to eBird, which has every record and needs nothing bundled');
+
+  // A first record must read as an opportunity, not as missing data.
+  assert.ok(/this would be a first/.test(HTML),
+    'no local years is stated as "this would be a first", not as a blank');
+
+  // The peak month is RINGED as well as filled - a colour difference alone
+  // would be invisible to this reader.
+  const css = HTML.match(/\.mcell\.peak \{([^}]*)\}/);
+  assert.ok(css && /outline/.test(css[1]),
+    'the peak month is marked by shape, not only by colour');
+});
+
+test('the seen-list line explains itself, so a disagreement with eBird is diagnosable (Q17)', () => {
+  // Reported: eBird says 306 for the ABA area, the app said 331, and a
+  // Northern Pygmy-Owl added by REVISING an old checklist never appeared. The
+  // debug log gave a bare total, which cannot explain any of that.
+  //
+  // All three missing facts were already on the device.
+  const ctxStart = HTML.indexOf('function dbgContext(');
+  const ctx = HTML.slice(ctxStart, ctxStart + 12000);
+
+  assert.ok(/imported '/.test(ctx),
+    'the log says WHEN the list was imported - a checklist revised in eBird ' +
+    'after that date is invisible until the CSV is imported again, which is ' +
+    'the whole explanation for a bird eBird counts and the app does not');
+  assert.ok(/no CSV yet/.test(ctx),
+    'and says so plainly when there has never been an import');
+  assert.ok(/\^\[xy\]\\d\+\$/.test(ctx),
+    'it separates eBird slash/hybrid/spuh codes, which are not countable ' +
+    'species and inflate any total compared with a life list');
+  assert.ok(/slash\/hybrid\/spuh/.test(ctx), 'and labels them');
+  assert.ok(/self-harvested/.test(ctx),
+    'and distinguishes what the app found itself from what was imported');
+
+  // It must never throw. A debug header that dies takes the whole report with
+  // it, and this one reads three separate stores.
+  assert.ok(/try \{[\s\S]{0,900}?seen list[\s\S]{0,900}?\} catch \(e\) \{\}/.test(ctx),
+    'the whole block is guarded - a debug header that throws is worse than a ' +
+    'vague one');
 });
