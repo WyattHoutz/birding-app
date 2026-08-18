@@ -11288,34 +11288,98 @@ test('the seen-list line explains itself, so a disagreement with eBird is diagno
     'vague one');
 });
 
-test('the F8 probe reports WHAT came back, not just pass or fail', () => {
-  // F8 was parked on a measurement taken from a laptop, where ebird.org 302s to
-  // Cornell login. The device log shows this app fetching ebird.org HTML with
-  // 200s, so the question is whether THIS app, carrying THIS phone's session,
-  // can read the life list - and the only way to know is to ask from here.
+test('the F8 probe can tell a login page from a wrong URL', () => {
+  // v1.18.0's probe classified on the first 200 characters and reported
+  // "HTML, not CSV - needs a different url or a session". On device that was
+  // the real answer, and it was useless: "<!doctype html><html class=no-js"
+  // opens a login page and a real life-list page ALIKE. The two need opposite
+  // fixes - find another URL, versus carry a session - so a probe that cannot
+  // separate them has not answered anything.
   assert.ok(/id="lifeProbeBtn"/.test(HTML), 'there is a button to run it');
   assert.ok(/function probeLifeList/.test(HTML), 'and something for it to run');
 
-  const fn = HTML.slice(HTML.indexOf('function probeLifeList'),
-    HTML.indexOf('function probeLifeList') + 3000);
-
-  assert.ok(/ebird\.org\/lifelist\?r='/.test(fn),
+  const cands = HTML.slice(HTML.indexOf('var F8_CANDIDATES'),
+    HTML.indexOf('function classifyF8'));
+  assert.ok(/ebird\.org\/lifelist\?r=/.test(cands),
     'it asks for the life list, which is the actual question');
-  assert.ok(/getReport\(\)\.region/.test(fn),
-    'for the region in use, not a hardcoded one');
+  assert.ok(/\{R\}/.test(cands) , 'the region is substituted, not hardcoded');
+  assert.ok(cands.split('url:').length - 1 >= 2,
+    'more than one candidate URL, or "wrong url" can never be ruled out');
 
-  // "A login page with HTTP 200" is the outcome that would otherwise look like
-  // success, so the verdict has to read the BODY rather than the status.
-  assert.ok(/cassso|sign in|password|login/.test(fn),
-    'it detects a login page, which would arrive as a perfectly happy 200');
-  assert.ok(/F8 IS UNBLOCKED/.test(fn), 'and says so plainly when it works');
-  assert.ok(/stays parked/.test(fn), 'and equally plainly when it does not');
+  const cls = HTML.slice(HTML.indexOf('function classifyF8'),
+    HTML.indexOf('function probeLifeList'));
+  // The bug being guarded: classify on the WHOLE body, never the opening tag.
+  assert.ok(/String\(body \|\| ''\)/.test(cls), 'it reads the whole body');
+  assert.ok(/<title/.test(cls),
+    'it reads the page title, which says "Sign in" or "Life List" outright');
+  assert.ok(/name="password"|cas\/login|sign in to ebird/i.test(cls),
+    'it detects a login page, which arrives as a perfectly happy 200');
 
-  // A CORS refusal never reaches .then at all, and is itself an answer.
-  assert.ok(/likely CORS/.test(fn),
+  const fn = HTML.slice(HTML.indexOf('function probeLifeList'),
+    HTML.indexOf('function probeLifeList') + 4000);
+  assert.ok(/credentials: 'include'/.test(fn),
+    'a session cookie is actually sent, or the answer is a foregone "logged out"');
+  assert.ok(/r\.url/.test(fn),
+    'the FINAL url is reported - a bounce to a login host is the decisive signal');
+  // Three simultaneous hits on ebird.org is the manners problem the rate
+  // limiter exists to prevent.
+  assert.ok(/reduce\(function \(chain/.test(fn), 'candidates are tried in sequence');
+
+  assert.ok(/F8 IS UNBLOCKED/.test(fn), 'it says so plainly when it works');
+  assert.ok(/missing piece is a session/.test(fn), 'and names a session when that is the cause');
+  assert.ok(/URL is wrong rather than the session/.test(fn), 'and names the URL when that is');
+
+  assert.ok(/blocked before any response/i.test(fn),
     'a block before any response is reported as such, not as a mystery');
-
-  // It must reach the log the owner actually pastes.
-  assert.ok(/dbg\('net', 'F8 probe/.test(fn),
+  assert.ok(/dbg\('net', 'F8/.test(fn),
     'the result goes to the debug log, so it can be pasted rather than retyped');
+});
+
+// ---- F142 "Easy read" -------------------------------------------------------
+// The audience reason is the whole feature: a lot of birders are seniors with
+// poor reading vision, reading outdoors at dawn through varifocals. These guard
+// the parts most easily lost to a later restyle.
+
+test('pinch-zoom is never disabled, because it is the reader\'s last resort', () => {
+  const vp = (HTML.match(/<meta name="viewport"[^>]*>/) || [''])[0];
+  assert.ok(vp, 'no viewport meta at all');
+  // Either of these takes away the ability to magnify a MAP or a photo, which
+  // no in-app text-size setting can substitute for.
+  assert.ok(!/user-scalable\s*=\s*no/i.test(vp), 'viewport disables pinch-zoom');
+  assert.ok(!/maximum-scale\s*=\s*1/i.test(vp), 'viewport pins maximum-scale, which also blocks zoom');
+});
+
+test('Easy read composes with text size instead of overriding it', () => {
+  // Two independent keys. If Easy read ever wrote the text-size key, turning it
+  // on would silently discard a choice the reader made deliberately.
+  assert.ok(/A11Y_KEY\s*=\s*'bc_easyread'/.test(HTML), 'Easy read has no key of its own');
+  const setA11y = (HTML.match(/function setA11y\([\s\S]{0,600}?\n      \}/) || [''])[0];
+  assert.ok(setA11y, 'setA11y not found');
+  assert.ok(!/UI_SCALE_KEY|applyUiScale|setUiScale/.test(setA11y),
+    'Easy read touches the text-size setting, so it can clobber it');
+  // ...and the reverse: text size must not clear Easy read.
+  const setScale = (HTML.match(/function setUiScale\([\s\S]{0,600}?\n      \}/) || [''])[0];
+  assert.ok(!/A11Y_KEY|applyA11y/.test(setScale), 'text size touches Easy read');
+});
+
+test('Easy read buys 44px tap targets, not just bigger text', () => {
+  // Size alone would fail the people it is for: a control that is hard to see
+  // is also hard to hit.
+  const m = HTML.match(/html\[data-a11y="on"\][\s\S]{0,1400}?min-height:\s*44px/);
+  assert.ok(m, 'no 44px minimum under Easy read');
+  const sel = m[0];
+  for (const want of ['button', 'select', '.docbtn']) {
+    assert.ok(sel.includes(want), `${want} is not covered by the 44px rule`);
+  }
+});
+
+test('Easy read is reachable from Settings and remembers itself', () => {
+  assert.ok(/id="a11yMode"/.test(HTML), 'no Easy read control');
+  assert.ok(/\$\('a11yMode'\)\.value = getA11y\(\)/.test(HTML), 'control does not load its saved value');
+  assert.ok(/a11yMode'\)\.addEventListener\('change'/.test(HTML), 'control is not wired to anything');
+});
+
+test('reduced motion is honoured app-wide, not on one spinner', () => {
+  const rm = HTML.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\*/);
+  assert.ok(rm, 'no global prefers-reduced-motion rule');
 });

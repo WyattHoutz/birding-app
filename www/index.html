@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <!-- user-scalable=no used to be here. It is the single most damaging thing
+       an app can do to a reader with poor vision: it disables pinch-zoom, so
+       the last resort - just magnify it - is taken away. The in-app text size
+       setting is not a substitute, because it cannot enlarge a MAP, a photo or
+       a screenshot. Removed under F142. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0f5132" />
@@ -99,6 +104,65 @@
         --line: #26302a;
         --band: #273a30;
         --shadow: none;
+      }
+    }
+    /* ---- F142 "Easy read" -------------------------------------------------
+       Turned on from Settings. It COMPOSES with the text-size setting above and
+       never overrides it - someone already on Huge stays on Huge, because
+       silently replacing a choice the reader made deliberately would be the
+       wrong move here twice over.
+
+       Size alone would not do it. Bigger type in the same box is WORSE than no
+       change, because crowding is what makes large text unreadable. So this
+       buys the things that have to come with size: tap targets, spacing,
+       contrast, and a focus ring you can actually find. */
+    html[data-a11y="on"] {
+      --muted: #33413a;   /* the ordinary muted grey is decorative, not legible */
+      --line:  #8fa197;   /* borders you can actually locate */
+      --band:  #c2dccd;
+    }
+    @media (prefers-color-scheme: dark) {
+      html[data-a11y="on"] { --muted: #d3e3d9; --line: #6a7d72; --band: #2f4a3c; }
+    }
+    /* 44px minimum. A control that is hard to SEE is also hard to HIT, and a
+       missed tap costs more than small text does. */
+    html[data-a11y="on"] button,
+    html[data-a11y="on"] select,
+    html[data-a11y="on"] input,
+    html[data-a11y="on"] .docbtn,
+    html[data-a11y="on"] .evidbtn,
+    html[data-a11y="on"] .favbtn,
+    html[data-a11y="on"] .sortbtn,
+    html[data-a11y="on"] .modebtn,
+    html[data-a11y="on"] .warnbtn,
+    html[data-a11y="on"] .filebtn,
+    html[data-a11y="on"] .refreshbtn {
+      min-height: 44px; min-width: 44px;
+      padding-top: 10px; padding-bottom: 10px;
+    }
+    /* Room to breathe, which is half of what makes large text readable. */
+    html[data-a11y="on"] body   { line-height: 1.65; }
+    html[data-a11y="on"] .panel { padding: 20px; margin-bottom: 20px; }
+    html[data-a11y="on"] .toc a { margin-bottom: 6px; }
+    /* If you cannot see what you touched, you cannot tell whether it worked. */
+    html[data-a11y="on"] a:focus-visible,
+    html[data-a11y="on"] button:focus-visible,
+    html[data-a11y="on"] select:focus-visible,
+    html[data-a11y="on"] input:focus-visible {
+      outline: 3px solid var(--link); outline-offset: 2px;
+    }
+    /* A pressed state that is not only a colour change. */
+    html[data-a11y="on"] button:active { transform: scale(.97); filter: brightness(.85); }
+    /* Links stop depending on colour alone - the project rule, and it matters
+       twice as much for a reader who cannot resolve the colour in the first place. */
+    html[data-a11y="on"] a { text-decoration: underline; text-underline-offset: 2px; }
+
+    /* Motion is a barrier for some of the same readers, so honour the system
+       switch everywhere rather than on the one spinner that had it. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important; scroll-behavior: auto !important;
       }
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -1409,6 +1473,12 @@
         <option value="1.75">Huge</option>
       </select>
       <p class="hint">Scales every label, list and bird photo in the app. Applies immediately — no need to save.</p>
+      <label for="a11yMode">Easy read</label>
+      <select id="a11yMode">
+        <option value="off">Off</option>
+        <option value="on">On</option>
+      </select>
+      <p class="hint">Bigger tap targets, more space between things, stronger contrast, underlined links and a focus ring you can see. Works <strong>with</strong> the text size above rather than replacing it — if you are on Huge, you stay on Huge.</p>
       <label for="mapProvider">Maps app</label>
       <select id="mapProvider">
         <option value="google">Google Maps</option>
@@ -1598,7 +1668,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.18.0';
+      var APP_VERSION = '1.19.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1750,6 +1820,26 @@
         return n;
       }
       applyUiScale(getUiScale());
+      // F142 "Easy read". A SEPARATE switch from text size on purpose: they
+      // compose. Someone already on Huge who turns this on keeps Huge and gains
+      // tap targets, spacing and contrast on top. Stored as its own key so
+      // neither setting can clobber the other.
+      var A11Y_KEY = 'bc_easyread';
+      function getA11y() { return localStorage.getItem(A11Y_KEY) === 'on'; }
+      function applyA11y(on) {
+        if (on) document.documentElement.setAttribute('data-a11y', 'on');
+        else document.documentElement.removeAttribute('data-a11y');
+      }
+      function setA11y(on) {
+        localStorage.setItem(A11Y_KEY, on ? 'on' : 'off');
+        applyA11y(on);
+        // Same reason as the text-size setting: Leaflet caches its container
+        // size and every panel around it just changed.
+        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
+        return on;
+      }
+      applyA11y(getA11y());
+
       // Map provider. Every "open in maps" link in the app funnels through here
       // so one setting really does change all of them — an iPhone birder who
       // navigates with Apple Maps should not be bounced into a Google web page
@@ -6671,39 +6761,98 @@
       // Reports what came back rather than just pass/fail, because "a login
       // page with status 200" is the outcome that would otherwise look like
       // success.
+      // The FIRST probe answered too little. It classified on the first 200
+      // characters, but "<!doctype html><html class=no-js" is the opening of a
+      // login page and of a real life-list page alike, so "HTML, not CSV" could
+      // not tell the two apart - and they need opposite fixes. One means find a
+      // different URL; the other means carry a session.
+      //
+      // What actually decides it: the FINAL url after redirects, and the page
+      // <title>. "Sign in" and "Life List" are unmistakable. So try several
+      // candidate URLs and report what each one really returned.
+      var F8_CANDIDATES = [
+        { label: 'lifelist csv (year, region)', url: 'https://ebird.org/lifelist?r={R}&time=year&fmt=csv' },
+        { label: 'lifelist csv (life, world)',  url: 'https://ebird.org/lifelist?r=world&time=life&fmt=csv' },
+        { label: 'lifelist page (no fmt)',      url: 'https://ebird.org/lifelist?r={R}&time=life' }
+      ];
+
+      function classifyF8(r, body) {
+        var txt = String(body || '');
+        var title = (txt.match(/<title[^>]*>([\s\S]{0,120}?)<\/title>/i) || [, ''])[1]
+          .replace(/\s+/g, ' ').trim();
+        var isHtml = /<html/i.test(txt.slice(0, 400));
+        // Scan the WHOLE body, not the opening tag, which is what the first
+        // probe got wrong.
+        var login = /sign in to ebird|cassso|name="password"|id="input-password"|\/cas\/login/i.test(txt);
+        var lifeish = /life list|species total|Taxonomic Order|checklist/i.test(txt);
+        var csv = !isHtml && /,/.test(txt) && /\n/.test(txt);
+        var verdict = !r.ok ? 'HTTP ' + r.status
+          : csv ? 'CSV \u2705'
+          : login ? 'LOGIN page \u26d4'
+          : isHtml && lifeish ? 'life-list HTML (logged IN, wrong format) \u26a0'
+          : isHtml ? 'other HTML \u26a0'
+          : 'non-HTML, non-CSV \u26a0';
+        return { verdict: verdict, title: title, bytes: txt.length, csv: csv, login: login };
+      }
+
       function probeLifeList() {
         var st = $('lifeProbeStatus');
         var region = (getReport().region || 'US-WA').toUpperCase();
-        var url = 'https://ebird.org/lifelist?r=' + encodeURIComponent(region)
-          + '&time=year&fmt=csv';
+        var lines = [];
         if (st) st.textContent = 'Asking eBird\u2026';
-        dbg('net', 'F8 probe \u00b7 ' + url);
-        return fetch(url, { headers: { 'Accept': 'text/csv,text/html' } })
-          .then(function (r) {
+
+        function one(c) {
+          var url = c.url.replace('{R}', encodeURIComponent(region));
+          dbg('net', 'F8 probe \u00b7 ' + url);
+          // credentials:'include' so that IF a session cookie exists in this
+          // app's jar it is actually sent. Without it the answer is guaranteed
+          // to be "logged out" and tells us nothing.
+          return fetch(url, {
+            credentials: 'include',
+            headers: { 'Accept': 'text/csv,text/html' }
+          }).then(function (r) {
             return r.text().then(function (body) {
-              var head = String(body || '').slice(0, 200).replace(/\s+/g, ' ');
-              var login = /cassso|sign in|password|login/i.test(head);
-              var csv = /,/.test(head) && !/<html/i.test(head);
-              var verdict = !r.ok ? 'HTTP ' + r.status
-                : login ? 'a LOGIN page \u2014 the app has no eBird session, so F8 stays parked'
-                : csv ? 'CSV \u2014 F8 IS UNBLOCKED, the app can read your list directly'
-                : /<html/i.test(head) ? 'HTML, not CSV \u2014 needs a different url or a session'
-                : 'something else';
-              dbg('net', 'F8 probe \u2192 ' + r.status + ' \u00b7 ' + verdict);
-              dbg('net', 'F8 probe body: ' + head.slice(0, 120));
-              if (st) st.textContent = r.status + ' \u00b7 ' + verdict
-                + ' \u00b7 first bytes: ' + head.slice(0, 60);
-              return verdict;
+              var k = classifyF8(r, body);
+              // r.url is the FINAL url. If eBird bounced us to a login host,
+              // this is where it shows, and it is the decisive signal.
+              var landed = (r.url && r.url !== url) ? r.url.replace(/^https?:\/\//, '') : '';
+              lines.push(c.label + ' \u2192 ' + r.status + ' \u00b7 ' + k.verdict
+                + (k.title ? ' \u00b7 "' + k.title + '"' : '')
+                + ' \u00b7 ' + k.bytes + 'B'
+                + (landed ? ' \u00b7 landed on ' + landed : ''));
+              dbg('net', 'F8 \u2192 ' + lines[lines.length - 1]);
+              return k;
             });
-          })
-          .catch(function (e) {
-            // A CORS refusal is itself the answer: the browser blocked it, so
-            // this route needs the in-app browser rather than fetch().
+          }).catch(function (e) {
             var msg = String((e && e.message) || e);
+            lines.push(c.label + ' \u2192 blocked before any response (' + msg + ')');
             dbg('error', 'F8 probe failed \u00b7 ' + msg);
-            if (st) st.textContent = 'Blocked before any response (' + msg
-              + ') \u2014 likely CORS, which means this needs the in-app browser, not fetch.';
+            return { csv: false, login: false, blocked: true };
           });
+        }
+
+        // Sequential, not parallel: three simultaneous hits on ebird.org is
+        // exactly the manners problem the rate limiter exists to avoid.
+        var results = [];
+        return F8_CANDIDATES.reduce(function (chain, c) {
+          return chain.then(function () {
+            return one(c).then(function (k) { results.push(k); });
+          });
+        }, Promise.resolve()).then(function () {
+          var won = results.some(function (k) { return k && k.csv; });
+          var anyLogin = results.some(function (k) { return k && k.login; });
+          var summary = won
+            ? 'F8 IS UNBLOCKED \u2014 one of these returns CSV, so the app can read your list directly.'
+            : anyLogin
+              ? 'Every route wants a LOGIN. The transport works (no CORS block), so the missing piece is a session, not permission.'
+              : 'No CSV and no login page \u2014 the URL is wrong rather than the session.';
+          if (st) {
+            st.textContent = summary + '\n\n' + lines.join('\n');
+            st.style.whiteSpace = 'pre-wrap';
+          }
+          dbg('net', 'F8 verdict \u00b7 ' + summary);
+          return summary;
+        });
       }
 
       function fetchPublicHTML(url) {
@@ -14933,6 +15082,7 @@
         populateReportSelect();
         $('apiKey').value = getKey();
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
+        if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
         if ($('mapProvider')) $('mapProvider').value = getMapProvider();
         syncChaseMi();
         $('reportSelect').value = getReportSlug();
@@ -15464,6 +15614,7 @@
         }).finally(function () { btn.disabled = false; });
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
+      if ($('a11yMode')) $('a11yMode').addEventListener('change', function () { setA11y(this.value === 'on'); });
       // ONE table drives every switch.
       //
       // It used to offer SIX modes across four panels — destinations,

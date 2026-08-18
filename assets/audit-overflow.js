@@ -27,6 +27,10 @@ const WWW = path.join(__dirname, '..', 'www');
 const WIDTH = +(process.argv[2] || 390);
 const HEIGHT = 844;
 const SCALE = process.argv[3] || '1';
+// F142. Easy read at the NARROWEST width is the hardest layout case in the
+// app - 44px tap targets and extra spacing pushed into 320px - so it belongs
+// in the sweep from the first commit rather than after something clips.
+const EASY = String(process.argv[4] || '') === 'easyread';
 
 // Windows dev box and Linux CI runner both have to find a browser. CHROME_BIN
 // wins so a runner can point at whatever it actually installed.
@@ -60,6 +64,7 @@ const BOOTSTRAP = `<script>
     localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_report', 'wa');
     localStorage.setItem('ebird_ui_scale', '__SCALE__');
+    localStorage.setItem('bc_easyread', '__EASY__');
   } catch (e) {}
   var realFetch = window.fetch;
   // Realistic-shaped eBird responses so sections actually RENDER. An empty
@@ -155,6 +160,21 @@ const AUDIT = `<script>
       }
     }
     items.sort(function (a, b) { return b.over - a.over; });
+    // A control that is hard to SEE is also hard to HIT. Measured rather than
+    // asserted in CSS, because a later restyle can shrink a box without ever
+    // touching the rule that promised 44px.
+    var small = [];
+    if (document.documentElement.getAttribute('data-a11y') === 'on') {
+      var tapsel = 'section.panel:not([hidden]) button, section.panel:not([hidden]) select, #navbar button';
+      var taps = document.querySelectorAll(tapsel);
+      for (var t = 0; t < taps.length; t++) {
+        var te = taps[t], tr = te.getBoundingClientRect();
+        if (tr.width === 0 && tr.height === 0) continue;   // not rendered
+        if (tr.height < 43.5 || tr.width < 43.5) {
+          small.push({ sel: chain(te), w: +tr.width.toFixed(1), h: +tr.height.toFixed(1) });
+        }
+      }
+    }
     var vis = document.querySelector('section.panel:not([hidden])');
     return {
       label: label, vw: vw, n: all.length,
@@ -163,7 +183,8 @@ const AUDIT = `<script>
       docScrollW: document.documentElement.scrollWidth,
       bodyScrollW: document.body.scrollWidth,
       over: document.documentElement.scrollWidth - vw,
-      items: items.slice(0, 8)
+      items: items.slice(0, 8),
+      small: small.slice(0, 8)
     };
   }
   function run() {
@@ -224,7 +245,7 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(file).toLowerCase();
   if (ext === '.html') {
     let html = fs.readFileSync(file, 'utf8');
-    html = html.replace(/<head(\s[^>]*)?>/i, (m) => m + BOOTSTRAP.replace('__SCALE__', SCALE));
+    html = html.replace(/<head(\s[^>]*)?>/i, (m) => m + BOOTSTRAP.replace('__SCALE__', SCALE).replace('__EASY__', EASY ? 'on' : 'off'));
     html = html.replace(/<\/body>/i, AUDIT + '</body>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html); return;
@@ -251,11 +272,18 @@ server.listen(0, '127.0.0.1', () => {
     try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
-    console.log('viewport ' + WIDTH + 'px  text scale ' + SCALE + '\n');
+    console.log('viewport ' + WIDTH + 'px  text scale ' + SCALE + (EASY ? '  EASY READ' : '') + '\n');
     report.forEach((r) => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      var tiny = r.small || [];
+      if (tiny.length) {
+        bad++;
+        tiny.forEach(function (it) {
+          console.log('   TAP TARGET ' + it.w + 'x' + it.h + ' < 44px  ' + it.sel);
+        });
+      }
       if (r.over <= 0.5 && !r.items.length) return;
       bad++;
       r.items.forEach((it) => {
@@ -265,7 +293,7 @@ server.listen(0, '127.0.0.1', () => {
       });
       console.log('');
     });
-    if (!bad) console.log('\nnothing overflows at ' + WIDTH + 'px');
+    if (!bad) console.log('\nnothing overflows at ' + WIDTH + 'px' + (EASY ? ', and every tap target clears 44px' : ''));
     process.exit(bad ? 1 : 0);
   };
 
