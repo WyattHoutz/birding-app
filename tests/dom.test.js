@@ -10918,3 +10918,97 @@ test('the county RBA tag is BOTH styled and tap-wired (F128)', () => {
   assert.ok(/color:\s*var\(--link\)/.test(css[1]),
      'it uses the colour-blind-safe link colour, not the green --accent');
 });
+
+test('a hybrid never asks Wikipedia for a title that cannot exist, and a bird never shows a warship (F139)', () => {
+  // MEASURED on device 2026-08-17, v1.11.0. "Graylag x Canada Goose (hybrid)"
+  // spent three requests and resolved to nothing:
+  //     404 Graylag_x_Canada_Goose_(hybrid)
+  //     200 Graylag                     <- USS Graylag, a WWII minesweeper
+  //     404 Graylag_(bird)
+  // eBird ELIDES the shared group word from a hybrid's first parent, so the
+  // fallback was the bare word "Graylag", which Wikipedia answers with a US
+  // Navy vessel as a perfectly ordinary article - type "standard", no "may
+  // refer to" - so neither existing guard rejected it, and summaryFetch caches
+  // the extract against the bird.
+  const m = HTML.match(/var _PHOTO_ADJ[\s\S]*?return out;\s*\}/);
+  assert.ok(m, 'photoNames still exists');
+  const photoNames = new Function('return (function(){ ' + m[0] + ' ; return photoNames; })()')();
+
+  const hy = photoNames('Graylag x Canada Goose (hybrid)');
+  assert.ok(!hy.some(x => /\(hybrid\)/i.test(x)),
+    'a "(hybrid)" title is a guaranteed 404 and must not be requested');
+  assert.strictEqual(hy[0], 'Graylag Goose',
+    'the group word is borrowed back off the second parent, so the first try ' +
+    'resolves to Greylag goose instead of a minesweeper');
+
+  // Only when the first parent is a BARE word. "Muscovy Duck" already names
+  // itself, and borrowing would invent "Muscovy Duck Mallard".
+  assert.ok(!photoNames('Muscovy Duck x Mallard (hybrid)').includes('Muscovy Duck Mallard'),
+    'the group word is not borrowed when the first parent already has one');
+
+  // " x " INSIDE parentheses is a form, not a hybrid, and splitting on it
+  // shreds a name Wikipedia answers perfectly well.
+  const form = 'Northern Flicker (Yellow-shafted x Red-shafted)';
+  assert.strictEqual(photoNames(form)[0], form,
+    'a form containing " x " is still asked for under its own full name');
+
+  // The description filter is what stops the wrong ORDINARY article. Merlin
+  // is "Legendary Welsh wizard"; Graylag is "Minesweeper of the United States
+  // Navy". Both are type "standard".
+  const guard = HTML.match(/if \(j && j\.description &&[\s\S]{0,600}?return null;/);
+  assert.ok(guard, 'summaryFetch still rejects an article whose description is not an organism');
+  const re = guard[0];
+  assert.ok(/\bbird\b/.test(re) && /species/.test(re),
+    'the organism test still accepts "Species of bird"');
+  const accepts = d => new RegExp(re.match(/!\/([^/]+)\//)[1], 'i').test(d);
+  assert.ok(accepts('Species of bird') && accepts('Wading bird found in the Americas'),
+    'real bird descriptions are accepted');
+  assert.ok(!accepts('Minesweeper of the United States Navy') &&
+            !accepts('Legendary Welsh wizard'),
+    'a warship and a wizard are both rejected');
+});
+
+test('two callers wanting the same GBIF url share one request (F140)', async () => {
+  // MEASURED on device 2026-08-17: species/match?name=Anser anser was issued
+  // TWICE in the same millisecond and both completed. The cache is only
+  // written once a response lands, so concurrent callers all miss it - and
+  // cards render in parallel, so they routinely ask the same question.
+  const m = HTML.match(/var _gbifInflight = \{\};\s*function gbifJson\(url\) \{[\s\S]*?\n      \}/);
+  assert.ok(m, 'gbifJson still de-duplicates in-flight requests');
+
+  let calls = 0;
+  const sandbox = {
+    dbg() {},
+    fetch() { calls++; return Promise.resolve({ ok: true, json: () => Promise.resolve({ v: 1 }) }); },
+    Object,
+  };
+  const make = new Function('dbg', 'fetch', 'Object',
+    m[0] + ' ; return gbifJson;');
+  const gbifJson = make(sandbox.dbg, sandbox.fetch, Object);
+
+  const url = 'https://api.gbif.org/v1/species/match?name=Anser%20anser';
+  const [a, b] = await Promise.all([gbifJson(url), gbifJson(url)]);
+  assert.strictEqual(calls, 1, 'the same url asked twice concurrently hit the network once');
+  assert.deepStrictEqual(a, b, 'both callers get the same answer');
+
+  // and the entry must be released, or the cache can never refresh
+  await gbifJson(url);
+  assert.strictEqual(calls, 2, 'a later call is not served from a stale in-flight entry');
+});
+
+test('an empty movement column says WHY it is empty (F125 follow-up)', () => {
+  // Reported about an hour after v1.11.0 shipped: "top 100 was supposed to get
+  // position changes for everyone on the top 100". It does - but eBird
+  // publishes no historical board, so the first snapshot has nothing to be
+  // compared against and no arrow can honestly be drawn until there are two
+  // days. A silently blank column is indistinguishable from a broken feature,
+  // which is the whole reason absence has to explain itself here.
+  assert.ok(/movement starts tomorrow/.test(HTML),
+    'the board says when movement will appear while it has too little history');
+  assert.ok(/snapshot ' \+ bdays \+ ' of the 2 needed/.test(HTML),
+    'it names how many snapshots exist, rather than only that something is missing');
+  const m = HTML.match(/var bdays = \(bhist \|\| \[\]\)\.length;[\s\S]{0,320}?: '';/);
+  assert.ok(m, 'the note is derived from the real history length');
+  assert.ok(/bdays < 2/.test(m[0]),
+    'the note disappears once two days exist, so it cannot become permanent furniture');
+});

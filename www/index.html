@@ -1547,7 +1547,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.11.0';
+      var APP_VERSION = '1.12.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3160,11 +3160,26 @@
       function saveGbifCache() {
         try { localStorage.setItem(GBIF_KEY, JSON.stringify(gbifCache())); } catch (e) {}
       }
+      // Two callers wanting the same URL at the same moment both fetched it,
+      // because the cache is only written once a response lands. MEASURED on
+      // device 2026-08-17: species/match?name=Anser anser was requested twice
+      // in the SAME millisecond and both requests completed. Cards render in
+      // parallel and routinely ask the same question, so share the promise -
+      // the second caller waits on the first rather than repeating it. GBIF is
+      // a free service and this project has no excuse for asking twice.
+      var _gbifInflight = {};
       function gbifJson(url) {
+        if (Object.prototype.hasOwnProperty.call(_gbifInflight, url)) {
+          dbg('net', 'GET(gbif) shared in-flight ' + url);
+          return _gbifInflight[url];
+        }
         dbg('net', 'GET(gbif) ' + url);
-        return fetch(url, { headers: { 'Accept': 'application/json' } })
+        var p = fetch(url, { headers: { 'Accept': 'application/json' } })
           .then(function (r) { return r.ok ? r.json() : null; })
-          .catch(function () { return null; });
+          .catch(function () { return null; })
+          .then(function (j) { delete _gbifInflight[url]; return j; });
+        _gbifInflight[url] = p;
+        return p;
       }
       function facetCounts(j, name) {
         var f = (j && j.facets) || [];
@@ -6119,9 +6134,38 @@
       function photoNames(name) {
         var t = String(name || '').trim(), out = [], seen = {};
         function add(v) { v = String(v || '').trim(); if (v && !seen[v]) { seen[v] = 1; out.push(v); } }
-        add(t);
-        var hy = t.split(/\s+x\s+/i)[0];               // hybrids: keep parent 1
+        // A hybrid title NEVER has an article, so asking is a guaranteed 404.
+        // MEASURED on device 2026-08-17: "Graylag x Canada Goose (hybrid)"
+        // spent three requests and resolved to nothing.
+        // The " x " must be OUTSIDE the parentheses to mean a hybrid. In
+        // "Northern Flicker (Yellow-shafted x Red-shafted)" it is a FORM, and
+        // splitting on it shreds a name that Wikipedia answers perfectly well.
+        var bare = t.replace(/\s*\([^)]*\)/g, ' ').trim();
+        var isHy = /\s+x\s+/i.test(bare) || /\(hybrid\)\s*$/i.test(t);
+        if (!isHy) add(t);
+
+        var parts = (isHy ? bare : t).split(/\s+x\s+/i);
+        var hy = parts[0];
         var base = hy.replace(/\s*\([^)]*\)\s*$/, '');  // drop a trailing (form)
+
+        // eBird ELIDES the shared group word from the first parent, so
+        // "Graylag x Canada Goose" leaves "Graylag" - which is not a bird at
+        // all. Wikipedia answers it with USS Graylag, a WWII minesweeper, as a
+        // normal article that no disambiguation check would reject. Borrow the
+        // group word back off the second parent: "Graylag Goose" resolves
+        // straight to Greylag goose.
+        if (isHy && parts.length > 1) {
+          var p2 = parts[1].replace(/\s*\([^)]*\)\s*$/, '').trim().split(/\s+/);
+          var group = p2[p2.length - 1];
+          // Only when the first parent is a BARE word, which is what tells
+          // us eBird dropped the shared group word. "Muscovy Duck x Mallard"
+          // already names its parent, and borrowing from it would invent
+          // "Muscovy Duck Mallard".
+          if (group && base && base.split(/\s+/).length === 1 &&
+              base.split(/\s+/).indexOf(group) < 0) {
+            add(base + ' ' + group);
+          }
+        }
         add(base);
         if (_PHOTO_ADJ.test(base)) {
           var stripped = base.replace(_PHOTO_ADJ, '');
@@ -6154,6 +6198,17 @@
             // falls through to the next, more specific candidate name.
             if (j && j.type === 'disambiguation') return null;
             if (j && /\bmay refer to\b|\bmay stand for\b/i.test(String(j.extract || ''))) return null;
+            // Neither check above is enough, because the wrong article is
+            // often a perfectly ordinary one. MEASURED 2026-08-17: Merlin is
+            // "Legendary Welsh wizard", Graylag is "Minesweeper of the United
+            // States Navy", and Brant is "Topics referred to by the same term"
+            // - all type "standard", none saying "may refer to". Wikipedia's
+            // short description separates them cleanly, so when there IS one it
+            // has to look like an organism. Absent a description we accept, so
+            // this can only reject on positive evidence of being wrong.
+            if (j && j.description &&
+                !/bird|duck|goose|swan|owl|hawk|gull|tern|finch|warbler|sparrow|heron|species|genus|subspecies|famil(y|ies)|passerine|raptor|waterfowl|shorebird|seabird|wader|animal|avian/i
+                  .test(String(j.description))) return null;
             if (j && j.extract && j.title) {
               var c = infoCache();
               if (!Object.prototype.hasOwnProperty.call(c, title)) {
@@ -10447,8 +10502,20 @@
         out.appendChild(tbl);
         var foot = document.createElement('div');
         foot.className = 'hint';
+        // F125 follow-up: an empty movement column reads as broken, and it is
+        // not - eBird publishes no historical board, so the FIRST snapshot has
+        // nothing to be compared against and no arrow can honestly be drawn
+        // until there are two days. Reported as "top 100 was supposed to get
+        // position changes for everyone", roughly an hour after installing the
+        // release that added it. Absent has to say why it is absent, exactly as
+        // the rank card says which snapshot it is counting from.
+        var bdays = (bhist || []).length;
+        var bnote = bdays < 2
+          ? ' · movement starts tomorrow — eBird publishes no board history, so'
+            + ' today is snapshot ' + bdays + ' of the 2 needed'
+          : '';
         foot.innerHTML = '<a class="ebirdlink" data-href="' + esc(board) + '">View the full leaderboard on eBird</a>' +
-          ' · scraped from eBird Top eBirders, cached daily.';
+          ' · scraped from eBird Top eBirders, cached daily.' + esc(bnote);
         out.appendChild(foot);
       }
 
