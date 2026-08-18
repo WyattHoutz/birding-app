@@ -2149,6 +2149,30 @@
     return (spBox / allBox) / regionRate;
   }
 
+  // A place you cannot actually go is worse than no suggestion at all.
+  //
+  // GBIF's locality is free text straight from the checklist, so the top of any
+  // ranking fills with personal locations: someone's garden ("Birdhaven (Our
+  // residence)"), a street address ("192 Lewallen Road, Port Angeles"), or raw
+  // coordinates where the observer never named the site. Those genuinely ARE
+  // the best places for the bird - and every one of them would send a birder to
+  // a stranger's driveway.
+  //
+  // Matched on shape rather than on a blocklist of names: an address begins
+  // with a house number, and a coordinate is punctuation. Both generalise;
+  // a list of known-bad names would not.
+  function isPublicPlace(name) {
+    var n = String(name || '').trim();
+    if (!n) return false;
+    if (/^\d+[\s,]/.test(n)) return false;                 // "192 Lewallen Road"
+    if (/^-?\d+[.\u00b0]/.test(n)) return false;            // "47.25, -122.9"
+    if (/[\u00b0]\s*\d+['\u2019]/.test(n)) return false;    // "47\u00b015'58\" N"
+    if (/\b(my|our)\b/i.test(n)) return false;             // "Our residence"
+    if (/\b(residence|home|house|yard|garden|backyard|feeders?|patio|balcony|driveway)\b/i.test(n)) return false;
+    if (/\b(private|restricted)\b/i.test(n)) return false;
+    return true;
+  }
+
   function iconicLabel(mult) {
     if (mult === null || mult === undefined) return '';
     if (mult >= 10) return Math.round(mult) + '\u00d7 the regional average';
@@ -2739,6 +2763,7 @@
     gbifBoxWkt: gbifBoxWkt,
     iconicMultiplier: iconicMultiplier,
     iconicLabel: iconicLabel,
+    isPublicPlace: isPublicPlace,
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,

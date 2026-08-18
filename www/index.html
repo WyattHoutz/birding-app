@@ -165,6 +165,14 @@
         transition-duration: .001ms !important; scroll-behavior: auto !important;
       }
     }
+    /* The unwatched tag. Colour alone would be useless here - the whole list
+       is scanned quickly, and red/green is the one pairing that cannot be
+       relied on - so the state is carried by the WORD and a snowflake glyph,
+       with colour doing nothing load-bearing. */
+    .tag { font-size: calc(12px * var(--s)); padding: 2px 8px; border-radius: 999px;
+           border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+    .tag.cold { border-color: #0072B2; color: #0072B2; font-weight: 600; }
+    @media (prefers-color-scheme: dark) { .tag.cold { border-color: #56B4E9; color: #56B4E9; } }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     /* The page may only ever scroll VERTICALLY. A single overflowing box used
@@ -1189,6 +1197,16 @@
         <button id="spLookupBtn" class="secondary">Search</button>
         <button id="spLookupClear" class="secondary" type="button" hidden>✕ Close</button>
       </div>
+      <div class="row">
+        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">🔤 Show bird codes</button>
+      </div>
+      <div class="row" id="spCodesSortRow" hidden>
+        <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
+        <button id="spCodesByCode" class="secondary" type="button" aria-pressed="false">A–Z by code</button>
+        <button id="spCodesByCommon" class="secondary" type="button" aria-pressed="false">Most reported</button>
+      </div>
+      <div id="spCodesStatus" class="status" hidden></div>
+      <ul id="spCodesList" class="obs picklist" hidden></ul>
       <ul id="spLookupFound" class="obs picklist"></ul>
       <div class="row" id="spLookupSortRow" hidden>
         <button id="spLookupByDate" class="secondary" type="button" aria-pressed="true">📅 By date</button>
@@ -1197,6 +1215,7 @@
       <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
       <ul id="spLookupResults" class="obs big xl"></ul>
       <div id="spLookupBest"></div>
+      <div id="spLookupUnwatched"></div>
     </section>
 
     <section class="panel">
@@ -1673,7 +1692,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.21.0';
+      var APP_VERSION = '1.22.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3477,6 +3496,176 @@
           });
         }).catch(function () { return places; });
       }
+      // ---- Iconic but UNWATCHED -------------------------------------------
+      //
+      // Asked for as: "id like to see a list of iconic hotspots for BTGW where
+      // there's a high chance of finding one that may not have been reported on
+      // any checklist, like at a cold hotspot."
+      //
+      // gbifIconic() above cannot answer this, and not by accident: it ANNOTATES
+      // places that recent reports already found, so a site nobody has visited
+      // is invisible to it by construction. The insight in the request is that
+      // **no recent report is not absence of the bird, it is absence of
+      // birders** - and a site with a strong history and a silent present is an
+      // opportunity rather than a dead end.
+      //
+      // So candidates are discovered from GBIF's own locality facet instead of
+      // from the recent feed, then checked AGAINST the recent feed to see which
+      // ones nobody has covered.
+      //
+      // Cost: two GBIF calls plus one eBird call. GBIF is keyless and unmetered,
+      // which is why the expensive half of this runs there - eBird calls are the
+      // scarce resource in this app, not compute.
+      var GBIF_DS = '4fa7b334-ce0d-4e88-aaae-2e0c138d049e';
+
+      function gbifFacet(url, field) {
+        return gbifJson(url).then(function (j) { return facetCounts(j, field); }).catch(function () { return []; });
+      }
+
+      // Season matters more than the all-time total: a site that is superb in
+      // May and empty in August should not be offered in August.
+      function seasonMonths() {
+        var m = new Date().getMonth() + 1, out = [];
+        for (var d = -1; d <= 1; d++) out.push(((m - 1 + d + 12) % 12) + 1);
+        return out;
+      }
+
+      // Whether NOW is even a sensible time to go, which the multipliers cannot
+      // say on their own: a site can be 12x the regional average across the
+      // season and still be the wrong place this week if the bird has left.
+      // Measured on Black-throated Gray Warbler / Washington: May holds 35% of
+      // all records and November holds 0.03%, so "where" without "when" would
+      // send someone out in November on a perfect-looking list.
+      var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+        'August', 'September', 'October', 'November', 'December'];
+      function seasonStanding(sci, stateName) {
+        if (!sci || !stateName) return Promise.resolve(null);
+        return gbifTaxonKey(sci).then(function (key) {
+          if (!key) return null;
+          var occ = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS
+            + '&hasCoordinate=true&taxonKey=' + key
+            + '&country=US&stateProvince=' + encodeURIComponent(stateName);
+          return gbifJson(occ + '&limit=0&facet=month&facetLimit=12').then(function (j) {
+            var counts = facetCounts(j, 'month').map(function (x) { return { m: +x.name, n: x.count }; })
+              .filter(function (x) { return x.m >= 1 && x.m <= 12; });
+            if (!counts.length) return null;
+            var total = counts.reduce(function (a, b) { return a + b.n; }, 0);
+            if (!total) return null;
+            var now = new Date().getMonth() + 1;
+            var here = 0, best = counts[0];
+            counts.forEach(function (c) {
+              if (c.m === now) here = c.n;
+              if (c.n > best.n) best = c;
+            });
+            return {
+              share: here / total, month: MONTH_NAMES[now - 1],
+              peak: MONTH_NAMES[best.m - 1], peakShare: best.n / total,
+              atPeak: best.m === now
+            };
+          });
+        }).catch(function () { return null; });
+      }
+
+      // Is this somewhere a stranger can actually GO?
+      //
+      // The first attempt was name-shape rules - a leading house number,
+      // "yard", "residence". They caught the obvious cases and still left
+      // "Cailley's Retreat", "Belle Center Rd." and "Area Z, Sudden Valley"
+      // sitting at the top, all three private. Guessing from a name was never
+      // going to be sound.
+      //
+      // eBird publishes the answer: ref/hotspot/{region} is the official
+      // directory - 6,843 sites in Washington - and it settles all three
+      // correctly. Matched exactly on name because when someone birds a
+      // HOTSPOT the checklist locality IS the hotspot name, while a personal
+      // location is called whatever the observer felt like. One call, cached
+      // for a day, and other sections already buy this list.
+      // Read from the cache the hotspot sections ALREADY fill, and never fetch.
+      //
+      // The first version called ref/hotspot/{region} itself, and a guard
+      // caught it: this whole feature is required to spend NO eBird quota. That
+      // rule is not fussiness - it is the reason the historical work runs on
+      // GBIF, which is keyless and unmetered, while eBird calls are the scarce
+      // resource the app budgets by the handful. An enrichment that quietly
+      // costs a call is how a budget dies.
+      //
+      // So: if the directory happens to be cached, use it and get the precise
+      // answer. If not, the name rules stand alone and the list is slightly
+      // less clean. Degrading beats overspending, and Closest spots or the
+      // hotspot scan will have warmed it soon enough.
+      function hotspotNameSet(region) {
+        try {
+          var c = JSON.parse(localStorage.getItem(hotspotCacheKey(region)) || 'null');
+          if (!c || !Array.isArray(c.rows) || !c.rows.length) return Promise.resolve(null);
+          var names = {};
+          c.rows.forEach(function (h) {
+            var n = h && (h.locName || h.name);
+            if (n) names[String(n).trim().toLowerCase()] = 1;
+          });
+          return Promise.resolve(names);
+        } catch (e) { return Promise.resolve(null); }
+      }
+      function iconicUnwatched(sci, stateName, seenPlaceNames, opts) {
+        opts = opts || {};
+        var minEffort = opts.minEffort || 200;   // same floor as iconicMultiplier
+        if (!sci || !stateName) return Promise.resolve([]);
+        var hsPromise = hotspotNameSet(getObsRegion());
+        return gbifTaxonKey(sci).then(function (key) {
+          if (!key) return [];
+          var months = seasonMonths().map(function (m) { return '&month=' + m; }).join('');
+          var scope = '&country=US&stateProvince=' + encodeURIComponent(stateName) + months;
+          var occ = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS + '&hasCoordinate=true';
+          var spScope = occ + '&taxonKey=' + key + scope;
+          return Promise.all([
+            gbifFacet(spScope + '&limit=0&facet=locality&facetLimit=60', 'locality'),
+            gbifFacet(occ + scope + '&limit=0&facet=locality&facetLimit=600', 'locality'),
+            gbifCount(spScope + '&limit=0'),
+            gbifCount(occ + scope + '&limit=0'),
+            hsPromise
+          ]).then(function (r) {
+            var spByLoc = r[0], allByLoc = r[1], spRegion = r[2], allRegion = r[3];
+            // null when the directory could not be fetched. In that case the
+            // name rules stand alone rather than the whole list coming back
+            // empty - a degraded answer beats no answer.
+            var hotspotNames = r[4];
+            if (!spRegion || !allRegion || !spByLoc.length) return [];
+            var effort = {};
+            allByLoc.forEach(function (x) { effort[x.name] = x.count; });
+            // eBird locality strings are free text and the same site is spelled
+            // several ways, so this matches loosely rather than exactly - the
+            // question is only "has anyone reported it here lately".
+            var seen = (seenPlaceNames || []).map(function (n) { return String(n || '').toLowerCase(); });
+            var covered = function (loc) {
+              var l = String(loc).toLowerCase();
+              return seen.some(function (n) { return n && (n.indexOf(l) >= 0 || l.indexOf(n) >= 0); });
+            };
+            var out = [];
+            spByLoc.forEach(function (x) {
+              // Somebody's garden is often genuinely the best place for the
+              // bird, and is the one place a stranger must not be sent.
+              if (!BL.isPublicPlace(x.name)) return;
+              if (hotspotNames && !hotspotNames[String(x.name).trim().toLowerCase()]) return;
+              var tot = effort[x.name];
+              if (!tot || tot < minEffort) return;      // a ratio off five checklists is a fiction
+              var mult = BL.iconicMultiplier(x.count, tot, spRegion, allRegion);
+              if (mult === null || mult < 1.5) return;  // only places that actually beat the average
+              out.push({
+                place: x.name, n: x.count, effort: tot, mult: mult,
+                label: BL.iconicLabel(mult), unwatched: !covered(x.name)
+              });
+            });
+            out.sort(function (a, b) {
+              // Unwatched first - that is the whole point of the list - then by
+              // strength. A watched site is still shown, because "others are on
+              // it" is useful too, just not the headline.
+              if (a.unwatched !== b.unwatched) return a.unwatched ? -1 : 1;
+              return b.mult - a.mult;
+            });
+            return out.slice(0, 12);
+          });
+        }).catch(function () { return []; });
+      }
+
       // Pooled across every year GBIF holds: two calls, and more robust than any
       // single year. Measured on Western Kingbird / Washington the per-year
       // arrivals ran Apr 17-23 across seven years, so a pooled answer is a real
@@ -4477,6 +4666,104 @@
         }
       }
 
+      // ---- the code list ---------------------------------------------------
+      //
+      // Asked for as: "i couldnt figured out the code for the black throated
+      // gray warbler, and had to search google for it to find out it was BTYW."
+      //
+      // That is the whole justification. A code you cannot look up is not a
+      // shortcut, it is a quiz - and BTYW is the perfect example of why: the Y
+      // is borrowed from "graY" because BTGW would collide with Black-throated
+      // Green. No amount of thinking about it gets you there.
+      //
+      // BOTH codes are shown, because they are different things and the app
+      // uses both: the eBird species code ("btywar") is what URLs, feeds and
+      // the debug log carry, and the banding code ("BTYW") is what birders say
+      // out loud.
+      var _spCodes = null, _spCodesSort = 'name';
+
+      // "Most reported" is a measured ordering, not a guess: how many of the
+      // region's recent observations name each species. One eBird call, and the
+      // same feed several other sections already pay for.
+      function speciesCommonness(region) {
+        return ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&maxResults=10000')
+          .then(function (rows) {
+            var n = {};
+            (rows || []).forEach(function (r) {
+              if (r && r.speciesCode) n[r.speciesCode] = (n[r.speciesCode] || 0) + 1;
+            });
+            return n;
+          }).catch(function () { return {}; });
+      }
+
+      function renderSpCodes() {
+        var ul = $('spCodesList'), st = $('spCodesStatus');
+        if (!ul || !_spCodes) return;
+        var rows = _spCodes.slice();
+        if (_spCodesSort === 'code') rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code)); });
+        else if (_spCodesSort === 'common') rows.sort(function (a, b) {
+          var d = (b.seen || 0) - (a.seen || 0);
+          return d !== 0 ? d : String(a.name).localeCompare(String(b.name));
+        });
+        else rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+        var h = '';
+        rows.forEach(function (r) {
+          var alpha = String(r.alpha || '').trim().split(' ')[0];
+          h += '<li><span class="pname">' + esc(r.name)
+            + '<span class="pmeta"><code>' + esc(r.code) + '</code>'
+            + (alpha ? ' \u00b7 <strong>' + esc(alpha.toUpperCase()) + '</strong>' : '')
+            + (_spCodesSort === 'common' && r.seen ? ' \u00b7 ' + r.seen + ' reports in 30 days' : '')
+            + '</span></span>'
+            + '<button class="favbtn splook" data-code="' + esc(r.code) + '" data-name="'
+            + esc(r.name) + '" aria-label="Look up ' + esc(r.name) + '">\U0001f4d6</button></li>';
+        });
+        ul.innerHTML = h;
+        ul.hidden = false;
+        if (st) {
+          st.hidden = false;
+          st.innerHTML = rows.length + ' species recorded in ' + esc(getReport().label || getRegion())
+            + '. <strong>Bold</strong> is the 4-letter banding code birders say; <code>lowercase</code> is '
+            + 'the eBird code the app uses. Either one works in the search box \u2014 so do the initials.';
+        }
+      }
+
+      function toggleSpCodes() {
+        var btn = $('spCodesBtn'), ul = $('spCodesList'), st = $('spCodesStatus'), row = $('spCodesSortRow');
+        if (!btn || !ul) return;
+        var open = btn.getAttribute('aria-expanded') === 'true';
+        if (open) {
+          btn.setAttribute('aria-expanded', 'false');
+          btn.textContent = '\U0001f524 Show bird codes';
+          ul.hidden = true; if (st) st.hidden = true; if (row) row.hidden = true;
+          return;
+        }
+        btn.setAttribute('aria-expanded', 'true');
+        btn.textContent = '\U0001f524 Hide bird codes';
+        if (row) row.hidden = false;
+        if (st) { st.hidden = false; st.textContent = 'Loading the species list for this region\u2026'; }
+        var region = getObsRegion();
+        loadSpeciesIndex(region).then(function (rows) {
+          _spCodes = (rows || []).slice();
+          renderSpCodes();
+          // Commonness arrives second and re-sorts only if it is being asked
+          // for - the list is useful immediately without it.
+          speciesCommonness(region).then(function (n) {
+            _spCodes.forEach(function (r) { r.seen = n[r.code] || 0; });
+            if (_spCodesSort === 'common') renderSpCodes();
+          });
+        }).catch(function (e) { if (st) st.textContent = netErr(e); });
+      }
+
+      function setSpCodesSort(mode) {
+        _spCodesSort = mode;
+        [['name', 'spCodesByName'], ['code', 'spCodesByCode'], ['common', 'spCodesByCommon']]
+          .forEach(function (p) {
+            var b = $(p[1]);
+            if (b) b.setAttribute('aria-pressed', p[0] === mode ? 'true' : 'false');
+          });
+        renderSpCodes();
+      }
+
       function runSpeciesLookup() {
         var q = ($('spLookup') || {}).value || '';
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
@@ -4525,6 +4812,11 @@
           if (!recs.length) {
             st.textContent = 'No reports of ' + name + ' in ' + region + ' in the last '
               + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+            // ...and it is exactly when the historical list is worth most. An
+            // empty feed used to end the conversation here, which had it
+            // backwards: nobody reporting a bird is the situation where knowing
+            // where it has always turned up is the only thing left to go on.
+            hydrateUnwatched(code, name, 'spLookupResults', []);
             return;
           }
           var g = buildAllUnseen(recs)[0];
@@ -4538,6 +4830,8 @@
           // slow keyless third party must never hold that up. A GBIF failure
           // simply leaves the block absent.
           hydrateBestPlaces(code, name);
+          hydrateUnwatched(code, name, 'spLookupUnwatched',
+            (g.places || []).map(function (p) { return p.name || p.locName; }));
         }).catch(function (e) { st.textContent = netErr(e); });
       }
 
@@ -4896,6 +5190,57 @@
       //
       // Historical and live stay in separate lines on purpose. GBIF lags about
       // a year, so the two measure different windows and must never be summed.
+      // Renders the unwatched list. Deliberately says what it is NOT: these are
+      // historical odds, not sightings, and presenting them next to live
+      // reports without that line would be the most misleading thing the app
+      // could do - someone would drive out expecting a bird that was last seen
+      // there in 2019.
+      function renderUnwatched(host, name, rows, season) {
+        if (!host) return;
+        if (!rows || !rows.length) { host.innerHTML = ''; return; }
+        var cold = rows.filter(function (r) { return r.unwatched; });
+        var h = '<h3>\u2744\ufe0e Good odds, nobody looking</h3>'
+          + (season ? '<div class="status"><strong>' + (season.atPeak
+                ? 'This is the peak month'
+                : season.share < 0.02
+                  ? 'Poor timing \u2014 ' + esc(season.month) + ' holds only '
+                    + (season.share * 100).toFixed(1) + '% of records'
+                  : esc(season.month) + ' holds ' + (season.share * 100).toFixed(0) + '% of records')
+              + '.</strong> Peak is ' + esc(season.peak) + ' ('
+              + (season.peakShare * 100).toFixed(0) + '%).</div>' : '')
+          + '<div class="status">Places where ' + esc(name) + ' has historically been '
+          + 'well above the regional average for this time of year. '
+          + (cold.length
+              ? '<strong>' + cold.length + '</strong> of these have no report in the current feed \u2014 '
+                + 'which usually means nobody has been, not that the bird has gone.'
+              : 'All of them already have recent reports.')
+          + ' These are <strong>historical odds, not sightings</strong>.</div><ul class="plain">';
+        rows.forEach(function (r) {
+          h += '<li><span class="pname">' + esc(r.place)
+            + '<span class="pmeta">' + esc(r.label) + ' \u00b7 ' + r.n + ' records of '
+            + esc(name) + ' in ' + r.effort + ' here</span></span>'
+            + (r.unwatched
+                ? '<span class="tag cold" title="no report in the current feed">\u2744\ufe0e unwatched</span>'
+                : '<span class="tag" title="already in the current feed">\u2713 reported lately</span>')
+            + '</li>';
+        });
+        host.innerHTML = h + '</ul>';
+      }
+
+      function hydrateUnwatched(code, name, hostId, seenNames) {
+        var host = $(hostId || 'spLookupUnwatched');
+        if (!host) return Promise.resolve();
+        var sci = sciNameFor(code), stateName = BL.stateNameFor(getReport());
+        if (!sci || !stateName) return Promise.resolve();
+        host.innerHTML = '<div class="status">Looking for places with good history and no recent coverage\u2026</div>';
+        return Promise.all([
+          iconicUnwatched(sci, stateName, seenNames || []),
+          seasonStanding(sci, stateName)
+        ]).then(function (r) {
+          renderUnwatched(host, name, r[0], r[1]);
+        }).catch(function () { host.innerHTML = ''; });
+      }
+
       function hydrateBestPlaces(code, name) {
         var host = $('spLookupBest');
         if (!host) return Promise.resolve();
@@ -7332,7 +7677,9 @@
       // the names — in chunks, because the whole region goes in a query string.
       var SPECIES_TTL_MS = 24 * 3600 * 1000;
       var SPECIES_CHUNK = 100;
-      function speciesCacheKey(region) { return 'ebird_species_v1:' + region; }
+      // v2 because the rows now carry banding codes. An old cache would keep
+      // answering "no species found" to a code search until it expired.
+      function speciesCacheKey(region) { return 'ebird_species_v2:' + region; }
       // GBIF's backbone taxonomy does not resolve common names — "White
       // Wagtail" matches nothing — so every GBIF call needs the scientific
       // name. The species index already carries it; this just reads it back
@@ -7367,7 +7714,14 @@
             return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')))
               .then(function (list) {
                 (list || []).forEach(function (t) {
-                  if (t && t.speciesCode && t.comName) rows.push({ code: t.speciesCode, name: t.comName, sci: t.sciName || '' });
+                  // bandingCodes/comNameCodes were being thrown away. eBird sends
+                  // them in the SAME response, so keeping them costs nothing and is
+                  // the difference between "BTYW" working and not.
+                  if (t && t.speciesCode && t.comName) rows.push({
+                    code: t.speciesCode, name: t.comName, sci: t.sciName || '',
+                    alpha: [].concat(t.bandingCodes || [], t.comNameCodes || [])
+                      .join(' ').toLowerCase()
+                  });
                 });
               }).catch(function () {});
           }).then(function () {
@@ -7395,9 +7749,34 @@
         // word breaks, and splitting "tufpuf" into terms would make it match
         // nothing. An exact code sorts to the front, because if you typed a
         // code you know exactly which bird you meant.
+        //
+        // THREE ways to hit by code, because "btgw" returned "no species found"
+        // for a bird the app had all along:
+        //
+        //  1. the eBird code       - "btywar"
+        //  2. the BANDING code     - "BTYW", which eBird sends in the very same
+        //     taxonomy response and the app used to discard
+        //  3. the INITIALS         - "btgw" -> Black Throated Gray Warbler
+        //
+        // The third is there because the official code for Black-throated Gray
+        // Warbler is BTYW (the Y is borrowed from "graY", since BTGW would
+        // collide with Black-throated Green). Nobody remembers that mid-search.
+        // A birder types the initials of the name they are looking at, and the
+        // app should find the bird rather than teach them a banding convention.
+        var flat = t.replace(/[^a-z0-9]+/g, '');
+        var initials = function (name) {
+          return String(name).toLowerCase().split(/[^a-z0-9]+/)
+            .filter(Boolean).map(function (w) { return w.charAt(0); }).join('');
+        };
         var byCode = (rows || []).filter(function (s) {
           var c = String(s.code || '').toLowerCase();
-          return c && c.indexOf(t.replace(/[^a-z0-9]+/g, '')) === 0;
+          if (c && c.indexOf(flat) === 0) return true;
+          var a = String(s.alpha || '');
+          if (a && a.split(' ').some(function (x) { return x && x.indexOf(flat) === 0; })) return true;
+          // Initials only for a short, letters-only query: "black" must stay a
+          // word search, or every four-letter word becomes a code.
+          return flat.length >= 4 && flat.length <= 6 && !/[0-9]/.test(flat)
+            && initials(s.name).indexOf(flat) === 0;
         });
         var exact = {}, out = [];
         byCode.forEach(function (s) {
@@ -15988,6 +16367,10 @@
       $('easyBtn').addEventListener('click', loadEasyMisses);
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
+      if ($('spCodesBtn')) $('spCodesBtn').addEventListener('click', toggleSpCodes);
+      if ($('spCodesByName')) $('spCodesByName').addEventListener('click', function () { setSpCodesSort('name'); });
+      if ($('spCodesByCode')) $('spCodesByCode').addEventListener('click', function () { setSpCodesSort('code'); });
+      if ($('spCodesByCommon')) $('spCodesByCommon').addEventListener('click', function () { setSpCodesSort('common'); });
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
       $('scoutBtn').addEventListener('click', scoutPlaceRun);
       $('scoutClear').addEventListener('click', clearScout);

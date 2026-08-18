@@ -3390,7 +3390,7 @@ test('a species lookup shows how good its places are historically', async () => 
       return null;
     },
     storage: {
-      'ebird_species_v1:US-WA': JSON.stringify({
+      'ebird_species_v2:US-WA': JSON.stringify({
         at: Date.now(),
         rows: [{ code: 'weskin', name: 'Western Kingbird', sci: 'Tyrannus verticalis' }],
       }),
@@ -3431,7 +3431,7 @@ test('the historical block never blocks or breaks the live answer', async () => 
       return null;   // every GBIF call fails
     },
     storage: {
-      'ebird_species_v1:US-WA': JSON.stringify({
+      'ebird_species_v2:US-WA': JSON.stringify({
         at: Date.now(),
         rows: [{ code: 'weskin', name: 'Western Kingbird', sci: 'Tyrannus verticalis' }],
       }),
@@ -6536,7 +6536,7 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
       }
       return null;
     },
-    storage: { ['ebird_species_v1:US-WA']: JSON.stringify({ at: Date.now(), rows: [{ code, name: 'Testable Kingbird', sci: 'Tyrannus testus' }] }) },
+    storage: { ['ebird_species_v2:US-WA']: JSON.stringify({ at: Date.now(), rows: [{ code, name: 'Testable Kingbird', sci: 'Tyrannus testus' }] }) },
   });
   const doc2 = app2.window.document;
   doc2.getElementById('spLookup').value = 'Testable Kingbird';
@@ -6598,7 +6598,7 @@ test('a species with no recent reports says so as a result, not an error', async
       if (/data\/obs\/.*\/recent\//.test(url)) return [];
       return null;
     },
-    storage: { 'ebird_species_v1:US-WA': JSON.stringify({ at: Date.now(), rows: [{ code: 'zzzrare', name: 'Absent Grebe', sci: 'Nullus absentus' }] }) },
+    storage: { 'ebird_species_v2:US-WA': JSON.stringify({ at: Date.now(), rows: [{ code: 'zzzrare', name: 'Absent Grebe', sci: 'Nullus absentus' }] }) },
   });
   const doc = app.window.document;
   doc.getElementById('spLookup').value = 'Absent Grebe';
@@ -6622,7 +6622,7 @@ test('tapping a species in the match list runs the lookup', async () => {
       if (/data\/obs\/.*\/recent\//.test(url)) { hit.push(url); return []; }
       return null;
     },
-    storage: { 'ebird_species_v1:US-WA': JSON.stringify({ at: Date.now(), rows: [
+    storage: { 'ebird_species_v2:US-WA': JSON.stringify({ at: Date.now(), rows: [
       { code: 'sp1', name: 'Marsh Wren', sci: 'A' },
       { code: 'sp2', name: 'Marsh Sandpiper', sci: 'B' },
     ] }) },
@@ -11456,4 +11456,125 @@ test('F2: being blocked is recorded and reported, never silently absorbed', () =
     HTML.indexOf('no eBird block recorded') + 200);
   assert.ok(/wallSeen\(\)/.test(ctx), 'the debug header never reads it');
   assert.ok(/blocked by/.test(ctx), 'the debug header does not say it plainly');
+});
+
+test('species search finds a bird by the letters a birder actually types', () => {
+  // "i searched for btgw in the species lookup and it said no species found."
+  // The bird was in the index the whole time. Three things were wrong: the
+  // eBird code is btywar, the OFFICIAL banding code is BTYW (the Y borrowed
+  // from "graY", because BTGW would collide with Black-throated Green), and
+  // nobody remembers that mid-search. So initials are matched too.
+  const src = HTML.slice(HTML.indexOf('function searchSpecies'),
+    HTML.indexOf('function searchSpecies') + 3600);
+  assert.ok(/s\.alpha/.test(src), 'banding codes are not searched');
+  assert.ok(/initials\(/.test(src), 'initials are not matched, so "btgw" finds nothing');
+
+  // eBird sends the codes in the same taxonomy response; discarding them was
+  // the original fault.
+  assert.ok(/bandingCodes/.test(HTML), 'the index throws the banding codes away');
+  // An old cache would keep answering "no species found" until it expired.
+  assert.ok(/ebird_species_v2:/.test(HTML), 'the cache key was not bumped');
+
+  // Initials must not swallow ordinary word searches: "black" is a word, not a
+  // code, and treating every short query as initials would wreck the search.
+  assert.ok(/flat\.length >= 4 && flat\.length <= 6/.test(src),
+    'initials matching is not bounded to code-length queries');
+});
+
+test('iconic-but-unwatched finds places the recent feed cannot', () => {
+  // "id like to see a list of iconic hotspots for BTGW where there's a high
+  // chance of finding one that may not have been reported on any checklist,
+  // like at a cold hotspot."
+  //
+  // gbifIconic() cannot answer it: it ANNOTATES places the recent feed already
+  // found, so a site nobody has visited is invisible to it by construction.
+  // Candidates therefore come from GBIF's own locality facet.
+  const fn = HTML.slice(HTML.indexOf('function iconicUnwatched'),
+    HTML.indexOf('function iconicUnwatched') + 3600);
+  assert.ok(fn, 'iconicUnwatched not found');
+  assert.ok(/facet=locality/.test(fn), 'candidates are not discovered from GBIF');
+  assert.ok(/unwatched: !covered/.test(fn), 'it never works out which places are uncovered');
+  assert.ok(/a\.unwatched !== b\.unwatched/.test(fn), 'unwatched places are not surfaced first');
+
+  // A ratio off a handful of checklists is a fiction that sends someone on a
+  // two-hour drive - the same trap iconicMultiplier already guards.
+  assert.ok(/minEffort/.test(fn), 'no minimum-effort floor');
+  assert.ok(/BL\.isPublicPlace/.test(fn), 'private gardens are not excluded');
+
+  // Name rules alone were NOT enough: they still left "Cailley's Retreat",
+  // "Belle Center Rd." and "Area Z, Sudden Valley" at the top, all private.
+  // eBird's own hotspot directory settles it, and is the filter that decides.
+  assert.ok(/hotspotNames\[/.test(fn), 'the official hotspot directory is not consulted');
+  assert.ok(/hotspotNames &&/.test(fn),
+    'a directory that failed to load empties the list instead of degrading to the name rules');
+
+  // ...and it must cost NOTHING. The first version fetched the directory
+  // itself, and a guard caught it: the historical work runs on GBIF precisely
+  // because eBird calls are the scarce resource. An enrichment that quietly
+  // spends one is how a budget dies.
+  const hs = HTML.slice(HTML.indexOf('function hotspotNameSet'),
+    HTML.indexOf('function hotspotNameSet') + 900);
+  assert.ok(!/ebird\(|fetch\(/.test(hs),
+    'hotspotNameSet spends an eBird call instead of reading the cache others fill');
+  assert.ok(/hotspotCacheKey/.test(hs), 'it does not reuse the existing hotspot cache');
+
+  // The empty feed is the case this matters MOST in, and it used to end the
+  // conversation.
+  assert.ok(/it is not being seen right now[\s\S]{0,400}?hydrateUnwatched/.test(HTML),
+    'a species with no recent reports still gets no historical list');
+
+  // It must never read as a sighting.
+  assert.ok(/historical odds, not sightings/.test(HTML),
+    'historical odds are not distinguished from live reports');
+});
+
+test('a place you cannot visit is never recommended', () => {
+  // The top of the ranking fills with personal locations, because those really
+  // are the best places for the bird - and every one would send a birder to a
+  // stranger's driveway. Matched on SHAPE (a house number, punctuation) so it
+  // generalises past any blocklist of names.
+  const logic = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+  assert.ok(/function isPublicPlace/.test(logic), 'isPublicPlace not found');
+  for (const [name, want] of [
+    ['Discovery Park', true], ['Marblemount boat launch', true],
+    ['192 Lewallen Road, Port Angeles', false],
+    ['Birdhaven (Our residence)', false],
+    ['Bainbridge Island - Yard - Fletcher Bay Road', false],
+    ['Restoration Point (restricted access)', false],
+  ]) {
+    assert.equal(BL.isPublicPlace(name), want, `${name} classified wrongly`);
+  }
+});
+
+test('the code list can be browsed, because a code you cannot look up is a quiz', () => {
+  // "i couldnt figured out the code for the black throated gray warbler, and
+  // had to search google for it to find out it was BTYW."
+  //
+  // BTYW is the perfect example of why guessing fails: the Y is borrowed from
+  // "graY", because BTGW would collide with Black-throated Green. No amount of
+  // thinking gets you there, so the app has to show the list.
+  assert.ok(/id="spCodesBtn"/.test(HTML), 'no button to show the codes');
+  assert.ok(/id="spCodesList"/.test(HTML), 'nowhere to render them');
+
+  const r = HTML.slice(HTML.indexOf('function renderSpCodes'),
+    HTML.indexOf('function renderSpCodes') + 2200);
+  assert.ok(r, 'renderSpCodes not found');
+  // BOTH codes, because they are different things and the app uses both: the
+  // eBird code is what URLs and the debug log carry, the banding code is what
+  // birders say out loud.
+  assert.ok(/r\.code/.test(r), 'the eBird code is not shown');
+  assert.ok(/r\.alpha/.test(r), 'the banding code is not shown, which is the one that was googled');
+
+  // All three orderings the request asked for.
+  for (const id of ['spCodesByName', 'spCodesByCode', 'spCodesByCommon']) {
+    assert.ok(new RegExp(`id="${id}"`).test(HTML), `${id} is missing`);
+  }
+  // "Most reported" must be MEASURED, not a stand-in for taxonomic order.
+  const c = HTML.slice(HTML.indexOf('function speciesCommonness'),
+    HTML.indexOf('function speciesCommonness') + 700);
+  assert.ok(/data\/obs\//.test(c), 'commonness is not derived from real observations');
+
+  // Tapping a row must run the lookup, or the list is a poster rather than a
+  // control - it reuses the same .splook handler the match list uses.
+  assert.ok(/class="favbtn splook"/.test(r), 'rows are not tappable');
 });
