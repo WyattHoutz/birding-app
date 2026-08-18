@@ -163,6 +163,28 @@ const AUDIT = `<script>
     // A control that is hard to SEE is also hard to HIT. Measured rather than
     // asserted in CSS, because a later restyle can shrink a box without ever
     // touching the rule that promised 44px.
+    // F142, the VoiceOver half. A control whose only content is an emoji is
+    // perfectly legible on screen and useless through a screen reader: "lady
+    // beetle button" instead of "Debug log". Emoji are matched by CODE POINT
+    // range rather than by listing them, so a new icon cannot quietly slip in.
+    var unnamed = [];
+    var EMOJI = /[\u2190-\u2BFF\u2600-\u27BF\uFE0F\u{1F000}-\u{1FAFF}]/gu;
+    var acts = document.querySelectorAll(
+      'section.panel:not([hidden]) button, section.panel:not([hidden]) a[href],'
+      + ' #navbar button, nav a, .toc a');
+    for (var q = 0; q < acts.length; q++) {
+      var ae = acts[q], ar = ae.getBoundingClientRect();
+      if (ar.width === 0 && ar.height === 0) continue;
+      var label = (ae.getAttribute('aria-label') || '').trim();
+      if (label) continue;                       // explicitly named: fine
+      if (ae.getAttribute('aria-hidden') === 'true') continue;
+      var txt = (ae.textContent || '').trim();
+      var stripped = txt.replace(EMOJI, '').replace(/\s+/g, ' ').trim();
+      if (!stripped) {
+        unnamed.push({ sel: chain(ae), saw: txt.slice(0, 24) || '(empty)' });
+      }
+    }
+
     var small = [];
     if (document.documentElement.getAttribute('data-a11y') === 'on') {
       var tapsel = 'section.panel:not([hidden]) button, section.panel:not([hidden]) select, #navbar button';
@@ -184,7 +206,8 @@ const AUDIT = `<script>
       bodyScrollW: document.body.scrollWidth,
       over: document.documentElement.scrollWidth - vw,
       items: items.slice(0, 8),
-      small: small.slice(0, 8)
+      small: small.slice(0, 8),
+      unnamed: unnamed.slice(0, 10)
     };
   }
   function run() {
@@ -277,6 +300,13 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      var nameless = r.unnamed || [];
+      if (nameless.length) {
+        bad++;
+        nameless.forEach(function (it) {
+          console.log('   NO ACCESSIBLE NAME  saw "' + it.saw + '"  ' + it.sel);
+        });
+      }
       var tiny = r.small || [];
       if (tiny.length) {
         bad++;

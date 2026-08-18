@@ -20,3 +20,4 @@ npm-debug.log*
 
 # Scratch files from test runs (npm test > _t.txt)
 _*.txt
+*.verify*
