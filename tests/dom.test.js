@@ -11406,3 +11406,27 @@ test('the in-app browser is looked up by the name it actually registers under', 
   assert.ok(/registered plugins/.test(HTML),
     'a failure does not list what DID register, which is the only clue that matters');
 });
+
+test('the wall probe measures before AND after, and judges by content', () => {
+  // Anubis answers 200 for everything, including its own refusal, so a status
+  // code proves nothing here - the same trap that made the first F8 probe
+  // useless. And a single reading proves nothing either: the claim being
+  // tested is that a browser view CHANGES the outcome, which needs both sides.
+  assert.ok(/id="wallProbeBtn"/.test(HTML), 'no wall probe button');
+  const fn = HTML.slice(HTML.indexOf('function probeWall'),
+    HTML.indexOf('function probeWall') + 4000);
+  assert.ok(fn, 'probeWall not found');
+
+  const v = HTML.slice(HTML.indexOf('function wallVerdict'),
+    HTML.indexOf('function wallFetch'));
+  assert.ok(/anubis_challenge|not a bot/i.test(v), 'it cannot recognise the Anubis page');
+  assert.ok(/cassso/i.test(v), 'it cannot tell a login wall from a bot wall');
+
+  assert.ok(/cache: 'no-store'/.test(HTML),
+    'a cached interstitial would read as a pass or a fail depending on nothing');
+  assert.ok(/before\.verdict/.test(fn) && /a\.verdict/.test(fn),
+    'it does not compare before with after, which is the whole measurement');
+  assert.ok(/openWebView|IB\.open/.test(fn), 'it never opens the browser view');
+  assert.ok(/THROUGH THE WALL/.test(fn), 'it does not say plainly when it works');
+  assert.ok(/ITP/.test(fn), 'it does not name the likely cause when it fails');
+});

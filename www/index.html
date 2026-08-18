@@ -1572,6 +1572,11 @@
       </div>
       <p class="hint" id="lifeProbeStatus">Asks eBird for your life list the way the app would (F8). If this works, the app can stop depending on hand-exported lists.</p>
 
+      <div class="row">
+        <button id="wallProbeBtn" class="secondary" type="button">🧱 Test the Anubis wall</button>
+      </div>
+      <p class="hint" id="wallProbeStatus">Four features (F2, F8, F11, F19) are parked behind eBird's bot wall. It is a <strong>JavaScript</strong> puzzle, so a real browser view solves it automatically — this opens one, then checks whether the app's own requests get through afterwards. Tap it, wait for the page to finish, then close it.</p>
+
       <label style="margin-top:18px">Your data</label>
       <div class="row">
         <button id="scrubBtn" class="secondary" type="button">🧹 Erase all my data</button>
@@ -1668,7 +1673,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.19.1';
+      var APP_VERSION = '1.20.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6793,6 +6798,86 @@
           : isHtml ? 'other HTML \u26a0'
           : 'non-HTML, non-CSV \u26a0';
         return { verdict: verdict, title: title, bytes: txt.length, csv: csv, login: login };
+      }
+
+      // ---- Anubis wall probe -------------------------------------------
+      //
+      // F2, F8, F11 and F19 were all parked on this wall, and the standing note
+      // said "blocked, no way around". The second half was wrong. Anubis is not
+      // an access list, it is a JavaScript proof-of-work - its own page says
+      // "you must enable JavaScript to get past this challenge" - so it is
+      // designed to be passed transparently by a REAL BROWSER. A plain fetch
+      // cannot pass it (it never runs the returned page's JS) and spoofing a
+      // Safari User-Agent changes nothing, because the test is "did you execute
+      // the challenge", not "who do you claim to be".
+      //
+      // The app has had a real browser view all along. So the only question
+      // left is whether the cookie it earns is visible to our fetch, and that
+      // is what this measures. Answering it unblocks four features at once.
+      var WALL_URL = 'https://ebird.org/region/US-WA';
+
+      function wallVerdict(txt) {
+        var t = String(txt || '');
+        if (/anubis_challenge|Making sure you&#39;re not a bot|not a bot!/i.test(t)) return 'ANUBIS';
+        if (/cassso|\/cas\/login/i.test(t)) return 'LOGIN';
+        return 'OPEN';
+      }
+
+      function wallFetch() {
+        // cache:'no-store' matters: a cached copy of the interstitial would
+        // read as a pass or a fail depending on nothing at all.
+        return fetch(WALL_URL, { credentials: 'include', cache: 'no-store' })
+          .then(function (r) {
+            return r.text().then(function (b) {
+              return { status: r.status, bytes: b.length, verdict: wallVerdict(b) };
+            });
+          })
+          .catch(function (e) { return { blocked: String((e && e.message) || e) }; });
+      }
+
+      function probeWall() {
+        var st = $('wallProbeStatus');
+        var say = function (m) { if (st) { st.textContent = m; st.style.whiteSpace = 'pre-wrap'; } dbg('net', 'wall ' + m.split('\n')[0]); };
+        say('Checking what we get WITHOUT the browser view\u2026');
+
+        return wallFetch().then(function (before) {
+          if (before.blocked) { say('Blocked before any response (' + before.blocked + ') \u2014 CORS, so this route needs the browser view for a different reason.'); return; }
+          var IB = ib();
+          if (!IB) {
+            say('Before: ' + before.verdict + ' (' + before.bytes + 'B)\n'
+              + 'No browser view available, so the wall cannot be tested. Registered plugins: '
+              + Object.keys((window.Capacitor && window.Capacitor.Plugins) || {}).join(', '));
+            return;
+          }
+          if (before.verdict === 'OPEN') {
+            say('Before: already OPEN (' + before.bytes + 'B) \u2014 no wall in the way, nothing to defeat.');
+            return;
+          }
+          // Open the real browser view. It runs the challenge JS the way Safari
+          // would, and whatever cookie that earns lands in the shared jar.
+          say('Before: ' + before.verdict + ' (' + before.bytes + 'B)\n'
+            + 'Opening a browser view so it can solve the puzzle. Let it finish, then close it and tap again.');
+          try {
+            if (typeof IB.openWebView === 'function') IB.openWebView({ url: WALL_URL, showReloadButton: true });
+            else if (typeof IB.open === 'function') IB.open({ url: WALL_URL });
+          } catch (e) { say('Could not open the browser view: ' + e); return; }
+
+          // Re-test when the view closes. Falls back to a timer, because not
+          // every plugin build emits the close event.
+          var done = false;
+          var after = function () {
+            if (done) return; done = true;
+            wallFetch().then(function (a) {
+              if (a.blocked) { say('After: blocked (' + a.blocked + ')'); return; }
+              say((a.verdict === 'OPEN'
+                    ? '\u2705 THROUGH THE WALL \u2014 the browser view\u2019s cookie reached our request. F2, F8, F11 and F19 all unpark.'
+                    : '\u26d4 Still ' + a.verdict + ' \u2014 the cookie did not carry over to fetch (ITP blocks cross-origin cookies from capacitor://localhost). The browser view can still be used to SHOW the page.')
+                  + '\nbefore ' + before.verdict + ' ' + before.bytes + 'B \u2192 after ' + a.verdict + ' ' + a.bytes + 'B');
+            });
+          };
+          try { if (typeof IB.addListener === 'function') IB.addListener('closeEvent', after); } catch (e) {}
+          setTimeout(after, 25000);
+        });
       }
 
       function probeLifeList() {
@@ -15637,6 +15722,7 @@
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
       if ($('a11yMode')) $('a11yMode').addEventListener('change', function () { setA11y(this.value === 'on'); });
+      if ($('wallProbeBtn')) $('wallProbeBtn').addEventListener('click', probeWall);
       // ONE table drives every switch.
       //
       // It used to offer SIX modes across four panels — destinations,
