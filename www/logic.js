@@ -2394,6 +2394,42 @@
   // Returns null for a window the history does not cover rather than 0.
   // Absent is not zero — a week with no snapshot a week ago has no answer,
   // and saying "no change" would be inventing one.
+  // ---- F141: the words birders actually use ------------------------------
+  //
+  // Asked for as "id like to include more birder jargon like twitch, spark
+  // bird, lifers, patch". The value is not decoration - it is that these terms
+  // are PRECISE, and using one loosely is worse than plain English because a
+  // misused term marks the author as an outsider more clearly than not using it
+  // at all. Two of the obvious substitutions were rejected on exactly that
+  // ground and are recorded here so they are not re-proposed:
+  //
+  //   * "Top excursions" is NOT a twitch. A twitch is travelling for ONE
+  //     specific rare bird someone else has already found; an excursion is a
+  //     multi-stop route chosen for total species. That is a BIG DAY.
+  //   * A year tick is NOT a lifer. A lifer is first-ever, for life, and My
+  //     year can hold a bird seen a hundred times.
+  //
+  // `where` names the section it belongs to, so the glossary can say where each
+  // word is actually used rather than being a list of trivia.
+  var JARGON = [
+    { term: 'home patch', def: 'The place you bird regularly and know better than anyone else does.', where: 'Your local area' },
+    { term: 'patch tick', def: 'A bird new for your patch - not a lifer, but the one that makes a local birder\u2019s day.', where: 'Your local area' },
+    { term: 'twitch', def: 'To travel for one specific rare bird that somebody else has already found.', where: 'Happening now, rarity reports' },
+    { term: 'self-found', def: 'A rarity you found yourself instead of twitching. Worth more to most birders.', where: 'Rarity reports' },
+    { term: 'mega', def: 'A seriously rare bird - the kind people drive through the night for.', where: 'ABA Code 3+ rarities' },
+    { term: 'stakeout', def: 'A known bird sitting still enough at one spot that you can go and get it.', where: 'Closest spots with unseen birds' },
+    { term: 'tick', def: 'A species added to a list. A year tick counts for the year, not for life.', where: 'Latest ticks, My year' },
+    { term: 'lifer', def: 'A bird seen for the first time ever. Once only, and never again.', where: 'My year, species cards' },
+    { term: 'nemesis bird', def: 'The species everyone else keeps seeing near you and you never do.', where: 'Birds you still need' },
+    { term: 'dip', def: 'To go for a bird and not see it. The risk every chase carries.', where: 'Conditions for chasing' },
+    { term: 'big day', def: 'A day run to see as many species as possible, usually on a planned route.', where: 'Top excursions, Quick outing' },
+    { term: 'fallout', def: 'Weather forcing migrating birds down in numbers, all at once.', where: 'Nightly migration, Migration outlook' },
+    { term: 'vagrant', def: 'A bird well outside its normal range - lost, blown off course, or exploring.', where: 'Rarity reports' },
+    { term: 'armchair tick', def: 'A species you gain because the taxonomists split one bird into two - without seeing anything new.', where: 'My year' },
+    { term: 'spark bird', def: 'The bird that turned you into a birder.', where: 'Your profile' },
+    { term: 'peep', def: 'Any of the small, maddeningly similar Calidris sandpipers.', where: 'Species lookup' }
+  ];
+
   var RANK_WINDOWS = [
     { key: 'day', days: 1, label: '1d' },
     { key: 'week', days: 7, label: '7d' },
@@ -2694,6 +2730,7 @@
     confidenceNote: confidenceNote,
     rankDeltas: rankDeltas,
     RANK_WINDOWS: RANK_WINDOWS,
+    JARGON: JARGON,
     CONF_FRESH_H: CONF_FRESH_H,
     CONF_RECENT_H: CONF_RECENT_H,
     YIELD_MIN_SAMPLE: YIELD_MIN_SAMPLE,

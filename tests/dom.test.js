@@ -10139,7 +10139,12 @@ test('the help section is generated from the notes each section already carries'
   assert.equal([...items].filter((d) => d.open).length, 0, 'every entry starts closed');
   // The manual sits last, after the thing you came in for.
   const groups = [...host.querySelectorAll('.helpgroup')].map((g) => g.textContent);
-  assert.equal(groups[groups.length - 1], 'Your list & the app',
+  // F141 appended a glossary AFTER the manual, deliberately - it is a key
+  // to the words, not a section you can open. So this checks the SECTION
+  // groups, preserving the original intent exactly: the manual is still
+  // the last thing before it.
+  const secGroups = groups.filter((g) => !/glossary/i.test(g));
+  assert.equal(secGroups[secGroups.length - 1], 'Your list & the app',
     'and the group it lives in is the last one');
   app.window.close();
 });
@@ -10900,6 +10905,27 @@ test('the county RBA tag is BOTH styled and tap-wired (F128)', () => {
   const html = HTML;
 
   const tag = html.match(/return '<a class="([^"]*rbalink[^"]*)"/);
+
+  // Reported as "the king rba link is wrong": it went to the region page, which
+  // was the right COUNTY but the wrong PAGE. eBird exposes a per-region alert
+  // at /alert/rba/{regionCode} with no personal subscription id - measured, it
+  // 302s to the Cornell login when signed out rather than 404ing, and the phone
+  // is signed in. A tag that says RBA has to go to the RBA.
+  // Reported as "the king rba link is wrong": it pointed at the region
+  // OVERVIEW, which was the right county but the wrong page. /alert/rba/{code}
+  // is the clean form of the alert itself - confirmed working on device - and
+  // it needs no subscription id, so there is no table to maintain and every
+  // region works rather than the two that happened to be pasted.
+  assert.ok(!/\/rare-birds\?rank=mrec/.test(html),
+    'the region overview url is gone');
+  assert.ok(/alert\/rba\/' \+ encodeURIComponent\(code\)/.test(html),
+    'the RBA tag builds the alert route from the county code itself');
+  assert.ok(!/RBA_SIDS/.test(html),
+    'no hand-maintained sid table - it only ever covered the counties someone ' +
+    'had pasted, and sids are not derivable: King SN35705 and Snohomish ' +
+    'SN35706 are consecutive yet sit 14 apart in eBird region order');
+  assert.ok(/sortBy=obsDt&o=desc/.test(html),
+    'still ordered newest first, which is what was asked for');
   assert.ok(tag, 'countyAlertLink still emits an .rbalink anchor');
 
   // half 1: it must reach a tap handler. .ebirdlink is the one that opens
@@ -11011,4 +11037,78 @@ test('an empty movement column says WHY it is empty (F125 follow-up)', () => {
   assert.ok(m, 'the note is derived from the real history length');
   assert.ok(/bdays < 2/.test(m[0]),
     'the note disappears once two days exist, so it cannot become permanent furniture');
+});
+
+test('the birder glossary is defined once, and says where each word is used (F141)', () => {
+  // Jargon is only usable if it is defined somewhere the reader can reach, and
+  // it is only CORRECT if the definitions are precise. Two obvious swaps were
+  // rejected while writing this and are pinned here so they cannot creep back:
+  // an excursion is a BIG DAY, not a twitch (a twitch is one specific rare bird
+  // someone else found), and a year tick is not a LIFER (first-ever, for life).
+  const J = BL.JARGON;
+  assert.ok(Array.isArray(J) && J.length >= 12, 'the glossary exists and is not a stub');
+
+  for (const j of J) {
+    assert.ok(j.term && j.def && j.where,
+      `every term carries a definition AND where it is used: ${JSON.stringify(j)}`);
+    assert.ok(j.def.length > 20,
+      `"${j.term}" has a real definition rather than a synonym`);
+  }
+  assert.strictEqual(new Set(J.map(j => j.term)).size, J.length, 'no term is listed twice');
+
+  const by = Object.fromEntries(J.map(j => [j.term, j]));
+
+  // The owner's own suggestion, and the best fit in the list.
+  assert.ok(by['home patch'], 'home patch is defined');
+
+  // A twitch is single-target. If this ever points at excursions, the word is
+  // being misused - which reads worse than plain English.
+  assert.ok(/one specific rare bird/i.test(by['twitch'].def),
+    'twitch is still defined as ONE specific bird someone else found');
+  assert.ok(!/excursion/i.test(by['twitch'].where),
+    'twitch is not attached to excursions - that is a big day');
+  assert.ok(/excursion/i.test(by['big day'].where),
+    'big day is the term attached to excursions');
+
+  // A lifer is first-ever. A year tick is not one.
+  assert.ok(/first time ever|for life/i.test(by['lifer'].def),
+    'lifer still means first-ever, for life');
+  assert.ok(/year tick counts for the year, not for life/i.test(by['tick'].def),
+    'tick still distinguishes itself from a lifer');
+
+  // Rendered into the page that already explains the sections, so it costs no
+  // new screen and no new menu tile.
+  assert.ok(/BL\.JARGON/.test(HTML), 'the help page renders the shared glossary');
+  assert.ok(/class="glossitem"/.test(HTML),
+    'a glossary entry carries its OWN class - it looks like a help entry but is ' +
+    'not a section, and counting it as a menu tile broke the per-tile guard');
+  assert.ok(/Used in: ' \+ esc\(j\.where\)/.test(HTML),
+    'each entry says where the word is used, so it is a key to THIS app');
+  assert.ok(/typeof BL !== 'undefined' && BL\.JARGON/.test(HTML),
+    'help still renders if logic.js has not loaded');
+
+  // Terms rejected on purpose: subjective, hostile, or accusing a named person.
+  for (const bad of ['crippler', 'gripped off', 'stringer']) {
+    assert.ok(!by[bad], `"${bad}" stays out of the glossary`);
+  }
+});
+
+test('the state alert is an escape hatch, not another row tag (F128 follow-up)', () => {
+  // The state alert is the SUPERSET of every county one. Tagging each record
+  // with it would fight the chase-radius filtering these sections exist to do -
+  // a WA alert includes Walla Walla, 300 miles away. At the foot of the
+  // section it answers the other question: what did you NOT show me?
+  const m = HTML.match(/function stateAlertLink\(countyCode\)[\s\S]*?\n      \}/);
+  assert.ok(m, 'stateAlertLink exists');
+  const fn = new Function('esc', m[0] + ' ; return stateAlertLink;')(s => String(s));
+
+  // Confirmed working on device: https://ebird.org/alert/rba/US-WA
+  assert.match(fn('US-WA-033'), /ebird\.org\/alert\/rba\/US-WA\?/,
+    'a county code yields its STATE alert - no lookup table, just the code');
+  assert.match(fn('US-KS-045'), /alert\/rba\/US-KS\?/, 'and it is not WA-specific');
+  assert.strictEqual(fn('US-WA'), '', 'a state code has no state above it');
+  assert.strictEqual(fn(''), '', 'and nothing is not a region');
+
+  assert.ok(/Wider than your radius/.test(HTML),
+    'it is offered once per section, framed as what the radius excluded');
 });

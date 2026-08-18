@@ -656,7 +656,11 @@
     .helpgroup { font-size: calc(13px * var(--s)); text-transform: uppercase;
                  letter-spacing: .08em; color: var(--muted); font-weight: 800;
                  margin: 18px 0 6px; }
-    .helpitem { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 8px;
+    /* F141: a glossary entry LOOKS like a help entry but is NOT a section, so
+       it carries its own class - the "one help entry per menu tile" guard
+       caught it counting as a tile the moment it shipped. Shares the selector
+       rather than copying the rule, because a copy is what drifts. */
+    .helpitem, .glossitem { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 8px;
                 background: var(--card); overflow: hidden; }
     .helpitem > summary { cursor: pointer; padding: 11px 13px; display: grid;
                           grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
@@ -1547,7 +1551,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.12.0';
+      var APP_VERSION = '1.13.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3848,6 +3852,9 @@
           }
           var html = rows.length ? rows.map(card).join('')
             : '<div class="status">Nothing rare within ' + chaseMaxMi() + ' mi today.</div>';
+          // F128 follow-up: where to go when the radius filtered something out.
+          var stLink = stateAlertLink(rows.length && rows[0].county);
+          if (stLink) html += '<div class="hint">Wider than your radius: ' + stLink + '</div>';
           if (far.length) {
             // THE ROWS INSIDE HERE GET NO GRID unless they are direct children
             // of a `.obs.card-md` list.
@@ -5940,6 +5947,25 @@
       // "King RBA", not "King County Rare Bird Alert": the row already carries
       // a date, a place, an observer and up to five marks, and RBA is what
       // birders call it.
+      // The state alert is the SUPERSET of every county one, which makes it an
+      // escape hatch rather than another row tag. These sections are filtered
+      // to a chase radius on purpose, so tagging each record with a state-wide
+      // link would fight the filtering the app exists to do - a WA alert
+      // includes Walla Walla, 300 miles away. At the foot of the section it
+      // answers the other question: "what did you not show me?"
+      //
+      // Same /alert/rba/{regionCode} route, and the state code is just the
+      // county code with its last part removed - no new lookup, no new data.
+      function stateAlertLink(countyCode) {
+        var parts = String(countyCode || '').split('-');
+        if (parts.length < 3) return '';
+        var st = parts.slice(0, 2).join('-');
+        return '<a class="ebirdlink rbalink" data-href="https://ebird.org/alert/rba/'
+          + encodeURIComponent(st) + '?sortBy=obsDt&o=desc" title="'
+          + esc('Every rare bird in ' + st + ', including the ones outside your chase radius')
+          + '">' + esc(st + ' state alert') + '</a>';
+      }
+
       function countyAlertLink(rec) {
         var code = rec && rec.county, name = (rec && rec.countyName) || '';
         if (!code) return '';
@@ -5959,8 +5985,32 @@
         // page, and `sortBy=obsDt&o=desc` is the pair the alert page uses. An
         // ignored parameter costs nothing; between them the page is
         // date-ordered, which is what was actually asked for.
-        return '<a class="ebirdlink rbalink" data-href="https://ebird.org/region/'
-          + encodeURIComponent(code) + '/rare-birds?rank=mrec&sortBy=obsDt&o=desc" title="'
+        // CORRECTED 2026-08-17, reported as "the king rba link is wrong".
+        // The note above was wrong: eBird DOES expose a per-region alert
+        // without a personal subscription id, at /alert/rba/{regionCode}.
+        // Measured - US-WA, US-WA-033 and US-WA-061 all resolve to that route
+        // and 302 to the Cornell login when signed out, which is what a real
+        // auth-gated page does rather than a 404. On the phone, where eBird is
+        // already signed in, it lands on that county's actual rare bird alert.
+        // The region page it used to point at was the right COUNTY but the
+        // wrong PAGE, and a tag that says "RBA" should go to the RBA.
+        // CONFIRMED ON DEVICE 2026-08-17: /alert/rba/{regionCode} is the clean
+        // form of the same page, and it needs no subscription id at all - so
+        // there is no hand-maintained table to keep, and it works for every
+        // region eBird supports rather than the two that happened to be pasted.
+        //
+        // The sid form (alert/summary?sid=SN35705) is the INTERNAL spelling.
+        // Those ids are global per region rather than personal, but they are
+        // not derivable: King is SN35705 and Snohomish SN35706 - consecutive -
+        // yet in eBird's own region ordering they sit 14 apart, so the sequence
+        // does not track region. Nor can it be probed, because /alert/summary
+        // redirects to the Cornell login for EVERY sid before validating one,
+        // including SN00001 and SN99999999. The eBird API has no alert endpoint
+        // at all; alerts are web-only. So this route is not a fallback, it is
+        // the answer.
+        var href = 'https://ebird.org/alert/rba/' + encodeURIComponent(code)
+          + '?sortBy=obsDt&o=desc';
+        return '<a class="ebirdlink rbalink" data-href="' + esc(href) + '" title="'
           + esc((name || code) + ' County rare bird alert, most recent first')
           + '">' + esc(label) + '</a>';
       }
@@ -13863,6 +13913,23 @@
                 + '</summary><div class="sectiondoc helpdoc"></div></details>';
             });
           });
+          // F141: the words, at the bottom of the page that already explains the
+          // sections. Jargon is only usable if it is defined somewhere the reader
+          // can reach, and this page exists - so the glossary costs no new screen
+          // and no new menu tile. Each term says WHERE it is used, so it reads as a
+          // key to this app rather than a list of trivia.
+          var jg = (typeof BL !== 'undefined' && BL.JARGON) || [];
+          if (jg.length) {
+            html += '<h3 class="helpgroup">Birder\u2019s glossary</h3>';
+            jg.forEach(function (j) {
+              html += '<details class="glossitem"><summary>'
+                + '<span class="helpglyph">\u2022</span>'
+                + '<span class="helpname">' + esc(j.term) + '</span>'
+                + '<span class="helpone">' + esc(j.def) + '</span>'
+                + '</summary><div class="sectiondoc glossdoc">'
+                + '<p>Used in: ' + esc(j.where) + '</p></div></details>';
+            });
+          }
           host.innerHTML = html || '<p class="hint">No sections apply to this report.</p>';
           // Rendered through the SAME function the ℹ️ dialogs use, so the two
           // cannot say different things about one section.
