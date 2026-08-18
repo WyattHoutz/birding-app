@@ -1496,6 +1496,12 @@
            (ebird_home_, ebird_mig_, ebird_tod_), so a hardcoded list is wrong the
            moment a second region is used and silently leaves data behind — which
            is the one outcome a control called "erase everything" must not have. -->
+      <label style="margin-top:18px">Diagnostics</label>
+      <div class="row">
+        <button id="lifeProbeBtn" class="secondary" type="button">🧪 Test eBird life-list access</button>
+      </div>
+      <p class="hint" id="lifeProbeStatus">Asks eBird for your life list the way the app would (F8). If this works, the app can stop depending on hand-exported lists.</p>
+
       <label style="margin-top:18px">Your data</label>
       <div class="row">
         <button id="scrubBtn" class="secondary" type="button">🧹 Erase all my data</button>
@@ -1592,7 +1598,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.17.2';
+      var APP_VERSION = '1.18.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6654,6 +6660,52 @@
       // device fetch() is routed through CapacitorHttp (native, no CORS), so the
       // app can read exactly what the report reads instead of making the user
       // sign in. The in-app-browser login flow stays as a fallback.
+      // ---- F8 probe -------------------------------------------------------
+      //
+      // The question is whether THIS app, carrying this phone's eBird session,
+      // can read the life list - not whether a laptop can, which is what was
+      // measured when F8 was parked. The device log already shows ebird.org
+      // HTML returning 200 here (top100, region), so the parking may simply
+      // have been measured in the wrong place.
+      //
+      // Reports what came back rather than just pass/fail, because "a login
+      // page with status 200" is the outcome that would otherwise look like
+      // success.
+      function probeLifeList() {
+        var st = $('lifeProbeStatus');
+        var region = (getReport().region || 'US-WA').toUpperCase();
+        var url = 'https://ebird.org/lifelist?r=' + encodeURIComponent(region)
+          + '&time=year&fmt=csv';
+        if (st) st.textContent = 'Asking eBird\u2026';
+        dbg('net', 'F8 probe \u00b7 ' + url);
+        return fetch(url, { headers: { 'Accept': 'text/csv,text/html' } })
+          .then(function (r) {
+            return r.text().then(function (body) {
+              var head = String(body || '').slice(0, 200).replace(/\s+/g, ' ');
+              var login = /cassso|sign in|password|login/i.test(head);
+              var csv = /,/.test(head) && !/<html/i.test(head);
+              var verdict = !r.ok ? 'HTTP ' + r.status
+                : login ? 'a LOGIN page \u2014 the app has no eBird session, so F8 stays parked'
+                : csv ? 'CSV \u2014 F8 IS UNBLOCKED, the app can read your list directly'
+                : /<html/i.test(head) ? 'HTML, not CSV \u2014 needs a different url or a session'
+                : 'something else';
+              dbg('net', 'F8 probe \u2192 ' + r.status + ' \u00b7 ' + verdict);
+              dbg('net', 'F8 probe body: ' + head.slice(0, 120));
+              if (st) st.textContent = r.status + ' \u00b7 ' + verdict
+                + ' \u00b7 first bytes: ' + head.slice(0, 60);
+              return verdict;
+            });
+          })
+          .catch(function (e) {
+            // A CORS refusal is itself the answer: the browser blocked it, so
+            // this route needs the in-app browser rather than fetch().
+            var msg = String((e && e.message) || e);
+            dbg('error', 'F8 probe failed \u00b7 ' + msg);
+            if (st) st.textContent = 'Blocked before any response (' + msg
+              + ') \u2014 likely CORS, which means this needs the in-app browser, not fetch.';
+          });
+      }
+
       function fetchPublicHTML(url) {
         dbg('net', 'GET(html) ' + url);
         return fetch(url, { headers: { 'Accept': 'text/html,application/xhtml+xml' } })
@@ -15894,6 +15946,13 @@
         var p = $('sourcesPanel');
         if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
+      // F8 probe: one tap, and the answer goes to the debug log as well as the
+      // hint, so it can be pasted rather than retyped.
+      (function () {
+        var b = $('lifeProbeBtn');
+        if (b) b.addEventListener('click', function () { probeLifeList(); });
+      })();
+
       $('scrubBtn').addEventListener('click', function () {
         var n = scrubbableKeys().length;
         if (!window.confirm(

@@ -11287,3 +11287,35 @@ test('the seen-list line explains itself, so a disagreement with eBird is diagno
     'the whole block is guarded - a debug header that throws is worse than a ' +
     'vague one');
 });
+
+test('the F8 probe reports WHAT came back, not just pass or fail', () => {
+  // F8 was parked on a measurement taken from a laptop, where ebird.org 302s to
+  // Cornell login. The device log shows this app fetching ebird.org HTML with
+  // 200s, so the question is whether THIS app, carrying THIS phone's session,
+  // can read the life list - and the only way to know is to ask from here.
+  assert.ok(/id="lifeProbeBtn"/.test(HTML), 'there is a button to run it');
+  assert.ok(/function probeLifeList/.test(HTML), 'and something for it to run');
+
+  const fn = HTML.slice(HTML.indexOf('function probeLifeList'),
+    HTML.indexOf('function probeLifeList') + 3000);
+
+  assert.ok(/ebird\.org\/lifelist\?r='/.test(fn),
+    'it asks for the life list, which is the actual question');
+  assert.ok(/getReport\(\)\.region/.test(fn),
+    'for the region in use, not a hardcoded one');
+
+  // "A login page with HTTP 200" is the outcome that would otherwise look like
+  // success, so the verdict has to read the BODY rather than the status.
+  assert.ok(/cassso|sign in|password|login/.test(fn),
+    'it detects a login page, which would arrive as a perfectly happy 200');
+  assert.ok(/F8 IS UNBLOCKED/.test(fn), 'and says so plainly when it works');
+  assert.ok(/stays parked/.test(fn), 'and equally plainly when it does not');
+
+  // A CORS refusal never reaches .then at all, and is itself an answer.
+  assert.ok(/likely CORS/.test(fn),
+    'a block before any response is reported as such, not as a mystery');
+
+  // It must reach the log the owner actually pastes.
+  assert.ok(/dbg\('net', 'F8 probe/.test(fn),
+    'the result goes to the debug log, so it can be pasted rather than retyped');
+});
