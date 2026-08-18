@@ -11383,3 +11383,26 @@ test('reduced motion is honoured app-wide, not on one spinner', () => {
   const rm = HTML.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\*/);
   assert.ok(rm, 'no global prefers-reduced-motion rule');
 });
+
+test('the in-app browser is looked up by the name it actually registers under', () => {
+  // The device reported "InAppBrowser: NOT available" while the plugin was
+  // installed and working. It registers natively as CapgoInAppBrowser;
+  // "InAppBrowser" is only the LEGACY name. Checking the legacy name alone
+  // meant every external link fell back to window.open, and F8's only viable
+  // route - log in once, reuse the session - looked blocked by a missing
+  // dependency that was in fact present.
+  const fn = (HTML.match(/function ib\(\)[\s\S]{0,400}?\n      \}/) || [''])[0];
+  assert.ok(fn, 'ib() not found');
+  assert.ok(/CapgoInAppBrowser/.test(fn), 'the current plugin name is not checked');
+  assert.ok(/\bInAppBrowser\b/.test(fn), 'the legacy name is not checked, so older installs break');
+
+  // The dependency the names have to agree with.
+  assert.ok(/@capgo\/capacitor-inappbrowser/.test(JSON.stringify(PKG.dependencies || {})),
+    'the plugin is not actually a dependency');
+
+  // And the debug line must name WHICH key matched: "NOT available" on its own
+  // is what sent me hunting for a missing package that was already installed.
+  assert.ok(/available as/.test(HTML), 'the debug line does not say which name matched');
+  assert.ok(/registered plugins/.test(HTML),
+    'a failure does not list what DID register, which is the only clue that matters');
+});

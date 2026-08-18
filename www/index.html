@@ -1668,7 +1668,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.19.0';
+      var APP_VERSION = '1.19.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -10074,7 +10074,19 @@
 
       // Capgo InAppBrowser bridge (auto-registered native proxy; may be absent
       // in web preview).
-      function ib() { var c = window.Capacitor; var p = c && c.Plugins && c.Plugins.InAppBrowser; return p || null; }
+      //
+      // BOTH names are checked, and that is not belt-and-braces. The plugin
+      // registers natively as "CapgoInAppBrowser"; "InAppBrowser" is only its
+      // LEGACY name, kept for older installs. Looking for the legacy name alone
+      // made the app report "InAppBrowser: NOT available" on a device that had
+      // the plugin installed and working - so every external link silently fell
+      // back to window.open, and F8's only viable route (log in once, reuse the
+      // session) looked blocked when nothing was blocking it.
+      function ib() {
+        var c = window.Capacitor, p = c && c.Plugins;
+        if (!p) return null;
+        return p.CapgoInAppBrowser || p.InAppBrowser || null;
+      }
       function ibAvail() { return !!ib(); }
       // Open an external URL (maps, eBird "view" links) outside the app. In the
       // installed Capacitor app window.open(url,'_system') is a no-op (that's a
@@ -15337,7 +15349,17 @@
       } catch (e) {}
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
-        try { add('InAppBrowser: ' + (ibAvail() ? 'available' : 'NOT available')); } catch (e) {}
+        // Names the plugin key that matched, not just yes/no. "NOT available"
+        // on its own sent me looking for a missing dependency that was in fact
+        // installed - the app was simply checking the wrong key.
+        try {
+          var _p = (window.Capacitor && window.Capacitor.Plugins) || {};
+          var _which = _p.CapgoInAppBrowser ? 'CapgoInAppBrowser'
+            : _p.InAppBrowser ? 'InAppBrowser (legacy name)' : '';
+          add('InAppBrowser: ' + (_which ? 'available as ' + _which
+            : 'NOT available · registered plugins: '
+              + (Object.keys(_p).join(', ') || 'none')));
+        } catch (e) {}
         // Which location path "📍 Here" will take. On device this must read
         // "native plugin"; "web API only" means the plugin did not register and
         // the request will silently never prompt.
