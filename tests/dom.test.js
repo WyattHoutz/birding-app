@@ -11183,3 +11183,40 @@ test('the first badge is wired, and opening a section ages its news (F134)', () 
   assert.ok(/seenMark\(id, \{ ids: _b\.ids/.test(HTML),
     'showSection marks from the badge it just computed');
 });
+
+test('state records ship as a bundled asset and rank by THIS month (F137)', () => {
+  // The model needs GBIF and decades of history; the phone has neither, and the
+  // app must keep working with no runtime GitHub dependency. So it is computed
+  // offline and bundled - 222 KB for six regions.
+  const fs2 = require('fs');
+  const dir = path.join(WWW, 'state-records');
+  assert.ok(fs2.existsSync(dir), 'the bundled asset directory exists');
+  const files = fs2.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  assert.ok(files.length >= 1, 'at least one region is bundled');
+
+  const doc = JSON.parse(fs2.readFileSync(path.join(dir, 'US-WA.json'), 'utf8'));
+  assert.ok(doc.rows.length > 50, 'Washington has a real list');
+  assert.ok(Array.isArray(doc.window) && doc.window[1] < doc.year,
+    'the training window ENDS before the year being predicted - this year is ' +
+    'what is being forecast, not evidence');
+
+  const r = doc.rows[0];
+  assert.strictEqual(r.p.length, 12, 'twelve monthly probabilities');
+  assert.ok(r.c && r.n && r.s, 'each row carries code, name and status');
+
+  // Ranked by the current month, which is the whole point: rarity is what every
+  // other section already sorts on.
+  assert.ok(/\(r\.p \|\| \[\]\)\[month - 1\]/.test(HTML),
+    'the loader reads THIS month from the probability array');
+  assert.ok(/rows\.sort\(function \(a, b\) \{ return b\.p - a\.p; \}\)/.test(HTML),
+    'and sorts by it');
+
+  // It must never fetch this from the network at runtime.
+  assert.ok(!/api\.gbif\.org[^']*state-record/i.test(HTML),
+    'no runtime GBIF call for state records');
+
+  // Say the hit rate plainly (Q3) - a watchlist that implies forecast accuracy
+  // reads as broken the first month nothing turns up.
+  assert.ok(/watchlist, not a forecast/.test(HTML),
+    'the section admits what it is');
+});

@@ -667,6 +667,18 @@
        it carries its own class - the "one help entry per menu tile" guard
        caught it counting as a tile the moment it shipped. Shares the selector
        rather than copying the rule, because a copy is what drifts. */
+    /* F137: name, why it is plausible, and the odds for THIS month. The
+       percentage is right-aligned so a column of them can be scanned, and it
+       is deliberately not colour-coded - a number that means 'maybe' should
+       not be dressed as a traffic light. */
+    .recrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+              align-items: baseline; }
+    .recname { font-size: calc(15px * var(--s)); font-weight: 600; min-width: 0;
+               overflow-wrap: anywhere; }
+    .recwhy { grid-column: 1; font-size: calc(12px * var(--s)); color: var(--muted);
+              overflow-wrap: anywhere; }
+    .recp { grid-row: 1 / span 2; align-self: center; font-size: calc(15px * var(--s));
+            font-variant-numeric: tabular-nums; color: var(--link); font-weight: 700; }
     .helpitem, .glossitem { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 8px;
                 background: var(--card); overflow: hidden; }
     .helpitem > summary { cursor: pointer; padding: 11px 13px; display: grid;
@@ -1358,6 +1370,12 @@
       <div id="migResults"></div>
     </section>
 
+    <section class="panel" id="recordPanel" hidden>
+      <h2>🏅 Break a state record</h2>
+      <div id="recordStatus" class="status">Megararities that are DUE here — rare enough to be a state record, and not found yet this year.</div>
+      <div id="recordBody"></div>
+    </section>
+
     <section class="panel" id="helpPanel">
       <h2>📘 How each section works</h2>
       <div id="helpStatus" class="status">Every section, what it reads, how it decides, and what it cannot tell you.</div>
@@ -1558,7 +1576,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.15.0';
+      var APP_VERSION = '1.16.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13778,6 +13796,7 @@
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Your list & the app' },
         // LAST, deliberately: a manual is what you reach for after the thing
         // you came in for, not before it.
+        { at: 'recordBody',    label: '🏅 Break a state record', group: 'Rare birds' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Your list & the app' }
       ];
       function menuApplies(m) {
@@ -13827,6 +13846,7 @@
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
         myYearBody: { fn: updateMyYear },
+        recordBody: { fn: loadStateRecords },
         helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
@@ -13909,6 +13929,80 @@
       // the menu itself shows and renders the same notes through the same
       // renderer, which means a new section cannot ship with a help entry that
       // says something different from its own ℹ️ button.
+      // ---- F137: break a state record ---------------------------------------
+      //
+      // Precomputed offline and BUNDLED, never fetched: the model needs GBIF and
+      // decades of history, the phone has neither, and the app must keep working
+      // with no runtime GitHub dependency. scripts/pack_state_records.py builds
+      // these files; 222 KB covers six regions.
+      //
+      // Ranked by THIS MONTH, not by rarity. A 4% annual chance concentrated into
+      // one fortnight is a chase decision; the same number spread over a year is
+      // trivia, and rarity is what every other section already sorts on.
+      var _recCache = {};
+      function stateRecordFile(region) {
+        return 'state-records/' + String(region || '').toUpperCase() + '.json';
+      }
+      function loadStateRecords() {
+        var host = $('recordBody'), st = $('recordStatus');
+        if (!host) return Promise.resolve();
+        var region = (getReport().region || '').toUpperCase();
+        host.innerHTML = '<p class="hint">Loading…</p>';
+        var got = _recCache[region]
+          ? Promise.resolve(_recCache[region])
+          : fetch(stateRecordFile(region)).then(function (r) {
+              return r.ok ? r.json() : null;
+            }).catch(function () { return null; });
+        return got.then(function (doc) {
+          if (!doc || !doc.rows || !doc.rows.length) {
+            // Absent must say WHY. Not every region has been built yet, and that
+            // is a fact about the asset rather than a failure the reader caused.
+            host.innerHTML = '';
+            if (st) st.textContent = 'No state-record list bundled for '
+              + (getReport().label || region || 'this region') + ' yet.';
+            return;
+          }
+          _recCache[region] = doc;
+          var month = new Date().getMonth() + 1;
+          var rows = doc.rows.slice().map(function (r) {
+            var p = (r.p || [])[month - 1] || 0;
+            return { r: r, p: p };
+          }).filter(function (x) { return x.p > 0; });
+          rows.sort(function (a, b) { return b.p - a.p; });
+          var top = rows.slice(0, 25);
+
+          var html = top.map(function (x) {
+            var r = x.r;
+            var yrs = (r.y || []).length;
+            var seen = isSeen(r.c);
+            var peers = (r.pr || []).map(function (q) {
+              return esc(q.r) + ' ' + ((q.y || []).length) + 'yr';
+            }).join(' · ');
+            return '<li class="obs-row recrow">'
+              + '<div class="recname">' + esc(r.n)
+              + (seen ? '' : ' <span class="star">need</span>') + '</div>'
+              + '<div class="recwhy">' + esc(r.s)
+              + (yrs ? ' · ' + yrs + ' year' + (yrs === 1 ? '' : 's') + ' in '
+                      + (doc.window ? doc.window[0] + '–' + doc.window[1] : 'the window')
+                   : ' · never recorded here')
+              + (peers ? ' · nearby: ' + peers : '')
+              + '</div>'
+              + '<div class="recp">' + (x.p * 100).toFixed(1) + '%</div>'
+              + '</li>';
+          }).join('');
+          host.innerHTML = '<ul class="obs">' + html + '</ul>';
+
+          // Say the hit rate plainly (Q3). A watchlist that implies forecast
+          // accuracy reads as broken the first month nothing turns up.
+          if (st) {
+            st.textContent = top.length + ' worth knowing this month, of '
+              + doc.rows.length + ' tracked in ' + (doc.label || region)
+              + ' · roughly 1 in 6 of these turn up within two years — it is a '
+              + 'watchlist, not a forecast · ' + nowTime();
+          }
+        });
+      }
+
       function loadHelp() {
         var host = $('helpBody');
         if (!host) return Promise.resolve();

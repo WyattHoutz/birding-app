@@ -518,6 +518,28 @@
         "It describes how a section is CALCULATED, not what it is showing you today - open the section for that.",
         "A section with no notes yet says so rather than inventing an explanation."
       ]
+    },
+    "recordBody": {
+      "report": null,
+      "summary": "The megararities that are DUE here — rare enough to be a state record, and not found yet this year.",
+      "inputs": [
+        "a bundled list computed offline from GBIF, refreshed on app release",
+        "your region, to choose which list to read",
+        "today's month, to rank by what is plausible NOW"
+      ],
+      "how": [
+        "Counts DISTINCT YEARS a species has been recorded here, never observations — one twitched bird inflates a row count 12-17x, so Terek Sandpiper's 15 Washington 'records' are one bird over two days.",
+        "Uses a 10-year window, because eBird's growth means an all-time count compares eras that are not comparable. Measured: this roughly triples the hit rate and halves the list. Washington's records committee reached the same rule independently — its review list is 'birds with 20 or fewer records in the previous 10-year period'.",
+        "Adds evidence from ecologically similar regions, which is the only way a bird with NO local history can be predicted at all. The Terek found at Stanwood in July 2026 had one prior precedent: Sooke, BC, the same fortnight in 1987.",
+        "Ranks by the odds for THIS MONTH, not by rarity. A 4% annual chance concentrated into one fortnight is a chase decision; spread across a year it is trivia.",
+        "Excludes escaped cagebirds by family, and anything eBird does not treat as a full species."
+      ],
+      "limits": [
+        "It is a WATCHLIST, not a forecast. Roughly one in six listed birds turns up within two years — the rest are the season worth knowing, not a promise.",
+        "It cannot see a bird nobody has ever reported near you. A first record with no precedent anywhere in the region is exactly the case no history can predict.",
+        "The list is bundled and only changes when the app updates, because the model needs decades of data the phone does not have.",
+        "A species rare next door because it is endangered and local, rather than because it wanders, can still slip in."
+      ]
     }
   }
 }

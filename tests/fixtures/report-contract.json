@@ -191,6 +191,13 @@
       "why": "app-only: API key / home / report picker"
     },
     {
+      "at": "recordBody",
+      "label": "🏅 Break a state record",
+      "report": null,
+      "map": null,
+      "why": "app-only (F137): the model needs GBIF and decades of history, so it is computed OFFLINE and shipped as a bundled asset - scripts/pack_state_records.py, 222 KB for six regions. The report could carry the same list, and may later, but it would have to be regenerated to change and this list only moves once a year. Ranked by THIS MONTH rather than by rarity, which is the one thing every other section already sorts on."
+    },
+    {
       "at": "helpBody",
       "label": "📘 How each section works",
       "report": null,
