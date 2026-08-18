@@ -11147,3 +11147,39 @@ test('Happening now is buzz, not the rarities list again (F144)', () => {
     'the crowd gate has not been raised ahead of the F124 unification');
 });
 
+test('the first badge is wired, and opening a section ages its news (F134)', () => {
+  // The mechanism shipped in v1.13.0 with an EMPTY registry, so it was live
+  // but inert - nothing badged, and nothing called seenMark, which meant every
+  // badge would have read "0 new" forever. This is the line that turns it on.
+  const m = HTML.match(/MENU_BADGES\.abaBtn = function \(id\) \{[\s\S]*?\n      \};/);
+  assert.ok(m, 'the ABA badge entry exists');
+  const fn = new Function('newSince', 'localStorage',
+    'var MENU_BADGES = {};' + m[0] + ' return MENU_BADGES.abaBtn;');
+
+  const store = (v) => ({ getItem: () => v });
+
+  // Unknown is not zero. Nothing cached yet must show NO badge rather than a 0.
+  assert.strictEqual(fn(() => 0, store(null))('abaBtn'), null,
+    'an empty archive yields no badge at all');
+  assert.strictEqual(fn(() => 0, store('not json'))('abaBtn'), null,
+    'and unreadable storage degrades to no badge, never an exception');
+
+  // Species codes come off the archive KEY, so the badge needs nothing about
+  // the record shape.
+  const arc = JSON.stringify({ 'US-WA': { 'tersan|S1': {}, 'wantat1|S2': {}, 'tersan|S3': {} } });
+  const withNew = fn((id, ids) => ids.length, store(arc))('abaBtn');
+  assert.deepStrictEqual(withNew.ids.sort(), ['tersan', 'wantat1'],
+    'two distinct species from three archive rows - deduplicated by code');
+  assert.strictEqual(withNew.kind, 'new');
+
+  // Nothing new still returns the ids, because showSection marks from them.
+  const none = fn(() => 0, store(arc))('abaBtn');
+  assert.strictEqual(none.n, 0, 'no news, no badge drawn');
+  assert.ok(none.ids.length, 'but the ids are still returned, so opening the ' +
+    'section can mark them as seen');
+
+  // And the marker must read the badge's OWN ids, not a second lookup, or the
+  // two drift and the badge sticks forever.
+  assert.ok(/seenMark\(id, \{ ids: _b\.ids/.test(HTML),
+    'showSection marks from the badge it just computed');
+});

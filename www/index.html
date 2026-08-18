@@ -1558,7 +1558,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.14.0';
+      var APP_VERSION = '1.15.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14356,6 +14356,30 @@
       // "nothing to say", which is the common case and must stay cheap.
       var MENU_BADGES = {};
 
+      // The first entry, and the strongest signal available: a species NEW to
+      // the ABA rarity list. Reads the archive straight out of storage rather
+      // than through abaArchive(), so it cannot break on scope, and keys off
+      // the archive key itself - "{speciesCode}|{subId}" - so it needs nothing
+      // about the record shape either.
+      MENU_BADGES.abaBtn = function (id) {
+        var arc;
+        try { arc = JSON.parse(localStorage.getItem('ebird_aba_archive_v1') || '{}'); }
+        catch (e) { return null; }
+        if (!arc || typeof arc !== 'object') return null;
+        var seen = {}, ids = [];
+        Object.keys(arc).forEach(function (region) {
+          Object.keys(arc[region] || {}).forEach(function (k) {
+            var code = String(k).split('|')[0];
+            if (code && !seen[code]) { seen[code] = 1; ids.push(code); }
+          });
+        });
+        // Nothing cached yet is NOT "nothing new" - it is "not known", and an
+        // unknown value must show no badge at all rather than a zero.
+        if (!ids.length) return null;
+        var n = newSince(id, ids);
+        return n ? { n: n, kind: 'new', ids: ids } : { n: 0, ids: ids };
+      };
+
       // Count how many ids in `now` are absent from the last-seen list. This is
       // the shape almost every badge wants: not "how many are there" but "how
       // many are there that were not there before".
@@ -14417,6 +14441,16 @@
         // Everything fetched from here on is this section's cost.
         var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
         costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
+        // F134: opening a section is what makes its news old. Placed AFTER
+        // costEnter, because cost attribution must stay the first thing that
+        // happens here - marking a badge seen is bookkeeping, not a claim on
+        // what the next fetch belongs to. Marked from the badge's OWN id list,
+        // never a second read, or the marker and the counter drift and the
+        // badge sticks forever.
+        try {
+          var _b = menuBadge(id);
+          if (_b && _b.ids) { seenMark(id, { ids: _b.ids, at: Date.now() }); }
+        } catch (e) {}
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
         var menu = $('menuPanel'); if (menu) menu.hidden = true;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
