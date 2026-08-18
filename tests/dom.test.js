@@ -11112,3 +11112,38 @@ test('the state alert is an escape hatch, not another row tag (F128 follow-up)',
   assert.ok(/Wider than your radius/.test(HTML),
     'it is offered once per section, framed as what the radius excluded');
 });
+
+test('Happening now is buzz, not the rarities list again (F144)', () => {
+  // Reported from device use: "the birds you need reported near you in the
+  // happening now isnt notable enough ... i dont want to repeat rarities list
+  // ... this should be a list of birds that are getting particular attention
+  // but didnt make the aba list like the wandering tattler."
+  //
+  // The section's own subtitle already said "Birds a crowd is chasing", so the
+  // intent was right - the overlap was not.
+  const src = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+
+  // The filter must live INSIDE surgeEvents and key on the field that function
+  // actually uses. A first attempt put it in annotateDistance, where `skip` did
+  // not exist, and took ten tests down with a ReferenceError - so this pins
+  // both the location and the key.
+  const fn = src.slice(src.indexOf('function surgeEvents'));
+  assert.ok(/var skip = \{\};/.test(fn), 'surgeEvents builds an exclusion set');
+  assert.ok(/opts\.excludeCodes/.test(fn), 'it reads excludeCodes from opts');
+  assert.ok(/if \(skip\[r\.code\]\) return;/.test(fn),
+    'and skips on r.code - the field surgeEvents keys on, not speciesCode');
+
+  // And it must actually be PASSED, or the parameter is decoration.
+  assert.ok(/excludeCodes: rareCodes/.test(HTML),
+    'Happening now passes the exclusion');
+  assert.ok(/r\.kind === 'Rarity'/.test(HTML),
+    'derived from rows the merged set already marks as Rarity, so it costs no ' +
+    'extra data');
+
+  // The gate stays at 4 until F124 is unified: moving it while surge counts
+  // NAMES and chase confidence counts EVENTS relocates the inconsistency, and
+  // it shifted ten stored fixtures as a side effect rather than a decision.
+  assert.strictEqual(BL.SURGE.MIN_OBSERVERS, 4,
+    'the crowd gate has not been raised ahead of the F124 unification');
+});
+

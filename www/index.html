@@ -1558,7 +1558,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.13.0';
+      var APP_VERSION = '1.14.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13012,7 +13012,18 @@
         var pEvents = getChase().then(function (res) {
           if (!res.cv) return [];
           _merged = res.cv.merged || [];
-          return BL.surgeEvents(res.cv.merged, { now: now, seen: getReportSeen() });
+          // F144: "i dont want to repeat rarities list ... this should be a
+          // list of birds that are getting particular attention but didnt make
+          // the aba list like the wandering tattler." The merged set already
+          // marks notable rows as kind 'Rarity', so this costs nothing and
+          // needs no extra data: anything the rarity feeds flag belongs to
+          // those sections, and what is left is the buzz nobody else reports.
+          var rareCodes = (res.cv.merged || [])
+            .filter(function (r) { return r && r.kind === 'Rarity'; })
+            .map(function (r) { return r.code; });
+          return BL.surgeEvents(res.cv.merged, {
+            now: now, seen: getReportSeen(), excludeCodes: rareCodes
+          });
         }).catch(function () { return []; });
         var rr = rankPrimaryRegion();
         var pCascades = Promise.all([

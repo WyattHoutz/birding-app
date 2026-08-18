@@ -888,6 +888,15 @@
   var SURGE = {
     WINDOW_H: 36,          // "now" — long enough to survive an overnight gap
     BASELINE_DAYS: 14,     // what "normal" means for this species here
+    // STAYS AT 4 FOR NOW, deliberately. The owner wants 5+ ("isnt notable
+    // enough", and four people is a coincidence rather than a crowd) - but
+    // F144 says to settle F124 first, and it is right: surge counts distinct
+    // NAMES while chase confidence counts EVENTS, so moving this gate while
+    // the two rules still disagree just relocates the inconsistency. Q7 chose
+    // one algorithm with two readings; the gate rises when that lands, and
+    // the fixtures move with it in one deliberate step rather than as a
+    // side effect. The de-duplication below is most of the fix and needs
+    // none of that.
     MIN_OBSERVERS: 4,      // crowd gate
     MIN_RATIO: 4,          // ...and it must be well above normal
     NOVEL_OBSERVERS: 2,    // novelty gate: nothing else in the window
@@ -934,9 +943,19 @@
     var hotFrom = now - cfg.WINDOW_H * 3600 * 1000;
     var baseFrom = now - cfg.BASELINE_DAYS * 86400 * 1000;
 
+    // F144: this must not repeat the rarities list. "i dont want to repeat
+    // rarities list ... this should be a list of birds that are getting
+    // particular attention but didnt make the aba list like the wandering
+    // tattler." Anything the notable feeds already flag belongs to those
+    // sections; what is left is the buzz nobody else is reporting, which is
+    // the point of the section and most of the fix.
+    var skip = {};
+    (opts.excludeCodes || []).forEach(function (c) { if (c) skip[c] = 1; });
+
     var byCode = {}, order = [], earliest = Infinity;
     (records || []).forEach(function (r) {
       if (!r || !r.code) return;
+      if (skip[r.code]) return;          // F144: not the rarities list again
       var t = recTime(r);
       if (!isFinite(t) || t < baseFrom || t > now + 86400000) return;
       if (t < earliest) earliest = t;
