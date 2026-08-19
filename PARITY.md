@@ -193,6 +193,19 @@ flag, so Today's rarities, Last 7-Days and the surge detectors are all blind to
 it — yet there is one hotspot where it is an order of magnitude more likely than
 the region at large.
 
+**`isPublicPlace` is app-only, deliberately.** It decides whether a locality is
+somewhere a stranger can actually go — rejecting street addresses, raw
+coordinates and *"Our residence"* — so that a recommendation never sends a birder
+to a private garden. The report has no equivalent and needs none: it never
+recommends a place from a free-text GBIF locality, because its place list comes
+from eBird hotspots that are public by definition. Building a Python twin would
+be a rule with no caller, which is the exact failure recorded below.
+
+It is also **not the authority**. Name-shape rules alone still left *"Cailley's
+Retreat"*, *"Belle Center Rd."* and *"Area Z, Sudden Valley"* at the top of a
+list, all three private; eBird's own hotspot directory settles them. The
+directory decides, and this is the cheap first pass for when it is not cached.
+
 **The engine for this already existed.** `BirdLogic.iconicMultiplier`,
 `iconicLabel`, `arrivalDay`, `gbifBoxWkt`, plus the GBIF callers `gbifIconic`,
 `gbifArrival`, `gbifBoxTotal` and `gbifRegionTotal` — all built and **wired to
