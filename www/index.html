@@ -1173,7 +1173,7 @@
 
   <main>
     <section class="panel">
-      <h2>🌅 Today’s rarity reports <span class="dim" id="regionLabel"></span></h2>
+      <h2>🌅 Twitches today <span class="dim" id="regionLabel"></span></h2>
       <div class="row">
         <button id="refreshBtn">Refresh</button>
       </div>
@@ -1231,7 +1231,20 @@
       <div id="spLookupUnwatched"></div>
     </section>
 
-    <section class="panel">
+    <!-- No menu tile any more: "i don't like that there are two menus for the
+         identical behavior", and looking a place up already lives inside
+         🚶 Find local patches, which has its own place box.
+
+         HIDDEN rather than deleted, and that is a deliberate halfway house: the
+         markup is still the target of scoutGroups, scoutStatus and the clear
+         handler, so ripping it out tonight would be a wide change made late.
+         It is unreachable, which is what was asked for; removing the code
+         behind it is a separate, safer job.
+
+         Hidden MATTERS mechanically too: a section with no menu entry is not
+         managed by showSection, so without this it sat permanently open and
+         the app booted with a panel already showing. Three guards caught it. -->
+    <section class="panel" hidden>
       <h2>🧭 Look up a place <span class="dim" id="scoutRegionLabel"></span></h2>
       <div class="row">
         <input id="scoutPlace" type="search" placeholder="Yakima, Nisqually, or &ldquo;lat, lng&rdquo;&hellip;" autocomplete="off" />
@@ -1371,7 +1384,7 @@
     </section>
 
     <section class="panel">
-      <h2>🚨 Last 7-Days rarity reports <span class="dim" id="activeRegionLabel"></span></h2>
+      <h2>🚨 Twitches this week <span class="dim" id="activeRegionLabel"></span></h2>
       <div class="row">
         <button id="activeBtn">Load rarity reports</button>
       </div>
@@ -5024,11 +5037,18 @@
           + 'being reported around it.';
       }
       var _scoutRun = 0;
+      // Set when the scouted place is outside the active region. The unseen
+      // marks are the only thing that is actually wrong there, so it is the
+      // only thing suppressed.
+      var _scoutAway = false;
       function renderScout(data, partial) {
         var host = $('scoutResults'), st = $('scoutStatus');
         if (!host || !data) return;
         var groups = BL.scoutGroups(data.rows, {
-          seen: getReportSeen(), at: { lat: data.lat, lng: data.lng },
+          // Out of region the seen list is the WRONG list, so no list is passed
+          // rather than a misleading one. Everything else here - the sightings,
+          // the hotspots, the distances - is geographic and travels fine.
+          seen: _scoutAway ? {} : getReportSeen(), at: { lat: data.lat, lng: data.lng },
           distFn: haversineMi
         });
         var needs = groups.filter(function (g) { return g.need; });
@@ -5104,32 +5124,56 @@
         st.textContent = 'Finding “' + q + '”…';
         geocodePlace(q).then(function (place) {
           if (!alive()) return;
-          // CROSS-REGION IS THE REAL RISK HERE, and it is a silent one.
+          // OUT OF REGION: suppress the wrong thing, offer the switch only when
+          // there IS one.
           //
-          // "i have concerns about this being a cross region feature, that ive
-          // already discussed eliminating tier 3 searches."
+          // Asked: should searching a place outside the region prompt you to
+          // switch regions first? Checked rather than assumed, and I think the
+          // answer is NO as a default - though the instinct behind it is right.
           //
-          // The feeds this reads are geographic and work anywhere, so the
-          // search LOOKS fine in another state. What does not travel is
-          // everything the app compares against: the seen list, the year list
-          // and the unseen marks are all per-region. Scout a place in Oregon
-          // while the region is Washington and every "you need this" is
-          // computed from the wrong list - confidently, and with nothing on
-          // screen to say so.
+          // Three reasons, in order of how much they weigh:
           //
-          // It is not blocked, because looking over the border before a trip is
-          // a real thing to want. It is LABELLED, so the answer is never read
-          // as something it is not.
+          //  1. THE PROMPT OFTEN HAS NOWHERE TO GO. The app has Washington,
+          //     Missouri, Kansas, Arizona, California, Hawaii, Lower 48 and ABA.
+          //     There is no Oregon - so "Bend, Oregon", the example that raised
+          //     this, would offer a switch to a region that does not exist. A
+          //     prompt you cannot act on is worse than a label.
+          //  2. SWITCHING IS EXPENSIVE. It re-seeds the species index, the
+          //     hotspot directory and the GBIF caches. That is a heavy hammer
+          //     for "let me look at somewhere before a trip".
+          //  3. LOOKING ACROSS THE BORDER IS THE POINT. Scouting is what you do
+          //     BEFORE you go, while your list is still the one at home.
+          //
+          // What is actually wrong out of region is narrower than the region:
+          // the sightings are real and the hotspots are real, but "you need
+          // this" is judged against the wrong list. So suppress exactly that,
+          // say where you are, and offer the switch only when a configured
+          // region matches.
           var homeState = BL.stateNameFor(getReport()) || '';
           var away = place.state && homeState
             && String(place.state).toLowerCase() !== String(homeState).toLowerCase();
+          _scoutAway = !!away;
           st.textContent = 'Reading what is being reported around ' + place.label + ' \u2014 3 calls\u2026';
           if (away) {
+            var target = null;
+            try {
+              target = (BL.reportsForState ? BL.reportsForState(place.state) : []) [0] || null;
+            } catch (e) {}
             var w = $('scoutResults');
-            if (w) w.innerHTML = '<p class="hint"><strong>\u26a0 ' + esc(place.state)
-              + ' is outside ' + esc(homeState) + '.</strong> The sightings below are real, '
-              + 'but anything marked as needed is judged against your <em>' + esc(homeState)
-              + '</em> list \u2014 so treat the \u201cyou need this\u201d marks as a rough guide, not a target list.</p>';
+            if (w) {
+              w.innerHTML = '<p class="hint"><strong>' + esc(place.state) + ' is outside '
+                + esc(homeState) + '.</strong> The sightings and hotspots below are real. '
+                + 'What is hidden is the \u201cyou still need this\u201d marking, because that is '
+                + 'judged against your ' + esc(homeState) + ' list and would be wrong here.'
+                + (target
+                    ? ' <button type="button" class="secondary" id="scoutSwitch" data-slug="'
+                      + esc(target.slug) + '">Switch to ' + esc(target.label) + '</button>'
+                    : ' <button type="button" class="secondary" id="scoutCreate" data-label="'
+                      + esc(place.state) + '" data-lat="' + place.lat + '" data-lng="' + place.lng
+                      + '">Add ' + esc(place.state) + ' as a region…</button>'
+                    + ' <span class="dim">a new region takes a moment to initialise</span>')
+                + '</p>';
+            }
           }
           var p = { lat: BL.round4(place.lat), lng: BL.round4(place.lng),
                     dist: SCOUT_DIST_KM, back: SCOUT_BACK_D, detail: 'full' };
@@ -6409,7 +6453,41 @@
           .then(function (j) {
             var f = (j && j.features) || [];
             if (!f.length) throw new Error('No match for "' + q + '".');
-            var top = f[0], c = (top.geometry && top.geometry.coordinates) || [];
+            var top = f[0];
+            // PREFER THE ONE IN YOUR REGION when the name is ambiguous.
+            //
+            // "if its redmond, it should pick redmond wa not redmond oregon
+            // automatically, same with vancouver wa vs vancouver bc."
+            //
+            // Measured: Photon returns four Springfields (MA, IL, MO, OR) for a
+            // bare "Springfield", ordered by its own relevance and NOT by the
+            // lat/lon bias in any useful way. So the bias is not enough - the
+            // region has to be applied as a preference explicitly.
+            //
+            // A PREFERENCE, never a filter. Someone who types "Bend, Oregon"
+            // gets Bend, Oregon; the in-region match only wins when the names
+            // are equally good, which is exactly the ambiguous case.
+            var feats = (j.features || []).filter(function (f) {
+              var c = (f.geometry || {}).coordinates || [];
+              return isFinite(c[0]) && isFinite(c[1]);
+            });
+            var want = (BL.stateNameFor(getReport()) || '').toLowerCase();
+            if (want && feats.length > 1) {
+              var best = String(((feats[0].properties || {}).name || '')).toLowerCase();
+              for (var fi = 0; fi < feats.length; fi++) {
+                var fp = feats[fi].properties || {};
+                // Only among results whose NAME matches the top hit - otherwise
+                // "Bend" would quietly become some unrelated Washington street.
+                if (String(fp.name || '').toLowerCase() !== best) continue;
+                if (String(fp.state || '').toLowerCase() === want) { top = feats[fi]; break; }
+              }
+            }
+            // Coordinates are read AFTER the choice, not before: the first
+            // version picked the region match and then kept the FIRST hit's
+            // lat/lon, which would have sent you to Redmond, Oregon under a
+            // label reading "Redmond, Washington" - a wrong answer wearing a
+            // right one's name, which is worse than an obviously wrong one.
+            var c = (top.geometry && top.geometry.coordinates) || [];
             var lo = parseFloat(c[0]), la = parseFloat(c[1]);
             if (!(isFinite(la) && isFinite(lo))) throw new Error('Geocoder returned no coordinates.');
             var p = top.properties || {};
@@ -14600,8 +14678,8 @@
         quickBtn:      'Nearby spots worth working regularly',
         targetsBtn:    'Closest birds you have not seen',
         spLookupBtn:   'Pick a bird, find where to wait for it',
-        refreshBtn:    'Unusual birds reported today',
-        activeBtn:     'Unusual birds from the past week',
+        refreshBtn:    'Rare birds reported today, worth dropping things for',
+        activeBtn:     'Rare birds from the past week',
         abaBtn:        'The rarest birds in North America',
         lastNewBtn:    'Newest birds on the leaderboard',
         hotBtn:        'Places busier than usual',
@@ -14663,8 +14741,8 @@
         // it left "Birds you still need".
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
         { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
-        { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo', group: 'Rare birds' },
-        { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports', group: 'Rare birds' },
+        { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Rare birds' },
+        { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Rare birds' },
         { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo', group: 'Rare birds' },
         { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
         { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county', group: 'Hotspots & birders' },
@@ -16574,6 +16652,62 @@
       });
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
       $('scoutBtn').addEventListener('click', scoutPlaceRun);
+      // Offered only when a configured region exists for that state - checked
+      // in BL.reportsForState, which returns nothing for Oregon and BC.
+      if ($('scoutResults')) $('scoutResults').addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('#scoutSwitch');
+        if (!b) return;
+        ev.preventDefault();
+        var slug = b.getAttribute('data-slug');
+        if (slug) setActiveReport(slug);
+      });
+      // "if the region doesnt exist, it could prompt the user, that the location
+      //  is out of the current region, do you want to create a new region? it
+      //  may deter people from frivious searches"
+      //
+      // That last clause is the strongest argument for it. A region is not free
+      // - it seeds a species index, a hotspot directory and a GBIF cache - so
+      // making that cost VISIBLE at the moment someone wanders out of area is
+      // honest, and it turns an idle search into a deliberate choice rather
+      // than something the app quietly absorbs.
+      if ($('scoutResults')) $('scoutResults').addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('#scoutCreate');
+        if (!b) return;
+        ev.preventDefault();
+        var label = b.getAttribute('data-label') || 'New region';
+        var lat = parseFloat(b.getAttribute('data-lat'));
+        var lng = parseFloat(b.getAttribute('data-lng'));
+        if (!isFinite(lat) || !isFinite(lng)) return;
+        // NOT automatic, and NOT warmed. "i dont want to automatically make
+        // regions, because that would generate traffic on ebird api thats
+        // already strained at this point."
+        //
+        // Two separate costs, and only one of them is avoidable here. Creating
+        // the region is free; WARMING it is ~7 eBird calls, which every other
+        // add path spends up front so the first section opens fast. On this
+        // path it is refused: a region created from a passing search is exactly
+        // the one you might never open, and speculative traffic on a strained
+        // shared key is the thing this project keeps declining. It fills in
+        // when a section is actually opened, which is one call either way.
+        //
+        // The confirm is not friction for its own sake - it is where the cost
+        // is stated. An offer that hides its price is how budgets get spent by
+        // accident.
+        // Worded in TIME, not in API calls. "it may say something like creating
+        // a region takes time to initialize." Nobody budgets in eBird calls;
+        // everybody understands waiting. It is the same fact - the call count
+        // IS the wait - stated in the unit the reader actually has.
+        if (!window.confirm('Add ' + label + ' as a region?\n\nA new region takes a moment to '
+              + 'initialise \u2014 the first section you open there builds its species list '
+              + 'before it can show anything.')) return;
+        var list = getCustomRegions();
+        var slug = CUSTOM_PREFIX + label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (list.some(function (r) { return r.slug === slug; })) { setActiveReport(slug); return; }
+        list.push({ slug: slug, label: label, place: label, lat: lat, lng: lng,
+                    stateCode: '', tideStation: '', tzStdOffset: 0, tzObservesDst: true });
+        saveCustomRegions(list);
+        setActiveReport(slug);
+      });
       $('scoutClear').addEventListener('click', clearScout);
       $('scoutPlace').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); scoutPlaceRun(); }

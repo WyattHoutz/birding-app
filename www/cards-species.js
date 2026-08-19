@@ -213,7 +213,11 @@
        told. Quieter than the common name because it is the SECOND answer to
        "what is this bird", never the first. */
     '.obs.card-md > li > .meta > .spsci { font-style: italic; color: var(--muted); }',
-    '.obs.xl .bcsci, .obs.big .bcsci {',
+    /* Child-scoped, like every other card rule here. A descendant selector
+       leaks into the SMALL cards nested inside a large one - which is the
+       exact failure the guard on this file exists to catch, and it caught
+       this. */
+    '.obs.xl > li > .bcbody > .bcsci, .obs.big > li > .bcbody > .bcsci {',
     '  font-style: italic; color: var(--muted);',
     '  font-size: calc(14px * var(--s)); margin-top: 2px;',
     '}',

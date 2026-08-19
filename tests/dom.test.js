@@ -7906,23 +7906,29 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // pending a redesign. The section, its panel and its loader all still exist,
   // so this is a hidden entry rather than a deleted one — see menuOmittedAts
   // in report-contract.json, which is where that fact lives.
-  // Scout joins them (v1.7.0). It belongs here and not in a group of its own:
-  // "where do I go" is the question a reader brings to this cluster, and Scout
-  // is the only member that can answer it about somewhere the report does not
-  // cover. The other four rank places INSIDE your region and cannot discover
-  // anything outside it — which is the entire complaint F30 came from.
-  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'scoutBtn'];
+  // Scout LEFT the menu on 2026-08-18: "i don't like that there are two menus
+  // for the identical behavior" - looking a place up already lives inside
+  // Find local patches, which has its own place box (#quickHerePlace). The
+  // panel is still in the DOM but hidden, and hidden is load-bearing: a section
+  // with no menu entry is not managed by showSection, so without it the app
+  // booted with a panel already open.
+  //
+  // Stakeout bird joins them instead, and last: the others answer "where shall
+  // I go", it answers "I know the bird already - where do I stand and wait".
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Top destinations', 'Top excursions', 'Quick outing',
-                      'Closest spots', 'Look up a place']) {
+  for (const want of ['Top destinations', 'Top excursions', 'Find local patches',
+                      'Closest spots', 'Stakeout bird']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
   assert.ok(!labels.some((l) => l && l.includes('Trip planner')),
     'Trip planner is switched off, so it has no tile');
+  assert.ok(!labels.some((l) => l && l.includes('Look up a place')),
+    'Look up a place is a duplicate of the place box inside Find local patches');
 
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
@@ -10412,11 +10418,22 @@ test('the species code rides on medium cards and stays off the small ones', () =
   assert.match(med, /class="spcode"/, 'the code is not marked up, so it cannot be styled');
   assert.match(med, /spcodesep/, 'no separator before the sub-header it precedes');
 
+  // REVERSED 2026-08-18, by the owner, and worth keeping the history.
+  //
+  // This used to assert the OPPOSITE, quoting "dont want it on the small lists
+  // to save space". That quote was about two menu entries doing the identical
+  // thing, not about species codes, and I had attached it to the wrong
+  // decision. Asked again - "id like the small spieces card to show the bird
+  // code" - I first read it as a contradiction and built an opt-in flag,
+  // solving a conflict that never existed and leaving every caller a chance to
+  // forget the flag.
+  //
+  // The width worry is real, but it is a LAYOUT question and there is a layout
+  // audit that answers it at 320px with text at 1.75x. Measured beats guessed.
   const small = SC.small({ name: 'Red-necked Phalarope', code: 'renpha',
-                           sub: '2 places' });
-  assert.ok(!/renpha/.test(small),
-    'the code leaked onto a small card — those are nested inside other cards '
-    + 'and the width is the whole reason they are small');
+                           alpha: 'RNPH', sub: '2 places' });
+  assert.match(small, /renpha/, 'the small card lost the species code');
+  assert.match(small, /RNPH/, 'the small card lost the banding code, which is the one people say');
 
   const large = SC.large({ name: 'Red-necked Phalarope', code: 'renpha', sub: 'x' });
   assert.ok(!/spcode/.test(large),

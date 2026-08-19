@@ -193,6 +193,17 @@ flag, so Today's rarities, Last 7-Days and the surge detectors are all blind to
 it — yet there is one hotspot where it is an order of magnitude more likely than
 the region at large.
 
+**`reportsForState` is app-only for the same kind of reason.** It answers
+"is there a configured region covering this place", which is a question about
+**the app's own region registry** — a thing the report does not have and cannot
+have: the report is generated for one region at a time and knows nothing about
+the others. The Python side has no equivalent to keep in step, so a twin would
+be a rule with no caller.
+
+It exists because *"prompt the user to switch regions"* could not be implemented
+honestly without it: the app has six states and **Oregon is not one of them**, so
+the offer has to check before it is made.
+
 **`isPublicPlace` is app-only, deliberately.** It decides whether a locality is
 somewhere a stranger can actually go — rejecting street addresses, raw
 coordinates and *"Our residence"* — so that a recommendation never sends a birder

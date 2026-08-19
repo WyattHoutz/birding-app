@@ -84,13 +84,13 @@
     },
     {
       "at": "refreshBtn",
-      "label": "🌅 Today’s rarity reports",
+      "label": "🌅 Twitches today",
       "report": "## 🌅 Today's rarity reports",
       "map": null
     },
     {
       "at": "activeBtn",
-      "label": "🚨 Last 7-Days rarity reports",
+      "label": "🚨 Twitches this week",
       "report": "## 🚨 Last 7-Days rarity reports",
       "map": null
     },

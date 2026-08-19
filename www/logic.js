@@ -2161,6 +2161,23 @@
   // Matched on shape rather than on a blocklist of names: an address begins
   // with a house number, and a coordinate is punctuation. Both generalise;
   // a list of known-bad names would not.
+  // Which configured report, if any, covers a state the geocoder just named.
+  // Returns [] when there is none - which is the common case, and the reason
+  // "prompt the user to switch regions" cannot be the whole answer: the app has
+  // six states, and Oregon is not one of them.
+  var STATE_OF = {'US-WA':'Washington','US-MO':'Missouri','US-KS':'Kansas','US-AZ':'Arizona','US-CA':'California','US-HI':'Hawaii'};
+  function reportsForState(stateName) {
+    var want = String(stateName || '').trim().toLowerCase();
+    if (!want) return [];
+    var out = [];
+    Object.keys(REPORTS).forEach(function (k) {
+      var r = REPORTS[k];
+      var nm = STATE_OF[r.stateCode];
+      if (nm && nm.toLowerCase() === want) out.push({ slug: k, label: r.label });
+    });
+    return out;
+  }
+
   function isPublicPlace(name) {
     var n = String(name || '').trim();
     if (!n) return false;
@@ -2764,6 +2781,7 @@
     iconicMultiplier: iconicMultiplier,
     iconicLabel: iconicLabel,
     isPublicPlace: isPublicPlace,
+    reportsForState: reportsForState,
     arrivalDay: arrivalDay,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
