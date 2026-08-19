@@ -173,6 +173,10 @@
            border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
     .tag.cold { border-color: #0072B2; color: #0072B2; font-weight: 600; }
     @media (prefers-color-scheme: dark) { .tag.cold { border-color: #56B4E9; color: #56B4E9; } }
+    /* A row that DOES something has to look like it does something, or the
+       only discoverable target stays the little icon at the end. */
+    li.tappable { cursor: pointer; }
+    li.tappable:active { background: var(--band); }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     /* The page may only ever scroll VERTICALLY. A single overflowing box used
@@ -456,6 +460,14 @@
        text scale on the narrowest phone a long label pushed the tile past the
        screen instead of wrapping. */
     .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere; }
+    /* The translation, not the title: lighter and smaller so the jargon still
+       reads as the name of the thing. Scales with the text-size setting like
+       everything else, and wraps rather than truncating - a clipped
+       explanation explains nothing. */
+    .tilesub { display: block; min-width: 0; overflow-wrap: anywhere;
+               font-size: calc(11.5px * var(--s)); line-height: 1.3;
+               color: var(--muted); font-weight: 400; margin-top: 2px; }
+    html[data-a11y="on"] .tilesub { font-size: calc(12.5px * var(--s)); }
     /* F134: a count pill, and a leading dot when it is NEW since you last
        looked. The dot and the number are the signal - colour is a second
        channel only, because red/green is unreadable for this owner. */
@@ -1191,7 +1203,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔎 Species lookup <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <h2>🔎 Stakeout bird <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row">
         <input id="spLookup" type="search" placeholder="Find a species by name…" autocomplete="off" />
         <button id="spLookupBtn" class="secondary">Search</button>
@@ -1204,6 +1216,7 @@
         <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
         <button id="spCodesByCode" class="secondary" type="button" aria-pressed="false">A–Z by code</button>
         <button id="spCodesByCommon" class="secondary" type="button" aria-pressed="false">Most reported</button>
+        <button id="spCodesAll" class="secondary" type="button" aria-pressed="false" hidden>Show all</button>
       </div>
       <div id="spCodesStatus" class="status" hidden></div>
       <ul id="spCodesList" class="obs picklist" hidden></ul>
@@ -1273,7 +1286,7 @@
     </section>
 
     <section class="panel">
-      <h2>🦜 Birdiest checklists <span class="dim" id="cklRegionLabel"></span></h2>
+      <h2>🦜 Big days <span class="dim" id="cklRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="checklists" data-current="cklModeBest"></div>
       <div class="row">
         <button id="cklBtn">Load checklists</button>
@@ -1284,7 +1297,7 @@
     </section>
 
     <section class="panel">
-      <h2>🚶 Quick outing <span class="dim" id="quickRegionLabel"></span></h2>
+      <h2>🚶 Find local patches <span class="dim" id="quickRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="quick" data-current="quick:home"></div>
       <!-- The 🏠/📍 buttons are the SAME state the chips above carry, so they
            are kept for their handlers and the loader registry but never shown:
@@ -1492,6 +1505,13 @@
         <option value="1.75">Huge</option>
       </select>
       <p class="hint">Scales every label, list and bird photo in the app. Applies immediately — no need to save.</p>
+      <label for="sciNames">Scientific names</label>
+      <select id="sciNames">
+        <option value="on">Show</option>
+        <option value="off">Hide</option>
+      </select>
+      <p class="hint">Adds the Latin name to the bigger bird cards, in italics \u2014 <em>Setophaga nigrescens</em> under Black-throated Gray Warbler. The compact lists stay as they are.</p>
+
       <label for="a11yMode">Easy read</label>
       <select id="a11yMode">
         <option value="off">Off</option>
@@ -1692,7 +1712,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.22.0';
+      var APP_VERSION = '1.23.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -1863,6 +1883,34 @@
         return on;
       }
       applyA11y(getA11y());
+      // Scientific names on the medium and large cards. ON by default: the
+      // binomial is the name that does not change between apps, books or
+      // countries, and a birder reading a rarity card is exactly the reader who
+      // wants it. Small cards never show it - that is a scanning surface, and a
+      // second name on every row is the noise it exists to avoid.
+      //
+      // The SETTING lives here rather than in cards-species.js because that
+      // file is layout-only by design and has no access to storage. It decides
+      // which SIZES may show a scientific name; this decides whether one is
+      // offered at all, by passing `sci` or not.
+      var SCI_KEY = 'bc_scinames';
+      function getSciNames() { return localStorage.getItem(SCI_KEY) !== 'off'; }
+      function setSciNames(on) {
+        localStorage.setItem(SCI_KEY, on ? 'on' : 'off');
+        // Cards are built on render, so anything already on screen has to be
+        // rebuilt or the setting looks like it did nothing.
+        try { if (typeof rerenderVisible === 'function') rerenderVisible(); } catch (e) {}
+        return on;
+      }
+      // One accessor every caller uses, so "is this switched on" is answered in
+      // exactly one place and a new card site cannot forget to check.
+      function sciFor(codeOrSci) {
+        if (!getSciNames()) return '';
+        var v = String(codeOrSci || '');
+        if (!v) return '';
+        return /\s/.test(v) ? v : (typeof sciNameFor === 'function' ? (sciNameFor(v) || '') : '');
+      }
+
 
       // Map provider. Every "open in maps" link in the app funnels through here
       // so one setting really does change all of them — an iPhone birder who
@@ -4144,6 +4192,7 @@
             var isNew = BL.isFresh(r.dateStr);
             var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name) + flock + stake + warn;
             return SpeciesCards.medium({
+              sci: sciFor(r && r.code),
               // "in todays rarities, if i click on the species icon or name,
               // then link to the checklist on ebird."
               //
@@ -4680,7 +4729,19 @@
       // uses both: the eBird species code ("btywar") is what URLs, feeds and
       // the debug log carry, and the banding code ("BTYW") is what birders say
       // out loud.
-      var _spCodes = null, _spCodesSort = 'name';
+      // Uncommon codes are HIDDEN by default: "i think it should hide uncommon
+      // bird codes, and have a way to show all bird codes."
+      //
+      // Washington's list is ~570 species and most of them are vagrants nobody
+      // is going to look up. A list you have to wade through is barely better
+      // than the Google search this replaced, and the whole point was to make
+      // the code findable in a few seconds.
+      //
+      // "Common" is MEASURED, not curated: reported in the region in the last
+      // 30 days. That means it moves with the seasons on its own - a bird that
+      // is common in July and absent in January drops out by itself, with no
+      // list for anyone to maintain.
+      var _spCodes = null, _spCodesSort = 'name', _spCodesAll = false, _spCodesHaveSeen = false;
 
       // "Most reported" is a measured ordering, not a guess: how many of the
       // region's recent observations name each species. One eBird call, and the
@@ -4700,6 +4761,14 @@
         var ul = $('spCodesList'), st = $('spCodesStatus');
         if (!ul || !_spCodes) return;
         var rows = _spCodes.slice();
+        // Until the counts land there is nothing to filter ON, and showing an
+        // empty list while they arrive would look broken.
+        var hidden = 0;
+        if (!_spCodesAll && _spCodesHaveSeen) {
+          var before = rows.length;
+          rows = rows.filter(function (r) { return (r.seen || 0) > 0; });
+          hidden = before - rows.length;
+        }
         if (_spCodesSort === 'code') rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code)); });
         else if (_spCodesSort === 'common') rows.sort(function (a, b) {
           var d = (b.seen || 0) - (a.seen || 0);
@@ -4709,19 +4778,33 @@
         var h = '';
         rows.forEach(function (r) {
           var alpha = String(r.alpha || '').trim().split(' ')[0];
-          h += '<li><span class="pname">' + esc(r.name)
+          h += '<li class="tappable" data-code="' + esc(r.code) + '" data-name="'
+            + esc(r.name) + '"><span class="pname">' + esc(r.name)
             + '<span class="pmeta"><code>' + esc(r.code) + '</code>'
             + (alpha ? ' \u00b7 <strong>' + esc(alpha.toUpperCase()) + '</strong>' : '')
             + (_spCodesSort === 'common' && r.seen ? ' \u00b7 ' + r.seen + ' reports in 30 days' : '')
             + '</span></span>'
             + '<button class="favbtn splook" data-code="' + esc(r.code) + '" data-name="'
-            + esc(r.name) + '" aria-label="Look up ' + esc(r.name) + '">\U0001f4d6</button></li>';
+            + esc(r.name) + '" aria-label="Look up ' + esc(r.name) + '">📖</button></li>';
         });
         ul.innerHTML = h;
         ul.hidden = false;
+        var tog = $('spCodesAll');
+        if (tog) {
+          tog.hidden = !_spCodesHaveSeen;
+          // Merlin says "show rare birds", and that phrasing is better than any
+          // of mine: it describes the BIRDS, which the reader already has a
+          // word for, rather than the list's filter state. Matching a
+          // convention people already know beats inventing a clearer one.
+          tog.textContent = _spCodesAll ? '\u2713 Rare birds shown' : 'Show rare birds';
+          tog.setAttribute('aria-pressed', _spCodesAll ? 'true' : 'false');
+        }
         if (st) {
           st.hidden = false;
-          st.innerHTML = rows.length + ' species recorded in ' + esc(getReport().label || getRegion())
+          st.innerHTML = rows.length + ' species'
+            + (hidden ? ' seen in the last 30 days \u00b7 <strong>' + hidden
+                + '</strong> rare or out-of-season ones hidden' : ' recorded')
+            + ' in ' + esc(getReport().label || getRegion())
             + '. <strong>Bold</strong> is the 4-letter banding code birders say; <code>lowercase</code> is '
             + 'the eBird code the app uses. Either one works in the search box \u2014 so do the initials.';
         }
@@ -4733,12 +4816,12 @@
         var open = btn.getAttribute('aria-expanded') === 'true';
         if (open) {
           btn.setAttribute('aria-expanded', 'false');
-          btn.textContent = '\U0001f524 Show bird codes';
+          btn.textContent = '🔤 Show bird codes';
           ul.hidden = true; if (st) st.hidden = true; if (row) row.hidden = true;
           return;
         }
         btn.setAttribute('aria-expanded', 'true');
-        btn.textContent = '\U0001f524 Hide bird codes';
+        btn.textContent = '🔤 Hide bird codes';
         if (row) row.hidden = false;
         if (st) { st.hidden = false; st.textContent = 'Loading the species list for this region\u2026'; }
         var region = getObsRegion();
@@ -4748,8 +4831,15 @@
           // Commonness arrives second and re-sorts only if it is being asked
           // for - the list is useful immediately without it.
           speciesCommonness(region).then(function (n) {
+            // No counts at all means the call failed. Filtering on that would
+            // empty the list, so the flag stays false and everything shows -
+            // degrading to MORE information rather than less.
+            var any = false;
+            for (var k in n) { if (n[k]) { any = true; break; } }
+            if (!any) return;
             _spCodes.forEach(function (r) { r.seen = n[r.code] || 0; });
-            if (_spCodesSort === 'common') renderSpCodes();
+            _spCodesHaveSeen = true;
+            renderSpCodes();
           });
         }).catch(function (e) { if (st) st.textContent = netErr(e); });
       }
@@ -4788,6 +4878,9 @@
           st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
           hits.forEach(function (s) {
             var li = document.createElement('li');
+            li.className = 'tappable';
+            li.setAttribute('data-code', s.code);
+            li.setAttribute('data-name', s.name);
             li.innerHTML = photoSlot(s.name, s.code)
               + '<span class="pname">' + esc(s.name)
               + '<span class="pmeta">' + esc(s.code) + '</span></span>'
@@ -5011,7 +5104,33 @@
         st.textContent = 'Finding “' + q + '”…';
         geocodePlace(q).then(function (place) {
           if (!alive()) return;
-          st.textContent = 'Reading what is being reported around ' + place.label + ' — 3 calls…';
+          // CROSS-REGION IS THE REAL RISK HERE, and it is a silent one.
+          //
+          // "i have concerns about this being a cross region feature, that ive
+          // already discussed eliminating tier 3 searches."
+          //
+          // The feeds this reads are geographic and work anywhere, so the
+          // search LOOKS fine in another state. What does not travel is
+          // everything the app compares against: the seen list, the year list
+          // and the unseen marks are all per-region. Scout a place in Oregon
+          // while the region is Washington and every "you need this" is
+          // computed from the wrong list - confidently, and with nothing on
+          // screen to say so.
+          //
+          // It is not blocked, because looking over the border before a trip is
+          // a real thing to want. It is LABELLED, so the answer is never read
+          // as something it is not.
+          var homeState = BL.stateNameFor(getReport()) || '';
+          var away = place.state && homeState
+            && String(place.state).toLowerCase() !== String(homeState).toLowerCase();
+          st.textContent = 'Reading what is being reported around ' + place.label + ' \u2014 3 calls\u2026';
+          if (away) {
+            var w = $('scoutResults');
+            if (w) w.innerHTML = '<p class="hint"><strong>\u26a0 ' + esc(place.state)
+              + ' is outside ' + esc(homeState) + '.</strong> The sightings below are real, '
+              + 'but anything marked as needed is judged against your <em>' + esc(homeState)
+              + '</em> list \u2014 so treat the \u201cyou need this\u201d marks as a rough guide, not a target list.</p>';
+          }
           var p = { lat: BL.round4(place.lat), lng: BL.round4(place.lng),
                     dist: SCOUT_DIST_KM, back: SCOUT_BACK_D, detail: 'full' };
           var qs = function (extra) {
@@ -5301,6 +5420,7 @@
           + ' · ' + (_spLookupSort === 'dist' ? 'by distance' : 'by date')
           + ' · ' + nowTime();
         out.innerHTML = SpeciesCards.medium({
+          sci: sciFor(g && g.code),
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           code: g.code,
@@ -6298,7 +6418,7 @@
             // the bias picked.
             var label = [p.name, p.state || p.city || p.county, p.country]
               .filter(Boolean).join(', ');
-            return { lat: la, lng: lo, label: label || q };
+            return { lat: la, lng: lo, label: label || q, state: p.state || '' };
           });
       }
 
@@ -7227,7 +7347,11 @@
 
       function probeLifeList() {
         var st = $('lifeProbeStatus');
-        var region = (getReport().region || 'US-WA').toUpperCase();
+        // Same mistake as the state-record loader, but with a 'US-WA' fallback
+        // that HID it: in Missouri or Arizona this probed Washington's list and
+        // looked like it worked. A default that masks a bug is worse than no
+        // default.
+        var region = getRegion().toUpperCase();
         var lines = [];
         if (st) st.textContent = 'Asking eBird\u2026';
 
@@ -9209,6 +9333,7 @@
             // renders through the shared template, so the distance becomes a
             // real third column instead of a token inside the sub-header.
             return SpeciesCards.medium({
+              sci: sciFor(r && r.code),
               // Same rule as Today's rarities: this card is about a SIGHTING,
               // so its head opens the checklist that reported it — and here it
               // is the MOST RECENT one, because the question a 7-day list
@@ -11758,6 +11883,7 @@
               }));
           }
           return SpeciesCards.medium({
+            sci: sciFor(code),
             icon: photoSlot(sp, code),
             name: speciesLink(sp, code),
             code: code,
@@ -12582,6 +12708,7 @@
           if (!nearest || p.distMi < nearest.distMi) nearest = p;
         });
         return SpeciesCards.medium({
+          sci: sciFor(o && o.code),
           icon: photoSlot(o.name, o.code),
           name: speciesLink(o.name, o.code),
           code: o.code,
@@ -14431,6 +14558,7 @@
           var d = parseYearListDate(e.date);
           var isNew = d && d >= newCutoff;
           return SpeciesCards.medium({
+            sci: sciFor(e && e.code),
             icon: photoSlot(e.name, e.code),
             name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
             tags: isNew ? newRarityTag() : '',
@@ -14455,6 +14583,44 @@
       //   'geo'    — report.py build_report (rarity trackers use
       //              build_rarity_report, which emits far fewer sections)
       //   omitted  — every report has it
+      // The plain-English line under each tile. Keyed by section id, not by
+      // label, so a rename cannot silently orphan one.
+      //
+      // Rules these follow, because a sub-line that rambles is worse than none:
+      //   - say what the section ANSWERS, not what it reads
+      //   - no jargon in the translation, or it has translated nothing
+      //   - short enough for one line at 320px with text at 1.75x
+      var MENU_SUB = {
+        surgeBtn:      'What is being seen right now',
+        wxBtn:         'Is today worth going out',
+        dueBackBtn:    'Migrants arriving in the next few weeks',
+        rankBtn:       'Where you sit against other birders',
+        destBtn:       'Best places within a day trip',
+        excBtn:        'Longer drives worth the fuel',
+        quickBtn:      'Nearby spots worth working regularly',
+        targetsBtn:    'Closest birds you have not seen',
+        spLookupBtn:   'Pick a bird, find where to wait for it',
+        refreshBtn:    'Unusual birds reported today',
+        activeBtn:     'Unusual birds from the past week',
+        abaBtn:        'The rarest birds in North America',
+        lastNewBtn:    'Newest birds on the leaderboard',
+        hotBtn:        'Places busier than usual',
+        coldBtn:       'Good places nobody is watching',
+        cklBtn:        'The biggest species counts in one day',
+        convoyBtn:     'Groups birding the same route',
+        favResults:    'Places you saved',
+        allUnseenBtn:  'Every report of a bird you need',
+        easyBtn:       'Common birds you should already have',
+        nvResults:     'Sightings still waiting on a reviewer',
+        migBtn:        'What should arrive or leave soon',
+        bcBody:        'How many birds flew over last night',
+        todBtn:        'Birds best found at dawn or dusk',
+        myYearBody:    'Your list this year',
+        recordBody:    'Megararities that are overdue here',
+        settingsPanel: 'Region, text size, your data',
+        helpBody:      'What each section reads and how it decides'
+      };
+
       var MENU = [
         { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
@@ -14475,7 +14641,7 @@
         // you got".
         { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo', group: 'Go birding' },
         { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
-        { at: 'quickBtn',      label: '🚶 Quick outing', needs: 'geo', group: 'Go birding' },
+        { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Go birding' },
         { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
     // LAST in the group, deliberately. The four above answer "where should I
     // go today" from the report you are already in, which is the common case;
@@ -14487,11 +14653,15 @@
     // "what is being reported around X right now", and naming the JOB beats
     // naming the mechanism. It also stops "Scout" colliding with the compass
     // metaphor Trip planner already uses.
-    { at: 'scoutBtn',      label: '🧭 Look up a place', group: 'Go birding' },
         // OFF, not deleted. The section still builds and still works; it is
         // hidden pending a redesign, because it predates the measured travel
         // model (hop times, day bands, seasonal gates) and plans a route
         // without any of it. Flipping `enabled` back is the whole revert.
+        // Last in Go birding on purpose: the others answer "where shall I go",
+        // this one answers "I know the bird already - where do I stand and wait".
+        // That is the end of the same thought, not a different one, which is why
+        // it left "Birds you still need".
+        { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
         { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
         { at: 'refreshBtn',    label: '🌅 Today\u2019s rarity reports', needs: 'geo', group: 'Rare birds' },
         { at: 'activeBtn',     label: '🚨 Last 7-Days rarity reports', group: 'Rare birds' },
@@ -14499,11 +14669,10 @@
         { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
         { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county', group: 'Hotspots & birders' },
         { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county', group: 'Hotspots & birders' },
-        { at: 'cklBtn',        label: '🦜 Birdiest checklists', needs: 'county', group: 'Hotspots & birders' },
+        { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
         { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
-        { at: 'spLookupBtn',   label: '🔎 Species lookup', group: 'Birds you still need' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
           // OFF, not deleted — the section, its loader and its panel are
           // untouched. It leaves the MENU because it is not a separate
@@ -14672,7 +14841,14 @@
       function loadStateRecords() {
         var host = $('recordBody'), st = $('recordStatus');
         if (!host) return Promise.resolve();
-        var region = (getReport().region || '').toUpperCase();
+        // getReport() has NO `region` property - it is `stateCode`, and
+        // getRegion() is the accessor that knows that. Reading `.region` gave
+        // undefined, so this fetched "state-records/.json", got a 404, and
+        // reported "No state-record list bundled for Washington yet" about a
+        // file that was sitting right there in the bundle. The message even
+        // said "Washington", because it falls back to the report LABEL - so
+        // the one clue that would have pointed at the region was hidden.
+        var region = getRegion().toUpperCase();
         host.innerHTML = '<p class="hint">Loading…</p>';
         var got = _recCache[region]
           ? Promise.resolve(_recCache[region])
@@ -15180,6 +15356,25 @@
           var tx = document.createElement('span');
           tx.className = 'tilelabel'; tx.textContent = parts.text;
           a.appendChild(tx);
+          // F141: the jargon is the HEADING, the plain words are underneath.
+          //
+          // "i may want to use the Jargon as a header but translate jargon in a
+          // sub header." That is better than either half on its own: naming a
+          // section "Big days" and explaining nothing shuts out anyone who has
+          // not met the term, while naming it "Checklists with the most
+          // species" is accurate and teaches you nothing you can say to another
+          // birder. This way the word is learned in the place you meet it.
+          //
+          // It also answers the OTHER complaint - "many of the buttons look
+          // similar and its hard to find things". Fourteen tiles that differ
+          // only in a two-word label are hard to scan; a second line gives each
+          // one a different shape and something to aim at.
+          if (MENU_SUB[sec.id]) {
+            var sb = document.createElement('span');
+            sb.className = 'tilesub';
+            sb.textContent = MENU_SUB[sec.id];
+            a.appendChild(sb);
+          }
           // F134: only if the section has something to say. Reads cache only.
           var bh = menuBadgeHTML(menuBadge(sec.id));
           if (bh) {
@@ -15592,6 +15787,7 @@
         $('apiKey').value = getKey();
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
         if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
+        if ($('sciNames')) $('sciNames').value = getSciNames() ? 'on' : 'off';
         if ($('mapProvider')) $('mapProvider').value = getMapProvider();
         syncChaseMi();
         $('reportSelect').value = getReportSlug();
@@ -16142,6 +16338,7 @@
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
       if ($('a11yMode')) $('a11yMode').addEventListener('change', function () { setA11y(this.value === 'on'); });
+      if ($('sciNames')) $('sciNames').addEventListener('change', function () { setSciNames(this.value === 'on'); });
       if ($('wallProbeBtn')) $('wallProbeBtn').addEventListener('click', probeWall);
       // ONE table drives every switch.
       //
@@ -16371,6 +16568,10 @@
       if ($('spCodesByName')) $('spCodesByName').addEventListener('click', function () { setSpCodesSort('name'); });
       if ($('spCodesByCode')) $('spCodesByCode').addEventListener('click', function () { setSpCodesSort('code'); });
       if ($('spCodesByCommon')) $('spCodesByCommon').addEventListener('click', function () { setSpCodesSort('common'); });
+      if ($('spCodesAll')) $('spCodesAll').addEventListener('click', function () {
+        _spCodesAll = !_spCodesAll;
+        renderSpCodes();
+      });
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
       $('scoutBtn').addEventListener('click', scoutPlaceRun);
       $('scoutClear').addEventListener('click', clearScout);
@@ -16388,12 +16589,40 @@
       $('spLookupByDist').addEventListener('click', function () { setSpeciesLookupSort('dist'); });
       // The match list is rebuilt on every search, so the handler is delegated
       // to the container rather than bound per row.
-      $('spLookupFound').addEventListener('click', function (ev) {
-        var b = ev.target.closest && ev.target.closest('.splook');
+      //
+      // The WHOLE ROW is the target, not just the little book button. Tapping a
+      // bird's name and having nothing happen is the app looking broken - the
+      // name is the biggest thing on the row and the obvious thing to press,
+      // and a 24px icon beside it is not a reasonable hit area on a phone.
+      //
+      // Bound to BOTH lists: the match list and the browsable code list, which
+      // renders the same rows and had no handler at all, so every row in it was
+      // dead. One delegate, two containers, so a third list cannot be added
+      // without one.
+      function pickSpeciesFromRow(ev) {
+        var t = ev.target;
+        if (!t || !t.closest) return;
+        var b = t.closest('.splook') || t.closest('li');
         if (!b) return;
+        var code = b.getAttribute('data-code'), name = b.getAttribute('data-name');
+        if (!code) {
+          var inner = b.querySelector && b.querySelector('.splook');
+          if (inner) { code = inner.getAttribute('data-code'); name = inner.getAttribute('data-name'); }
+        }
+        if (!code) return;
         ev.preventDefault();
-        lookupSpecies(b.getAttribute('data-code'), b.getAttribute('data-name'));
-      });
+        // Leaving the code list open would bury the answer under 400 rows.
+        var lst = $('spCodesList'), cbtn = $('spCodesBtn'), crow = $('spCodesSortRow'), cst = $('spCodesStatus');
+        if (lst && !lst.hidden) {
+          lst.hidden = true;
+          if (crow) crow.hidden = true;
+          if (cst) cst.hidden = true;
+          if (cbtn) { cbtn.setAttribute('aria-expanded', 'false'); cbtn.textContent = '🔤 Show bird codes'; }
+        }
+        lookupSpecies(code, name);
+      }
+      $('spLookupFound').addEventListener('click', pickSpeciesFromRow);
+      if ($('spCodesList')) $('spCodesList').addEventListener('click', pickSpeciesFromRow);
       $('surgeBtn').addEventListener('click', loadSurge);
       $('hotBtn').addEventListener('click', loadHotspots);
       $('coldBtn').addEventListener('click', loadColdspots);

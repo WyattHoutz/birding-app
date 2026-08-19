@@ -65,7 +65,7 @@
     },
     {
       "at": "quickBtn",
-      "label": "🚶 Quick outing",
+      "label": "🚶 Find local patches",
       "report": "## 🚶 Quick outing",
       "map": "quickMap"
     },
@@ -76,11 +76,11 @@
       "map": "closeMap"
     },
     {
-      "at": "scoutBtn",
-      "label": "🧭 Look up a place",
+      "at": "spLookupBtn",
+      "label": "🔎 Stakeout bird",
       "report": null,
       "map": null,
-      "why": "app-only (F30 tier 3): a TEMPORARY anchor. The report is built for one region from a fixed home and committed; 'what is being reported around Yakima right now' is a question you ask on the way out of the door, and the answer is three live calls that would be stale before a document reached you. The report's own equivalent is to add the region properly, which is a different and more permanent act."
+      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
     },
     {
       "at": "refreshBtn",
@@ -121,7 +121,7 @@
     },
     {
       "at": "cklBtn",
-      "label": "🦜 Birdiest checklists",
+      "label": "🦜 Big days",
       "report": "## 🦜 Birdiest recent checklists",
       "map": "cklMap"
     },
@@ -144,13 +144,6 @@
       "report": "## 📋 All unseen reports in",
       "map": null,
       "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"
-    },
-    {
-      "at": "spLookupBtn",
-      "label": "🔎 Species lookup",
-      "report": null,
-      "map": null,
-      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
     },
     {
       "at": "nvResults",
@@ -218,7 +211,8 @@
   },
   "menuOmittedAts": [
     "easyBtn",
-    "tripBtn"
+    "tripBtn",
+    "scoutBtn"
   ],
   "_menuOmittedAtsWhy": "Sections switched off in the app behind `enabled: false` in MENU. They are NOT in `menu` (the app does not list them) but the REPORT still emits them, so section-docs.json still describes them and must not be pruned to match the app. Turning one back on is one word in index.html plus removing it here."
 }

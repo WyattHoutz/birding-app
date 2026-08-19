@@ -41,7 +41,7 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{sub}}</span>{{right}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -49,7 +49,7 @@
   var MEDIUM = [
     '<li class="{{cls}}">',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
-    '  <div class="meta">{{code}}{{sub}}</div>',
+    '  <div class="meta">{{code}}{{sci}}{{sub}}</div>',
     '  {{conf}}',
     '  {{below}}',
     '</li>'
@@ -60,6 +60,7 @@
     '  {{icon}}',
     '  <div class="bcbody">',
     '    <div class="bcname">{{name}}{{tags}}</div>',
+    '    {{sci}}',
     '    <div class="bcsub">{{sub}}</div>',
     '    {{below}}',
     '  </div>',
@@ -207,6 +208,21 @@
        which is the one job this string has. Sized below the sub-header it
        sits in front of, so it labels the row without competing with the
        facts that decide whether to drive there. */
+    /* Italic because that is how a binomial is set, everywhere, and a reader
+       who knows the convention reads it as a scientific name without being
+       told. Quieter than the common name because it is the SECOND answer to
+       "what is this bird", never the first. */
+    '.obs.card-md > li > .meta > .spsci { font-style: italic; color: var(--muted); }',
+    '.obs.xl .bcsci, .obs.big .bcsci {',
+    '  font-style: italic; color: var(--muted);',
+    '  font-size: calc(14px * var(--s)); margin-top: 2px;',
+    '}',
+    '.obs.card-sm .ntext .spcode, .obs.card-sm .ntext .spalpha {',
+    '  font-size: calc(11px * var(--s)); color: var(--muted); margin-left: 6px;',
+    '  white-space: nowrap;',
+    '}',
+    /* The banding code is the one said out loud, so it is the one weighted. */
+    '.obs.card-sm .ntext .spalpha { font-weight: 700; letter-spacing: .02em; }',
     '.obs.xl > li > .meta > .spcode, .obs.card-md > li > .meta > .spcode {',
     '  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
     '  font-size: calc(12px * var(--s)); letter-spacing: .04em;',
@@ -359,12 +375,69 @@
     return String(c == null ? '' : c).toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
+  // SMALL carries it too now, on request: "id like the small spieces card to
+  // show the bird code". It was MEDIUM-only because every extra line costs
+  // something on a scanning surface - but the code is not an extra LINE here,
+  // it sits inline after the name, so the row count does not change.
+  //
+  // The BANDING code rides along when the caller has one, because that is the
+  // one people actually say out loud and the one that sent someone to Google:
+  // "btywar" is what the app uses, "BTYW" is what a birder calls it.
+  function alphaText(a) {
+    return String(a == null ? '' : a).split(/[\s,]+/)[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  // SMALL shows the code too, and the history is worth keeping because I got
+  // it wrong twice.
+  //
+  // A guard here quoted "dont want it on the small lists to save space" and
+  // treated it as settled. It was not: that objection was about **two menu
+  // entries doing the identical thing**, not about species codes, and I had
+  // attached it to the wrong decision. When the ask came back as "id like the
+  // small spieces card to show the bird code", I read it as a contradiction
+  // and built an opt-in flag to satisfy both - solving a conflict that never
+  // existed, and leaving every caller a chance to forget the flag.
+  //
+  // So: the code shows on small cards. The width worry is real but it is a
+  // LAYOUT question, and there is a layout audit that answers it at 320px with
+  // text at 1.75x - measured beats guessed.
   function codeHtml(v, tpl) {
-    if (tpl !== MEDIUM) return '';
+    if (tpl !== MEDIUM && tpl !== SMALL) return '';
     var c = codeText(v.code);
     if (!c) return '';
-    var sep = subHtml(v, false) ? '<span class="spcodesep"> · </span>' : '';
-    return '<span class="spcode">' + c + '</span>' + sep;
+    var a = alphaText(v.alpha);
+    var body = '<span class="spcode">' + c + '</span>'
+      + (a ? '<span class="spalpha">' + a + '</span>' : '');
+    if (tpl === SMALL) return body;   // inline after the name, no separator
+    var sep = subHtml(v, false) ? '<span class="spcodesep"> \u00b7 </span>' : '';
+    return body + sep;
+  }
+
+  /* ---- The SCIENTIFIC name, MEDIUM and LARGE only ----
+     Small stays clean: it is a scanning surface and a second name on every row
+     is precisely the noise it exists to avoid.
+
+     Gated in HERE rather than at each caller, for the same reason the species
+     code is - "which sizes show this" is a property of the card, not a rule
+     every section has to remember and half of them forget.
+
+     Whether it shows AT ALL is the app's decision, expressed by passing `sci`
+     or not. This file has no access to settings and no escaper by design, so
+     the setting lives where the data does. Validated the same way the species
+     code is: a scientific name is Latin binomial text, so anything outside
+     letters, spaces, hyphens and full stops is stripped rather than escaped -
+     a value that is not a name cannot survive it. */
+  function sciText(x) {
+    return String(x == null ? '' : x).replace(/[^A-Za-z .\u00d7-]/g, '').trim();
+  }
+
+  function sciHtml(v, tpl) {
+    if (tpl !== MEDIUM && tpl !== LARGE) return '';
+    var n = sciText(v.sci);
+    if (!n) return '';
+    if (tpl === LARGE) return '<div class="bcsci">' + n + '</div>';
+    var sep = subHtml(v, false) ? '<span class="spcodesep"> \u00b7 </span>' : '';
+    return '<span class="spsci">' + n + '</span>' + sep;
   }
 
   function confHtml(v, tpl) {
@@ -434,6 +507,7 @@
       // Rendered here rather than folded into each caller's `sub` string so
       // that it looks identical everywhere and no section can forget it.
       code: codeHtml(v, tpl),
+      sci: sciHtml(v, tpl),
       conf: confHtml(v, tpl),
       // An optional control at the RIGHT EDGE of a small row. It has to be a
       // sibling of `.ntext` rather than inside it, because `.name` is the flex

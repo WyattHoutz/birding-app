@@ -11578,3 +11578,125 @@ test('the code list can be browsed, because a code you cannot look up is a quiz'
   // control - it reuses the same .splook handler the match list uses.
   assert.ok(/class="favbtn splook"/.test(r), 'rows are not tappable');
 });
+
+test('no code reads getReport().region, which does not exist', () => {
+  // A report carries `stateCode`, never `region`. Reading `.region` gave
+  // undefined, so Break a state record fetched "state-records/.json", took the
+  // 404, and announced "No state-record list bundled for Washington yet" about
+  // a file sitting in the bundle. The message said "Washington" because it
+  // falls back to the LABEL, which hid the one clue that pointed at the region.
+  //
+  // The second use had a 'US-WA' fallback that masked the same bug entirely: in
+  // Missouri it probed Washington and looked like it worked. A default that
+  // hides a bug is worse than no default.
+  assert.ok(!/getReport\(\)\.region\b/.test(HTML),
+    'getReport().region is read somewhere; the property is stateCode');
+  const fn = HTML.slice(HTML.indexOf('function loadStateRecords'),
+    HTML.indexOf('function loadStateRecords') + 900);
+  assert.ok(/getRegion\(\)/.test(fn), 'the state-record loader does not use getRegion()');
+});
+
+test('every bundled state-record region can actually be requested', () => {
+  // The loader builds a filename from the region code, so a mismatch between
+  // what getRegion() returns and what is on disk is a silent 404.
+  const dir = path.join(WWW, 'state-records');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  assert.ok(files.length >= 6, `only ${files.length} region files bundled`);
+  for (const f of files) {
+    const doc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    assert.ok(Array.isArray(doc.rows) && doc.rows.length,
+      `${f} has no rows, so it would read as "not bundled"`);
+    assert.equal(`${doc.region.toUpperCase()}.json`, f,
+      `${f} does not match the region code inside it`);
+  }
+});
+
+test('tapping a species row anywhere runs the lookup', () => {
+  // "clicking on a bird does not search for the bird" - only the 24px book
+  // button was wired, and the NAME is the biggest, most obvious target on the
+  // row. A dead tap on the main thing is the app looking broken.
+  assert.ok(/function pickSpeciesFromRow/.test(HTML), 'no row handler');
+  const fn = HTML.slice(HTML.indexOf('function pickSpeciesFromRow'),
+    HTML.indexOf('function pickSpeciesFromRow') + 1400);
+  assert.ok(/closest\('li'\)/.test(fn), 'the row itself is not a target');
+  // Both lists, or the browsable code list stays dead exactly as it was.
+  assert.ok(/\$\('spLookupFound'\)\.addEventListener\('click', pickSpeciesFromRow\)/.test(HTML),
+    'the match list is not wired to the shared handler');
+  assert.ok(/\$\('spCodesList'\)\.addEventListener\('click', pickSpeciesFromRow\)/.test(HTML),
+    'the code list is not wired, so every row in it is dead');
+  assert.ok(/class="tappable"/.test(HTML) || /'tappable'/.test(HTML),
+    'a row that acts like a button does not look like one');
+});
+
+test('no Python escape survives into the JavaScript', () => {
+  // "\U0001f524 Show bird codes" shipped to the phone: \U is PYTHON escape
+  // syntax and JavaScript has no \U escape at all, so it printed literally on
+  // the button. Written with the tool that edits this file, so the guard belongs
+  // with the file rather than with the tool.
+  for (const f of ['index.html', 'logic.js', 'cards-species.js', 'cards-hotspot.js']) {
+    const src = fs.readFileSync(path.join(WWW, f), 'utf8');
+    assert.ok(!/\\U0001[0-9a-fA-F]{4}/.test(src),
+      `${f} contains a Python \\U escape, which renders as literal text`);
+  }
+});
+
+test('the code list hides rare birds by default, and says how to see them', () => {
+  // ~570 species in Washington, mostly vagrants nobody looks up. A list you
+  // have to wade through is barely better than the Google search it replaced.
+  assert.ok(/id="spCodesAll"/.test(HTML), 'no way to reveal the rare ones');
+  // Merlin's wording, because a birder already knows what "rare birds" means
+  // and it describes the BIRDS rather than the filter state.
+  assert.ok(/Show rare birds/.test(HTML), 'the toggle does not use familiar wording');
+  const r = HTML.slice(HTML.indexOf('function renderSpCodes'),
+    HTML.indexOf('function renderSpCodes') + 2600);
+  assert.ok(/_spCodesHaveSeen/.test(r),
+    'it filters before the counts arrive, which would show an empty list');
+  // "Common" must be measured, so it moves with the seasons on its own.
+  assert.ok(/\(r\.seen \|\| 0\) > 0/.test(r), 'the filter is not based on real reports');
+});
+
+test('scientific names are a setting, on by default, and only on the big cards', () => {
+  const cards = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
+  assert.ok(/function sciHtml/.test(cards), 'the card cannot render a scientific name');
+  // Gated INSIDE the card, so "which sizes show this" is a property of the card
+  // rather than a rule every section has to remember and half of them forget.
+  const g = cards.slice(cards.indexOf('function sciHtml'), cards.indexOf('function sciHtml') + 500);
+  assert.ok(/tpl !== MEDIUM && tpl !== LARGE/.test(g),
+    'small cards would show it too, and small is a scanning surface');
+
+  // ON by default: absence of the key must mean shown, not hidden.
+  assert.ok(/localStorage\.getItem\(SCI_KEY\) !== 'off'/.test(HTML),
+    'the default is off, or the check is inverted');
+  assert.ok(/id="sciNames"/.test(HTML), 'there is no control for it');
+  assert.ok(/\$\('sciNames'\)\.value = getSciNames\(\)/.test(HTML), 'the control never loads its value');
+});
+
+test('every card call site passes a variable that exists there', () => {
+  // A bulk edit put `sci: sciFor(r && r.code)` into six call sites, and `r` was
+  // in scope in only TWO of them - the others had g, code, o and e. Same fault
+  // as a skip[] check landing in the wrong function: a ReferenceError at render
+  // time, which takes the whole section down rather than one field.
+  //
+  // Stated as the invariant that actually matters rather than by trying to
+  // resolve scope from text: THE VARIABLE MUST ALREADY BE USED BY A SIBLING
+  // PROPERTY OF THE SAME CARD CALL. If `photoSlot(sp, code)` works two lines
+  // below, `sciFor(code)` works. Two earlier attempts to walk back to the
+  // enclosing function both produced false alarms - one missed a second
+  // declarator in `var a = 1, b = 2`, the other ran out of window - and a guard
+  // that cries wolf gets ignored, which is worse than not having it.
+  const lines = HTML.split('\n');
+  let checked = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/sci: sciFor\(([A-Za-z_$][\w$]*)/);
+    if (!m) continue;
+    const v = m[1];
+    checked++;
+    // Comments are stripped and the window is wide: these call sites carry long
+    // explanatory blocks, and a 10-line window landed entirely inside one.
+    const near = lines.slice(i + 1, i + 45)
+      .filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+    assert.ok(new RegExp(`\\b${v}\\b`).test(near),
+      `line ${i + 1}: sciFor(${v}) but no sibling property in the same card uses ${v}`);
+  }
+  assert.ok(checked >= 5, `only ${checked} card call sites pass a scientific name`);
+});
