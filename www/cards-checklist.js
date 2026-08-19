@@ -302,14 +302,26 @@
         bits.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
       }
     }
-    // NO COUNT ON A SMALL ROW. "remove the bird count." On a rarity's checklist
-    // list it was "×1" fifteen times over — the whole point of a rare bird is
-    // that there is one of it — and it was spending width the PLACE NAME
-    // needed. The medium card keeps it, where the row is about a visit rather
-    // than about one bird.
-    if (isMedium && v.count != null && v.count !== '') {
-      bits.push('<span class="ckcount">' + esc(v.count)
-        + (String(v.count) === '1' ? ' bird' : ' birds') + '</span>');
+    // COUNT ON A SMALL ROW ONLY WHEN IT SAYS SOMETHING. Two requests that look
+    // opposed and are not:
+    //
+    //   "remove the bird count."               - it was "×1" fifteen times over
+    //                                            on a rarity list, spending the
+    //                                            width the PLACE NAME needed
+    //   "It's missing the bird count in each item."
+    //
+    // Both are right about different numbers. One bird is the ordinary case for
+    // a rarity and tells you nothing; six is the reason to go. So a small row
+    // shows the count only when it is greater than one, and the medium card -
+    // which is about a VISIT rather than one bird - keeps showing it either way.
+    var _n = (v.count == null || v.count === '') ? null
+           : parseInt(String(v.count).replace(/[^0-9]/g, ''), 10);
+    var _showCount = isMedium ? (v.count != null && v.count !== '')
+                              : (isFinite(_n) && _n > 1);
+    if (_showCount) {
+      bits.push('<span class="ckcount">' + (isMedium
+        ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
+        : '\u00d7' + _n) + '</span>');
     }
     if (v.distMi != null && isFinite(v.distMi)) {
       // ONE DECIMAL, always. It used to round anything over 10 mi, so the

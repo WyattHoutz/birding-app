@@ -183,6 +183,9 @@
              padding: 0 4px; border-radius: 999px; text-align: center;
              background: var(--band); color: var(--ink); font-weight: 700;
              font-size: calc(11px * var(--s)); }
+    /* The section's own plain-English line, matching its menu tile. */
+    .sechint { color: var(--muted); font-size: calc(13px * var(--s));
+               line-height: 1.35; margin: -2px 0 10px; }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     /* The page may only ever scroll VERTICALLY. A single overflowing box used
@@ -408,16 +411,28 @@
     .toc { list-style: none; padding: 0; margin: 10px 0 0; display: grid;
            grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .toc li { border-top: 0; display: flex; min-width: 0; }
-    .toc .toclink { display: flex; flex-direction: column; align-items: flex-start;
-                    justify-content: flex-start; gap: 8px; flex: 1 1 auto; min-width: 0;
+    /* ICON LEFT, LABEL RIGHT, EXPLANATION UNDER BOTH.
+       "Let's try showing the Icon on left side and bold label like Top Patches
+        on the right, and then under both put today's destinations."
+
+       A grid rather than a column: the icon and the label share the top row so
+       the label gets the width it needs to be READ rather than wrapped, and the
+       sub-line spans both columns underneath where a full sentence fits. The
+       old layout stacked all three, which is why the label had to stay small. */
+    .toc .toclink { display: grid; grid-template-columns: auto minmax(0, 1fr);
+                    align-items: center; column-gap: 10px; row-gap: 6px;
+                    flex: 1 1 auto; min-width: 0;
                     padding: 14px 12px; border: 1px solid var(--line);
                     border-radius: 14px; background: var(--card);
-                    font-size: calc(14px * var(--s)); font-weight: 700; line-height: 1.25;
+                    font-weight: 700; line-height: 1.25;
                     color: var(--ink); cursor: pointer; text-align: left;
                     min-height: 92px; box-shadow: 0 1px 2px rgba(0,0,0,.16); }
     .toc .toclink:active { transform: scale(.97); }
     .toc .toclink::after { content: none; }
-    .tileicon { font-size: calc(44px * var(--s)); line-height: 1; }
+    /* Smaller than before: it was 44px and dominating a tile whose JOB is now
+       to be read. It marks the tile, it is not the tile. */
+    .tileicon { font-size: calc(30px * var(--s)); line-height: 1;
+                grid-column: 1; grid-row: 1; }
     /* "How is this calculated?" — an info affordance on every section heading.
        Sized as a real 34px touch target rather than a decorative glyph: a help
        control you cannot hit is not help. */
@@ -465,12 +480,17 @@
        grid track: both default to a content-driven minimum, so at the largest
        text scale on the narrowest phone a long label pushed the tile past the
        screen instead of wrapping. */
-    .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere; }
+    /* The headline. It carries the jargon, so it gets headline treatment. */
+    .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere;
+                 grid-column: 2; grid-row: 1;
+                 font-size: calc(17px * var(--s)); font-weight: 800;
+                 letter-spacing: -.01em; }
     /* The translation, not the title: lighter and smaller so the jargon still
        reads as the name of the thing. Scales with the text-size setting like
        everything else, and wraps rather than truncating - a clipped
        explanation explains nothing. */
     .tilesub { display: block; min-width: 0; overflow-wrap: anywhere;
+               grid-column: 1 / -1; grid-row: 2;
                font-size: calc(11.5px * var(--s)); line-height: 1.3;
                color: var(--muted); font-weight: 400; margin-top: 2px; }
     html[data-a11y="on"] .tilesub { font-size: calc(12.5px * var(--s)); }
@@ -521,8 +541,18 @@
        `!important` is right here: `hidden` means "not part of the page", and
        no layout rule should be able to outvote that. */
     [hidden] { display: none !important; }
-    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+    /* Outer margin so a control row is separated from the content it acts on
+       rather than sitting flush against it. */
+    .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
+    /* Condensed. Five chunky buttons wrapped onto three rows on a 402px
+       phone and pushed the answer below the fold - the controls were taking
+       more of the screen than the content they control.
+    
+       The 44px floor is NOT given up: it still applies under Easy read, where
+       the layout audit measures it at 320px. This trims the ORDINARY size,
+       which was 11px/16px of padding on a 17px font - comfortably past the
+       minimum and paying for it in wrapped rows. */
+    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
@@ -552,8 +582,8 @@
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
-    #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
+    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #spLookupMap:empty, #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
@@ -5527,15 +5557,25 @@
         // numbered, so pin 3 is row 3. Near places first, then far, matching
         // how the list is built - otherwise the numbers drift apart the moment
         // the far list is expanded.
+        // Wrapped: a map that cannot draw must never take the LIST down with
+        // it. It did exactly that - renderSpeciesLookup threw, so the calls
+        // after it never ran and the historical block came back empty. The
+        // list is the answer; the map is an illustration of it.
+        try {
         (function () {
           var lim = chaseMaxMi(), all = g.places || [];
           var near = all.filter(function (p) { return !(p.distMi > lim); });
           var far = all.filter(function (p) { return p.distMi > lim; });
-          var pts = (near.length ? near : all).concat(near.length ? far : [])
+          // Only the pins that are actually NUMBERED on screen. The list caps
+          // at SP_ROWS_MAX, so plotting all 131 would put pin 87 on a map whose
+          // row is behind a "show more" - and 131 pins is a smear anyway, which
+          // is the reason for the cap.
+          var pts = (near.length ? near : all).slice(0, SP_ROWS_MAX)
             .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); })
             .map(function (p) { return { lat: +p.lat, lng: +p.lng, name: p.loc || p.locId }; });
           renderMap($('spLookupMap'), pts, getHome(), false);
         })();
+        } catch (e) { dbg('error', 'stakeout map: ' + (e && e.message || e)); }
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
           var b = $(id);
           if (b) b.setAttribute('aria-pressed', String((id === 'spLookupByDist') === (_spLookupSort === 'dist')));
@@ -5577,6 +5617,17 @@
       // NUMBERED to match the map. renderMap labels its pins 1..n in array
       // order, so the number on a row is the pin to look for. A map whose pins
       // cannot be tied back to rows is decoration.
+      // THE PLACE IS THE HEADLINE, not the bird.
+      //
+      // Every row said "Black-throated Gray Warbler" - 131 times, for a bird you
+      // just searched for. The name you already know is the one thing on the row
+      // that carries no information, and it was taking the widest line. This is
+      // a list of PLACES; the bird is the question, not the answer.
+      //
+      // The photo stays: it is what makes a row recognisable at a glance, and it
+      // still links to the checklist.
+      var SP_ROWS_MAX = 25;
+
       function spLookupRowsHtml(places, startAt, bird) {
         bird = bird || _spLookupGroup || {};
         var bName = bird.name || '', bCode = bird.code || '';
@@ -5590,25 +5641,34 @@
             var href = c.subId ? checklistUrl(c.subId)
                      : (p.locId && !p.locationPrivate ? hotspotUrl(p.locId) : '');
             var where = p.loc || p.locId || '';
+            var label = '<span class="spnum">' + num + '</span> '
+              + (href ? '<a class="extlink" href="' + href + '" target="_blank" rel="noopener">'
+                        + esc(where) + '</a>' : esc(where));
             out.push(SpeciesCards.small({
               icon: photoSlot(bName, bCode, href),
-              name: c.subId
-                ? checklistLink(c.subId, bName)
-                : (href ? '<a class="extlink" href="' + href + '" target="_blank" rel="noopener">'
-                          + esc(bName) + '</a>'
-                        : esc(bName)),
-              // How many birds were on that checklist - absent when the
-              // observer recorded presence without a count.
+              name: label,
               count: c.count,
+              when: fmtWhenShort(c.dateStr || p.dateStr),
               tags: (c.valid === false ? ' \u26a0\ufe0f' : ''),
-              sub: '<span class="spnum">' + num + '</span> ' + esc(where)
-                + ' \u00b7 ' + esc(fmtDateTime(c.dateStr || p.dateStr))
-                + (p.distMi != null && isFinite(p.distMi)
-                    ? ' \u00b7 ' + p.distMi.toFixed(1) + ' mi' : '')
+              sub: (p.distMi != null && isFinite(p.distMi) ? p.distMi.toFixed(1) + ' mi' : '')
             }));
           });
         });
         return SpeciesCards.list('small', out, 'sppl');
+      }
+
+      // Capped, with the rest one tap away. "we can limit results to 25, so the
+      // map doesnt get crowded with a show more option." The cap is the MAP's
+      // constraint as much as the list's: 131 numbered pins is a smear, and a
+      // number you cannot pick out of the cluster is not a number.
+      function spLookupCapped(places, startAt, bird) {
+        var all = places || [];
+        if (all.length <= SP_ROWS_MAX) return spLookupRowsHtml(all, startAt, bird);
+        var head = all.slice(0, SP_ROWS_MAX), rest = all.slice(SP_ROWS_MAX);
+        return spLookupRowsHtml(head, startAt, bird)
+          + '<details class="farplaces"><summary>' + rest.length + ' more place'
+          + (rest.length === 1 ? '' : 's') + '</summary>'
+          + spLookupRowsHtml(rest, (startAt || 1) + head.length, bird) + '</details>';
       }
 
       function spLookupPlacesHtml(places, bird) {
@@ -5621,12 +5681,12 @@
         // are.
         // The far ones are numbered on from the near ones, so a number is
         // unique across the whole answer even when the list is collapsed.
-        if (!near.length) return spLookupRowsHtml(all, 1, bird);
-        var html = spLookupRowsHtml(near, 1, bird);
+        if (!near.length) return spLookupCapped(all, 1, bird);
+        var html = spLookupCapped(near, 1, bird);
         if (far.length) {
           html += '<details class="farplaces"><summary>' + far.length + ' more place'
             + (far.length === 1 ? '' : 's') + ' beyond ' + lim + ' mi</summary>'
-            + spLookupRowsHtml(far, near.length + 1, bird) + '</details>';
+            + spLookupCapped(far, near.length + 1, bird) + '</details>';
         }
         return html;
       }
@@ -15726,6 +15786,26 @@
         if (_abaOpen) abaCloseBird();
         // Everything fetched from here on is this section's cost.
         var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
+        // THE EXPLANATION FOLLOWS YOU IN. "This should also be shown inside of
+        // the report header."
+        //
+        // The sub-line taught you the term on the menu and then vanished the
+        // moment you acted on it - so the one screen where you are actually
+        // reading the section had the jargon and no gloss. Same string, one
+        // definition, injected under the heading rather than duplicated into
+        // the markup of 28 panels.
+        (function () {
+          if (!sec0 || !h20) return;
+          var txt = MENU_SUB[id.replace(/^sec-/, '')] || MENU_SUB[id];
+          if (!txt) return;
+          var el = sec0.querySelector('.sechint');
+          if (!el) {
+            el = document.createElement('div');
+            el.className = 'sechint';
+            h20.insertAdjacentElement('afterend', el);
+          }
+          el.textContent = txt;
+        })();
         costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
         // F134: opening a section is what makes its news old. Placed AFTER
         // costEnter, because cost attribution must stay the first thing that
@@ -16262,6 +16342,16 @@
       } catch (e) {}
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
+        // Why the Top 100 movement column may be blank. It needs TWO board
+        // snapshots, and one is only taken when the rankings section is
+        // actually opened - so a blank column can mean "no history yet"
+        // rather than "broken", and those need different answers.
+        try {
+          var _bh = boardHistRead(getRegion());
+          add('board snapshots: ' + _bh.length
+            + (_bh.length ? ' (' + _bh[0].d + ' \u2192 ' + _bh[_bh.length - 1].d + ')' : '')
+            + (_bh.length < 2 ? ' \u2014 needs 2 for arrows' : ''));
+        } catch (e) {}
         // F2. A block that leaves no trace is a block nobody fixes: the eBirder
         // field size vanished from the card and the app said nothing at all.
         try {

@@ -326,7 +326,7 @@ test('navigation opens exactly one section and the back button returns', async (
 
 test('opening a section auto-loads its content (no button tap)', async () => {
   const app = await boot();
-  app.open(/Top destinations/);
+  app.open(/Top patches/);
   assert.match(app.$('destStatus').textContent, /Ranking hotspots/,
     'the section loader ran on first open');
   app.window.close();
@@ -371,7 +371,7 @@ function swipe(app, from, dx, dy, opts) {
 
 test('swiping right in a section returns to the Contents menu', async () => {
   const app = await boot();
-  app.open(/Top destinations/);
+  app.open(/Top patches/);
   assert.equal(app.$('menuPanel').hidden, true, 'section is open');
 
   swipe(app, app.$('destStatus'), 140, 10);
@@ -384,7 +384,7 @@ test('swiping right in a section returns to the Contents menu', async () => {
 
 test('swipe-back ignores gestures it must not steal', async () => {
   const app = await boot();
-  const open = () => { app.open(/Top destinations/); return app.$('destStatus'); };
+  const open = () => { app.open(/Top patches/); return app.$('destStatus'); };
 
   let el = open();
   swipe(app, el, -140, 0);
@@ -2448,12 +2448,16 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
   const full = CK.small({ place: 'Marymoor Park--Audubon BirdLoop', date: 'Jul 30 9:29 AM',
                           href: 'https://ebird.org/checklist/S1', count: 42, distMi: 4.24 });
-  // NO BIRD COUNT ON A SMALL ROW. "remove the bird count." On a rarity's
-  // checklist list it was "×1" over and over — the whole point of a rare bird
-  // is that there is one of it — and it was spending width the PLACE NAME
-  // needed. The medium card keeps it, where the row is about a visit.
-  assert.ok(!/class="ckcount"/.test(full),
-    'the bird count is gone from the one-line row');
+  // REFINED 2026-08-19. This asserted NO count on a small row, quoting
+  // "remove the bird count" - and then: "It's missing the bird count in each
+  // item." Both are right about different numbers. The original complaint was
+  // "×1 over and over" on a rarity list, where one bird is the ordinary case
+  // and says nothing; 42 is the reason to go. So the rule is now "only when it
+  // is greater than one" rather than "never".
+  assert.match(full, /class="ckcount"[^>]*>\u00d742</,
+    'an informative count (42) is hidden on the one-line row');
+  assert.ok(!/class="ckcount"/.test(CK.small({ place: 'P', date: 'd', count: 1 })),
+    '×1 is back, which is the noise that was removed');
   assert.match(CK.medium({ place: 'P', count: 1 }), /1 bird</,
     'the medium card has a whole line, so it spells it out and pluralises');
   assert.match(full, /class="ckdist">4\.2 mi/, 'and how far, when the caller has it');
@@ -6925,7 +6929,9 @@ test('the sustained limit is a sliding window, not just a bucket', async () => {
 
   const src = HTML.slice(HTML.indexOf('function fgSlot('),
                          HTML.indexOf('function fgSlot(') + 700);
-  assert.match(src, /fgWindowWait\(at\)/,
+  // Takes the lane now: background stops short of the cap so an interactive
+  // tap always has budget. Every call still passes through the same window.
+  assert.match(src, /fgWindowWait\(at, bg\)/,
     'and every call is scheduled through it, not just the bucket');
   assert.match(src, /_fgStarts\.push\(at\)/,
     'recording when it actually starts, so the window is real rather than notional');
@@ -7926,7 +7932,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Top destinations', 'Top excursions', 'Find local patches',
+  for (const want of ['Top patches', 'Worth the drive', 'Find local patches',
                       'Closest spots', 'Stakeout bird',
                       'Producing patches', 'Under-birded patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
@@ -8041,7 +8047,10 @@ test('a checklist row is the requested one-liner, and the whole row is the link'
   const txt = li.textContent.replace(/\s+/g, ' ').trim();
   assert.match(txt, /33014 NE 138th St/, 'the hotspot name leads');
   assert.match(txt, /8\/3 5:14a/, 'then when — numerically, to leave room for the name');
-  assert.ok(!/×3/.test(txt), 'and NOT the bird count, which said ×1 over and over');
+  // Three birds is worth knowing; one is not. The rule changed from "never"
+  // to "only when greater than one" - see the checklist card for why both
+  // requests were right about different numbers.
+  assert.match(txt, /×3/, 'a count of three is hidden, which is information lost');
   assert.match(txt, /12\.4 mi/,
     'then how far, to ONE DECIMAL — it used to round anything over 10mi to '
     + '"12 mi", and on a list you scan to pick a drive the tenth is what '
@@ -9062,10 +9071,10 @@ test('the Go birding sections refresh observations, not the world', () => {
   // hot and cold through their own scan.
   const dest = HTML.slice(HTML.indexOf('function loadDestinations'),
     HTML.indexOf('function loadDestinations') + 1200);
-  assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top destinations');
+  assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top patches');
   const exc = HTML.slice(HTML.indexOf('function loadExcursions'),
     HTML.indexOf('function loadExcursions') + 1200);
-  assert.match(exc, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top excursions');
+  assert.match(exc, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Worth the drive');
   const scan = HTML.slice(HTML.indexOf('function runHotspotScan'),
     HTML.indexOf('function runHotspotScan') + 2600);
   assert.match(scan, /if \(opts\.force\) ebClearMatching\(FORCE_OBS_RE\)/,
@@ -11821,8 +11830,8 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
   // The bird is passed in rather than read off module state - the first
   // version reached for _spLookupGroup and threw the moment it ran with none
   // set, and threading it made these calls three arguments long.
-  assert.ok(/spLookupRowsHtml\(near, 1, bird\)/.test(HTML), 'near places are not numbered from 1');
-  assert.ok(/spLookupRowsHtml\(far, near\.length \+ 1, bird\)/.test(HTML),
+  assert.ok(/spLookupCapped\(near, 1, bird\)/.test(HTML), 'near places are not numbered from 1');
+  assert.ok(/spLookupCapped\(far, near\.length \+ 1, bird\)/.test(HTML),
     'far places restart their numbering, so a number is not unique');
   assert.ok(!/_spLookupGroup\.name/.test(HTML),
     'the row renderer still reaches for module state instead of its argument');
@@ -11861,4 +11870,85 @@ test('background fill leaves budget for the section you just opened', () => {
   // Only who may spend the last few slots has changed.
   assert.ok(!/FG_WINDOW_MAX\s*=\s*(2[3-9]|[3-9]\d)/.test(HTML),
     'the fix raised the ceiling instead of reserving part of it');
+});
+
+test('a species row says how many and when, and the fields survive the hop', () => {
+  // "in top destinations, if it shows the western sandpiper, the link goes to a
+  //  checklist, so id like to see the count and date last seen... x6 for the
+  //  count, and 8/17 9:56A for the time."
+  //
+  // A count with no date is half an answer: six birds LAST WEEK is a different
+  // decision from six this morning.
+  const SC = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const row = SC.small({ name: 'Western Sandpiper', code: 'wessan',
+                         count: 6, when: '8/17 9:56A', sub: 'x' });
+  assert.match(row, /\u00d76/, 'the count is missing');
+  assert.match(row, /8\/17 9:56A/, 'the date is missing');
+
+  // The card validates the shape and renders nothing else - it has no clock,
+  // no locale and no escaper by design, so the app formats and it only places.
+  for (const bad of ['not a date', '<script>x</script>', '2026-08-17T09:56']) {
+    assert.ok(!/spwhen/.test(SC.small({ name: 'x', when: bad })),
+      `"${bad}" was rendered as a date`);
+  }
+  assert.ok(/function fmtWhenShort/.test(HTML), 'nothing formats the short date');
+
+  // THE ACTUAL BUG: toDest mapped the scored record to {comName, code, rare}
+  // and dropped the rest, so a destination row had no count, no date - and no
+  // NEW badge either, since that rule reads dateStr.
+  const td = HTML.slice(HTML.indexOf('function toDest'), HTML.indexOf('function toDest') + 2200);
+  for (const f of ['count: s.count', 'dateStr: s.dateStr', 'subId: s.subId']) {
+    assert.ok(td.includes(f), `toDest drops ${f.split(':')[0]}, so the row cannot show it`);
+  }
+  assert.ok(/when: fmtWhenShort\(x\.dateStr\)/.test(HTML), 'the row never passes a date to the card');
+});
+
+test('a small checklist row shows a count only when it says something', () => {
+  // Two requests that look opposed and are not:
+  //   "remove the bird count."  - it was x1 fifteen times over on a rarity list
+  //   "It's missing the bird count in each item."
+  // One bird is the ordinary case for a rarity and tells you nothing; six is
+  // the reason to go.
+  const CC = require(path.join(__dirname, '..', 'www', 'cards-checklist.js'));
+  const small = (n) => CC.small({ place: 'Edmonds Marsh', date: '8/17', count: n });
+  assert.match(small(6), /\u00d76/, 'an informative count is hidden');
+  assert.ok(!/ckcount/.test(small(1)), 'x1 is back, which is the noise that was removed');
+  assert.ok(!/ckcount/.test(small(null)), 'a missing count rendered something');
+  // The medium card is about a VISIT, not one bird, so it still shows either.
+  assert.ok(/ckcount/.test(CC.medium({ place: 'x', date: 'y', count: 1 })),
+    'the medium card lost its count');
+});
+
+test('rank movement compares dates on the same clock', () => {
+  const LOGIC_SRC = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+  // "the ebird Rankings & Top 100 still does not show the position changes...
+  //  Id like to see up and down arrows on each person."
+  //
+  // The arrows were wired all along. The comparison was not: snapshots are
+  // stamped with a LOCAL date (todayStr) and the cutoff used toISOString(),
+  // which is UTC - so west of Greenwich every evening the cutoff read as
+  // tomorrow, `prior` resolved to today's own snapshot, and the guard
+  // `prior.d === last.d` bailed with no arrow at all.
+  const BLl = require(path.join(WWW, 'logic.js'));
+  const evening = new Date(2026, 7, 19, 18, 0, 0).getTime();   // 6pm local
+  const hist = [{ d: '2026-08-18', rank: 40 }, { d: '2026-08-19', rank: 13 }];
+  const d = BLl.rankDeltas(hist, evening);
+  assert.ok(d.day, 'no 1-day movement in the evening - the UTC skew is back');
+  assert.equal(d.day.places, 27, 'the movement is measured wrongly');
+
+  // ...and it must still work at midday, which never exercised the skew.
+  const midday = new Date(2026, 7, 19, 11, 0, 0).getTime();
+  assert.ok(BLl.rankDeltas(hist, midday).day, 'midday movement broke');
+
+  // Pinned to the cutoff itself rather than scanning the whole function: a
+  // wide text search caught an unrelated toISOString further down and failed
+  // a fix that was actually correct.
+  const cut = LOGIC_SRC.slice(LOGIC_SRC.indexOf('var cutoff = new Date(now -'),
+    LOGIC_SRC.indexOf('var cutoff = new Date(now -') + 520);
+  assert.ok(/cutoff\.getFullYear\(\)/.test(cut), 'the cutoff is not built from a local date');
+  assert.ok(!/cutoff\.toISOString/.test(cut), 'the cutoff is back on UTC');
+
+  // A blank column must be explainable: one snapshot is not a bug.
+  assert.ok(/board snapshots: /.test(HTML),
+    'the debug header cannot say how many board snapshots exist');
 });

@@ -2506,7 +2506,15 @@
     var now = nowMs == null ? Date.now() : nowMs;
     RANK_WINDOWS.forEach(function (w) {
       var cutoff = new Date(now - w.days * 86400000);
-      var iso = cutoff.toISOString().slice(0, 10);
+      // LOCAL date, not UTC. Snapshots are stamped with a local YYYY-MM-DD
+      // (todayStr), and toISOString() is UTC - so west of Greenwich, every
+      // evening the cutoff read as TOMORROW's local date, `prior` resolved to
+      // today's own snapshot, and `prior.d === last.d` bailed with no arrow.
+      // The two dates have to be measured on the same clock or the comparison
+      // is meaningless.
+      var iso = cutoff.getFullYear() + '-'
+        + (cutoff.getMonth() + 1 < 10 ? '0' : '') + (cutoff.getMonth() + 1) + '-'
+        + (cutoff.getDate() < 10 ? '0' : '') + cutoff.getDate();
       // The newest snapshot at or before the cutoff. Anything later would
       // measure a shorter window than the label claims.
       var prior = null;
