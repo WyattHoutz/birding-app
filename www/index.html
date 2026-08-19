@@ -186,6 +186,13 @@
     /* The section's own plain-English line, matching its menu tile. */
     .sechint { color: var(--muted); font-size: calc(13px * var(--s));
                line-height: 1.35; margin: -2px 0 10px; }
+    /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
+       "Stop tracking Horned Lark" - its width is the length of a species name,
+       which cannot be budgeted for at 320px. Higher specificity than the base
+       button rule because .row's flex sizing was still winning. */
+    .row > button, .row > .secondary {
+      max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+    }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     /* The page may only ever scroll VERTICALLY. A single overflowing box used
@@ -552,7 +559,7 @@
        the layout audit measures it at 320px. This trims the ORDINARY size,
        which was 11px/16px of padding on a 17px font - comfortably past the
        minimum and paying for it in wrapped rows. */
-    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer; } max-width: 100%; overflow-wrap: anywhere; white-space: normal min-width: 0;
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
@@ -5671,7 +5678,23 @@
           + spLookupRowsHtml(rest, (startAt || 1) + head.length, bird) + '</details>';
       }
 
+      // A LIST RENDERER MUST NOT TAKE DOWN ITS CALLER.
+      //
+      // This is evaluated as the `below:` argument of SpeciesCards.medium, so a
+      // throw here rejects the whole lookup promise - and the section then
+      // reports a NETWORK error for a rendering fault, which sends anyone
+      // debugging it to the wrong place entirely. Three tests caught exactly
+      // that: spLookupBest came back empty because the code after this never
+      // ran. The map was already guarded for the same reason; the list is the
+      // more important half.
       function spLookupPlacesHtml(places, bird) {
+        try { return spLookupPlacesHtmlInner(places, bird); }
+        catch (e) {
+          dbg('error', 'stakeout places: ' + (e && e.message || e));
+          return '';
+        }
+      }
+      function spLookupPlacesHtmlInner(places, bird) {
         var all = places || [];
         var lim = chaseMaxMi();
         var near = all.filter(function (p) { return !(p.distMi > lim); });
@@ -8348,7 +8371,7 @@
       // shape and renders nothing for anything else, so the format lives here
       // and the card stays layout-only.
       function fmtWhenShort(dateStr) {
-        var d = dateStr ? parseObsDt(dateStr) : null;
+        var d = dateStr ? BL.parseObsDt(dateStr) : null;
         if (!d || isNaN(d.getTime())) return '';
         var out = (d.getMonth() + 1) + '/' + d.getDate();
         // eBird dates arrive with or without a time. Midnight means "no time
@@ -10486,10 +10509,25 @@
           var P = geo();
           if (P && typeof P.getCurrentPosition === 'function') {
             try {
+              // ASK FIRST. "im not getting prompted to share location either."
+              //
+              // Capacitor's Geolocation does not reliably raise the iOS prompt
+              // from getCurrentPosition alone: when the permission state is
+              // still 'prompt' it can reject instead of asking, which looks
+              // exactly like a denial the user never got the chance to make.
+              // requestPermissions() is what actually shows the dialog, so it
+              // runs first and getCurrentPosition follows either way - if the
+              // call is unavailable or fails, the original path still runs and
+              // nothing is lost.
+              var askedP = (typeof P.requestPermissions === 'function')
+                ? P.requestPermissions().catch(function () { return null; })
+                : Promise.resolve(null);
+              askedP.then(function () {
               P.getCurrentPosition(opts).then(function (pos) {
                 var c = pos && pos.coords; ok(c && c.latitude, c && c.longitude);
               }).catch(function (e) {
                 fail(geoDenied(e) ? GEO_DENIED : 'Location unavailable (' + geoErrText(e) + ').');
+              });
               });
               return;
             } catch (e) { /* fall through to the web API */ }
@@ -15786,6 +15824,7 @@
         if (_abaOpen) abaCloseBird();
         // Everything fetched from here on is this section's cost.
         var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
+        costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
         // THE EXPLANATION FOLLOWS YOU IN. "This should also be shown inside of
         // the report header."
         //
@@ -15806,7 +15845,6 @@
           }
           el.textContent = txt;
         })();
-        costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
         // F134: opening a section is what makes its news old. Placed AFTER
         // costEnter, because cost attribution must stay the first thing that
         // happens here - marking a badge seen is bookkeeping, not a claim on
