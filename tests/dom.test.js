@@ -11952,3 +11952,45 @@ test('rank movement compares dates on the same clock', () => {
   assert.ok(/board snapshots: /.test(HTML),
     'the debug header cannot say how many board snapshots exist');
 });
+
+test('GOLDEN CASE: Eastern Kingbird surfaces Fobes Road', () => {
+  // The owner's own site, given as the case the iconic model must reproduce:
+  // https://ebird.org/hotspot/L5495131 - "Fobes Ebey Slough Dike Road Trail",
+  // the "Forbes" of the original F11 request ("my recent eastern kingbirds at
+  // Forbes"). A real place, a real bird, and a number he can check.
+  //
+  // MEASURED against GBIF's eBird Observation Dataset on 2026-08-19, Washington,
+  // July-September:
+  //
+  //   Fobes Road ......... 94 Eastern Kingbird records of 3,144 total there
+  //   statewide baseline . 1 Eastern Kingbird in every 527 records
+  //   multiplier ......... 15.8x
+  //
+  // Frozen as numbers rather than a live call: a guard that needs the network
+  // is a guard that fails for reasons that have nothing to do with the code.
+  const EK = { spBox: 94, allBox: 3144, spRegion: 1000, allRegion: 527000 };
+
+  const mult = BL.iconicMultiplier(EK.spBox, EK.allBox, EK.spRegion, EK.allRegion);
+  assert.ok(mult != null, 'the multiplier was refused outright');
+  assert.ok(mult > 12 && mult < 20,
+    `Fobes Road should read about 15.8x for Eastern Kingbird, got ${mult}`);
+
+  // THE FLOOR MUST NOT EXCLUDE IT. iconicMultiplier refuses anything under 200
+  // records - the rule that keeps a ratio off five checklists from sending
+  // someone on a two-hour drive. Fobes has 3,144, so it clears comfortably; this
+  // pins that, because lowering or raising the floor is an open question (F151)
+  // and this site is the reference point for it.
+  assert.ok(EK.allBox >= 200, 'the fixture no longer clears the effort floor');
+  assert.equal(BL.iconicMultiplier(94, 150, EK.spRegion, EK.allRegion), null,
+    'the effort floor stopped refusing thin samples');
+
+  // It must survive the "can a stranger go here" filter too - a real hotspot
+  // name that reads like a road is exactly what that rule could wrongly reject.
+  assert.ok(BL.isPublicPlace('Fobes Road'),
+    'Fobes Road was rejected as unvisitable, but it is a real eBird hotspot');
+  assert.ok(BL.isPublicPlace('Fobes Ebey Slough Dike Road Trail'),
+    'the full hotspot name was rejected as unvisitable');
+
+  // And it must clear the 1.5x bar the section uses to mean "beats average".
+  assert.ok(mult >= 1.5, 'it no longer counts as better than the regional average');
+});
