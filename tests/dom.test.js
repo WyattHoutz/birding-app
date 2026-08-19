@@ -3375,7 +3375,28 @@ test('a species lookup shows how good its places are historically', async () => 
       }
       // GBIF: species/match, then the counts the multiplier divides.
       if (/species\/match/.test(url)) return { usageKey: 2482593 };
+      // The baseline is the COUNTY the place sits in, so the code reverse-
+      // geocodes the coordinate first. Unstubbed, this hangs forever by design
+      // (see boot()), which is how it should behave - an unanswered dependency
+      // must not quietly pass.
+      if (/geocode\/reverse/.test(url)) {
+        return [
+          { type: 'GADM0', id: 'USA', title: 'United States' },
+          { type: 'GADM1', id: 'USA.48_1', title: 'Washington' },
+          { type: 'GADM2', id: 'USA.48.03_1', title: 'Benton' },
+        ];
+      }
       if (/occurrence\/search/.test(url)) {
+        if (/facet=year/.test(url)) {
+          // Eight seasons of effort; the kingbird in six of them.
+          const sp = !/taxonKey=212/.test(url);
+          return { count: 1, facets: [{ field: 'YEAR', counts: [
+            { name: '2017', count: sp ? 0 : 40 }, { name: '2018', count: sp ? 7 : 40 },
+            { name: '2019', count: sp ? 9 : 40 }, { name: '2020', count: sp ? 0 : 40 },
+            { name: '2021', count: sp ? 11 : 40 }, { name: '2022', count: sp ? 8 : 40 },
+            { name: '2023', count: sp ? 14 : 40 }, { name: '2024', count: sp ? 12 : 40 },
+          ].filter((x) => x.count > 0) }] };
+        }
         if (/facet=month/.test(url)) {
           return { count: 4000, facets: [{ field: 'MONTH', counts: [
             { name: '4', count: 900 }, { name: '5', count: 1500 },
@@ -3387,8 +3408,10 @@ test('a species lookup shows how good its places are historically', async () => 
             { name: '18', count: 5 }, { name: '20', count: 60 }, { name: '25', count: 200 },
           ] }] };
         }
-        // geometry= is the 2 km box; without it, the region-wide totals.
+        // geometry= is the 2 km box; gadmGid= the county baseline that replaced
+        // the statewide one; neither, the state-wide fallback.
         if (/geometry=/.test(url)) return { count: /taxonKey=212/.test(url) ? 56424 : 721 };
+        if (/gadmGid=/.test(url)) return { count: /taxonKey=212/.test(url) ? 1360000 : 2100 };
         return { count: /taxonKey=212/.test(url) ? 36800000 : 45199 };
       }
       return null;
@@ -3417,6 +3440,15 @@ test('a species lookup shows how good its places are historically', async () => 
   // one and is computed differently, so an unqualified "10×" reads as a quote.
   assert.match(txt, /not eBird/i,
     'and it is labelled as our own metric, never as eBird\u2019s figure');
+  // The county baseline reached the screen: if it had fallen back to the state
+  // the row would say so, and the whole point of the calibration was that the
+  // county is the region eBird compares against.
+  assert.ok(!/vs the whole state/.test(txt),
+    'it fell back to the statewide baseline even though the county resolved');
+  // And the year count, which is what separates a site the bird returns to from
+  // one where somebody got lucky once.
+  assert.match(txt, /seen in 6 of 8 years/,
+    `the year count is missing: got "${txt.slice(0, 300)}"`);
   app.window.close();
 });
 
@@ -10546,9 +10578,13 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
 
   // A record with no distance is not silently treated as near OR far: it is
   // kept (absence of a distance is not evidence of distance) but sorts last.
+  // Two sightings each, because the lane now requires corroboration and this
+  // test is about ORDERING, not about the gate.
   const mixed = BL.needNearby([
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z', subId: 'S1' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3b', loc: 'Z2', subId: 'S2' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W', subId: 'S3' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4b', loc: 'W2', subId: 'S4' },
   ], { now, seen: {}, maxMi: 35, hours: 24 });
   assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd,ccc',
     'a row with a known distance must lead one without');
@@ -10910,11 +10946,77 @@ test('the needs lane leads with the bird people keep re-finding', () => {
       { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C' }]),
   );
   const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
-  assert.equal(out.length, 2, 'both birds are still here — this RANKS, never filters');
-  assert.equal(out[0].code, 'bbbbbb',
-    'the corroborated bird leads, even though the other one is 19 miles closer');
+  // THIS REVERSES AN EARLIER DECISION, deliberately. The lane used to RANK and
+  // never filter, on the reasoning that a filter could silently drop the exact
+  // bird being chased. The owner asked twice for the opposite - first "use
+  // recent burst algorithm to filter only birds that have many recent reports
+  // in chase area", then, looking at the shipped result:
+  //
+  //   "happening now shouldnt be showing birds seen by one observation"
+  //
+  // A section headed "Happening now" listing a bird one person noted once is
+  // not describing anything happening.
+  assert.equal(out.length, 1,
+    'a bird with a single sighting is still listed under "Happening now"');
+  assert.equal(out[0].code, 'bbbbbb', 'the corroborated bird is the one that survives');
   assert.equal(out[0].sightings, 3, 'sightings are counted as events');
-  assert.equal(out[1].sightings, 1, 'and a single report is still shown, just lower');
+
+  // ...and the original objection is honoured rather than overruled: the harm
+  // it warned about was dropping a chaseable mega, which has exactly one report
+  // by definition. So a flagged rarity is kept at any count.
+  const rare = BL.needNearby(records.map((r) => (
+    r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity' }) : r)),
+  { now, seen: {}, maxMi: 100 });
+  assert.equal(rare.length, 2, 'a single-report RARITY was dropped - that is the mega it exists to catch');
+  assert.ok(rare.some((r) => r.code === 'aaaaaa' && r.rare),
+    'the rarity survived but lost its flag');
+
+  // The gate is a named constant, not a literal buried in a filter, because the
+  // section prints it on screen and the two must not drift.
+  assert.equal(BL.NEED_MIN_SIGHTINGS, 2);
+});
+
+test('a lead you cannot legally drive to is not a lead', () => {
+  // From the device: a Great Horned Owl whose "Nearest" read
+  // "HOME 4648 86th Ave SE, Mercer Island". This lane never consulted
+  // isPublicPlace, which every other place-ranking path in the app does - so it
+  // was the one section that would send a birder to a stranger's driveway.
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const now = Date.parse('2026-08-19T12:00:00');
+  const at = (h) => {
+    const d = new Date(now - h * 3600000), p = (x) => String(x).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  const rows = (code, name, loc, n) => Array.from({ length: n }, (_, i) => ({
+    code, name, loc, locId: 'L' + code + i, distMi: 5, subId: 'S' + code + i,
+    dateStr: at(i + 1), userDisplayName: 'obs' + i,
+  }));
+  const out = BL.needNearby([].concat(
+    rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 3),
+    rows('wesgre', 'Western Grebe', 'Skiff Point', 3),
+  ), { now, seen: {}, maxMi: 100 });
+  assert.deepEqual(out.map((r) => r.code), ['wesgre'],
+    'a named private residence was offered as somewhere to drive');
+
+  // A bird reported at BOTH a private address and a public place keeps the
+  // public one - the bird is chaseable, just not there.
+  const both = BL.needNearby([].concat(
+    rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 2),
+    rows('grhowl', 'Great Horned Owl', 'Marymoor Park', 2),
+  ), { now, seen: {}, maxMi: 100 });
+  assert.equal(both.length, 1);
+  assert.equal(both[0].locName, 'Marymoor Park',
+    'the private address survived as the place to drive to');
+  assert.equal(both[0].nPlaces, 2,
+    'the private reports were dropped entirely rather than just hidden from the row');
+
+  // An unnamed place is not evidence of privacy, and dropping it would lose
+  // records the feed simply did not name.
+  const unnamed = BL.needNearby(
+    rows('sposan', 'Spotted Sandpiper', '', 3).map((r) => Object.assign(r, { loc: '' })),
+    { now, seen: {}, maxMi: 100 });
+  assert.equal(unnamed.length, 1, 'a record with no place name was treated as private');
 });
 
 test('the board records itself so each birder can show movement', async () => {
@@ -11528,8 +11630,14 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
   // gbifIconic() cannot answer it: it ANNOTATES places the recent feed already
   // found, so a site nobody has visited is invisible to it by construction.
   // Candidates therefore come from GBIF's own locality facet.
-  const fn = HTML.slice(HTML.indexOf('function iconicUnwatched'),
-    HTML.indexOf('function iconicUnwatched') + 3600);
+  // Sliced to the END OF THE FUNCTION rather than a fixed character count. A
+  // magic length silently stops covering the code it was written to cover the
+  // moment the function grows - which is exactly what happened when the county
+  // baseline moved the sort further down, turning a real guard into one that
+  // failed for a reason that had nothing to do with its subject.
+  const fnAt = HTML.indexOf('function iconicUnwatched');
+  const nextFn = HTML.indexOf('\n      function ', fnAt + 1);
+  const fn = HTML.slice(fnAt, nextFn > 0 ? nextFn : fnAt + 6000);
   assert.ok(fn, 'iconicUnwatched not found');
   assert.ok(/facet=locality/.test(fn), 'candidates are not discovered from GBIF');
   assert.ok(/unwatched: !covered/.test(fn), 'it never works out which places are uncovered');
@@ -11993,4 +12101,167 @@ test('GOLDEN CASE: Eastern Kingbird surfaces Fobes Road', () => {
 
   // And it must clear the 1.5x bar the section uses to mean "beats average".
   assert.ok(mult >= 1.5, 'it no longer counts as better than the regional average');
+});
+
+// ---------------------------------------------------------------------------
+// CALIBRATION AGAINST eBIRD'S OWN NUMBERS
+//
+// The owner supplied screenshots of eBird's "Iconic Birds" panel for two of his
+// hotspots, in August. Those four published figures are the only ground truth
+// this metric has ever had, and they changed the design: the baseline is now the
+// COUNTY the site sits in, not the state.
+//
+// Measured 2026-08-19 against GBIF's eBird mirror, Jul-Sep, GADM county filters
+// (USA.48.31_1 Snohomish, USA.48.17_1 King). Frozen as numbers because a guard
+// that needs the network fails for reasons that have nothing to do with the code.
+const EBIRD_ICONIC = [
+  // place, species, eBird's x, our box counts, our county counts
+  ['Snoqualmie Falls', 'American Dipper', 85,
+    { sp: 133, all: 3187 }, { sp: 585, all: 1521502 }],
+  ['Fobes Road', 'Eastern Kingbird', 68,
+    { sp: 126, all: 4197 }, { sp: 293, all: 396678 }],
+  ['Snoqualmie Falls', 'Black Swift', 22,
+    { sp: 22, all: 3187 }, { sp: 622, all: 1521502 }],
+  ['Fobes Road', 'Wood Duck', 13,
+    { sp: 123, all: 4197 }, { sp: 1590, all: 396678 }],
+];
+
+test("GOLDEN CASE: the iconic ranking reproduces eBird's own Iconic Birds order", () => {
+  // THE ORDER IS THE PRODUCT, not the size of the number. Ours reads lower than
+  // eBird's by construction (record shares vs checklist frequencies), so the
+  // only thing that can be checked against them is which bird comes first - and
+  // that is also the only thing a chase list gets wrong in a way that costs a
+  // morning.
+  const scored = EBIRD_ICONIC.map(([place, sp, ebird, box, county]) => ({
+    place, sp, ebird,
+    ours: BL.iconicMultiplier(box.sp, box.all, county.sp, county.all),
+  }));
+  scored.forEach((r) => {
+    assert.ok(r.ours != null, `${r.place} / ${r.sp} was refused outright`);
+  });
+
+  const byOurs = [...scored].sort((a, b) => b.ours - a.ours).map((r) => r.sp);
+  const byEbird = [...scored].sort((a, b) => b.ebird - a.ebird).map((r) => r.sp);
+  assert.deepEqual(byOurs, byEbird,
+    `our order ${byOurs.join(' > ')} does not match eBird's ${byEbird.join(' > ')}`);
+
+  // And every one of them must still clear the bar that means "worth a look",
+  // since eBird thought all four notable enough to print.
+  scored.forEach((r) => {
+    assert.ok(r.ours >= 1.5, `${r.place} / ${r.sp} fell below the 1.5x bar at ${r.ours}`);
+  });
+});
+
+test('the STATE baseline is what a county baseline had to replace', () => {
+  // This is the negative control for the test above, and the whole reason the
+  // baseline changed. Measured state figures for the same four cases, Jul-Sep,
+  // Washington. Against these the order is WRONG - Black Swift overtakes Eastern
+  // Kingbird - so this pins the failure the county baseline fixes. If someone
+  // reverts the baseline to the state, the test above starts failing and this
+  // one explains why.
+  const STATE = {
+    'American Dipper': { sp: 7053, all: 8207865 },
+    'Eastern Kingbird': { sp: 15573, all: 8207865 },
+    'Black Swift': { sp: 3366, all: 8207865 },
+    'Wood Duck': { sp: 38655, all: 8207865 },
+  };
+  const scored = EBIRD_ICONIC.map(([place, sp, ebird, box]) => ({
+    sp, ebird,
+    ours: BL.iconicMultiplier(box.sp, box.all, STATE[sp].sp, STATE[sp].all),
+  }));
+  const byOurs = [...scored].sort((a, b) => b.ours - a.ours).map((r) => r.sp);
+  const byEbird = [...scored].sort((a, b) => b.ebird - a.ebird).map((r) => r.sp);
+  assert.notDeepEqual(byOurs, byEbird,
+    'the state baseline now reproduces eBird too, so the county baseline is no ' +
+    'longer justified by this measurement - re-measure before simplifying');
+});
+
+test('"observed N of M years" separates a returning bird from a lucky one', () => {
+  const years = (pairs) => pairs.map(([name, count]) => ({ name: String(name), count }));
+
+  // Fobes: birded every season for eight years, kingbird present in seven of
+  // them. This is the shape that earns a drive.
+  const effort = years([[2017, 300], [2018, 380], [2019, 420], [2020, 250],
+    [2021, 500], [2022, 610], [2023, 700], [2024, 640]]);
+  const strong = BL.iconicYearsObserved(
+    years([[2017, 8], [2018, 11], [2019, 14], [2021, 9], [2022, 20], [2023, 30], [2024, 21]]),
+    effort);
+  assert.deepEqual({ seen: strong.seen, of: strong.of }, { seen: 7, of: 8 });
+  assert.equal(BL.iconicYearsLabel(strong), 'seen in 7 of 8 years');
+
+  // THE F151 CASE. Mann Rd scores a spectacular multiplier off ONE season, and
+  // the open question was whether to lower the 200-record effort floor to let it
+  // through. A year count is the better answer than any floor: it does not
+  // silently admit or exclude, it SAYS what the sample is.
+  const thin = BL.iconicYearsObserved(years([[2024, 92]]), years([[2024, 300]]));
+  assert.deepEqual({ seen: thin.seen, of: thin.of }, { seen: 1, of: 1 });
+  assert.equal(BL.iconicYearsLabel(thin), 'only 1 year of data here',
+    'a single season must state its thinness, not score 1-of-1 as if it were perfect');
+
+  // A ratio over a tiny denominator invents confidence - the same rule that
+  // stopped "Infinity x" being printed when a baseline was zero.
+  const two = BL.iconicYearsObserved(years([[2023, 4], [2024, 6]]), years([[2023, 300], [2024, 300]]));
+  assert.equal(BL.iconicYearsLabel(two), 'only 2 years of data here');
+
+  // The window is anchored on the latest year the SITE has data, not on today:
+  // GBIF's eBird mirror lags about a year, so anchoring on the calendar year
+  // would spend a slot on a year no site can have records in yet.
+  const old = BL.iconicYearsObserved(
+    years([[2015, 5], [2016, 5], [2017, 5]]),
+    years([[2014, 200], [2015, 200], [2016, 200], [2017, 200]]));
+  assert.equal(old.to, 2017, 'the window did not anchor on the latest year with effort');
+  assert.equal(old.of, 4, 'years before the site was ever birded were counted against it');
+  assert.equal(old.seen, 3);
+
+  // Years outside the window must not leak in.
+  const wide = BL.iconicYearsObserved(
+    years([[2000, 50], [2024, 3]]),
+    years([[2000, 900], [2018, 200], [2019, 200], [2020, 200], [2021, 200],
+      [2022, 200], [2023, 200], [2024, 200]]));
+  assert.equal(wide.of, 7, '2000 is outside an 8-year window ending 2024');
+  assert.equal(wide.seen, 1);
+
+  // A site with no effort at all is not "0 of 8", it is unmeasured - the same
+  // distinction the unwatched-hotspot work turned on.
+  assert.equal(BL.iconicYearsObserved(years([[2024, 3]]), []), null);
+  assert.equal(BL.iconicYearsLabel(null), '');
+});
+
+test('both iconic sections resolve the same baseline, or they print two answers', () => {
+  // Two sections show a multiplier for the same hotspot. If one divides by the
+  // county and the other by the state, the app contradicts itself on screen -
+  // the precise class of drift that forced the card CSS out of index.html and
+  // the section docs into a byte-identical mirror.
+  for (const name of ['gbifIconic', 'iconicUnwatched']) {
+    const at = HTML.indexOf('function ' + name);
+    assert.ok(at > 0, `${name} not found`);
+    const next = HTML.indexOf('\n      function ', at + 1);
+    const src = HTML.slice(at, next > 0 ? next : at + 6000);
+    assert.ok(/gbifCountyGid/.test(src),
+      `${name} does not resolve the county, so its numbers are on a different scale`);
+    assert.ok(/gbifCountyRates/.test(src),
+      `${name} does not use county rates as its baseline`);
+    // Falling back is required, not optional: a place must not vanish because a
+    // geocode failed.
+    assert.ok(/spRegion|stateRates/.test(src),
+      `${name} has no state fallback, so an unresolved county drops the place`);
+  }
+
+  // Every count that goes into a ratio must share one window. A summer box over
+  // an all-year baseline is not a ratio of anything, and this is how the year
+  // count came to disagree with eBird's on the first attempt.
+  for (const fname of ['gbifBoxTotal', 'gbifCountyTotal', 'gbifRegionTotal', 'gbifBoxYears']) {
+    const at = HTML.indexOf('function ' + fname);
+    assert.ok(at > 0, `${fname} not found`);
+    const src = HTML.slice(at, at + 700);
+    assert.ok(/seasonQs\(\)/.test(src), `${fname} is not scoped to the season window`);
+    assert.ok(/seasonTag\(\)/.test(src),
+      `${fname} caches without the season in the key, so a stale window is served ` +
+      'as if it were the current one');
+  }
+
+  // "8 of 8 years" with no window stated is a stronger claim than the data
+  // supports, so the window has to reach the screen.
+  assert.ok(/seasonMonthNames\(\)/.test(HTML),
+    'the season window is never named on screen');
 });

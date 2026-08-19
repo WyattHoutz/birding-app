@@ -2118,12 +2118,32 @@
   // The multiplier below is OUR metric and the UI must never present it as
   // eBird's. eBird divides CHECKLIST FREQUENCIES (what share of checklists at a
   // spot report the bird); we divide RECORD SHARES, because record shares are
-  // what a keyless public dataset actually exposes. A heavily-birded park
-  // dilutes its own denominator, so our numbers run about an order of magnitude
-  // below eBird's. The RANKING - which is the thing you chase on - is what
-  // reproduces: measured on Western Kingbird / Washington, McNary NWR scores
-  // 10.4x, Bennington Lake 6.3x, Marymoor Park 0.6x.
+  // what a keyless public dataset actually exposes.
+  //
+  // CALIBRATED 2026-08-19 against eBird's own "Iconic Birds" panel, which the
+  // owner supplied as screenshots for two hotspots in AUGUST. Those four
+  // published numbers are the only ground truth this metric has ever had, and
+  // measuring against them changed the design:
+  //
+  //                                       eBird   vs COUNTY   vs STATE
+  //   Snoqualmie Falls / American Dipper     85x      106x        43x
+  //   Fobes Road       / Eastern Kingbird    68x       30x        12x
+  //   Snoqualmie Falls / Black Swift         22x       20x        18x
+  //   Fobes Road       / Wood Duck           13x        7x         6x
+  //
+  // THE BASELINE IS THE COUNTY, NOT THE STATE - and the reason is the ranking,
+  // not the size of the number. Against the county the order is eBird's exactly.
+  // Against the state, Black Swift overtakes Eastern Kingbird, so the state
+  // baseline does not merely read low, it puts the wrong bird first, which is
+  // the one error a chase list cannot afford. eBird's own page agrees: it prints
+  // the county under the hotspot name and offers a "Change Region" control.
+  //
+  // Two of the four county numbers land within 10% of eBird's; the residual is
+  // the record-share/frequency difference above, which a keyless dataset cannot
+  // close. So the number is still ours and still labelled as ours - but it is
+  // now ours computed against the right region.
   var ICONIC_BOX_KM = 2;
+  var ICONIC_YEAR_WINDOW = 8;   // eBird prints "Observed 6/8 years"; match it
 
   function gbifBoxWkt(lat, lng, km) {
     km = km || ICONIC_BOX_KM;
@@ -2196,6 +2216,71 @@
     if (mult >= 1.5) return mult.toFixed(1) + '\u00d7 the regional average';
     if (mult >= 0.75) return 'about average for the region';
     return 'below the regional average';
+  }
+
+  // ---- "Observed 6/8 years" ------------------------------------------------
+  //
+  // Taken from eBird's own Iconic Birds panel, which prints a year count beside
+  // every multiplier. It is the missing half of the metric, and it is what
+  // finally answers F151.
+  //
+  // F151 was filed because Mann Rd scores 92x off ONE year of data and the
+  // model's 200-record floor excludes it. The open question was whether to lower
+  // the floor. This is a better answer than any floor: a floor is an arbitrary
+  // line that either admits noise or excludes a real site, whereas a year count
+  // states the thing the reader actually needs to judge - is this a place the
+  // bird RETURNS to, or a place someone got lucky once? "68x, seen in 7 of 8
+  // years" and "92x, only 1 year of data here" are both honest, and the second
+  // one warns you without pretending to be a verdict.
+  //
+  // It is also F11's second half. The owner asked for "YOY returning species...
+  // like my recent eastern kingbirds at Forbes" - a bird that comes back to the
+  // same site every year is exactly a high multiplier with a high year count.
+  //
+  // THE DENOMINATOR IS YEARS THE SITE WAS BIRDED, not calendar years. A hotspot
+  // that first appeared in eBird three years ago would otherwise read "3 of 8"
+  // and rank below a worse site that has simply existed longer - penalising the
+  // place for the observers' absence, which is the same mistake the unwatched
+  // -hotspot work was built to avoid.
+  function iconicYearsObserved(spYears, allYears, windowYears) {
+    var win = windowYears || ICONIC_YEAR_WINDOW;
+    var effort = {}, latest = null;
+    (allYears || []).forEach(function (x) {
+      var y = parseInt(x && x.name, 10);
+      if (!isFinite(y) || !(x.count > 0)) return;
+      effort[y] = true;
+      if (latest === null || y > latest) latest = y;
+    });
+    if (latest === null) return null;
+    // Anchored on the latest year the SITE has data, not on today: GBIF's eBird
+    // mirror lags about a year, so anchoring on the calendar year would spend a
+    // slot of the window on a year no site can have records in yet.
+    var from = latest - win + 1, years = [];
+    Object.keys(effort).forEach(function (k) {
+      var y = +k;
+      if (y >= from && y <= latest) years.push(y);
+    });
+    if (!years.length) return null;
+    var hit = {};
+    (spYears || []).forEach(function (x) {
+      var y = parseInt(x && x.name, 10);
+      if (isFinite(y) && x.count > 0) hit[y] = true;
+    });
+    var seen = years.filter(function (y) { return hit[y]; }).length;
+    years.sort(function (a, b) { return a - b; });
+    return { seen: seen, of: years.length, from: years[0], to: latest };
+  }
+
+  // Below three years of effort a ratio invents confidence it has not earned -
+  // the same rule that stopped "Infinity x" being printed when a baseline was
+  // zero. So a thin site states its thinness instead of scoring it.
+  var ICONIC_YEARS_MIN = 3;
+  function iconicYearsLabel(y) {
+    if (!y || !y.of) return '';
+    if (y.of < ICONIC_YEARS_MIN) {
+      return 'only ' + y.of + ' year' + (y.of === 1 ? '' : 's') + ' of data here';
+    }
+    return 'seen in ' + y.seen + ' of ' + y.of + ' years';
   }
 
   // Pooled across every year GBIF holds rather than year-by-year: pooling is
@@ -2555,12 +2640,17 @@
   // Costs nothing: these are the records the chase wave already merged, and
   // both filters already exist — isFresh (24 h, v1.1.0) and the report's own
   // chaseMaxMi (v1.2.1).
+  // Two independent sightings, matching the surge lane's novelty gate. One
+  // report is a sighting; two are a claim that survives one person's mistake.
+  var NEED_MIN_SIGHTINGS = 2;
+
   function needNearby(records, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
     var seen = opts.seen || {};
     var maxMi = opts.maxMi == null ? Infinity : Number(opts.maxMi);
     var hours = opts.hours == null ? FRESH_HOURS : opts.hours;
+    var minSightings = opts.minSightings == null ? NEED_MIN_SIGHTINGS : opts.minSightings;
     var from = now - hours * 3600 * 1000;
 
     var byCode = {}, order = [];
@@ -2573,6 +2663,13 @@
       if (!isFinite(t) || t < from || t > now + 86400000) return;
       var d = r.distMi == null ? null : Number(r.distMi);
       if (d != null && isFinite(d) && d > maxMi) return;
+      // A PLACE YOU CANNOT GO IS NOT A LEAD. The owner's screenshot had a Great
+      // Horned Owl whose "Nearest" was a named home address on Mercer Island —
+      // this lane never consulted isPublicPlace, which every other place-ranking
+      // path does. An empty name is not evidence of privacy, so only a name that
+      // is present AND fails the test is rejected.
+      var nm = r.loc || r.locName || '';
+      if (nm && !isPublicPlace(nm)) return;
       if (!byCode[r.code]) {
         byCode[r.code] = { code: r.code, name: r.name || r.code, reports: 0,
                            places: {}, nPlaces: 0, distMi: null, latest: 0,
@@ -2603,24 +2700,37 @@
     });
 
     var out = order.map(function (c) { return byCode[c]; });
-    // F132: how many people keep finding it, not just how far away it is.
+    // F132 / F153: how many people keep finding it, not just how far away it is.
     //
     // "this ten birds you need is not valuable. use recent burst algorithm to
     //  filter only birds that have many recent reports in chase area."
     //
-    // A bird one person saw once used to sit level with a bird twenty people
-    // are watching, because the only ordering was distance. chaseConfidence
-    // already answers this from the rows the lane has, so it costs nothing.
+    // That was answered by RANKING rather than filtering, on the reasoning that
+    // a penalised radius could silently drop the exact bird being chased. The
+    // owner then asked a second time, looking at the result:
     //
-    // It RANKS and never filters — F1 decision 5, and the reason is on the
-    // record: a penalised radius would have silently dropped the exact bird
-    // that was chased. A single-report bird is still here, just lower.
+    // "happening now shouldnt be showing birds seen by one observation"
+    //
+    // Twice is a decision. A lane headed "Happening now" that lists a Great
+    // Horned Owl one person noted once is not describing anything happening —
+    // and the app already holds that a single report is not corroboration (the
+    // surge novelty gate requires two distinct observers AND two distinct
+    // checklists, because "two names on one shared checklist is one
+    // observation"). The same standard now applies here.
+    //
+    // THE ONE EXEMPTION IS RARITIES, and it is the original objection honoured
+    // rather than overruled: a mega found an hour ago has exactly one report,
+    // and dropping it is the specific harm that argued against filtering. So a
+    // flagged rarity is kept at any count, and the section says so on screen.
     out.forEach(function (g) {
       g.conf = chaseConfidence(g.rows, { nowMs: now });
       // The corroborated count, which is NOT g.reports: that counts rows, and
       // a birding party files one sighting several times over.
       g.sightings = g.conf.events;
       g.rows = null;                    // grouping detail, not render data
+    });
+    out = out.filter(function (g) {
+      return g.rare || g.sightings >= minSightings;
     });
     out.sort(function (a, b) {
       var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;
@@ -2788,6 +2898,9 @@
     gbifBoxWkt: gbifBoxWkt,
     iconicMultiplier: iconicMultiplier,
     iconicLabel: iconicLabel,
+    iconicYearsObserved: iconicYearsObserved,
+    iconicYearsLabel: iconicYearsLabel,
+    ICONIC_YEAR_WINDOW: ICONIC_YEAR_WINDOW,
     isPublicPlace: isPublicPlace,
     reportsForState: reportsForState,
     arrivalDay: arrivalDay,
@@ -2795,6 +2908,7 @@
     prettyMMDD: prettyMMDD,
     scoutGroups: scoutGroups,
     needNearby: needNearby,
+    NEED_MIN_SIGHTINGS: NEED_MIN_SIGHTINGS,
     yieldBand: yieldBand,
     chaseConfidence: chaseConfidence,
     confidenceNote: confidenceNote,

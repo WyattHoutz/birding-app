@@ -3583,25 +3583,123 @@
         return gbifJson(url + '&limit=0').then(function (j) { return j ? (j.count || 0) : null; });
       }
       var GBIF_OCC = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS;
+      // Every iconic number is scoped to the SEASON, and all of them to the same
+      // one, because a ratio between a summer box and an all-year baseline is
+      // not a ratio of anything. eBird scopes its own panel to a single month
+      // (the screenshots read "Iconic Birds — AUGUST"); this uses the same
+      // three-month window as the rest of the iconic work, which keeps samples
+      // above the effort floor while still answering the seasonal question.
+      //
+      // Getting this wrong is not academic: measured against eBird, an all-month
+      // year count said American Dipper was at Snoqualmie Falls 8 years of 8,
+      // where eBird says 6 of 8. Both are true - it is resident there, and it is
+      // not reported every August - but only one of them answers "should I go
+      // this month".
+      function seasonQs() {
+        return seasonMonths().map(function (m) { return '&month=' + m; }).join('');
+      }
+      function seasonTag() { return seasonMonths().join(','); }
+      // A window the reader can check. "8 of 8 years" with no window stated
+      // reads as "every year ever", which is a materially stronger claim than
+      // the one the data supports. Abbreviations are derived from MONTH_NAMES
+      // rather than a second table, so the two cannot drift.
+      function seasonMonthNames() {
+        var m = seasonMonths();
+        var first = MONTH_NAMES[m[0] - 1], last = MONTH_NAMES[m[m.length - 1] - 1];
+        return first.slice(0, 3) + '\u2013' + last.slice(0, 3);
+      }
       // The denominator is a property of the PLACE, not the bird, so it is
       // cached per box and shared across every species ever looked up there.
       // That turns the second lookup at a hotspot from two calls into one.
       function gbifBoxTotal(wkt, stateName) {
-        var ck = 'box|' + wkt, c = gbifCache();
+        var ck = 'box|' + seasonTag() + '|' + wkt, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt))
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + seasonQs())
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
             return v;
           });
       }
       function gbifRegionTotal(stateName) {
-        var ck = 'aves|' + stateName, c = gbifCache();
+        var ck = 'aves|' + seasonTag() + '|' + stateName, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName))
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName) + seasonQs())
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
             return v;
+          });
+      }
+
+      // ---- the baseline region ---------------------------------------------
+      //
+      // eBird compares a hotspot against its COUNTY - the county is printed
+      // under the hotspot name and there is a "Change Region" control above it.
+      // We used to compare against the whole state, and measuring against
+      // eBird's four published August numbers showed that is not just a
+      // low-reading number, it REORDERS the list (see logic.js for the table).
+      //
+      // GBIF reverse-geocodes a coordinate to GADM levels, of which GADM2 is the
+      // US county. Cached on a rounded coordinate: every place inside a county
+      // resolves to the same answer, and 2 dp is ~1 km, so a scan of a dozen
+      // hotspots typically costs one or two lookups.
+      function gbifCountyGid(lat, lng) {
+        if (lat == null || lng == null) return Promise.resolve(null);
+        // 3 dp is ~110 m, so repeated lookups of one place share a cache entry
+        // while a hotspot near a county line still resolves to the county it is
+        // actually in. Coarser rounding is tempting and wrong here: home sits on
+        // the King/Snohomish line, which is precisely where this must not slip.
+        var ck = 'gadm|' + (+lat).toFixed(3) + ',' + (+lng).toFixed(3), c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson('https://api.gbif.org/v1/geocode/reverse?lat=' + encodeURIComponent(lat) +
+                        '&lng=' + encodeURIComponent(lng))
+          .then(function (j) {
+            // The endpoint answers with a bare array, unlike every other GBIF
+            // call here, which wraps in `results`.
+            var rows = Array.isArray(j) ? j : ((j && j.results) || []);
+            var gid = null;
+            rows.forEach(function (r) {
+              if (r && r.type === 'GADM2' && r.id && !gid) gid = r.id;
+            });
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: gid }; saveGbifCache();
+            return gid;
+          }).catch(function () { return null; });
+      }
+      // The pair of numbers that define "average round here". Cached per county
+      // and per species, because a second bird looked up in the same county
+      // re-uses the denominator.
+      function gbifCountyRates(taxonKey, gid) {
+        if (!taxonKey || !gid) return Promise.resolve(null);
+        var ck = 'corate|' + seasonTag() + '|' + taxonKey + '|' + gid, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return Promise.all([
+          gbifCount(GBIF_OCC + '&taxonKey=' + taxonKey + '&gadmGid=' + encodeURIComponent(gid) + seasonQs()),
+          gbifCountyTotal(gid)
+        ]).then(function (r) {
+          var v = (r[0] && r[1]) ? { sp: r[0], all: r[1] } : null;
+          var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+          return v;
+        }).catch(function () { return null; });
+      }
+      function gbifCountyTotal(gid) {
+        var ck = 'coall|' + seasonTag() + '|' + gid, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid) + seasonQs())
+          .then(function (v) {
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          });
+      }
+      // "Observed 7 of 8 years" - one faceted call per place per bird, and the
+      // effort facet is a property of the PLACE, so it is shared like the box
+      // total is.
+      function gbifBoxYears(wkt) {
+        var ck = 'boxyr|' + seasonTag() + '|' + wkt, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifFacet(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + seasonQs() +
+                         '&limit=0&facet=year&facetLimit=60', 'year')
+          .then(function (v) {
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v || [] }; saveGbifCache();
+            return v || [];
           });
       }
       // Annotates the places the LIVE feed already found. GBIF supplies the
@@ -3615,24 +3713,60 @@
         return gbifTaxonKey(sci).then(function (key) {
           if (!key) return places;
           var spBase = GBIF_OCC + '&taxonKey=' + key;
-          return Promise.all([
-            gbifCount(spBase + '&country=US&stateProvince=' + encodeURIComponent(stateName)),
-            gbifRegionTotal(stateName)
-          ]).then(function (r) {
-            var spRegion = r[0], allRegion = r[1];
-            if (!spRegion || !allRegion) return places;
-            var targets = places.filter(function (p) { return p.lat != null && p.lon != null; }).slice(0, max);
-            return pool(targets, 3, function (p) {
-              var wkt = BL.gbifBoxWkt(p.lat, p.lon);
-              return Promise.all([
-                gbifCount(spBase + '&geometry=' + encodeURIComponent(wkt)),
-                gbifBoxTotal(wkt, stateName)
-              ]).then(function (b) {
-                p.iconic = BL.iconicMultiplier(b[0], b[1], spRegion, allRegion);
-                p.iconicLabel = BL.iconicLabel(p.iconic);
-              }).catch(function () {});
-            }).then(function () { return places; });
-          });
+          var season = seasonQs();
+          // The STATE numbers are now only a fallback, so they are fetched
+          // lazily - a scan where every place resolves to a county never pays
+          // for them at all.
+          var statePromise = null;
+          function stateRates() {
+            if (!statePromise) {
+              statePromise = Promise.all([
+                gbifCount(spBase + '&country=US&stateProvince=' + encodeURIComponent(stateName) + season),
+                gbifRegionTotal(stateName)
+              ]).then(function (r) {
+                return (r[0] && r[1]) ? { sp: r[0], all: r[1] } : null;
+              }).catch(function () { return null; });
+            }
+            return statePromise;
+          }
+          var targets = places.filter(function (p) { return p.lat != null && p.lon != null; }).slice(0, max);
+          if (!targets.length) return places;
+          return pool(targets, 3, function (p) {
+            var wkt = BL.gbifBoxWkt(p.lat, p.lon);
+            var geo = '&geometry=' + encodeURIComponent(wkt) + season;
+            // The county lookup and the box counts do not depend on each other,
+            // so they run TOGETHER. Chaining them put two extra round trips in
+            // front of every number on the screen, which on a phone is the
+            // difference between a section that fills in and one that sits on
+            // "checking…".
+            var basePromise = gbifCountyGid(p.lat, p.lon)
+              .then(function (gid) { return gid ? gbifCountyRates(key, gid) : null; })
+              .then(function (rates) {
+                // A county that cannot be resolved falls back to the state
+                // rather than dropping the place: a number computed against a
+                // wider region reads low, which is the safe direction to be
+                // wrong in, whereas a blank tells the reader nothing.
+                if (rates) return { rates: rates, scope: 'county' };
+                return stateRates().then(function (s) {
+                  return s ? { rates: s, scope: 'state' } : null;
+                });
+              }).catch(function () { return null; });
+            return Promise.all([
+              basePromise,
+              gbifCount(spBase + geo),
+              gbifBoxTotal(wkt, stateName),
+              gbifFacet(spBase + geo + '&limit=0&facet=year&facetLimit=60', 'year'),
+              gbifBoxYears(wkt)
+            ]).then(function (b) {
+              var base = b[0];
+              if (!base) return;
+              p.iconic = BL.iconicMultiplier(b[1], b[2], base.rates.sp, base.rates.all);
+              p.iconicLabel = BL.iconicLabel(p.iconic);
+              p.iconicScope = base.scope;
+              p.iconicYears = BL.iconicYearsObserved(b[3], b[4]);
+              p.iconicYearsLabel = BL.iconicYearsLabel(p.iconicYears);
+            }).catch(function () {});
+          }).then(function () { return places; });
         }).catch(function () { return places; });
       }
       // ---- Iconic but UNWATCHED -------------------------------------------
@@ -3739,7 +3873,10 @@
           var names = {};
           c.rows.forEach(function (h) {
             var n = h && (h.locName || h.name);
-            if (n) names[String(n).trim().toLowerCase()] = 1;
+            // Carries the COORDINATES, not just membership, because the county
+            // baseline needs a point to resolve. Still truthy, so the existing
+            // "is this a real hotspot" test reads the same.
+            if (n) names[String(n).trim().toLowerCase()] = { lat: h.lat, lng: h.lng };
           });
           return Promise.resolve(names);
         } catch (e) { return Promise.resolve(null); }
@@ -3783,24 +3920,49 @@
               // Somebody's garden is often genuinely the best place for the
               // bird, and is the one place a stranger must not be sent.
               if (!BL.isPublicPlace(x.name)) return;
-              if (hotspotNames && !hotspotNames[String(x.name).trim().toLowerCase()]) return;
+              var hs = hotspotNames ? hotspotNames[String(x.name).trim().toLowerCase()] : null;
+              if (hotspotNames && !hs) return;
               var tot = effort[x.name];
               if (!tot || tot < minEffort) return;      // a ratio off five checklists is a fiction
-              var mult = BL.iconicMultiplier(x.count, tot, spRegion, allRegion);
-              if (mult === null || mult < 1.5) return;  // only places that actually beat the average
               out.push({
-                place: x.name, n: x.count, effort: tot, mult: mult,
-                label: BL.iconicLabel(mult), unwatched: !covered(x.name)
+                place: x.name, n: x.count, effort: tot,
+                lat: hs && hs.lat, lng: hs && hs.lng, unwatched: !covered(x.name)
               });
             });
-            out.sort(function (a, b) {
-              // Unwatched first - that is the whole point of the list - then by
-              // strength. A watched site is still shown, because "others are on
-              // it" is useful too, just not the headline.
-              if (a.unwatched !== b.unwatched) return a.unwatched ? -1 : 1;
-              return b.mult - a.mult;
+            // The baseline is the COUNTY the place sits in, exactly as in
+            // gbifIconic. Two sections that print a multiplier for the same
+            // hotspot must not print two different numbers, and measuring
+            // against eBird showed the state baseline does not merely read low,
+            // it reorders the list.
+            return pool(out.slice(0, 40), 3, function (p) {
+              return gbifCountyGid(p.lat, p.lng)
+                .then(function (gid) { return gid ? gbifCountyRates(key, gid) : null; })
+                .then(function (rates) {
+                  // Falling back to the state keeps a place on the list rather
+                  // than dropping it for an accident of geocoding.
+                  var base = rates || { sp: spRegion, all: allRegion };
+                  p.scope = rates ? 'county' : 'state';
+                  p.mult = BL.iconicMultiplier(p.n, p.effort, base.sp, base.all);
+                  p.label = BL.iconicLabel(p.mult);
+                }).catch(function () {
+                  p.mult = BL.iconicMultiplier(p.n, p.effort, spRegion, allRegion);
+                  p.label = BL.iconicLabel(p.mult);
+                  p.scope = 'state';
+                });
+            }).then(function () {
+              out = out.filter(function (p) {
+                // only places that actually beat the average
+                return p.mult !== null && p.mult !== undefined && p.mult >= 1.5;
+              });
+              out.sort(function (a, b) {
+                // Unwatched first - that is the whole point of the list - then by
+                // strength. A watched site is still shown, because "others are on
+                // it" is useful too, just not the headline.
+                if (a.unwatched !== b.unwatched) return a.unwatched ? -1 : 1;
+                return b.mult - a.mult;
+              });
+              return out.slice(0, 12);
             });
-            return out.slice(0, 12);
           });
         }).catch(function () { return []; });
       }
@@ -5505,16 +5667,25 @@
           // like this one and is computed differently, so an unqualified "10×"
           // would read as a quote.
           h += '<div class="hint">Share of records at each spot ÷ its share across '
-            + esc(stateName) + ', from the eBird archive on GBIF. '
+            + 'the surrounding county, from the eBird archive on GBIF, counting '
+            + esc(seasonMonthNames()) + ' only. '
             + '<b>Our own metric, not eBird\u2019s “N× more likely”</b> — eBird divides '
             + 'checklist frequencies, this divides record shares, so these run lower. '
-            + 'The ranking is the useful part.</div>';
+            + 'The ranking is the useful part. Year counts are seasons with any '
+            + 'record here, so “8 of 8” means every year this site was birded at '
+            + 'this time of year.</div>';
           if (places.length) {
             h += '<ul class="obs dest">';
             places.forEach(function (p) {
+              // The year count is the honest counterweight to a big multiplier:
+              // 92× off a single season and 68× across seven of eight years are
+              // very different invitations to drive somewhere.
+              var yrs = p.iconicYearsLabel ? ' · ' + esc(p.iconicYearsLabel) : '';
               h += '<li><div class="name">' + esc(p.loc || '') + '</div><div class="meta">'
                 + '<b>' + (p.iconic >= 10 ? Math.round(p.iconic) : p.iconic.toFixed(1)) + '×</b> '
                 + esc(p.iconicLabel || 'the regional average')
+                + yrs
+                + (p.iconicScope === 'state' ? ' · vs the whole state' : '')
                 + (p.distMi != null && isFinite(p.distMi) ? ' · ' + p.distMi.toFixed(1) + ' mi' : '')
                 + '</div></li>';
             });
@@ -14045,8 +14216,12 @@
             + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours, '
             + 'closest first — everything here is already fresh, so the drive is '
             + 'what separates them. One row per BIRD, not per report: the same '
-            + 'bird at three ponds is one decision. Older sightings and ones '
-            + 'further out are in <b>All unseen reports</b>.</div>';
+            + 'bird at three ponds is one decision. '
+            + '<b>Needs ' + BL.NEED_MIN_SIGHTINGS + ' independent sightings</b> — one person '
+            + 'noting one bird is not something happening — <b>except flagged '
+            + 'rarities ⭐, kept at any count</b>, because a mega found an hour ago '
+            + 'has exactly one report. Private addresses are never listed. '
+            + 'Older sightings and ones further out are in <b>All unseen reports</b>.</div>';
           html += '<ul class="obs big xl lanes">' + needs.map(function (e) {
             return '<li>'
               + '<div class="name">' + photoSlot(e.name, e.code)

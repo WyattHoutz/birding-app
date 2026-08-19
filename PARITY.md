@@ -233,6 +233,20 @@ to notice because the code looks finished. The species lookup now renders it.
 > as such, and `tests/test_algorithms.py` fails if an app-only algorithm is not
 > written down here.
 
+> **Extended, 2026-08-19.** `iconicYearsObserved` — the *"seen in 7 of 8 years"*
+> count taken from eBird's own Iconic Birds panel — is **app-only on the same
+> terms**: no Python counterpart, no cross-repo guard, covered only by
+> `tests/dom.test.js`. It belongs to the app because it is fed by GBIF year
+> facets that the Markdown report never fetches.
+>
+> The same day, the multiplier's **baseline changed from the state to the
+> county**, calibrated against four figures the owner supplied from eBird's own
+> panel for Snoqualmie Falls and Fobes Road. Against the county our order is
+> eBird's exactly; against the state, Black Swift overtakes Eastern Kingbird.
+> That is a divergence from nothing — the report has never computed this — but
+> it is recorded here because the app now prints a number whose *region* differs
+> from every other regional figure in the app, and the section says so.
+
 **What you see:** for the places the *live* feed just found, how good each one is
 historically — `10×`, `5.5×`, `0.0×` — and, for a migrant, roughly when it comes
 back.
