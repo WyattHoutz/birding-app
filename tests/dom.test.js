@@ -334,13 +334,13 @@ test('opening a section auto-loads its content (no button tap)', async () => {
 
 test('hot and cold hotspots render from ONE shared scan', async () => {
   const app = await boot();
-  app.open(/Hot hotspots/);
+  app.open(/Producing patches/);
   const afterHot = app.state.fetches.length;
-  assert.ok(afterHot > 0, 'opening Hot hotspots starts a scan');
+  assert.ok(afterHot > 0, 'opening Producing patches starts a scan');
 
-  app.open(/Cold hotspots/);
+  app.open(/Under-birded patches/);
   assert.equal(app.state.fetches.length, afterHot,
-    'opening Cold hotspots must reuse the in-flight scan, not refetch');
+    'opening Under-birded patches must reuse the in-flight scan, not refetch');
   assert.match(app.$('coldStatus').textContent, /Scanning|overlooked/,
     'the cold section reports the shared scan');
   // Let the in-flight scan settle before tearing the window down. The
@@ -7760,7 +7760,9 @@ test('docs/CARDS.md matches the code it documents', () => {
   //    picked up by a new section stays labelled unused for a year otherwise.
   const src = { SpeciesCards: HTML, HotspotCards: HTML, ChecklistCards: HTML };
   const documentedUnused = [
-    ['SpeciesCards', 'large'],
+    // SpeciesCards.large left this list on 2026-08-18: My year switched to it.
+    // This is exactly the rot the check exists to catch - a template picked up
+    // by a new section and still labelled unused a year later.
     ['HotspotCards', 'large'],
     ['HotspotCards', 'marker'],
   ];
@@ -7915,13 +7917,18 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   //
   // Stakeout bird joins them instead, and last: the others answer "where shall
   // I go", it answers "I know the bird already - where do I stand and wait".
-  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn'];
+  // Producing and Under-birded patches joined on 2026-08-18: they answer the
+  // same question the rest of this group answers - "where shall I go" - and
+  // sitting them under Hotspots & birders separated them from it.
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn',
+              'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Top destinations', 'Top excursions', 'Find local patches',
-                      'Closest spots', 'Stakeout bird']) {
+                      'Closest spots', 'Stakeout bird',
+                      'Producing patches', 'Under-birded patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
@@ -7942,7 +7949,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
     under.push(kids[i].querySelector('.toclink').getAttribute('aria-label'));
   }
   assert.equal(under.length, GO.length,
-    'exactly the five place-finding sections sit under it, got: ' + under.join(' | '));
+    'exactly the place-finding sections sit under it, got: ' + under.join(' | '));
 
   // 3. The MENU ARRAY order is a contract with the Markdown report and is
   //    never touched. Grouping changes only the LAYOUT: a group collects its
@@ -10435,10 +10442,16 @@ test('the species code rides on medium cards and stays off the small ones', () =
   assert.match(small, /renpha/, 'the small card lost the species code');
   assert.match(small, /RNPH/, 'the small card lost the banding code, which is the one people say');
 
-  const large = SC.large({ name: 'Red-necked Phalarope', code: 'renpha', sub: 'x' });
-  assert.ok(!/spcode/.test(large),
-    'large cards give the bird a full screen and their own links; the code '
-    + 'belongs on the deciding size, not everywhere');
+  // REVERSED 2026-08-18, with My year: "make sure all the fields from medium
+  // card are included." The large card was missing code, dist and conf, so a
+  // section moving from medium to large would have silently LOST facts the
+  // reader had a moment earlier - which is a worse outcome than a slightly
+  // busier card. Changing size should change size, not content.
+  const large = SC.large({ name: 'Red-necked Phalarope', code: 'renpha',
+                           distMi: 3.5, conf: '3 reports · 5 days', sub: 'x' });
+  for (const [field, re] of [['code', /renpha/], ['dist', /3\.5/], ['conf', /3 reports/]]) {
+    assert.ok(re.test(large), `the large card lost ${field}, which medium carries`);
+  }
 
   // A card with no sub-header must not render a dangling separator.
   const bare = SC.medium({ name: 'X', code: 'renpha' });
@@ -11716,4 +11729,101 @@ test('every card call site passes a variable that exists there', () => {
       `line ${i + 1}: sciFor(${v}) but no sibling property in the same card uses ${v}`);
   }
   assert.ok(checked >= 5, `only ${checked} card call sites pass a scientific name`);
+});
+
+test('the small card shows how many birds, and absent is never zero', () => {
+  // "id like the small species card to include the count of birds from the
+  // checklist... it can be simple like [5] or x5".
+  //
+  // The number was already reaching the row, glued into the caller's sub string
+  // as " - x5" between the date and the checklist link, where it read as
+  // punctuation. Rendered by the card it looks identical everywhere.
+  const SC = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const base = { name: 'Western Kingbird', code: 'weskin', sub: 'Aug 18' };
+
+  assert.match(SC.small({ ...base, count: 5 }), /\u00d75/, 'a count of 5 is not shown');
+  assert.match(SC.small({ ...base, count: 2000 }), /\u00d72000/, 'a big flock is not shown');
+  assert.match(SC.small({ ...base, count: '12' }), /\u00d712/, 'a numeric string is not handled');
+
+  // THE IMPORTANT HALF. eBird lets an observer record presence WITHOUT a count
+  // - the checklist says "X" - so howMany is missing on a large share of real
+  // rows. "x0" would be a lie and "xundefined" would be a bug.
+  for (const [label, n] of [['eBird X', null], ['undefined', undefined],
+                            ['zero', 0], ['negative', -3], ['junk', {}]]) {
+    assert.ok(!/spcount/.test(SC.small({ ...base, count: n })),
+      `${label} rendered a count when it must render nothing`);
+  }
+  // One bird is the ordinary case; "x1" is noise on every row.
+  assert.ok(!/spcount/.test(SC.small({ ...base, count: 1 })), 'x1 is rendered as noise');
+
+  // And it must not be double-printed: the row builder stops formatting it
+  // into `sub` now that the card owns it.
+  assert.ok(!/howMany != null \? ' \u00b7 \u00d7'/.test(HTML),
+    'the caller still glues the count into its sub string, so it prints twice');
+  assert.ok(/count: t\.howMany/.test(HTML), 'the raw count is not passed to the card');
+});
+
+test('every menu tile carries a definition under its jargon', () => {
+  // "the buttons might need a jargon title with a plain sub title. like Mega
+  // Rarities or Megas for header and then ABA Code 3+ subtitle."
+  //
+  // The sub-line is the DEFINITION, not a softer synonym - "ABA Code 3+" is
+  // MORE technical than "Mega rarities", and that is the point. The header is
+  // the word a birder says; the line under it is what the section actually
+  // selects on. A vaguer paraphrase teaches nothing and costs a line.
+  const tbl = HTML.slice(HTML.indexOf('var MENU_SUB = {'),
+    HTML.indexOf('};', HTML.indexOf('var MENU_SUB = {')));
+  assert.ok(tbl, 'MENU_SUB not found');
+
+  // Keyed by section id, not label, so a rename cannot orphan one - and every
+  // enabled tile must have one, or the menu reads inconsistently.
+  const menu = HTML.slice(HTML.indexOf('var MENU = ['), HTML.indexOf('];', HTML.indexOf('var MENU = [')));
+  const ids = [...menu.matchAll(/at:\s*'([^']+)'/g)].map((m) => m[1]);
+  const enabled = [...menu.matchAll(/at:\s*'([^']+)'[^\n]*/g)]
+    .filter((m) => !/enabled:\s*false/.test(m[0])).map((m) => m[1]);
+  const missing = enabled.filter((id) => !new RegExp(`\\b${id}:`).test(tbl));
+  assert.deepEqual(missing, [], `tiles with no sub-line: ${missing.join(', ')}`);
+
+  // And no sub-line may be orphaned by a tile that no longer exists.
+  const subIds = [...tbl.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+  const orphans = subIds.filter((id) => !ids.includes(id));
+  assert.deepEqual(orphans, [], `sub-lines for tiles that are gone: ${orphans.join(', ')}`);
+
+  // The one the request named, verbatim.
+  assert.match(tbl, /abaBtn:\s*'ABA Code 3\+/, 'Mega rarities does not state its criterion');
+});
+
+test('the Stakeout map is rendered by the function that owns its data', () => {
+  // This landed in the WRONG FUNCTION first. The insertion anchored on
+  // "hydratePhotos(out);", which appears in several renderers, and took the
+  // first match - the RARITY render - where `g` does not exist. It threw on
+  // every refresh, the status line never updated, and a test that had nothing
+  // to do with maps timed out instead of failing with a useful message.
+  //
+  // Third time this shape of bug has appeared: a bulk edit matched a
+  // non-unique anchor and landed somewhere plausible-looking. Same family as
+  // sciFor(r && r.code) reaching six call sites where r existed in two.
+  const start = HTML.indexOf('function renderSpeciesLookup');
+  assert.ok(start > 0, 'renderSpeciesLookup not found');
+  const end = HTML.indexOf('\n      function ', start + 10);
+  const fn = HTML.slice(start, end);
+  assert.ok(/renderMap\(\$\('spLookupMap'\)/.test(fn),
+    'the Stakeout map is not rendered by renderSpeciesLookup');
+
+  // ...and nowhere else. Any other renderer touching it is reaching for data
+  // it does not have.
+  const all = HTML.split("renderMap($('spLookupMap')").length - 1;
+  assert.equal(all, 1, `the Stakeout map is rendered from ${all} places`);
+
+  // The rows and the pins must be numbered from the same list, or the numbers
+  // are decoration.
+  assert.ok(/function spLookupRowsHtml/.test(HTML), 'no numbered row renderer');
+  // The bird is passed in rather than read off module state - the first
+  // version reached for _spLookupGroup and threw the moment it ran with none
+  // set, and threading it made these calls three arguments long.
+  assert.ok(/spLookupRowsHtml\(near, 1, bird\)/.test(HTML), 'near places are not numbered from 1');
+  assert.ok(/spLookupRowsHtml\(far, near\.length \+ 1, bird\)/.test(HTML),
+    'far places restart their numbering, so a number is not unique');
+  assert.ok(!/_spLookupGroup\.name/.test(HTML),
+    'the row renderer still reaches for module state instead of its argument');
 });

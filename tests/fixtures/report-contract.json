@@ -79,8 +79,20 @@
       "at": "spLookupBtn",
       "label": "🔎 Stakeout bird",
       "report": null,
-      "map": null,
+      "map": "spLookupMap",
       "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
+    },
+    {
+      "at": "hotBtn",
+      "label": "🔥 Producing patches",
+      "report": "## 🔥 Hot hotspots — recent surges",
+      "map": "hotMap"
+    },
+    {
+      "at": "coldBtn",
+      "label": "🥶 Under-birded patches",
+      "report": "## 🥶 Cold hotspots — overlooked gems",
+      "map": "coldMap"
     },
     {
       "at": "refreshBtn",
@@ -96,7 +108,7 @@
     },
     {
       "at": "abaBtn",
-      "label": "🦅 ABA Code 3+ rarities",
+      "label": "🦅 Mega rarities",
       "report": "## 🦅 ABA Code 3+ rarities in",
       "map": null
     },
@@ -106,18 +118,6 @@
       "report": "## 🔭 Latest ticks on the leaderboard",
       "map": null,
       "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them"
-    },
-    {
-      "at": "hotBtn",
-      "label": "🔥 Hot hotspots — recent surges",
-      "report": "## 🔥 Hot hotspots — recent surges",
-      "map": "hotMap"
-    },
-    {
-      "at": "coldBtn",
-      "label": "🥶 Cold hotspots — overlooked gems",
-      "report": "## 🥶 Cold hotspots — overlooked gems",
-      "map": "coldMap"
     },
     {
       "at": "cklBtn",

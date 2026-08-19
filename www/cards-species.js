@@ -41,7 +41,7 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{code}}{{sub}}</span>{{right}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -59,8 +59,9 @@
     '<li class="{{cls}}">',
     '  {{icon}}',
     '  <div class="bcbody">',
-    '    <div class="bcname">{{name}}{{tags}}</div>',
+    '    <div class="bcname">{{name}}{{tags}}{{count}}</div>',
     '    {{sci}}',
+    '    <div class="bcmeta">{{code}}{{dist}}{{conf}}</div>',
     '    <div class="bcsub">{{sub}}</div>',
     '    {{below}}',
     '  </div>',
@@ -220,6 +221,22 @@
     '.obs.xl > li > .bcbody > .bcsci, .obs.big > li > .bcbody > .bcsci {',
     '  font-style: italic; color: var(--muted);',
     '  font-size: calc(14px * var(--s)); margin-top: 2px;',
+    '}',
+    /* Tabular numerals so a column of counts lines up when scanned. */
+    /* The large card's meta row: the same facts the medium card carries, in
+       the size that has room for them. Child-scoped like every rule here -
+       a descendant selector leaks into nested small cards. */
+    '.obs.xl > li > .bcbody > .bcmeta, .obs.big > li > .bcbody > .bcmeta {',
+    '  font-size: calc(13px * var(--s)); color: var(--muted);',
+    '  margin-top: 3px; display: flex; flex-wrap: wrap; gap: 0 10px;',
+    '  align-items: baseline;',
+    '}',
+    '.obs.xl > li > .bcbody > .bcmeta:empty, .obs.big > li > .bcbody > .bcmeta:empty {',
+    '  display: none;',
+    '}',
+    '.obs .ntext .spcount {',
+    '  font-size: calc(12px * var(--s)); font-weight: 700; margin-left: 6px;',
+    '  font-variant-numeric: tabular-nums; white-space: nowrap;',
     '}',
     '.obs.card-sm .ntext .spcode, .obs.card-sm .ntext .spalpha {',
     '  font-size: calc(11px * var(--s)); color: var(--muted); margin-left: 6px;',
@@ -405,8 +422,37 @@
   // So: the code shows on small cards. The width worry is real but it is a
   // LAYOUT question, and there is a layout audit that answers it at 320px with
   // text at 1.75x - measured beats guessed.
+  /* ---- HOW MANY BIRDS ----
+     "id like the small species card to include the count of birds from the
+     checklist... it can be simple like [5] or x5".
+
+     The number was already reaching the row, but glued into the caller's `sub`
+     string as " \u00b7 \u00d75" between the date and the checklist link - so it looked
+     like punctuation and every caller had to remember to build it. Rendered
+     here it looks identical everywhere and no section can forget it, which is
+     the same reason the species code moved in here.
+
+     ABSENT IS NOT ZERO, and this is the part worth getting right. eBird lets an
+     observer record presence without a count - the checklist literally says "X"
+     - so howMany is missing on a large share of real rows. "\u00d70" would be a lie
+     and "\u00d7undefined" would be a bug, so anything that is not a positive whole
+     number renders nothing at all. A count of 1 is also dropped: "\u00d71" is noise
+     on a list where one bird is the ordinary case. */
+  function countText(n) {
+    if (n === null || n === undefined || n === '') return '';
+    var v = typeof n === 'number' ? n : parseInt(String(n).replace(/[^0-9]/g, ''), 10);
+    if (!isFinite(v) || v <= 1) return '';
+    return String(Math.floor(v));
+  }
+
+  function countHtml(v, tpl) {
+    var n = countText(v.count);
+    if (!n) return '';
+    return '<span class="spcount" title="' + n + ' reported on that checklist">\u00d7' + n + '</span>';
+  }
+
   function codeHtml(v, tpl) {
-    if (tpl !== MEDIUM && tpl !== SMALL) return '';
+    if (tpl !== MEDIUM && tpl !== SMALL && tpl !== LARGE) return '';
     var c = codeText(v.code);
     if (!c) return '';
     var a = alphaText(v.alpha);
@@ -447,7 +493,7 @@
   function confHtml(v, tpl) {
     // MEDIUM only, exactly like the species code and the distance: the small
     // lists are a scanning surface and every extra line costs one.
-    if (tpl !== MEDIUM) return '';
+    if (tpl !== MEDIUM && tpl !== LARGE) return '';
     var t = v.conf;
     if (t == null || t === '') return '';
     // Validated, not escaped — the same choice codeText makes. This string is
@@ -460,7 +506,7 @@
   }
 
   function distHtml(v, tpl) {
-    if (tpl !== MEDIUM) return '';
+    if (tpl !== MEDIUM && tpl !== LARGE) return '';
     var d = v.distMi;
     if (d == null || d === '' || !isFinite(Number(d))) return '';
     var body = Number(d).toFixed(1) + '<small>mi</small>';
@@ -510,6 +556,7 @@
       //
       // Rendered here rather than folded into each caller's `sub` string so
       // that it looks identical everywhere and no section can forget it.
+      count: countHtml(v, tpl),
       code: codeHtml(v, tpl),
       sci: sciHtml(v, tpl),
       conf: confHtml(v, tpl),

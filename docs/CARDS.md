@@ -48,7 +48,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Latest ticks on the leaderboard |
 | `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
-| `large` | — | **unused** |
+| `large` | — | 📅 My year — switched from medium on 2026-08-18. The large card was missing `code`, `dist` and `conf`, so those were added to it first: changing size must not quietly drop facts the reader had a moment ago |
 
 ### HotspotCards — a row is a place
 

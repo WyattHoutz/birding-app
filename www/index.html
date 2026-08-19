@@ -177,6 +177,12 @@
        only discoverable target stays the little icon at the end. */
     li.tappable { cursor: pointer; }
     li.tappable:active { background: var(--band); }
+    /* Ties a row to its map pin. Same shape as the pin so the eye matches
+       them without being told. */
+    .spnum { display: inline-block; min-width: calc(17px * var(--s));
+             padding: 0 4px; border-radius: 999px; text-align: center;
+             background: var(--band); color: var(--ink); font-weight: 700;
+             font-size: calc(11px * var(--s)); }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     /* The page may only ever scroll VERTICALLY. A single overflowing box used
@@ -1226,6 +1232,7 @@
         <button id="spLookupByDist" class="secondary" type="button" aria-pressed="false">📍 By distance</button>
       </div>
       <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
+      <div id="spLookupMap"></div>
       <ul id="spLookupResults" class="obs big xl"></ul>
       <div id="spLookupBest"></div>
       <div id="spLookupUnwatched"></div>
@@ -1418,9 +1425,9 @@
     </section>
 
     <section class="panel">
-      <h2>🚨 ABA rare-bird alert</h2>
+      <h2>🦅 Mega rarities</h2>
       <div class="row">
-        <button id="abaBtn">Load ABA alert</button>
+        <button id="abaBtn">Load mega rarities</button>
       </div>
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
       <div id="abaCapWarn" hidden></div>
@@ -1458,7 +1465,7 @@
     </section>
 
     <section class="panel" id="hotPanel">
-      <h2>🔥 Hot hotspots <span class="dim" id="hotRegionLabel"></span></h2>
+      <h2>🔥 Producing patches <span class="dim" id="hotRegionLabel"></span></h2>
       <div class="row">
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
@@ -1468,7 +1475,7 @@
     </section>
 
     <section class="panel" id="coldPanel">
-      <h2>🥶 Cold hotspots <span class="dim" id="coldRegionLabel"></span></h2>
+      <h2>🥶 Under-birded patches <span class="dim" id="coldRegionLabel"></span></h2>
       <div class="row">
         <button id="coldBtn">Scan hotspots near home</button>
       </div>
@@ -1725,7 +1732,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.23.0';
+      var APP_VERSION = '1.24.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2535,8 +2542,12 @@
           var who = t.userDisplayName ? ' · ' + esc(t.userDisplayName) : '';
           g.species.push({
             comName: t.comName, code: t.speciesCode, rare: false,
+            // The NUMBER travels, not a formatted string. It used to be glued
+            // into `sub` between the date and the checklist link, where it read
+            // as punctuation; the card renders it now, so it looks the same in
+            // every section and no caller can forget it.
+            count: t.howMany,
             sub: esc(fmtDate(t.obsDt)) + who
-              + (t.howMany != null ? ' · ×' + esc(t.howMany) : '')
               + (t.subId ? ' · ' + checklistLink(t.subId, t.subId) : '')
           });
         });
@@ -5479,9 +5490,22 @@
             g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
             seenIt ? 'already on your year list' : 'not on your year list'
           ].filter(Boolean).join(' · '),
-          below: spLookupPlacesHtml(g.places)
+          below: spLookupPlacesHtml(g.places, g)
         });
         hydratePhotos(out);
+        // The map plots the SAME places in the SAME order the rows are
+        // numbered, so pin 3 is row 3. Near places first, then far, matching
+        // how the list is built - otherwise the numbers drift apart the moment
+        // the far list is expanded.
+        (function () {
+          var lim = chaseMaxMi(), all = g.places || [];
+          var near = all.filter(function (p) { return !(p.distMi > lim); });
+          var far = all.filter(function (p) { return p.distMi > lim; });
+          var pts = (near.length ? near : all).concat(near.length ? far : [])
+            .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); })
+            .map(function (p) { return { lat: +p.lat, lng: +p.lng, name: p.loc || p.locId }; });
+          renderMap($('spLookupMap'), pts, getHome(), false);
+        })();
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
           var b = $(id);
           if (b) b.setAttribute('aria-pressed', String((id === 'spLookupByDist') === (_spLookupSort === 'dist')));
@@ -5504,7 +5528,60 @@
       // answers "everywhere this bird has been", which is the whole point of
       // being able to ask about a bird you have already seen; it just stops
       // making you read the unreachable half first.
-      function spLookupPlacesHtml(places) {
+      // One row per SIGHTING, as a small species card.
+      //
+      // "it should show all the birds with small species card. clicking on the
+      // species should go to the respective checklist."
+      //
+      // These rows used to be CHECKLIST cards, which is defensible - each row
+      // really is a checklist - but it made this section look unlike every
+      // other list of birds in the app, and the thing you are looking at is a
+      // bird. The species card carries the photo, so the row is recognisable
+      // at a glance instead of being a line of place names.
+      //
+      // The name is deliberately NOT the species page here: you already know
+      // which bird you searched for, so the useful destination is the evidence
+      // - the checklist that reported this one. Same rule Today's rarities
+      // follows, for the same reason.
+      //
+      // NUMBERED to match the map. renderMap labels its pins 1..n in array
+      // order, so the number on a row is the pin to look for. A map whose pins
+      // cannot be tied back to rows is decoration.
+      function spLookupRowsHtml(places, startAt, bird) {
+        bird = bird || _spLookupGroup || {};
+        var bName = bird.name || '', bCode = bird.code || '';
+        var n = startAt || 1, out = [];
+        (places || []).forEach(function (p) {
+          var cks = (p.checklists && p.checklists.length)
+            ? p.checklists
+            : [{ subId: '', dateStr: p.dateStr, count: null }];
+          var num = n++;
+          cks.forEach(function (c) {
+            var href = c.subId ? checklistUrl(c.subId)
+                     : (p.locId && !p.locationPrivate ? hotspotUrl(p.locId) : '');
+            var where = p.loc || p.locId || '';
+            out.push(SpeciesCards.small({
+              icon: photoSlot(bName, bCode, href),
+              name: c.subId
+                ? checklistLink(c.subId, bName)
+                : (href ? '<a class="extlink" href="' + href + '" target="_blank" rel="noopener">'
+                          + esc(bName) + '</a>'
+                        : esc(bName)),
+              // How many birds were on that checklist - absent when the
+              // observer recorded presence without a count.
+              count: c.count,
+              tags: (c.valid === false ? ' \u26a0\ufe0f' : ''),
+              sub: '<span class="spnum">' + num + '</span> ' + esc(where)
+                + ' \u00b7 ' + esc(fmtDateTime(c.dateStr || p.dateStr))
+                + (p.distMi != null && isFinite(p.distMi)
+                    ? ' \u00b7 ' + p.distMi.toFixed(1) + ' mi' : '')
+            }));
+          });
+        });
+        return SpeciesCards.list('small', out, 'sppl');
+      }
+
+      function spLookupPlacesHtml(places, bird) {
         var all = places || [];
         var lim = chaseMaxMi();
         var near = all.filter(function (p) { return !(p.distMi > lim); });
@@ -5512,12 +5589,14 @@
         // Nothing within range is a real answer, not an empty list: show the
         // far ones outright rather than an expander over the only rows there
         // are.
-        if (!near.length) return unseenPlacesHtml(all);
-        var html = unseenPlacesHtml(near);
+        // The far ones are numbered on from the near ones, so a number is
+        // unique across the whole answer even when the list is collapsed.
+        if (!near.length) return spLookupRowsHtml(all, 1, bird);
+        var html = spLookupRowsHtml(near, 1, bird);
         if (far.length) {
           html += '<details class="farplaces"><summary>' + far.length + ' more place'
             + (far.length === 1 ? '' : 's') + ' beyond ' + lim + ' mi</summary>'
-            + unseenPlacesHtml(far) + '</details>';
+            + spLookupRowsHtml(far, near.length + 1, bird) + '</details>';
         }
         return html;
       }
@@ -8196,6 +8275,7 @@
               name: href ? checklistLink(x.subId, x.comName)
                          : speciesLink(x.comName, x.code),
               tags: tags,
+              count: x.count,
               sub: x.sub || ''
             });
           });
@@ -14635,7 +14715,10 @@
           // other section uses for "this just happened".
           var d = parseYearListDate(e.date);
           var isNew = d && d >= newCutoff;
-          return SpeciesCards.medium({
+          // LARGE, on request. The large card was missing code, dist and conf,
+          // so those were added to it first - switching size should not quietly
+          // drop facts the reader had a moment ago.
+          return SpeciesCards.large({
             sci: sciFor(e && e.code),
             icon: photoSlot(e.name, e.code),
             name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
@@ -14669,32 +14752,32 @@
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
       var MENU_SUB = {
-        surgeBtn:      'What is being seen right now',
+        surgeBtn:      'Reported in the last 24 hours',
         wxBtn:         'Is today worth going out',
-        dueBackBtn:    'Migrants arriving in the next few weeks',
+        dueBackBtn:    'Migrants due back in the next few weeks',
         rankBtn:       'Where you sit against other birders',
         destBtn:       'Best places within a day trip',
         excBtn:        'Longer drives worth the fuel',
-        quickBtn:      'Nearby spots worth working regularly',
-        targetsBtn:    'Closest birds you have not seen',
-        spLookupBtn:   'Pick a bird, find where to wait for it',
-        refreshBtn:    'Rare birds reported today, worth dropping things for',
-        activeBtn:     'Rare birds from the past week',
-        abaBtn:        'The rarest birds in North America',
-        lastNewBtn:    'Newest birds on the leaderboard',
-        hotBtn:        'Places busier than usual',
-        coldBtn:       'Good places nobody is watching',
-        cklBtn:        'The biggest species counts in one day',
-        convoyBtn:     'Groups birding the same route',
+        quickBtn:      'Richest hotspots within ~20 mi of home',
+        targetsBtn:    'Nearest places holding a bird you still need',
+        spLookupBtn:   'Pick a bird · find where to wait for it',
+        refreshBtn:    'Notable birds reported today',
+        activeBtn:     'Notable birds from the last 7 days',
+        abaBtn:        'ABA Code 3+ · continent-wide rare-bird alert',
+        lastNewBtn:    'Newest species added to the Top 100 board',
+        hotBtn:        'Sites reporting more species than they usually do',
+        coldBtn:       'Good sites with little recent coverage',
+        cklBtn:        'Checklists with the most species in one day',
+        convoyBtn:     'Groups birding the same route today',
         favResults:    'Places you saved',
         allUnseenBtn:  'Every report of a bird you need',
-        easyBtn:       'Common birds you should already have',
-        nvResults:     'Sightings still waiting on a reviewer',
+        easyBtn:       'Common birds you have somehow missed',
+        nvResults:     'Sightings still awaiting a reviewer',
         migBtn:        'What should arrive or leave soon',
         bcBody:        'How many birds flew over last night',
-        todBtn:        'Birds best found at dawn or dusk',
+        todBtn:        'Species found mostly at dawn or dusk',
         myYearBody:    'Your list this year',
-        recordBody:    'Megararities that are overdue here',
+        recordBody:    'Megararities overdue in this state',
         settingsPanel: 'Region, text size, your data',
         helpBody:      'What each section reads and how it decides'
       };
@@ -14740,13 +14823,13 @@
         // That is the end of the same thought, not a different one, which is why
         // it left "Birds you still need".
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
+        { at: 'hotBtn',        label: '🔥 Producing patches', needs: 'county', group: 'Go birding' },
+        { at: 'coldBtn',       label: '🥶 Under-birded patches', needs: 'county', group: 'Go birding' },
         { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
         { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Rare birds' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Rare birds' },
-        { at: 'abaBtn',        label: '🦅 ABA Code 3+ rarities', needs: 'geo', group: 'Rare birds' },
+        { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Rare birds' },
         { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
-        { at: 'hotBtn',        label: '🔥 Hot hotspots — recent surges', needs: 'county', group: 'Hotspots & birders' },
-        { at: 'coldBtn',       label: '🥶 Cold hotspots — overlooked gems', needs: 'county', group: 'Hotspots & birders' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
