@@ -56,8 +56,9 @@ Sizes are a **rank of attention**, not a rank of importance:
 |---|---|---|
 | `medium` | `hotspotCard` | 🥇 Top destinations · 🚗 Top excursions · 🧭 Trip planner · 🚶 Quick outing · 📍 Closest spots · 🔥 Hot hotspots · ❄️ Cold hotspots — **every** hotspot list in the app goes through this one builder |
 | `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
+| `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
 | `large` | — | **unused** |
-| `marker` | — | **unused** (Leaflet pins are built in `renderMap`) |
+| `marker` | `spLookupIconicHtml` | the numbered badge on each *By odds* row, cloning that row's map pin |
 
 ### ChecklistCards — a row is a checklist
 
@@ -69,13 +70,17 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `loadBirdiest` | 🦜 Birdiest checklists |
 | `medium` | `loadRecentLists` | 🦜 Birdiest checklists → *Newest* mode |
 
-## The unused four
+## The unused ones
 
-`SpeciesCards.large`, `HotspotCards.small`, `HotspotCards.large` and
-`HotspotCards.marker` are defined, styled and tested but called from nowhere in
+`HotspotCards.large` is defined, styled and tested but called from nowhere in
 `index.html`.
 
-They are **kept deliberately**, not left by accident:
+> Was "the unused four". `SpeciesCards.large` went to 📅 My year, and
+> `HotspotCards.small` + `HotspotCards.marker` went to the Stakeout *By odds*
+> view — which is the argument below playing out as intended: the shapes were
+> there when a section needed them, so nobody invented a fourth.
+
+It is **kept deliberately**, not left by accident:
 
 * They keep the families symmetrical. A family offering only the sizes
   currently in use invites the next section to invent a fourth shape rather
@@ -86,7 +91,7 @@ They are **kept deliberately**, not left by accident:
 * The gallery renders them, so they cannot silently rot: a change that breaks
   an unused template is visible on the page.
 
-If one is still unused a year from now, delete it — but delete its CSS, its
+If it is still unused a year from now, delete it — but delete its CSS, its
 tests and its gallery entry in the same commit, and say why.
 
 ## Rules

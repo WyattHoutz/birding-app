@@ -1264,12 +1264,16 @@
       <div id="spCodesStatus" class="status" hidden></div>
       <ul id="spCodesList" class="obs picklist" hidden></ul>
       <ul id="spLookupFound" class="obs picklist"></ul>
+      <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
+      <div id="spLookupMap"></div>
+      <!-- The sort controls sit BELOW the map, not above it: they act on the
+           list, and between the search box and the map they read as though they
+           filter the search. -->
       <div class="row" id="spLookupSortRow" hidden>
         <button id="spLookupByDate" class="secondary" type="button" aria-pressed="true">📅 By date</button>
         <button id="spLookupByDist" class="secondary" type="button" aria-pressed="false">📍 By distance</button>
+        <button id="spLookupByIconic" class="secondary" type="button" aria-pressed="false">✨ By odds</button>
       </div>
-      <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
-      <div id="spLookupMap"></div>
       <ul id="spLookupResults" class="obs big xl"></ul>
       <div id="spLookupBest"></div>
       <div id="spLookupUnwatched"></div>
@@ -4903,6 +4907,11 @@
       var SP_LOOKUP_BACK = 30;
       var _spLookupSort = 'date';
       var _spLookupGroup = null;
+      // null means "not asked yet" and [] means "asked, and there are none" —
+      // the same distinction the watchlist storage turns on. The iconic view
+      // shows a spinner for the first and an explanation for the second.
+      var _spLookupIconic = null;
+      var _spLookupSeason = null;
 
       function speciesLookupPath(region, code, back) {
         return 'data/obs/' + encodeURIComponent(region) + '/recent/'
@@ -4959,6 +4968,7 @@
         if ($('spLookupBest')) $('spLookupBest').innerHTML = '';
         if (inp) inp.value = '';
         _spLookupGroup = null;
+        _spLookupIconic = null; _spLookupSeason = null;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupClear')) $('spLookupClear').hidden = true;
         if ($('spLookupStatus')) {
@@ -5113,6 +5123,7 @@
         if (!found || !st) return;
         found.innerHTML = ''; out.innerHTML = '';
         _spLookupGroup = null;
+        _spLookupIconic = null; _spLookupSeason = null;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupRegionLabel')) $('spLookupRegionLabel').textContent = '· ' + getReport().label;
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
@@ -5599,35 +5610,72 @@
       // could do - someone would drive out expecting a bird that was last seen
       // there in 2019.
       function renderUnwatched(host, name, rows, season) {
-        if (!host) return;
-        if (!rows || !rows.length) { host.innerHTML = ''; return; }
+        // The iconic places are no longer an APPENDIX under the list; they are
+        // one of the three views OF the list. "the good odds data should be
+        // integrated into one list instead of an appendix ... the actual list
+        // of iconic hotspots should be shown when the iconic button is
+        // pressed." So this stores the answer and re-renders.
+        _spLookupIconic = rows || [];
+        _spLookupSeason = season || null;
+        if (_spLookupGroup) {
+          if (host) host.innerHTML = '';
+          renderSpeciesLookup();
+          return;
+        }
+        // ...unless there is no live answer to fold it into. A bird with no
+        // recent report is exactly when this list is worth most, so it stands
+        // on its own rather than waiting for a view that will never render.
+        if (host) {
+          host.innerHTML = '<h3>\u2744\ufe0e Good odds, nobody looking</h3>'
+            + spLookupIconicHtml(name);
+        }
+      }
+
+      // The explanation comes BEFORE the list, because it is what makes the
+      // numbers mean anything - these are historical odds, and a reader who
+      // meets the rows first reads them as sightings.
+      function spLookupIconicHtml(name) {
+        var rows = _spLookupIconic || [], season = _spLookupSeason;
+        var h = '';
+        if (season) {
+          h += '<div class="status"><strong>' + (season.atPeak
+              ? 'This is the peak month'
+              : season.share < 0.02
+                ? 'Poor timing \u2014 ' + esc(season.month) + ' holds only '
+                  + (season.share * 100).toFixed(1) + '% of records'
+                : esc(season.month) + ' holds ' + (season.share * 100).toFixed(0) + '% of records')
+            + '.</strong> Peak is ' + esc(season.peak) + ' ('
+            + (season.peakShare * 100).toFixed(0) + '%).</div>';
+        }
+        if (!rows.length) {
+          return h + '<div class="status">No place in the archive stands out for '
+            + esc(name) + ' at this time of year \u2014 which is itself an answer: '
+            + 'it is not a bird with a reliable address here.</div>';
+        }
         var cold = rows.filter(function (r) { return r.unwatched; });
-        var h = '<h3>\u2744\ufe0e Good odds, nobody looking</h3>'
-          + (season ? '<div class="status"><strong>' + (season.atPeak
-                ? 'This is the peak month'
-                : season.share < 0.02
-                  ? 'Poor timing \u2014 ' + esc(season.month) + ' holds only '
-                    + (season.share * 100).toFixed(1) + '% of records'
-                  : esc(season.month) + ' holds ' + (season.share * 100).toFixed(0) + '% of records')
-              + '.</strong> Peak is ' + esc(season.peak) + ' ('
-              + (season.peakShare * 100).toFixed(0) + '%).</div>' : '')
-          + '<div class="status">Places where ' + esc(name) + ' has historically been '
-          + 'well above the regional average for this time of year. '
+        h += '<div class="status">Places where ' + esc(name) + ' has historically been '
+          + 'well above the county average for this time of year. '
           + (cold.length
               ? '<strong>' + cold.length + '</strong> of these have no report in the current feed \u2014 '
                 + 'which usually means nobody has been, not that the bird has gone.'
               : 'All of them already have recent reports.')
-          + ' These are <strong>historical odds, not sightings</strong>.</div><ul class="plain">';
-        rows.forEach(function (r) {
-          h += '<li><span class="pname">' + esc(r.place)
-            + '<span class="pmeta">' + esc(r.label) + ' \u00b7 ' + r.n + ' records of '
-            + esc(name) + ' in ' + r.effort + ' here</span></span>'
-            + (r.unwatched
-                ? '<span class="tag cold" title="no report in the current feed">\u2744\ufe0e unwatched</span>'
-                : '<span class="tag" title="already in the current feed">\u2713 reported lately</span>')
-            + '</li>';
+          + ' These are <strong>historical odds, not sightings</strong>, so there is no '
+          + 'checklist behind a row \u2014 that is the point of the view.</div>';
+        var items = rows.map(function (r, i) {
+          return HotspotCards.small({
+            marker: HotspotCards.marker(i + 1),
+            name: (r.lat != null && r.lng != null)
+              ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
+              : esc(r.place),
+            sub: esc(r.label || '')
+              + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
+              + (r.scope === 'state' ? ' \u00b7 vs the whole state' : '')
+              + (r.unwatched
+                  ? ' \u00b7 \u2744\ufe0e nobody looking'
+                  : ' \u00b7 \u2713 reported lately')
+          });
         });
-        host.innerHTML = h + '</ul>';
+        return h + HotspotCards.list('sm', items);
       }
 
       function hydrateUnwatched(code, name, hostId, seenNames) {
@@ -5704,15 +5752,16 @@
       function renderSpeciesLookup() {
         var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
-        sortSpeciesPlaces(g, _spLookupSort);
+        var iconicMode = _spLookupSort === 'iconic';
+        sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
         var seenIt = !!getReportSeen()[g.code];
         st.textContent = g.name + ' · ' + g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
           + ' · ' + g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
           + ' in the last ' + SP_LOOKUP_BACK + ' days'
           + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
-          + ' · ' + (_spLookupSort === 'dist' ? 'by distance' : 'by date')
-          + ' · ' + nowTime();
-        out.innerHTML = SpeciesCards.medium({
+          + ' · ' + (iconicMode ? 'by historical odds'
+                     : _spLookupSort === 'dist' ? 'by distance' : 'by date')
+          + ' · ' + nowTime();        out.innerHTML = SpeciesCards.medium({
           sci: sciFor(g && g.code),
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
@@ -5728,7 +5777,16 @@
             g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
             seenIt ? 'already on your year list' : 'not on your year list'
           ].filter(Boolean).join(' · '),
-          below: spLookupPlacesHtml(g.places, g)
+          below: iconicMode
+            ? (_spLookupIconic === null
+                ? '<div class="status">Looking for places with good history and no recent coverage…</div>'
+                : spLookupIconicHtml(g.name))
+            : ('<div class="hint">eBird\u2019s per-species feed returns <b>only the most '
+               + 'recent report at each place</b>, so one row per place is the '
+               + 'endpoint\u2019s limit, not the bird\u2019s history \u2014 it really may have '
+               + 'been seen there every day. Where a place does carry several '
+               + 'reports, all of them are listed under its pin.</div>'
+               + spLookupPlacesHtml(g.places, g))
         });
         hydratePhotos(out);
         // The map plots the SAME places in the SAME order the rows are
@@ -5741,22 +5799,44 @@
         // list is the answer; the map is an illustration of it.
         try {
         (function () {
-          var lim = chaseMaxMi(), all = g.places || [];
-          var near = all.filter(function (p) { return !(p.distMi > lim); });
-          var far = all.filter(function (p) { return p.distMi > lim; });
-          // Only the pins that are actually NUMBERED on screen. The list caps
-          // at SP_ROWS_MAX, so plotting all 131 would put pin 87 on a map whose
-          // row is behind a "show more" - and 131 pins is a smear anyway, which
-          // is the reason for the cap.
-          var pts = (near.length ? near : all).slice(0, SP_ROWS_MAX)
-            .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); })
-            .map(function (p) { return { lat: +p.lat, lng: +p.lng, name: p.loc || p.locId }; });
+          var pts;
+          if (iconicMode) {
+            // In this view the rows ARE the iconic places, so the pins must be
+            // those places - plotting recent checklists under a list of
+            // historical sites would number rows against pins for somewhere
+            // else entirely.
+            pts = (_spLookupIconic || []).slice(0, SP_ROWS_MAX)
+              .map(function (r) { return { lat: +r.lat, lng: +r.lng, name: r.place }; })
+              .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
+          } else {
+            var lim = chaseMaxMi(), all = g.places || [];
+            var near = all.filter(function (p) { return !(p.distMi > lim); });
+            // Only the pins that are actually NUMBERED on screen. The list caps
+            // at SP_ROWS_MAX, so plotting all 131 would put pin 87 on a map whose
+            // row is behind a "show more" - and 131 pins is a smear anyway, which
+            // is the reason for the cap.
+            pts = (near.length ? near : all).slice(0, SP_ROWS_MAX)
+              // `lon`, NOT `lng`. speciesPlaces builds its places as
+              // `{ locId, loc, lat, lon }`, so reading p.lng gave undefined for
+              // every place, isFinite rejected all of them, and the map drew with
+              // nothing but the home marker on it - reported as "map is not
+              // working". The same field-name trap that once emptied toDest.
+              // Both names are accepted so a caller that does supply lng works.
+              .map(function (p) {
+                var lng = p.lon == null ? p.lng : p.lon;
+                return { lat: +p.lat, lng: +lng, name: p.loc || p.locId };
+              })
+              .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
+          }
           renderMap($('spLookupMap'), pts, getHome(), false);
         })();
         } catch (e) { dbg('error', 'stakeout map: ' + (e && e.message || e)); }
-        ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
+        ['spLookupByDate', 'spLookupByDist', 'spLookupByIconic'].forEach(function (id) {
           var b = $(id);
-          if (b) b.setAttribute('aria-pressed', String((id === 'spLookupByDist') === (_spLookupSort === 'dist')));
+          if (!b) return;
+          var mine = id === 'spLookupByDist' ? 'dist'
+                   : id === 'spLookupByIconic' ? 'iconic' : 'date';
+          b.setAttribute('aria-pressed', String(mine === _spLookupSort));
         });
       }
 
@@ -5811,20 +5891,45 @@
         var bName = bird.name || '', bCode = bird.code || '';
         var n = startAt || 1, out = [];
         (places || []).forEach(function (p) {
-          var cks = (p.checklists && p.checklists.length)
-            ? p.checklists
-            : [{ subId: '', dateStr: p.dateStr, count: null }];
+          // buildAllUnseen already keeps EVERY checklist it was given, so there
+          // is nothing to fix here - and that is worth writing down, because
+          // "show all checklists, not just the latest" looks like a rendering
+          // bug and is not one.
+          //
+          // eBird's per-species feed, data/obs/{region}/recent/{speciesCode},
+          // returns ONLY THE MOST RECENT RECORD PER LOCATION. That is why the
+          // header reads "131 places - 131 reports": the 1:1 is a property of
+          // the endpoint, not of the bird, and no amount of rendering can
+          // recover reports the feed never sent. Getting the rest means a
+          // per-location fetch, which is F9. The section says so rather than
+          // letting the reader conclude the bird was seen once at each place.
+          var cks = (p.checklists && p.checklists.length) ? p.checklists
+                  : [{ subId: p.subId || '', dateStr: p.dateStr, count: p.count }];
+          // Newest first within a place, so the row that decides whether the
+          // bird is still there leads.
+          cks = cks.slice().sort(function (a, b) {
+            return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          });
+          // ONE PIN PER PLACE. The number ties a row to a map pin, and the map
+          // has one pin per place - so several checklists at one place all
+          // carry that place's number rather than inventing pins that do not
+          // exist on the map.
           var num = n++;
-          cks.forEach(function (c) {
+          cks.forEach(function (c, i) {
             var href = c.subId ? checklistUrl(c.subId)
                      : (p.locId && !p.locationPrivate ? hotspotUrl(p.locId) : '');
             var where = p.loc || p.locId || '';
-            var label = '<span class="spnum">' + num + '</span> '
-              + (href ? '<a class="extlink" href="' + href + '" target="_blank" rel="noopener">'
-                        + esc(where) + '</a>' : esc(where));
             out.push(SpeciesCards.small({
+              // Repeating the pin on every checklist of one place would read as
+              // several places; the following rows are indented under it.
+              pin: i === 0 ? '<span class="sppin">' + num + '</span>' : '<span class="sppin"></span>',
               icon: photoSlot(bName, bCode, href),
-              name: label,
+              // extA, NOT a raw <a href target="_blank">. In the sideloaded
+              // WKWebView a plain target="_blank" is a no-op, which is why
+              // every external link in this app is a data-href picked up by the
+              // delegated opener. This row was hand-rolling the one shape known
+              // not to work on the device it ships to.
+              name: (href ? extA(href, where) : esc(where)),
               count: c.count,
               when: fmtWhenShort(c.dateStr || p.dateStr),
               tags: (c.valid === false ? ' \u26a0\ufe0f' : ''),
@@ -5885,7 +5990,7 @@
         return html;
       }
       function setSpeciesLookupSort(mode) {
-        _spLookupSort = mode === 'dist' ? 'dist' : 'date';
+        _spLookupSort = mode === 'dist' ? 'dist' : mode === 'iconic' ? 'iconic' : 'date';
         renderSpeciesLookup();
       }
 
@@ -17166,6 +17271,7 @@
       });
       $('spLookupByDate').addEventListener('click', function () { setSpeciesLookupSort('date'); });
       $('spLookupByDist').addEventListener('click', function () { setSpeciesLookupSort('dist'); });
+      $('spLookupByIconic').addEventListener('click', function () { setSpeciesLookupSort('iconic'); });
       // The match list is rebuilt on every search, so the handler is delegated
       // to the container rather than bound per row.
       //

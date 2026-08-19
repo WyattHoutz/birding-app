@@ -7801,8 +7801,10 @@ test('docs/CARDS.md matches the code it documents', () => {
     // SpeciesCards.large left this list on 2026-08-18: My year switched to it.
     // This is exactly the rot the check exists to catch - a template picked up
     // by a new section and still labelled unused a year later.
+    // HotspotCards.marker left it on 2026-08-19: the Stakeout "By odds" view
+    // numbers each historically-good place to match its map pin, which is the
+    // job the marker was built for.
     ['HotspotCards', 'large'],
-    ['HotspotCards', 'marker'],
   ];
   for (const [family, size] of documentedUnused) {
     const calls = (src[family].match(
@@ -11673,6 +11675,162 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
   // It must never read as a sighting.
   assert.ok(/historical odds, not sightings/.test(HTML),
     'historical odds are not distinguished from live reports');
+});
+
+test('the stakeout map plots the places the rows are numbered against', () => {
+  // "map is not working" - and it was not, for a reason that leaves no trace on
+  // screen. speciesPlaces builds places as { locId, loc, lat, lon }; the map
+  // read p.lng, got undefined for every one, isFinite rejected them all, and
+  // the map drew with nothing on it but the home marker.
+  const at = HTML.indexOf('function renderSpeciesLookup');
+  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.ok(at > 0, 'renderSpeciesLookup not found');
+  assert.ok(/p\.lon/.test(src),
+    'the stakeout map still reads only p.lng, which speciesPlaces never sets');
+
+  // The field names really are what this claims - if speciesPlaces ever emits
+  // lng, this guard should be revisited rather than quietly passing.
+  const logic = fs.readFileSync(path.join(WWW, 'logic.js'), 'utf8');
+  const sp = logic.slice(logic.indexOf('function speciesPlaces'),
+    logic.indexOf('function sortSpeciesPlaces'));
+  assert.ok(/lat: r\.lat, lon: r\.lng/.test(sp),
+    'speciesPlaces no longer emits lon - re-check what the map should read');
+
+  // And a real place survives the projection, rather than only the shape of it.
+  const places = BL.speciesPlaces([
+    { locId: 'L1', locName: 'Marina Beach Park', lat: 47.8, lng: -122.4,
+      obsDt: '2026-08-19 06:09', howMany: 1, subId: 'S1' },
+  ], { lat: 47.75, lng: -122.16 });
+  assert.equal(places.length, 1);
+  assert.ok(isFinite(places[0].lat) && isFinite(places[0].lon),
+    'a place came out of speciesPlaces with no usable coordinate');
+});
+
+test('the stakeout list shows every checklist a place actually has', async () => {
+  // "show all checklists, not just the latest."
+  //
+  // THIS WAS NOT A RENDERING BUG, and finding that out is the useful part.
+  // buildAllUnseen already keeps every checklist it is given; the reason the
+  // screen shows one row per place is that eBird's per-species feed
+  // (data/obs/{region}/recent/{speciesCode}) returns ONLY THE MOST RECENT
+  // RECORD PER LOCATION - which is why the header reads "131 places, 131
+  // reports". A first attempt at this guard "passed" against a mutation that
+  // disabled the branch it was testing, which is what exposed the mistake.
+  //
+  // So this asserts the rendering really does show all of them when the feed
+  // supplies them, and a second assertion pins the explanation on screen.
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (/product\/spplist/.test(url)) return ['btywar'];
+      if (/data\/obs\/.*\/recent\/btywar/.test(url)) {
+        // THREE checklists, ONE place.
+        return [
+          { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
+            locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+            obsDt: '2026-08-15 09:20', howMany: 1, subId: 'S1', obsValid: true },
+          { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
+            locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+            obsDt: '2026-08-15 07:20', howMany: 2, subId: 'S2', obsValid: true },
+          { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
+            locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
+            obsDt: '2026-08-15 04:58', howMany: 1, subId: 'S3', obsValid: true },
+        ];
+      }
+      return null;   // GBIF never answers: the live list must not depend on it
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{ code: 'btywar', name: 'Black-throated Gray Warbler', sci: 'Setophaga nigrescens' }],
+      }),
+    },
+  });
+  const doc = app.window.document;
+  doc.getElementById('spLookup').value = 'Black-throated Gray Warbler';
+  app.window.__app.runSpeciesLookup();
+  await new Promise((r) => setTimeout(r, 500));
+
+  const rows = [...doc.querySelectorAll('#spLookupResults .sppl > li')];
+  assert.equal(rows.length, 3,
+    `all three checklists at the one place should be rows, got ${rows.length}`);
+
+  // Each row links to ITS OWN checklist, which is the reason to show them all.
+  // data-href, not href: a raw target="_blank" is a no-op in the sideloaded
+  // WKWebView, so the app routes every external link through the delegated
+  // opener. This row used to hand-roll the one shape that does not work.
+  const hrefs = rows.map((li) => {
+    const a = li.querySelector('a.extlink[data-href]');
+    return a ? a.getAttribute('data-href') : '';
+  });
+  assert.ok(hrefs.every((h) => /\/checklist\/S/.test(h)),
+    `every row should link to its own checklist, got ${JSON.stringify(hrefs)}`);
+  assert.equal(new Set(hrefs).size, 3, 'the three rows link to the same checklist');
+
+  // ONE PIN PER PLACE. Three checklists at one place must not invent pins 1, 2
+  // and 3 on a map that only has pin 1.
+  const pins = rows.map((li) => (li.querySelector('.sppin') || {}).textContent || '');
+  assert.deepEqual(pins, ['1', '', ''],
+    `only the first row of a place carries its pin number, got ${JSON.stringify(pins)}`);
+
+  // The 1:1 place-to-report count is the ENDPOINT's limit, and the section has
+  // to say so - otherwise "131 places, 131 reports" reads as a claim that the
+  // bird was seen exactly once at each, which would be a much weaker bird than
+  // the data supports.
+  const body = doc.getElementById('spLookupResults').textContent;
+  assert.match(body, /only the most recent report at each place/,
+    'the feed limit is not stated, so the report count reads as the bird\u2019s history');
+
+  app.window.close();
+});
+
+test('the stakeout sort controls sit under the map and offer the odds view', () => {
+  // "the sort by buttons should be after the map, and it needs another botton
+  //  to sort by iconic."
+  const map = HTML.indexOf('id="spLookupMap"');
+  const row = HTML.indexOf('id="spLookupSortRow"');
+  assert.ok(map > 0 && row > 0, 'the stakeout map or sort row is missing');
+  assert.ok(map < row,
+    'the sort buttons still sit above the map, where they read as filtering the search');
+
+  assert.ok(/id="spLookupByIconic"/.test(HTML), 'there is no odds sort button');
+  assert.ok(/spLookupByIconic'\)\.addEventListener/.test(HTML),
+    'the odds button is not wired - the same class of bug that left the rankings '
+    + 'scope control dead for a whole release');
+
+  // The button must actually change what the list renders, not just relabel it.
+  const at = HTML.indexOf('function renderSpeciesLookup');
+  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.ok(/spLookupIconicHtml/.test(src),
+    'the odds view never reaches the list body');
+  assert.ok(/_spLookupIconic/.test(src) && /SP_ROWS_MAX/.test(src),
+    'the odds view does not repoint the map at the places it lists');
+});
+
+test('the odds view is a list, not an appendix, and says what it is first', () => {
+  // "the good odds data should be integrated into one list instead of an
+  //  appendix ... show the paragraph of explanation text before the list."
+  const at = HTML.indexOf('function spLookupIconicHtml');
+  assert.ok(at > 0, 'spLookupIconicHtml not found');
+  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+
+  const caveat = src.indexOf('historical odds, not sightings');
+  const list = src.indexOf('HotspotCards.list');
+  assert.ok(caveat > -1, 'the odds list no longer says it is not a sighting list');
+  assert.ok(list > -1, 'the odds rows are not hotspot cards');
+  assert.ok(caveat < list,
+    'the explanation comes after the rows, so the numbers are read as sightings first');
+
+  // A place, not a bird: these rows often have NO recent checklist, which is
+  // the whole point of the view, so a species card would promise a link it
+  // cannot provide.
+  assert.ok(/HotspotCards\.small/.test(src), 'the odds rows are not place-shaped');
+  assert.ok(/HotspotCards\.marker/.test(src),
+    'the odds rows carry no number, so they cannot be tied to the map pins');
+
+  // Nothing found is an ANSWER here, not an empty section.
+  assert.ok(/not a bird with a reliable address here/.test(src),
+    'an empty odds list renders as nothing at all rather than saying so');
 });
 
 test('a place you cannot visit is never recommended', () => {
