@@ -41,7 +41,7 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{code}}{{sub}}</span>{{right}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -49,7 +49,7 @@
   var MEDIUM = [
     '<li class="{{cls}}">',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
-    '  <div class="meta">{{code}}{{sci}}{{sub}}</div>',
+    '  <div class="meta">{{code}}{{sci}}{{when}}{{sub}}</div>',
     '  {{conf}}',
     '  {{below}}',
     '</li>'
@@ -61,7 +61,7 @@
     '  <div class="bcbody">',
     '    <div class="bcname">{{name}}{{tags}}{{count}}</div>',
     '    {{sci}}',
-    '    <div class="bcmeta">{{code}}{{dist}}{{conf}}</div>',
+    '    <div class="bcmeta">{{code}}{{dist}}{{when}}{{conf}}</div>',
     '    <div class="bcsub">{{sub}}</div>',
     '    {{below}}',
     '  </div>',
@@ -233,6 +233,12 @@
     '}',
     '.obs.xl > li > .bcbody > .bcmeta:empty, .obs.big > li > .bcbody > .bcmeta:empty {',
     '  display: none;',
+    '}',
+    /* Quieter than the count: the number is the headline, the date qualifies
+       it. Tabular so a column of dates lines up when scanned. */
+    '.obs .ntext .spwhen, .obs .meta .spwhen, .obs .bcmeta .spwhen {',
+    '  font-size: calc(11.5px * var(--s)); color: var(--muted); margin-left: 6px;',
+    '  font-variant-numeric: tabular-nums; white-space: nowrap;',
     '}',
     '.obs .ntext .spcount {',
     '  font-size: calc(12px * var(--s)); font-weight: 700; margin-left: 6px;',
@@ -451,6 +457,30 @@
     return '<span class="spcount" title="' + n + ' reported on that checklist">\u00d7' + n + '</span>';
   }
 
+  /* ---- WHEN IT WAS LAST SEEN ----
+     "id like to see the count and date last seen... it should have x6 for the
+     count, and 8/17 9:56A for the time."
+
+     A count with no date is half an answer: six birds LAST WEEK is a different
+     decision from six this morning. They belong together, so they sit together
+     on the same line.
+
+     The app formats it and this file only places it - dates are data, and this
+     file has no locale, no clock and no escaper by design. Validated to the
+     shape the formatter produces, exactly as confHtml does: anything else means
+     something upstream is wrong, and rendering nothing beats rendering a
+     sanitised half-string. */
+  function whenText(x) {
+    var t = String(x == null ? '' : x).trim();
+    return /^\d{1,2}\/\d{1,2}( \d{1,2}:\d{2}[AaPp])?$/.test(t) ? t : '';
+  }
+
+  function whenHtml(v, tpl) {
+    var t = whenText(v.when);
+    if (!t) return '';
+    return '<span class="spwhen">' + t + '</span>';
+  }
+
   function codeHtml(v, tpl) {
     if (tpl !== MEDIUM && tpl !== SMALL && tpl !== LARGE) return '';
     var c = codeText(v.code);
@@ -557,6 +587,7 @@
       // Rendered here rather than folded into each caller's `sub` string so
       // that it looks identical everywhere and no section can forget it.
       count: countHtml(v, tpl),
+      when: whenHtml(v, tpl),
       code: codeHtml(v, tpl),
       sci: sciHtml(v, tpl),
       conf: confHtml(v, tpl),

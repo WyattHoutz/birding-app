@@ -1273,7 +1273,7 @@
     </section>
 
     <section class="panel">
-      <h2>🥇 Top destinations <span class="dim" id="destRegionLabel"></span></h2>
+      <h2>🥇 Top patches <span class="dim" id="destRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
@@ -1284,7 +1284,7 @@
     </section>
 
     <section class="panel">
-      <h2>🚗 Top excursions <span class="dim" id="excRegionLabel"></span></h2>
+      <h2>🚗 Worth the drive <span class="dim" id="excRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
@@ -1696,10 +1696,16 @@
   <style>
     #debugPanel { position: fixed; inset: 0; z-index: 99999; background: #0b0f0d; color: #d6f2e4; display: flex; flex-direction: column; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
     #debugPanel[hidden] { display: none; }
-    #debugPanel .dbgbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); background: #14201a; border-bottom: 1px solid #2a3a30; }
+    /* WRAPS, and Close comes first. Five buttons never fitted a 402px phone,
+       so Close - the only way out - was the one pushed off the right edge.
+       Invisible rather than missing, which is worse: the panel looked fine
+       and simply could not be left. */
+    #debugPanel .dbgbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); background: #14201a; border-bottom: 1px solid #2a3a30; }
     #debugPanel .dbgbar strong { color: #7fe0b0; }
     #debugPanel .dbgcount { color: #8aa0a8; font-size: 11px; }
-    #debugPanel .dbgspacer { flex: 1; }
+    /* No longer greedy: a flex:1 spacer on a WRAPPING row shoves every button
+       onto the next line. */
+    #debugPanel .dbgspacer { flex: 0 1 auto; }
     #debugPanel .dbgbar button { background: #24463a; color: #e6fff4; border: 0; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
     #dbgLog { flex: 1; width: 100%; box-sizing: border-box; border: 0; resize: none; background: #0b0f0d; color: #d6f2e4; padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
     #dbgLog:focus { outline: none; }
@@ -1709,11 +1715,11 @@
       <strong>🐞 Debug</strong>
       <span id="dbgCount" class="dbgcount"></span>
       <span class="dbgspacer"></span>
+      <button id="dbgClose" type="button">✕ Close</button>
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgCopy" type="button">Copy</button>
       <button id="dbgClear" type="button">Clear</button>
-      <button id="dbgClose" type="button">Close</button>
     </div>
     <textarea id="dbgLog" readonly spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
   </div>
@@ -1732,7 +1738,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.24.0';
+      var APP_VERSION = '1.25.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2692,6 +2698,28 @@
       // ONE number, and the same simulation lands on exactly 22 in 60 s with a
       // steady 0.3666/s against a 0.3667/s cap.
       var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 22;
+      // RESERVED HEADROOM for whatever you are actually looking at.
+      //
+      // "i still am hitting ebird 429 30second pauses on initial loading of
+      //  sections... i will load top destinations and try to load another
+      //  report and its already on 30s wait."
+      //
+      // The two lanes below fixed the ORDER but not the BUDGET, and the budget
+      // is what bites. Phase 2 of the wave is ~38 species feeds; it spends the
+      // whole 22-call window, and after that an interactive tap waits for slots
+      // to AGE OUT no matter which lane it sits in. Measured on device: one
+      // call reported `done 27458ms` with `queue 0+0bg/1` - an EMPTY queue and
+      // a full window. Ordering could not have helped.
+      //
+      // So background work stops short of the cap. It may spend
+      // FG_WINDOW_MAX - FG_WINDOW_RESERVE; the last few slots belong to whoever
+      // is genuinely waiting. The rate eBird sees is unchanged - the ceiling is
+      // still 22 per minute - only who is allowed to spend the last of it.
+      //
+      // Six is sized from what a section actually costs: Quick outing needs 1,
+      // and the heaviest interactive section needs about 5. Reserving fewer
+      // would still leave a tap queueing behind the fill it was meant to skip.
+      var FG_WINDOW_RESERVE = 6;
       // A millisecond of daylight, so a start never lands EXACTLY on the
       // boundary it is waiting for. eBird's clock is not ours and its window
       // edge may well be inclusive; landing on the tick is a coin flip, and the
@@ -2842,14 +2870,16 @@
       // Idle time earns burst credit with the short-term bucket and NONE with
       // the rolling window, which is the asymmetry a 57-second background stall
       // exposed: the bucket refilled to full and released everything at once.
-      function fgWindowWait(startAt) {
+      function fgWindowWait(startAt, bg) {
         var cut = startAt - FG_WINDOW_MS;
         while (_fgStarts.length && _fgStarts[0] <= cut) _fgStarts.shift();
-        if (_fgStarts.length < FG_WINDOW_MAX) return 0;
+        // Background stops at the reserve; foreground may use the whole window.
+        var cap = bg ? Math.max(1, FG_WINDOW_MAX - FG_WINDOW_RESERVE) : FG_WINDOW_MAX;
+        if (_fgStarts.length < cap) return 0;
         // Wait for the oldest call in the window to age out of it, plus a
         // millisecond so the new start is strictly PAST the boundary rather
         // than on it. See FG_WINDOW_EPS_MS.
-        return Math.max(0, _fgStarts[_fgStarts.length - FG_WINDOW_MAX] + FG_WINDOW_MS
+        return Math.max(0, _fgStarts[_fgStarts.length - cap] + FG_WINDOW_MS
                           + FG_WINDOW_EPS_MS - startAt);
       }
       // What the window ACTUALLY holds right now.
@@ -2887,7 +2917,7 @@
             _fgActive++;
             var now = Date.now();
             var at = Math.max(now, _fgNextAt) + fgTakeToken(now);
-            at += fgWindowWait(at);
+            at += fgWindowWait(at, bg);
             _fgStarts.push(at);
             _fgNextAt = at + _fgGap;
             var wait = at - now;
@@ -8219,7 +8249,14 @@
         d.species = (cluster.species || [])
           .filter(function (s) { return !isSeen(s.code, s.name); })
           .map(function (s) {
-            return { comName: s.name || s.code || 'Unknown species', code: s.code || '', rare: s.kind === 'Rarity' };
+            // count, dateStr and subId were being dropped here, which is why a
+            // destination row showed a name and nothing else - no count, no
+            // date, and no NEW badge either, since that rule reads dateStr.
+            // The scored record carries all three; this mapping simply was not
+            // carrying them across.
+            return { comName: s.name || s.code || 'Unknown species', code: s.code || '',
+                     rare: s.kind === 'Rarity', count: s.count,
+                     dateStr: s.dateStr || '', subId: s.subId || '' };
           });
         // The rarity count is a count OF THOSE SPECIES, so it has to be
         // recounted too — otherwise the card says "2 rarities" over a list
@@ -8244,6 +8281,27 @@
       // rare-then-alphabetical); `opts.cls` adds a spacing modifier; and a
       // per-species `tag` REPLACES the default flags for sections whose report
       // prints an exclusive legend instead of accumulating badges.
+      // "8/17 9:56A" - short enough to ride on the name line beside the count.
+      //
+      // A count with no date is half an answer: six birds LAST WEEK is a
+      // different decision from six this morning. The card validates this exact
+      // shape and renders nothing for anything else, so the format lives here
+      // and the card stays layout-only.
+      function fmtWhenShort(dateStr) {
+        var d = dateStr ? parseObsDt(dateStr) : null;
+        if (!d || isNaN(d.getTime())) return '';
+        var out = (d.getMonth() + 1) + '/' + d.getDate();
+        // eBird dates arrive with or without a time. Midnight means "no time
+        // given", not "seen at midnight", so it is left off rather than invented.
+        if (/\d:\d/.test(String(dateStr))) {
+          var h = d.getHours(), m = d.getMinutes();
+          var ap = h < 12 ? 'A' : 'P';
+          var h12 = h % 12; if (h12 === 0) h12 = 12;
+          out += ' ' + h12 + ':' + (m < 10 ? '0' + m : m) + ap;
+        }
+        return out;
+      }
+
       function speciesListHtml(species, opts) {
         opts = opts || {};
         // Icons, not a comma run: these rows are read as "which birds are
@@ -8276,6 +8334,7 @@
                          : speciesLink(x.comName, x.code),
               tags: tags,
               count: x.count,
+              when: fmtWhenShort(x.dateStr),
               sub: x.sub || ''
             });
           });
@@ -14756,8 +14815,8 @@
         wxBtn:         'Is today worth going out',
         dueBackBtn:    'Migrants due back in the next few weeks',
         rankBtn:       'Where you sit against other birders',
-        destBtn:       'Best places within a day trip',
-        excBtn:        'Longer drives worth the fuel',
+        destBtn:       'Target-rich sites within a day trip',
+        excBtn:        'Target-rich sites beyond a day trip',
         quickBtn:      'Richest hotspots within ~20 mi of home',
         targetsBtn:    'Nearest places holding a bird you still need',
         spLookupBtn:   'Pick a bird · find where to wait for it',
@@ -14800,8 +14859,8 @@
         // outing, then closest-with-unseen. That is descending by how much of
         // a day each one asks for, so the list reads as "how much time have
         // you got".
-        { at: 'destBtn',       label: '🥇 Top destinations', needs: 'geo', group: 'Go birding' },
-        { at: 'excBtn',        label: '🚗 Top excursions', needs: 'geo', group: 'Go birding' },
+        { at: 'destBtn',       label: '🥇 Top patches', needs: 'geo', group: 'Go birding' },
+        { at: 'excBtn',        label: '🚗 Worth the drive', needs: 'geo', group: 'Go birding' },
         { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Go birding' },
         { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
     // LAST in the group, deliberately. The four above answer "where should I

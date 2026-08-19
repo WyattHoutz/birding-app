@@ -11827,3 +11827,38 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
   assert.ok(!/_spLookupGroup\.name/.test(HTML),
     'the row renderer still reaches for module state instead of its argument');
 });
+
+test('background fill leaves budget for the section you just opened', () => {
+  // "i still am hitting ebird 429 30second pauses on initial loading of
+  //  sections... i will load top destinations and try to load another report
+  //  and its already on 30s wait."
+  //
+  // The two-lane queue already put interactive calls ahead of background fill,
+  // and it was not enough - because the problem is the BUDGET, not the order.
+  // Phase 2 of the wave is ~38 species feeds and it spent the whole 22-call
+  // minute; after that a tap waits for slots to AGE OUT whichever lane it is
+  // in. The device log proves ordering could not have helped: one call reported
+  // `done 27458ms` with `queue 0+0bg/1` - an EMPTY queue and a full window.
+  assert.ok(/FG_WINDOW_RESERVE\s*=\s*(\d+)/.test(HTML), 'no reserved headroom');
+  const reserve = +HTML.match(/FG_WINDOW_RESERVE\s*=\s*(\d+)/)[1];
+  const max = +HTML.match(/FG_WINDOW_MAX\s*=\s*(\d+)/)[1];
+  assert.ok(reserve > 0 && reserve < max,
+    `reserve ${reserve} must leave room and still be smaller than the cap ${max}`);
+
+  const fn = HTML.slice(HTML.indexOf('function fgWindowWait'),
+    HTML.indexOf('function fgWindowWait') + 800);
+  assert.ok(/function fgWindowWait\(startAt, bg\)/.test(fn),
+    'the window does not know whether the caller is background');
+  assert.ok(/bg \? Math\.max\(1, FG_WINDOW_MAX - FG_WINDOW_RESERVE\) : FG_WINDOW_MAX/.test(fn),
+    'background is not held below the cap, so it can still spend the whole minute');
+  // The wait must be computed from the SAME cap it was tested against, or a
+  // background caller waits on a foreground-sized window.
+  assert.ok(/_fgStarts\.length - cap\]/.test(fn),
+    'the wait is computed from a different cap than the check');
+  assert.ok(/fgWindowWait\(at, bg\)/.test(HTML), 'the caller never passes bg through');
+
+  // The rate eBird actually sees is unchanged: the ceiling is still the cap.
+  // Only who may spend the last few slots has changed.
+  assert.ok(!/FG_WINDOW_MAX\s*=\s*(2[3-9]|[3-9]\d)/.test(HTML),
+    'the fix raised the ceiling instead of reserving part of it');
+});

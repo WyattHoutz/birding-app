@@ -53,13 +53,13 @@
     },
     {
       "at": "destBtn",
-      "label": "🥇 Top destinations",
+      "label": "🥇 Top patches",
       "report": "## 🥇 Top destinations",
       "map": "destMap"
     },
     {
       "at": "excBtn",
-      "label": "🚗 Top excursions",
+      "label": "🚗 Worth the drive",
       "report": "## 🚗 Top excursions",
       "map": "excMap"
     },
