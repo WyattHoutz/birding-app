@@ -2144,6 +2144,13 @@
   // now ours computed against the right region.
   var ICONIC_BOX_KM = 2;
   var ICONIC_YEAR_WINDOW = 8;   // eBird prints "Observed 6/8 years"; match it
+  //
+  // CONFIRMED 2026-08-19 by a third screenshot. eBird shows "6/8 years" at
+  // Snoqualmie Falls and "3/10 years" at Cedar River mouth — the denominator
+  // VARIES BY SITE, which is exactly what iconicYearsObserved computes (years
+  // the site was birded in the window, not a fixed count). A fixed
+  // denominator would have disagreed with eBird at one of those two sites
+  // whichever number it was hard-coded to.
 
   function gbifBoxWkt(lat, lng, km) {
     km = km || ICONIC_BOX_KM;
@@ -2689,7 +2696,8 @@
       if (!byCode[r.code]) {
         byCode[r.code] = { code: r.code, name: r.name || r.code, reports: 0,
                            places: {}, nPlaces: 0, distMi: null, latest: 0,
-                           locId: '', locName: '', subId: '', lat: null, lon: null,
+                           locId: '', locName: '', subId: '', whenStr: '',
+                           count: null, lat: null, lon: null,
                            rare: false, anyValid: false, rows: [] };
         order.push(r.code);
       }
@@ -2707,6 +2715,11 @@
       // The row carries the NEAREST place, because the row is a decision about
       // driving. The newest report answers "is it still there", which the
       // freshness filter has already answered for every row here.
+      //
+      // The checklist, date and count are captured HERE, from the same record
+      // that supplied the place — so the whole row describes ONE report rather
+      // than a place from one sighting and a time from another. A row that
+      // mixes them reads as a single observation and is not one.
       if (d != null && isFinite(d) && (g.distMi == null || d < g.distMi)) {
         g.distMi = d;
         // `loc` and `lon` are the merged record's own field names (see the
@@ -2714,6 +2727,8 @@
         // silently produce a row with no place on it.
         g.locId = r.locId || ''; g.locName = r.loc || r.locName || '';
         g.subId = r.subId || '';
+        g.whenStr = r.dateStr || '';
+        g.count = (typeof r.count === 'number') ? r.count : null;
         g.lat = r.lat == null ? null : r.lat;
         g.lon = (r.lon == null ? r.lng : r.lon);
       }

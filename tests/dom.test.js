@@ -3444,21 +3444,26 @@ test('a species lookup shows how good its places are historically', async () => 
   const host = doc.getElementById('spLookupBest');
   assert.ok(host, 'the lookup has somewhere to put this');
   const txt = host.textContent;
-  assert.match(txt, /×/, `a multiplier is rendered: got "${txt.slice(0, 200)}"`);
-  assert.match(txt, /McNary/, 'against the places the LIVE feed found');
-  // The caveat is load-bearing: eBird publishes a number that looks like this
-  // one and is computed differently, so an unqualified "10×" reads as a quote.
-  assert.match(txt, /not eBird/i,
-    'and it is labelled as our own metric, never as eBird\u2019s figure');
-  // The county baseline reached the screen: if it had fallen back to the state
-  // the row would say so, and the whole point of the calibration was that the
-  // county is the region eBird compares against.
-  assert.ok(!/vs the whole state/.test(txt),
-    'it fell back to the statewide baseline even though the county resolved');
-  // And the year count, which is what separates a site the bird returns to from
-  // one where somebody got lucky once.
-  assert.match(txt, /seen in 6 of 8 years/,
-    `the year count is missing: got "${txt.slice(0, 300)}"`);
+
+  // THIS BLOCK NO LONGER RANKS PLACES, and that is the fix rather than a
+  // regression. It used to print its own five-place ranking under the list,
+  // computed over a different sample and a different window than the Iconic
+  // view above it — "this content doesnt make sense and contradicts above
+  // list. values arent in list above." It printed the multiplier twice, had no
+  // isPublicPlace filter (somebody's "Home", 79 miles away), and could show
+  // "3.4× · seen in 0 of 8 years" because the two numbers used different
+  // windows. All of that came from answering a question that already had an
+  // answer. One question, one answer, and the answer is the Iconic sort.
+  assert.ok(!/×/.test(txt),
+    `the duplicate place ranking is back: got "${txt.slice(0, 200)}"`);
+  assert.ok(!/McNary/.test(txt),
+    'it is ranking places again instead of leaving that to the Iconic view');
+
+  // What stays is the ARRIVAL note, which nothing else in the app says.
+  assert.match(txt, /Historically back around/,
+    'the arrival note went with it — that one is not duplicated anywhere');
+  assert.match(txt, /GBIF lags/,
+    'and it still says the archive is a year behind, so it is not read as this season');
   app.window.close();
 });
 
@@ -4625,22 +4630,36 @@ test('Happening now labels every count and lists names as rows', async () => {
   assert.ok(pin.classList.contains('thumb'),
     'the pin must be sized by the same rule as the photos it stands in for, or the headers do not line up');
 
-  // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph.
+  // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph,
+  // then eight labelled rows. The row is one line now and the roster is behind
+  // an expander — but the CAP is what this guards, because a busy cascade with
+  // forty birders is how one row becomes a page.
   const cascade = box.querySelectorAll('ul.obs')[1];
-  const who = cascade.querySelectorAll('.cklrows li');
-  assert.equal(who.length, 8, 'names are rows, capped so one row cannot become a page');
-  assert.match(cascade.textContent, /and 4 more of the top 100/,
-    'the remainder is stated rather than silently dropped');
+  assert.ok(cascade.querySelector('details.ckmore'),
+    'the roster is inline again, so a forty-birder cascade fills the screen');
+  assert.match(cascade.querySelector('details.ckmore summary').textContent, /\d+ more/,
+    'the expander does not say how much it is holding');
+  const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
+  assert.match(src, /CASCADE_BIRDERS/,
+    'the roster is no longer capped at all');
+  // The remainder is stated INSIDE the expander now, and the expander's own
+  // summary says how many it holds — so nothing is silently dropped, it is just
+  // one tap away instead of eight rows down.
+  assert.match(src, /more of the top 100/,
+    'the remainder is silently dropped once the roster is capped');
 
   // The place and the checklist are what you act on, so they must be findable.
   const surge = box.querySelectorAll('ul.obs')[0];
   assert.match(surge.textContent, /Where/);
   assert.match(surge.textContent, /S999/, 'the checklist is named by its subId, never "checklist"');
-  // Convergence carries no coordinates, so it links the hotspot page instead of
-  // pretending it can put a pin on a map.
+  // Convergence carries no coordinates of its own, so the NAME links the
+  // hotspot page. It used to add a second "Recent visits at X" link saying the
+  // same thing one line lower; the row is one line now, and the name is the
+  // destination.
   const conv = box.querySelectorAll('ul.obs')[2];
   assert.match(conv.innerHTML, /ebird\.org\/hotspot\/L123/);
-  assert.match(conv.textContent, /Recent visits at Marina Beach Park/);
+  assert.match(conv.textContent, /Marina Beach Park/,
+    'the busy hotspot is not named, so there is nothing to link or drive to');
   app.window.close();
 });
 
@@ -4749,11 +4768,23 @@ test('Happening now titles all three lanes so the last is not a footnote', async
   assert.equal(heads.length, 3, 'every lane gets its own heading');
   assert.ok(heads[2].includes('hotspot'), 'including the hotspot lane that was buried');
   const box = d.getElementById('surgeResults').innerHTML;
-  // A leaderboard row on its own says a bird is gettable but never where.
-  assert.match(box, /Where it is being reported/, 'the cascade lane became actionable');
+  // A leaderboard row on its own says a bird is gettable but never where. That
+  // used to be a labelled "Where it is being reported" block under the row;
+  // the row is one line now, so the place and time ARE the row — but the lane
+  // must still end somewhere you can drive to.
+  assert.match(box, /class="ckgo"|class="extlink"/,
+    'the cascade lane became actionable');
   assert.match(box, /Stanwood STP/, 'with a real place');
   assert.match(box, /S9/, 'and a checklist to cite');
-  assert.match(box, /species-blind/, 'the hotspot lane explains why it is notable');
+  // "the paragraph text under this section goes into the information help
+  // dialogue too" — so the lane explanations left the screen and the ⓘ dialog
+  // is where they have to be, or they are simply gone.
+  const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
+  const how = (docs.docs.surgeBtn.how || []).join(' ');
+  assert.match(how, /species-blind/,
+    'the hotspot lane no longer explains why it is notable, in the section or the dialog');
+  assert.match(how, /Celebrity Birds/,
+    'the renamed lane is not described where its paragraph went');
 });
 
 // The MEDIUM card is a 2x2 table, and that is the whole point of it. The float
@@ -6105,17 +6136,64 @@ test('the drag probe is wired to a real button', () => {
 // panning the visual viewport, which is what carries the sticky navbar along.
 // touch-action is enforced by the compositor rather than by layout, so it holds
 // whether or not anything overflows.
-test('a finger may scroll the page down but not sideways', () => {
+test('a finger may scroll the page down but not sideways — and may still pinch', () => {
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
   assert.match(css, /body\s*\{[^}]*touch-action:\s*pan-y/,
     'the page declares vertical panning only');
+  // PINCH-ZOOM HAS TO BE NAMED. touch-action permits exactly what it lists, so
+  // `pan-y` alone had the compositor refuse the pinch - silently taking back
+  // the pinch-zoom F142 restored by removing user-scalable=no. Double-tap zoom
+  // is a browser gesture and still fired, so the app could be magnified and not
+  // shrunk: "i double clicked the debugging window it zooms in and i cannot
+  // zoom out". An accessibility fix another rule quietly cancels is the worst
+  // shape of bug - it tests fine and is gone on the device.
+  assert.match(css, /body\s*\{[^}]*touch-action:[^;}]*pinch-zoom/,
+    'body forbids the pinch, so a reader who zooms in cannot zoom back out');
   // Maps are the one thing that must pan both ways. An ancestor's value is
   // INTERSECTED with the element's, so pan-y on body would otherwise take the
   // horizontal drag away from every map in the app.
   assert.match(css, /\.leaflet-container\s*\{[^}]*touch-action:\s*none/,
     'and maps opt back out, because Leaflet drives its own gestures from JS');
-  assert.ok(css.indexOf('body { touch-action: pan-y; }') < css.indexOf('.leaflet-container { touch-action: none; }'),
+  assert.ok(css.indexOf('body { touch-action: pan-y pinch-zoom; }')
+            < css.indexOf('.leaflet-container { touch-action: none; }'),
     'with the map override after the body rule so it is not itself overridden');
+});
+
+test('Happening now paints from the notable feeds, not after 40 species calls', () => {
+  // From the device log, and the numbers are the argument:
+  //
+  //   WAVE phase 1 done in 5.5s      (rarities ready in 4.3s, 3 of 6 feeds)
+  //   WAVE phase 2 · 40 species feeds ... done in 221.3s
+  //
+  // ...and the screen sat on "Step 2 of 2 - 0 of 40 - paused, eBird rate
+  // limit" for all of it. Reported as hitting a rate-limit stall the moment
+  // the section was opened.
+  //
+  // Phase 2 fills in WHERE unseen birds are. The needs lane stopped asking
+  // that when it became notable-only, and everything it now shows comes from
+  // the three `notable` feeds that land in phase 1.
+  const at = HTML.indexOf('function loadSurge');
+  assert.ok(at > 0, 'loadSurge not found');
+  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.match(src, /getChaseRarity\(\)/,
+    'Happening now still waits for the full wave, so it waits for phase 2');
+  assert.ok(!/[^y]getChase\(\)/.test(src),
+    'it also calls getChase() directly, which reinstates the wait');
+
+  // The head start is only half of it: the section must be REPAINTED when the
+  // full wave lands, or the crowd lane never gets the recent feeds.
+  const early = HTML.indexOf('function onRarityEarly');
+  const esrc = HTML.slice(early, HTML.indexOf('\n      function ', early + 1));
+  assert.match(esrc, /'surgeBtn'/,
+    'the section is never repainted when phase 2 completes, so its crowd lane '
+    + 'stays empty on a partial view');
+
+  // And the head start must keep the wave running underneath rather than
+  // replacing it - otherwise the partial view becomes the permanent one.
+  const gr = HTML.indexOf('function getChaseRarity');
+  const gsrc = HTML.slice(gr, HTML.indexOf('\n      function ', gr + 1));
+  assert.match(gsrc, /getChase\(force\)/,
+    'the rarity head start no longer starts the full wave behind it');
 });
 
 test('showing a section reports any element wider than the screen', async () => {
@@ -9942,11 +10020,13 @@ test('the early rarity view never leaks into the shared chase cache', () => {
     + 'and only with a complete phase-1 view');
   assert.match(src, /delete _chaseRarity\[slug\];/,
     'and it is dropped the moment the real phase-1 view exists');
-  // Only the two rarity sections repaint on it.
+  // Only the sections a notable feed can COMPLETELY answer repaint on it.
   const early = HTML.slice(HTML.indexOf('function onRarityEarly'),
                            HTML.indexOf('function getChase(force)'));
-  assert.match(early, /\['refreshBtn', 'activeBtn'\]/,
-    'exactly the two sections a notable feed can answer');
+  assert.match(early, /\['refreshBtn', 'activeBtn', 'surgeBtn'\]/,
+                           'exactly the sections a notable feed can answer — surgeBtn joined once its '
+                           + 'needs lane became notable-only, because then its rows come from these '
+                           + 'three feeds and nothing else');
   assert.match(early, /if \(!_autoLoaded\[id\]\) return;/,
     'and only if they are actually open');
 });
@@ -10614,7 +10694,7 @@ test('Happening now leads with what you need, not with the crowd', async () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const fn = HTML.slice(HTML.indexOf('function renderSurge'),
                         HTML.indexOf('function loadSurge'));
-  const need = fn.indexOf('worth talking about near you');
+  const need = fn.indexOf('Celebrity Birds');
   const crowd = fn.indexOf('species drawing a crowd');
   assert.ok(need > -1, 'the needs lane is not rendered at all');
   assert.ok(crowd > -1, 'the crowd lane vanished');
@@ -10625,7 +10705,7 @@ test('Happening now leads with what you need, not with the crowd', async () => {
   // And it must be fed from the records the wave already merged, not from a
   // new fetch: a lane that costs calls is a lane that gets switched off.
   const load = HTML.slice(HTML.indexOf('function loadSurge'),
-                          HTML.indexOf('function loadSurge') + 4000);
+                          HTML.indexOf('function loadSurge') + 6000);
   assert.match(load, /BL\.needNearby\(_merged/,
     'the lane fetches its own data instead of reusing the merged wave');
 });
@@ -11849,10 +11929,18 @@ test('the stakeout list shows every checklist a place actually has', async () =>
   assert.equal(new Set(hrefs).size, 3, 'the three rows link to the same checklist');
 
   // ONE PIN PER PLACE. Three checklists at one place must not invent pins 1, 2
-  // and 3 on a map that only has pin 1.
-  const pins = rows.map((li) => (li.querySelector('.sppin') || {}).textContent || '');
-  assert.deepEqual(pins, ['1', '', ''],
-    `only the first row of a place carries its pin number, got ${JSON.stringify(pins)}`);
+  // and 3 on a map that only has pin 1 — they all carry that place's number.
+  const pins = rows.map((li) => (li.querySelector('.hsnum') || {}).textContent || '');
+  assert.deepEqual(pins, ['1', '1', '1'],
+    `three checklists at ONE place all carry that place's pin, got ${JSON.stringify(pins)}`);
+
+  // ...and the row is a PLACE card, not a species card: the bird's photo is
+  // already in the header above, so repeating it 132 times answers nothing.
+  // "they should not show the bird icon on each bird item, its redundant."
+  assert.ok(rows.every((li) => li.classList.contains('hscard-sm')),
+    'the rows are not the shared hotspot card, so the three views look unalike');
+  assert.equal(doc.querySelectorAll('#spLookupResults .sppl .thumb').length, 0,
+    'the bird photo is repeated on every row');
 
   // The 1:1 place-to-report count is the ENDPOINT's limit, and the section has
   // to say so - otherwise "131 places, 131 reports" reads as a claim that the
@@ -12046,6 +12134,28 @@ test('the odds rows are numbered, readable, and within reach first', () => {
   const rsrc = HTML.slice(rl, HTML.indexOf('\n      function ', rl + 1));
   assert.ok(/iconicOrdered\(\)/.test(rsrc),
     'the map plots every iconic place, including the ones behind the expander');
+});
+
+test('the cascade lane can hand you off to the board it came from', () => {
+  // "add a link to jump to the latest ticks on the leaderboard section after
+  // the list." The obvious next question after "a few of the top 100 are
+  // ticking this" is what else the board has been ticking.
+  const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
+  assert.match(src, /data-sec="sec-lastNewBtn"/, 'there is no jump to Latest ticks');
+
+  // WIRED, not just rendered. A link that navigates nowhere is the same bug as
+  // the rankings scope control that sat dead for a whole release — and in this
+  // app navigation is showSection(), never a URL, so an unhandled .seclink
+  // would be a no-op in the WKWebView rather than a page load.
+  assert.match(HTML, /closest\('\.seclink'\)/,
+    'the in-app jump link has no handler');
+  assert.match(HTML, /\.seclink[\s\S]{0,300}?showSection\(sid\)/,
+    'the handler does not actually navigate');
+
+  // ...and the target section really exists under that id. Section ids are
+  // derived as 'sec-' + the menu button id, so a typo here fails silently.
+  assert.match(HTML, /id="lastNewBtn"/,
+    'sec-lastNewBtn cannot resolve, because there is no lastNewBtn to derive it from');
 });
 
 test('a place you cannot visit is never recommended', () => {
@@ -12605,7 +12715,11 @@ test('both iconic sections resolve the same baseline, or they print two answers'
   // county and the other by the state, the app contradicts itself on screen -
   // the precise class of drift that forced the card CSS out of index.html and
   // the section docs into a byte-identical mirror.
-  for (const name of ['gbifIconic', 'iconicUnwatched']) {
+  // The Iconic view is the ONLY place that prints a multiplier now, so there is
+  // one path to check rather than two. It used to be two (gbifIconic annotated
+  // the feed's places under the list), and the pair disagreeing on screen is
+  // exactly why the duplicate was removed.
+  for (const name of ['iconicUnwatched']) {
     const at = HTML.indexOf('function ' + name);
     assert.ok(at > 0, `${name} not found`);
     const next = HTML.indexOf('\n      function ', at + 1);

@@ -41,7 +41,7 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{pin}}{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -126,23 +126,6 @@
        inside, so the template's one-row height is preserved. */
     '.obs.card-sm .ntext .sub { display: block; font-size: calc(13px * var(--s));',
     '                      font-weight: 500; color: var(--muted); margin-top: 1px; line-height: 1.3; }',
-    /* A MAP PIN NUMBER, and it leads the row.
-       "each with a number pin that corresponds the map pin. the numbers should
-        be big and the bird icon small after it."
-       The number is what ties row 3 to pin 3, so it is the first thing on the
-       line and the largest; the photo still earns its place as what makes a row
-       recognisable at a glance, but it is corroboration here rather than the
-       subject, so it shrinks to make room. Child-scoped like every rule in this
-       file, because a small card can be nested inside a medium one. */
-    '.obs.card-sm > li > .name > .sppin {',
-    '  flex: 0 0 auto; display: inline-flex; align-items: center;',
-    '  justify-content: center; min-width: calc(28px * var(--s));',
-    '  font-size: calc(22px * var(--s)); font-weight: 800; line-height: 1;',
-    '  font-variant-numeric: tabular-nums; color: var(--accent); }',
-    /* The icon that FOLLOWS a pin is half-size. Scoped to rows that actually
-       have a pin, so every other small card keeps the 46px thumb. */
-    '.obs.card-sm > li > .name > .sppin + .thumb {',
-    '  width: calc(26px * var(--s)); height: calc(26px * var(--s)); }',
 
     /* ---- MEDIUM — a real two-column table, not a float ----
          col 1  the photo, spanning BOTH rows
@@ -613,11 +596,6 @@
       // row — anything nested in the text block sits after the words, not at
       // the edge. Used by the ABA list, where each row opens a sub-page.
       right: v.right || '',
-      // A MAP PIN NUMBER at the LEFT edge of a small row, ahead of the photo.
-      // Only Stakeout passes one; every other caller gets an empty slot and the
-      // row is unchanged. Pre-escaped by the caller, like `right` and `icon`:
-      // it is a number the app generates, not user text.
-      pin: v.pin || '',
       below: v.below || ''
     });
   }
