@@ -185,6 +185,7 @@
              font-size: calc(11px * var(--s)); }
     /* The section's own plain-English line, matching its menu tile. */
     .sechint { color: var(--muted); font-size: calc(13px * var(--s));
+
                line-height: 1.35; margin: -2px 0 10px; }
     /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
        "Stop tracking Horned Lark" - its width is the length of a species name,
@@ -1032,6 +1033,13 @@
     .lanehead { margin: 34px 0 0; padding-top: 20px; border-top: 3px solid var(--accent);
                 font-size: calc(22px * var(--s)); font-weight: 800; line-height: 1.25; }
     .lanehead:first-child { margin-top: 6px; padding-top: 0; border-top: none; }
+    /* One ℹ per lane. Four lanes with four different rules used to share the
+       section's single ℹ, so "why was THIS bird chosen" was never beside the
+       bird. Sized like a real tap target and scaled with the text, or it clips
+       at exactly the setting a low-vision reader would pick. */
+    .lanehelp { background: none; border: 0; padding: 0 0 0 8px; cursor: pointer;
+                font-size: calc(17px * var(--s)); line-height: 1;
+                min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s)); }
     /* The convergence lane rows are PLACES, so they have no photo — which left
        them structurally different from the bird rows directly above them in the
        same section. A pin at the same size as the photo it stands in for keeps
@@ -1799,7 +1807,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.4';
+      var APP_VERSION = '1.26.5';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14409,21 +14417,92 @@
         var by = {};
         (merged || []).forEach(function (r) {
           if (!r || !r.locId) return;
-          var d = by[r.locId] || (by[r.locId] = { sppSet: {}, listSet: {}, notable: [], seenName: {} });
-          if (r.code) d.sppSet[r.code] = 1;
+          var d = by[r.locId] || (by[r.locId] = { sppSet: {}, listSet: {}, species: [], seen: {} });
           if (r.subId) d.listSet[r.subId] = 1;
-          if (r.kind === 'Rarity') {
-            var nm = r.name || r.code;
-            if (nm && !d.seenName[nm]) { d.seenName[nm] = 1; d.notable.push(nm); }
+          if (!r.code) return;
+          d.sppSet[r.code] = 1;
+          if (!d.seen[r.code]) {
+            d.seen[r.code] = 1;
+            d.species.push({ code: r.code, comName: r.name || r.code, rare: r.kind === 'Rarity' });
           }
         });
         Object.keys(by).forEach(function (k) {
           var d = by[k];
           d.spp = Object.keys(d.sppSet).length;
           d.lists = Object.keys(d.listSet).length;
-          d.notable.sort();
         });
         return by;
+      }
+
+      // HOW HARD IS THIS BIRD TO FIND RIGHT NOW: the number of distinct places
+      // reporting it across the whole region, from the merged feed already in
+      // hand. One location is a bird you drive for; two hundred is a robin.
+      //
+      // Not currently used to FILTER — the card's own unseen/seen split answers
+      // "why is it buzz" better, because it is about you ("id like to see unseen
+      // birds and in this case rare birds"). Kept as the ordering signal, and as
+      // the reason the first attempt was wrong: it used the eBird RARITY FLAG,
+      // and the owner's screenshot showed Cedar River mouth reduced to "Black
+      // Phoebe" while the birds actually drawing people there — Baird's
+      // Sandpiper, Pectoral Sandpiper, Red-necked Phalarope, Long-billed
+      // Dowitcher — trip no flag at all.
+      //
+      // A PRECOMPUTED rank would be better and is the owner's own suggestion:
+      // "we could precompute a list of bird codes in order of rarity". The
+      // pipeline already builds the inverse (common_birds.py ranks by how many
+      // regions a species occupies), so it is a build artifact away. Filed F155.
+      function scarcityRank(merged) {
+        var locs = {};
+        (merged || []).forEach(function (r) {
+          if (!r || !r.code || !r.locId) return;
+          (locs[r.code] || (locs[r.code] = {}))[r.locId] = 1;
+        });
+        var out = {};
+        Object.keys(locs).forEach(function (c) { out[c] = Object.keys(locs[c]).length; });
+        return out;
+      }
+
+      // Fills the busy-hotspot lane with the SAME medium card Top patches uses,
+      // after the string-built lanes have painted. hotspotCard returns an
+      // element, so this cannot be part of the html string.
+      function fillConvergence(convergence, merged) {
+        var host = $('surgeConvList');
+        if (!host || !convergence || !convergence.length) return;
+        var byLoc = convergenceDetail(merged);
+        var coords = hotspotCoordSet(getObsRegion());
+        var home = getHome();
+        var rank = scarcityRank(merged);
+        convergence.forEach(function (c, i) {
+          var d = byLoc[c.locId] || { spp: 0, lists: 0, species: [] };
+          var xy = coords && coords[c.locId];
+          var mi = (xy && home && home.lat != null)
+            ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
+          // Rarest first WITHIN the split the card makes, so the bird that
+          // explains the crowd is the first one read.
+          var spp = d.species.slice().sort(function (a, b) {
+            return (rank[a.code] || 0) - (rank[b.code] || 0);
+          });
+          host.appendChild(hotspotCard({
+            n: i + 1, locId: c.locId, locName: c.loc, lat: xy && xy.lat, lng: xy && xy.lng,
+            distMi: mi,
+            facts: [
+              c.observers + ' birders',
+              c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal',
+              d.spp ? d.spp + ' spp' : '',
+              d.lists ? d.lists + ' lists' : ''
+            ],
+            // ALL of them, and the card splits: unseen open, already-seen
+            // collapsed. That split IS the answer to "why is this busy" for
+            // this reader — "id like to see unseen birds and in this case rare
+            // birds" — and it is the same thing every other hotspot list does,
+            // so this lane stops being the odd one out.
+            species: spp
+          }));
+        });
+        hydratePhotos(host);
+        hydrateLocSpecies(host)
+          .then(function () { return hydrateHotspotChecklists(host); })
+          .catch(function (e) { dbg('warn', 'busy hotspots: ' + ((e && e.message) || e)); });
       }
 
       // locId -> coordinates, straight off the cached hotspot directory. The
@@ -14442,6 +14521,156 @@
           });
           return out;
         } catch (e) { return null; }
+      }
+
+      // ONE HELP DIALOG PER LANE. "each of these three happening now sections
+      // needs a help dialogue button explaining the logic" — and the cascade
+      // lane earned it: "i dont understand why sabines gull and rudy turnstone
+      // were chosen." Four lanes with four different rules sat under one ℹ that
+      // described the section, so the answer to "why THIS bird" was never on
+      // screen next to the bird.
+      var LANE_DOCS = {
+        celebrity: {
+          title: '🎯 Celebrity Birds',
+          body: '<p>Birds <b>eBird flags as notable in this region</b> that are '
+            + 'not on your year list, reported within your chase distance in the '
+            + 'last ' + BL.FRESH_HOURS + ' hours. Closest first.</p>'
+            + '<p><b>Notable, not merely unseen.</b> Three people reporting a bird '
+            + 'that is ordinary here is well corroborated and still nobody '
+            + 'mentions it. A bird earns this lane by being unusual <i>here</i>, '
+            + 'not by being missing from your list — an unseen-but-ordinary bird '
+            + 'is in <b>All unseen reports</b> and <b>Closest spots</b>, which are '
+            + 'the sections about you.</p>'
+            + '<p>A thin report must also be either <b>reviewed by eBird</b> or seen '
+            + '<b>' + BL.NEED_MIN_SIGHTINGS + ' times</b>: a mega found an hour ago '
+            + 'has one report and is worth keeping, while a single unreviewed one '
+            + 'is the "might not be real" case.</p>'
+            + '<p>Every fact on a row comes from the <b>same report</b> — the nearest '
+            + 'one, which is what the distance is measured to. Private addresses '
+            + 'are never listed.</p>'
+        },
+        crowd: {
+          title: '🐦 Species drawing a crowd',
+          body: '<p><b>Distinct observers</b> — not checklists, because one birder '
+            + 'filing three lists is how a quiet spot fakes a crowd — at one spot '
+            + 'in the last ' + BL.SURGE.WINDOW_H + ' hours, measured against what '
+            + 'that species normally draws <i>at that place</i>.</p>'
+            + '<p>It fires at <b>' + BL.SURGE.MIN_OBSERVERS + '+ observers</b> and '
+            + '<b>' + BL.SURGE.MIN_RATIO + '× the local norm</b>, or — for a bird with '
+            + 'no trailing history at all — at <b>' + BL.SURGE.NOVEL_OBSERVERS
+            + ' independent observers on two different checklists</b>.</p>'
+            + '<p>🆕 means nothing was reported there in the trailing two weeks, so '
+            + 'there is no ratio to quote. A ratio over a zero baseline would '
+            + 'invent precision, so it says "new here" instead of "∞×".</p>'
+            + '<p>Rarities are deliberately excluded: they already have their own '
+            + 'sections, and this lane exists to catch the birds those miss.</p>'
+        },
+        cascade: {
+          title: '🏆 Species cascading through the leaderboard',
+          body: '<p>eBird\u2019s Top 100 board prints, for each birder, the <b>most '
+            + 'recent species they added</b> this year. Group that column by bird '
+            + 'and it becomes a chase board: when several of the top 100 add the '
+            + '<b>same</b> species within a few days, that bird is demonstrably '
+            + 'findable right now.</p>'
+            + '<p>That is the whole rule — <b>' + 3 + '+ of the top 100 within '
+            + '3 days</b>. It is not a rarity feed, so a bird can appear here '
+            + 'without being flagged rare anywhere, and a mega nobody has ticked '
+            + 'yet will not appear at all.</p>'
+            + '<p>This lane sees the <b>whole region</b>, including counties your '
+            + 'own feeds never cover — which is its real value — but the board is '
+            + 'cached daily, so it can lag about a day.</p>'
+            + '<p>The board names the bird and the date and <i>nothing else</i>, so '
+            + 'the place and time on each row come from a species-scoped state '
+            + 'feed. That is where to actually go.</p>'
+        },
+        busy: {
+          title: '📍 Hotspots unusually busy',
+          body: '<p>These are <b>places, not birds</b>. The lane is '
+            + '<b>species-blind</b>, so it fires even when whatever everyone is '
+            + 'looking at was never flagged notable — a locally common bird draws '
+            + 'no rarity alert however big the crowd gets. That is the one signal '
+            + 'the other lanes cannot produce.</p>'
+            + '<p>Each spot is measured against <b>its own</b> trailing norm, so an '
+            + 'always-busy park is not news; a quiet one suddenly filling up is. '
+            + 'A place with no trailing history is <i>unmeasured</i>, not busy, so '
+            + 'it is dropped rather than called new.</p>'
+            + '<p>The birds under each card are what has been reported there '
+            + 'recently, <b>unseen ones open and already-seen collapsed</b>, rarest '
+            + 'first — that is the answer to why it is busy.</p>'
+        }
+      };
+      // The checklists behind one bird, collapsed — the same shape Latest ticks
+      // uses, built from the merged feed rather than a fetch. The row above is
+      // the decision; these are the evidence you open once you have made it.
+      function speciesChecklists(merged, code) {
+        var home = getHome();
+        var subs = {}, rows = [];
+        (merged || []).forEach(function (r) {
+          if (!r || r.code !== code || !r.subId || subs[r.subId]) return;
+          subs[r.subId] = 1;
+          rows.push(r);
+        });
+        if (!rows.length) return '';
+        rows.sort(function (a, b) {
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+        });
+        var mk = function (r) {
+          var lng = r.lon == null ? r.lng : r.lon;
+          var d = (home && isFinite(r.lat) && isFinite(lng))
+            ? haversineMi(home.lat, home.lng, +r.lat, +lng) : null;
+          return ChecklistCards.small({
+            place: r.loc || r.locName || '',
+            href: checklistUrl(r.subId),
+            date: fmtDateTime(r.dateStr),
+            count: r.count,
+            distMi: d,
+            distQ: distQ(r.lat, lng),
+            map: mapPin(r.lat, lng),
+            who: r.observer ? esc(r.observer) : ''
+          });
+        };
+        var SHOW = 5;
+        return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
+          'recent checklist', '',
+          moreDetails(rows.length - SHOW, 'checklists', function () {
+            return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
+          }));
+      }
+
+      // The reports behind a cascade, collapsed — same shape as Latest ticks.
+      // These rows come from a species-scoped state feed, not the board, which
+      // is why they carry a place and a checklist at all.
+      function cascadeChecklists(recent) {
+        var home = getHome();
+        var rows = (recent || []).slice().sort(function (a, b) {
+          return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
+        });
+        if (!rows.length) return '';
+        var mk = function (r) {
+          var d = (home && isFinite(r.lat) && isFinite(r.lng))
+            ? haversineMi(home.lat, home.lng, +r.lat, +r.lng) : null;
+          return ChecklistCards.small({
+            place: r.locName || '',
+            href: r.subId ? checklistUrl(r.subId) : '',
+            date: fmtDateTime(r.obsDt),
+            count: r.howMany,
+            distMi: d,
+            distQ: distQ(r.lat, r.lng),
+            map: mapPin(r.lat, r.lng),
+            who: r.userDisplayName ? esc(r.userDisplayName) : ''
+          });
+        };
+        var SHOW = 5;
+        return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
+          'recent report', '',
+          moreDetails(rows.length - SHOW, 'reports', function () {
+            return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
+          }));
+      }
+
+      function laneHelpBtn(key) {
+        return '<button type="button" class="lanehelp" data-lane="' + key
+          + '" aria-label="How this lane is calculated">\u2139\ufe0f</button>';
       }
 
       function renderSurge(events, cascades, convergence, needs, merged) {
@@ -14478,47 +14707,41 @@
           // live. "the goal is to condense this list": a section you scan for a
           // bird worth dropping everything for should not open with a
           // paragraph explaining itself.
-          html += '<h3 class="lanehead">🎯 Celebrity Birds</h3>';
-          // ONE LINE PER BIRD, and the Nearest/Latest rows are gone: they were
-          // two labelled rows carrying four short facts between them, which is
-          // three lines of card for what fits on one.
-          //
-          //   REKN ×2 2 locs 5 obs Jetty Island 8/19 10:48A
-          //
-          // Every fact on that line comes from the SAME report — the nearest
-          // one, which is the one the distance is measured to and the one you
-          // would drive to. A row that took its place from one sighting and its
-          // time from another would read as a single observation and not be one.
+          html += '<h3 class="lanehead">🎯 Celebrity Birds' + laneHelpBtn('celebrity') + '</h3>';
+          // THE SAME CARD LATEST TICKS USES. "celebrity birds should match
+          // format" — so a bird looks the same wherever the app shows one, and
+          // the row gains what that card carries: the scientific name, the
+          // distance as a real column that opens maps, and the checklists
+          // behind it rather than a place name with nowhere to go.
           html += '<ul class="obs big xl lanes">' + needs.map(function (e) {
             var obs = (e.sightings == null ? e.reports : e.sightings);
-            var meta = [
-              spCodeHtml(e.code),
-              (typeof e.count === 'number' && e.count > 0) ? '\u00d7' + e.count : '',
-              e.nPlaces + ' loc' + (e.nPlaces === 1 ? '' : 's'),
-              obs + ' obs',
-              e.locName
-                ? (e.subId ? checklistLink(e.subId, e.locName) : esc(e.locName))
-                : '',
-              e.whenStr ? esc(fmtWhenShort(e.whenStr)) : ''
-            ].filter(Boolean).join(' ');
-            return '<li>'
-              + '<div class="name">' + photoSlot(e.name, e.code)
-              + '<span class="ntext">' + speciesLink(e.name, e.code)
-              + ' <span class="needflag">🔍</span>'
-              // The [R] badge, not a star. "If the star icon represents
-              // rarities, then switch it to the [R] icon" - and it did, so the
-              // app had two marks for one fact. rareTag is the one definition.
-              + (e.rare ? ' ' + rareTag('Rarity') : '') + '</span>'
-              + (e.distMi == null ? ''
-                 : '<a class="spdist maplink" data-q="' + esc(distQ(e.lat, e.lon))
-                   + '">' + e.distMi.toFixed(1) + '<small>mi</small></a>')
-              + '</div>'
-              + '<div class="meta">' + meta + '</div>'
-              + '</li>';
+            return SpeciesCards.medium({
+              sci: sciFor(e.code),
+              icon: photoSlot(e.name, e.code),
+              name: speciesLink(e.name, e.code),
+              code: e.code,
+              alpha: alphaFor(e.code),
+              tags: '<span class="needflag">🔍</span>'
+                + (e.rare ? ' ' + rareTag('Rarity') : ''),
+              distMi: e.distMi,
+              distQ: distQ(e.lat, e.lon),
+              // The compact line stays, because it is the one a reader scans:
+              // how many places, how many observations, where and when.
+              sub: [
+                (typeof e.count === 'number' && e.count > 0) ? '\u00d7' + e.count : '',
+                e.nPlaces + ' loc' + (e.nPlaces === 1 ? '' : 's'),
+                obs + ' obs',
+                e.locName
+                  ? (e.subId ? checklistLink(e.subId, e.locName) : esc(e.locName))
+                  : '',
+                e.whenStr ? esc(fmtWhenShort(e.whenStr)) : ''
+              ].filter(Boolean).join(' \u00b7 '),
+              below: speciesChecklists(merged, e.code)
+            });
           }).join('') + '</ul>';
         }
         if (events.length) {
-          html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd</h3>';
+          html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd' + laneHelpBtn('crowd') + '</h3>';
           html += '<div class="status">Distinct observers '
             + 'at one spot in the last ' + BL.SURGE.WINDOW_H + ' hours, against what that species normally draws there. '
             + '🆕 = nothing reported in the trailing two weeks.</div>';
@@ -14547,7 +14770,7 @@
           }).join('') + '</ul>';
         }
         if (cascades.length) {
-          html += '<h3 class="lanehead">🏆 ' + cascades.length + ' species cascading through the leaderboard</h3>';
+          html += '<h3 class="lanehead">🏆 ' + cascades.length + ' species cascading through the leaderboard' + laneHelpBtn('cascade') + '</h3>';
           // Same abbreviated line as Celebrity Birds, for the same reason: the
           // paragraph that explained this lane is in the ⓘ dialog, and the rows
           // are one line each. Everything that was on the labelled Where/Latest
@@ -14555,56 +14778,53 @@
           // tap away rather than eight rows of card.
           html += '<ul class="obs big xl lanes">' + cascades.map(function (c) {
             var r0 = (c.recent || [])[0];
-            var meta = [
-              c.code ? spCodeHtml(c.code) : '',
-              (r0 && r0.howMany != null) ? '\u00d7' + esc(r0.howMany) : '',
-              // "N of the top 100 added it", spelled out: the number is a slice
-              // of the LEADERBOARD, not a count of sightings, and a bare "12"
-              // beside a bird reads as twelve birds.
-              c.birders.length + ' of the top 100 added it',
-              r0 && r0.locName
-                ? (r0.subId ? checklistLink(r0.subId, r0.locName) : esc(r0.locName))
-                : '',
-              r0 && r0.obsDt ? esc(fmtWhenShort(r0.obsDt)) : esc(c.latest || '')
-            ].filter(Boolean).join(' ');
+            var home = getHome();
+            var near = null, nearAt = '';
+            (c.recent || []).forEach(function (r) {
+              if (!home || !isFinite(r.lat) || !isFinite(r.lng)) return;
+              var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
+              if (near == null || d < near) { near = d; nearAt = distQ(r.lat, r.lng); }
+            });
+            // WHO added it, as one sentence rather than a row each — the same
+            // shape Latest ticks settled on, for the same reason: the decision
+            // is "several of the top 100 got this recently", which a sentence
+            // carries in a line and a table spends ten on.
+            var WHO = 4;
+            var whoTxt = c.birders.slice(0, WHO).map(function (b) {
+              return esc(b.name) + (b.rank ? ' <span class="dim">(#' + esc(b.rank) + ')</span>' : '');
+            }).join(', ');
+            if (c.birders.length > WHO) {
+              whoTxt += ' <span class="dim">and ' + (c.birders.length - WHO) + ' more of the top 100</span>';
+            }
+            var who = '<div class="wholine"><span class="lbl">Who added it</span> ' + whoTxt + '</div>';
             // A leaderboard row on its own is not actionable: it says a bird is
             // gettable and never says where. When the state feed has no report
             // to point at, say WHY rather than leaving the row a dead end.
-            var nowhere = r0 ? '' : '<div class="lanesub dim">' + (c.code
-              ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
-              : 'Not in this region’s species list, so there is nowhere to link to — likely a first record the list has not caught up with.')
-              + '</div>';
-            // Nothing is dropped, it is folded: the whole roster and every
-            // other report stay behind the expander.
-            var extra = moreDetails(
-              c.birders.length + ((c.recent || []).length > 1 ? (c.recent.length - 1) : 0),
-              'who and where',
-              function () {
-                var who = c.birders.slice(0, CASCADE_BIRDERS).map(function (b) {
-                  return '<li><span class="when">#' + esc(b.rank) + '</span>'
-                    + '<span class="howmany"></span><span class="where">' + esc(b.name) + '</span></li>';
-                }).join('');
-                var more = c.birders.length > CASCADE_BIRDERS
-                  ? '<div class="dim">…and ' + (c.birders.length - CASCADE_BIRDERS)
-                    + ' more of the top 100</div>' : '';
-                var spots = (c.recent || []).slice(0, 10).map(function (r) {
-                  return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>'
-                    + '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>'
-                    + '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, r.locId)
-                    + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span></li>';
-                }).join('');
-                return '<ul class="cklrows">' + who + spots + '</ul>' + more;
-              });
-            return '<li>'
+            var ck = r0 ? cascadeChecklists(c.recent)
+              : '<div class="sp dim">' + (c.code
+                  ? 'No report in the state feed’s 30-day window — the tick may be from a county your feeds never cover.'
+                  : 'Not in this region’s species list, so there is nowhere to link to — likely a first record the list has not caught up with.')
+                + '</div>';
+            return SpeciesCards.medium({
+              sci: sciFor(c.code || ''),
               // The board prints a NAME, never a code; photoSlot's network tier
               // resolves by name, so the row still gets its bird.
-              + '<div class="name">' + photoSlot(c.species, c.code || '')
-              + '<span class="ntext">' + (c.code ? speciesLink(c.species, c.code) : esc(c.species))
-              + ' ' + rareTag('Rarity') + '</span></div>'
-              + '<div class="meta">' + meta + '</div>'
-              + nowhere
-              + extra
-              + '</li>';
+              icon: photoSlot(c.species, c.code || ''),
+              name: c.code ? speciesLink(c.species, c.code) : esc(c.species),
+              code: c.code || '',
+              alpha: c.code ? alphaFor(c.code) : '',
+              tags: rareTag('Rarity'),
+              distMi: near,
+              distQ: nearAt,
+              sub: [
+                c.birders.length + ' of the top 100 added it',
+                r0 && r0.locName
+                  ? (r0.subId ? checklistLink(r0.subId, r0.locName) : esc(r0.locName))
+                  : '',
+                r0 && r0.obsDt ? esc(fmtWhenShort(r0.obsDt)) : esc(c.latest || '')
+              ].filter(Boolean).join(' \u00b7 '),
+              below: who + ck
+            });
           }).join('') + '</ul>';
           // "add a link to jump to the latest ticks on the leaderboard section
           // after the list." This lane is a SIGNAL off the board - a few of the
@@ -14616,56 +14836,19 @@
         }
         if (convergence.length) {
           html += '<h3 class="lanehead">📍 ' + convergence.length + ' hotspot'
-            + (convergence.length === 1 ? '' : 's') + ' unusually busy</h3>';
-          // WHY it is busy, which is the whole point and was missing. "it says
-          // 10 birders which is good, but it doesnt have the distance with a
-          // link ... it should guess which birds are drawing attention."
+            + (convergence.length === 1 ? '' : 's') + ' unusually busy' + laneHelpBtn('busy') + '</h3>';
+          // THE SAME MEDIUM HOTSPOT CARD Top patches uses, filled after paint —
+          // "i would like these hotspots to use the same medium hotspot card as
+          // top patches, use number circles too". These rows are places, and
+          // every other list of places in the app goes through one builder; this
+          // lane was the last one hand-rolling its own shape.
           //
-          // This lane is species-blind by construction - that is its value,
-          // because a locally common bird draws no rarity alert however big the
-          // crowd - but "somewhere is busy" with no idea WHAT is there is not
-          // actionable either. So the row now names the notable birds reported
-          // at that spot, taken from the merged feed the section already holds:
-          // no extra call, and it is the same rarity flag every other lane uses.
-          //
-          // Coordinates come from the cached hotspot directory, which is why
-          // this can offer a distance and a map link at all - the convergence
-          // feed itself carries none.
-          var byLoc = convergenceDetail(merged);
-          var coords = hotspotCoordSet(getObsRegion());
-          var home = getHome();
-          html += '<ul class="obs big xl lanes">' + convergence.map(function (c) {
-            var vs = c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal';
-            var d = byLoc[c.locId] || { spp: 0, lists: 0, notable: [] };
-            var xy = coords && coords[c.locId];
-            var mi = (xy && home && home.lat != null)
-              ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
-            var meta = [
-              c.observers + ' birders',
-              esc(vs),
-              d.spp ? d.spp + ' spp' : '',
-              d.lists ? d.lists + ' lists' : ''
-            ].filter(Boolean).join(' · ');
-            // Named, not counted: "3 notable species" tells you nothing about
-            // whether to go. The names are the reason.
-            var why = d.notable.length
-              ? '<div class="lanesub">Drawing attention: <b>'
-                + d.notable.slice(0, 4).map(esc).join(', ') + '</b>'
-                + (d.notable.length > 4 ? ' +' + (d.notable.length - 4) : '') + '</div>'
-              : '';
-            return '<li>'
-              + '<div class="name"><span class="thumb placeicon" aria-hidden="true">📍</span><span class="ntext">'
-              + (c.locId ? extA(hotspotUrl(c.locId), c.loc || c.locId) : esc(c.loc || '')) + '</span>'
-              + (mi == null ? ''
-                 : '<a class="spdist maplink" data-q="' + esc(distQ(xy.lat, xy.lng))
-                   + '">' + mi.toFixed(1) + '<small>mi</small></a>')
-              + '</div>'
-              + '<div class="meta">' + meta + '</div>'
-              + why
-              + '</li>';
-          }).join('') + '</ul>';
+          // It also brings the collapsed checklist list for free:
+          // hydrateHotspotChecklists fills the card's .hsckl slot.
+          html += '<ul id="surgeConvList" class="obs hscards hscards-medium"></ul>';
         }
         box.innerHTML = html;
+        fillConvergence(convergence, merged);
         hydratePhotos(box);
       }
 
@@ -17703,6 +17886,16 @@
           ev.preventDefault();
           var sid = sec.getAttribute('data-sec') || '';
           if (sid && $(sid)) showSection(sid);
+          return;
+        }
+        // Per-lane help. Four lanes with four different rules used to sit under
+        // one section-level ℹ, so "why was THIS bird chosen" was never on screen
+        // beside the bird.
+        var lh = ev.target.closest('.lanehelp');
+        if (lh) {
+          ev.preventDefault();
+          var doc = LANE_DOCS[lh.getAttribute('data-lane') || ''];
+          if (doc) showSheet(doc.title, 'How this lane is calculated', doc.body);
           return;
         }
         var eb = ev.target.closest('.ebirdlink');

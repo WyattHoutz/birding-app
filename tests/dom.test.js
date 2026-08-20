@@ -4623,30 +4623,40 @@ test('Happening now labels every count and lists names as rows', async () => {
   metas.forEach((m) => assert.ok(/\d/.test(m) && /[a-z]/i.test(m),
     'a bare number explains nothing — every count carries its unit: ' + m));
 
-  // Convergence rows are PLACES, so they have no photo. Without a stand-in they
-  // rendered structurally unlike the bird rows directly above them.
-  const pin = box.querySelector('.placeicon');
+  // Convergence rows are PLACES, so they have no photo. They now go through the
+  // SAME medium hotspot card Top patches uses, whose numbered badge occupies
+  // that slot — "i would like these hotspots to use the same medium hotspot
+  // card as top patches, use number circles too". The invariant is unchanged:
+  // the slot must not be empty, or the headers do not line up with the bird
+  // rows directly above them.
+  const conv0 = box.querySelectorAll('ul.obs')[2];
+  const pin = conv0 && conv0.querySelector('.hsnum');
   assert.ok(pin, 'a place row still needs something in the photo slot');
-  assert.ok(pin.classList.contains('thumb'),
-    'the pin must be sized by the same rule as the photos it stands in for, or the headers do not line up');
+  assert.match(pin.textContent, /^\d+$/,
+    'the badge must carry the row number, so a card can be tied to its map pin');
 
   // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph,
-  // then eight labelled rows. The row is one line now and the roster is behind
-  // an expander — but the CAP is what this guards, because a busy cascade with
-  // forty birders is how one row becomes a page.
+  // then eight labelled rows. It now uses the SAME card as Latest ticks, where
+  // the roster is ONE SENTENCE with a capped list — which is what stops a
+  // forty-birder cascade filling the screen.
   const cascade = box.querySelectorAll('ul.obs')[1];
-  assert.ok(cascade.querySelector('details.ckmore'),
-    'the roster is inline again, so a forty-birder cascade fills the screen');
-  assert.match(cascade.querySelector('details.ckmore summary').textContent, /\d+ more/,
-    'the expander does not say how much it is holding');
+  const wholine = cascade.querySelector('.wholine');
+  assert.ok(wholine, 'the roster is neither a sentence nor capped');
+  assert.match(wholine.textContent, /Who added it/,
+    'the roster does not say what it is a list of');
   const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
-  assert.match(src, /CASCADE_BIRDERS/,
-    'the roster is no longer capped at all');
-  // The remainder is stated INSIDE the expander now, and the expander's own
-  // summary says how many it holds — so nothing is silently dropped, it is just
-  // one tap away instead of eight rows down.
+  // The remainder is stated rather than silently dropped.
   assert.match(src, /more of the top 100/,
     'the remainder is silently dropped once the roster is capped');
+  // ...and the reports behind it are collapsed, not inline. This fixture's
+  // cascade has NO reports and no species code, so the row must instead say
+  // WHY there is nowhere to go — a leaderboard tick with no report attached is
+  // the one case where this lane cannot be actionable, and saying so is better
+  // than an empty row.
+  assert.match(cascade.textContent, /nowhere to link to/,
+    'a cascade with no report behind it renders as a dead end instead of saying why');
+  assert.match(src, /cascadeChecklists\(c\.recent\)/,
+    'the reports behind a cascade are no longer collapsed, so one row becomes a page');
 
   // The place and the checklist are what you act on, so they must be findable.
   const surge = box.querySelectorAll('ul.obs')[0];
@@ -12156,6 +12166,37 @@ test('the cascade lane can hand you off to the board it came from', () => {
   // derived as 'sec-' + the menu button id, so a typo here fails silently.
   assert.match(HTML, /id="lastNewBtn"/,
     'sec-lastNewBtn cannot resolve, because there is no lastNewBtn to derive it from');
+});
+
+test('every Happening now lane explains its own logic', () => {
+  // "i dont understand why sabines gull and rudy turnstone were chosen. each of
+  // these three happening now sections needs a help dialogue button explaining
+  // the logic."
+  //
+  // Four lanes with four different rules sat under ONE section-level ℹ, so the
+  // answer to "why THIS bird" was never on screen beside the bird.
+  const src = HTML.slice(HTML.indexOf('var LANE_DOCS'), HTML.indexOf('function renderSurge'));
+  for (const key of ['celebrity', 'crowd', 'cascade', 'busy']) {
+    assert.ok(new RegExp('\\b' + key + ':').test(src), `no help text for the ${key} lane`);
+  }
+  // Every lane heading must carry the button, or a lane has help nobody can
+  // reach — the same shape of bug as a control with no listener.
+  const rs = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
+  const heads = (rs.match(/class="lanehead"/g) || []).length;
+  const btns = (rs.match(/laneHelpBtn\('/g) || []).length;
+  assert.equal(btns, heads,
+    `${heads} lane headings but ${btns} help buttons — one lane cannot explain itself`);
+
+  // WIRED. A button that opens nothing is the bug this app keeps re-learning.
+  assert.match(HTML, /closest\('\.lanehelp'\)/, 'the lane help buttons have no handler');
+  assert.match(HTML, /\.lanehelp[\s\S]{0,300}?showSheet\(/, 'the handler opens nothing');
+
+  // The cascade text has to answer the actual question, which was not "what is
+  // a cascade" but "why was THIS bird picked".
+  assert.match(src, /recent species they added/,
+    'the cascade help never says the board column it reads');
+  assert.match(src, /not a rarity feed/i,
+    'it never says why a bird can appear here without being rare anywhere');
 });
 
 test('a place you cannot visit is never recommended', () => {
