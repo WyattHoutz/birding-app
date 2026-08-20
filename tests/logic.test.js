@@ -1103,3 +1103,56 @@ test('mergeSnapshot keeps the evidence the notable feed paid for', () => {
   }] }]);
   assert.equal(none[0].evidence, '', '"None" is stored as empty');
 });
+
+
+// ── THE FLOOR THAT WAS MISSING ───────────────────────────────────────────
+// Reported from eBird's own Iconic Birds panel at Bolt Creek Burn: American
+// Dipper "130x more frequent than regional average. Observed 1/1 years."
+// Measured in GBIF, that number is built on TWO records at a site with one
+// year of data. The 200-record floor guards the DENOMINATOR; nothing guarded
+// the numerator, so a well-birded box could still hand back a spectacular
+// ratio off three sightings.
+test('an iconic multiplier is refused when the SPECIES has too little evidence', () => {
+  // Bolt Creek Burn, all months, measured: 374 records in the box clears the
+  // box floor, King County has 7,858,724. The House Wren has THREE.
+  assert.equal(BL.iconicMultiplier(3, 374, 1200, 7858724), null,
+    'three records produced a number — this is the 82x artifact the owner spotted');
+  assert.equal(BL.iconicMultiplier(1, 10415, 1200, 1981885), null,
+    'one record produced a number');
+
+  // ...and the real ones survive. Mann Rd, Sultan (all months): box 10,415,
+  // Snohomish County 1,981,885. Western Kingbird has 57 records over 3 years —
+  // the bird that opened F11.
+  const weki = BL.iconicMultiplier(57, 10415, 1050, 1981885);
+  assert.ok(weki > 5, 'the Western Kingbird at Mann Rd was silenced: ' + weki);
+  // Fobes: Eastern Kingbird, 367 records over 17 years. eBird says 68x.
+  assert.ok(BL.iconicMultiplier(367, 24609, 1400, 1981885) > 5,
+    'the Fobes Eastern Kingbird was silenced');
+
+  // The gap is wide on purpose: every real pairing measured had 28+ records,
+  // every artifact had 3 or fewer. A threshold sitting in that gap cannot be
+  // knocked over by one more sighting either way.
+  assert.ok(BL.ICONIC_MIN_SP_RECORDS > 3 && BL.ICONIC_MIN_SP_RECORDS < 28,
+    'the species floor moved out of the measured gap between signal and noise');
+
+  // The box floor still does its own job.
+  assert.equal(BL.iconicMultiplier(50, 45, 1200, 7858724), null,
+    'a box with 45 records has no norm to compare against');
+});
+
+// Switching the iconic window to ALL MONTHS is what makes a June bird visible
+// at all — but it costs the seasonal answer unless the row says when.
+test('an iconic row can say WHICH MONTHS its records fall in', () => {
+  assert.equal(BL.monthSpanLabel([5, 6, 7]), 'May\u2013Jul');
+  assert.equal(BL.monthSpanLabel([5]), 'May', 'a single month is not a span');
+  // Gaps are kept: "May, Aug" is a different claim from "May-Aug". This is the
+  // measured Bolt Creek American Dipper (months 5 and 8).
+  assert.equal(BL.monthSpanLabel([5, 8]), 'May, Aug');
+  // A winter bird must read as ONE span, not "Jan, Feb, Nov, Dec".
+  assert.equal(BL.monthSpanLabel([1, 2, 11, 12]), 'Nov\u2013Feb');
+  // A year-round bird has no seasonal claim to make, so it says nothing rather
+  // than printing "Jan-Dec", which would be noise on every row.
+  assert.equal(BL.monthSpanLabel([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), '');
+  assert.equal(BL.monthSpanLabel([]), '');
+  assert.equal(BL.monthSpanLabel(null), '');
+});

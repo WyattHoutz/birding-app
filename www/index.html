@@ -620,6 +620,17 @@
     .rarebadge { display: inline-block; vertical-align: -0.14em; color: #b3261e;
                  margin-left: 0.3em; line-height: 0; }
     .rarebadge svg { width: 1.05em; height: 1.05em; display: block; }
+    /* "34×" — how much more likely this bird is HERE than across the county.
+       The number is the message, so this is a text tag, not a colour: it reads
+       identically in greyscale. Sized in em (no fixed box) so it tracks the UI
+       text scale instead of clipping at the largest setting. Okabe-Ito blue. */
+    .ictag { display: inline-block; margin-left: 0.3em; padding: 0 0.36em;
+             border: 1px solid #0072B2; border-radius: 0.5em; color: #0072B2;
+             font-size: 0.82em; font-weight: 700; font-variant-numeric: tabular-nums;
+             vertical-align: 0.04em; }
+    /* ...and WHEN. Lighter weight so the multiplier still leads, but inside
+       the same tile so the two are read as one fact. */
+    .ictag .icwhen { font-weight: 500; opacity: 0.85; }
     /* The tiny-pin marker for a personal checklist location. The fill is set in
        the SVG (it is a red map pin, not text), so no colour is inherited here.
        A faint shadow keeps the white outline from vanishing on a white card —
@@ -3615,18 +3626,37 @@
         return gbifJson(url + '&limit=0').then(function (j) { return j ? (j.count || 0) : null; });
       }
       var GBIF_OCC = 'https://api.gbif.org/v1/occurrence/search?datasetKey=' + GBIF_DS;
-      // Every iconic number is scoped to the SEASON, and all of them to the same
-      // one, because a ratio between a summer box and an all-year baseline is
-      // not a ratio of anything. eBird scopes its own panel to a single month
-      // (the screenshots read "Iconic Birds — AUGUST"); this uses the same
-      // three-month window as the rest of the iconic work, which keeps samples
-      // above the effort floor while still answering the seasonal question.
+      // THE ICONIC WINDOW IS ALL MONTHS, and that is a correction.
       //
-      // Getting this wrong is not academic: measured against eBird, an all-month
-      // year count said American Dipper was at Snoqualmie Falls 8 years of 8,
-      // where eBird says 6 of 8. Both are true - it is resident there, and it is
-      // not reported every August - but only one of them answers "should I go
-      // this month".
+      // Every iconic number is scoped to the same window - a ratio between a
+      // summer box and an all-year baseline is not a ratio of anything - but
+      // the window used to be a three-month season centred on today, and that
+      // was wrong in a way only the device could show.
+      //
+      // Reported from eBird: at Bolt Creek Burn the AUGUST panel lists American
+      // Dipper at 130x, while "birders know this location as a known nesting
+      // site for Northern House Wren and that bird is not listed at all".
+      // Switch eBird to All Months and the House Wren is top of the list at
+      // 179x. It was never missing - it is a May-June bird there, and a
+      // single-month window cannot see it. Measured in GBIF: House Wren
+      // records at that box fall in months 5 and 6, zero in August.
+      //
+      // The same fix surfaced the bird that started this whole feature. At Mann
+      // Rd, Sultan the season window found nothing; on all months the ranking
+      // is Yellow-breasted Chat 66x, WESTERN KINGBIRD 36x, Lazuli Bunting 11x,
+      // Eastern Kingbird 9x - the SAME ORDER eBird prints, and the Western
+      // Kingbird is the bird the owner opened F11 asking for.
+      //
+      // What all-months costs is the seasonal answer, so it is paid back
+      // explicitly: every iconic row carries its MONTH SPAN (see
+      // BL.monthSpanLabel), which the count call returns for free via a month
+      // facet. "36x - May-Jul" answers both questions; a bare 36x in December
+      // would answer neither.
+      //
+      // eBird offers All Months / one month / a custom period. Matching that
+      // control is F156; this is the default it should start from.
+      function iconicQs() { return ''; }
+      function iconicTag() { return 'all'; }
       function seasonQs() {
         return seasonMonths().map(function (m) { return '&month=' + m; }).join('');
       }
@@ -3640,27 +3670,41 @@
         var first = MONTH_NAMES[m[0] - 1], last = MONTH_NAMES[m[m.length - 1] - 1];
         return first.slice(0, 3) + '\u2013' + last.slice(0, 3);
       }
+      // Total records in the box AND the months they fall in, from ONE call:
+      // GBIF returns `count` alongside any facet, so the month breakdown that
+      // makes an all-months multiplier readable is free.
+      function gbifCountMonths(url) {
+        return gbifJson(url + '&limit=0&facet=month&facetLimit=12').then(function (j) {
+          if (!j) return null;
+          return {
+            n: j.count || 0,
+            months: facetCounts(j, 'month').map(function (x) { return +x.name; })
+              .filter(function (m) { return m >= 1 && m <= 12; }).sort(function (a, b) { return a - b; })
+          };
+        });
+      }
       // The denominator is a property of the PLACE, not the bird, so it is
       // cached per box and shared across every species ever looked up there.
       // That turns the second lookup at a hotspot from two calls into one.
       function gbifBoxTotal(wkt, stateName) {
-        var ck = 'box|' + seasonTag() + '|' + wkt, c = gbifCache();
+        var ck = 'box|' + iconicTag() + '|' + wkt, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + seasonQs())
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + iconicQs())
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
             return v;
           });
       }
       function gbifRegionTotal(stateName) {
-        var ck = 'aves|' + seasonTag() + '|' + stateName, c = gbifCache();
+        var ck = 'aves|' + iconicTag() + '|' + stateName, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName) + seasonQs())
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName) + iconicQs())
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
             return v;
           });
       }
+
 
       // ---- the baseline region ---------------------------------------------
       //
@@ -3701,10 +3745,10 @@
       // re-uses the denominator.
       function gbifCountyRates(taxonKey, gid) {
         if (!taxonKey || !gid) return Promise.resolve(null);
-        var ck = 'corate|' + seasonTag() + '|' + taxonKey + '|' + gid, c = gbifCache();
+        var ck = 'corate|' + iconicTag() + '|' + taxonKey + '|' + gid, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
         return Promise.all([
-          gbifCount(GBIF_OCC + '&taxonKey=' + taxonKey + '&gadmGid=' + encodeURIComponent(gid) + seasonQs()),
+          gbifCount(GBIF_OCC + '&taxonKey=' + taxonKey + '&gadmGid=' + encodeURIComponent(gid) + iconicQs()),
           gbifCountyTotal(gid)
         ]).then(function (r) {
           var v = (r[0] && r[1]) ? { sp: r[0], all: r[1] } : null;
@@ -3713,9 +3757,9 @@
         }).catch(function () { return null; });
       }
       function gbifCountyTotal(gid) {
-        var ck = 'coall|' + seasonTag() + '|' + gid, c = gbifCache();
+        var ck = 'coall|' + iconicTag() + '|' + gid, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid) + seasonQs())
+        return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid) + iconicQs())
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
             return v;
@@ -3725,9 +3769,9 @@
       // effort facet is a property of the PLACE, so it is shared like the box
       // total is.
       function gbifBoxYears(wkt) {
-        var ck = 'boxyr|' + seasonTag() + '|' + wkt, c = gbifCache();
+        var ck = 'boxyr|' + iconicTag() + '|' + wkt, c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifFacet(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + seasonQs() +
+        return gbifFacet(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + iconicQs() +
                          '&limit=0&facet=year&facetLimit=60', 'year')
           .then(function (v) {
             var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v || [] }; saveGbifCache();
@@ -3952,12 +3996,17 @@
                 if (p.lat == null || p.lng == null) return Promise.resolve();
                 var wkt = BL.gbifBoxWkt(p.lat, p.lng);
                 return Promise.all([
-                  gbifFacet(GBIF_OCC + '&taxonKey=' + key + '&geometry=' + encodeURIComponent(wkt)
-                            + seasonQs() + '&limit=0&facet=year&facetLimit=60', 'year'),
+                  // Two facets, ONE call. The year facet decides whether the
+                  // bird returns; the month facet says WHEN it is there, which
+                  // an all-months window has to state or a May bird reads as a
+                  // December chase.
+                  gbifJson(GBIF_OCC + '&taxonKey=' + key + '&geometry=' + encodeURIComponent(wkt)
+                            + iconicQs() + '&limit=0&facet=year&facetLimit=60&facet=month&facetLimit=12'),
                   gbifBoxYears(wkt)
                 ]).then(function (y) {
-                  p.years = BL.iconicYearsObserved(y[0], y[1]);
+                  p.years = BL.iconicYearsObserved(facetCounts(y[0], 'year'), y[1]);
                   p.yearsLabel = BL.iconicYearsLabel(p.years);
+                  p.when = BL.monthSpanLabel(facetCounts(y[0], 'month').map(function (x) { return +x.name; }));
                 }).catch(function () {});
               }).then(function () { return out; });
             });
@@ -5653,6 +5702,7 @@
             ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
             : esc(r.place),
           sub: esc(r.label || '')
+            + (r.when ? ' \u00b7 ' + esc(r.when) : '')
             + (r.yearsLabel ? ' \u00b7 ' + esc(r.yearsLabel) : '')
             + (r.distMi != null && isFinite(r.distMi) ? ' \u00b7 ' + r.distMi.toFixed(1) + ' mi' : '')
             + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
@@ -5681,13 +5731,14 @@
         }
         if (!rows.length) {
           return h + '<div class="status">No place in the archive stands out for '
-            + esc(name) + ' at this time of year \u2014 which is itself an answer: '
+            + esc(name) + ' in any month \u2014 which is itself an answer: '
             + 'it is not a bird with a reliable address here.</div>';
         }
         var ord = iconicOrdered();
         var cold = rows.filter(function (r) { return r.unwatched; });
         h += '<div class="status">Places where ' + esc(name) + ' has historically been '
-          + 'well above the county average for this time of year. '
+          + 'well above the county average, measured across the whole year \u2014 each row '
+          + 'says which months the records fall in. '
           + (cold.length
               ? '<strong>' + cold.length + '</strong> of these have no report in the current feed \u2014 '
                 + 'which usually means nobody has been, not that the bird has gone.'
@@ -5702,7 +5753,7 @@
         // rather than dropped, because "nowhere near you" is worth knowing too.
         if (!ord.near.length) {
           h += '<div class="hint">Nothing within <b>' + ord.lim + ' mi</b> stands out for '
-            + esc(name) + ' at this time of year. The best places in the state are below.</div>'
+            + esc(name) + ' in any month. The best places in the state are below.</div>'
             + HotspotCards.list('small', ord.far.map(function (r, i) {
                 return iconicRowHtml(r, i + 1);
               }));
@@ -8745,6 +8796,11 @@
             // this place"; rareBadge() is an R tile that means only the first.
             var tags = (x.tag != null) ? x.tag
               : needTag(x.code, x.comName) + (x.rare ? rareBadge() : '');
+            // `pre` is ADDITIVE where `tag` is a replacement. The iconic
+            // multiplier is a reason to look, not a substitute for "you have
+            // not seen this" or the [R] badge, so it has to sit alongside them
+            // rather than evict them.
+            if (x.pre) tags = x.pre + tags;
             // ...and NEW wherever the row knows when it was reported. This is
             // the "everywhere" half: hotspot species lists, unseen clusters and
             // anything else built through this template now carry the same
@@ -8917,7 +8973,7 @@
           // ...and it is the thing that takes you there. One line here covers
           // every hotspot list in the app, because they all build through this.
           distQ: distQ(o.lat, o.lng),
-          unseen: unseen.length ? speciesListHtml(unseen) : '',
+          unseen: unseen.length ? speciesListHtml(unseen, { presorted: o.presorted }) : '',
           unseenLabel: unseen.length
             ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
           // The count lives in the summary because it is the only thing you
@@ -14462,6 +14518,79 @@
         return out;
       }
 
+      // WHY THIS PLACE IS BUSY, measured the way eBird measures it.
+      //
+      // Two cheaper answers were tried and both picked the wrong bird:
+      //
+      //   the eBird RARITY FLAG  -> Cedar River mouth reduced to "Black Phoebe"
+      //   a global RARITY RANK   -> would pick Black Phoebe too. Measured against
+      //                             data/bird-common.json: Black Phoebe occupies
+      //                             19 of 64 ABA regions, while Baird's Sandpiper,
+      //                             Pectoral Sandpiper and Red-necked Phalarope
+      //                             occupy 64 and Long-billed Dowitcher 63.
+      //
+      // Range size is not local scarcity. A continent-wide shorebird is still
+      // the thing worth driving for at THIS pond in August, and a small-range
+      // vagrant is not what the crowd is there for. The only signal that
+      // reproduces eBird's own Iconic Birds panel for that hotspot is the one
+      // this app already computes: share of records at the place divided by its
+      // share across the county.
+      //
+      // BOUNDED AND AFTER PAINT. GBIF is keyless so this spends no eBird
+      // budget, but it is still traffic: the top 3 hotspots, 10 species each,
+      // and every part of it caches for 30 days (the box total per box, the
+      // county rates per species+county), so a second look costs almost
+      // nothing.
+      var _busyIconic = {};
+      var BUSY_ICONIC_SPOTS = 3, BUSY_ICONIC_SPP = 10;
+      // Below this a place is simply average for the bird, which is not a
+      // reason to drive anywhere. eBird's own panel starts well above it.
+      var BUSY_ICONIC_MIN = 1.5;
+
+      function hydrateBusyIconic(convergence, byLoc, coords) {
+        var stateName = BL.stateNameFor(getReport());
+        if (!stateName) return Promise.resolve(false);
+        var jobs = [];
+        (convergence || []).slice(0, BUSY_ICONIC_SPOTS).forEach(function (c) {
+          var xy = coords && coords[c.locId], d = byLoc[c.locId];
+          if (!xy || !d) return;
+          d.species.slice(0, BUSY_ICONIC_SPP).forEach(function (s) {
+            if (!s.code) return;
+            if (_busyIconic[c.locId + '|' + s.code] !== undefined) return;
+            jobs.push({ key: c.locId + '|' + s.code, code: s.code, lat: xy.lat, lng: xy.lng });
+          });
+        });
+        if (!jobs.length) return Promise.resolve(false);
+        return pool(jobs, 3, function (j) {
+          // A null means ASKED AND UNANSWERABLE, so it is never asked again and
+          // never rendered as a number. Absent and zero are different facts.
+          var sci = sciNameFor(j.code);
+          if (!sci) { _busyIconic[j.key] = null; return Promise.resolve(); }
+          return gbifTaxonKey(sci).then(function (tk) {
+            if (!tk) { _busyIconic[j.key] = null; return; }
+            var wkt = BL.gbifBoxWkt(j.lat, j.lng);
+            return gbifCountyGid(j.lat, j.lng).then(function (gid) {
+              return Promise.all([
+                // The count call now also returns WHICH MONTHS those records
+                // fall in — GBIF hands back a facet alongside `count`, so the
+                // month spread that makes an all-months multiplier readable
+                // costs no extra call.
+                gbifCountMonths(GBIF_OCC + '&taxonKey=' + tk + '&geometry='
+                          + encodeURIComponent(wkt) + iconicQs()),
+                gbifBoxTotal(wkt, stateName),
+                gid ? gbifCountyRates(tk, gid) : null
+              ]);
+            }).then(function (r) {
+              var sp = r[0], base = r[2];
+              var mult = (sp && base)
+                ? BL.iconicMultiplier(sp.n, r[1], base.sp, base.all) : null;
+              _busyIconic[j.key] = (mult == null) ? null
+                : { m: mult, when: BL.monthSpanLabel(sp.months) };
+            });
+          }).catch(function () { _busyIconic[j.key] = null; });
+        }).then(function () { return true; });
+      }
+
       // Fills the busy-hotspot lane with the SAME medium card Top patches uses,
       // after the string-built lanes have painted. hotspotCard returns an
       // element, so this cannot be part of the html string.
@@ -14472,37 +14601,72 @@
         var coords = hotspotCoordSet(getObsRegion());
         var home = getHome();
         var rank = scarcityRank(merged);
-        convergence.forEach(function (c, i) {
-          var d = byLoc[c.locId] || { spp: 0, lists: 0, species: [] };
-          var xy = coords && coords[c.locId];
-          var mi = (xy && home && home.lat != null)
-            ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
-          // Rarest first WITHIN the split the card makes, so the bird that
-          // explains the crowd is the first one read.
-          var spp = d.species.slice().sort(function (a, b) {
-            return (rank[a.code] || 0) - (rank[b.code] || 0);
+        var paint = function () {
+          host.innerHTML = '';
+          convergence.forEach(function (c, i) {
+            var d = byLoc[c.locId] || { spp: 0, lists: 0, species: [] };
+            var xy = coords && coords[c.locId];
+            var mi = (xy && home && home.lat != null)
+              ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
+            // Iconic first where it is known, and it TAGS the row with the
+            // number, because "34×" is the reason and a bare ordering is not.
+            // `pre`, not `tag` — the multiplier is a reason to look, not a
+            // replacement for 🔍 "you have not seen this" or the [R] badge.
+            //
+            // THREE tiers, because "measured and ordinary" is not the same
+            // fact as "never measurable" and must not be pooled with it:
+            //   0  stands out here      -> by multiplier, tagged
+            //   1  no measurement       -> by how few places report it now
+            //   2  measured, unremarkable -> last, because we KNOW it is not
+            //                              the reason anyone is here
+            var spp = d.species.slice().map(function (s) {
+              var rec = _busyIconic[c.locId + '|' + s.code];
+              var m = rec && rec.m;
+              var hit = (m != null && m >= BUSY_ICONIC_MIN);
+              return {
+                code: s.code, comName: s.comName, rare: s.rare,
+                _m: (m == null ? null : m), _t: (m == null ? 1 : (hit ? 0 : 2)),
+                // The multiplier is now measured over ALL MONTHS, so the row
+                // has to say WHEN or a May bird reads as a December chase.
+                pre: hit ? '<span class="ictag">' + Math.round(m) + '\u00d7'
+                  + (rec.when ? ' <span class="icwhen">' + esc(rec.when) + '</span>' : '')
+                  + '</span>' : ''
+              };
+            }).sort(function (a, b) {
+              if (a._t !== b._t) return a._t - b._t;
+              if (a._m != null && b._m != null) return b._m - a._m;
+              return (rank[a.code] || 0) - (rank[b.code] || 0);
+            });
+            host.appendChild(hotspotCard({
+              n: i + 1, locId: c.locId, locName: c.loc, lat: xy && xy.lat, lng: xy && xy.lng,
+              distMi: mi,
+              facts: [
+                c.observers + ' birders',
+                c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal',
+                d.spp ? d.spp + ' spp' : '',
+                d.lists ? d.lists + ' lists' : ''
+              ],
+              // ALL of them, and the card splits: unseen open, already-seen
+              // collapsed. That split IS the answer to "why is this busy" for
+              // this reader — "id like to see unseen birds and in this case
+              // rare birds" — and it is the same thing every other hotspot list
+              // does, so this lane stops being the odd one out.
+              species: spp,
+              // The order above is the whole point of this lane; the default
+              // rare-then-alphabetical sort would silently discard it.
+              presorted: true
+            }));
           });
-          host.appendChild(hotspotCard({
-            n: i + 1, locId: c.locId, locName: c.loc, lat: xy && xy.lat, lng: xy && xy.lng,
-            distMi: mi,
-            facts: [
-              c.observers + ' birders',
-              c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal',
-              d.spp ? d.spp + ' spp' : '',
-              d.lists ? d.lists + ' lists' : ''
-            ],
-            // ALL of them, and the card splits: unseen open, already-seen
-            // collapsed. That split IS the answer to "why is this busy" for
-            // this reader — "id like to see unseen birds and in this case rare
-            // birds" — and it is the same thing every other hotspot list does,
-            // so this lane stops being the odd one out.
-            species: spp
-          }));
-        });
-        hydratePhotos(host);
-        hydrateLocSpecies(host)
-          .then(function () { return hydrateHotspotChecklists(host); })
-          .catch(function (e) { dbg('warn', 'busy hotspots: ' + ((e && e.message) || e)); });
+          hydratePhotos(host);
+          hydrateLocSpecies(host)
+            .then(function () { return hydrateHotspotChecklists(host); })
+            .catch(function (e) { dbg('warn', 'busy hotspots: ' + ((e && e.message) || e)); });
+        };
+        paint();
+        // The cards are already useful; this only reorders and labels them.
+        hydrateBusyIconic(convergence, byLoc, coords)
+          .then(function (changed) { if (changed && $('surgeConvList') === host) paint(); })
+          .catch(function () {});
       }
 
       // locId -> coordinates, straight off the cached hotspot directory. The
@@ -18104,6 +18268,7 @@
         DUE_BACK_WINDOW_DAYS: DUE_BACK_WINDOW_DAYS,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
+        getObsRegion: getObsRegion, busyIconic: function () { return _busyIconic; },
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,

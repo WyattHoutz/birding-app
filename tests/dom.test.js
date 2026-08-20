@@ -4673,6 +4673,105 @@ test('Happening now labels every count and lists names as rows', async () => {
   app.window.close();
 });
 
+// "maybe look at all the recent species and show the rarest ones" — and the
+// measurement (F155) that says WHICH rarest. A precomputed range-size rank
+// would have put Black Phoebe (19 of 64 ABA regions) above Baird's Sandpiper
+// (64 of 64), which is the answer that was rejected. The signal that
+// reproduces eBird's own Iconic Birds panel is the multiplier: how much more
+// of this place's records are this bird than the county's are.
+//
+// Rendered, not regexed — the ordering only exists at runtime, and the exact
+// trap here is that speciesListHtml re-sorts by rare-then-alphabetical unless
+// it is told the list is already ordered.
+test('busy hotspots rank by the iconic multiplier and tag the row with it', async () => {
+  const gbif = (u) => {
+    if (/species\/match/.test(u)) {
+      if (/Tyrannus/.test(u)) return { usageKey: 1 };
+      if (/Turdus/.test(u)) return { usageKey: 2 };
+      return {};
+    }
+    if (/geocode\/reverse/.test(u)) return [{ type: 'GADM2', id: 'USA.48.17_1' }];
+    if (/occurrence\/search/.test(u)) {
+      const box = /geometry=/.test(u);
+      // Months ride along with the count on the same call, which is how the
+      // row can say "30x May-Jul" without a second request.
+      const mo = (ms) => ({ facets: [{ field: 'MONTH', counts: ms.map((m) => ({ name: String(m), count: 9 })) }] });
+      if (/taxonKey=212/.test(u)) return { count: box ? 1000 : 100000 };
+      // Eastern Kingbird: 6% of this box, 0.2% of the county -> 30x, and its
+      // 60 records clear the species evidence floor.
+      if (/taxonKey=1&/.test(u)) return { count: box ? 60 : 200, ...mo([5, 6, 7]) };
+      // American Robin: 1% of both -> 1.0x, which is not a reason to drive.
+      if (/taxonKey=2&/.test(u)) return { count: box ? 10 : 1000, ...mo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) };
+      return { count: 0 };
+    }
+    return null;
+  };
+  const app = await boot({
+    fetch: gbif,
+    storage: {
+      'ebird_hotspots_v1:US-WA': JSON.stringify({
+        at: Date.now(), rows: [{ locId: 'L123', name: 'Cedar River mouth', lat: 47.5, lng: -122.2 }],
+      }),
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(), rows: [
+          { code: 'easkin', sci: 'Tyrannus tyrannus' },
+          { code: 'amerob', sci: 'Turdus migratorius' },
+        ],
+      }),
+    },
+  });
+  assert.equal(app.window.__app.getObsRegion(), 'US-WA', 'the fixture seeded the wrong cache key');
+  // amerob is reported from four places region-wide and easkin from one, so
+  // the FALLBACK ordering (scarcity) already puts easkin first. The fixture
+  // therefore proves nothing on its own — `unkbrd` is the control: it has no
+  // scientific name, so it can never be measured, and it must sink below the
+  // measured birds however scarce it looks.
+  const merged = [
+    { locId: 'L123', subId: 'S1', code: 'amerob', name: 'American Robin' },
+    { locId: 'L123', subId: 'S1', code: 'easkin', name: 'Eastern Kingbird', kind: 'Rarity' },
+    { locId: 'L123', subId: 'S2', code: 'unkbrd', name: 'Mystery Bird' },
+    { locId: 'L999', subId: 'S3', code: 'amerob', name: 'American Robin' },
+    { locId: 'L998', subId: 'S4', code: 'amerob', name: 'American Robin' },
+  ];
+  app.window.__app.renderSurge([], [], [{ loc: 'Cedar River mouth', locId: 'L123', observers: 16, ratio: 10 }],
+    [], merged);
+
+  // FIRST PAINT MUST NOT WAIT. The whole point of hydrating after paint is
+  // that a bounded pile of GBIF calls cannot hold the section hostage the way
+  // the 221-second phase-2 stall did.
+  const nameOf = (li) => {
+    const a = li.querySelector('.ntext a.extlink');
+    return (a || li.querySelector('.ntext')).textContent.trim();
+  };
+  const names0 = [...app.$('surgeConvList').querySelectorAll('.sppl > li')].map(nameOf);
+  assert.equal(names0.length, 3, 'the lane painted nothing before the multipliers resolved');
+  assert.equal(app.$('surgeConvList').querySelectorAll('.ictag').length, 0,
+    'a multiplier was printed before it was measured');
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (app.$('surgeConvList').querySelector('.ictag')) break;
+  }
+  const rows = [...app.$('surgeConvList').querySelectorAll('.sppl > li')];
+  const names = rows.map(nameOf);
+  // Mystery Bird sits ABOVE American Robin on purpose: the robin was measured
+  // and found ordinary here, which is a stronger "not why anyone came" than
+  // never having been measurable at all.
+  assert.deepEqual(names, ['Eastern Kingbird', 'Mystery Bird', 'American Robin'],
+    'the lane is not ordered by how much this place stands out for each bird');
+  const tags = rows.map((li) => {
+    const t = li.querySelector('.ictag');
+    return t ? t.textContent : null;
+  });
+  assert.deepEqual(tags, ['30× May–Jul', null, null],
+    'a bare ordering is not a reason — the row must say 30×, and must not invent one for a bird that is merely average or unmeasured');
+  // ...and the multiplier is ADDITIVE. It is a reason to look, not a
+  // replacement for "you have not seen this one".
+  assert.ok(rows[0].querySelector('.rarebadge'),
+    'the iconic tag evicted the [R] badge it was supposed to sit beside');
+  app.window.close();
+});
+
 // The a11y scale is only honest if EVERY sized box multiplies through it. A
 // fixed px box holding scaled text clips at Huge, which is exactly the reader
 // the setting exists for.
@@ -12775,21 +12874,63 @@ test('both iconic sections resolve the same baseline, or they print two answers'
       `${name} has no state fallback, so an unresolved county drops the place`);
   }
 
-  // Every count that goes into a ratio must share one window. A summer box over
+  // Every count that goes into a ratio must share ONE window. A summer box over
   // an all-year baseline is not a ratio of anything, and this is how the year
   // count came to disagree with eBird's on the first attempt.
+  //
+  // The window itself CHANGED (season -> all months, v1.26.6) and this guard
+  // survives that on purpose: it asserts the invariant, not the literal helper
+  // it used to name. Its previous form hard-coded `seasonQs()`, so it failed
+  // the correct fix and would have passed the bug — assert what a value MEANS.
   for (const fname of ['gbifBoxTotal', 'gbifCountyTotal', 'gbifRegionTotal', 'gbifBoxYears']) {
     const at = HTML.indexOf('function ' + fname);
     assert.ok(at > 0, `${fname} not found`);
     const src = HTML.slice(at, at + 700);
-    assert.ok(/seasonQs\(\)/.test(src), `${fname} is not scoped to the season window`);
-    assert.ok(/seasonTag\(\)/.test(src),
-      `${fname} caches without the season in the key, so a stale window is served ` +
+    assert.ok(/iconicQs\(\)/.test(src),
+      `${fname} does not use the shared iconic window, so its count is on a different scale`);
+    assert.ok(/iconicTag\(\)/.test(src),
+      `${fname} caches without the window in the key, so a stale window is served ` +
       'as if it were the current one');
   }
 
-  // "8 of 8 years" with no window stated is a stronger claim than the data
-  // supports, so the window has to reach the screen.
-  assert.ok(/seasonMonthNames\(\)/.test(HTML),
-    'the season window is never named on screen');
+  // The window has to reach the SCREEN, and the old assertion for that was
+  // toothless: /seasonMonthNames\(\)/ matched the function's own DEFINITION, so
+  // it passed even after the last call site was removed. Assert on the rendered
+  // copy instead — with an all-months window, every row states its own months.
+  const iconicAt = HTML.indexOf('function spLookupIconicHtml');
+  const iconicCopy = HTML.slice(iconicAt, iconicAt + 3000);
+  assert.match(iconicCopy, /across the whole year/,
+    'the odds view does not say what window its numbers cover');
+  assert.ok(!/this time of year/.test(iconicCopy),
+    'the odds view still claims to be seasonal, which it no longer is');
+  const rowAt = HTML.indexOf('function iconicRowHtml');
+  assert.match(HTML.slice(rowAt, rowAt + 1600), /r\.when/,
+    'an all-months row does not say WHICH months, so a May bird reads as a December chase');
+});
+
+// ── THE ICONIC WINDOW IS ALL MONTHS ──────────────────────────────────────
+// Reported from the device: eBird's AUGUST panel at Bolt Creek Burn lists
+// American Dipper at 130x and omits Northern House Wren entirely, which is the
+// bird birders know the site for. On All Months the wren is top at 179x. It was
+// never missing — it is a May–June bird there. The same switch surfaced Western
+// Kingbird at Mann Rd, the bird that opened F11.
+//
+// This asserts the RULE, not one call site: no GBIF request that feeds an
+// iconic number may carry a month filter, and no iconic cache key may be
+// scoped to a season (a stale season-scoped entry outliving the switch would
+// resurrect the bug silently).
+test('no iconic number is scoped to a season', () => {
+  const src = HTML.slice(HTML.indexOf('function iconicQs'), HTML.indexOf('function renderSurge'));
+  const iconic = src.split('\n').filter((l) => /gbif(Count|Facet|CountMonths)\(|GBIF_OCC \+/.test(l));
+  assert.ok(iconic.length >= 4, 'the iconic GBIF calls moved — this guard is looking in the wrong place');
+  iconic.forEach((l) => assert.ok(!/seasonQs\(\)/.test(l),
+    'an iconic GBIF call is still season-scoped, which is what hid the House Wren: ' + l.trim()));
+  const keys = src.split('\n').filter((l) => /var ck = '(box|aves|corate|coall|boxyr)\|/.test(l));
+  assert.ok(keys.length >= 5, 'the iconic cache keys moved — this guard is looking in the wrong place');
+  keys.forEach((l) => assert.ok(!/seasonTag\(\)/.test(l),
+    'an iconic cache key is still season-scoped, so old season entries would outlive the fix: ' + l.trim()));
+  // The count call must carry the month facet, or an all-months multiplier has
+  // no way to say WHEN and a May bird reads as a December chase.
+  assert.match(HTML, /function gbifCountMonths[\s\S]{0,400}facet=month/,
+    'the month spread is no longer fetched alongside the count');
 });

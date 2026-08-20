@@ -2201,6 +2201,35 @@
   // now ours computed against the right region.
   var ICONIC_BOX_KM = 2;
   var ICONIC_YEAR_WINDOW = 8;   // eBird prints "Observed 6/8 years"; match it
+  // THE FLOOR THAT WAS MISSING, and the bug it lets through.
+  //
+  // Reported from eBird's own panel at Bolt Creek Burn: American Dipper "130x
+  // more frequent than regional average. Observed 1/1 years." Measured against
+  // GBIF, that number is built on TWO records, and the "1/1" is not
+  // consistency - it is a site with one year of data at all.
+  //
+  // The 200-record floor below guards the DENOMINATOR (is this place birded
+  // enough to have a norm?). Nothing guarded the NUMERATOR, so a well-birded
+  // box could still hand back a spectacular ratio off three sightings of one
+  // bird. Measured across the three sites the owner named:
+  //
+  //   KEPT   Mann Rd      Western Kingbird      57 recs  36x   3 yrs  May-Jul
+  //   KEPT   Mann Rd      Yellow-breasted Chat  38 recs  66x   2 yrs  May-Jul
+  //   KEPT   Mann Rd      Lazuli Bunting        43 recs  11x   6 yrs  May-Jul
+  //   KEPT   Mann Rd      Eastern Kingbird      35 recs   9x   2 yrs  May-Aug
+  //   KEPT   Fobes        Eastern Kingbird     367 recs  42x  17 yrs  May-Aug
+  //   KEPT   Fobes        Northern House Wren   36 recs   9x   5 yrs
+  //   KEPT   Fobes        Lazuli Bunting        28 recs   3x  10 yrs
+  //   DROPPED Bolt Creek  Northern House Wren    3 recs  82x   1 yr
+  //   DROPPED Bolt Creek  American Dipper        3 recs  24x   2 yrs (1997, 2024)
+  //   DROPPED Mann Rd     Northern House Wren    1 rec    1x   1 yr
+  //
+  // The separation is total - every real pairing has 28+ records, every
+  // artifact has 3 or fewer - so 10 sits in a wide gap rather than on a
+  // knife edge. Note the Bolt Creek Dipper clears a YEARS test (1997 and
+  // 2024 are two distinct years); the record floor is the load-bearing half.
+  var ICONIC_MIN_SP_RECORDS = 10;
+
   //
   // CONFIRMED 2026-08-19 by a third screenshot. eBird shows "6/8 years" at
   // Snoqualmie Falls and "3/10 years" at Cedar River mouth — the denominator
@@ -2228,10 +2257,56 @@
     // sighting, which is exactly the kind of number that sends someone on a
     // two-hour drive for nothing.
     if (allBox < 200) return null;
+    // ...and so can a well-birded box holding three records of ONE bird. That
+    // is the Bolt Creek case: 374 records in the box clears the floor above,
+    // and eBird still prints 130x off two Dipper records. See
+    // ICONIC_MIN_SP_RECORDS for the measured calibration.
+    if (spBox == null || spBox < ICONIC_MIN_SP_RECORDS) return null;
     var regionRate = spRegion / allRegion;
     if (!regionRate) return null;
     return (spBox / allBox) / regionRate;
   }
+
+  // WHEN, not just how much. Switching the iconic scope to all months (which
+  // is what makes a June bird visible at all) costs the seasonal answer unless
+  // the row says which months the records fall in — otherwise Mann Rd's
+  // Western Kingbird reads as a December chase.
+  //
+  // Contiguous runs are printed as a span and gaps are kept, because "May–Jul"
+  // and "May, Aug" are different claims. Wrap across the year end is handled
+  // by rotating to the longest gap, so a Nov–Feb bird is one span.
+  // Local, because logic.js is shared with the Markdown report and must not
+  // depend on anything index.html happens to define.
+  var ICONIC_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
+  function monthSpanLabel(months, names) {
+    var have = {}, i, list = [];
+    (months || []).forEach(function (m) { m = +m; if (m >= 1 && m <= 12) have[m] = 1; });
+    for (i = 1; i <= 12; i++) if (have[i]) list.push(i);
+    if (!list.length || list.length === 12) return '';
+    // Rotate so the longest absent run sits at the end; that turns a Nov–Feb
+    // bird from "Jan, Feb, Nov, Dec" into one span.
+    var bestStart = 0, bestGap = -1;
+    for (i = 0; i < list.length; i++) {
+      var prev = list[(i + list.length - 1) % list.length];
+      var gap = (list[i] - prev + 12) % 12;
+      if (gap > bestGap) { bestGap = gap; bestStart = i; }
+    }
+    var rot = list.slice(bestStart).concat(list.slice(0, bestStart));
+    var runs = [], run = [rot[0]];
+    for (i = 1; i < rot.length; i++) {
+      if ((rot[i] - rot[i - 1] + 12) % 12 === 1) run.push(rot[i]);
+      else { runs.push(run); run = [rot[i]]; }
+    }
+    runs.push(run);
+    var nm = names || ICONIC_MONTH_NAMES;
+    return runs.map(function (r) {
+      var a = nm[r[0] - 1].slice(0, 3);
+      return r.length === 1 ? a : a + '\u2013' + nm[r[r.length - 1] - 1].slice(0, 3);
+    }).join(', ');
+  }
+
 
   // A place you cannot actually go is worse than no suggestion at all.
   //
@@ -3028,6 +3103,8 @@
     speciesPlaces: speciesPlaces,
     sortSpeciesPlaces: sortSpeciesPlaces,
     ICONIC_BOX_KM: ICONIC_BOX_KM,
+    ICONIC_MIN_SP_RECORDS: ICONIC_MIN_SP_RECORDS,
+    monthSpanLabel: monthSpanLabel,
     mergePlan: mergePlan,
     mergeFromFiles: mergeFromFiles,
     planConvoyFeeds: planConvoyFeeds,
