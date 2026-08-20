@@ -1,6 +1,6 @@
 {
   "name": "birding-app",
-  "version": "1.26.5",
+  "version": "1.26.6",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -23,11 +23,3 @@
     "jsdom": "^29.1.1"
   }
 }
-
-
-
-
-
-
-
-
