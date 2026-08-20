@@ -2663,6 +2663,10 @@
     var maxMi = opts.maxMi == null ? Infinity : Number(opts.maxMi);
     var hours = opts.hours == null ? FRESH_HOURS : opts.hours;
     var minSightings = opts.minSightings == null ? NEED_MIN_SIGHTINGS : opts.minSightings;
+    // A bird earns this lane by being unusual HERE, not by being missing from
+    // your list. Exposed as an option so a caller that genuinely wants the
+    // personal view - All unseen reports - can still have it from one function.
+    var notableOnly = opts.notableOnly !== false;
     var from = now - hours * 3600 * 1000;
 
     var byCode = {}, order = [];
@@ -2717,28 +2721,32 @@
     });
 
     var out = order.map(function (c) { return byCode[c]; });
-    // F132 / F153: how many people keep finding it, not just how far away it is.
+    // WHAT BELONGS IN "HAPPENING NOW", settled over four rounds of feedback:
     //
-    // "this ten birds you need is not valuable. use recent burst algorithm to
-    //  filter only birds that have many recent reports in chase area."
+    //   "this ten birds you need is not valuable. use recent burst algorithm to
+    //    filter only birds that have many recent reports in chase area."
+    //   "happening now shouldnt be showing birds seen by one observation"
+    //   "happening now still shows birds with 2 obs"
+    //   "happening now is about buzz, not one offs that might not be real"
+    //   "happening now should be things local birders would talk about without
+    //    having to check ebird"
     //
-    // That was answered by RANKING rather than filtering, on the reasoning that
-    // a penalised radius could silently drop the exact bird being chased. The
-    // owner then asked a second time, looking at the result:
+    // That last one is the actual specification, and it retires the earlier
+    // answers rather than adding to them. Corroboration was never the real
+    // test: three people reporting a Common Loon is well corroborated and
+    // nobody mentions it. The test is NOTABILITY, and it is not a personal
+    // one - a bird is talked about because it is unusual HERE, not because it
+    // happens to be missing from your year list.
     //
-    // "happening now shouldnt be showing birds seen by one observation"
+    // So the lane keeps only birds eBird itself flags as notable. Everything
+    // else it used to carry still exists, in the sections that are about you:
+    // All unseen reports and Closest spots. Nothing is lost, it is relocated -
+    // and the section stops answering a private question under a public
+    // heading.
     //
-    // Twice is a decision. A lane headed "Happening now" that lists a Great
-    // Horned Owl one person noted once is not describing anything happening —
-    // and the app already holds that a single report is not corroboration (the
-    // surge novelty gate requires two distinct observers AND two distinct
-    // checklists, because "two names on one shared checklist is one
-    // observation"). The same standard now applies here.
-    //
-    // THE ONE EXEMPTION IS RARITIES, and it is the original objection honoured
-    // rather than overruled: a mega found an hour ago has exactly one report,
-    // and dropping it is the specific harm that argued against filtering. So a
-    // flagged rarity is kept at any count, and the section says so on screen.
+    // This also finally answers F144 ("Happening now shows birds you need, when
+    // it should show buzz"), which was filed for exactly this and only ever
+    // half-addressed by de-duplication.
     out.forEach(function (g) {
       g.conf = chaseConfidence(g.rows, { nowMs: now });
       // The corroborated count, which is NOT g.reports: that counts rows, and
@@ -2746,16 +2754,14 @@
       g.sightings = g.conf.events;
       g.rows = null;                    // grouping detail, not render data
     });
-    // THE ONE EXEMPTION IS A REVIEWED RARITY, and it is narrower than it was.
-    // "happening now is about buzz, not one offs that might not be real."
-    //
-    // A mega found an hour ago has exactly one report, and dropping it is the
-    // harm that argued against filtering at all - so it is still kept. But an
-    // UNREVIEWED single report of a rarity is precisely the "might not be real"
-    // case, and eBird already tells us which is which, so the exemption asks.
     out = out.filter(function (g) {
-      if (g.sightings >= minSightings) return true;
-      return g.rare && g.anyValid;
+      // Notable, or it is not something anyone is talking about.
+      if (notableOnly && !g.rare) return false;
+      // Corroborated, OR reviewed. A mega found an hour ago has exactly one
+      // report and dropping it is the harm that argued against filtering at
+      // all; an UNREVIEWED single report is precisely the "one off that might
+      // not be real", and eBird already says which is which.
+      return g.sightings >= minSightings || g.anyValid;
     });
     out.sort(function (a, b) {
       var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;

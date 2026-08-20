@@ -10554,12 +10554,12 @@ test('a bird you need, reported nearby, is not buried by the place it was at', (
       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   };
   const recs = [
-    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(2), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1', kind: 'Need' },
-    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Need' },
-    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(7), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S7', kind: 'Need' },
-    { code: 'amecro', name: 'American Crow', distMi: 1, dateStr: at(1), locId: 'L1', loc: 'Yard', subId: 'S3', kind: 'Need' },
-    { code: 'weskin', name: 'Western Kingbird', distMi: 60, dateStr: at(3), locId: 'L7', loc: 'Too far', subId: 'S4', kind: 'Need' },
-    { code: 'rufhum', name: 'Rufous Hummingbird', distMi: 9, dateStr: at(40), locId: 'L6', loc: 'Stale', subId: 'S5', kind: 'Need' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(2), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1', kind: 'Rarity' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Rarity' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(7), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S7', kind: 'Rarity' },
+    { code: 'amecro', name: 'American Crow', distMi: 1, dateStr: at(1), locId: 'L1', loc: 'Yard', subId: 'S3', kind: 'Rarity' },
+    { code: 'weskin', name: 'Western Kingbird', distMi: 60, dateStr: at(3), locId: 'L7', loc: 'Too far', subId: 'S4', kind: 'Rarity' },
+    { code: 'rufhum', name: 'Rufous Hummingbird', distMi: 9, dateStr: at(40), locId: 'L6', loc: 'Stale', subId: 'S5', kind: 'Rarity' },
     { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(6), locId: 'L5', loc: 'Marsh', subId: 'S6', kind: 'Rarity' },
   ];
   const out = BL.needNearby(recs, { now, seen: { amecro: 1 }, maxMi: 35, hours: 24 });
@@ -10586,23 +10586,23 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
   // This lane's whole claim is freshness, so a record it cannot date must not
   // be assumed fresh — it is dropped rather than guessed at.
   const out = BL.needNearby([
-    { code: 'aaa', name: 'A', distMi: 1, dateStr: '', locId: 'L1', loc: 'X' },
-    { code: 'bbb', name: 'B', distMi: 1, dateStr: 'not a date', locId: 'L2', loc: 'Y' },
+    { code: 'aaa', name: 'A', distMi: 1, dateStr: '', locId: 'L1', loc: 'X', kind: 'Rarity' },
+    { code: 'bbb', name: 'B', distMi: 1, dateStr: 'not a date', locId: 'L2', loc: 'Y', kind: 'Rarity' },
   ], { now, seen: {}, maxMi: 35, hours: 24 });
   assert.strictEqual(out.length, 0,
     'an undateable record was shown in a lane that exists to say "just now"');
 
   // A record with no distance is not silently treated as near OR far: it is
   // kept (absence of a distance is not evidence of distance) but sorts last.
-  // Two sightings each, because the lane now requires corroboration and this
+  // Three sightings each, because the lane requires corroboration and this
   // test is about ORDERING, not about the gate.
   const mixed = BL.needNearby([
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z', subId: 'S1' },
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3b', loc: 'Z2', subId: 'S2' },
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 09:00', locId: 'L3c', loc: 'Z3', subId: 'S8' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W', subId: 'S3' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4b', loc: 'W2', subId: 'S4' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 09:00', locId: 'L4c', loc: 'W3', subId: 'S9' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z', subId: 'S1', kind: 'Rarity' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3b', loc: 'Z2', subId: 'S2', kind: 'Rarity' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 09:00', locId: 'L3c', loc: 'Z3', subId: 'S8', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W', subId: 'S3', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4b', loc: 'W2', subId: 'S4', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 09:00', locId: 'L4c', loc: 'W3', subId: 'S9', kind: 'Rarity' },
   ], { now, seen: {}, maxMi: 35, hours: 24 });
   assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd,ccc',
     'a row with a known distance must lead one without');
@@ -10614,7 +10614,7 @@ test('Happening now leads with what you need, not with the crowd', async () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const fn = HTML.slice(HTML.indexOf('function renderSurge'),
                         HTML.indexOf('function loadSurge'));
-  const need = fn.indexOf('you need, reported near you');
+  const need = fn.indexOf('worth talking about near you');
   const crowd = fn.indexOf('species drawing a crowd');
   assert.ok(need > -1, 'the needs lane is not rendered at all');
   assert.ok(crowd > -1, 'the crowd lane vanished');
@@ -10954,14 +10954,15 @@ test('the needs lane leads with the bird people keep re-finding', () => {
   const mk = (code, name, mi, rows) => rows.map((r) => Object.assign(
     { code, name, distMi: mi, locId: 'L' + code, loc: name + ' Park', lat: 47, lon: -122 }, r));
   const records = [].concat(
-    // ONE person, once, and very close.
+    // ONE person, once, and very close - and an ordinary bird, so it fails the
+    // notability gate as well as the corroboration one.
     mk('aaaaaa', 'Lonely Warbler', 1, [
-      { obsDt: at(3), dateStr: at(3), howMany: 1, userDisplayName: 'A' }]),
+      { obsDt: at(3), dateStr: at(3), howMany: 1, userDisplayName: 'A', kind: 'Need' }]),
     // A crowd, further out, spanning two calendar days but all inside 24 h.
     mk('bbbbbb', 'Crowd Puffin', 20, [
-      { obsDt: at(2), dateStr: at(2), howMany: 1, userDisplayName: 'A' },
-      { obsDt: at(4), dateStr: at(4), howMany: 2, userDisplayName: 'B' },
-      { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C' }]),
+      { obsDt: at(2), dateStr: at(2), howMany: 1, userDisplayName: 'A', kind: 'Rarity' },
+      { obsDt: at(4), dateStr: at(4), howMany: 2, userDisplayName: 'B', kind: 'Rarity' },
+      { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C', kind: 'Rarity' }]),
   );
   const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
   // THIS REVERSES AN EARLIER DECISION, deliberately, and then tightened twice
@@ -11006,6 +11007,58 @@ test('the needs lane leads with the bird people keep re-finding', () => {
   assert.equal(BL.NEED_MIN_SIGHTINGS, 3);
 });
 
+test('Happening now carries what birders talk about, not what YOU still need', () => {
+  // The specification, finally stated plainly after four rounds:
+  //
+  //   "happening now should be things local birders would talk about without
+  //    having to check ebird"
+  //
+  // That retires the earlier answers rather than adding to them. Corroboration
+  // was never the real test - three people reporting a Common Loon is well
+  // corroborated and nobody mentions it. The test is NOTABILITY, and it is not
+  // a personal one: a bird is talked about because it is unusual HERE, not
+  // because it is missing from your year list.
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const now = Date.parse('2026-08-19T12:00:00');
+  const at = (h) => {
+    const d = new Date(now - h * 3600000), p = (x) => String(x).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  const rows = (code, kind, n) => Array.from({ length: n }, (_, i) => ({
+    code, name: code, kind, loc: 'Golden Gardens Park', locId: 'L' + code + i,
+    distMi: 12, subId: 'S' + code + i, dateStr: at(i + 1), userDisplayName: 'obs' + i,
+  }));
+
+  // The exact rows from the device: a Common Loon three people reported, and a
+  // Marbled Godwit one person reported. eBird flags the godwit and not the loon,
+  // and eBird is right about which one gets talked about.
+  const out = BL.needNearby([].concat(
+    rows('comloo', 'Need', 3),
+    rows('margod', 'Rarity', 1),
+  ), { now, seen: {}, maxMi: 100 });
+
+  assert.deepEqual(out.map((r) => r.code), ['margod'],
+    'an ordinary unseen bird is still listed under a heading about buzz');
+
+  // Nothing is LOST by this - it moves to the sections that are about you. The
+  // same function still answers the personal question when asked for it, so
+  // All unseen reports keeps working from one implementation.
+  const personal = BL.needNearby(rows('comloo', 'Need', 3),
+    { now, seen: {}, maxMi: 100, notableOnly: false });
+  assert.deepEqual(personal.map((r) => r.code), ['comloo'],
+    'the personal view can no longer be obtained at all, so it has to be '
+    + 'reimplemented somewhere else - which is how two definitions of one thing start');
+
+  // ...and notability alone is not enough: a single UNREVIEWED report is still
+  // "a one off that might not be real".
+  const unreviewed = BL.needNearby(
+    rows('margod', 'Rarity', 1).map((r) => Object.assign(r, { obsValid: false })),
+    { now, seen: {}, maxMi: 100 });
+  assert.equal(unreviewed.length, 0,
+    'a single unreviewed rarity is presented as buzz');
+});
+
 test('a lead you cannot legally drive to is not a lead', () => {
   // From the device: a Great Horned Owl whose "Nearest" read
   // "HOME 4648 86th Ave SE, Mercer Island". This lane never consulted
@@ -11020,7 +11073,7 @@ test('a lead you cannot legally drive to is not a lead', () => {
   };
   const rows = (code, name, loc, n) => Array.from({ length: n }, (_, i) => ({
     code, name, loc, locId: 'L' + code + i, distMi: 5, subId: 'S' + code + i,
-    dateStr: at(i + 1), userDisplayName: 'obs' + i,
+    dateStr: at(i + 1), userDisplayName: 'obs' + i, kind: 'Rarity',
   }));
   const out = BL.needNearby([].concat(
     rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 3),

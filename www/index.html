@@ -1779,7 +1779,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.1';
+      var APP_VERSION = '1.26.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14436,17 +14436,17 @@
         // actionable bird on the phone.
         if (needs.length) {
           html += '<h3 class="lanehead">🎯 ' + needs.length + ' bird'
-            + (needs.length === 1 ? '' : 's') + ' you need, reported near you</h3>';
-          html += '<div class="status">Unseen birds reported within '
-            + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours, '
-            + 'closest first — everything here is already fresh, so the drive is '
-            + 'what separates them. One row per BIRD, not per report: the same '
-            + 'bird at three ponds is one decision. '
-            + '<b>Needs ' + BL.NEED_MIN_SIGHTINGS + ' independent sightings</b> — one person '
-            + 'noting one bird is not something happening — <b>except flagged '
-            + 'rarities ⭐, kept at any count</b>, because a mega found an hour ago '
-            + 'has exactly one report. Private addresses are never listed. '
-            + 'Older sightings and ones further out are in <b>All unseen reports</b>.</div>';
+            + (needs.length === 1 ? '' : 's') + ' worth talking about near you</h3>';
+          html += '<div class="status">Birds <b>eBird flags as notable here</b> that you '
+            + 'still need, reported within ' + chaseMaxMi() + ' mi in the last '
+            + BL.FRESH_HOURS + ' hours, closest first. One row per BIRD, not per '
+            + 'report: the same bird at three ponds is one decision. '
+            + '<b>Notable, not merely unseen</b> — three people reporting a bird '
+            + 'that is ordinary here is well corroborated and nobody mentions it, '
+            + 'so an unseen-but-ordinary bird belongs in <b>All unseen reports</b> '
+            + 'and <b>Closest spots</b>, which are the sections about you. A thin '
+            + 'report still has to be either reviewed by eBird or seen '
+            + BL.NEED_MIN_SIGHTINGS + ' times. Private addresses are never listed.</div>';
           html += '<ul class="obs big xl lanes">' + needs.map(function (e) {
             return '<li>'
               + '<div class="name">' + photoSlot(e.name, e.code)
