@@ -1799,7 +1799,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.3';
+      var APP_VERSION = '1.26.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9394,7 +9394,14 @@
       // itself. Not a threshold on the DATA - nothing is filtered by it - only
       // on when the section owes the reader a sentence.
       var DEST_THIN_ROWS = 4;
-      function destRadiusMi() { return getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI; }
+      // THE RADIUS THAT WAS ACTUALLY USED, not the configured one. The boundary
+      // widens when little is nearby, so printing the config value would state
+      // a limit the list did not obey.
+      function destRadiusMi() {
+        var c = _chase[getReport().slug];
+        var r = c && c.cv && c.cv.destRadiusMi;
+        return r || getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
+      }
 
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
@@ -9419,11 +9426,19 @@
           var thin = $('destThin');
           if (thin) thin.parentNode.removeChild(thin);
           renderDestinations(dests, $('destMap'), $('destResults'));
-          if (dests.length < DEST_THIN_ROWS) {
-            $('destResults').insertAdjacentHTML('afterend',
-              '<div class="hint" id="destThin">That is everything within <b>'
-              + destRadiusMi() + ' mi</b> — the radius this section covers, not '              + 'everything that is out there. Anywhere further is in '
-              + '<b>🚗 Worth the drive</b>.</div>');
+          if (dests.length < DEST_THIN_ROWS || destRadiusMi() > (getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI)) {
+            var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
+            var rad = destRadiusMi();
+            // A boundary that MOVED has to say so, or it reads as a fixed
+            // setting the reader could go and change.
+            $('destResults').insertAdjacentHTML('afterend', rad > base
+              ? '<div class="hint" id="destThin">Widened to <b>' + rad + ' mi</b> — too '
+                + 'little was within ' + base + ' mi to be worth a list. '
+                + '<b>🚗 Worth the drive</b> starts where this stops, so nothing is in both.</div>'
+              : '<div class="hint" id="destThin">That is everything within <b>'
+                + rad + ' mi</b> — the radius this section covers, not '
+                + 'everything that is out there. Anywhere further is in '
+                + '<b>🚗 Worth the drive</b>.</div>');
           }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }

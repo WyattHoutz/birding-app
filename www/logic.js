@@ -635,19 +635,71 @@
     });
   }
 
+  // THE DAILY-DRIVE BOUNDARY IS ADAPTIVE, AND IT IS SHARED.
+  //
+  // "top patches shows only two options" ... "top patches still only has two".
+  // Both rows were 11 mi out and the section stopped at a CONFIGURED 12, so two
+  // really was everything in range - correct, and useless.
+  //
+  // Widening this section alone would have been wrong: beyond the boundary IS
+  // "Worth the drive", so a ladder here would print that section twice. What
+  // moves instead is the BOUNDARY, and both sections read it - patches stop
+  // where excursions start, whatever today's number turns out to be. One split,
+  // adaptively placed, so nothing can appear in both.
+  //
+  // Integer steps, computed the same way in both languages: a boundary that
+  // depends on float rounding would put a place in different sections in the
+  // report and the app, and only sometimes.
+  var DEST_MIN_ROWS = 4;
+  var DEST_RADIUS_STEPS = [1, 1.5, 2, 3];
+
+  function destinationRadius(clusters, baseMi, capMi, minRows) {
+    var base = Math.round(Number(baseMi) || 0);
+    var cap = Math.round(Number(capMi == null ? baseMi : capMi) || 0);
+    if (cap < base) cap = base;
+    var want = minRows == null ? DEST_MIN_ROWS : minRows;
+    var steps = [];
+    DEST_RADIUS_STEPS.forEach(function (m) {
+      var v = Math.round(base * m);
+      if (v <= cap && steps.indexOf(v) < 0) steps.push(v);
+    });
+    if (steps.indexOf(cap) < 0) steps.push(cap);
+    steps.sort(function (a, b) { return a - b; });
+    for (var i = 0; i < steps.length; i++) {
+      var n = 0;
+      for (var j = 0; j < (clusters || []).length; j++) {
+        if (clusters[j].distMi <= steps[i]) n++;
+      }
+      // Enough to read as a list, or the widest step there is. Stretching past
+      // the chase radius would offer places you have already said you will not
+      // drive to.
+      if (n >= want) return steps[i];
+    }
+    return steps[steps.length - 1];
+  }
+
   function destinations(nearRecent, opts) {
     opts = opts || {};
-    var threshold = opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi;
+    var base = opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi;
     var top = opts.top == null ? CONST.TOP_DEST : opts.top;
-    var scored = scoreDestinationClusters(nearRecent).filter(function (c) {
-      return c.distMi <= threshold;
-    });
-    return scored.slice(0, top);
+    var scored = scoreDestinationClusters(nearRecent);
+    var threshold = opts.radiusMi == null
+      ? destinationRadius(scored, base, opts.chaseMaxMi, opts.minRows)
+      : opts.radiusMi;
+    var near = scored.filter(function (c) { return c.distMi <= threshold; });
+    var out = near.slice(0, top);
+    out.radiusMi = threshold;
+    return out;
   }
 
   function excursions(excursionRecent, opts) {
     opts = opts || {};
-    var threshold = opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi;
+    // The SAME boundary destinations used, passed in by the caller. Recomputing
+    // it here from a different cluster set would let one place fall on both
+    // sides of a split that is supposed to be one line.
+    var threshold = opts.radiusMi == null
+      ? (opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi)
+      : opts.radiusMi;
     var top = opts.top == null ? CONST.TOP_EXC : opts.top;
     var decay = CONST.EXCURSION_DECAY_MI;
     // A cluster belongs in excursions if it's beyond the daily-drive radius OR
@@ -1473,14 +1525,19 @@
     var nearRecentGo = nearRecent.filter(function (r) { return isChaseable(r, stakeout); });
     var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
 
-    var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi });
-    var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi });
+    var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi,
+                                            chaseMaxMi: profile.chaseMaxMi });
+    // The boundary destinations settled on, so excursions start exactly where
+    // patches stop and no place can appear in both.
+    var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi,
+                                              radiusMi: dest.radiusMi });
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
     return {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
       near: near, destinations: dest, excursions: exc,
+      destRadiusMi: dest.radiusMi,
       notableToday: notable
     };
   }
@@ -3005,6 +3062,8 @@
     fresh24Count: fresh24Count,
     sortClusterSpecies: sortClusterSpecies,
     destinations: destinations,
+    destinationRadius: destinationRadius,
+    DEST_MIN_ROWS: DEST_MIN_ROWS,
     excursions: excursions,
     notableToday: notableToday,
     notableRecent: notableRecent, NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,
