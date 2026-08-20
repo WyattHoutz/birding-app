@@ -6247,27 +6247,39 @@ test('the drag probe is wired to a real button', () => {
 // whether or not anything overflows.
 test('a finger may scroll the page down but not sideways — and may still pinch', () => {
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
-  assert.match(css, /body\s*\{[^}]*touch-action:\s*pan-y/,
-    'the page declares vertical panning only');
-  // PINCH-ZOOM HAS TO BE NAMED. touch-action permits exactly what it lists, so
-  // `pan-y` alone had the compositor refuse the pinch - silently taking back
-  // the pinch-zoom F142 restored by removing user-scalable=no. Double-tap zoom
-  // is a browser gesture and still fired, so the app could be magnified and not
-  // shrunk: "i double clicked the debugging window it zooms in and i cannot
-  // zoom out". An accessibility fix another rule quietly cancels is the worst
-  // shape of bug - it tests fine and is gone on the device.
-  assert.match(css, /body\s*\{[^}]*touch-action:[^;}]*pinch-zoom/,
-    'body forbids the pinch, so a reader who zooms in cannot zoom back out');
+  // `manipulation` = every gesture EXCEPT double-tap zoom, so it keeps
+  // vertical panning and keeps the pinch. It replaced `pan-y pinch-zoom`
+  // because that left double-tap zoom FIRING: reported first as "i double
+  // clicked the debugging window it zooms in and i cannot zoom out", and then
+  // again after pinch was restored as "the double click zoom issue is still
+  // happening". Per the spec double-tap is not in `pan-y pinch-zoom` either,
+  // but WebKit only special-cases this one keyword for the gesture.
+  assert.match(css, /body\s*\{\s*touch-action:\s*manipulation/,
+    'the page does not suppress double-tap zoom, so a stray tap magnifies the app');
+  // PINCH-ZOOM MUST SURVIVE. Removing user-scalable=no (F142) is the single
+  // most valuable accessibility fix in this file, and a touch-action value
+  // that forbade the pinch would quietly take it back. `manipulation` permits
+  // it; a bare `pan-y` would not, which is the bug this guard was written for.
+  assert.ok(!/body\s*\{\s*touch-action:\s*pan-y\s*;/.test(css),
+    'body permits ONLY vertical panning, so a reader who zooms in cannot zoom back out');
   // Maps are the one thing that must pan both ways. An ancestor's value is
-  // INTERSECTED with the element's, so pan-y on body would otherwise take the
-  // horizontal drag away from every map in the app.
+  // INTERSECTED with the element's, so the map has to opt back out explicitly.
   assert.match(css, /\.leaflet-container\s*\{[^}]*touch-action:\s*none/,
     'and maps opt back out, because Leaflet drives its own gestures from JS');
-  assert.ok(css.indexOf('body { touch-action: pan-y pinch-zoom; }')
+  assert.ok(css.indexOf('body { touch-action: manipulation; }')
             < css.indexOf('.leaflet-container { touch-action: none; }'),
     'with the map override after the body rule so it is not itself overridden');
+  // ...and the way BACK, for a page already stuck zoomed: "the entire app is
+  // zoomed some even after double clicking whitespace to unzoom". The reset
+  // clamps the viewport to maximum-scale=1 and then RESTORES the original
+  // content — leaving user-scalable=no in place would be the very thing F142
+  // removed.
+  assert.match(HTML, /id="zoomreset"/, 'there is no way back from a stuck zoom');
+  const fn = HTML.slice(HTML.indexOf('function resetZoom'), HTML.indexOf('function bindZoomReset'));
+  assert.match(fn, /maximum-scale=1\.0/, 'the reset does not actually clamp the scale');
+  assert.match(fn, /setAttribute\('content', keep\)/,
+    'the reset never restores the viewport, so pinch-zoom stays disabled afterwards');
 });
-
 test('Happening now paints from the notable feeds, not after 40 species calls', () => {
   // From the device log, and the numbers are the argument:
   //
@@ -8158,14 +8170,17 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // Producing and Under-birded patches joined on 2026-08-18: they answer the
   // same question the rest of this group answers - "where shall I go" - and
   // sitting them under Hotspots & birders separated them from it.
+  // F156 added 'Iconic spots near me' beside Stakeout bird: the two are halves
+  // of one thought — that one starts from a BIRD and finds the place, this one
+  // starts from where you ARE and finds what the places round you are known for.
   const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn',
-              'hotBtn', 'coldBtn'];
+              'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Top patches', 'Worth the drive', 'Find local patches',
-                      'Closest spots', 'Stakeout bird',
+                      'Closest spots', 'Stakeout bird', 'Iconic spots near me',
                       'Producing patches', 'Under-birded patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
@@ -10742,14 +10757,24 @@ test('a bird you need, reported nearby, is not buried by the place it was at', (
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   };
+  // Four sightings at ONE place is the gate now — "a celebrity bird is one
+  // that has 4+ obs at the same hotspot". The fixture grew to match; the three
+  // EXCLUSION reasons below are the part worth keeping and are unchanged.
   const recs = [
     { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(2), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1', kind: 'Rarity' },
-    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Rarity' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(3), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1b', kind: 'Rarity' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(6), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1c', kind: 'Rarity' },
     { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(7), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S7', kind: 'Rarity' },
+    // A fifth report at a DIFFERENT pond 18 mi away. It must not join the
+    // cluster, and it must not become the row's address.
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Rarity' },
     { code: 'amecro', name: 'American Crow', distMi: 1, dateStr: at(1), locId: 'L1', loc: 'Yard', subId: 'S3', kind: 'Rarity' },
     { code: 'weskin', name: 'Western Kingbird', distMi: 60, dateStr: at(3), locId: 'L7', loc: 'Too far', subId: 'S4', kind: 'Rarity' },
     { code: 'rufhum', name: 'Rufous Hummingbird', distMi: 9, dateStr: at(40), locId: 'L6', loc: 'Stale', subId: 'S5', kind: 'Rarity' },
     { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(6), locId: 'L5', loc: 'Marsh', subId: 'S6', kind: 'Rarity' },
+    { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(7), locId: 'L5', loc: 'Marsh', subId: 'S6b', kind: 'Rarity' },
+    { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(8), locId: 'L5', loc: 'Marsh', subId: 'S6c', kind: 'Rarity' },
+    { code: 'baisan', name: "Baird's Sandpiper", distMi: 12, dateStr: at(9), locId: 'L5', loc: 'Marsh', subId: 'S6d', kind: 'Rarity' },
   ];
   const out = BL.needNearby(recs, { now, seen: { amecro: 1 }, maxMi: 35, hours: 24 });
 
@@ -10761,8 +10786,11 @@ test('a bird you need, reported nearby, is not buried by the place it was at', (
   // ONE ROW PER BIRD. The same bird at three ponds is one decision, not three;
   // place-first is what Top destinations is for and is exactly what buried it.
   const sp = out[0];
-  assert.strictEqual(sp.nPlaces, 2, 'the two ponds collapsed into one row');
-  assert.strictEqual(sp.reports, 3, 'all three reports are counted');
+  // The counts describe the QUALIFYING CLUSTER, not the species region-wide.
+  // The far pond is a different bird as far as this lane is concerned.
+  assert.strictEqual(sp.nPlaces, 1, 'a pond 18 mi away was folded into the cluster');
+  assert.strictEqual(sp.reports, 4, 'the four reports at the near pond are counted');
+  assert.strictEqual(sp.sightings, 4, 'the corroboration count must be the cluster\u2019s');
   assert.strictEqual(sp.locName, 'Redmond retention ponds',
     'the row carries the NEAREST place, because the row is a decision about driving');
   assert.strictEqual(sp.distMi, 4.2);
@@ -10781,20 +10809,26 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
   assert.strictEqual(out.length, 0,
     'an undateable record was shown in a lane that exists to say "just now"');
 
-  // A record with no distance is not silently treated as near OR far: it is
-  // kept (absence of a distance is not evidence of distance) but sorts last.
-  // Three sightings each, because the lane requires corroboration and this
-  // test is about ORDERING, not about the gate.
+  // A cluster whose distance never resolved is DROPPED, not ranked last.
+  //
+  // This reverses an earlier rule, and the reversal is the owner's: "also this
+  // observation must be in chase radius too." The old reasoning — "absence of a
+  // distance is not evidence of distance, so keep it and sort it last" — is
+  // sound in general and wrong for THIS lane, whose entire claim is that the
+  // bird is somewhere you can drive to tonight. A row that cannot be shown to
+  // be in range cannot support that claim.
   const mixed = BL.needNearby([
     { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z', subId: 'S1', kind: 'Rarity' },
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3b', loc: 'Z2', subId: 'S2', kind: 'Rarity' },
-    { code: 'ccc', name: 'C', dateStr: '2026-08-12 09:00', locId: 'L3c', loc: 'Z3', subId: 'S8', kind: 'Rarity' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3', loc: 'Z', subId: 'S2', kind: 'Rarity' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 09:00', locId: 'L3', loc: 'Z', subId: 'S8', kind: 'Rarity' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 08:00', locId: 'L3', loc: 'Z', subId: 'S10', kind: 'Rarity' },
     { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W', subId: 'S3', kind: 'Rarity' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4b', loc: 'W2', subId: 'S4', kind: 'Rarity' },
-    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 09:00', locId: 'L4c', loc: 'W3', subId: 'S9', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4', loc: 'W', subId: 'S4', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 09:00', locId: 'L4', loc: 'W', subId: 'S9', kind: 'Rarity' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 08:00', locId: 'L4', loc: 'W', subId: 'S11', kind: 'Rarity' },
   ], { now, seen: {}, maxMi: 35, hours: 24 });
-  assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd,ccc',
-    'a row with a known distance must lead one without');
+  assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd',
+    'a bird whose distance never resolved was offered as somewhere to drive tonight');
 });
 
 test('Happening now leads with what you need, not with the crowd', async () => {
@@ -11000,13 +11034,18 @@ test('chase confidence counts sightings, not the people who filed them', () => {
   assert.equal(party.events, 1, 'one sighting filed twice is ONE confirmation');
   assert.equal(party.observers, 2, 'the names are still reported, just not scored');
 
-  // Same place and minute but a different count is a genuinely different
-  // sighting, and must not be swallowed by the dedupe.
+  // REVERSED, and the reversal is the owner's. A party of five at one spot in
+  // one minute routinely disagrees about flock size, so counting "1" and "4"
+  // as two sightings is exactly how a convoy inflates into a crowd — "make
+  // sure its not just a convoy of 5". Count is out of the event key in both
+  // repos; the NAMES are still counted, so a card can show who was there.
   const two = BL.chaseConfidence([
     { locId: 'L3', obsDt: '2026-08-14 08:00', howMany: 1, userDisplayName: 'A' },
     { locId: 'L3', obsDt: '2026-08-14 08:00', howMany: 4, userDisplayName: 'B' },
   ], { nowMs: now });
-  assert.equal(two.events, 2, 'a different count is a different sighting');
+  assert.equal(two.events, 1,
+    'a party that disagreed about flock size counted as two independent sightings');
+  assert.equal(two.observers, 2, 'the two names were lost along with the inflation');
 });
 
 test('chase confidence lets recency outrank volume', () => {
@@ -11148,9 +11187,12 @@ test('the needs lane leads with the bird people keep re-finding', () => {
     mk('aaaaaa', 'Lonely Warbler', 1, [
       { obsDt: at(3), dateStr: at(3), howMany: 1, userDisplayName: 'A', kind: 'Need' }]),
     // A crowd, further out, spanning two calendar days but all inside 24 h.
+    // FOUR of them, at ONE place: "a celebrity bird is one that has 4+ obs at
+    // the same hotspot". Three was the old bar and is now correctly not enough.
     mk('bbbbbb', 'Crowd Puffin', 20, [
       { obsDt: at(2), dateStr: at(2), howMany: 1, userDisplayName: 'A', kind: 'Rarity' },
       { obsDt: at(4), dateStr: at(4), howMany: 2, userDisplayName: 'B', kind: 'Rarity' },
+      { obsDt: at(6), dateStr: at(6), howMany: 1, userDisplayName: 'D', kind: 'Rarity' },
       { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C', kind: 'Rarity' }]),
   );
   const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
@@ -11171,17 +11213,27 @@ test('the needs lane leads with the bird people keep re-finding', () => {
   assert.equal(out.length, 1,
     'a bird with fewer than three sightings is still listed under "Happening now"');
   assert.equal(out[0].code, 'bbbbbb', 'the corroborated bird is the one that survives');
-  assert.equal(out[0].sightings, 3, 'sightings are counted as events');
+  assert.equal(out[0].sightings, 4, 'sightings are counted as events, at ONE place');
 
-  // ...and the original objection is honoured rather than overruled: the harm
-  // it warned about was dropping a chaseable mega, which has exactly one report
-  // by definition. So a REVIEWED rarity is kept at any count.
+  // THE EXEMPTION IS GONE, and this reverses the decision above it.
+  //
+  // "a REVIEWED rarity is kept at any count" sounded careful and was not: in
+  // practice virtually every row in the rarity feeds is reviewed, so the
+  // exemption fired on all of them and the corroboration threshold beside it
+  // was decorative. That is how a Red Crossbill with ONE observation reached
+  // the lane after three separate rounds of "stop showing me single
+  // sightings", ending with "a celebrity bird is one that has 4+ obs at the
+  // same hotspot".
+  //
+  // The mega it was written to protect is not lost — it is a TWITCH, and
+  // Twitches today and Twitches this week are the sections about exactly that.
+  // This lane is about a crowd forming, which one report is not.
   const rare = BL.needNearby(records.map((r) => (
-    r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity', obsValid: true }) : r)),
+  r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity', obsValid: true }) : r)),
   { now, seen: {}, maxMi: 100 });
-  assert.equal(rare.length, 2, 'a single-report REVIEWED rarity was dropped - that is the mega it exists to catch');
-  assert.ok(rare.some((r) => r.code === 'aaaaaa' && r.rare),
-    'the rarity survived but lost its flag');
+  assert.equal(rare.length, 1,
+  'a single reviewed report still qualifies, so the four-sighting gate is decorative');
+  assert.equal(rare[0].code, 'bbbbbb', 'and the corroborated bird is the survivor');
 
   // But an UNREVIEWED single report of a rarity is exactly the "one off that
   // might not be real", and eBird says which is which.
@@ -11192,8 +11244,9 @@ test('the needs lane leads with the bird people keep re-finding', () => {
     'a single UNREVIEWED rarity report is still shown as though it were buzz');
 
   // The gate is a named constant, not a literal buried in a filter, because the
-  // section prints it on screen and the two must not drift.
-  assert.equal(BL.NEED_MIN_SIGHTINGS, 3);
+  // section prints it on screen and the two must not drift. FOUR now: "a
+  // celebrity bird is one that has 4+ obs at the same hotspot".
+  assert.equal(BL.NEED_MIN_SIGHTINGS, 4);
 });
 
 test('Happening now carries what birders talk about, not what YOU still need', () => {
@@ -11214,17 +11267,21 @@ test('Happening now carries what birders talk about, not what YOU still need', (
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   };
+  // ONE locId, not one per row. Corroboration is now counted PER PLACE, so a
+  // fixture that scatters its reports across N pins is testing N single
+  // sightings — which is the very thing the lane now rejects.
   const rows = (code, kind, n) => Array.from({ length: n }, (_, i) => ({
-    code, name: code, kind, loc: 'Golden Gardens Park', locId: 'L' + code + i,
+    code, name: code, kind, loc: 'Golden Gardens Park', locId: 'L' + code,
     distMi: 12, subId: 'S' + code + i, dateStr: at(i + 1), userDisplayName: 'obs' + i,
   }));
 
-  // The exact rows from the device: a Common Loon three people reported, and a
-  // Marbled Godwit one person reported. eBird flags the godwit and not the loon,
-  // and eBird is right about which one gets talked about.
+  // The exact rows from the device: a Common Loon several people reported, and a
+  // Marbled Godwit. eBird flags the godwit and not the loon, and eBird is right
+  // about which one gets talked about. Both now carry four sightings, so the
+  // ONLY thing separating them is notability — which is what this test is for.
   const out = BL.needNearby([].concat(
-    rows('comloo', 'Need', 3),
-    rows('margod', 'Rarity', 1),
+    rows('comloo', 'Need', 4),
+    rows('margod', 'Rarity', 4),
   ), { now, seen: {}, maxMi: 100 });
 
   assert.deepEqual(out.map((r) => r.code), ['margod'],
@@ -11233,7 +11290,7 @@ test('Happening now carries what birders talk about, not what YOU still need', (
   // Nothing is LOST by this - it moves to the sections that are about you. The
   // same function still answers the personal question when asked for it, so
   // All unseen reports keeps working from one implementation.
-  const personal = BL.needNearby(rows('comloo', 'Need', 3),
+  const personal = BL.needNearby(rows('comloo', 'Need', 4),
     { now, seen: {}, maxMi: 100, notableOnly: false });
   assert.deepEqual(personal.map((r) => r.code), ['comloo'],
     'the personal view can no longer be obtained at all, so it has to be '
@@ -11260,13 +11317,15 @@ test('a lead you cannot legally drive to is not a lead', () => {
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   };
+  // ONE locId per PLACE, not per row: corroboration is counted per place now,
+  // and four of them, because that is the gate.
   const rows = (code, name, loc, n) => Array.from({ length: n }, (_, i) => ({
-    code, name, loc, locId: 'L' + code + i, distMi: 5, subId: 'S' + code + i,
+    code, name, loc, locId: 'L' + code + loc.slice(0, 4), distMi: 5, subId: 'S' + code + i,
     dateStr: at(i + 1), userDisplayName: 'obs' + i, kind: 'Rarity',
   }));
   const out = BL.needNearby([].concat(
-    rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 3),
-    rows('wesgre', 'Western Grebe', 'Skiff Point', 3),
+    rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 4),
+    rows('wesgre', 'Western Grebe', 'Skiff Point', 4),
   ), { now, seen: {}, maxMi: 100 });
   assert.deepEqual(out.map((r) => r.code), ['wesgre'],
     'a named private residence was offered as somewhere to drive');
@@ -11275,18 +11334,21 @@ test('a lead you cannot legally drive to is not a lead', () => {
   // public one - the bird is chaseable, just not there.
   const both = BL.needNearby([].concat(
     rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 2),
-    rows('grhowl', 'Great Horned Owl', 'Marymoor Park', 3),
+    rows('grhowl', 'Great Horned Owl', 'Marymoor Park', 4),
   ), { now, seen: {}, maxMi: 100 });
   assert.equal(both.length, 1);
   assert.equal(both[0].locName, 'Marymoor Park',
     'the private address survived as the place to drive to');
-  assert.equal(both[0].nPlaces, 3,
-    'the private reports were dropped entirely rather than just hidden from the row');
+  // ONE place, because the private address is rejected outright and Marymoor
+  // is a single pin. nPlaces describes the QUALIFYING CLUSTER, so a number
+  // above one here would mean the residence had been folded back in.
+  assert.equal(both[0].nPlaces, 1,
+    'the private address was counted as part of the place you are sent to');
 
   // An unnamed place is not evidence of privacy, and dropping it would lose
   // records the feed simply did not name.
   const unnamed = BL.needNearby(
-    rows('sposan', 'Spotted Sandpiper', '', 3).map((r) => Object.assign(r, { loc: '' })),
+    rows('sposan', 'Spotted Sandpiper', '', 4).map((r) => Object.assign(r, { loc: '' })),
     { now, seen: {}, maxMi: 100 });
   assert.equal(unnamed.length, 1, 'a record with no place name was treated as private');
 });

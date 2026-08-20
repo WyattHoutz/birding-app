@@ -83,6 +83,13 @@
       "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
     },
     {
+      "at": "iconicBtn",
+      "label": "⭐ Iconic spots near me",
+      "report": null,
+      "map": null,
+      "why": "F156. APP-ONLY, and deliberately so: the numbers come from GBIF's keyless occurrence facets measured against the reader's own home and chase radius, which a Markdown report generated hours earlier cannot ask for. Ranks how much a place stands out for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags."
+    },
+    {
       "at": "hotBtn",
       "label": "🔥 Producing patches",
       "report": "## 🔥 Hot hotspots — recent surges",
@@ -140,7 +147,7 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "📋 All unseen reports",
+      "label": "📋 Closest unseen birds",
       "report": "## 📋 All unseen reports in",
       "map": null,
       "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"

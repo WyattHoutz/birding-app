@@ -7,7 +7,7 @@
        the last resort - just magnify it - is taken away. The in-app text size
        setting is not a substitute, because it cannot enlarge a MAP, a photo or
        a screenshot. Removed under F142. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" id="vpmeta" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0f5132" />
@@ -231,9 +231,46 @@
        Maps are the one thing that legitimately pans in both directions, and
        Leaflet already drives its own gestures from JS — `touch-action: none`
        is the mode it asks for, and it must be restated here because an
-       ancestor's value is intersected with the element's. */
-    body { touch-action: pan-y pinch-zoom; }
+       ancestor's value is intersected with the element's.
+
+       TAKE FIVE, and this one stops the gesture instead of making it
+       survivable. `pan-y pinch-zoom` left double-tap zoom FIRING and merely
+       gave the reader a way back out — reported again as "the double click
+       zoom issue is still happening", which is the correct verdict: a gesture
+       you did not ask for, that you then have to undo, is still a bug.
+
+       Per the spec, double-tap zoom is not in `pan-y pinch-zoom` and should
+       already have been suppressed. It is not, because WebKit only special-
+       cases the ONE keyword for this: `manipulation` is the documented value
+       that disables the double-tap gesture on iOS, and other lists are
+       honoured for panning without affecting it.
+
+       `manipulation` = every gesture except double-tap zoom, so deliberate
+       PINCH zoom survives — which is the accessibility half F142 restored and
+       must not be taken away again. The cost is that `pan-x` comes back with
+       it; the clip rules above already stop the document scrolling sideways,
+       and the sideways VISUAL-viewport pan this rule was originally fighting
+       only happens once the page is zoomed — which is precisely what the
+       accidental double-tap was causing. Removing the cause removes most of
+       the original symptom. */
+    body { touch-action: manipulation; }
     .leaflet-container { touch-action: none; }
+    /* THE WAY OUT, for when the page is already zoomed.
+       "the entire app is zoomed some even after double clicking whitespace to
+       unzoom" — WKWebView can settle at a fractional scale that no gesture
+       returns to 1, and a reader who cannot get back has a broken app, not a
+       magnified one. This button exists ONLY while zoomed (JS adds .zoomed to
+       <html>), so it costs nothing the rest of the time. It is deliberately
+       fixed to the viewport rather than the document: while zoomed, document
+       coordinates are exactly what has scrolled out of reach. */
+    #zoomreset { display: none; }
+    html.zoomed #zoomreset {
+      display: block; position: fixed; z-index: 9999;
+      left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom));
+      padding: 10px 16px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); box-shadow: 0 2px 12px rgba(0,0,0,.28);
+      font-size: calc(15px * var(--s)); font-weight: 600;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
@@ -501,9 +538,13 @@
        text scale on the narrowest phone a long label pushed the tile past the
        screen instead of wrapping. */
     /* The headline. It carries the jargon, so it gets headline treatment. */
+    /* Weight 500, not 800. "remove bold from all menu buttons": at 800 every
+       tile shouted, so nothing on the screen was emphasised relative to
+       anything else and the grid read as a wall. The sub-line beneath is 400,
+       so 500 still separates title from translation without the shout. */
     .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere;
                  grid-column: 2; grid-row: 1;
-                 font-size: calc(17px * var(--s)); font-weight: 800;
+                 font-size: calc(17px * var(--s)); font-weight: 500;
                  letter-spacing: -.01em; }
     /* The translation, not the title: lighter and smaller so the jargon still
        reads as the name of the thing. Scales with the text-size setting like
@@ -1221,6 +1262,9 @@
   </style>
 </head>
 <body>
+  <!-- Only visible while the page is actually zoomed; see #zoomreset in the
+       stylesheet for why it must be fixed to the viewport. -->
+  <button id="zoomreset" type="button">Reset zoom</button>
   <div id="navbar" hidden>
     <button id="navBack" class="secondary" type="button" aria-label="Back to Contents"><span aria-hidden="true">&lsaquo;</span></button>
     <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
@@ -1544,6 +1588,19 @@
       <div id="easyResults"></div>
     </section>
 
+    <section class="panel" id="iconicPanel">
+      <h2>⭐ Iconic spots near me <span class="dim" id="iconicRegionLabel"></span></h2>
+      <div class="row">
+        <button id="iconicBtn">Scan hotspots near home</button>
+      </div>
+      <div class="row" id="iconicSortRow" hidden>
+        <button id="iconicByBird" class="secondary" type="button" aria-pressed="true">By bird</button>
+        <button id="iconicByPlace" class="secondary" type="button" aria-pressed="false">By place</button>
+      </div>
+      <div id="iconicStatus" class="status">Which places near you are unusually good for a particular bird — the signal eBird calls Iconic Birds. Needs your Home location.</div>
+      <div id="iconicResults"></div>
+    </section>
+
     <section class="panel" id="hotPanel">
       <h2>🔥 Producing patches <span class="dim" id="hotRegionLabel"></span></h2>
       <div class="row">
@@ -1818,7 +1875,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.6';
+      var APP_VERSION = '1.26.7';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8467,14 +8524,31 @@
         try {
           var c = JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null');
           var rows = (c && c.rows) || [];
-          for (var i = 0; i < rows.length; i++) {
-            if (rows[i].code === code) {
-              var a = String(rows[i].alpha || '').trim().split(/\s+/)[0] || '';
-              if (a.length === 4) return a.toUpperCase();
-              return '';
-            }
-          }
+          // MEASURED: `product/spplist` returns SPECIES ONLY. US-WA gives 660
+          // codes and `redcro2` is not among them, because a type/form is not a
+          // species — which is why "Red Crossbill (Ponderosa Pine or type 2)"
+          // rendered with no banding code at all while every ordinary bird
+          // beside it had one.
+          //
+          // eBird names a form by appending digits to its parent, so the parent
+          // is recoverable without another call. FALLBACK ONLY, which matters:
+          // `eleter1` is a real species code ending in a digit, and it hits
+          // exactly, so it never reaches the strip.
+          var hit = alphaLookup(rows, code);
+          if (hit) return hit;
+          var parent = String(code).replace(/\d+$/, '');
+          if (parent.length >= 4 && parent !== code) return alphaLookup(rows, parent);
         } catch (e) { /* no index cached yet */ }
+        return '';
+      }
+
+      function alphaLookup(rows, code) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].code === code) {
+            var a = String(rows[i].alpha || '').trim().split(/\s+/)[0] || '';
+            return a.length === 4 ? a.toUpperCase() : '';
+          }
+        }
         return '';
       }
 
@@ -13869,6 +13943,235 @@
       function loadHotspots() { runHotspotScan({ force: true, redirect: true }); }
       function loadColdspots() { runHotspotScan({ force: true, redirect: true }); }
 
+      // ── F156: ICONIC SPOTS NEAR ME ─────────────────────────────────────
+      //
+      // "id like to know where are all the locations near home / here that
+      //  have birds with high iconic bird scores... It may also be valuable to
+      //  rank hotspots by iconic bird scores... I didnt realize that eastern
+      //  kingbirds were prominent at the forbes hotspot."
+      //
+      // Every other section ranks on RARITY. A Western Kingbird never trips the
+      // notable flag, so it is invisible to Twitches today, Twitches this week
+      // and every Happening-now lane — yet there is one road in Sultan where it
+      // is the bird of the place. This section ranks on how much a place STANDS
+      // OUT for a bird, which is a different question.
+      //
+      // THE COST PROBLEM IS SOLVED BY FACETING, and that is what makes the
+      // section possible at all. Asking per species is O(places x species):
+      // measured at Fobes, the naive route needs 264 calls for ONE hotspot.
+      // `facet=speciesKey` returns EVERY species' share in the box from the
+      // SAME call that returns the box total — 132 species in 1.05s — so the
+      // work is O(places). The county baseline is one more call and is shared
+      // by every hotspot in that county.
+      //
+      // GBIF is keyless, so none of this spends eBird budget, and every part
+      // caches for 30 days.
+      var ICONIC_SPOTS_MAX = 12;    // hotspots scanned per run
+      var ICONIC_TOP_PER_SPOT = 4;  // species named per hotspot
+      var ICONIC_MIN_MULT = 3;      // below this a place is not "iconic" for it
+      var _iconicRows = null, _iconicView = 'bird';
+
+      // GBIF speciesKey -> scientific name. The facet gives KEYS only, and this
+      // is the one per-species call that cannot be avoided — so it runs only
+      // for the handful of birds that actually clear the bar, and caches.
+      function gbifSciFor(key) {
+        var ck = 'nm|' + key, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson('https://api.gbif.org/v1/species/' + encodeURIComponent(key))
+          .then(function (s) {
+            var v = (s && (s.canonicalName || s.scientificName)) || '';
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          }).catch(function () { return ''; });
+      }
+
+      // Scientific name -> the eBird row we already hold, so a result carries a
+      // common name, a photo and a species link rather than a bare taxon key.
+      function sciIndex(region) {
+        var out = {};
+        try {
+          var c = JSON.parse(localStorage.getItem(speciesCacheKey(region)) || 'null');
+          ((c && c.rows) || []).forEach(function (r) {
+            if (r && r.sci) out[String(r.sci).toLowerCase()] = r;
+          });
+        } catch (e) { /* no index cached yet */ }
+        return out;
+      }
+
+      // ONE call per hotspot: the box total AND every species' share in it.
+      function iconicBoxFacet(lat, lng) {
+        var wkt = BL.gbifBoxWkt(lat, lng);
+        var ck = 'boxfacet|' + iconicTag() + '|' + wkt, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt)
+                        + iconicQs() + '&limit=0&facet=speciesKey&facetLimit=300')
+          .then(function (jj) {
+            if (!jj) return null;
+            var v = { all: jj.count || 0, sp: {} };
+            facetCounts(jj, 'speciesKey').forEach(function (x) { v.sp[x.name] = x.count; });
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          }).catch(function () { return null; });
+      }
+
+      // ...and ONE per county, shared by every hotspot inside it.
+      function iconicCountyFacet(gid) {
+        if (!gid) return Promise.resolve(null);
+        var ck = 'cofacet|' + iconicTag() + '|' + gid, c = gbifCache();
+        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        return gbifJson(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid)
+                        + iconicQs() + '&limit=0&facet=speciesKey&facetLimit=900')
+          .then(function (jj) {
+            if (!jj) return null;
+            var v = { all: jj.count || 0, sp: {} };
+            facetCounts(jj, 'speciesKey').forEach(function (x) { v.sp[x.name] = x.count; });
+            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            return v;
+          }).catch(function () { return null; });
+      }
+
+      function loadIconicSpots() {
+        var btn = $('iconicBtn'), st = $('iconicStatus'), box = $('iconicResults');
+        var home = getHome();
+        if (!home || home.lat == null) {
+          st.textContent = 'Set your Home location in Settings first.'; showSettings(true); return;
+        }
+        if ($('iconicRegionLabel')) $('iconicRegionLabel').textContent = '\u00b7 ' + getReport().label;
+        btn.disabled = true; box.innerHTML = '';
+        st.textContent = 'Finding hotspots near you\u2026';
+        var lim = chaseMaxMi();
+        loadHotspotIndex(getObsRegion()).then(function (rows) {
+          var near = (rows || []).filter(function (h) {
+            return h && h.lat != null && h.lng != null && BL.isPublicPlace(h.name || h.locName || '');
+          }).map(function (h) {
+            h._mi = haversineMi(home.lat, home.lng, +h.lat, +h.lng);
+            return h;
+          }).filter(function (h) { return h._mi <= lim; })
+            .sort(function (a, b) { return a._mi - b._mi; })
+            .slice(0, ICONIC_SPOTS_MAX);
+          if (!near.length) {
+            st.textContent = 'No hotspots within ' + lim + ' mi of home.'; btn.disabled = false; return;
+          }
+          st.textContent = 'Measuring ' + near.length + ' hotspots against their county\u2026';
+          var done = 0, out = [];
+          var sci = sciIndex(getObsRegion());
+          return pool(near, 3, function (h) {
+            return gbifCountyGid(h.lat, h.lng).then(function (gid) {
+              return Promise.all([iconicBoxFacet(h.lat, h.lng), iconicCountyFacet(gid)]);
+            }).then(function (r) {
+              done++;
+              st.textContent = 'Measuring hotspots\u2026 ' + done + ' of ' + near.length;
+              var bx = r[0], co = r[1];
+              if (!bx || !co || !co.all) return;
+              // The SAME floors the rest of the iconic work uses. Without the
+              // species floor this section would be a list of three-record
+              // artifacts — see ICONIC_MIN_SP_RECORDS, calibrated at Bolt Creek
+              // Burn where eBird prints 130x off two records.
+              var cand = Object.keys(bx.sp).map(function (k) {
+                var m = BL.iconicMultiplier(bx.sp[k], bx.all, co.sp[k], co.all);
+                return m == null ? null : { key: k, n: bx.sp[k], mult: m };
+              }).filter(function (x) { return x && x.mult >= ICONIC_MIN_MULT; })
+                .sort(function (a, b) { return b.mult - a.mult; })
+                .slice(0, ICONIC_TOP_PER_SPOT);
+              if (!cand.length) return;
+              return pool(cand, 3, function (x) {
+                return gbifSciFor(x.key).then(function (s) {
+                  var row = s ? sci[String(s).toLowerCase()] : null;
+                  out.push({
+                    locId: h.locId, place: h.name || h.locName || h.locId,
+                    lat: h.lat, lng: h.lng, distMi: h._mi,
+                    mult: x.mult, n: x.n, effort: bx.all,
+                    sci: s, code: (row && row.code) || '', name: (row && row.name) || s || String(x.key)
+                  });
+                });
+              });
+            }).catch(function () {});
+          }).then(function () {
+            _iconicRows = out.sort(function (a, b) { return b.mult - a.mult; });
+            btn.disabled = false;
+            if (!out.length) {
+              st.textContent = 'Nothing within ' + lim + ' mi stands out strongly for any bird \u2014 '
+                + 'itself an answer: these are ordinary patches rather than specialities.';
+              return;
+            }
+            st.textContent = out.length + ' bird-and-place pairings from ' + near.length
+              + ' hotspots within ' + lim + ' mi. Historical odds across the whole year, '
+              + 'not sightings.';
+            if ($('iconicSortRow')) $('iconicSortRow').hidden = false;
+            renderIconicSpots();
+          });
+        }).catch(function (e) {
+          btn.disabled = false;
+          st.textContent = 'Could not scan: ' + ((e && e.message) || e);
+        });
+      }
+
+      function setIconicView(v) {
+        _iconicView = v;
+        if ($('iconicByBird')) $('iconicByBird').setAttribute('aria-pressed', String(v === 'bird'));
+        if ($('iconicByPlace')) $('iconicByPlace').setAttribute('aria-pressed', String(v === 'place'));
+        renderIconicSpots();
+      }
+
+      function renderIconicSpots() {
+        var box = $('iconicResults'), rows = _iconicRows || [];
+        if (!box || !rows.length) return;
+        if (_iconicView === 'place') {
+          // "rank hotspots by iconic bird scores (like these hotspots have
+          // highest iconic bird scores by any bird)" — one card per PLACE,
+          // ordered by its best bird, using the same medium hotspot card every
+          // other place list uses.
+          var byLoc = {}, order = [];
+          rows.forEach(function (r) {
+            if (!byLoc[r.locId]) { byLoc[r.locId] = { best: r, birds: [] }; order.push(r.locId); }
+            if (r.mult > byLoc[r.locId].best.mult) byLoc[r.locId].best = r;
+            byLoc[r.locId].birds.push(r);
+          });
+          order.sort(function (a, b) { return byLoc[b].best.mult - byLoc[a].best.mult; });
+          box.innerHTML = '';
+          var ul = document.createElement('ul');
+          ul.className = 'obs big xl';
+          order.forEach(function (locId, i) {
+            var g = byLoc[locId], h = g.best;
+            ul.appendChild(hotspotCard({
+              n: i + 1, locId: locId, locName: h.place, lat: h.lat, lng: h.lng,
+              distMi: h.distMi,
+              facts: ['best: ' + h.name + ' ' + Math.round(h.mult) + '\u00d7',
+                      g.birds.length + (g.birds.length === 1 ? ' speciality' : ' specialities')],
+              speciesLabel: g.birds.length + ' stand out here',
+              presorted: true,
+              species: g.birds.slice().sort(function (a, b) { return b.mult - a.mult; })
+                .map(function (b) {
+                  return { code: b.code, comName: b.name, rare: 0,
+                           pre: '<span class="ictag">' + Math.round(b.mult) + '\u00d7</span>' };
+                })
+            }));
+          });
+          box.appendChild(ul);
+          hydratePhotos(box);
+          return;
+        }
+        // BY BIRD, duplicates kept: "it could show a list of birds sorted by
+        // iconic score, there might be duplicates" — the row is a bird AND a
+        // place, because the pairing is the fact, not the bird on its own.
+        box.innerHTML = SpeciesCards.list('small', rows.map(function (r) {
+          return SpeciesCards.small({
+            icon: photoSlot(r.name, r.code),
+            name: r.code ? speciesLink(r.name, r.code) : esc(r.name),
+            code: r.code, alpha: r.code ? alphaFor(r.code) : '',
+            tags: '<span class="ictag">' + Math.round(r.mult) + '\u00d7</span>'
+              + needTag(r.code, r.name),
+            sub: (r.lat != null && r.lng != null
+                  ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
+                  : esc(r.place))
+              + ' \u00b7 ' + r.distMi.toFixed(1) + ' mi'
+              + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
+          });
+        }), 'sppl');
+        hydratePhotos(box);
+      }
+
+
       // --- P15: migration outlook (weekly phenology from historic samples) ---
       var MIG_MIN_PRESENCE = 1, MIG_YEARS_BACK = 2, MIG_WINDOW_WEEKS = 2, MIG_SAMPLE_WEEKDAY = 3; // 3 = Wednesday
       function migKey() { return 'ebird_mig_' + getReportSlug(); }
@@ -14934,21 +15237,54 @@
           }).join('') + '</ul>';
         }
         if (cascades.length) {
+          // A LEADERBOARD TICK IS NOT A LEAD UNTIL IT HAS AN ADDRESS YOU CAN
+          // DRIVE TO. "birds cascading through the leaderboard shouldnt shown
+          // up in happening now unless they have a checklist at a hotspot in
+          // chase area."
+          //
+          // The lane used to point at c.recent[0] — the NEWEST report anywhere
+          // in the state — and print the nearest distance beside it, so the
+          // device showed Northern Waterthrush at Tennant Lake 76.9 mi and
+          // Sabine's Gull on the open Pacific at 113.5 mi. Both are true
+          // facts about the state and neither is something happening near
+          // you. Now the row is anchored on the nearest IN-RANGE report, and
+          // a species with none is dropped rather than shown at arm's length.
+          cascades = cascades.map(function (c) {
+            var home = getHome(), lim = chaseMaxMi();
+            var best = null;
+            (c.recent || []).forEach(function (r) {
+              if (!home || !isFinite(+r.lat) || !isFinite(+r.lng)) return;
+              var nm = r.locName || r.loc || '';
+              if (nm && !BL.isPublicPlace(nm)) return;
+              var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
+              if (d > lim) return;
+              if (!best || d < best._mi) { best = r; best._mi = d; }
+            });
+            // NOT YET FETCHED is not the same as NOTHING IN RANGE.
+            // cascadeSpots fills `recent` asynchronously after the lane has
+            // painted, so dropping a row that simply has no reports yet would
+            // empty the lane on first render and refill it seconds later.
+            // Only a row that HAS reports and none of them reachable is a row
+            // with no address.
+            if (!best && (c.recent || []).length) return null;
+            return { c: c, near: best };
+          }).filter(Boolean);
+        }
+        if (cascades.length) {
           html += '<h3 class="lanehead">🏆 ' + cascades.length + ' species cascading through the leaderboard' + laneHelpBtn('cascade') + '</h3>';
           // Same abbreviated line as Celebrity Birds, for the same reason: the
           // paragraph that explained this lane is in the ⓘ dialog, and the rows
           // are one line each. Everything that was on the labelled Where/Latest
           // rows is on that line, and the birders behind the cascade are one
           // tap away rather than eight rows of card.
-          html += '<ul class="obs big xl lanes">' + cascades.map(function (c) {
-            var r0 = (c.recent || [])[0];
-            var home = getHome();
-            var near = null, nearAt = '';
-            (c.recent || []).forEach(function (r) {
-              if (!home || !isFinite(r.lat) || !isFinite(r.lng)) return;
-              var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
-              if (near == null || d < near) { near = d; nearAt = distQ(r.lat, r.lng); }
-            });
+          html += '<ul class="obs big xl lanes">' + cascades.map(function (pair) {
+            var c = pair.c;
+            // The row describes ONE report — the nearest one in range — so the
+            // place, the checklist, the date and the distance all agree. With
+            // no reports fetched yet there is nothing to point at, and the
+            // row says so rather than pretending.
+            var r0 = pair.near;
+            var near = r0 ? r0._mi : null, nearAt = r0 ? distQ(r0.lat, r0.lng) : '';
             // WHO added it, as one sentence rather than a row each — the same
             // shape Latest ticks settled on, for the same reason: the decision
             // is "several of the top 100 got this recently", which a sentence
@@ -15764,6 +16100,7 @@
         quickBtn:      'Richest hotspots within ~20 mi of home',
         targetsBtn:    'Nearest places holding a bird you still need',
         spLookupBtn:   'Pick a bird · find where to wait for it',
+        iconicBtn:     'Places near you that stand out for one bird',
         refreshBtn:    'Notable birds reported today',
         activeBtn:     'Notable birds from the last 7 days',
         abaBtn:        'ABA Code 3+ · continent-wide rare-bird alert',
@@ -15773,7 +16110,7 @@
         cklBtn:        'Checklists with the most species in one day',
         convoyBtn:     'Groups birding the same route today',
         favResults:    'Places you saved',
-        allUnseenBtn:  'Every report of a bird you need',
+        allUnseenBtn:  'Every report of a bird you need, nearest first',
         easyBtn:       'Common birds you have somehow missed',
         nvResults:     'Sightings still awaiting a reviewer',
         migBtn:        'What should arrive or leave soon',
@@ -15826,6 +16163,11 @@
         // That is the end of the same thought, not a different one, which is why
         // it left "Birds you still need".
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
+      // F156. Sits beside Stakeout bird because they are the two halves of one
+      // thought: that one starts from a BIRD and finds the place, this one
+      // starts from where you ARE and finds which birds the places round you
+      // are known for.
+      { at: 'iconicBtn',     label: '⭐ Iconic spots near me', needs: 'geo', group: 'Go birding' },
         { at: 'hotBtn',        label: '🔥 Producing patches', needs: 'county', group: 'Go birding' },
         { at: 'coldBtn',       label: '🥶 Under-birded patches', needs: 'county', group: 'Go birding' },
         { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
@@ -15836,7 +16178,7 @@
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
-        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
+        { at: 'allUnseenBtn',  label: '📋 Closest unseen birds', needs: 'county', group: 'Birds you still need' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
           // OFF, not deleted — the section, its loader and its panel are
           // untouched. It leaves the MENU because it is not a separate
@@ -15882,6 +16224,7 @@
       // those fetches — at 3.3 s per call under the measured rate limit, that
       // is what turned a repaint into a 30-second reload.
       var LOADERS = {
+        iconicBtn:    { fn: loadIconicSpots, needsKey: true, needsHome: true },
         allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
@@ -16533,10 +16876,18 @@
           // similar and its hard to find things". Fourteen tiles that differ
           // only in a two-word label are hard to scan; a second line gives each
           // one a different shape and something to aim at.
-          if (MENU_SUB[sec.id]) {
+          // The key is the MENU `at` id, and `sec.id` is NOT it. A section
+          // that already carries an authored id keeps it (`hotPanel`), and
+          // only the ones without get `sec-<at>` — so keying on sec.id
+          // missed almost everything. The device showed it exactly: only
+          // Settings had a sub-line, because `settingsPanel` happens to be
+          // both its authored id and its MENU `at`. `sec._at` is set three
+          // lines above from the MENU row and is the only reliable key.
+          var subTxt = MENU_SUB[sec._at] || MENU_SUB[String(sec.id).replace(/^sec-/, '')];
+          if (subTxt) {
             var sb = document.createElement('span');
             sb.className = 'tilesub';
-            sb.textContent = MENU_SUB[sec.id];
+            sb.textContent = subTxt;
             a.appendChild(sb);
           }
           // F134: only if the section has something to say. Reads cache only.
@@ -16681,7 +17032,7 @@
         // the markup of 28 panels.
         (function () {
           if (!sec0 || !h20) return;
-          var txt = MENU_SUB[id.replace(/^sec-/, '')] || MENU_SUB[id];
+          var txt = MENU_SUB[(sec0 && sec0._at) || ''] || MENU_SUB[id.replace(/^sec-/, '')] || MENU_SUB[id];
           if (!txt) return;
           var el = sec0.querySelector('.sechint');
           if (!el) {
@@ -16817,6 +17168,63 @@
         var m = $('menuPanel');
         return !!(m && !m.hidden);
       }
+      // A ZOOM YOU CANNOT UNDO IS A BROKEN APP, NOT A MAGNIFIED ONE.
+      //
+      // Reported twice: "i double clicked the debugging window it zooms in and
+      // i cannot zoom out", then after pinch-zoom was restored, "the entire app
+      // is zoomed some even after double clicking whitespace to unzoom".
+      // WKWebView can settle at a fractional scale that no gesture returns to
+      // 1 — pinching out hits a floor above 1.0 and double-tap toggles between
+      // two zoomed states rather than back to fit.
+      //
+      // touch-action: manipulation now stops the accidental double-tap that
+      // causes it. This is the other half: a way BACK for anyone already stuck,
+      // including on a build where the gesture fix has not helped.
+      //
+      // The mechanism is the documented iOS trick and it is genuinely the only
+      // one that works: temporarily clamp the viewport with maximum-scale=1,
+      // let the compositor settle, then restore the original content so pinch
+      // zoom still works afterwards. Setting scale via CSS or scrollTo does
+      // NOT move the visual viewport.
+      function currentScale() {
+        var vv = window.visualViewport;
+        return vv && isFinite(vv.scale) ? vv.scale : 1;
+      }
+      function syncZoomReset() {
+        // 1.02 rather than 1: WKWebView reports tiny fractional scales at rest,
+        // and a button that flickers on at 1.001 is its own bug.
+        var z = currentScale() > 1.02;
+        document.documentElement.classList.toggle('zoomed', z);
+      }
+      function resetZoom() {
+        var m = document.getElementById('vpmeta');
+        if (!m) return;
+        var keep = m.getAttribute('content');
+        m.setAttribute('content', 'width=device-width, initial-scale=1.0, '
+          + 'maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+        // Two frames, not one: the clamp has to be applied AND painted before
+        // it is lifted, or the compositor never acts on it.
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            // Restored so pinch-zoom keeps working — user-scalable=no is the
+            // single most damaging thing for a low-vision reader and must never
+            // be left in place (see the note at the top of this file).
+            m.setAttribute('content', keep);
+            syncZoomReset();
+          });
+        });
+      }
+      function bindZoomReset() {
+        var b = document.getElementById('zoomreset');
+        if (b) b.addEventListener('click', resetZoom);
+        var vv = window.visualViewport;
+        if (vv && vv.addEventListener) {
+          vv.addEventListener('resize', syncZoomReset);
+          vv.addEventListener('scroll', syncZoomReset);
+        }
+        syncZoomReset();
+      }
+
       function bindSwipeBack() {
         document.addEventListener('touchstart', function (e) {
           _sw = null;
@@ -17475,6 +17883,7 @@
         abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {}
       });
       bindSwipeBack();
+      bindZoomReset();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
       $('addTripBtn').addEventListener('click', function () {
         var label = ($('tripName').value || '').trim();
@@ -17756,6 +18165,9 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
+      $('iconicBtn').addEventListener('click', loadIconicSpots);
+      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
+      if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
       if ($('spCodesBtn')) $('spCodesBtn').addEventListener('click', toggleSpCodes);

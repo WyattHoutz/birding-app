@@ -1156,3 +1156,96 @@ test('an iconic row can say WHICH MONTHS its records fall in', () => {
   assert.equal(BL.monthSpanLabel([]), '');
   assert.equal(BL.monthSpanLabel(null), '');
 });
+
+// ── CELEBRITY BIRDS: 4+ SIGHTINGS AT ONE PLACE, NOT 4 ACROSS A STATE ─────
+// Four rounds of device feedback, ending with the spec: "a celebrity bird is
+// one that has 4+ obs at the same hotspot (make sure its not just a convoy of
+// 5)". The shipped lane failed it three separate ways at once, and each is
+// asserted here.
+test('a celebrity bird needs 4 independent sightings at ONE place, in range', () => {
+  const at = (mi, locId, loc, lat, lon, dateStr, who) => ({
+    code: 'norwat', name: 'Northern Waterthrush', kind: 'Rarity', valid: true,
+    locId, loc, lat, lon, distMi: mi, dateStr, subId: 'S' + who, userDisplayName: who,
+  });
+  const opts = { now: Date.parse('2026-08-20T18:00:00Z'), seen: {}, maxMi: 40, hours: 48 };
+
+  // 1. TWO PLACES FIVE MILES APART ARE TWO BIRDS. Reported verbatim: the row
+  //    said "2 locs · 2 obs" over Juanita Bay (4.6 mi) and Union Bay (9.3 mi),
+  //    one sighting each. Region-wide counting made that look like a crowd.
+//    FOUR rows on purpose, split 2+2: region-wide counting reaches the
+//    threshold, per-place counting does not. A 3-row fixture would pass this
+//    assertion even with clustering removed, and did — the mutation that
+//    deleted clustering went green until this was widened.
+  const split = BL.needNearby([
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 10:15', 'a'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 12:30', 'c'),
+    at(9.3, 'L2', 'Union Bay Natural Area', 47.65, -122.29, '2026-08-20 11:46', 'b'),
+    at(9.3, 'L2', 'Union Bay Natural Area', 47.65, -122.29, '2026-08-20 13:02', 'd'),
+  ], opts);
+  assert.equal(split.length, 0,
+    'sightings at unrelated places were added into a crowd that exists nowhere you can drive to');
+
+  // 2. FOUR AT ONE PLACE QUALIFIES, and the row describes THAT place.
+  const real = BL.needNearby([
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 08:15', 'a'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 09:20', 'b'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 10:15', 'c'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 11:40', 'd'),
+    at(246, 'L9', 'Koppel Farm', 46.20, -119.10, '2026-08-20 07:40', 'e'),
+  ], opts);
+  assert.equal(real.length, 1, 'four independent sightings at one hotspot is the whole point');
+  assert.equal(real[0].locName, 'Juanita Bay Park');
+  assert.equal(real[0].sightings, 4, 'the count must describe the qualifying place');
+  assert.ok(real[0].distMi < 5, 'the row must carry the qualifying place, not the farthest report');
+
+  // 3. THREE IS NOT FOUR, and "it was reviewed" is no longer an escape hatch.
+  //    That bypass exempted every reviewed rarity — nearly all of them — so the
+  //    threshold was decorative, which is how a Red Crossbill with ONE
+  //    observation reached the lane.
+  assert.equal(BL.needNearby([
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 08:15', 'a'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 09:20', 'b'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 10:15', 'c'),
+  ], opts).length, 0, 'three sightings passed a four-sighting gate');
+  assert.equal(BL.needNearby([
+    { code: 'redcro2', name: 'Red Crossbill', kind: 'Rarity', valid: true, locId: 'L3',
+      loc: 'Carkeek Park', lat: 47.71, lon: -122.37, distMi: 10.6,
+      dateStr: '2026-08-20 08:22', subId: 'S1', userDisplayName: 'a' },
+  ], opts).length, 0, 'a single reviewed observation is still a single observation');
+
+  // 4. A CONVOY IS ONE SIGHTING. Jetty Island S384988779 carries numObservers=5;
+  //    when such a party SHARES, each member files at the same place and minute.
+  //    Counts deliberately differ here — party members disagree about flock
+  //    size all the time, and a key that includes the count would split them
+  //    back into five "independent" reports.
+  const convoy = ['v', 'w', 'x', 'y', 'z'].map((who, i) => {
+    const r = at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 10:02', who);
+    r.count = 5 + i; r.howMany = 5 + i;
+    return r;
+  });
+  assert.equal(BL.needNearby(convoy, opts).length, 0,
+    'a party of five filing one sighting was counted as five independent confirmations');
+
+  // 5. IN RANGE, and a distance that never resolved does not get the benefit of
+  //    the doubt — that hole is how a 246-mile report reached a lane about tonight.
+  const far = ['a', 'b', 'c', 'd'].map((who, i) =>
+    at(246, 'L9', 'Koppel Farm', 46.20, -119.10, '2026-08-20 0' + (i + 1) + ':00', who));
+  assert.equal(BL.needNearby(far, opts).length, 0, 'a crowd 246 miles away is not happening near you');
+  const nodist = ['a', 'b', 'c', 'd'].map((who, i) => {
+    const r = at(4.6, 'L1', 'Juanita Bay Park', 47.70, -122.21, '2026-08-20 0' + (i + 1) + ':00', who);
+    r.distMi = null; return r;
+  });
+  assert.equal(BL.needNearby(nodist, opts).length, 0,
+    'a place whose distance never resolved cannot be shown to be in range');
+
+  // 6. ADJACENT HOTSPOTS ARE ONE SITE — "the same hotspot or adjacent hotspots".
+  //    Two pins ~300 m apart are one stakeout you walk between.
+  const adjacent = [
+    at(4.6, 'L1', 'Juanita Bay Park', 47.7000, -122.2100, '2026-08-20 08:15', 'a'),
+    at(4.7, 'L2', 'Juanita Bay Park--boardwalk', 47.7025, -122.2100, '2026-08-20 09:20', 'b'),
+    at(4.6, 'L1', 'Juanita Bay Park', 47.7000, -122.2100, '2026-08-20 10:15', 'c'),
+    at(4.7, 'L2', 'Juanita Bay Park--boardwalk', 47.7025, -122.2100, '2026-08-20 11:40', 'd'),
+  ];
+  assert.equal(BL.needNearby(adjacent, opts).length, 1,
+    'two pins you could walk between were treated as two different birds');
+});

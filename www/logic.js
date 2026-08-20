@@ -2594,11 +2594,27 @@
   var CONF_RECENT_MULT = 0.6;
 
   function confEventKey(r) {
-    // Same place, same minute, same count = one sighting, however many
-    // people filed it.
-    return [r.locId || r.loc || '', String(r.obsDt || r.dateStr || '').slice(0, 16),
-            String(r.howMany === undefined || r.howMany === null ? '' : r.howMany)
-           ].join('|');
+    // Same place, same minute = ONE sighting, however many people filed it.
+    //
+    // COUNT IS DELIBERATELY NOT IN THIS KEY. It used to be, and it was doing
+    // nothing useful and one actively harmful thing:
+    //   * nothing, because it read `r.howMany`, and merged records carry the
+    //     field as `count` — so the term was empty on every merged row.
+    //   * harmful, because the moment it DID resolve, a party that disagreed
+    //     ("5" vs "6" of the same flock) split into two events, which is the
+    //     exact inflation this key exists to prevent.
+    // Measured case, supplied from the device: Jetty Island S384988779 carries
+    // numObservers=5 on ONE submission. When such a party SHARES instead, each
+    // member gets their own subId at the same place and minute, and only a
+    // key this coarse collapses them. `checklistId` looks like the right
+    // identifier and is not — it returned CL24321, an eBird checklist TEMPLATE
+    // id, not a per-submission group id.
+    //
+    // Under-counting is the safe direction here: two strangers at one spot in
+    // one minute are indistinguishable from a couple, and the section has been
+    // wrong four times by counting too generously.
+    return [r.locId || r.loc || '',
+            String(r.obsDt || r.dateStr || '').slice(0, 16)].join('|');
   }
 
   function chaseConfidence(rows, opts) {
@@ -2793,7 +2809,19 @@
   // built for the Spotted Sandpiper at a retention pond, which draws no crowd
   // and is still the most actionable bird on the phone. Rarities remain exempt
   // at any count.
-  var NEED_MIN_SIGHTINGS = 3;
+  // "a celebrity bird is one that has 4+ obs at the same hotspot (make sure its
+  // not just a convoy of 5)" — the spec, fourth and clearest statement of it.
+  // Four INDEPENDENT sightings, counted per place, with a party collapsing to
+  // one event (see confEventKey).
+  var NEED_MIN_SIGHTINGS = 4;
+  // "im looking for multiple obs at the same hotspot or adjacent hotspots"
+  //
+  // 1000 m, and the number is borrowed on purpose: PERSONAL_NEAR_HOTSPOT_M uses
+  // the same distance with the owner's own framing — "a pin you could walk to
+  // from the hotspot is part of the same site". Two reports you could walk
+  // between are one stakeout; Juanita Bay and Union Bay are five miles apart and
+  // are two separate birds however similar the rows look.
+  var NEED_CLUSTER_M = 1000;
 
   function needNearby(records, opts) {
     opts = opts || {};
@@ -2895,20 +2923,65 @@
     // it should show buzz"), which was filed for exactly this and only ever
     // half-addressed by de-duplication.
     out.forEach(function (g) {
-      g.conf = chaseConfidence(g.rows, { nowMs: now });
+      // Score each WALKABLE CLUSTER separately and keep the best one. The old
+      // code ran chaseConfidence over every row for the species region-wide,
+      // so single sightings at unrelated places added up into a "crowd" that
+      // existed nowhere you could drive to.
+      var best = null;
+      needClusters(g.rows).forEach(function (cl) {
+        var conf = chaseConfidence(cl.rows, { nowMs: now });
+        // The nearest row in the cluster is the one the card describes, so
+        // the place, checklist, time and count all come from one report.
+        var near = null, nearD = null, places = {};
+        cl.rows.forEach(function (r) {
+          var pid = r.locId || r.loc || r.locName || '';
+          if (pid) places[pid] = 1;
+          var d = r.distMi == null ? null : Number(r.distMi);
+          if (d == null || !isFinite(d)) return;
+          if (nearD == null || d < nearD) { nearD = d; near = r; }
+        });
+        var cand = { conf: conf, row: near, distMi: nearD,
+                     nPlaces: Object.keys(places).length, reports: cl.rows.length };
+        if (!best || cand.conf.events > best.conf.events
+            || (cand.conf.events === best.conf.events
+                && (best.distMi == null
+                    || (cand.distMi != null && cand.distMi < best.distMi)))) best = cand;
+      });
+      g.conf = best ? best.conf : chaseConfidence([], { nowMs: now });
       // The corroborated count, which is NOT g.reports: that counts rows, and
       // a birding party files one sighting several times over.
       g.sightings = g.conf.events;
+      if (best) {
+        g.nPlaces = best.nPlaces;
+        g.reports = best.reports;
+        g.clusterMi = best.distMi;
+        var r = best.row;
+        if (r) {
+          g.distMi = best.distMi;
+          g.locId = r.locId || ''; g.locName = r.loc || r.locName || '';
+          g.subId = r.subId || '';
+          g.whenStr = r.dateStr || '';
+          g.count = (typeof r.count === 'number') ? r.count : null;
+          g.lat = r.lat == null ? null : r.lat;
+          g.lon = (r.lon == null ? r.lng : r.lon);
+        }
+      }
       g.rows = null;                    // grouping detail, not render data
     });
     out = out.filter(function (g) {
       // Notable, or it is not something anyone is talking about.
       if (notableOnly && !g.rare) return false;
-      // Corroborated, OR reviewed. A mega found an hour ago has exactly one
-      // report and dropping it is the harm that argued against filtering at
-      // all; an UNREVIEWED single report is precisely the "one off that might
-      // not be real", and eBird already says which is which.
-      return g.sightings >= minSightings || g.anyValid;
+      // ...and the crowd has to be somewhere you can actually go. A row whose
+      // distance never resolved cannot be shown to be in range, so it fails
+      // rather than passing on the benefit of the doubt — that hole is how a
+      // 246-mile report reached a lane about tonight.
+      if (g.clusterMi == null || !isFinite(g.clusterMi) || g.clusterMi > maxMi) return false;
+      // CORROBORATED AT ONE PLACE. The "or it was reviewed" escape hatch is
+      // gone: it exempted every reviewed rarity, which is nearly all of them,
+      // so the threshold above was decorative. That is why a Red Crossbill
+      // with ONE observation reached the lane after three separate rounds of
+      // "stop showing me single sightings".
+      return g.sightings >= minSightings;
     });
     out.sort(function (a, b) {
       var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;
@@ -2923,7 +2996,44 @@
     return out;
   }
 
-  // ---- F30 tier 3: a temporary anchor somewhere the report never fetched ---
+  // ONE PLACE, NOT ONE REGION. Corroboration only means anything if the reports
+  // are of the SAME BIRD, and "same bird" is a question about geography.
+  //
+  // Reported from the device: Northern Waterthrush showed "2 locs · 2 obs" and
+  // qualified, but the two were Juanita Bay (4.6 mi) and Union Bay (9.3 mi),
+  // one sighting each — two different birds five miles apart, not a stakeout.
+  // Splitting a group into walkable clusters and scoring each one separately is
+  // what makes the count answer "can I go and stand where they stood".
+  function needClusters(rows) {
+    var list = (rows || []).filter(Boolean);
+    if (!list.length) return [];
+    var groups = [];
+    list.forEach(function (r) {
+      var lat = r.lat == null ? null : Number(r.lat);
+      var lon = (r.lon == null ? r.lng : r.lon);
+      lon = lon == null ? null : Number(lon);
+      var pid = r.locId || r.loc || r.locName || '';
+      var hit = null;
+      for (var i = 0; i < groups.length && !hit; i++) {
+        var g = groups[i];
+        // Same locId is the same place by definition, whatever the coordinates
+        // say — eBird pins a hotspot once and every checklist inherits it.
+        if (pid && g.ids[pid]) { hit = g; break; }
+        if (lat != null && lon != null && g.lat != null
+            && approxMeters(lat, lon, g.lat, g.lon) <= NEED_CLUSTER_M) hit = g;
+      }
+      if (!hit) {
+        hit = { ids: {}, rows: [], lat: lat, lon: lon };
+        groups.push(hit);
+      }
+      if (pid) hit.ids[pid] = 1;
+      if (hit.lat == null && lat != null) { hit.lat = lat; hit.lon = lon; }
+      hit.rows.push(r);
+    });
+    return groups;
+  }
+
+
   //
   // "summarize cost of a fresh fetch of feeds for yakima or another county that
   //  would support showing hotspots outside of chase distance. id like to

@@ -408,6 +408,27 @@
         "Covers what eBird has for the region; a bird seen only outside it will not appear."
       ]
     },
+    "iconicBtn": {
+      "report": null,
+      "summary": "Which places near you are unusually good for one particular bird — the signal eBird's own hotspot pages call Iconic Birds.",
+      "inputs": [
+        "eBird ref/hotspot/{region}, the cached hotspot directory, for places within your chase radius",
+        "GBIF occurrence facets over the eBird Observation Dataset — keyless, so this costs no eBird quota",
+        "GBIF geocode/reverse, to resolve each hotspot to the county it sits in"
+      ],
+      "how": [
+        "For each hotspot, ONE faceted GBIF call returns every species' share of the records in a 2 km box around it, together with the box total. A second call does the same for the whole county, and is shared by every hotspot inside it.",
+        "The multiplier is the bird's share of records at the place divided by its share across the county. Against eBird's own Iconic Birds panel at Mann Rd, Sultan this reproduces eBird's exact ordering: Yellow-breasted Chat, then Western Kingbird, then Lazuli Bunting, then Eastern Kingbird.",
+        "Measured across the WHOLE YEAR, not the current season. eBird's August-only view at Bolt Creek Burn omits the Northern House Wren the site is known for, because it is a May–June bird there; every row therefore states which months its records fall in.",
+        "Two views of one scan: by BIRD keeps a row per bird-and-place pairing, so the same bird can appear for several places; by PLACE ranks hotspots by their single best bird."
+      ],
+      "limits": [
+        "App-only. The numbers are measured against YOUR home and YOUR chase radius, which a Markdown report generated hours earlier cannot ask for.",
+        "Two evidence floors, and both matter. A box with under 200 bird records has no norm to compare against, and a species with fewer than 10 records there cannot support a ratio — without the second, Bolt Creek Burn reports a House Wren at 82× off THREE records, which is the same artifact eBird itself prints as ‘130×, observed 1/1 years’.",
+        "Historical odds, not sightings. A high multiplier says the bird is reliably reported there, not that it is there today — there is no checklist behind a row.",
+        "Bounded to the 12 nearest hotspots and the top 4 birds at each, so a scan stays fast; GBIF's eBird snapshot also lags roughly a year, so very recent sites read thin."
+      ]
+    },
     "easyBtn": {
       "report": "## 🥚 Easy misses",
       "summary": "Common birds you should already have — the highest hit-rate chase list.",

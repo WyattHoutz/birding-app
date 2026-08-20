@@ -486,8 +486,12 @@
     var c = codeText(v.code);
     if (!c) return '';
     var a = alphaText(v.alpha);
+    // A SEPARATOR, because without one the two codes fuse into a word that is
+    // neither: the device showed "norwatNOWA" and "eleter1ELTE". They are two
+    // different identifiers — eBird's and the banding code a birder says out
+    // loud — so they have to read as two.
     var body = '<span class="spcode">' + c + '</span>'
-      + (a ? '<span class="spalpha">' + a + '</span>' : '');
+      + (a ? '<span class="spalphasep"> </span><span class="spalpha">' + a + '</span>' : '');
     if (tpl === SMALL) return body;   // inline after the name, no separator
     var sep = subHtml(v, false) ? '<span class="spcodesep"> \u00b7 </span>' : '';
     return body + sep;
