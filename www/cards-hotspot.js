@@ -130,7 +130,20 @@
     /* ---- SMALL ---- */
     '.hscard-sm { padding: 12px 0; }',
     '.hscard-sm > .name { display: flex; align-items: center; gap: 10px;',
+    '                     font-size: calc(15px * var(--s));',
     '                     min-height: calc(34px * var(--s)); line-height: 1.25; }',
+    '.hscard-sm > .name > .ntext { min-width: 0; overflow-wrap: anywhere; }',
+    /* The sub-line is a LINE, not a continuation of the name. Without this it
+       renders inline and immediately after it, which read as
+       "Saltese Wetlands3.5× the regional average" - the name and its first
+       fact welded into one word. The species small card has the same rule for
+       the same reason; this family simply never needed it until a section put
+       a sub on a small hotspot row.
+       Scoped under .hscard-sm because a small card can be nested inside a
+       medium one, where .sub means something else. */
+    '.hscard-sm > .name > .ntext > .sub {',
+    '  display: block; font-size: calc(13px * var(--s)); font-weight: 500;',
+    '  color: var(--muted); margin-top: 1px; line-height: 1.3; }',
 
     /* ---- MEDIUM: a three-column header over a full-width sub-header ----
 

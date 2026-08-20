@@ -58,7 +58,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
 | `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
 | `large` | — | **unused** |
-| `marker` | `spLookupIconicHtml` | the numbered badge on each *By odds* row, cloning that row's map pin |
+| `marker` | — | **unused** — and it is a trap, not an oversight: `build()` derives the badge from `num`/`icon`, so a caller passing a ready-made `marker` has it silently dropped. Stakeout *By odds* numbers its rows by passing `num` |
 
 ### ChecklistCards — a row is a checklist
 
@@ -72,15 +72,19 @@ Sizes are a **rank of attention**, not a rank of importance:
 
 ## The unused ones
 
-`HotspotCards.large` is defined, styled and tested but called from nowhere in
-`index.html`.
+`HotspotCards.large` and `HotspotCards.marker` are defined, styled and tested
+but called from nowhere in `index.html`.
 
 > Was "the unused four". `SpeciesCards.large` went to 📅 My year, and
-> `HotspotCards.small` + `HotspotCards.marker` went to the Stakeout *By odds*
-> view — which is the argument below playing out as intended: the shapes were
-> there when a section needed them, so nobody invented a fourth.
+> `HotspotCards.small` went to the Stakeout *By odds* view — which is the
+> argument below playing out as intended: the shape was there when a section
+> needed it, so nobody invented a fourth.
+>
+> `marker` is a special case. *By odds* really does number its rows, but
+> `build()` computes the badge from `num`/`icon` and **ignores a `marker`
+> passed in**, so calling it produced rows with no number at all. Pass `num`.
 
-It is **kept deliberately**, not left by accident:
+They are **kept deliberately**, not left by accident:
 
 * They keep the families symmetrical. A family offering only the sizes
   currently in use invites the next section to invent a fourth shape rather

@@ -2448,16 +2448,26 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
   const full = CK.small({ place: 'Marymoor Park--Audubon BirdLoop', date: 'Jul 30 9:29 AM',
                           href: 'https://ebird.org/checklist/S1', count: 42, distMi: 4.24 });
-  // REFINED 2026-08-19. This asserted NO count on a small row, quoting
-  // "remove the bird count" - and then: "It's missing the bird count in each
-  // item." Both are right about different numbers. The original complaint was
-  // "×1 over and over" on a rarity list, where one bird is the ordinary case
-  // and says nothing; 42 is the reason to go. So the rule is now "only when it
-  // is greater than one" rather than "never".
+  // REFINED TWICE. It first asserted NO count on a small row, quoting "remove
+  // the bird count"; then "It's missing the bird count in each item." made it
+  // "only when greater than one"; then, looking at that shipped:
+  //
+  //   "the checklists are missing the bird count"
+  //
+  // The middle rule was the problem: a blank row had come to mean EITHER a
+  // count of one OR eBird's "X" (present, nobody counted), which arrives as
+  // null. One is a fact about the bird, the other about the checklist, and no
+  // reader could tell them apart. So the blank is retired - a number whenever
+  // eBird gave one, ×X when it explicitly did not, nothing when the caller
+  // supplied no count at all.
   assert.match(full, /class="ckcount"[^>]*>\u00d742</,
     'an informative count (42) is hidden on the one-line row');
-  assert.ok(!/class="ckcount"/.test(CK.small({ place: 'P', date: 'd', count: 1 })),
-    '×1 is back, which is the noise that was removed');
+  assert.match(CK.small({ place: 'P', date: 'd', count: 1 }), /class="ckcount"[^>]*>\u00d71</,
+    'a count of one is invisible again, which is what read as missing');
+  assert.match(CK.small({ place: 'P', date: 'd', count: null }), /class="ckcount"[^>]*>\u00d7X/,
+    'an uncounted report is indistinguishable from a count of one');
+  assert.ok(!/class="ckcount"/.test(CK.small({ place: 'P', date: 'd' })),
+    'a row given no count at all invented one');
   assert.match(CK.medium({ place: 'P', count: 1 }), /1 bird</,
     'the medium card has a whole line, so it spells it out and pluralises');
   assert.match(full, /class="ckdist">4\.2 mi/, 'and how far, when the caller has it');
@@ -7801,10 +7811,11 @@ test('docs/CARDS.md matches the code it documents', () => {
     // SpeciesCards.large left this list on 2026-08-18: My year switched to it.
     // This is exactly the rot the check exists to catch - a template picked up
     // by a new section and still labelled unused a year later.
-    // HotspotCards.marker left it on 2026-08-19: the Stakeout "By odds" view
-    // numbers each historically-good place to match its map pin, which is the
-    // job the marker was built for.
+    // HotspotCards.marker briefly left it and came back the same day: the
+    // Stakeout "By odds" rows DO carry a number, but build() computes the badge
+    // from v.num and ignores a `marker` passed in, so calling it was the bug.
     ['HotspotCards', 'large'],
+    ['HotspotCards', 'marker'],
   ];
   for (const [family, size] of documentedUnused) {
     const calls = (src[family].match(
@@ -9651,9 +9662,11 @@ test('unseen place rows carry the media mark, like every other list', async () =
     'and the one without stays bare');
 
   // The rest of the shared formatting reaches here too, which is the point of
-  // it being shared: numeric date, and no per-bird count.
+  // it being shared: numeric date, and a count that is never ambiguous.
   assert.match(html, /8\/9 4:46p/, 'the abbreviated date');
-  assert.ok(!/ckcount/.test(html), 'and no bird count on a one-line row');
+  assert.match(html, /class="ckcount"[^>]*>\u00d71/,
+    'the count is blank again - which used to mean either one bird or eBird\u2019s '
+    + '"X", and a reader could not tell which');
 });
 
 // "in main menu, move go birding section above rare birds."
@@ -10543,6 +10556,7 @@ test('a bird you need, reported nearby, is not buried by the place it was at', (
   const recs = [
     { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(2), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S1', kind: 'Need' },
     { code: 'sposan', name: 'Spotted Sandpiper', distMi: 18, dateStr: at(5), locId: 'L8', loc: 'Far pond', subId: 'S2', kind: 'Need' },
+    { code: 'sposan', name: 'Spotted Sandpiper', distMi: 4.2, dateStr: at(7), locId: 'L9', loc: 'Redmond retention ponds', subId: 'S7', kind: 'Need' },
     { code: 'amecro', name: 'American Crow', distMi: 1, dateStr: at(1), locId: 'L1', loc: 'Yard', subId: 'S3', kind: 'Need' },
     { code: 'weskin', name: 'Western Kingbird', distMi: 60, dateStr: at(3), locId: 'L7', loc: 'Too far', subId: 'S4', kind: 'Need' },
     { code: 'rufhum', name: 'Rufous Hummingbird', distMi: 9, dateStr: at(40), locId: 'L6', loc: 'Stale', subId: 'S5', kind: 'Need' },
@@ -10559,7 +10573,7 @@ test('a bird you need, reported nearby, is not buried by the place it was at', (
   // place-first is what Top destinations is for and is exactly what buried it.
   const sp = out[0];
   assert.strictEqual(sp.nPlaces, 2, 'the two ponds collapsed into one row');
-  assert.strictEqual(sp.reports, 2, 'both reports are counted');
+  assert.strictEqual(sp.reports, 3, 'all three reports are counted');
   assert.strictEqual(sp.locName, 'Redmond retention ponds',
     'the row carries the NEAREST place, because the row is a decision about driving');
   assert.strictEqual(sp.distMi, 4.2);
@@ -10585,8 +10599,10 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
   const mixed = BL.needNearby([
     { code: 'ccc', name: 'C', dateStr: '2026-08-12 11:00', locId: 'L3', loc: 'Z', subId: 'S1' },
     { code: 'ccc', name: 'C', dateStr: '2026-08-12 10:00', locId: 'L3b', loc: 'Z2', subId: 'S2' },
+    { code: 'ccc', name: 'C', dateStr: '2026-08-12 09:00', locId: 'L3c', loc: 'Z3', subId: 'S8' },
     { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 11:00', locId: 'L4', loc: 'W', subId: 'S3' },
     { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 10:00', locId: 'L4b', loc: 'W2', subId: 'S4' },
+    { code: 'ddd', name: 'D', distMi: 9, dateStr: '2026-08-12 09:00', locId: 'L4c', loc: 'W3', subId: 'S9' },
   ], { now, seen: {}, maxMi: 35, hours: 24 });
   assert.strictEqual(mixed.map((r) => r.code).join(','), 'ddd,ccc',
     'a row with a known distance must lead one without');
@@ -10948,34 +10964,46 @@ test('the needs lane leads with the bird people keep re-finding', () => {
       { obsDt: at(20), dateStr: at(20), howMany: 1, userDisplayName: 'C' }]),
   );
   const out = BL.needNearby(records, { now, seen: {}, maxMi: 100 });
-  // THIS REVERSES AN EARLIER DECISION, deliberately. The lane used to RANK and
-  // never filter, on the reasoning that a filter could silently drop the exact
-  // bird being chased. The owner asked twice for the opposite - first "use
-  // recent burst algorithm to filter only birds that have many recent reports
-  // in chase area", then, looking at the shipped result:
+  // THIS REVERSES AN EARLIER DECISION, deliberately, and then tightened twice
+  // more. The lane used to RANK and never filter, on the reasoning that a
+  // filter could silently drop the exact bird being chased. The owner asked
+  // three times for the opposite:
   //
+  //   "use recent burst algorithm to filter only birds that have many recent
+  //    reports in chase area"
   //   "happening now shouldnt be showing birds seen by one observation"
+  //   "happening now still shows birds with 2 obs"
+  //   "happening now is about buzz, not one offs that might not be real"
   //
-  // A section headed "Happening now" listing a bird one person noted once is
-  // not describing anything happening.
+  // Two reports can be one pair of birders standing together - the surge lane
+  // learned that when a couple's dawn walk fired "novel" for every montane
+  // species they saw - so the gate is three.
   assert.equal(out.length, 1,
-    'a bird with a single sighting is still listed under "Happening now"');
+    'a bird with fewer than three sightings is still listed under "Happening now"');
   assert.equal(out[0].code, 'bbbbbb', 'the corroborated bird is the one that survives');
   assert.equal(out[0].sightings, 3, 'sightings are counted as events');
 
   // ...and the original objection is honoured rather than overruled: the harm
   // it warned about was dropping a chaseable mega, which has exactly one report
-  // by definition. So a flagged rarity is kept at any count.
+  // by definition. So a REVIEWED rarity is kept at any count.
   const rare = BL.needNearby(records.map((r) => (
-    r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity' }) : r)),
+    r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity', obsValid: true }) : r)),
   { now, seen: {}, maxMi: 100 });
-  assert.equal(rare.length, 2, 'a single-report RARITY was dropped - that is the mega it exists to catch');
+  assert.equal(rare.length, 2, 'a single-report REVIEWED rarity was dropped - that is the mega it exists to catch');
   assert.ok(rare.some((r) => r.code === 'aaaaaa' && r.rare),
     'the rarity survived but lost its flag');
 
+  // But an UNREVIEWED single report of a rarity is exactly the "one off that
+  // might not be real", and eBird says which is which.
+  const unreviewed = BL.needNearby(records.map((r) => (
+    r.code === 'aaaaaa' ? Object.assign({}, r, { kind: 'Rarity', obsValid: false }) : r)),
+  { now, seen: {}, maxMi: 100 });
+  assert.equal(unreviewed.length, 1,
+    'a single UNREVIEWED rarity report is still shown as though it were buzz');
+
   // The gate is a named constant, not a literal buried in a filter, because the
   // section prints it on screen and the two must not drift.
-  assert.equal(BL.NEED_MIN_SIGHTINGS, 2);
+  assert.equal(BL.NEED_MIN_SIGHTINGS, 3);
 });
 
 test('a lead you cannot legally drive to is not a lead', () => {
@@ -11005,12 +11033,12 @@ test('a lead you cannot legally drive to is not a lead', () => {
   // public one - the bird is chaseable, just not there.
   const both = BL.needNearby([].concat(
     rows('grhowl', 'Great Horned Owl', 'HOME 4648 86th Ave SE, Mercer Island', 2),
-    rows('grhowl', 'Great Horned Owl', 'Marymoor Park', 2),
+    rows('grhowl', 'Great Horned Owl', 'Marymoor Park', 3),
   ), { now, seen: {}, maxMi: 100 });
   assert.equal(both.length, 1);
   assert.equal(both[0].locName, 'Marymoor Park',
     'the private address survived as the place to drive to');
-  assert.equal(both[0].nPlaces, 2,
+  assert.equal(both[0].nPlaces, 3,
     'the private reports were dropped entirely rather than just hidden from the row');
 
   // An unnamed place is not evidence of privacy, and dropping it would lose
@@ -11823,14 +11851,148 @@ test('the odds view is a list, not an appendix, and says what it is first', () =
 
   // A place, not a bird: these rows often have NO recent checklist, which is
   // the whole point of the view, so a species card would promise a link it
-  // cannot provide.
-  assert.ok(/HotspotCards\.small/.test(src), 'the odds rows are not place-shaped');
-  assert.ok(/HotspotCards\.marker/.test(src),
+  // cannot provide. The row builder lives in its own function, so look there.
+  const rowAt = HTML.indexOf('function iconicRowHtml');
+  assert.ok(rowAt > 0, 'iconicRowHtml not found');
+  const rowSrc = HTML.slice(rowAt, HTML.indexOf('\n      function ', rowAt + 1));
+  assert.ok(/HotspotCards\.small/.test(rowSrc), 'the odds rows are not place-shaped');
+  assert.ok(/num: num/.test(rowSrc),
     'the odds rows carry no number, so they cannot be tied to the map pins');
 
   // Nothing found is an ANSWER here, not an empty section.
   assert.ok(/not a bird with a reliable address here/.test(src),
     'an empty odds list renders as nothing at all rather than saying so');
+});
+
+test('a row past the evidence budget stays eligible instead of being marked done', () => {
+  // "these can lazy load but they are mot updating"
+  //
+  // hydrateChecklistEvidence marked EVERY row data-ev-done and only then
+  // applied the call budget, so rows past the cap were permanently ineligible:
+  // reopening the list, or returning later with the cache warm, could never
+  // fill them in. The order of two lines was the whole bug.
+  const at = HTML.indexOf('function hydrateChecklistEvidence');
+  assert.ok(at > 0, 'hydrateChecklistEvidence not found');
+  const src = HTML.slice(at, HTML.indexOf('\n      var _evidStore', at));
+  const filter = src.indexOf('budget--');
+  const mark = src.indexOf("setAttribute('data-ev-done'");
+  assert.ok(filter > -1 && mark > -1, 'the budget filter or the done-marking vanished');
+  assert.ok(filter < mark,
+    'rows are marked done before the budget filter runs, so everything past '
+    + 'the cap can never hydrate');
+
+  // The media hydrator alongside it already had the right order; this pins it
+  // so the two cannot drift back apart.
+  const m = HTML.indexOf("setAttribute('data-ckl-done'");
+  const mb = HTML.lastIndexOf('budget--', m);
+  assert.ok(mb > -1 && mb < m,
+    'the media hydrator now marks rows done before applying its budget');
+});
+
+test('a checklist row never leaves the count ambiguous', () => {
+  const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
+  // "the checklists are missing the bird count"
+  //
+  // A blank had come to mean two different things: the observer counted one
+  // bird, or the observer wrote "X" - present, not counted - which arrives as
+  // null. One is a fact about the bird, the other about the checklist.
+  const one = ChecklistCards.small({ place: 'Marina Beach Park', count: 1 });
+  assert.match(one, /×1/, 'a count of one is still invisible, which reads as missing');
+
+  const four = ChecklistCards.small({ place: 'Blakely Rock', count: 4 });
+  assert.match(four, /×4/);
+
+  // eBird's "X": present, nobody counted. Explicitly null, not absent.
+  const x = ChecklistCards.small({ place: 'Somewhere', count: null });
+  assert.match(x, /×X/,
+    'an uncounted report renders the same as a count of one');
+
+  // A caller that passes NO count at all still prints nothing - that is absence
+  // of data, not a measurement, and "×X" for it would be the same conflation in
+  // the other direction.
+  const none = ChecklistCards.small({ place: 'Somewhere' });
+  assert.ok(!/ckcount/.test(none),
+    'a row with no count supplied invented one');
+
+  // The medium card is unchanged: it is about a VISIT and always said it.
+  assert.match(ChecklistCards.medium({ place: 'X', count: 1 }), /1 bird/);
+});
+
+test('a short Top patches list says which radius it covered', () => {
+  // "top patches shows only two options" - and two was correct: both rows were
+  // 11 mi out and the section stops at the daily-drive radius.
+  //
+  // WIDENING WOULD BE THE WRONG FIX, which is the part worth pinning. Beyond
+  // this radius IS "Worth the drive", already its own section, so a ladder here
+  // would print that section twice.
+  const at = HTML.indexOf('function loadDestinations');
+  const src = HTML.slice(at, HTML.indexOf('\n      // --- Top excursions', at));
+  assert.ok(at > 0, 'loadDestinations not found');
+  assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
+  assert.ok(/Worth the drive/.test(src),
+    'the note does not point at the section holding everything further out');
+  assert.ok(/destRadiusMi\(\)/.test(src),
+    'the note does not name the radius, so it states a limit without saying what it is');
+
+  // The threshold must not touch the DATA - it decides when a sentence is owed,
+  // nothing else.
+  assert.ok(!/DEST_THIN_ROWS[^;]*filter|filter[^;]*DEST_THIN_ROWS/.test(src),
+    'the thin-list threshold is filtering results, not just explaining them');
+
+  // And the note is removed before a re-render, or two runs stack two notes.
+  assert.ok(/destThin[\s\S]{0,200}removeChild/.test(src),
+    'the explanation is appended without clearing the previous one');
+});
+
+test('the odds rows are numbered, readable, and within reach first', () => {
+  // Three bugs shipped in one view, all invisible to a source-text guard and
+  // all obvious in a rendered row:
+  //   1. "Saltese Wetlands3.5×" - the sub-line rendered inline, welding the
+  //      place name to its first fact.
+  //   2. no number on any row, because build() derives the badge from `num`
+  //      and IGNORES a ready-made `marker`, which is what the caller passed.
+  //   3. "shows state wide range by default under odds" - the archive is
+  //      searched state-wide, so every row was 200 miles away.
+  const HC = require(path.join(WWW, 'cards-hotspot.js'));
+
+  // 1 + 2: the row itself.
+  const row = HC.small({ num: 3, name: 'Saltese Wetlands', sub: '3.5× the regional average' });
+  assert.match(row, /class="hsnum"[^>]*>3</,
+    'the row carries no number, so it cannot be tied to a map pin');
+  assert.match(row, /class="sub"/,
+    'the sub-line is not wrapped, so it runs straight into the place name');
+  // A ready-made marker must NOT be honoured, because half-honouring it is how
+  // the numbers vanished: the caller thinks it passed one and the row has none.
+  assert.ok(!/hsnum/.test(HC.small({ marker: '<span class="hsnum">9</span>', name: 'X' })),
+    'a passed-in marker is now half-supported, which is worse than not at all');
+
+  // The CSS has to make that wrapper a LINE. Without this rule the span is
+  // inline and the fix above changes nothing visible.
+  assert.match(HC.css, /\.hscard-sm > \.name > \.ntext > \.sub \{[^}]*display: block/,
+    'the small hotspot card sub-line is not a block, so it renders inline');
+
+  // 3: near first, far behind an expander - "should have to click expand to
+  // see beyond chase area".
+  const at = HTML.indexOf('function spLookupIconicHtml');
+  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.ok(at > 0, 'spLookupIconicHtml not found');
+  assert.ok(/iconicOrdered\(\)/.test(src), 'the odds list is not split by distance at all');
+  assert.ok(/<details class="farplaces"/.test(src),
+    'places beyond the chase radius are not behind an expander');
+  assert.ok(/ord\.near/.test(src) && /ord\.far/.test(src),
+    'near and far are not rendered as separate groups');
+
+  // Nothing nearby is an ANSWER, not an empty list - the state-wide sites are
+  // still shown, they just stop pretending to be local.
+  assert.ok(/Nothing within/.test(src),
+    'a bird with no nearby site renders an empty view instead of saying so');
+
+  // The MAP must follow the same split, or it zooms out to fit pins whose rows
+  // are hidden - which is what made this look state-wide in the first place.
+  const rl = HTML.indexOf('function renderSpeciesLookup');
+  const rsrc = HTML.slice(rl, HTML.indexOf('\n      function ', rl + 1));
+  assert.ok(/iconicOrdered\(\)/.test(rsrc),
+    'the map plots every iconic place, including the ones behind the expander');
 });
 
 test('a place you cannot visit is never recommended', () => {
@@ -12170,16 +12332,16 @@ test('a species row says how many and when, and the fields survive the hop', () 
 });
 
 test('a small checklist row shows a count only when it says something', () => {
-  // Two requests that look opposed and are not:
-  //   "remove the bird count."  - it was x1 fifteen times over on a rarity list
-  //   "It's missing the bird count in each item."
-  // One bird is the ordinary case for a rarity and tells you nothing; six is
-  // the reason to go.
+  // SUPERSEDED and folded into "a checklist row never leaves the count
+  // ambiguous", which is where the current rule lives. Kept as the record of
+  // how it got there: "remove the bird count" -> "It's missing the bird count
+  // in each item" -> "the checklists are missing the bird count". The middle
+  // rule (only when greater than one) made a blank mean two different things.
   const CC = require(path.join(__dirname, '..', 'www', 'cards-checklist.js'));
   const small = (n) => CC.small({ place: 'Edmonds Marsh', date: '8/17', count: n });
   assert.match(small(6), /\u00d76/, 'an informative count is hidden');
-  assert.ok(!/ckcount/.test(small(1)), 'x1 is back, which is the noise that was removed');
-  assert.ok(!/ckcount/.test(small(null)), 'a missing count rendered something');
+  assert.match(small(1), /\u00d71/, 'a count of one is invisible, which reads as missing');
+  assert.match(small(null), /\u00d7X/, 'eBird\u2019s "X" is not distinguished from one');
   // The medium card is about a VISIT, not one bird, so it still shows either.
   assert.ok(/ckcount/.test(CC.medium({ place: 'x', date: 'y', count: 1 })),
     'the medium card lost its count');

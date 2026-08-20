@@ -1779,7 +1779,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.0';
+      var APP_VERSION = '1.26.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5631,6 +5631,43 @@
         }
       }
 
+      // Annotated and ordered ONCE, because the map numbers its pins from the
+      // same array the rows are numbered from. Computed here rather than in
+      // iconicUnwatched so logic.js stays free of the app's home setting.
+      function iconicOrdered() {
+        var home = getHome(), rows = (_spLookupIconic || []).slice();
+        rows.forEach(function (r) {
+          r.distMi = (home && r.lat != null && r.lng != null)
+            ? haversineMi(home.lat, home.lng, +r.lat, +r.lng) : null;
+        });
+        var lim = chaseMaxMi();
+        var near = rows.filter(function (r) { return r.distMi != null && r.distMi <= lim; });
+        var far = rows.filter(function (r) { return !(r.distMi != null && r.distMi <= lim); });
+        var byMult = function (a, b) { return (b.mult || 0) - (a.mult || 0); };
+        near.sort(byMult); far.sort(byMult);
+        return { near: near, far: far, all: near.concat(far), lim: lim };
+      }
+
+      function iconicRowHtml(r, num) {
+        return HotspotCards.small({
+          // `num`, NOT a ready-made marker: build() computes the badge from
+          // v.num/v.icon and ignores any `marker` a caller passes, so a
+          // hand-built one is silently dropped and the row loses the number
+          // that ties it to its map pin.
+          num: num,
+          name: (r.lat != null && r.lng != null)
+            ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
+            : esc(r.place),
+          sub: esc(r.label || '')
+            + (r.distMi != null && isFinite(r.distMi) ? ' \u00b7 ' + r.distMi.toFixed(1) + ' mi' : '')
+            + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
+            + (r.scope === 'state' ? ' \u00b7 vs the whole state' : '')
+            + (r.unwatched
+                ? ' \u00b7 \u2744\ufe0e nobody looking'
+                : ' \u00b7 \u2713 reported lately')
+        });
+      }
+
       // The explanation comes BEFORE the list, because it is what makes the
       // numbers mean anything - these are historical odds, and a reader who
       // meets the rows first reads them as sightings.
@@ -5652,6 +5689,7 @@
             + esc(name) + ' at this time of year \u2014 which is itself an answer: '
             + 'it is not a bird with a reliable address here.</div>';
         }
+        var ord = iconicOrdered();
         var cold = rows.filter(function (r) { return r.unwatched; });
         h += '<div class="status">Places where ' + esc(name) + ' has historically been '
           + 'well above the county average for this time of year. '
@@ -5661,21 +5699,32 @@
               : 'All of them already have recent reports.')
           + ' These are <strong>historical odds, not sightings</strong>, so there is no '
           + 'checklist behind a row \u2014 that is the point of the view.</div>';
-        var items = rows.map(function (r, i) {
-          return HotspotCards.small({
-            marker: HotspotCards.marker(i + 1),
-            name: (r.lat != null && r.lng != null)
-              ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
-              : esc(r.place),
-            sub: esc(r.label || '')
-              + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
-              + (r.scope === 'state' ? ' \u00b7 vs the whole state' : '')
-              + (r.unwatched
-                  ? ' \u00b7 \u2744\ufe0e nobody looking'
-                  : ' \u00b7 \u2713 reported lately')
-          });
-        });
-        return h + HotspotCards.list('sm', items);
+        // WITHIN REACH FIRST. The archive is searched state-wide, so for a bird
+        // like Western Kingbird every strong site is east of the Cascades and
+        // the whole list read as places 200 miles away - "shows state wide
+        // range by default under odds". Same rule the other two views of this
+        // section already follow: near is the answer, far is one tap away
+        // rather than dropped, because "nowhere near you" is worth knowing too.
+        if (!ord.near.length) {
+          h += '<div class="hint">Nothing within <b>' + ord.lim + ' mi</b> stands out for '
+            + esc(name) + ' at this time of year. The best places in the state are below.</div>'
+            + HotspotCards.list('small', ord.far.map(function (r, i) {
+                return iconicRowHtml(r, i + 1);
+              }));
+          return h;
+        }
+        h += HotspotCards.list('small', ord.near.map(function (r, i) {
+          return iconicRowHtml(r, i + 1);
+        }));
+        if (ord.far.length) {
+          h += '<details class="farplaces"><summary>' + ord.far.length
+            + ' more beyond ' + ord.lim + ' mi</summary>'
+            + HotspotCards.list('small', ord.far.map(function (r, i) {
+                return iconicRowHtml(r, ord.near.length + i + 1);
+              }))
+            + '</details>';
+        }
+        return h;
       }
 
       function hydrateUnwatched(code, name, hostId, seenNames) {
@@ -5805,7 +5854,13 @@
             // those places - plotting recent checklists under a list of
             // historical sites would number rows against pins for somewhere
             // else entirely.
-            pts = (_spLookupIconic || []).slice(0, SP_ROWS_MAX)
+            //
+            // And it plots the SAME near-first set the list shows, or the map
+            // zooms out to the whole state to fit pins for rows that are behind
+            // an expander - which is what made the odds view look state-wide.
+            var ord = iconicOrdered();
+            var shown = ord.near.length ? ord.near : ord.far;
+            pts = shown.slice(0, SP_ROWS_MAX)
               .map(function (r) { return { lat: +r.lat, lng: +r.lng, name: r.place }; })
               .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
           } else {
@@ -8366,8 +8421,42 @@
         return '';
       }
 
-      function loadSpeciesIndex(region) {
-        var key = speciesCacheKey(region);
+      // The FOUR-LETTER BANDING CODE, which is the one birders say out loud.
+      // "id prefer to see the four digit bird codes" - BTYW rather than
+      // btywar. eBird ships them in the same taxonomy response the species
+      // index is built from, so this costs nothing but a lookup.
+      //
+      // `alpha` holds every code eBird gave, banding codes first, space
+      // separated: the FIRST is the four-letter one. Falls back to the species
+      // code, because a row with no identifier at all is worse than a longer
+      // one.
+      function alphaFor(code) {
+        if (!code) return '';
+        try {
+          var c = JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null');
+          var rows = (c && c.rows) || [];
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i].code === code) {
+              var a = String(rows[i].alpha || '').trim().split(/\s+/)[0] || '';
+              if (a.length === 4) return a.toUpperCase();
+              return '';
+            }
+          }
+        } catch (e) { /* no index cached yet */ }
+        return '';
+      }
+
+      // The identifier on a row, four-letter code first. Falls back to the
+      // eBird species code when the taxonomy gave no banding code (a few
+      // subspecies and hybrids have none), because an unlabelled row is worse
+      // than a longer label.
+      function spCodeHtml(code) {
+        var a = alphaFor(code);
+        return a ? '<span class="spalpha">' + esc(a) + '</span>'
+                 : '<span class="spcode">' + esc(code || '') + '</span>';
+      }
+
+      function loadSpeciesIndex(region) {        var key = speciesCacheKey(region);
         try {
           var c = JSON.parse(localStorage.getItem(key) || 'null');
           if (c && c.at && (Date.now() - c.at) < SPECIES_TTL_MS && Array.isArray(c.rows)) {
@@ -9328,6 +9417,12 @@
           + countyLabelStr() + ', so nothing closer was fetched';
       }
 
+      // Below this a list reads as broken rather than as short, so it explains
+      // itself. Not a threshold on the DATA - nothing is filtered by it - only
+      // on when the section owes the reader a sentence.
+      var DEST_THIN_ROWS = 4;
+      function destRadiusMi() { return getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI; }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
@@ -9338,7 +9433,25 @@
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
           st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
             + fromHere() + coverageNote(dests) + ' · updated ' + nowTime();
+          // A SHORT LIST HERE IS AN ANSWER, NOT A FAULT - but only if it says
+          // which question it answered. Reported as "top patches shows only two
+          // options": both rows were 11 mi out and the section stops at the
+          // daily-drive radius, so two really was everything within range
+          // today.
+          //
+          // Widening it would be the wrong fix, and that is worth writing down:
+          // beyond this radius IS "Worth the drive", which is already its own
+          // section, so a ladder here would just print that section twice. The
+          // honest fix is to name the radius and point at where the rest went.
+          var thin = $('destThin');
+          if (thin) thin.parentNode.removeChild(thin);
           renderDestinations(dests, $('destMap'), $('destResults'));
+          if (dests.length < DEST_THIN_ROWS) {
+            $('destResults').insertAdjacentHTML('afterend',
+              '<div class="hint" id="destThin">That is everything within <b>'
+              + destRadiusMi() + ' mi</b> — the radius this section covers, not '              + 'everything that is out there. Anywhere further is in '
+              + '<b>🚗 Worth the drive</b>.</div>');
+          }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -10359,7 +10472,6 @@
         if (!root || !getKey()) return Promise.resolve();
         var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
         if (!rows.length) return Promise.resolve();
-        rows.forEach(function (el) { el.setAttribute('data-ev-done', '1'); });
         // Rows are built newest-first, so this keeps the freshest reports.
         // A row that is cached costs nothing, so it is NOT counted against the
         // budget — the cap exists to bound CALLS, not rows.
@@ -10371,6 +10483,14 @@
           budget--;
           return true;
         });
+        // MARKED DONE ONLY ONCE IT IS ACTUALLY GOING TO BE FETCHED, and that
+        // ordering is the whole bug. This ran BEFORE the budget filter, so
+        // every row past the cap was marked done and became permanently
+        // ineligible: reopening the list, or coming back later with the cache
+        // warm, could never fill it in. Reported as "these can lazy load but
+        // they are not updating" - which is exactly right, and the rows that
+        // stayed blank were the ones the budget had skipped.
+        rows.forEach(function (el) { el.setAttribute('data-ev-done', '1'); });
         return pool(rows, CKL_EVID_CONC, function (el) {
           var sub = el.getAttribute('data-ev-sub');
           var code = el.getAttribute('data-ev-code') || '';
@@ -14337,7 +14457,7 @@
                  : '<a class="spdist maplink" data-q="' + esc(distQ(e.lat, e.lon))
                    + '">' + e.distMi.toFixed(1) + '<small>mi</small></a>')
               + '</div>'
-              + '<div class="meta"><span class="spcode">' + esc(e.code) + '</span>'
+              + '<div class="meta">' + spCodeHtml(e.code)
               + '<span class="spcodesep"> · </span>'
               + e.nPlaces + ' place' + (e.nPlaces === 1 ? '' : 's')
               // SIGHTINGS, not rows. e.reports counts feed rows, and a birding

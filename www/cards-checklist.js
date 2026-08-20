@@ -302,26 +302,43 @@
         bits.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
       }
     }
-    // COUNT ON A SMALL ROW ONLY WHEN IT SAYS SOMETHING. Two requests that look
-    // opposed and are not:
+    // COUNT ON A SMALL ROW. Three requests that look opposed and are not:
     //
     //   "remove the bird count."               - it was "×1" fifteen times over
     //                                            on a rarity list, spending the
     //                                            width the PLACE NAME needed
     //   "It's missing the bird count in each item."
+    //   "the checklists are missing the bird count"
     //
-    // Both are right about different numbers. One bird is the ordinary case for
-    // a rarity and tells you nothing; six is the reason to go. So a small row
-    // shows the count only when it is greater than one, and the medium card -
-    // which is about a VISIT rather than one bird - keeps showing it either way.
+    // The first fix showed the count only when it was greater than one. That
+    // read as MISSING, and rightly, because a blank row had come to mean two
+    // different things: the observer counted one bird, or the observer wrote
+    // "X" - present, not counted - which is eBird's own notation and arrives
+    // here as a null. One of those is a fact about the bird and the other is a
+    // fact about the checklist, and a reader could not tell them apart.
+    //
+    // So the blank is retired. A number is printed whenever eBird gave one,
+    // including ×1, and an explicit ×X when eBird was told the bird was there
+    // but not how many. Two characters is a cheap price for a row that no
+    // longer has three possible meanings, and it is the same rule the rest of
+    // the app follows: every number says what it counts, and nothing on screen
+    // means more than one thing.
+    //
+    // A caller that passes no count at all (undefined) still prints nothing —
+    // that is absence of data, not a measurement, and inventing "×X" for it
+    // would be the same conflation in the other direction.
+    var _has = Object.prototype.hasOwnProperty.call(v, 'count') && v.count !== '' && v.count !== undefined;
     var _n = (v.count == null || v.count === '') ? null
            : parseInt(String(v.count).replace(/[^0-9]/g, ''), 10);
-    var _showCount = isMedium ? (v.count != null && v.count !== '')
-                              : (isFinite(_n) && _n > 1);
+    var _showCount = isMedium ? (v.count != null && v.count !== '') : _has;
     if (_showCount) {
+      // `isFinite(null)` is TRUE in JavaScript, because Number(null) is 0 - so
+      // a null count sailed through the numeric branch and printed "×null".
+      // The type has to be checked, not just the finiteness.
+      var _num = (typeof _n === 'number' && isFinite(_n));
       bits.push('<span class="ckcount">' + (isMedium
         ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
-        : '\u00d7' + _n) + '</span>');
+        : '\u00d7' + (_num ? _n : 'X')) + '</span>');
     }
     if (v.distMi != null && isFinite(v.distMi)) {
       // ONE DECIMAL, always. It used to round anything over 10 mi, so the

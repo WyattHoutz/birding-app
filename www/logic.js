@@ -2640,9 +2640,21 @@
   // Costs nothing: these are the records the chase wave already merged, and
   // both filters already exist — isFresh (24 h, v1.1.0) and the report's own
   // chaseMaxMi (v1.2.1).
-  // Two independent sightings, matching the surge lane's novelty gate. One
-  // report is a sighting; two are a claim that survives one person's mistake.
-  var NEED_MIN_SIGHTINGS = 2;
+  // THREE independent sightings. This started at one (no gate), went to two on
+  // "happening now shouldnt be showing birds seen by one observation", and to
+  // three on seeing that shipped: "happening now still shows birds with 2 obs".
+  //
+  // Two reports can be one pair of birders standing together - the surge lane
+  // learned the same lesson when a couple's dawn walk fired "novel" for every
+  // montane species they saw. Three independent checklists is the smallest
+  // number that reads as people going for something.
+  //
+  // NOT raised to the crowd lane's 4 observers, deliberately. That would make
+  // this lane a duplicate of the crowd lane it exists to complement: it was
+  // built for the Spotted Sandpiper at a retention pond, which draws no crowd
+  // and is still the most actionable bird on the phone. Rarities remain exempt
+  // at any count.
+  var NEED_MIN_SIGHTINGS = 3;
 
   function needNearby(records, opts) {
     opts = opts || {};
@@ -2674,13 +2686,18 @@
         byCode[r.code] = { code: r.code, name: r.name || r.code, reports: 0,
                            places: {}, nPlaces: 0, distMi: null, latest: 0,
                            locId: '', locName: '', subId: '', lat: null, lon: null,
-                           rare: false, rows: [] };
+                           rare: false, anyValid: false, rows: [] };
         order.push(r.code);
       }
       var g = byCode[r.code];
       g.rows.push(r);
       g.reports += 1;
       if (r.kind === 'Rarity') g.rare = true;
+      // A rarity nobody has reviewed is the definition of "might not be real",
+      // so validity is tracked alongside rarity rather than assumed. Both field
+      // names are accepted: merged records carry `valid`, raw feed rows carry
+      // eBird's own `obsValid`, and this lane is fed from both.
+      if (r.valid !== false && r.obsValid !== false) g.anyValid = true;
       var pid = r.locId || r.loc;
       if (pid && !g.places[pid]) { g.places[pid] = 1; g.nPlaces += 1; }
       // The row carries the NEAREST place, because the row is a decision about
@@ -2729,8 +2746,16 @@
       g.sightings = g.conf.events;
       g.rows = null;                    // grouping detail, not render data
     });
+    // THE ONE EXEMPTION IS A REVIEWED RARITY, and it is narrower than it was.
+    // "happening now is about buzz, not one offs that might not be real."
+    //
+    // A mega found an hour ago has exactly one report, and dropping it is the
+    // harm that argued against filtering at all - so it is still kept. But an
+    // UNREVIEWED single report of a rarity is precisely the "might not be real"
+    // case, and eBird already tells us which is which, so the exemption asks.
     out = out.filter(function (g) {
-      return g.rare || g.sightings >= minSightings;
+      if (g.sightings >= minSightings) return true;
+      return g.rare && g.anyValid;
     });
     out.sort(function (a, b) {
       var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;
