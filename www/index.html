@@ -444,14 +444,18 @@
     .navregion .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
     #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
-    /* ...but inside the Contents grid it IS the cell, so it carries no margin
-       of its own and fills the column it was given. */
-    .toc li.regioncell { display: block; min-width: 0; }
-    .toc li.regioncell .regionpick { margin: 0; height: 100%; flex-direction: column;
-      align-items: stretch; justify-content: center; gap: 6px;
-      padding: 14px 12px; border: 1px solid var(--line); border-radius: 14px;
-      background: var(--card); }
-    .toc li.regioncell .regionpick select { flex: 0 0 auto; width: 100%; }
+    /* Beside the name, hard right. `margin-left: auto` rather than a fixed
+       width, so a long region label ("Waikoloa / Big Island") grows leftwards
+       into the empty space instead of pushing the name off the row. */
+    .menuidtop { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .menuidtop .menuidname { min-width: 0; overflow-wrap: anywhere; }
+    .menuidtop .regionpick { margin: 0 0 0 auto; flex: 0 1 auto; min-width: 0; }
+    .menuidtop .regionpick select { font-weight: 700; max-width: 100%; }
+    /* The label is for screen readers only: "REGION" beside a control whose
+       value already says "Washington" is a word spent on nothing, but removing
+       it outright would leave the select unnamed. */
+    .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+          overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     .regionpick label { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .regionpick select { flex: 1; font-weight: 700; }
     /* First run has no key, and without one the app can do literally nothing.
@@ -495,7 +499,11 @@
     .toc .toclink::after { content: none; }
     /* Smaller than before: it was 44px and dominating a tile whose JOB is now
        to be read. It marks the tile, it is not the tile. */
-    .tileicon { font-size: calc(30px * var(--s)); line-height: 1;
+    /* Bigger, on request: "make all the icons on the main menu bigger". It was
+       30px, sized down when the tiles gained a sub-line; with the sub-lines now
+       one short line each the tile has the room back, and the glyph is what the
+       eye lands on first when scanning a grid of near-identical cards. */
+    .tileicon { font-size: calc(38px * var(--s)); line-height: 1;
                 grid-column: 1; grid-row: 1; }
     /* "How is this calculated?" — an info affordance on every section heading.
        Sized as a real 34px touch target rather than a decorative glyph: a help
@@ -583,10 +591,21 @@
       text-transform: uppercase; color: var(--muted);
     }
     .toc li.tocgroup:first-child { margin-top: 2px; }
+    /* ONE ROW, full width. "the happening now can go back to being a screenwide
+       bar, but keep it to one row." The sub-line normally sits on its own row
+       beneath the label (grid-row 2); on the wide tile it moves inline after
+       the label, so the bar stays one line tall however wide the screen is.
+       `flex` rather than the tiles' grid, because there is only one thing to
+       lay out here and it is left-to-right. */
     .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
                             gap: 12px; font-size: calc(17px * var(--s));
+                            flex-wrap: nowrap;
                             background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
                             border-color: rgba(46,160,67,.45); }
+    .toc li.wide .tilelabel { grid-column: auto; grid-row: auto; flex: 0 0 auto; }
+    .toc li.wide .tilesub { grid-column: auto; grid-row: auto; margin: 0;
+                            flex: 1 1 auto; min-width: 0;
+                            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .toc li.wide .tileicon { font-size: calc(42px * var(--s)); }
     label { display: block; font-size: calc(12px * var(--s)); color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password], input[type=search] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
@@ -1497,7 +1516,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔴 Happening now <span class="dim" id="surgeRegionLabel"></span></h2>
+      <h2>🔔 Happening now <span class="dim" id="surgeRegionLabel"></span></h2>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
       </div>
@@ -1577,7 +1596,7 @@
     </section>
 
     <section class="panel">
-      <h2>🕰️ Time-of-day specialists <span class="dim" id="todRegionLabel"></span></h2>
+      <h2>🌄 Dawn and dusk birds <span class="dim" id="todRegionLabel"></span></h2>
       <div class="row">
         <button id="todBtn">Sample recent checklists</button>
       </div>
@@ -1882,7 +1901,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.8';
+      var APP_VERSION = '1.26.9';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3592,9 +3611,27 @@
         _gbifInflight[url] = p;
         return p;
       }
+      // MATCHED ON SHAPE, NOT ON THE LITERAL STRING. GBIF names a facet field
+      // in SCREAMING_SNAKE while the query parameter is camelCase, and the two
+      // do not round-trip: `facet=speciesKey` comes back as **SPECIES_KEY**,
+      // so a plain `.toUpperCase()` produced SPECIESKEY and matched nothing.
+      //
+      // That silently returned an EMPTY LIST rather than an error, which is why
+      // "Iconic spots near me" reported "nothing stands out for any bird" on
+      // two consecutive releases: the box total was right, the county total was
+      // right, and the species breakdown between them was always []. Single-word
+      // facets (MONTH, YEAR) round-trip fine, which is exactly why this survived
+      // — every other caller in the file uses one.
+      //
+      // My own probe hid it too: it hard-coded 'SPECIES_KEY' and passed.
       function facetCounts(j, name) {
         var f = (j && j.facets) || [];
-        for (var i = 0; i < f.length; i++) if (f[i].field === String(name).toUpperCase()) return f[i].counts || [];
+        var want = String(name).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        for (var i = 0; i < f.length; i++) {
+          if (String(f[i].field).toUpperCase().replace(/[^A-Z0-9]/g, '') === want) {
+            return f[i].counts || [];
+          }
+        }
         return [];
       }
       // Common names do NOT match in GBIF's backbone taxonomy - "White Wagtail"
@@ -5629,18 +5666,33 @@
           }
           return;
         }
+        // The medium card's CSS is scoped to `.obs.big.xl`, so the container has
+        // to declare it — a list of correct <li> inside a plain <ul> renders as
+        // unstyled rows, which is how this looked before.
+        ul.className = 'obs big xl';
         ul.innerHTML = list.map(function (r) {
           // The bird's own name leads; the date is the reason the row exists,
           // so it sits directly under it rather than in a trailing column.
-          return '<li>'
-            + '<div class="nm">' + (r.need ? '<span class="needflag">🔍</span> ' : '')
-            + esc(r.name) + '</div>'
-            + '<div class="who">' + esc(dueBackWhen(r.days)) + ' · usually back around '
-            + esc(BL.prettyMMDD(r.day))
-            + (r.records ? ' · from ' + fmtInt(r.records) + ' GBIF records' : '')
-            + '</div>'
-            + '</li>';
+          // The SAME medium species card every other list uses. This was the
+          // other hand-rolled markup — "also no template card used" — and like
+          // Migration outlook it puts its timing in the prominent column
+          // instead of the grey sub-line, because WHEN is what it is for.
+          return SpeciesCards.medium({
+            icon: photoSlot(r.name, r.code),
+            name: speciesLink(r.name, r.code),
+            code: r.code,
+            alpha: alphaFor(r.code),
+            tags: r.need ? '<span class="needflag">🔍</span>' : '',
+            lead: r.days === 0 ? 'today' : String(Math.abs(r.days)),
+            leadUnit: r.days === 0 ? '' : (r.days < 0 ? 'days ago' : 'days'),
+            sub: 'usually back around ' + esc(BL.prettyMMDD(r.day))
+              + (r.records ? ' \u00b7 from ' + fmtInt(r.records) + ' GBIF records' : '')
+          });
         }).join('');
+        // The rows now carry photo slots, which do nothing until hydrated —
+        // the previous hand-rolled markup had no images at all, so this call
+        // did not exist.
+        hydratePhotos(ul);
         st.textContent = list.length + ' bird' + (list.length === 1 ? '' : 's')
           + ' due back within ' + DUEBACK_AHEAD_D + ' days'
           + (partial ? ' so far — still checking…' : '')
@@ -8736,8 +8788,13 @@
             '<div class="favrow nvrow">' + photoSlot(e.name || e.code, e.code) +
             '<div class="favmain">' +
               '<div class="name">' +
-                '<span class="favrank">' + (i + 1) + '</span>' +
-                '<span class="ntext">' + speciesLink(e.name || e.code, e.code) + '</span></div>' +
+              // NO RANK NUMBER. "needs verification doesnt need the numbers":
+              // the ▲▼ controls beside each row already say the order is
+              // yours and let you change it, so the badge was restating what
+              // the position on screen already shows. Favorite hotspots keeps
+              // its numbers because they tie each row to a numbered map pin;
+              // this list has no map.
+              '<span class="ntext">' + speciesLink(e.name || e.code, e.code) + '</span></div>' +
               (r
                 ? '<div class="meta">closest <b>' +
                     (r.distMi == null ? '—' : r.distMi.toFixed(1) + ' mi') + '</b> at ' +
@@ -12987,23 +13044,31 @@
           if (detailCards) { detailCards.innerHTML = ''; }
           if (detail) { detail.hidden = true; }
           el.className = 'obs';
-          el.innerHTML = '<ul class="obs card-sm">'
+          // MEDIUM, not small — "this should show the larger photo like needs
+          // verification". A mega is the rarest thing the app shows and it had
+          // the most compact row in the app; the photo is also the fastest way
+          // to recognise a bird you have never seen.
+          el.innerHTML = '<ul class="obs big xl">'
             + groups.map(function (g) {
-              return SpeciesCards.small({
+              return SpeciesCards.medium({
                 icon: photoSlot(g.latest.comName, g.code),
                 // The NAME is the link, not a separate "details" affordance:
                 // the name is what you are looking for in a list of names.
                 name: '<a class="abajump" href="#aba-' + esc(g.code) + '">'
                   + esc(g.latest.comName || g.code) + '</a>',
+                code: g.code,
+                alpha: alphaFor(g.code),
+                sci: sciFor(g.code),
                 tags: needTag(g.code, g.latest.comName),
                 sub: esc(fmtDate(g.latest.obsDt)) + ' · ' + g.rs.length + ' report'
                   + (g.rs.length === 1 ? '' : 's'),
-                // ...and a chevron at the RIGHT EDGE, because a bare name does
-                // not look like it opens anything. Same target, so it does not
-                // matter which one you hit.
-                right: '<a class="spgo abajump" href="#aba-' + esc(g.code) + '"'
-                  + ' aria-label="Full details for '
-                  + esc(g.latest.comName || g.code) + '">\u203A</a>'
+                // The chevron rides the medium card's RIGHT-HAND column,
+                // which is the distance slot — this list has no distance, and
+                // the affordance matters more: a bare name does not look like
+                // it opens anything. (MEDIUM has no `right` slot; that is a
+                // small-card feature, and passing one here silently dropped
+                // it.)
+                lead: '\u203A'
               });
             }).join('')
             + '</ul>';
@@ -13448,6 +13513,19 @@
 
       // How near an arrival window has to be to be worth surfacing unasked.
       var DUE_BACK_WINDOW_DAYS = 21;
+      // A PREDICTION NEEDS EVIDENCE TO BE A PREDICTION.
+      //
+      // Reported from the device: "due back soon looks broken. blue footed
+      // booby?" — and it was right. Blue-footed Booby is a once-a-decade
+      // Washington vagrant, and its "usually back around 6 Aug" was computed
+      // from **2 GBIF records**. Two records have a mean date, which is not the
+      // same thing as a season.
+      //
+      // Same species of bug as ICONIC_MIN_SP_RECORDS: the numerator had no
+      // floor. 30 is deliberately well clear of the noise — Curlew Sandpiper at
+      // 19 records is also a vagrant here, while the genuine migrants on the
+      // same screen carry 440, 1,085 and 1,715.
+      var DUE_BACK_MIN_RECORDS = 30;
       function dueBackSoon(rows, stateName, limit) {
         var order = gbifScanOrder(rows, limit);
         if (!order.length || !stateName) return Promise.resolve([]);
@@ -13459,6 +13537,7 @@
           if (!sci) return Promise.resolve();
           return gbifArrival(sci, stateName).then(function (a) {
             if (!a || !a.day) return;
+            if ((a.records || 0) < DUE_BACK_MIN_RECORDS) return;
             var d = daysUntilMonthDay(a.day);
             if (d == null || d < 0 || d > DUE_BACK_WINDOW_DAYS) return;
             out.push({ code: r.code, name: r.name, inDays: d,
@@ -13987,7 +14066,18 @@
       // carries `numSpeciesAllTime`, and a site with little data fails the
       // 200-record box floor anyway, so scanning it spends a call to learn
       // nothing. Sorting by richness puts Fobes inside the budget.
-      var ICONIC_SPOTS_MAX = 75;    // hotspots scanned per run
+      // MEASURED ON DEVICE, and the first numbers were antisocial. A 75-hotspot
+      // scan at three concurrent requests produced a wall of **HTTP 429** from
+      // GBIF — dozens of them in the device log. GBIF is a courtesy API with no
+      // key and no quota bought; being rate-limited by it means this was
+      // behaving like a scraper.
+      //
+      // 24 places at ONE request in flight. The box facet is ~0.7 s, so a cold
+      // scan is roughly 20 s, it runs after paint, and everything caches for 30
+      // days — the second look costs nothing. Fewer places measured slowly beats
+      // more places measured rudely, and a 429 returns no data anyway.
+      var ICONIC_SPOTS_MAX = 24;    // hotspots scanned per run
+      var ICONIC_POOL = 1;          // ...one at a time; see the 429s above
       var ICONIC_MIN_SPP = 100;     // ...and they need enough history to measure
       var ICONIC_GRID_DEG = 0.02;   // ~2 km: one box per grid cell, not per pin
       var ICONIC_TOP_PER_SPOT = 4;  // species named per hotspot
@@ -14092,7 +14182,7 @@
           st.textContent = 'Measuring ' + near.length + ' hotspots against their county\u2026';
           var done = 0, out = [];
           var sci = sciIndex(getObsRegion());
-          return pool(near, 3, function (h) {
+          return pool(near, ICONIC_POOL, function (h) {
             return gbifCountyGid(h.lat, h.lng).then(function (gid) {
               return Promise.all([iconicBoxFacet(h.lat, h.lng), iconicCountyFacet(gid)]);
             }).then(function (r) {
@@ -14111,7 +14201,7 @@
                 .sort(function (a, b) { return b.mult - a.mult; })
                 .slice(0, ICONIC_TOP_PER_SPOT);
               if (!cand.length) return;
-              return pool(cand, 3, function (x) {
+              return pool(cand, ICONIC_POOL, function (x) {
                 return gbifSciFor(x.key).then(function (s) {
                   var row = s ? sci[String(s).toLowerCase()] : null;
                   out.push({
@@ -14315,11 +14405,28 @@
         function section(title, arr, empty) {
           var h = '<div class="rankhead"><b>' + esc(title) + '</b></div>';
           if (!arr.length) return h + '<div class="status">' + esc(empty) + '</div>';
-          h += '<ul class="obs dest">';
-          arr.slice(0, 20).forEach(function (e) {
-            h += '<li><div class="name">' + photoSlot(nm(e.code), e.code) + speciesLink(nm(e.code), e.code) + '</div><div class="sp">' + whenLabel(e.weeksUntil) + ' · seen ' + e.nWeeks + ' wk/yr historically</div></li>';
-          });
-          return h + '</ul>';
+          // THE SHARED MEDIUM CARD, not hand-rolled markup. This was the last
+          // species list in the app still assembling its own <li>, which is why
+          // it looked subtly unlike every other one — "use medium species
+          // template". Going through SpeciesCards.medium also means it inherits
+          // the code chip, the scientific name and every future fix for free.
+          return h + SpeciesCards.list('medium', arr.slice(0, 20).map(function (e) {
+            var w = e.weeksUntil;
+            return SpeciesCards.medium({
+              icon: photoSlot(nm(e.code), e.code),
+              name: speciesLink(nm(e.code), e.code),
+              code: e.code,
+              alpha: alphaFor(e.code),
+              sci: sciFor(e.code),
+              tags: needTag(e.code, nm(e.code)),
+              // WHEN, in the big right-hand column the distance normally owns.
+              // This section has no distance, and timing is the thing it exists
+              // to tell you — it does not belong in the grey sub-line.
+              lead: w === 0 ? 'now' : String(w),
+              leadUnit: w === 0 ? '' : (w === 1 ? 'week' : 'weeks'),
+              sub: 'seen ' + e.nWeeks + ' wk/yr historically'
+            });
+          }));
         }
         var yc = migYearCodes(), haveCodes = Object.keys(yc).length > 0;
         var html = section('🛬 Arriving soon (unseen targets)', out.arriving, 'Nothing new expected in the next ' + MIG_WINDOW_WEEKS + ' weeks.');
@@ -14982,7 +15089,13 @@
               distMi: mi,
               facts: [
                 c.observers + ' birders',
-                c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal',
+                // WHY it fired, not just a number. A "surge" is dramatic
+                // against its own norm; a "crowd" is a big turnout that is only
+                // modestly above normal — printing "1.7× normal" for the latter
+                // undersells a busy Saturday at a popular reserve.
+                c.reason === 'crowd'
+                  ? 'busier than usual'
+                  : (c.ratio == null ? 'new' : Math.round(c.ratio) + '× normal'),
                 d.spp ? d.spp + ' spp' : '',
                 d.lists ? d.lists + ' lists' : ''
               ],
@@ -15539,8 +15652,21 @@
         return seed.then(function (found) {
           if (!found.length) return list;
           return pool(found, 2, function (c) {
+            // includeProvisional, and it is load-bearing. MEASURED against the
+            // live API: the WA feed for `norwat` returns 10 rows without it and
+            // 11 WITH it, and the extra one is Juanita Bay Park (S385238349,
+            // obsValid=false, obsReviewed=false). Reported from the device as
+            // "the juanita bay northern thrush is still not in the checklists",
+            // with the right instinct beside it — "rare bird checklists are
+            // sometimes gated". They are not gated; they are PROVISIONAL, and
+            // eBird withholds them by default.
+            //
+            // A rare bird nobody has reviewed yet is the report a chaser wants
+            // FIRST — it is the freshest evidence there is. Reviewing lags by
+            // days, so a lane about the last 24 hours that filters on it is
+            // filtering out its own subject.
             return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
-                encodeURIComponent(c.code) + '?back=30&detail=full')
+                encodeURIComponent(c.code) + '?back=30&detail=full&includeProvisional=true')
               .then(function (obs) {
                 c.recent = (obs || []).slice().sort(function (a, b) {
                   return String(b.obsDt).localeCompare(String(a.obsDt));
@@ -16094,7 +16220,13 @@
           // LARGE, on request. The large card was missing code, dist and conf,
           // so those were added to it first - switching size should not quietly
           // drop facts the reader had a moment ago.
-          return SpeciesCards.large({
+          // MEDIUM, not large — the container above is `obs big xl`, which is
+          // the MEDIUM card's class, so a large-shaped <li> inside it rendered
+          // as a photo stranded on its own row above the name ("this is not
+          // rendering right"). The reader also asked for the Needs-verification
+          // look, which is exactly this: a big square photo on the left, the
+          // name and facts to its right.
+          return SpeciesCards.medium({
             sci: sciFor(e && e.code),
             icon: photoSlot(e.name, e.code),
             name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
@@ -16146,13 +16278,13 @@
         coldBtn:       'Unwatched hotspots',
         cklBtn:        'Biggest day lists',
         convoyBtn:     'Groups birding together',
-        favResults:    'Places you saved',
+        favResults:    'Saved hotspots',
         allUnseenBtn:  'Every report, nearest first',
         easyBtn:       'Common birds you missed',
         nvResults:     'Awaiting a reviewer',
         migBtn:        'Arriving and leaving',
         bcBody:        'Overnight flight',
-        todBtn:        'Dawn and dusk birds',
+        todBtn:        'Best hours to look',
         myYearBody:    'Your list this year',
         recordBody:    'Overdue megararities',
         settingsPanel: 'Region, text size, data',
@@ -16160,7 +16292,7 @@
       };
 
       var MENU = [
-        { at: 'surgeBtn',      label: '🔴 Happening now', group: 'Right now' },
+        { at: 'surgeBtn',      label: '🔔 Happening now', group: 'Right now' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
@@ -16214,7 +16346,7 @@
         { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
-        { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
+        { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Hotspots & birders' },
         { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
           // OFF, not deleted — the section, its loader and its panel are
@@ -16229,7 +16361,7 @@
         { at: 'nvResults',     label: '❓ Needs verification', group: 'Birds you still need' },
         { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Timing' },
         { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county', group: 'Timing' },
-        { at: 'todBtn',        label: '⏰ Time-of-day specialists', needs: 'county', group: 'Timing' },
+        { at: 'todBtn',        label: '🌄 Dawn and dusk birds', needs: 'county', group: 'Timing' },
         { at: 'myYearBody',    label: '📅 My year', group: 'Your list & the app' },
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Your list & the app' },
         // LAST, deliberately: a manual is what you reach for after the thing
@@ -16857,8 +16989,17 @@
         try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
         if (year) bits.push(esc(year) + ' species this year');
         if (!name && !bits.length) return '';
+        // THE REGION SITS BESIDE THE NAME, hard right. "id like the region drop
+        // down to be aligned right of my birder wyatt name in the same cell,
+        // aligned to the right side of the screen." It was briefly a grid cell
+        // of its own, which cost a whole row for one control; the identity line
+        // already has empty space to its right, so the picker goes there.
         return '<div class="menuid">'
+          + '<div class="menuidtop">'
           + (name ? '<b class="menuidname">' + esc(name) + '</b>' : '')
+          + '<span class="regionpick"><label class="vh" for="menuRegion">Region</label>'
+          + '<select id="menuRegion"></select></span>'
+          + '</div>'
           + (bits.length ? '<span class="menuidsub">' + bits.join(' · ') + '</span>' : '')
           + '</div>';
       }
@@ -16883,38 +17024,14 @@
           return menuApplies({ needs: sec._needs, enabled: sec._enabled });
         });
         var firstTile = true;
-        // TWO COLUMNS OF ONE TABLE, not two stacked rows. "the happening now
-        // button and region selection can be two columns of one table, to
-        // reduce screen space." The region control used to be a full-width row
-        // of its own directly above a full-width Happening-now tile, so the
-        // two most-used controls in the app ate the whole first screen between
-        // them. They are now one grid row.
-        //
-        // The region cell is a real grid <li> rather than a floated box: the
-        // .toc grid already owns the column maths, and anything positioned
-        // outside it would have to duplicate them and then drift.
-        var rli = document.createElement('li');
-        rli.className = 'regioncell';
-        rli.setAttribute('role', 'presentation');
-        rli.innerHTML = '<div class="regionpick"><label for="menuRegion">Region</label>'
-          + '<select id="menuRegion"></select></div>';
-        list.appendChild(rli);
-        firstTile = false;   // ...so Happening now does NOT span both columns
-        MENU_GROUPS.forEach(function (group, gi) {
+        MENU_GROUPS.forEach(function (group) {
           var members = shown.filter(function (s) { return s._group === group; });
           if (!members.length) return;
-          // The FIRST group's heading is suppressed, because its single tile is
-          // now sharing a row with the region control and a full-width heading
-          // between them would split the pair back apart. "Right now" was also
-          // the least informative of the headings — the tile beneath it says
-          // "Happening now", so the heading restated the tile.
-          if (gi > 0) {
-            var h = document.createElement('li');
-            h.className = 'tocgroup';
-            h.setAttribute('role', 'presentation');
-            h.textContent = group;
-            list.appendChild(h);
-          }
+          var h = document.createElement('li');
+          h.className = 'tocgroup';
+          h.setAttribute('role', 'presentation');
+          h.textContent = group;
+          list.appendChild(h);
           members.forEach(function (sec) {
             var li = document.createElement('li');
             // The first TILE is wide, not the first child — the heading above
@@ -18794,6 +18911,7 @@
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
         getObsRegion: getObsRegion, busyIconic: function () { return _busyIconic; },
+        facetCounts: facetCounts, iconicBoxFacet: iconicBoxFacet,
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,

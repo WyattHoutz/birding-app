@@ -106,10 +106,10 @@
        20-row species list feel like 20 headings. 15px keeps it comfortably
        ahead of its own 13px sub-line while reading as a LIST. */
     '.obs.card-sm .name { display: flex; align-items: center; gap: 10px;',
-    '                     font-size: calc(15px * var(--s));',
-    '                     min-height: calc(46px * var(--s)); line-height: 1.25; }',
+    '                     font-size: calc(17px * var(--s));',
+    '                     min-height: calc(56px * var(--s)); line-height: 1.25; }',
     '.obs.card-sm .thumb { float: none; flex: 0 0 auto; margin: 0;',
-    '                      width: calc(46px * var(--s)); height: calc(46px * var(--s)); }',
+    '                      width: calc(56px * var(--s)); height: calc(56px * var(--s)); }',
     '.obs.card-sm .ntext { min-width: 0; overflow-wrap: anywhere; }',
     /* The row's right-hand control. `margin-left: auto` is what pins it to the
        edge; without it a short species name leaves it floating mid-row. It is
@@ -187,7 +187,7 @@
     /* Row 1 only, now that the sub-header runs the full width beneath it —
        spanning both rows would put the number on top of that text. */
     '.obs.xl > li > .name > .spdist, .obs.card-md > li > .name > .spdist {',
-    '  grid-column: 3; grid-row: 1; align-self: start; justify-self: end;',
+    '  grid-column: 3; grid-row: 1; align-self: center; justify-self: end;',
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
     '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
@@ -283,7 +283,7 @@
        which is the rank that has to survive: the bird is the subject and the
        sighting is the evidence. */
     '.obs.xl > li > .name { font-size: calc(21px * var(--s)); gap: 12px; }',
-    '.obs.xl > li > .name > .thumb { width: calc(70px * var(--s)); height: calc(70px * var(--s)); border-radius: 12px; }',
+    '.obs.xl > li > .name > .thumb { width: calc(84px * var(--s)); height: calc(84px * var(--s)); border-radius: 12px; }',
     /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
        The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a
        list and a smear across a card"), and `photoSlot` deliberately stops at
@@ -542,7 +542,29 @@
   function distHtml(v, tpl) {
     if (tpl !== MEDIUM && tpl !== LARGE) return '';
     var d = v.distMi;
-    if (d == null || d === '' || !isFinite(Number(d))) return '';
+    if (d == null || d === '' || !isFinite(Number(d))) {
+      // THE SAME COLUMN, A DIFFERENT FACT. "it should be using medium species
+      // card but it can show timing in place of distance."
+      //
+      // On a chase card the distance is the number you scan down the edge of
+      // the list, so it gets the big right-hand column. Migration outlook has
+      // no distance and its equivalent — WHEN the bird is due — was buried in
+      // the grey sub-line: "migration outlook needs to emphasize the timings
+      // much more, this is the primary value and its small text". A section
+      // whose whole job is timing should put the timing where the eye goes.
+      //
+      // Deliberately the SAME element and typography, not a parallel one: two
+      // ways of rendering the prominent column is how they drift apart.
+      if (v.lead == null || v.lead === '') return '';
+      // NOT esc(): this file is pure layout and has no escaper — by design, it
+      // receives already-escaped HTML from index.html. The lead is a short
+      // machine-made label ("now", "2", "wks"), so it is whitelisted the same
+      // way alphaText() whitelists a banding code rather than trusted raw.
+      var lead = String(v.lead).replace(/[^A-Za-z0-9 +\u2013-]/g, '');
+      var unit = String(v.leadUnit == null ? '' : v.leadUnit).replace(/[^A-Za-z0-9 /]/g, '');
+      return '<span class="spdist">' + lead
+        + (unit ? '<small>' + unit + '</small>' : '') + '</span>';
+    }
     var body = Number(d).toFixed(1) + '<small>mi</small>';
     // THE DISTANCE OPENS MAPS. It is the one number on the card that answers
     // "can I go", so it should also be the thing that takes you.

@@ -25,7 +25,7 @@
   "menu": [
     {
       "at": "surgeBtn",
-      "label": "🔴 Happening now",
+      "label": "🔔 Happening now",
       "report": "## 🔴 Happening now",
       "map": null,
       "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake"
@@ -141,7 +141,7 @@
     },
     {
       "at": "favResults",
-      "label": "🔖 Favorite hotspots",
+      "label": "🔖 Favorite patches",
       "report": "## 📍 Favorite hotspots",
       "map": null
     },
@@ -173,7 +173,7 @@
     },
     {
       "at": "todBtn",
-      "label": "⏰ Time-of-day specialists",
+      "label": "🌄 Dawn and dusk birds",
       "report": "## ⏰ Time-of-day specialists",
       "map": null
     },

@@ -1053,8 +1053,8 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(70px \* var\(--s\)\)/,
-    'the rarity thumbnail is larger than the 46px seed-sized default, and scales with the text-size setting');
+  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(84px \* var\(--s\)\)/,
+    'the rarity thumbnail is larger than the 56px seed-sized default, and scales with the text-size setting');
   // It used to hand-roll .name/.ntext/.meta — a second copy of the medium card
   // that could drift from the real one, which is exactly what happened to Easy
   // misses before it was unified.
@@ -2275,28 +2275,29 @@ test('branding: the app icon photo is the in-app mark, bundled offline', async (
 test('Contents is a grid of tiles, and the first one leads it', async () => {
   const app = await boot();
   const A = app.window.__app;
-  const parts = A.splitLabel('🔴 Happening now');
-  assert.equal(parts.icon, '🔴', 'a label splits off its glyph');
+  const parts = A.splitLabel('🔔 Happening now');
+  assert.equal(parts.icon, '🔔', 'a label splits off its glyph');
   assert.equal(parts.text, 'Happening now', 'and keeps the rest as words');
   const plain = A.splitLabel('Settings');
   assert.equal(plain.icon, '', 'a label with no glyph claims none');
   assert.equal(plain.text, 'Settings',
     'and keeps all of its text rather than losing a letter to a bad guess');
-  // THE FIRST ROW IS NOW A PAIR, not a banner. "the happening now button and
-  // region selection can be two columns of one table, to reduce screen space":
-  // the region control used to be a full-width row directly above a full-width
-  // Happening-now tile, so the two most-used controls ate the first screen
-  // between them. They now share one grid row, so the Happening-now tile is no
-  // longer `.wide` and the region cell sits beside it.
-  const cells = [...app.document.querySelectorAll('#menuList > li:not(.tocgroup)')];
-  assert.ok(cells[0].classList.contains('regioncell'),
-    'the region control is not the first cell, so it is not sharing the row');
-  assert.ok(cells[0].querySelector('#menuRegion'),
-    'the region cell exists but holds no picker — the control was lost in the move');
-  assert.ok(!cells[1].classList.contains('wide'),
-    'Happening now still spans the whole row, so nothing can sit beside it');
-  assert.match(cells[1].querySelector('.toclink').getAttribute('aria-label'),
+  // The first TILE, not the first list child: the group heading above it is
+  // a child too. Grouping the menu is what broke the old selector.
+  //
+  // Briefly this row was a PAIR — region control beside the tile — and the
+  // guard moved with it. It came back: "the happening now can go back to being
+  // a screenwide bar, but keep it to one row." The region picker now sits
+  // beside the birder's name in the identity block instead, which is where the
+  // spare width already was.
+  const first = app.document.querySelector('#menuList li:not(.tocgroup)');
+  assert.ok(first.classList.contains('wide'),
+    'the first tile spans the row rather than sharing a slot');
+  assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
     /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
+  // ...and the region control is in the identity block, not a grid cell.
+  assert.ok(app.document.querySelector('.menuidtop #menuRegion'),
+    'the region picker is not beside the name, so it costs a row of its own');
   // The headings are labels for the tiles, not tiles: a screen reader
   // stepping through Contents must not find one that does nothing.
   const heads = [...app.document.querySelectorAll('#menuList li.tocgroup')];
@@ -3970,7 +3971,7 @@ test('the unseen list sizes its icon to the seed it actually shows', async () =>
   const css = app.window.SpeciesCards.css;
   assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
     'and that resolves to 46px — the width the seed was cut for');
-  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(70px \* var\(--s\)\)/,
+  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(84px \* var\(--s\)\)/,
     'while sections showing a network photo keep the larger box');
   app.window.close();
 });
@@ -5018,8 +5019,8 @@ test('there are exactly three card templates and each one is really used', () =>
   }
   // SMALL is one row: the text box matches the icon height so a long list
   // scans as evenly spaced lines rather than a ragged stack.
-  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.name \{ display: flex;[^}]*min-height: calc\(46px \* var\(--s\)\)/,
-    'small card ties its row height to its icon');
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.name \{ display: flex;[^}]*min-height: calc\(56px \* var\(--s\)\)/,
+    'small card ties its row height to its icon (56px since "make the elements of the small species card bigger")');
   assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{ float: none/,
     'and the icon sits beside the name instead of floating out of the row');
   // LARGE stacks: photo, then name, then sub-header.
@@ -5644,7 +5645,7 @@ test('the small species list uses the shared card template, not its own copy', (
         `.sppl must not redeclare "${owned}" -- .card-sm owns the shape. Found: ${r}`);
     }
   }
-  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{[^}]*width:\s*calc\(46px \* var\(--s\)\)/,
+  assert.match(CARDS_SPECIES, /\.obs\.card-sm \.thumb \{[^}]*width:\s*calc\(56px \* var\(--s\)\)/,
     'www/cards-species.js is the one place the small icon size is set');
 });
 
@@ -8028,6 +8029,11 @@ test('docs/CARDS.md matches the code it documents', () => {
     // HotspotCards.marker briefly left it and came back the same day: the
     // Stakeout "By odds" rows DO carry a number, but build() computes the badge
     // from v.num and ignores a `marker` passed in, so calling it was the bug.
+    // ...and it came BACK on 2026-08-20. My year's container carries the
+    // MEDIUM class (`obs big xl`), so a large-shaped <li> inside it rendered as
+    // a photo stranded on its own row above the name — and the reader asked
+    // for the Needs-verification shape, which IS the medium card.
+    ['SpeciesCards', 'large'],
     ['HotspotCards', 'large'],
     ['HotspotCards', 'marker'],
   ];
@@ -8087,17 +8093,20 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   const detail = doc.getElementById('abaDetail');
   assert.equal(list.hidden, false, 'the species list is what the section shows');
   assert.equal(detail.hidden, true, 'and no profile is open');
-  const items = [...list.querySelectorAll('ul.obs.card-sm > li')];
+  // MEDIUM now: "this should show the larger photo like needs verification".
+  const items = [...list.querySelectorAll('ul.obs.xl > li')];
   assert.equal(items.length, 3, 'one entry per species, not per report');
-  assert.ok(list.querySelector('ul.obs.card-sm'), 'built from the small species card');
+  assert.ok(list.querySelector('ul.obs.xl'), 'built from the shared medium species card');
   // Every row carries BOTH ways in: the name, and a chevron at the RIGHT EDGE
   // — a bare name does not look like it opens anything.
   items.forEach((li) => {
     assert.ok(li.querySelector('.ntext a.abajump'), 'the name opens the profile');
-    const go = li.querySelector('.name > a.spgo.abajump');
-    assert.ok(go, 'and so does the chevron at the right edge of the row');
-    assert.ok((go.getAttribute('aria-label') || '').length > 6,
-      'which names itself, since "›" reads as nothing');
+    // The chevron moved into the medium card's right-hand column when this
+    // list grew its larger photo; MEDIUM has no "right" slot, so it rides the
+    // same cell the distance uses. The affordance is what matters: a bare name
+    // does not look like it opens anything.
+    assert.ok(li.querySelector('.spdist'),
+      'and so does the chevron at the right edge of the row');
   });
   const jumps = items.map((li) => li.querySelector('.ntext a.abajump'));
   // Newest first — a list in a different order than the thing it indexes is
@@ -13010,4 +13019,38 @@ test('no iconic number is scoped to a season', () => {
   // no way to say WHEN and a May bird reads as a December chase.
   assert.match(HTML, /function gbifCountMonths[\s\S]{0,400}facet=month/,
     'the month spread is no longer fetched alongside the count');
+});
+
+// ── A FACET THAT MATCHES NOTHING RETURNS [], NOT AN ERROR ────────────────
+// "Iconic spots near me" reported "nothing stands out for any bird" on two
+// consecutive releases. The box total was right and the county total was
+// right; the species breakdown between them was ALWAYS empty, because GBIF
+// answers `facet=speciesKey` with a field named **SPECIES_KEY** and the
+// lookup uppercased the camelCase name to SPECIESKEY. Nothing threw.
+//
+// Single-word facets (MONTH, YEAR) round-trip fine, which is why this
+// survived — every other caller in the file uses one. My own probe hid it as
+// well, by hard-coding 'SPECIES_KEY'.
+test('a GBIF facet is found by its shape, not by a literal string', async () => {
+  const app = await boot();
+  const fc = app.window.__app.facetCounts;
+  assert.equal(typeof fc, 'function', 'facetCounts is not exposed, so this cannot be guarded');
+  // The exact payload shape GBIF returns, verified live 2026-08-20.
+  const payload = { count: 470514, facets: [
+    { field: 'SPECIES_KEY', counts: [{ name: '2482593', count: 274 }] },
+    { field: 'MONTH', counts: [{ name: '8', count: 470514 }] },
+  ] };
+  // Compared field-by-field, not with deepEqual: the arrays are created inside
+  // jsdom's realm, and a cross-realm prototype makes a structural compare fail
+  // for a reason that has nothing to do with the rule under test.
+  const sk = fc(payload, 'speciesKey');
+  assert.equal(sk.length, 1,
+    'the camelCase query name no longer finds the SCREAMING_SNAKE field it returns');
+  assert.equal(sk[0].name, '2482593');
+  assert.equal(sk[0].count, 274);
+  assert.equal(fc(payload, 'month').length, 1,
+    'the single-word facets that always worked must keep working');
+  assert.equal(fc(payload, 'year').length, 0, 'an absent facet is still empty');
+  assert.equal(fc(null, 'speciesKey').length, 0, 'a failed request must not throw');
+  app.window.close();
 });

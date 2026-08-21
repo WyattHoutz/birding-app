@@ -48,7 +48,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Latest ticks on the leaderboard |
 | `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
-| `large` | — | 📅 My year — switched from medium on 2026-08-18. The large card was missing `code`, `dist` and `conf`, so those were added to it first: changing size must not quietly drop facts the reader had a moment ago |
+| `large` | — | **unused** — went to 📅 My year on 2026-08-18 and came back on 2026-08-20. The section's container is `obs big xl`, the MEDIUM class, so a large-shaped `<li>` inside it rendered as a photo stranded on its own row above the name: *"this is not rendering right"*. The reader then asked for the Needs-verification shape, which is the medium card — a big square photo left, name and facts right |
 
 ### HotspotCards — a row is a place
 
@@ -72,13 +72,15 @@ Sizes are a **rank of attention**, not a rank of importance:
 
 ## The unused ones
 
-`HotspotCards.large` and `HotspotCards.marker` are defined, styled and tested
-but called from nowhere in `index.html`.
+`HotspotCards.large`, `HotspotCards.marker` and `SpeciesCards.large` are
+defined, styled and tested but called from nowhere in `index.html`.
 
-> Was "the unused four". `SpeciesCards.large` went to 📅 My year, and
-> `HotspotCards.small` went to the Stakeout *By odds* view — which is the
-> argument below playing out as intended: the shape was there when a section
-> needed it, so nobody invented a fourth.
+> Was "the unused four", then two, and `SpeciesCards.large` is back on the
+> list: it went to 📅 My year on 2026-08-18 and returned on 2026-08-20, because
+> that section's container carries the MEDIUM class and the reader wanted the
+> Needs-verification shape anyway. `HotspotCards.small` went to the Stakeout
+> *By odds* view — which is the argument below playing out as intended: the
+> shape was there when a section needed it, so nobody invented a fourth.
 >
 > `marker` is a special case. *By odds* really does number its rows, but
 > `build()` computes the badge from `num`/`icon` and **ignores a `marker`

@@ -213,7 +213,7 @@
        sub-header steps down with it, 16 -> 15, so the name still outranks it by
        the same 1.2 ratio the species card uses; dropping the name alone would
        have left the two nearly equal and cost the card its subject. */
-    '  font-size: calc(18px * var(--s)); font-weight: 700; line-height: 1.15;',
+    '  font-size: calc(19px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     /* The sub-header spans ALL THREE columns on its own row, rather than
        sitting under the name in column 2. Row 1 is now three real cells —

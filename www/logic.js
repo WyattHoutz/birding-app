@@ -1151,6 +1151,18 @@
   // rows = recent checklist rows [{locId, locName, userDisplayName, obsDt}]
   // (eBird product/lists shape).
   var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;
+  // A big turnout still has to beat its own norm — it just does not have to
+  // TRIPLE it. Five, because the owner has already ruled that four people is
+  // "a coincidence rather than a crowd" (see SURGE.MIN_OBSERVERS).
+  //
+  // 2.25 AND NOT LOWER, because the ratio has a structural floor: `n` counts
+  // observers over a 36 h window while the baseline is per DAY, so a perfectly
+  // steady site scores 1.5x by construction. A bar of 1.5 was therefore BELOW
+  // the noise and fired for every busy park — the parity fixture's always-busy
+  // Discovery Park (8 birders every day for a fortnight) scores exactly 2.0.
+  // 2.25 clears both. This is also why MIN_RATIO is 3 rather than 2: it was
+  // absorbing the same skew.
+  var CONVERGE_BUSY_ABS = 5, CONVERGE_BUSY_RATIO = 2.25;
   function hotspotConvergence(rows, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
@@ -1230,12 +1242,37 @@
       // and almost nothing has cold data. The lane fired for any hotspot with
       // 5+ observers in a day and called it "new", listing Seattle's busiest
       // parks as unprecedented under a heading that promises the opposite.
+      // TWO WAYS TO BE WORTH KNOWING ABOUT, and BOTH still need a norm.
+      //
+      // "still only jetty island on hot hotspots", after "i liked the cedar
+      // mouth river hotspot, why is it gone?" — a single 3x bar punishes a
+      // consistently good site. Cedar River mouth had been busy for days, so
+      // its own norm rose to 2.25 birders a day and it could never be 3x
+      // itself again; Jetty Island scored 14x on eight observers only because
+      // almost nobody normally goes there.
+      //
+      // FIRST ATTEMPT AT THIS WAS WRONG and the parity suite caught it. I let
+      // a big absolute crowd through with NO baseline at all, which re-opened
+      // a defect this lane had already been fixed for once: `product/lists`
+      // returns ~1.3 days of history in King County, so almost no location
+      // has cold data, and "crowd, no norm needed" made the lane fire for
+      // Discovery Park, Union Bay and Marymoor every single day — the exact
+      // always-busy parks the earlier fix existed to exclude. Measured, the
+      // five hotspots with 5+ observers today ARE those parks.
+      //
+      // So a crowd does not skip the comparison, it lowers the bar for it: a
+      // genuinely big turnout only has to be MODESTLY above normal, where a
+      // handful of people has to be dramatically above it.
       if (baseline <= 0) return;
       var ratio = n / baseline;
-      if (ratio < minRatio) return;
+      var crowd = n >= CONVERGE_BUSY_ABS && ratio >= CONVERGE_BUSY_RATIO;
+      if (!crowd && ratio < minRatio) return;
       out.push({
         locId: locId, loc: name, observers: n,
-        baseline: baseline, ratio: ratio
+        baseline: baseline, ratio: ratio,
+        // WHY it is here, because the two read differently on a card: "14x
+        // normal" is a surge, "8 birders, busier than usual" is a crowd.
+        reason: ratio >= minRatio ? 'surge' : 'crowd'
       });
     });
     out.sort(function (a, b) {
