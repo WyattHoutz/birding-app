@@ -13054,3 +13054,60 @@ test('a GBIF facet is found by its shape, not by a literal string', async () => 
   assert.equal(fc(null, 'speciesKey').length, 0, 'a failed request must not throw');
   app.window.close();
 });
+
+// ── A SECTION THAT THROWS MUST NOT LOOK LIKE A SLOW NETWORK ──────────────
+// "Break a state record" sat on "Loading…" for ever. The device log named it:
+//   unhandledrejection: map@[native code]
+// which is a ReferenceError thrown INSIDE a .map callback — the native frame
+// is the messenger, not the culprit. The culprit was `isSeen`, which this
+// function referenced but never created; four other callers each build one
+// with seenResolver() and this one did not. Nothing caught it because the
+// whole body ran in a promise chain with no .catch, so the failure was
+// indistinguishable from a feed that had not answered yet.
+test('Break a state record renders its rows, and says so when it cannot', async () => {
+  const app = await boot();
+  app.open(/Break a state record/);
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 25));
+    if (app.$('recordBody').querySelector('li.obs-row')) break;
+  }
+  const rows = app.$('recordBody').querySelectorAll('li.obs-row');
+  assert.ok(rows.length > 0,
+    'the section rendered nothing — status said: ' + app.$('recordStatus').textContent.slice(0, 120));
+  // The bundled asset really is read, not stubbed: a row carries the odds for
+  // this month and a link to eBird's map for that species.
+  assert.match(app.$('recordBody').innerHTML, /ebird\.org\/map\//,
+    'a row does not link out to the records it is summarising');
+  assert.match(app.$('recordStatus').textContent, /worth knowing this month/,
+    'the status line never reported what it found');
+
+  // ...and the chain is guarded, so the next thrown error reaches the reader
+  // instead of leaving "Loading…" on screen.
+  const at = HTML.indexOf('function loadStateRecords');
+  const fn = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.match(fn, /\.catch\(function \(e\)/,
+    'the promise chain is unguarded again, so a throw would be silent');
+  assert.match(fn, /var isSeen = seenResolver\(\)/,
+    'isSeen is unbound in this scope — that is the ReferenceError this test exists for');
+  app.window.close();
+});
+
+// ── A DIAGNOSTIC THAT CRIES WOLF IS WORSE THAN NONE ──────────────────────
+// The debug geometry line reported "⚠️ OVERFLOWS by 33px" with
+// `layout 402 · scrollW 435 · visual 435 · zoom 0.924`. Nothing overflowed:
+// pinch OUT and WKWebView widens documentElement.scrollWidth to fill the
+// visual viewport. A real-Chrome sweep of every section at 402px
+// (assets/audit-overflow.js) reported "nothing overflows" for that same build.
+// The comparison is only meaningful at scale 1.
+test('the geometry line does not report overflow while zoomed out', () => {
+  const at = HTML.indexOf("add('geometry: layout ");
+  assert.ok(at > 0, 'the geometry line moved — this guard is looking in the wrong place');
+  const src = HTML.slice(at - 1400, at + 900);
+  assert.match(src, /_sc\s*<\s*0\.99/,
+    'the width check no longer gates on scale, so zooming out reads as a defect');
+  assert.match(src, /zoomed OUT/,
+    'and it does not say WHICH state it is in, which is the only reason the line exists');
+  // The check itself must survive: at scale 1 a genuinely wider document is
+  // exactly what this line was added to catch.
+  assert.match(src, /OVERFLOWS by/, 'the real overflow report was removed along with the false one');
+});

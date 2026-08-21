@@ -1901,7 +1901,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.9';
+      var APP_VERSION = '1.26.10';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -16541,6 +16541,18 @@
             return;
           }
           _recCache[region] = doc;
+          // seenResolver(), because there IS no `isSeen` in this scope and the
+          // section crashed on every open: "Break a state record" sat on
+          // "Loading…" forever. The device log names it exactly —
+          // `unhandledrejection: map@[native code]` — a ReferenceError thrown
+          // INSIDE the .map callback below, which is why the frame is the native
+          // map and not the line that is actually wrong.
+          //
+          // Every other caller in the file builds its own resolver the same way
+          // (four of them do). This one referenced a name that only ever existed
+          // inside those other functions, and nothing caught it because the whole
+          // body runs in a promise chain whose rejection was never handled.
+          var isSeen = seenResolver();
           var month = new Date().getMonth() + 1;
           var rows = doc.rows.slice().map(function (r) {
             var p = (r.p || [])[month - 1] || 0;
@@ -16629,6 +16641,16 @@
               + ' · roughly 1 in 6 of these turn up within two years — it is a '
               + 'watchlist, not a forecast · ' + nowTime();
           }
+        }).catch(function (e) {
+          // A SECTION THAT FAILS MUST SAY SO. Without this the whole body ran
+          // inside an unhandled promise rejection, so a ReferenceError left
+          // "Loading…" on the screen for ever and the only trace was a
+          // `map@[native code]` line in the debug console. Silence is the worst
+          // failure mode: it is indistinguishable from a slow network.
+          host.innerHTML = '';
+          if (st) st.textContent = 'Could not build the state-record list: '
+            + ((e && e.message) || e);
+          dbg('warn', 'state records: ' + ((e && e.stack) || e));
         });
       }
 
@@ -17822,11 +17844,29 @@
         // onto a wider page; `scrollW > layout` means content overflows it.
         try {
           var _d = document.documentElement, _vv = window.visualViewport;
+          var _sc = _vv ? (_vv.scale || 1) : 1;
+          // ZOOMED OUT IS NOT OVERFLOWING, and this line said it was.
+          //
+          // Reported as "OVERFLOWS by 33px" with `layout 402 · scrollW 435 ·
+          // visual 435 · zoom 0.924`. Pinch out and WKWebView widens
+          // documentElement.scrollWidth to fill the visual viewport, so
+          // scrollWidth grows with no content overflowing anything. A
+          // real-Chrome sweep of every section at 402px (assets/audit-overflow.js)
+          // reported "nothing overflows" for the same build.
+          //
+          // So the comparison is only meaningful at scale 1. Below it the line
+          // says which state it is in rather than inventing a defect — a
+          // diagnostic that cries wolf is worse than none, which is the whole
+          // reason this line exists.
+          var _over = _d.scrollWidth > _d.clientWidth;
           add('geometry: layout ' + _d.clientWidth + ' · scrollW ' + _d.scrollWidth
             + ' · visual ' + (_vv ? Math.round(_vv.width) : '?')
-            + ' · zoom ' + (_vv ? +(_vv.scale || 1).toFixed(3) : '?')
-            + (_d.scrollWidth > _d.clientWidth
-              ? '  ⚠️ OVERFLOWS by ' + (_d.scrollWidth - _d.clientWidth) + 'px' : '  (no overflow)'));
+            + ' · zoom ' + (_vv ? +_sc.toFixed(3) : '?')
+            + (_sc < 0.99
+              ? '  (zoomed OUT — scrollWidth tracks the visual viewport here, '
+                + 'so the width check is not meaningful)'
+              : (_over ? '  ⚠️ OVERFLOWS by ' + (_d.scrollWidth - _d.clientWidth) + 'px'
+                       : '  (no overflow)')));
         } catch (e) {}
         try { add('text scale: ' + getUiScale() + '×'); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
