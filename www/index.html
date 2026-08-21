@@ -1901,7 +1901,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.11';
+      var APP_VERSION = '1.26.12';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7135,6 +7135,20 @@
       // Kept as a name so a test can assert it, because a geocoder a webview
       // cannot read is indistinguishable from a typo at runtime.
       var GEOCODER_HOST = 'photon.komoot.io';
+      // ASK FOR MORE THAN ONE CANDIDATE, or the disambiguation below is dead code.
+      //
+      // This was shipped as `limit=1` while the in-region chooser required
+      // `feats.length > 1`, so the Vancouver-WA-over-Vancouver-BC preference
+      // that F149 claims to have fixed could NEVER execute — one candidate is
+      // never more than one. The bug is invisible from either side alone: the
+      // request looks reasonable, the chooser looks reasonable, and only the
+      // pair is wrong.
+      //
+      // 5 because the case the chooser was written for is a handful of
+      // same-named cities — the comment below cites four Springfields, a set
+      // `limit=1` could not have produced — and because every extra candidate
+      // is paid for in bytes on a phone for a preference, not a filter.
+      var GEOCODER_LIMIT = 5;
       function geocodePlace(q) {
         q = (q || '').trim();
         if (!q) return Promise.reject(new Error('Enter a city, address, or "lat, lng" first.'));
@@ -7175,7 +7189,8 @@
         // The lat/lon BIAS is what makes a one-word query land on the Everett
         // you meant instead of the one in England.
         var near = quickAnchor(quickOrigin) || getHome();
-        var url = 'https://' + GEOCODER_HOST + '/api/?limit=1&q=' + encodeURIComponent(q)
+        var url = 'https://' + GEOCODER_HOST + '/api/?limit=' + GEOCODER_LIMIT
+          + '&q=' + encodeURIComponent(q)
           + (near && isFinite(near.lat) && isFinite(near.lng)
              ? '&lat=' + near.lat.toFixed(4) + '&lon=' + near.lng.toFixed(4) : '');
         dbg('net', 'geocode ' + q);

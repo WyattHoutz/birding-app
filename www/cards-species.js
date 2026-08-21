@@ -282,7 +282,20 @@
        is the thing that looks wrong. 17px still outranks the 16px sub-header,
        which is the rank that has to survive: the bird is the subject and the
        sighting is the evidence. */
-    '.obs.xl > li > .name { font-size: calc(21px * var(--s)); gap: 12px; }',
+    // F163/F129: THE NAME MATCHES THE MILEAGE, and now a guard says so.
+    //
+    // Asked for as "the bird name should match the mileage size". It was
+    // recorded as shipped in v1.9.0 and was not: the name went 17px -> 21px
+    // while the mileage stayed 24px, so the two still did not match, and the
+    // backlog index said "shipped" while the detail said "Not started". No
+    // test asserted the equality, which is exactly how a half-fix gets filed
+    // as done.
+    //
+    // 24px, not a compromise between the two: the mileage is the number you
+    // scan down the edge of the list and it was already tuned, so the name
+    // rises to meet it. The name is the SUBJECT of the row - it should never
+    // have been the smaller of the two.
+    '.obs.xl > li > .name { font-size: calc(24px * var(--s)); gap: 12px; }',
     '.obs.xl > li > .name > .thumb { width: calc(84px * var(--s)); height: calc(84px * var(--s)); border-radius: 12px; }',
     /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
        The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a

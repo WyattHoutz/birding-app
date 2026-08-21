@@ -13170,3 +13170,91 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
   // since Tuesday" look identical.
   assert.match(txt, /3h ago/, 'the lane does not state the age of its snapshot');
 });
+
+// ── F161: the Vancouver-WA preference was DEAD CODE ───────────────────────
+// F149 claimed to fix "the geocoder picking Vancouver BC over Vancouver WA".
+// It could not: geocodePlace requested Photon with limit=1 while the in-region
+// chooser required feats.length > 1. One candidate is never more than one, so
+// the branch never executed once, in any release.
+//
+// Invisible from either side alone - the request looks reasonable and the
+// chooser looks reasonable, and only the PAIR is wrong. So this guard asserts
+// the pair, and exercises the chooser against a real two-candidate response
+// rather than trusting that it compiles.
+test('the geocoder asks for enough candidates for its own chooser to run', async () => {
+  const lim = HTML.match(/var GEOCODER_LIMIT = (\d+)/);
+  assert.ok(lim, 'GEOCODER_LIMIT is gone — the limit is hard-coded again');
+  assert.ok(Number(lim[1]) > 1,
+    `GEOCODER_LIMIT is ${lim[1]}; the in-region chooser needs more than one candidate or it is dead code`);
+  // The request must actually USE it. A named constant that nothing reads is
+  // the same bug wearing a better name.
+  assert.match(HTML, /limit=' \+ GEOCODER_LIMIT/,
+    'the Photon request no longer uses GEOCODER_LIMIT');
+});
+
+test('an ambiguous place name resolves to the one in your region', async () => {
+  // Two real Vancouvers, in Photon's shape, ordered BC-first as Photon does.
+  const photon = {
+    features: [
+      { geometry: { coordinates: [-123.1207, 49.2827] },
+        properties: { name: 'Vancouver', state: 'British Columbia', country: 'Canada' } },
+      { geometry: { coordinates: [-122.6615, 45.6387] },
+        properties: { name: 'Vancouver', state: 'Washington', country: 'United States' } },
+    ],
+  };
+  let asked = null;
+  const app = await boot({
+    fetch(url) {
+      if (url.includes('photon')) { asked = url; return JSON.stringify(photon); }
+      return null;
+    },
+  });
+  const got = await app.window.__app.geocodePlace('Vancouver');
+  assert.ok(asked, 'the geocoder was never called');
+  assert.ok(!/limit=1&/.test(asked),
+    'still asking Photon for a single candidate: ' + asked);
+  // Washington, not British Columbia — and the COORDINATES must follow the
+  // choice, not stay on the first hit. A right label over a wrong coordinate
+  // is worse than an obviously wrong answer.
+  assert.match(got.label, /Washington/, 'picked the wrong Vancouver: ' + got.label);
+  assert.ok(Math.abs(got.lat - 45.6387) < 0.01 && Math.abs(got.lng - (-122.6615)) < 0.01,
+    `label says Washington but the coordinate is elsewhere: ${got.lat}, ${got.lng}`);
+});
+
+test('an explicit out-of-region place is still honoured — preference, not filter', async () => {
+  const photon = {
+    features: [
+      { geometry: { coordinates: [-121.3153, 44.0582] },
+        properties: { name: 'Bend', state: 'Oregon', country: 'United States' } },
+    ],
+  };
+  const app = await boot({
+    fetch(url) { return url.includes('photon') ? JSON.stringify(photon) : null; },
+  });
+  const got = await app.window.__app.geocodePlace('Bend, Oregon');
+  assert.match(got.label, /Oregon/,
+    'the in-region preference became a filter and overrode an explicit request');
+});
+
+// ── F163/F129: the bird name must MATCH the mileage size ──────────────────
+// Asked for as "the bird name should match the mileage size". It was recorded
+// as shipped in v1.9.0 and was not: the name went 17px -> 21px while the
+// mileage stayed 24px. The backlog index said "shipped" and the detail said
+// "Not started" — and both were wrong, because nothing asserted the equality.
+//
+// Parses the ACTUAL px values rather than matching a literal, so the guard
+// cannot drift away from the thing it is checking. That is the same rule the
+// Latest-ticks type ranking follows, and the same lesson widenThumb taught:
+// assert what a value MEANS, not one instance of it.
+test('the medium card renders the bird name at the same size as the mileage', () => {
+  const css = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
+  const px = (re, what) => {
+    const m = css.match(re);
+    assert.ok(m, `could not find the ${what} rule — this guard is looking in the wrong place`);
+    return Number(m[1]);
+  };
+  const name = px(/\.obs\.xl > li > \.name \{[^}]*?font-size:\s*calc\((\d+)px/, 'medium card name');
+  const dist = px(/\.obs\.xl > li > \.name > \.spdist[^{]*\{[^}]*?font-size:\s*calc\((\d+)px/s, 'mileage');
+  assert.equal(name, dist,
+    `the bird name is ${name}px and the mileage is ${dist}px — F129 asked for these to match`);
+});
