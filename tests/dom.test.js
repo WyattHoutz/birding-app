@@ -4486,7 +4486,7 @@ test('the Needs-verification section renders the tracked list with controls', as
     ]) },
   });
   app.open(/Needs verification/);
-  const rows = [...app.$('nvResults').querySelectorAll('li')];
+  const rows = [...app.$('nvResults').querySelectorAll('li:not(.nvdropped)')];
   assert.equal(rows.length, 3, 'every tracked species gets a row, resolved or not');
   // A name that resolves to no eBird code still ships, because silently
   // dropping it hides a typo in the authored file forever.
@@ -13257,4 +13257,37 @@ test('the medium card renders the bird name at the same size as the mileage', ()
   const dist = px(/\.obs\.xl > li > \.name > \.spdist[^{]*\{[^}]*?font-size:\s*calc\((\d+)px/s, 'mileage');
   assert.equal(name, dist,
     `the bird name is ${name}px and the mileage is ${dist}px — F129 asked for these to match`);
+});
+
+// ── The app must agree with the report about a dropped verification bird ──
+// analyze.py computes `_unverified_codes - _seen_bl_codes` and report.py prints
+// it at the top of the Watchlist section. If only the report knows, the phone
+// quietly goes on chasing a bird eBird no longer holds — which is the exact
+// failure the alert exists to stop.
+test('a verification bird missing from the year list is flagged in the app too', async () => {
+  const app = await boot({
+    storage: {
+      // 'zzzfake' is deliberately not a real code, so it cannot be on any
+      // bundled year list — that is the "dropped" case.
+      ebird_watchlist_v1: JSON.stringify([
+        { code: 'zzzfake', name: 'Ghost Bird' },
+      ]),
+    },
+  });
+  const A = app.window.__app;
+  const year = A.reportYearList();
+  assert.ok(year.length, 'the WA seed has no year list — this fixture proves nothing');
+
+  const dropped = A.watchDropped();
+  assert.equal(dropped.length, 1, 'the dropped bird was not detected');
+  assert.equal(dropped[0].code, 'zzzfake');
+
+  // And a bird that IS on the year list must not be flagged, or the alert
+  // fires on a healthy list and gets trained away within a week.
+  const real = year[0] && (year[0].code || year[0]);
+  assert.ok(real, 'could not read a code from the seed year list');
+  app.window.localStorage.setItem('ebird_watchlist_v1',
+    JSON.stringify([{ code: real, name: 'A bird you really have' }]));
+  assert.equal(A.watchDropped().length, 0,
+    'a bird present on the year list was wrongly reported as dropped');
 });

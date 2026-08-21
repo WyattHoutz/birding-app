@@ -8569,6 +8569,29 @@
       }
       // Absent key means "never edited", which is NOT the same as "emptied":
       // an empty stored array must stay empty rather than snap back to the seed.
+      // Which watchlist birds are NOT on the year list — i.e. dropped by an
+      // eBird reviewer or withdrawn. Mirrors analyze.py's `_watch_dropped`
+      // (`_unverified_codes - _seen_bl_codes`) so the app and the report
+      // answer this the same way.
+      //
+      // Compares against the BUNDLED year list, which is the app's only
+      // offline copy of it. If the seed is older than the owner's latest eBird
+      // export the two repos can briefly disagree — that is a staleness
+      // window, not a different rule, and it closes when the seed rebuilds.
+      function watchDropped() {
+        var year = {};
+        reportYearList().forEach(function (e) {
+          var c = e && (e.code || e);
+          if (c) year[String(c).toLowerCase()] = 1;
+        });
+        // No year list at all (an empty stub region like waikoloa) means we
+        // cannot tell "dropped" from "never recorded", so we say nothing
+        // rather than accusing a reviewer of deleting the whole list.
+        if (!Object.keys(year).length) return [];
+        return getWatchlist().filter(function (e) {
+          return e && e.code && !year[String(e.code).toLowerCase()];
+        });
+      }
       function getWatchlist() {
         var raw = null;
         try { raw = localStorage.getItem(WATCH_KEY); } catch (e) { raw = null; }
@@ -8858,6 +8881,34 @@
           return;
         }
         var withRec = 0;
+        // ⛔ DROPPED BY A REVIEWER — the same alert the Markdown report prints,
+        // and it has to be here too or the two disagree about the same facts.
+        //
+        // A watchlist bird should be on the year list AND held back from the
+        // seen set. Missing from the year list means the record is gone from
+        // eBird: a reviewer reclassified it, or it was withdrawn. Silent in
+        // both directions — the year list quietly loses a species while the
+        // watchlist goes on chasing a bird that is no longer on the list.
+        //
+        // The app compares the DEVICE-LOCAL watchlist against the bundled
+        // year list, so it can differ from the report's answer while the seed
+        // is older than the export. That is stated rather than hidden.
+        var dropped = watchDropped();
+        if (dropped.length) {
+          var d = document.createElement('li');
+          d.className = 'nvdropped';
+          d.innerHTML = '<div class="warn"><b>⛔ ' + dropped.length + ' bird'
+            + (dropped.length === 1 ? ' on your list is' : 's on your list are')
+            + ' NOT on your year list</b> — dropped by an eBird reviewer, or '
+            + 'withdrawn.<br>'
+            + dropped.map(function (e) {
+                return '• ' + esc(e.name || e.code) + ' (<code>' + esc(e.code) + '</code>)';
+              }).join('<br>')
+            + '<br><br>Re-find it and confirm, or remove it from the list. Until '
+            + 'then it stays an unseen target, which is correct — but it is no '
+            + 'longer backed by a record.</div>';
+          el.appendChild(d);
+        }
         list.forEach(function (e, i) {
           var r = e.code ? _watchRecs[e.code] : null;
           if (r) withRec++;
@@ -19104,6 +19155,7 @@
         // whole contract is that it reads a snapshot and never fetches, and
         // both halves of that are invisible to a regex over source text.
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
+        watchDropped: watchDropped,
         renderSurge: renderSurge, MEGA_SNAP_KEY: MEGA_SNAP_KEY,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
