@@ -233,27 +233,26 @@
        is the mode it asks for, and it must be restated here because an
        ancestor's value is intersected with the element's.
 
-       TAKE FIVE, and this one stops the gesture instead of making it
-       survivable. `pan-y pinch-zoom` left double-tap zoom FIRING and merely
-       gave the reader a way back out — reported again as "the double click
-       zoom issue is still happening", which is the correct verdict: a gesture
-       you did not ask for, that you then have to undo, is still a bug.
+       TAKE SIX, and it splits the problem in two because ONE touch-action
+       value cannot solve both halves.
 
-       Per the spec, double-tap zoom is not in `pan-y pinch-zoom` and should
-       already have been suppressed. It is not, because WebKit only special-
-       cases the ONE keyword for this: `manipulation` is the documented value
-       that disables the double-tap gesture on iOS, and other lists are
-       honoured for panning without affecting it.
+       Take five used `manipulation` to kill the double-tap gesture. That
+       worked, and it silently gave `pan-x` back — so the sideways drag
+       returned within hours: "side scrolling issue is back. screen drags to
+       the right." The trade was written down here and taken anyway; that was
+       the wrong call.
 
-       `manipulation` = every gesture except double-tap zoom, so deliberate
-       PINCH zoom survives — which is the accessibility half F142 restored and
-       must not be taken away again. The cost is that `pan-x` comes back with
-       it; the clip rules above already stop the document scrolling sideways,
-       and the sideways VISUAL-viewport pan this rule was originally fighting
-       only happens once the page is zoomed — which is precisely what the
-       accidental double-tap was causing. Removing the cause removes most of
-       the original symptom. */
-    body { touch-action: manipulation; }
+       `pan-y pinch-zoom` is therefore restored, because it is the only value
+       measured to stop the horizontal drag, and it keeps the pinch F142 fought
+       for. Double-tap zoom is then suppressed in JS instead (see
+       bindDoubleTapGuard), which is the only place the two requirements can
+       both be met.
+
+       Maps are the one thing that legitimately pans in both directions, and
+       Leaflet drives its own gestures from JS — `touch-action: none` is the
+       mode it asks for, and it must be restated here because an ancestor's
+       value is intersected with the element's. */
+    body { touch-action: pan-y pinch-zoom; }
     .leaflet-container { touch-action: none; }
     /* THE WAY OUT, for when the page is already zoomed.
        "the entire app is zoomed some even after double clicking whitespace to
@@ -445,6 +444,14 @@
     .navregion .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
     #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
+    /* ...but inside the Contents grid it IS the cell, so it carries no margin
+       of its own and fills the column it was given. */
+    .toc li.regioncell { display: block; min-width: 0; }
+    .toc li.regioncell .regionpick { margin: 0; height: 100%; flex-direction: column;
+      align-items: stretch; justify-content: center; gap: 6px;
+      padding: 14px 12px; border: 1px solid var(--line); border-radius: 14px;
+      background: var(--card); }
+    .toc li.regioncell .regionpick select { flex: 0 0 auto; width: 100%; }
     .regionpick label { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .regionpick select { flex: 1; font-weight: 700; }
     /* First run has no key, and without one the app can do literally nothing.
@@ -1408,7 +1415,7 @@
     </section>
 
     <section class="panel">
-      <h2>🚗 Worth the drive <span class="dim" id="excRegionLabel"></span></h2>
+      <h2>🚗 Day-trip patches <span class="dim" id="excRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="excBtn">Find excursions</button>
@@ -1875,7 +1882,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.7';
+      var APP_VERSION = '1.26.8';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9572,11 +9579,11 @@
             $('destResults').insertAdjacentHTML('afterend', rad > base
               ? '<div class="hint" id="destThin">Widened to <b>' + rad + ' mi</b> — too '
                 + 'little was within ' + base + ' mi to be worth a list. '
-                + '<b>🚗 Worth the drive</b> starts where this stops, so nothing is in both.</div>'
+                + '<b>🚗 Day-trip patches</b> starts where this stops, so nothing is in both.</div>'
               : '<div class="hint" id="destThin">That is everything within <b>'
                 + rad + ' mi</b> — the radius this section covers, not '
                 + 'everything that is out there. Anywhere further is in '
-                + '<b>🚗 Worth the drive</b>.</div>');
+                + '<b>🚗 Day-trip patches</b>.</div>');
           }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -13966,7 +13973,23 @@
       //
       // GBIF is keyless, so none of this spends eBird budget, and every part
       // caches for 30 days.
-      var ICONIC_SPOTS_MAX = 12;    // hotspots scanned per run
+      // CANDIDATE SELECTION, measured — and the first attempt was badly wrong.
+      //
+      // Taking the 12 NEAREST hotspots returned nothing at all on the device:
+      // "Nothing within 35 mi stands out strongly for any bird." Measured
+      // against the live directory, there are **1,174 hotspots within 35 mi of
+      // home**, and the twelve nearest are suburban pocket parks of 34–105
+      // species. Fobes Ebey Slough — where Eastern Kingbird is 42× — ranks
+      // **537th by distance** and 54th by richness. Proximity was selecting
+      // precisely the places that cannot have a speciality.
+      //
+      // Richness is the right proxy and it is free: the directory already
+      // carries `numSpeciesAllTime`, and a site with little data fails the
+      // 200-record box floor anyway, so scanning it spends a call to learn
+      // nothing. Sorting by richness puts Fobes inside the budget.
+      var ICONIC_SPOTS_MAX = 75;    // hotspots scanned per run
+      var ICONIC_MIN_SPP = 100;     // ...and they need enough history to measure
+      var ICONIC_GRID_DEG = 0.02;   // ~2 km: one box per grid cell, not per pin
       var ICONIC_TOP_PER_SPOT = 4;  // species named per hotspot
       var ICONIC_MIN_MULT = 3;      // below this a place is not "iconic" for it
       var _iconicRows = null, _iconicView = 'bird';
@@ -14041,16 +14064,30 @@
         st.textContent = 'Finding hotspots near you\u2026';
         var lim = chaseMaxMi();
         loadHotspotIndex(getObsRegion()).then(function (rows) {
-          var near = (rows || []).filter(function (h) {
-            return h && h.lat != null && h.lng != null && BL.isPublicPlace(h.name || h.locName || '');
+          var cand = (rows || []).filter(function (h) {
+            return h && h.lat != null && h.lng != null
+              && (h.n || 0) >= ICONIC_MIN_SPP
+              && BL.isPublicPlace(h.locName || h.name || '');
           }).map(function (h) {
             h._mi = haversineMi(home.lat, home.lng, +h.lat, +h.lng);
             return h;
           }).filter(function (h) { return h._mi <= lim; })
-            .sort(function (a, b) { return a._mi - b._mi; })
-            .slice(0, ICONIC_SPOTS_MAX);
+            // Richest first: that is what puts a site like Fobes (141 spp, 14 mi,
+            // 537th by distance) inside the budget at all.
+            .sort(function (a, b) { return (b.n || 0) - (a.n || 0); });
+          // ONE BOX PER PLACE, not per pin. Discovery Park and Discovery
+          // Park--West Point sit inside the same 2 km box, so measuring both
+          // spends two calls to ask one question. Keep the richest per cell.
+          var seenCell = {}, near = [];
+          cand.forEach(function (h) {
+            var cell = Math.round(h.lat / ICONIC_GRID_DEG) + ',' + Math.round(h.lng / ICONIC_GRID_DEG);
+            if (seenCell[cell]) return;
+            seenCell[cell] = 1;
+            if (near.length < ICONIC_SPOTS_MAX) near.push(h);
+          });
           if (!near.length) {
-            st.textContent = 'No hotspots within ' + lim + ' mi of home.'; btn.disabled = false; return;
+            st.textContent = 'No well-birded hotspots within ' + lim + ' mi of home.';
+            btn.disabled = false; return;
           }
           st.textContent = 'Measuring ' + near.length + ' hotspots against their county\u2026';
           var done = 0, out = [];
@@ -14078,7 +14115,7 @@
                 return gbifSciFor(x.key).then(function (s) {
                   var row = s ? sci[String(s).toLowerCase()] : null;
                   out.push({
-                    locId: h.locId, place: h.name || h.locName || h.locId,
+                    locId: h.locId, place: h.locName || h.name || h.locId,
                     lat: h.lat, lng: h.lng, distMi: h._mi,
                     mult: x.mult, n: x.n, effort: bx.all,
                     sci: s, code: (row && row.code) || '', name: (row && row.name) || s || String(x.key)
@@ -16091,35 +16128,35 @@
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
       var MENU_SUB = {
-        surgeBtn:      'Reported in the last 24 hours',
-        wxBtn:         'Is today worth going out',
-        dueBackBtn:    'Migrants due back in the next few weeks',
-        rankBtn:       'Where you sit against other birders',
-        destBtn:       'Target-rich sites within a day trip',
-        excBtn:        'Target-rich sites beyond a day trip',
-        quickBtn:      'Richest hotspots within ~20 mi of home',
-        targetsBtn:    'Nearest places holding a bird you still need',
-        spLookupBtn:   'Pick a bird · find where to wait for it',
-        iconicBtn:     'Places near you that stand out for one bird',
-        refreshBtn:    'Notable birds reported today',
-        activeBtn:     'Notable birds from the last 7 days',
-        abaBtn:        'ABA Code 3+ · continent-wide rare-bird alert',
-        lastNewBtn:    'Newest species added to the Top 100 board',
-        hotBtn:        'Sites reporting more species than they usually do',
-        coldBtn:       'Good sites with little recent coverage',
-        cklBtn:        'Checklists with the most species in one day',
-        convoyBtn:     'Groups birding the same route today',
+        surgeBtn:      'Buzz in the last 24 h',
+        wxBtn:         'Is today worth it',
+        dueBackBtn:    'Migrants due back soon',
+        rankBtn:       'Your standing',
+        destBtn:       'Top hotspots to visit',
+        excBtn:        'Top excursion hotspots',
+        quickBtn:      'Local hotspots',
+        targetsBtn:    'Nearest to a bird you need',
+        spLookupBtn:   'Where to wait for it',
+        iconicBtn:     'Hotspot specialities',
+        refreshBtn:    'Rarities today',
+        activeBtn:     'Rarities this week',
+        abaBtn:        'ABA Code 3+ alert',
+        lastNewBtn:    'Newest on the board',
+        hotBtn:        'Hotspots above normal',
+        coldBtn:       'Unwatched hotspots',
+        cklBtn:        'Biggest day lists',
+        convoyBtn:     'Groups birding together',
         favResults:    'Places you saved',
-        allUnseenBtn:  'Every report of a bird you need, nearest first',
-        easyBtn:       'Common birds you have somehow missed',
-        nvResults:     'Sightings still awaiting a reviewer',
-        migBtn:        'What should arrive or leave soon',
-        bcBody:        'How many birds flew over last night',
-        todBtn:        'Species found mostly at dawn or dusk',
+        allUnseenBtn:  'Every report, nearest first',
+        easyBtn:       'Common birds you missed',
+        nvResults:     'Awaiting a reviewer',
+        migBtn:        'Arriving and leaving',
+        bcBody:        'Overnight flight',
+        todBtn:        'Dawn and dusk birds',
         myYearBody:    'Your list this year',
-        recordBody:    'Megararities overdue in this state',
-        settingsPanel: 'Region, text size, your data',
-        helpBody:      'What each section reads and how it decides'
+        recordBody:    'Overdue megararities',
+        settingsPanel: 'Region, text size, data',
+        helpBody:      'How each section works'
       };
 
       var MENU = [
@@ -16140,10 +16177,10 @@
         // outing, then closest-with-unseen. That is descending by how much of
         // a day each one asks for, so the list reads as "how much time have
         // you got".
-        { at: 'destBtn',       label: '🥇 Top patches', needs: 'geo', group: 'Go birding' },
-        { at: 'excBtn',        label: '🚗 Worth the drive', needs: 'geo', group: 'Go birding' },
+        { at: 'destBtn',       label: '🥇 Today\u2019s patches', needs: 'geo', group: 'Go birding' },
+        { at: 'excBtn',        label: '🚗 Day-trip patches', needs: 'geo', group: 'Go birding' },
         { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Go birding' },
-        { at: 'targetsBtn',    label: '📍 Closest spots with unseen birds', needs: 'geo', group: 'Go birding' },
+        { at: 'targetsBtn',    label: '📍 Closest unseen birds', needs: 'geo', group: 'Go birding' },
     // LAST in the group, deliberately. The four above answer "where should I
     // go today" from the report you are already in, which is the common case;
     // looking up a place you are not at is the exception, so it reads last.
@@ -16178,7 +16215,7 @@
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite hotspots', needs: 'geo', group: 'Hotspots & birders' },
-        { at: 'allUnseenBtn',  label: '📋 Closest unseen birds', needs: 'county', group: 'Birds you still need' },
+        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
         { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
           // OFF, not deleted — the section, its loader and its panel are
           // untouched. It leaves the MENU because it is not a separate
@@ -16714,8 +16751,6 @@
         menu.setAttribute('aria-label', 'Contents');
         menu.innerHTML =
           '<div id="menuIdentity"></div>' +
-          '<div class="regionpick"><label for="menuRegion">Region</label>' +
-          '<select id="menuRegion"></select></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +
           '<ul id="menuList" class="toc"></ul>';
         main.insertBefore(menu, main.firstChild);
@@ -16738,9 +16773,11 @@
         addSectionRefresh(sec);
           _sections.push(sec);
         });
-        bindRegionPickers();
         renderMenuIdentity();
         renderMenuList();
+        // AFTER renderMenuList: the region <select> is created by it now, so
+        // binding first would wire a control that does not exist yet.
+        bindRegionPickers();
         renderKeyBanner();
         showMenu();
       }
@@ -16830,20 +16867,54 @@
         if (el) el.innerHTML = menuIdentityHtml();
       }
       function renderMenuList() {
+        // Rebuilding the list DESTROYS the region <select>, because the cell is
+        // part of the grid now. Re-binding is therefore the last thing this
+        // function does — a listener attached once at boot would be thrown away
+        // the first time the region changed, which is the exact shape of the
+        // bug that hid the rankings scope for a whole release.
+        var _out = _renderMenuListInner.apply(this, arguments);
+        bindRegionPickers();
+        return _out;
+      }
+      function _renderMenuListInner() {
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
         var shown = _sections.filter(function (sec) {
           return menuApplies({ needs: sec._needs, enabled: sec._enabled });
         });
         var firstTile = true;
-        MENU_GROUPS.forEach(function (group) {
+        // TWO COLUMNS OF ONE TABLE, not two stacked rows. "the happening now
+        // button and region selection can be two columns of one table, to
+        // reduce screen space." The region control used to be a full-width row
+        // of its own directly above a full-width Happening-now tile, so the
+        // two most-used controls in the app ate the whole first screen between
+        // them. They are now one grid row.
+        //
+        // The region cell is a real grid <li> rather than a floated box: the
+        // .toc grid already owns the column maths, and anything positioned
+        // outside it would have to duplicate them and then drift.
+        var rli = document.createElement('li');
+        rli.className = 'regioncell';
+        rli.setAttribute('role', 'presentation');
+        rli.innerHTML = '<div class="regionpick"><label for="menuRegion">Region</label>'
+          + '<select id="menuRegion"></select></div>';
+        list.appendChild(rli);
+        firstTile = false;   // ...so Happening now does NOT span both columns
+        MENU_GROUPS.forEach(function (group, gi) {
           var members = shown.filter(function (s) { return s._group === group; });
           if (!members.length) return;
-          var h = document.createElement('li');
-          h.className = 'tocgroup';
-          h.setAttribute('role', 'presentation');
-          h.textContent = group;
-          list.appendChild(h);
+          // The FIRST group's heading is suppressed, because its single tile is
+          // now sharing a row with the region control and a full-width heading
+          // between them would split the pair back apart. "Right now" was also
+          // the least informative of the headings — the tile beneath it says
+          // "Happening now", so the heading restated the tile.
+          if (gi > 0) {
+            var h = document.createElement('li');
+            h.className = 'tocgroup';
+            h.setAttribute('role', 'presentation');
+            h.textContent = group;
+            list.appendChild(h);
+          }
           members.forEach(function (sec) {
             var li = document.createElement('li');
             // The first TILE is wide, not the first child — the heading above
@@ -17168,6 +17239,47 @@
         var m = $('menuPanel');
         return !!(m && !m.hidden);
       }
+      // DOUBLE-TAP ZOOM, SUPPRESSED IN JS — because CSS cannot do both jobs.
+      //
+      // `touch-action: manipulation` kills the gesture but hands back `pan-x`,
+      // and the sideways drag came straight back. `pan-y pinch-zoom` stops the
+      // drag but leaves double-tap firing. The two requirements cannot be
+      // expressed in one touch-action value, so the drag is handled in CSS and
+      // the double tap here.
+      //
+      // NARROW ON PURPOSE. It cancels the second tap only on a target with no
+      // tap behaviour of its own — which is exactly where it was reported
+      // ("double clicking whitespace"). Anything tappable is exempt, and the
+      // version line most of all: the debug panel opens on FIVE clicks, so a
+      // blanket preventDefault would swallow every other one and break the one
+      // screen this whole bug was reported from.
+      var DTAP_MS = 350, DTAP_PX = 30;
+      var _tapT = 0, _tapX = 0, _tapY = 0;
+      function isTappable(el) {
+        return !!(el && el.closest && el.closest(
+          'a, button, input, select, textarea, label, summary, details, ' +
+          '[role="button"], [onclick], .toclink, .maplink, .extlink, #ver, .leaflet-container'));
+      }
+      function bindDoubleTapGuard() {
+        // passive:false, or preventDefault is ignored and this does nothing at
+        // all while still looking wired.
+        document.addEventListener('touchend', function (e) {
+          if (e.touches && e.touches.length) return;      // still multi-touch
+          var t = e.changedTouches && e.changedTouches[0];
+          if (!t) return;
+          var now = Date.now();
+          var quick = (now - _tapT) < DTAP_MS;
+          var samePlace = Math.abs(t.clientX - _tapX) < DTAP_PX
+                       && Math.abs(t.clientY - _tapY) < DTAP_PX;
+          if (_tapT && quick && samePlace && !isTappable(e.target)) {
+            if (e.cancelable) e.preventDefault();
+            _tapT = 0;                                    // consumed
+            return;
+          }
+          _tapT = now; _tapX = t.clientX; _tapY = t.clientY;
+        }, { passive: false });
+      }
+
       // A ZOOM YOU CANNOT UNDO IS A BROKEN APP, NOT A MAGNIFIED ONE.
       //
       // Reported twice: "i double clicked the debugging window it zooms in and
@@ -17884,6 +17996,7 @@
       });
       bindSwipeBack();
       bindZoomReset();
+      bindDoubleTapGuard();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
       $('addTripBtn').addEventListener('click', function () {
         var label = ($('tripName').value || '').trim();

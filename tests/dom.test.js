@@ -326,7 +326,7 @@ test('navigation opens exactly one section and the back button returns', async (
 
 test('opening a section auto-loads its content (no button tap)', async () => {
   const app = await boot();
-  app.open(/Top patches/);
+  app.open(/Today.s patches/);
   assert.match(app.$('destStatus').textContent, /Ranking hotspots/,
     'the section loader ran on first open');
   app.window.close();
@@ -371,7 +371,7 @@ function swipe(app, from, dx, dy, opts) {
 
 test('swiping right in a section returns to the Contents menu', async () => {
   const app = await boot();
-  app.open(/Top patches/);
+  app.open(/Today.s patches/);
   assert.equal(app.$('menuPanel').hidden, true, 'section is open');
 
   swipe(app, app.$('destStatus'), 140, 10);
@@ -384,7 +384,7 @@ test('swiping right in a section returns to the Contents menu', async () => {
 
 test('swipe-back ignores gestures it must not steal', async () => {
   const app = await boot();
-  const open = () => { app.open(/Top patches/); return app.$('destStatus'); };
+  const open = () => { app.open(/Today.s patches/); return app.$('destStatus'); };
 
   let el = open();
   swipe(app, el, -140, 0);
@@ -2282,12 +2282,20 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   assert.equal(plain.icon, '', 'a label with no glyph claims none');
   assert.equal(plain.text, 'Settings',
     'and keeps all of its text rather than losing a letter to a bad guess');
-  // The first TILE, not the first list child: the group heading above it is
-  // a child too. Grouping the menu is what broke the old selector.
-  const first = app.document.querySelector('#menuList li:not(.tocgroup)');
-  assert.ok(first.classList.contains('wide'),
-    'the first tile spans the row rather than sharing a slot');
-  assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
+  // THE FIRST ROW IS NOW A PAIR, not a banner. "the happening now button and
+  // region selection can be two columns of one table, to reduce screen space":
+  // the region control used to be a full-width row directly above a full-width
+  // Happening-now tile, so the two most-used controls ate the first screen
+  // between them. They now share one grid row, so the Happening-now tile is no
+  // longer `.wide` and the region cell sits beside it.
+  const cells = [...app.document.querySelectorAll('#menuList > li:not(.tocgroup)')];
+  assert.ok(cells[0].classList.contains('regioncell'),
+    'the region control is not the first cell, so it is not sharing the row');
+  assert.ok(cells[0].querySelector('#menuRegion'),
+    'the region cell exists but holds no picker — the control was lost in the move');
+  assert.ok(!cells[1].classList.contains('wide'),
+    'Happening now still spans the whole row, so nothing can sit beside it');
+  assert.match(cells[1].querySelector('.toclink').getAttribute('aria-label'),
     /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
   // The headings are labels for the tiles, not tiles: a screen reader
   // stepping through Contents must not find one that does nothing.
@@ -6247,26 +6255,33 @@ test('the drag probe is wired to a real button', () => {
 // whether or not anything overflows.
 test('a finger may scroll the page down but not sideways — and may still pinch', () => {
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
-  // `manipulation` = every gesture EXCEPT double-tap zoom, so it keeps
-  // vertical panning and keeps the pinch. It replaced `pan-y pinch-zoom`
-  // because that left double-tap zoom FIRING: reported first as "i double
-  // clicked the debugging window it zooms in and i cannot zoom out", and then
-  // again after pinch was restored as "the double click zoom issue is still
-  // happening". Per the spec double-tap is not in `pan-y pinch-zoom` either,
-  // but WebKit only special-cases this one keyword for the gesture.
-  assert.match(css, /body\s*\{\s*touch-action:\s*manipulation/,
-    'the page does not suppress double-tap zoom, so a stray tap magnifies the app');
+  // TAKE SIX, and it splits the problem in two because ONE touch-action value
+  // cannot solve both halves. `manipulation` killed the double tap and
+  // silently handed back `pan-x`, so the sideways drag returned within hours:
+  // "side scrolling issue is back. screen drags to the right." The drag is
+  // therefore handled here in CSS and the double tap in JS.
+  assert.match(css, /body\s*\{\s*touch-action:\s*pan-y pinch-zoom/,
+    'the page permits horizontal panning, and the screen drags sideways again');
   // PINCH-ZOOM MUST SURVIVE. Removing user-scalable=no (F142) is the single
-  // most valuable accessibility fix in this file, and a touch-action value
-  // that forbade the pinch would quietly take it back. `manipulation` permits
-  // it; a bare `pan-y` would not, which is the bug this guard was written for.
-  assert.ok(!/body\s*\{\s*touch-action:\s*pan-y\s*;/.test(css),
-    'body permits ONLY vertical panning, so a reader who zooms in cannot zoom back out');
+  // most valuable accessibility fix in this file, and a value that forbade the
+  // pinch would quietly take it back — `pan-y` ALONE does exactly that, which
+  // is the bug this guard was originally written for.
+  assert.match(css, /body\s*\{[^}]*pinch-zoom/,
+    'body forbids the pinch, so a reader who zooms in cannot zoom back out');
+  // ...and the double tap is suppressed in JS instead, NARROWLY: anything
+  // tappable is exempt, or the five-tap debug gesture loses every other tap.
+  const dt = HTML.slice(HTML.indexOf('function bindDoubleTapGuard'),
+                        HTML.indexOf('// A ZOOM YOU CANNOT UNDO'));
+  assert.ok(dt.length > 100, 'the double-tap guard is gone, so the gesture fires again');
+  assert.match(dt, /passive:\s*false/,
+    'preventDefault is ignored on a passive listener — this would look wired and do nothing');
+  assert.match(dt, /isTappable\(e\.target\)/,
+    'the guard fires on buttons and links too, which breaks the 5-tap debug gesture');
   // Maps are the one thing that must pan both ways. An ancestor's value is
   // INTERSECTED with the element's, so the map has to opt back out explicitly.
   assert.match(css, /\.leaflet-container\s*\{[^}]*touch-action:\s*none/,
     'and maps opt back out, because Leaflet drives its own gestures from JS');
-  assert.ok(css.indexOf('body { touch-action: manipulation; }')
+  assert.ok(css.indexOf('body { touch-action: pan-y pinch-zoom; }')
             < css.indexOf('.leaflet-container { touch-action: none; }'),
     'with the map override after the body rule so it is not itself overridden');
   // ...and the way BACK, for a page already stuck zoomed: "the entire app is
@@ -8179,8 +8194,8 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Top patches', 'Worth the drive', 'Find local patches',
-                      'Closest spots', 'Stakeout bird', 'Iconic spots near me',
+  for (const want of ['Today', 'Day-trip patches', 'Find local patches',
+                      'Closest unseen birds', 'Stakeout bird', 'Iconic spots near me',
                       'Producing patches', 'Under-birded patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
@@ -12241,7 +12256,7 @@ test('a short Top patches list says which radius it covered', () => {
   const src = HTML.slice(at, HTML.indexOf('\n      // --- Top excursions', at));
   assert.ok(at > 0, 'loadDestinations not found');
   assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
-  assert.ok(/Worth the drive/.test(src),
+  assert.ok(/Day-trip patches/.test(src),
     'the note does not point at the section holding everything further out');
   assert.ok(/destRadiusMi\(\)/.test(src),
     'the note does not name the radius, so it states a limit without saying what it is');

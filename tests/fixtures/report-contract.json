@@ -53,13 +53,13 @@
     },
     {
       "at": "destBtn",
-      "label": "🥇 Top patches",
+      "label": "🥇 Today’s patches",
       "report": "## 🥇 Top destinations",
       "map": "destMap"
     },
     {
       "at": "excBtn",
-      "label": "🚗 Worth the drive",
+      "label": "🚗 Day-trip patches",
       "report": "## 🚗 Top excursions",
       "map": "excMap"
     },
@@ -71,7 +71,7 @@
     },
     {
       "at": "targetsBtn",
-      "label": "📍 Closest spots with unseen birds",
+      "label": "📍 Closest unseen birds",
       "report": "## 📍 Closest spots with unseen birds",
       "map": "closeMap"
     },
@@ -147,7 +147,7 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "📋 Closest unseen birds",
+      "label": "📋 All unseen reports",
       "report": "## 📋 All unseen reports in",
       "map": null,
       "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"
