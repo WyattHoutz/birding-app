@@ -12361,7 +12361,7 @@ test('every Happening now lane explains its own logic', () => {
   // Four lanes with four different rules sat under ONE section-level ℹ, so the
   // answer to "why THIS bird" was never on screen beside the bird.
   const src = HTML.slice(HTML.indexOf('var LANE_DOCS'), HTML.indexOf('function renderSurge'));
-  for (const key of ['celebrity', 'crowd', 'cascade', 'busy']) {
+  for (const key of ['celebrity', 'crowd', 'cascade', 'busy', 'mega']) {
     assert.ok(new RegExp('\\b' + key + ':').test(src), `no help text for the ${key} lane`);
   }
   // Every lane heading must carry the button, or a lane has help nobody can
@@ -13110,4 +13110,63 @@ test('the geometry line does not report overflow while zoomed out', () => {
   // The check itself must survive: at scale 1 a genuinely wider document is
   // exactly what this line was added to catch.
   assert.match(src, /OVERFLOWS by/, 'the real overflow report was removed along with the false one');
+});
+
+// ── F160: the mega lane leads Happening now, and NEVER fetches ─────────────
+// "mega rarity list can go into happening now as a fourth section."
+// Render-probed rather than regexed: the lane's contract is that it reads a
+// snapshot written by Rare birds and issues no request of its own, and both
+// halves of that are invisible to a search over source text. v1.0.28 shipped
+// "undefined rarities" to the screen with a green suite for exactly this
+// reason.
+test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothing', async () => {
+  const snap = JSON.stringify({
+    at: Date.now() - 3 * 3600 * 1000,
+    region: 'US-WA',
+    rows: [
+      // Two reports of one bird -> ONE row, newest kept.
+      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: '2026-08-19 07:00',
+        locName: 'Near Home Park', locId: 'L111', subId: 'S1', lat: 47.76, lng: -122.17 },
+      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: '2026-08-20 09:30',
+        locName: 'Near Home Park', locId: 'L111', subId: 'S2', lat: 47.76, lng: -122.17 },
+      // Far away: must still be SHOWN (a mega is worth a drive by definition)
+      // and must say it is outside the radius.
+      { speciesCode: 'liftra', comName: 'Little Stint', obsDt: '2026-08-20 08:00',
+        locName: 'Faraway Flats', locId: 'L222', subId: 'S3', lat: 46.10, lng: -119.00 },
+    ],
+  });
+  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const A = app.window.__app;
+
+  const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
+  assert.ok(lane, 'the snapshot was not read back');
+  assert.equal(lane.rows.length, 2, 'reports were not grouped to one row per species');
+  assert.equal(lane.rows[0].code, 'rufhum', 'the lane is not ordered closest-first');
+  assert.equal(lane.rows[0].reports, 2, 'the report count per species is wrong');
+  assert.equal(lane.rows[0].obsDt, '2026-08-20 09:30', 'the NEWEST report was not kept');
+
+  // The far mega survives. Every other lane gates on the chase radius; this is
+  // the one lane where that rule is wrong.
+  assert.ok(lane.rows.some(r => r.code === 'liftra'),
+    'a mega outside the chase radius was dropped — distance must ORDER this lane, never gate it');
+
+  const before = app.state.fetches.length;
+  A.renderSurge([], [], [], []);
+  assert.equal(app.state.fetches.length, before,
+    'the mega lane issued a request — it must only ever read the cached snapshot');
+
+  const box = app.window.document.getElementById('surgeResults');
+  const heads = [...box.querySelectorAll('h3.lanehead')].map(h => h.textContent);
+  assert.ok(heads.length, 'no lanes rendered');
+  assert.match(heads[0], /ABA Code 3\+/, 'the mega lane does not lead the section');
+
+  const txt = box.textContent;
+  assert.match(txt, /Rufous Hummingbird/, 'the mega did not render');
+  assert.match(txt, /Little Stint/, 'the far mega did not render');
+  assert.match(txt, /outside your chase radius/,
+    'the far mega rendered without saying it is far, which reads as local');
+  assert.ok(!/undefined|NaN/.test(txt), 'a dropped card slot rendered undefined/NaN: ' + txt.slice(0, 200));
+  // The lane says how stale it is. Without this, "no megas" and "not refreshed
+  // since Tuesday" look identical.
+  assert.match(txt, /3h ago/, 'the lane does not state the age of its snapshot');
 });

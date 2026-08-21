@@ -1901,7 +1901,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.10';
+      var APP_VERSION = '1.26.11';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4403,6 +4403,69 @@
           if (k.indexOf(code + '|') === 0) out.push(bucket[k]);
         });
         return out.sort(function (x, y) { return String(y.obsDt).localeCompare(String(x.obsDt)); });
+      }
+      // ── F160: the mega lane's data source ────────────────────────────────
+      // A snapshot, not a feed. loadAbaAlert is the ONLY writer; the Happening
+      // now lane only ever reads. See the note at the write site for why.
+      var MEGA_SNAP_KEY = 'ebird_mega_snapshot_v1';
+      function saveMegaSnapshot(rows, scoped) {
+        // An unscoped snapshot is the whole continent and would put a Florida
+        // mega in a Washington lane, so it is not stored at all. Storing it and
+        // filtering later would leave the lane one bug away from that.
+        if (!scoped) return;
+        try {
+          localStorage.setItem(MEGA_SNAP_KEY, JSON.stringify({
+            at: Date.now(), region: getRegion(),
+            rows: (rows || []).slice(0, 200).map(function (r) {
+              return {
+                speciesCode: r.speciesCode || '', comName: r.comName || '',
+                obsDt: r.obsDt || '', locName: r.locName || '', locId: r.locId || '',
+                subId: r.subId || '', lat: r.lat, lng: r.lng,
+              };
+            }),
+          }));
+        } catch (e) { dbg('warn', 'mega snapshot not stored: ' + (e && e.message)); }
+      }
+      // Newest report per species, because the lane wants ONE line per bird —
+      // the full profile with hero photo, state history and rarity evidence is
+      // what the Rare birds section is for, and it survives precisely so this
+      // lane does not have to reproduce it.
+      function megaLane(anchors) {
+        var s;
+        try { s = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null'); }
+        catch (e) { s = null; }
+        if (!s || !Array.isArray(s.rows) || s.region !== getRegion()) return null;
+        var by = {};
+        s.rows.forEach(function (r) {
+          if (!r.speciesCode) return;
+          var cur = by[r.speciesCode];
+          if (!cur) { by[r.speciesCode] = { rec: r, n: 1 }; return; }
+          cur.n++;
+          if (String(r.obsDt) > String(cur.rec.obsDt)) cur.rec = r;
+        });
+        var out = Object.keys(by).map(function (c) {
+          var e = by[c], r = e.rec, na = null;
+          // The NEAREST anchor, home or work — the same rule Closest spots
+          // follows, so "12 mi" means the same thing in both places.
+          if (r.lat != null && r.lng != null) na = BL.nearestAnchor(anchors, r.lat, r.lng);
+          return { code: c, name: r.comName, obsDt: r.obsDt, locName: r.locName,
+                   locId: r.locId, subId: r.subId, lat: r.lat, lng: r.lng,
+                   reports: e.n, mi: na ? na.dist : null,
+                   anchor: na ? na.name : null };
+        });
+        // Closest first, but a mega with no coordinates is NOT dropped and not
+        // sunk — every other lane requires a report inside the chase radius,
+        // and this is the one lane where that rule is wrong. A continent-level
+        // rarity is worth a drive by definition, so distance orders the lane
+        // and never gates it; a row outside the radius says where it actually
+        // is rather than implying it is local.
+        out.sort(function (a, b) {
+          if (a.mi == null && b.mi == null) return String(b.obsDt).localeCompare(String(a.obsDt));
+          if (a.mi == null) return 1;
+          if (b.mi == null) return -1;
+          return a.mi - b.mi;
+        });
+        return { at: s.at, rows: out };
       }
       function abaArchiveAdd(region, records) {
         if (!region || !(records || []).length) return;
@@ -12842,6 +12905,19 @@
             // shared budget, not its report count. The real ABA-wide numbers
             // arrive in the deepening pass below.
             renderAbaAlert(rows, url, scoped);
+            // F160: hand the lane a snapshot, and NEVER let the lane fetch.
+            //
+            // The decisive evidence is a device report — "i opened the app and
+            // went to happening now and it immediately was on the 30 second 429
+            // timeout". Happening now already spends a whole wave of feeds on
+            // open; adding a scraped continent-wide page to that buys the same
+            // stall back. So the mega lane READS whatever this section last
+            // saw, and this section is its only writer.
+            //
+            // The consequence is printed rather than hidden: the lane says how
+            // old its snapshot is, so a stale lane looks stale instead of
+            // looking like "no megas".
+            saveMegaSnapshot(rows, scoped);
             var species = {}; rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
             var n = Object.keys(species).length;
             var unseen = Object.keys(species).filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
@@ -15147,6 +15223,27 @@
       // described the section, so the answer to "why THIS bird" was never on
       // screen next to the bird.
       var LANE_DOCS = {
+        // F160. This lane is the exception to every rule the others follow, so
+        // it has to say so plainly.
+        mega: {
+          title: '🦅 ABA Code 3+ megas',
+          body: '<p>Continent-level rarities — <b>ABA Code 3, 4 and 5</b> — currently '
+            + 'reported in this region, one line per species, newest report kept.</p>'
+            + '<p><b>This lane never fetches.</b> It shows whatever the '
+            + '<b>Rare birds</b> section last loaded, and prints how old that is. '
+            + 'The ABA alert is a scraped continent-wide page, and fetching it '
+            + 'every time you opened Happening now is what put this section on a '
+            + '30-second rate-limit timeout. So the section you open deliberately '
+            + 'pays that cost, and this lane never does. If it looks empty, open '
+            + '<b>Rare birds</b> once.</p>'
+            + '<p><b>Distance orders this lane but never gates it.</b> Every other '
+            + 'lane here requires a report inside your chase radius. That rule is '
+            + 'wrong for a mega — a bird this rare is worth a drive by definition — '
+            + 'so a far one is still listed, and labelled <i>outside your chase '
+            + 'radius</i> rather than left to look local.</p>'
+            + '<p>For photos, state history and the rarity evidence, open '
+            + '<b>Rare birds</b>: this lane is one line per bird on purpose.</p>',
+        },
         celebrity: {
           title: '🎯 Celebrity Birds',
           body: '<p>Birds <b>eBird flags as notable in this region</b> that are '
@@ -15290,10 +15387,22 @@
           + '" aria-label="How this lane is calculated">\u2139\ufe0f</button>';
       }
 
+      // How stale the mega snapshot is, in words. The lane never fetches, so
+      // this is the only thing standing between "no megas reported" and "this
+      // lane has not been refreshed since Tuesday" — two very different facts.
+      function megaAge(at) {
+        var h = (Date.now() - at) / 36e5;
+        if (!(h >= 0)) return 'from the ABA alert';
+        if (h < 1) return 'from the ABA alert, minutes ago';
+        if (h < 48) return 'from the ABA alert, ' + Math.round(h) + 'h ago';
+        return 'from the ABA alert, ' + Math.round(h / 24) + ' days ago — reopen Rare birds to refresh';
+      }
       function renderSurge(events, cascades, convergence, needs, merged) {
         var box = $('surgeResults');
         needs = needs || [];
-        if (!needs.length && !events.length && !cascades.length && !convergence.length) {
+        var mega = megaLane(getAnchors());
+        var megaRows = (mega && mega.rows) || [];
+        if (!megaRows.length && !needs.length && !events.length && !cascades.length && !convergence.length) {
           // The empty state has to describe all FOUR lanes now. It used to
           // list only the crowd conditions, which would read as "no crowds"
           // while quietly also meaning "and nothing you need is nearby" - two
@@ -15304,10 +15413,76 @@
             + 'This fires when ' + BL.SURGE.MIN_OBSERVERS + '+ birders converge on one species at one spot '
             + 'within ' + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO + '× its local norm, when a bird with '
             + 'no recent reports at all draws ' + BL.SURGE.NOVEL_OBSERVERS + '+ independent observers, when several of '
-            + 'the top 100 add the same species within days, or when a hotspot far outdraws its own norm.</div>';
+            + 'the top 100 add the same species within days, or when a hotspot far outdraws its own norm.'
+            // The empty state now has to be honest about the fifth lane too:
+            // it is empty when nothing has EVER populated the snapshot, which
+            // looks identical to "no megas" unless it says so.
+            + ' ABA Code 3+ megas appear here once you have opened <b>Rare birds</b> at least once.</div>';
           return;
         }
         var html = '';
+        // ── F160: MEGAS LEAD, ahead even of F32 ──────────────────────────────
+        // "mega rarity list can go into happening now as a fourth section."
+        // Happening now is "what would local birders be talking about right
+        // now", and an ABA Code 3+ bird in your state is the single most
+        // talked-about thing there is — it was sitting two taps away in Rare
+        // birds while a hotspot with eight birders on it led the section.
+        //
+        // It also closes a real hole. Celebrity Birds needs 4+ sightings at one
+        // place, which a mega found an hour ago cannot satisfy by definition,
+        // and docs/HAPPENING-NOW.md removed the old single-report exemption on
+        // the grounds that "a genuine mega is a TWITCH". This lane is that
+        // promise kept: it states its own reason, so one report is not smuggled
+        // through a corroboration gate built for something else.
+        if (megaRows.length) {
+          html += '<h3 class="lanehead">🦅 ' + megaRows.length + ' ABA Code 3+ '
+            + (megaRows.length === 1 ? 'mega' : 'megas') + ' in '
+            + esc(getReport().label || 'this region') + laneHelpBtn('mega') + '</h3>';
+          html += '<div class="lanesub">' + megaAge(mega.at)
+            + ' · one line each — open <b>Rare birds</b> for photos, state history and evidence</div>';
+          html += '<ul class="obs big xl lanes">' + megaRows.map(function (m) {
+            var far = m.mi != null && m.mi > chaseMaxMi();
+            var where = m.locName ? (m.locId ? locLink(m.locName, m.locId) : esc(m.locName)) : '';
+            // Labelled rows, built here rather than passed as a slot: the
+            // medium card takes {{sub}} and {{below}} and NOTHING else that
+            // could carry these, and a slot the template does not declare is
+            // dropped in silence. `.cklrows > li.lblrow` is the shape the CSS
+            // above already defines for exactly this "Where / Latest" case.
+            var below = '<ul class="cklrows">'
+              + (where ? '<li class="lblrow"><span class="lbl">Where</span>'
+                       + '<span class="where">' + where + '</span></li>' : '')
+              + '<li class="lblrow"><span class="lbl">Latest</span>'
+              + '<span class="when">' + esc(fmtDateTime(m.obsDt)) + '</span></li>'
+              // A mega outside the chase radius is SHOWN, and says so. Every
+              // other lane requires a report inside the radius; this is the one
+              // lane where that rule is wrong, because a continent-level rarity
+              // is worth a drive by definition. Distance ORDERS this lane and
+              // never gates it — but an unlabelled far row would imply local,
+              // so the row names the drive instead of hiding it.
+              + (m.mi != null
+                  ? '<li class="lblrow"><span class="lbl">'
+                    + (far ? 'Distance · outside your chase radius' : 'Distance')
+                    + '</span><span class="where">'
+                    + esc(Math.round(m.mi) + ' mi'
+                        + (m.anchor ? ' from ' + m.anchor : '')) + '</span></li>'
+                  : '')
+              + '</ul>';
+            return SpeciesCards.medium({
+              sci: sciFor(m.code),
+              icon: photoSlot(m.name, m.code),
+              name: speciesLink(m.name, m.code),
+              code: m.code,
+              alpha: alphaFor(m.code),
+              // `sub` and `distMi` are real MEDIUM slots. `count`/`unit` are
+              // NOT — the MEDIUM template declares no {{count}}, so passing one
+              // renders nothing and says so nowhere. That is the same silent
+              // drop that cost a release when `right` was passed to medium.
+              sub: 'ABA Code 3+ · ' + m.reports + ' report' + (m.reports === 1 ? '' : 's'),
+              distMi: m.mi,
+              below: below,
+            });
+          }).join('') + '</ul>';
+        }
         // F32 LEADS, and that ordering is the point.
         //
         // The three lanes below all answer "what are other birders doing" —
@@ -15582,7 +15757,9 @@
         }).catch(function () { return []; });
         Promise.all([pEvents, pCascades, pConverge, pNeeds]).then(function (r) {
           renderSurge(r[0], r[1], r[2], r[3], _merged);
-          var n = r[0].length + r[1].length + r[2].length + r[3].length;
+          var ml = megaLane(getAnchors());
+          var n = r[0].length + r[1].length + r[2].length + r[3].length
+            + ((ml && ml.rows.length) || 0);
           st.textContent = (n ? n + ' active signal' + (n === 1 ? '' : 's') : 'Nothing chasing right now')
             + ' · ' + nowTime();
         }).catch(function (e) { st.textContent = netErr(e); })
@@ -18908,6 +19085,11 @@
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
+        // F160: the mega lane, exposed so it can be RENDER-probed. The lane's
+        // whole contract is that it reads a snapshot and never fetches, and
+        // both halves of that are invisible to a regex over source text.
+        megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
+        renderSurge: renderSurge, MEGA_SNAP_KEY: MEGA_SNAP_KEY,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
