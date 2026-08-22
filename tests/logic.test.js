@@ -1327,3 +1327,42 @@ test('hotspotConvergence: party membership is transitive, and one shared stop is
   assert.deepEqual(BL.hotspotConvergence(chain, { now: NOW }), [],
     'if A rode with B and B rode with C, all three are one car');
 });
+
+// ── F169: a checklist's obsDt is its START, so freshness is understated ────
+// "the checklists are at 6am but they last 4 hours" — measured in King County
+// 2026-08-22 over 22 notable checklists: median 1.07h, mean 2.06h, max 5.23h,
+// with 27% running four hours or more.
+//
+// eBird publishes no per-observation time, so a bird found at the END of a
+// long walk is judged by a timestamp hours earlier and reads as STALER than it
+// is. The error only ever points one way, which is why a grace is the right
+// shape: it can rescue a fresh row and cannot invent one.
+//
+// The reported case: a Northern Waterthrush on a 4h20m count at Union Bay,
+// 27h old by its start and ~22.6h by the end of the walk, dropped from a 24h
+// window it belonged in.
+test('a long count is not treated as stale at the moment it started', () => {
+  const now = Date.parse('2026-08-22T10:00:00');
+  const at = (h) => ({
+    kind: 'Rarity', code: 'norwat', subId: 'S' + h,
+    dateStr: new Date(now - h * 3600000).toISOString().slice(0, 16).replace('T', ' '),
+  });
+
+  assert.ok(BL.NOTABLE_GRACE_H > 0, 'the grace is gone — long counts read as stale again');
+  // Rounded DOWN from the measured 5.23h maximum, so "reported in the last
+  // day" stays a defensible claim rather than stretching to fit the tail.
+  assert.ok(BL.NOTABLE_GRACE_H <= 6,
+    `a ${BL.NOTABLE_GRACE_H}h grace is wider than any measured count — that is not slack, it is a different window`);
+
+  const codes = (rows) => BL.notableRecent(rows, now).length;
+  assert.equal(codes([at(20)]), 1, 'a plainly fresh row still shows');
+  // 26h: outside the 24h window by its start, inside once you allow for the
+  // walk it came from. This is the exact row that was reported missing.
+  assert.equal(codes([at(26)]), 1,
+    'a row 26h old by its START is inside a day once the count length is allowed for');
+  assert.equal(codes([at(40)]), 0,
+    'but genuinely old rows stay out — a grace is not a wider window');
+  // The grace is one-sided on purpose: a future date is a clock fault, not a
+  // long walk, and widening that edge would admit it.
+  assert.equal(codes([at(-30)]), 0, 'a future-dated row is still rejected');
+});

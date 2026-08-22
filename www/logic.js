@@ -861,9 +861,34 @@
   // from the clock so the report (built once, at a known time) and the app
   // (live) can both use this one function and the golden can pin it.
   var NOTABLE_WINDOW_H = 24;
+  // A checklist's `obsDt` is when the count STARTED, not when the bird was
+  // seen. eBird publishes no per-observation time, and `durationHrs` is not on
+  // the notable feed at all — it is on product/checklist/view, one call each.
+  //
+  // MEASURED in King County 2026-08-22, 22 notable checklists:
+  //   median 1.07 h · mean 2.06 h · max 5.23 h
+  //   >= 1 h: 59% · >= 2 h: 36% · >= 4 h: 27%
+  //
+  // So the error is real and often hours wide, and it always points the same
+  // way: a bird looks OLDER than it is, and drops out of a freshness window
+  // that it belongs in. The reported case is exactly that — a Northern
+  // Waterthrush on a 4h20m count at Union Bay, 27 h old measured from the
+  // start and ~22.6 h measured from the end of the walk.
+  //
+  // GRACE, rather than a call per checklist. Measured over the same week, the
+  // duration lookup would rescue ONE row — at 28 API calls. That is a bad
+  // trade, and the cheap approximation is nearly as good: allow a row to
+  // survive `NOTABLE_GRACE_H` past the window, because the observation could
+  // have happened anywhere inside a count that long. It admits a few genuinely
+  // stale rows, and the alternative admits none of the fresh ones.
+  //
+  // 5 h, not the 5.23 h maximum: rounding down keeps the claim ("reported in
+  // the last day") defensible, and the tail beyond 5 h is one checklist in 22.
+  var NOTABLE_GRACE_H = 5;
   function notableRecent(records, nowMs, hours) {
     var now = isFinite(nowMs) ? nowMs : Date.now();
     var span = (isFinite(hours) ? hours : NOTABLE_WINDOW_H) * 3600000;
+    var grace = NOTABLE_GRACE_H * 3600000;
     var seenSubs = {}, out = [];
     (records || []).forEach(function (r) {
       if (r.kind !== 'Rarity') return;
@@ -873,9 +898,9 @@
       // no business leading it.
       if (!isFinite(t)) return;
       var age = now - t;
-      // A little slack forward for clock skew between the phone and the
-      // observer's device — the same tolerance BirdLogic.isFresh allows.
-      if (age > span || age < -span) return;
+      // The grace applies only to the OLD edge. A future-dated row is a clock
+      // problem, not a long walk, and widening that side would let one in.
+      if (age > span + grace || age < -span) return;
       var sub = r.subId;
       if (sub && seenSubs[sub]) return;
       if (sub) seenSubs[sub] = 1;
@@ -3364,6 +3389,7 @@
     excursions: excursions,
     notableToday: notableToday,
     notableRecent: notableRecent, NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,
+    NOTABLE_GRACE_H: NOTABLE_GRACE_H,
     SURGE: SURGE,
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
