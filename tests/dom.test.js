@@ -1062,12 +1062,17 @@ test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () =
   // request.
   const nv = HTML.match(/\.nvrow > \.thumb \{[^}]*?width: calc\((\d+)px/);
   assert.ok(nv, 'the Needs-verification thumb rule moved — this guard is looking in the wrong place');
-  const med = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: calc\((\d+)px/);
+  const med = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\((\d+)px/);
   assert.ok(med, 'the medium card thumb rule moved');
   assert.equal(med[1], nv[1],
     `the medium card photo is ${med[1]}px and Needs-verification is ${nv[1]}px — they were asked to match`);
   assert.ok(Number(med[1]) > 56,
     'the rarity thumbnail is larger than the 56px seed-sized default, and scales with the text-size setting');
+  // ...and it must YIELD on a narrow screen. A flat 128px * 1.75 is 224px of a
+  // 320px phone, which blew the row 55.6px past the viewport — caught by the
+  // CI layout audit, not by any unit test.
+  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\(\d+px \* var\(--s\)\), \d+vw\)/,
+    'the medium card photo has a fixed width again — it must shrink on a narrow screen or the row overflows');
   // It used to hand-roll .name/.ntext/.meta — a second copy of the medium card
   // that could drift from the real one, which is exactly what happened to Easy
   // misses before it was unified.
@@ -3984,7 +3989,7 @@ test('the unseen list sizes its icon to the seed it actually shows', async () =>
   const css = app.window.SpeciesCards.css;
   assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
     'and that resolves to 46px — the width the seed was cut for');
-  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(128px \* var\(--s\)\)/,
+  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\(128px \* var\(--s\)\), 28vw\)/,
     'while sections showing a network photo keep the larger box');
   app.window.close();
 });
@@ -7802,7 +7807,10 @@ test('Today\u2019s rarities: the icon and the name open the checklist', async ()
   // the thing to check is its box, not a float.)
   const cs = w.getComputedStyle(icon);
   const span = doc.createElement('span');
-  assert.ok(/^(70px|calc)/.test(cs.width) || parseFloat(cs.width) >= 46,
+  // `min(...)` as well as `calc(...)`: the photo now yields on a narrow screen
+  // (see the 28vw note in cards-species.js), and jsdom reports the unresolved
+  // expression because it has no layout engine to compute it against.
+  assert.ok(/^(70px|calc|min)/.test(cs.width) || parseFloat(cs.width) >= 46,
     'the icon keeps the medium card\u2019s box, got width ' + cs.width);
   assert.ok(!/^8px/.test(cs.marginTop),
     'and did not inherit .extlink\u2019s 8px top margin (got ' + cs.marginTop + ')');

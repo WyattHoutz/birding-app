@@ -304,11 +304,23 @@
        Measured from `.nvrow`: a 128px photo against a 21px name. The medium
        card was 84px against the same 21px, so the picture was the thing that
        differed, not the type.
-       The sharpness note below still applies and is the reason `icon-sm`
-       exists: a 60px bundled seed upscales badly. It is acceptable here
-       because these rows hydrate a full-size network photo after paint — which
-       is exactly what `.nvrow` already does at this size. */
-    '.obs.xl > li > .name > .thumb { width: calc(128px * var(--s)); height: calc(128px * var(--s)); border-radius: 12px; }',
+
+       `min()` RATHER THAN A FIXED WIDTH, and that is not a detail. A flat
+       128px * 1.75 is 224px of a 320px screen, which left too little for the
+       name and the mileage and blew the row 55.6px past the viewport — caught
+       by the CI layout audit at 320/1.75, the narrowest phone at the largest
+       text. `.nvrow` never hit this because it already yields (`flex: 0 1
+       auto; min-width: 0`), so the same number needed a different guard here.
+       28vw keeps the photo large on a normal phone and lets it shrink on a
+       small one; `.birdpic` is `object-fit: cover`, so a narrower slot crops
+       rather than distorts.
+
+       The sharpness note below still applies and is why `icon-sm` exists: a
+       60px bundled seed upscales badly. Acceptable here because these rows
+       hydrate a full-size network photo after paint, exactly as `.nvrow`
+       does at this size. */
+    '.obs.xl > li > .name > .thumb { width: min(calc(128px * var(--s)), 28vw);',
+    '  height: min(calc(128px * var(--s)), 28vw); border-radius: 12px; }',
     /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
        The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a
        list and a smear across a card"), and `photoSlot` deliberately stops at
