@@ -57,3 +57,17 @@ jobs:
 
       - name: Unit, syntax and DOM suites
         run: npm test
+
+      # jsdom has NO LAYOUT ENGINE, so the suite above is blind to geometry.
+      # v1.26.13 shipped a 55.6px overflow with a fully green unit suite; the
+      # only thing that caught it was this audit, running in the macOS .ipa
+      # job — after the expensive runner had already started.
+      #
+      # Moved here 2026-08-21 so a layout regression fails in ~1 free minute on
+      # Linux instead of part-way through a macOS build. A check that exists
+      # but fires late still costs the thing it was meant to save.
+      #
+      # Six viewport/text combinations, in real Chrome: the narrowest phone at
+      # the largest text setting is where rows actually break.
+      - name: Layout — nothing may overflow the screen
+        run: npm run test:layout
