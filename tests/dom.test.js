@@ -8218,14 +8218,19 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // F156 added 'Iconic spots near me' beside Stakeout bird: the two are halves
   // of one thought — that one starts from a BIRD and finds the place, this one
   // starts from where you ARE and finds what the places round you are known for.
+  // stakeHsBtn sits beside spLookupBtn: "stake out a hotspot" and "stakeout
+  // bird" answer the same SHAPE of question — I have chosen this one thing,
+  // tell me everything — which is why they belong next to each other and not
+  // among the four that answer "where should I go".
   const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn',
-              'iconicBtn', 'hotBtn', 'coldBtn'];
+              'stakeHsBtn', 'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Today', 'Day-trip patches', 'Find local patches',
-                      'Closest unseen birds', 'Stakeout bird', 'Iconic spots near me',
+                      'Closest unseen birds', 'Stakeout bird', 'Stake out a hotspot',
+                      'Iconic spots near me',
                       'Producing patches', 'Under-birded patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
@@ -13392,4 +13397,57 @@ test('a GBIF 429 is retried, never resolved as "no data"', async () => {
   assert.ok(seen >= 2, 'the 429 was not retried — it was taken at face value');
   assert.ok(got && got.count === 7,
     'a 429 resolved as null, which is the exact shape that poisoned the county cache for 30 days');
+});
+
+// ── F159: stake out a hotspot ─────────────────────────────────────────────
+// "a feature that stakes out a hotspot ... details that are not clearly
+// visible on the eBird page."
+//
+// Render-probed rather than regexed. The two claims worth pinning are that it
+// LEADS WITH THE PATTERN and that the patch-regular ranking is real, and both
+// are invisible to a search over source text.
+test('Stake out a hotspot leads with the pattern, and names who birds there', async () => {
+  // Three visits by one regular, one by a visitor — so the ranking has an
+  // unambiguous answer.
+  const lists = [
+    { subId: 'S1', obsDt: '2026-08-22 07:25', userDisplayName: 'Eric Hope', numSpecies: 25 },
+    { subId: 'S2', obsDt: '2026-08-21 07:15', userDisplayName: 'Eric Hope', numSpecies: 18 },
+    { subId: 'S3', obsDt: '2026-08-20 06:15', userDisplayName: 'Eric Hope', numSpecies: 20 },
+    { subId: 'S4', obsDt: '2026-08-19 10:41', userDisplayName: 'Jane Stavert', numSpecies: 13 },
+  ];
+  const app = await boot({
+    fetch(url) {
+      if (url.includes('product/lists/')) return JSON.stringify(lists);
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  await A.stakeHsOpen('L283821', 'Cedar River mouth');
+
+  const txt = app.$('stakeHsResults').textContent;
+  assert.ok(txt.length, 'the panel rendered nothing');
+
+  // THE PATTERN, not today's rows. Measured 2026-08-22: at 10:10 the state
+  // returned ZERO reports from that day, because eBird embargoes checklists
+  // for an hour and people submit later anyway. A page that leads with "what
+  // was seen today" is empty every morning, which is exactly when someone is
+  // deciding where to go.
+  assert.match(txt, /4 checklists across 4 days/,
+    'the header does not state how often the place is birded: ' + txt.slice(0, 120));
+  assert.match(txt, /typically 19 species/,
+    'it does not say what a visit here is usually worth');
+
+  // The patch regular, ranked. This is a different and more useful list than
+  // the county top 100 - the person to ask about a place is whoever actually
+  // birds it.
+  assert.match(txt, /Eric Hope/, 'the top birder is missing');
+  assert.ok(txt.indexOf('Eric Hope') < txt.indexOf('Jane Stavert'),
+    'birders are not ranked by how often they bird here');
+  assert.match(txt, /3 checklists/, 'the visit count per birder is missing');
+
+  // An escape hatch, deliberately: eBird carries media, the illustrated
+  // checklist and your own list editing, and a page that traps you is worse
+  // than one that lets you leave.
+  assert.match(app.$('stakeHsResults').innerHTML, /ebird\.org\/hotspot/,
+    'no way back out to eBird');
 });

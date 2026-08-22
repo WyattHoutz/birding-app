@@ -83,6 +83,13 @@
       "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
     },
     {
+      "at": "stakeHsBtn",
+      "label": "🏞 Stake out a hotspot",
+      "report": null,
+      "map": null,
+      "why": "app-only, and for the same reason as Stakeout bird above: a Markdown report cannot take a query. It is the INVERSE of every place-finding section - those answer 'which place should I go to', this one starts from 'I have chosen this place, tell me everything'. It leads with the PATTERN (how often the place is birded, what a visit is usually worth, who the regulars are) rather than with today rows, because eBird embargoes checklists for an hour and people submit hours later - measured 2026-08-22, three target species returned ZERO reports from that day statewide at 10:10."
+    },
+    {
       "at": "iconicBtn",
       "label": "⭐ Iconic spots near me",
       "report": null,

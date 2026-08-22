@@ -565,6 +565,24 @@
         "The list is bundled and only changes when the app updates, because the model needs decades of data the phone does not have.",
         "A species rare next door because it is endangered and local, rather than because it wanders, can still slip in."
       ]
+    },
+    "stakeHsBtn": {
+      "report": null,
+      "summary": "Everything about ONE place you have already chosen, rather than which place to choose.",
+      "inputs": [
+        "eBird ref/hotspot/{region} for the name search, cached",
+        "eBird product/lists/{locId}, one call, which carries every recent checklist header AND its observer"
+      ],
+      "how": [
+        "The PATTERN leads, not today rows. How many checklists, across how many days, and what a visit is typically worth are true all day - unlike what was seen today, which is empty every morning by eBird own design.",
+        "MEASURED 2026-08-22 at 10:10: three target species returned ZERO reports from that day across the whole state. eBird embargoes checklists for an hour (its hotspot page says so) and people submit hours after the walk.",
+        "WHO BIRDS HERE is counted from the same single call, because product/lists carries userDisplayName. The patch-regular list is a different and more useful thing than the county top 100: the person to ask about a place is whoever actually birds it. Cedar River mouth reads Eric Hope 30.",
+        "Checklists are shown newest-first, which is the order product/lists returns - measured at three depths, 5, 50 and 200."
+      ],
+      "limits": [
+        "It does not enumerate hidden checklists. Both species_recent and /data/obs/{loc}/recent/{code} collapse to ONE row per location - measured across 14 species at two hotspots, including owls, which was the sharpest test because owlers often use custom pins. Only /data/obs/{loc}/historic/{y}/{m}/{d} returns them all, at one call per DAY, and that cost is not spent here.",
+        "Checklist comments are not shown because they are in no eBird endpoint at all - hasComments measured true on ZERO of 2,860 rows."
+      ]
     }
   }
 }

@@ -1347,6 +1347,18 @@
     </section>
 
     <section class="panel">
+      <h2>🏞 Stake out a hotspot <span class="dim" id="stakeHsRegionLabel"></span></h2>
+      <div class="row">
+        <input id="stakeHs" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
+        <button id="stakeHsBtn" class="secondary">Search</button>
+        <button id="stakeHsClear" class="secondary" type="button" hidden>✕ Close</button>
+      </div>
+      <ul id="stakeHsFound" class="obs picklist"></ul>
+      <div id="stakeHsStatus" class="status">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
+      <div id="stakeHsResults"></div>
+    </section>
+
+    <section class="panel">
       <h2>🔎 Stakeout bird <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row">
         <input id="spLookup" type="search" placeholder="Find a species by name…" autocomplete="off" />
@@ -1901,7 +1913,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.15';
+      var APP_VERSION = '1.26.16';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14423,6 +14435,153 @@
           }).catch(function () { return null; });
       }
 
+      // ── F159: STAKE OUT A HOTSPOT ────────────────────────────────────────
+      //
+      // "a feature that stakes out a hotspot, that shows a list of checklist
+      // comments, iconic birds, seen bird list, and other details that are not
+      // clearly visible on the eBird page."
+      //
+      // The inverse of every other section here. The rest answer "which place
+      // should I go to"; this one starts from "I have chosen this place, tell
+      // me everything".
+      //
+      // FOUR MEASUREMENTS SHAPED IT, all 2026-08-22, and each one changed the
+      // design rather than confirming it:
+      //
+      //  1. Top birders is FREE. product/lists carries userDisplayName, so the
+      //     patch-regular ranking costs nothing beyond a call already made.
+      //     Cedar River mouth reads Eric Hope 30 — the person the owner had
+      //     just met there. This is a better list than the county top 100: the
+      //     person to ask about a place is whoever actually birds it.
+      //
+      //  2. product/lists IS newest-first. An earlier claim that it was not
+      //     came from sorting date STRINGS in eBird's "22 Aug 2026" format,
+      //     where "1 Apr" sorts before "9 May" and means nothing.
+      //
+      //  3. LEAD WITH THE PATTERN, NOT THE LATEST ROW. Measured at 10:10 one
+      //     morning, three target species returned ZERO reports from that day
+      //     across the whole state — because eBird embargoes checklists for an
+      //     hour ("Checklists submitted within the last hour are not shown")
+      //     and people submit hours later anyway. A page that leads with
+      //     today's rows reads as broken every morning and correct every
+      //     evening. So it leads with how OFTEN the place is birded and what
+      //     it reliably holds.
+      //
+      //  4. The species feeds cannot enumerate a place's checklists. Both
+      //     species_recent and /data/obs/{loc}/recent/{sp} collapse to ONE row
+      //     per location — measured across 14 species at two hotspots. Only
+      //     /data/obs/{loc}/historic/{y}/{m}/{d} returns them all, at one call
+      //     per DAY, which is why this page does not attempt it: the cost is
+      //     real and the page is useful without it.
+      var STAKE_HS_LISTS = 200;      // one call; the cap the feed accepts
+      var STAKE_HS_TOP = 8;          // birders named
+      var _stakeHsRows = null;
+
+      function stakeHsSearch() {
+        var q = ($('stakeHs') || {}).value || '';
+        var out = $('stakeHsFound'), st = $('stakeHsStatus');
+        if (!out) return;
+        q = q.trim().toLowerCase();
+        out.innerHTML = '';
+        if (q.length < 3) { st.textContent = 'Type at least three letters of a hotspot name.'; return; }
+        st.textContent = 'Searching hotspots\u2026';
+        loadHotspotIndex(getObsRegion()).then(function (rows) {
+          var hits = (rows || []).filter(function (h) {
+            return String(h.locName || h.name || '').toLowerCase().indexOf(q) >= 0;
+          }).slice(0, 12);
+          if (!hits.length) { st.textContent = 'No hotspot in ' + esc(getReport().label) + ' matches that.'; return; }
+          st.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es') + ' \u2014 pick one.';
+          out.innerHTML = hits.map(function (h) {
+            return '<li><button type="button" class="pickbtn" data-loc="' + esc(h.locId) + '">'
+              + esc(h.locName || h.name || h.locId) + '</button></li>';
+          }).join('');
+        }).catch(function (e) { st.textContent = netErr(e); });
+      }
+
+      function stakeHsOpen(locId, name) {
+        var st = $('stakeHsStatus'), box = $('stakeHsResults');
+        if (!box) return Promise.resolve();
+        $('stakeHsFound').innerHTML = '';
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
+        box.innerHTML = '';
+        st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
+        // ebird() takes (path, bg) — there is no params object, so the query
+        // string is built here. Passing one silently did nothing, which is the
+        // same class of bug as a card slot the template does not declare.
+        return ebird('product/lists/' + encodeURIComponent(locId)
+                     + '?maxResults=' + STAKE_HS_LISTS)
+          .then(function (lists) {
+            lists = Array.isArray(lists) ? lists : [];
+            _stakeHsRows = lists;
+            renderStakeHs(locId, name, lists);
+            st.textContent = lists.length + ' recent checklist'
+              + (lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime();
+          })
+          .catch(function (e) { st.textContent = netErr(e); });
+      }
+
+      function renderStakeHs(locId, name, lists) {
+        var box = $('stakeHsResults');
+        if (!lists.length) {
+          box.innerHTML = '<div class="status">eBird has no recent checklists for this place.</div>';
+          return;
+        }
+        // WHO BIRDS HERE. Counted from the call already made.
+        var by = {}, days = {}, spp = 0, n = 0;
+        lists.forEach(function (r) {
+          var who = (r.userDisplayName || '').trim();
+          if (who) by[who] = (by[who] || 0) + 1;
+          var d = BL.dayStr(r.obsDt || r.isoObsDate);
+          if (d) days[d] = 1;
+          if (isFinite(r.numSpecies)) { spp += +r.numSpecies; n++; }
+        });
+        var top = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; })
+          .slice(0, STAKE_HS_TOP);
+        var nDays = Object.keys(days).length;
+
+        // THE PATTERN LEADS. How often this place is birded, and how rich a
+        // visit usually is, are true all day — unlike "what was seen today",
+        // which is empty every morning by eBird's own design.
+        var span = BL.feedSpanDays(lists.map(function (r) {
+          return { subId: r.subId, isoObsDate: r.obsDt || r.isoObsDate };
+        }));
+        var html = '<div class="hint"><b>' + esc(name || locId) + '</b> \u2014 '
+          + lists.length + ' checklist' + (lists.length === 1 ? '' : 's')
+          + ' across ' + nDays + ' day' + (nDays === 1 ? '' : 's')
+          + (span ? ' (' + span + '-day window)' : '')
+          + (n ? ' \u00b7 typically <b>' + Math.round(spp / n) + ' species</b> a visit' : '')
+          + '</div>';
+
+        html += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b></div><ul class="obs">';
+        html += top.map(function (who) {
+          // Case-insensitive, because eBird's display names are user-typed and
+          // "you" appearing on someone else's row would be worse than missing
+          // it on your own.
+          var mine = String(who).trim().toLowerCase()
+                   === String(getDisplayName() || '').trim().toLowerCase();
+          return '<li><div class="name"><span class="ntext">' + esc(who)
+            + (mine ? ' <b>(you)</b>' : '') + '</span></div>'
+            + '<div class="sp">' + by[who] + ' checklist' + (by[who] === 1 ? '' : 's') + '</div></li>';
+        }).join('') + '</ul>';
+
+        // ...then the recent checklists, newest first, which product/lists
+        // already gives us in that order (measured).
+        html += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b></div>';
+        html += ChecklistCards.list('small', lists.slice(0, 20).map(function (r) {
+          return ChecklistCards.small({
+            name: r.subId ? checklistLink(r.subId, fmtWhenShort(r.obsDt || r.isoObsDate))
+                          : esc(fmtWhenShort(r.obsDt || r.isoObsDate)),
+            sub: [esc(r.userDisplayName || ''),
+                  isFinite(r.numSpecies) ? r.numSpecies + ' species' : ''
+                 ].filter(Boolean).join(' \u00b7 ')
+          });
+        }));
+
+        html += '<a class="ebirdlink" data-href="' + esc(hotspotUrl(locId))
+          + '">Open this hotspot on eBird</a>';
+        box.innerHTML = html;
+      }
+
       function loadIconicSpots() {
         var btn = $('iconicBtn'), st = $('iconicStatus'), box = $('iconicResults');
         var home = getHome();
@@ -16652,6 +16811,7 @@
         targetsBtn:    'Nearest to a bird you need',
         spLookupBtn:   'Where to wait for it',
         iconicBtn:     'Hotspot specialities',
+        stakeHsBtn:    'Everything about one place',
         refreshBtn:    'Rarities today',
         activeBtn:     'Rarities this week',
         abaBtn:        'ABA Code 3+ alert',
@@ -16714,6 +16874,10 @@
         // That is the end of the same thought, not a different one, which is why
         // it left "Birds you still need".
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
+        // Beside Stakeout bird, not among the four that answer "where should I
+        // go": both of these answer "I have chosen this ONE thing, tell me
+        // everything", which is a different question.
+        { at: 'stakeHsBtn',    label: '🏞 Stake out a hotspot', group: 'Go birding' },
       // F156. Sits beside Stakeout bird because they are the two halves of one
       // thought: that one starts from a BIRD and finds the place, this one
       // starts from where you ARE and finds which birds the places round you
@@ -16776,6 +16940,10 @@
       // is what turned a repaint into a 30-second reload.
       var LOADERS = {
         iconicBtn:    { fn: loadIconicSpots, needsKey: true, needsHome: true },
+        // No fn: the panel does nothing until a place is picked, and running a
+        // search against an empty box on every open would spend a call to say
+        // "type something".
+        stakeHsBtn:   { needsKey: true },
         allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
@@ -18838,6 +19006,24 @@
       if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
+      // F159. Enter searches, because a search box that ignores Enter is a
+      // search box people think is broken.
+      $('stakeHsBtn').addEventListener('click', stakeHsSearch);
+      $('stakeHs').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); stakeHsSearch(); }
+      });
+      $('stakeHsClear').addEventListener('click', function () {
+        $('stakeHs').value = ''; $('stakeHsFound').innerHTML = '';
+        $('stakeHsResults').innerHTML = ''; this.hidden = true;
+        $('stakeHsStatus').textContent = 'Pick a place and see what eBird\u2019s '
+          + 'hotspot page buries: who actually birds it, what it holds that '
+          + 'nowhere else does, and which of its birds you still need.';
+      });
+      // Delegated, because the result buttons are rendered after this runs.
+      $('stakeHsFound').addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-loc]');
+        if (b) stakeHsOpen(b.getAttribute('data-loc'), b.textContent);
+      });
       if ($('spCodesBtn')) $('spCodesBtn').addEventListener('click', toggleSpCodes);
       if ($('spCodesByName')) $('spCodesByName').addEventListener('click', function () { setSpCodesSort('name'); });
       if ($('spCodesByCode')) $('spCodesByCode').addEventListener('click', function () { setSpCodesSort('code'); });
@@ -19310,6 +19496,7 @@
         // whole contract is that it reads a snapshot and never fetches, and
         // both halves of that are invisible to a regex over source text.
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
+        stakeHsOpen: stakeHsOpen, stakeHsSearch: stakeHsSearch,
         // F167: exposed so the limiter can be RENDER-probed rather than
         // regexed. "does it pace" and "does it retry a 429" are both invisible
         // to a search over source text.
