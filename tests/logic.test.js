@@ -1249,3 +1249,81 @@ test('a celebrity bird needs 4 independent sightings at ONE place, in range', ()
   assert.equal(BL.needNearby(adjacent, opts).length, 1,
     'two pins you could walk between were treated as two different birds');
 });
+
+// ── THREE PARTIES, NOT THREE PEOPLE ───────────────────────────────────────
+// "maybe reduce the number of required uniq observers. Maybe 3 uniq
+// observations at the same hotspot, so long as it is not a convoy"
+//
+// The two halves have to ship together. Lowering the bar to 3 WITHOUT the
+// convoy rule fills the lane with group outings — a carload of birders is one
+// decision to go somewhere, wearing three or four names. So `n` counts
+// PARTIES: people seen together at CONVOY_MIN_STOPS+ locations on the same day
+// collapse into one.
+test('hotspotConvergence: three independent birders fire, one carload does not', () => {
+  // A quiet spot with a real norm, so the ratio is measurable in both cases.
+  const norm = (loc) => {
+    const r = [];
+    for (let d = 2; d < 14; d++) {
+      r.push({ locId: loc, locName: loc, userDisplayName: 'patcher', subId: loc + 'P' + d, obsDt: DAY(d) });
+    }
+    return r;
+  };
+
+  // CASE 1 — three people who each turned up on their own. This is the signal.
+  const solo = norm('L1').concat([
+    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
+    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 9) },
+    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 11) },
+  ]);
+  const outSolo = BL.hotspotConvergence(solo, { now: NOW });
+  assert.equal(outSolo.length, 1, 'three independent birders should now fire — this is the whole point of the change');
+  assert.equal(outSolo[0].observers, 3, 'three separate parties');
+
+  // CASE 2 — the SAME three names, but they toured together: three shared
+  // stops on the same day. That is one decision, so the hotspot must NOT fire.
+  const convoy = norm('L2').concat([
+    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'ann', subId: 'A2', obsDt: DAY(0, 7) },
+    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'bob', subId: 'B2', obsDt: DAY(0, 7) },
+    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'cat', subId: 'C2', obsDt: DAY(0, 7) },
+    // ...and the other stops on their route, which is what exposes them.
+    { locId: 'LX', locName: 'Stop two', userDisplayName: 'ann', subId: 'A3', obsDt: DAY(0, 9) },
+    { locId: 'LX', locName: 'Stop two', userDisplayName: 'bob', subId: 'B3', obsDt: DAY(0, 9) },
+    { locId: 'LX', locName: 'Stop two', userDisplayName: 'cat', subId: 'C3', obsDt: DAY(0, 9) },
+  ]);
+  assert.deepEqual(BL.hotspotConvergence(convoy, { now: NOW }), [],
+    'a carload that birded two stops together is ONE decision, not three');
+});
+
+test('hotspotConvergence: party membership is transitive, and one shared stop is a coincidence', () => {
+  const norm = (loc) => {
+    const r = [];
+    for (let d = 2; d < 14; d++) {
+      r.push({ locId: loc, locName: loc, userDisplayName: 'patcher', subId: loc + 'P' + d, obsDt: DAY(d) });
+    }
+    return r;
+  };
+
+  // ONE shared stop is not a convoy — two birders bumping into each other at a
+  // hotspot is the ordinary case, and collapsing them would silence the lane.
+  const bumped = norm('L3').concat([
+    { locId: 'L3', locName: 'Spot', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
+    { locId: 'L3', locName: 'Spot', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 7) },
+    { locId: 'L3', locName: 'Spot', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 8) },
+  ]);
+  assert.equal(BL.hotspotConvergence(bumped, { now: NOW }).length, 1,
+    'meeting once at one place is a coincidence, not a convoy');
+
+  // TRANSITIVE: ann rode with bob, bob rode with cat, so all three are one car
+  // even though ann and cat never shared a stop beyond the hotspot itself.
+  const chain = norm('L4').concat([
+    { locId: 'L4', locName: 'Spot', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
+    { locId: 'L4', locName: 'Spot', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 7) },
+    { locId: 'L4', locName: 'Spot', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 7) },
+    { locId: 'LY', locName: 'AB stop', userDisplayName: 'ann', subId: 'A2', obsDt: DAY(0, 9) },
+    { locId: 'LY', locName: 'AB stop', userDisplayName: 'bob', subId: 'B2', obsDt: DAY(0, 9) },
+    { locId: 'LZ', locName: 'BC stop', userDisplayName: 'bob', subId: 'B3', obsDt: DAY(0, 11) },
+    { locId: 'LZ', locName: 'BC stop', userDisplayName: 'cat', subId: 'C3', obsDt: DAY(0, 11) },
+  ]);
+  assert.deepEqual(BL.hotspotConvergence(chain, { now: NOW }), [],
+    'if A rode with B and B rode with C, all three are one car');
+});

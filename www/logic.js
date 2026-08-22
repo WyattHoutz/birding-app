@@ -1150,7 +1150,25 @@
   //
   // rows = recent checklist rows [{locId, locName, userDisplayName, obsDt}]
   // (eBird product/lists shape).
-  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;
+  // THREE INDEPENDENT PARTIES, not five raw observers.
+  //
+  // "since Im only getting one hotspot in happening now, improve the dials so
+  // more show up. There has to be more than one hot hotspot." Then the fix
+  // itself: "maybe reduce the number of required uniq observers. Maybe 3 uniq
+  // observations at the same hotspot, so long as it is not a convoy."
+  //
+  // That second sentence is what makes the first one safe, and the two must
+  // ship together. Five was chosen because "four people is a coincidence
+  // rather than a crowd" — but that ruling was about RAW observers, and a
+  // carload of four birders working the same five stops is one decision wearing
+  // four names. Dropping to 3 without removing that loophole would fill the
+  // lane with group outings, which is the opposite of what was asked for.
+  //
+  // So `n` now counts PARTIES: observers seen together at CONVOY_MIN_STOPS or
+  // more locations on the same day collapse into one. Three people who each
+  // chose the place independently is a stronger claim than five who may not
+  // have, so the bar goes DOWN and the evidence goes UP at the same time.
+  var CONVERGE_MIN_OBSERVERS = 3, CONVERGE_MIN_RATIO = 3;
   // A big turnout still has to beat its own norm — it just does not have to
   // TRIPLE it. Five, because the owner has already ruled that four people is
   // "a coincidence rather than a crowd" (see SURGE.MIN_OBSERVERS).
@@ -1162,7 +1180,58 @@
   // Discovery Park (8 birders every day for a fortnight) scores exactly 2.0.
   // 2.25 clears both. This is also why MIN_RATIO is 3 rather than 2: it was
   // absorbing the same skew.
-  var CONVERGE_BUSY_ABS = 5, CONVERGE_BUSY_RATIO = 2.25;
+  var CONVERGE_BUSY_ABS = 3, CONVERGE_BUSY_RATIO = 2.25;
+
+  // ---- parties: people who travelled TOGETHER are ONE decision -------------
+  // The convoy test the Convoys section already uses (CONVOY_MIN_STOPS): a set
+  // of birders seen together at two or more locations on the same day is a
+  // group, not a coincidence. Reused rather than re-derived so "convoy" has
+  // exactly ONE meaning in this app — two definitions of the same word drift,
+  // and this one now gates a lane as well as titling a section.
+  //
+  // Union-find, because party membership is transitive: if A rode with B and B
+  // rode with C, all three are one car even on a day when A and C never shared
+  // a stop.
+  //
+  // An observer with no name gets a per-checklist key (see observerKey), so
+  // anonymous rows can never be collapsed into a party. That is deliberately
+  // conservative: it can only ever count MORE parties, so the lane fails
+  // towards showing a hotspot rather than hiding one.
+  function buildParties(rows) {
+    var atLocDay = {};
+    (rows || []).forEach(function (r) {
+      if (!r || !r.locId) return;
+      var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
+      var day = dayStr(r.obsDt || r.dateStr);
+      if (!who || !day) return;
+      var k = r.locId + '|' + day;
+      (atLocDay[k] = atLocDay[k] || {})[who] = 1;
+    });
+    var shared = {};
+    Object.keys(atLocDay).forEach(function (k) {
+      var day = k.slice(k.indexOf('|') + 1);
+      var obs = Object.keys(atLocDay[k]).sort();
+      for (var i = 0; i < obs.length; i++) {
+        for (var j = i + 1; j < obs.length; j++) {
+          var pk = obs[i] + '\u0000' + obs[j] + '\u0000' + day;
+          shared[pk] = (shared[pk] || 0) + 1;
+        }
+      }
+    });
+    var parent = {};
+    function find(x) {
+      if (parent[x] == null) parent[x] = x;
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    }
+    Object.keys(shared).forEach(function (pk) {
+      if (shared[pk] < CONST.CONVOY_MIN_STOPS) return;
+      var p = pk.split('\u0000'), a = find(p[0]), b = find(p[1]);
+      if (a !== b) parent[b] = a;
+    });
+    return find;
+  }
+
   function hotspotConvergence(rows, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
@@ -1201,13 +1270,17 @@
     // factor the memory was added to fix.
     if (histEarliest < earliest) coldDays = baselineDays(histEarliest, now, cfg);
     var out = [];
+    var party = buildParties(rows);
     order.forEach(function (locId) {
       var all = byLoc[locId];
       var hotObs = {}, coldObs = {}, name = '';
       all.forEach(function (x) {
         var who = observerKey({ observer: x.row.userDisplayName, subId: x.row.subId });
         if (!name) name = x.row.locName || x.row.loc || '';
-        if (x.t >= hotFrom) hotObs[who] = 1;
+        // PARTY, not person, in the hot window — three names from one car is
+        // one decision to come here, and this lane's whole claim is that
+        // several people independently chose the place.
+        if (x.t >= hotFrom) hotObs[party(who)] = 1;
         else coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
       });
       var n = Object.keys(hotObs).length;

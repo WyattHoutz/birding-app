@@ -189,7 +189,7 @@
     '.obs.xl > li > .name > .spdist, .obs.card-md > li > .name > .spdist {',
     '  grid-column: 3; grid-row: 1; align-self: center; justify-self: end;',
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
-    '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
+    '  font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
     /* When the distance is a MAP LINK it keeps the column's typography — the
        number is what you scan down the edge of the list, and shrinking it to
@@ -291,12 +291,24 @@
     // test asserted the equality, which is exactly how a half-fix gets filed
     // as done.
     //
-    // 24px, not a compromise between the two: the mileage is the number you
-    // scan down the edge of the list and it was already tuned, so the name
-    // rises to meet it. The name is the SUBJECT of the row - it should never
-    // have been the smaller of the two.
-    '.obs.xl > li > .name { font-size: calc(24px * var(--s)); gap: 12px; }',
-    '.obs.xl > li > .name > .thumb { width: calc(84px * var(--s)); height: calc(84px * var(--s)); border-radius: 12px; }',
+    // MATCHED AT 21, NOT 24. The first attempt raised the NAME to meet the
+    // mileage and the reader's next screenshot said "these species titles are
+    // too big" — a place name like "Union Bay Natural Area/Montlake Fill" ran
+    // to three lines at 24px and a bare street address to four. "Match" was
+    // the requirement; which of the two moved was not, so the one that makes
+    // the row readable wins and the mileage comes down instead.
+    '.obs.xl > li > .name { font-size: calc(21px * var(--s)); gap: 12px; }',
+    /* THE NEEDS-VERIFICATION PROPORTIONS, asked for by name: "i like the large
+       photos in the needs verification and smaller bird titles, can i use this
+       in the medium species card?"
+       Measured from `.nvrow`: a 128px photo against a 21px name. The medium
+       card was 84px against the same 21px, so the picture was the thing that
+       differed, not the type.
+       The sharpness note below still applies and is the reason `icon-sm`
+       exists: a 60px bundled seed upscales badly. It is acceptable here
+       because these rows hydrate a full-size network photo after paint — which
+       is exactly what `.nvrow` already does at this size. */
+    '.obs.xl > li > .name > .thumb { width: calc(128px * var(--s)); height: calc(128px * var(--s)); border-radius: 12px; }',
     /* Smaller icon still, and it is a SHARPNESS fix as much as a layout one.
        The bundled seed is 60px wide (see heroSlot's note: "fine at 46px in a
        list and a smear across a card"), and `photoSlot` deliberately stops at

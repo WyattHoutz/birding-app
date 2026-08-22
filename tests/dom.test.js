@@ -1053,7 +1053,20 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  assert.match(CARDS_SPECIES, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(84px \* var\(--s\)\)/,
+  // 128px, matching `.nvrow` in Needs-verification. Asked for by name: "i like
+  // the large photos in the needs verification and smaller bird titles, can i
+  // use this in the medium species card?" It was 84px.
+  //
+  // Asserts the NUMBER shared with .nvrow rather than one hard-coded literal,
+  // so the two cannot drift apart silently — which is the whole point of the
+  // request.
+  const nv = HTML.match(/\.nvrow > \.thumb \{[^}]*?width: calc\((\d+)px/);
+  assert.ok(nv, 'the Needs-verification thumb rule moved — this guard is looking in the wrong place');
+  const med = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: calc\((\d+)px/);
+  assert.ok(med, 'the medium card thumb rule moved');
+  assert.equal(med[1], nv[1],
+    `the medium card photo is ${med[1]}px and Needs-verification is ${nv[1]}px — they were asked to match`);
+  assert.ok(Number(med[1]) > 56,
     'the rarity thumbnail is larger than the 56px seed-sized default, and scales with the text-size setting');
   // It used to hand-roll .name/.ntext/.meta — a second copy of the medium card
   // that could drift from the real one, which is exactly what happened to Easy
@@ -3971,7 +3984,7 @@ test('the unseen list sizes its icon to the seed it actually shows', async () =>
   const css = app.window.SpeciesCards.css;
   assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
     'and that resolves to 46px — the width the seed was cut for');
-  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(84px \* var\(--s\)\)/,
+  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: calc\(128px \* var\(--s\)\)/,
     'while sections showing a network photo keep the larger box');
   app.window.close();
 });
@@ -11503,29 +11516,33 @@ test('two callers wanting the same GBIF url share one request (F140)', async () 
   // TWICE in the same millisecond and both completed. The cache is only
   // written once a response lands, so concurrent callers all miss it - and
   // cards render in parallel, so they routinely ask the same question.
-  const m = HTML.match(/var _gbifInflight = \{\};\s*function gbifJson\(url\) \{[\s\S]*?\n      \}/);
-  assert.ok(m, 'gbifJson still de-duplicates in-flight requests');
-
+  // PROBED AGAINST THE REAL APP rather than by extracting the source and
+  // eval'ing it. The old version matched `var _gbifInflight = {};` and
+  // `function gbifJson` as ONE block, so inserting the F167 rate limiter
+  // between them failed a test whose behaviour was untouched. A guard that
+  // breaks when unrelated code moves is testing the LAYOUT of the file, not
+  // the behaviour — and it would have to be rewritten every time either
+  // function grew a neighbour.
   let calls = 0;
-  const sandbox = {
-    dbg() {},
-    fetch() { calls++; return Promise.resolve({ ok: true, json: () => Promise.resolve({ v: 1 }) }); },
-    Object,
-  };
-  const make = new Function('dbg', 'fetch', 'Object',
-    m[0] + ' ; return gbifJson;');
-  const gbifJson = make(sandbox.dbg, sandbox.fetch, Object);
-
+  const app = await boot({
+    fetch(url) {
+      if (!url.includes('api.gbif.org')) return null;
+      calls++;
+      return JSON.stringify({ v: 1 });
+    },
+  });
+  const A = app.window.__app;
   const url = 'https://api.gbif.org/v1/species/match?name=Anser%20anser';
-  const [a, b] = await Promise.all([gbifJson(url), gbifJson(url)]);
-  assert.strictEqual(calls, 1, 'the same url asked twice concurrently hit the network once');
+
+  const before = calls;
+  const [a, b] = await Promise.all([A.gbifJson(url), A.gbifJson(url)]);
+  assert.strictEqual(calls - before, 1, 'the same url asked twice concurrently hit the network once');
   assert.deepStrictEqual(a, b, 'both callers get the same answer');
 
   // and the entry must be released, or the cache can never refresh
-  await gbifJson(url);
-  assert.strictEqual(calls, 2, 'a later call is not served from a stale in-flight entry');
+  await A.gbifJson(url);
+  assert.strictEqual(calls - before, 2, 'a later call is not served from a stale in-flight entry');
 });
-
 test('an empty movement column says WHY it is empty (F125 follow-up)', () => {
   // Reported about an hour after v1.11.0 shipped: "top 100 was supposed to get
   // position changes for everyone on the top 100". It does - but eBird
@@ -12132,8 +12149,12 @@ test('the stakeout list shows every checklist a place actually has', async () =>
   // ...and the row is a PLACE card, not a species card: the bird's photo is
   // already in the header above, so repeating it 132 times answers nothing.
   // "they should not show the bird icon on each bird item, its redundant."
-  assert.ok(rows.every((li) => li.classList.contains('hscard-sm')),
-    'the rows are not the shared hotspot card, so the three views look unalike');
+  // MEDIUM, not small. "is stakeout using medium hotspot card?" — it was not,
+  // and that is why a bare street address ran to three oversized lines and the
+  // mileage sat mid-sentence: the small card is the NESTED row shape, so it
+  // inherits the outer list's typography and has no distance column.
+  assert.ok(rows.every((li) => li.classList.contains('hscard-md')),
+    'the rows are not the shared MEDIUM hotspot card, so the three views look unalike');
   assert.equal(doc.querySelectorAll('#spLookupResults .sppl .thumb').length, 0,
     'the bird photo is repeated on every row');
 
@@ -13067,11 +13088,16 @@ test('a GBIF facet is found by its shape, not by a literal string', async () => 
 test('Break a state record renders its rows, and says so when it cannot', async () => {
   const app = await boot();
   app.open(/Break a state record/);
+  // `li` rather than `li.obs-row`: the row is now the shared MEDIUM species
+  // card ("use the species medium card, theres no photos"), which emits its
+  // own classes. Pinning the old hand-rolled class made this guard fail on a
+  // section that renders correctly — asserting the SHAPE of the markup rather
+  // than the fact that rows exist.
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 25));
-    if (app.$('recordBody').querySelector('li.obs-row')) break;
+    if (app.$('recordBody').querySelector('ul.obs li')) break;
   }
-  const rows = app.$('recordBody').querySelectorAll('li.obs-row');
+  const rows = app.$('recordBody').querySelectorAll('ul.obs li');
   assert.ok(rows.length > 0,
     'the section rendered nothing — status said: ' + app.$('recordStatus').textContent.slice(0, 120));
   // The bundled asset really is read, not stubbed: a row carries the odds for
@@ -13290,4 +13316,72 @@ test('a verification bird missing from the year list is flagged in the app too',
     JSON.stringify([{ code: real, name: 'A bird you really have' }]));
   assert.equal(A.watchDropped().length, 0,
     'a bird present on the year list was wrongly reported as dropped');
+});
+
+// ── Break a state record uses the SAME bird card as every other section ────
+// "use the species medium card, theres no photos" — the row was hand-rolled
+// (.recname / .recwhy / .recp), which made it the one list of birds in the app
+// with no photo, no species link, no scientific name and no code.
+test('Break a state record renders bird rows through the shared medium card', () => {
+  const at = HTML.indexOf('function loadStateRecords');
+  assert.ok(at > 0, 'loadStateRecords moved');
+  const src = HTML.slice(at, at + 9000);
+  assert.match(src, /SpeciesCards\.medium\(/,
+    'the state-record row is hand-rolled again — a bird must look the same wherever the app shows one');
+  assert.match(src, /icon:\s*photoSlot\(/, 'no photo slot, which was the actual complaint');
+  assert.match(src, /name:\s*speciesLink\(/, 'the name is not a species link');
+  // Same wrapper class My Year uses, so the icon is inset identically rather
+  // than sitting flush against the card edge.
+  assert.match(src, /class="obs big xl"/,
+    'the list wrapper must match My Year (obs big xl) or the icon spacing differs between two lists of birds');
+  // The detail must survive the conversion — it is the answer to "where has it
+  // been found, when, and how many times".
+  assert.match(src, /below:\s*'<details/, 'the expandable record detail was lost in the conversion');
+});
+
+// ── F167: GBIF gets the rate limiter it never had ─────────────────────────
+// Every eBird call passes through a token bucket; GBIF calls passed through
+// nothing, so three engines fanned out concurrently and collided. Measured
+// against live GBIF: a BURST BUDGET of ~60 calls then ~17/s, not a concurrency
+// cap — which is why the gap went unnoticed for so long.
+//
+// The damage was out of proportion to the cause: gbifJson resolves a failure
+// as `null`, and a cached null disabled Iconic spots for five releases. So the
+// two properties worth pinning are that it PACES and that a 429 is RETRIED
+// rather than handed on as "no data".
+test('GBIF calls are paced by a token bucket', async () => {
+  const app = await boot({
+    fetch(url) { return url.includes('api.gbif.org') ? '{"count":1}' : null; },
+  });
+  const A = app.window.__app;
+  assert.ok(A.GBIF_BUCKET > 0 && A.GBIF_REFILL_PER_S > 0, 'the bucket constants are gone');
+  // A third of the measured ~17/s ceiling. Being wrong in the generous
+  // direction costs a month of a dead feature; cautious costs a few seconds.
+  assert.ok(A.GBIF_REFILL_PER_S <= 8,
+    `refill ${A.GBIF_REFILL_PER_S}/s is close to the measured 17/s ceiling — that is not a safety margin`);
+
+  // Ask for more than the bucket holds. Everything must still resolve: a
+  // limiter that drops work is worse than no limiter.
+  const n = A.GBIF_BUCKET + 6;
+  const out = await Promise.all(
+    Array.from({ length: n }, (_, i) => A.gbifJson('https://api.gbif.org/v1/x?i=' + i)));
+  assert.equal(out.length, n, 'the limiter dropped requests');
+  assert.ok(out.every(x => x && x.count === 1), 'a queued request resolved with the wrong body');
+});
+
+test('a GBIF 429 is retried, never resolved as "no data"', async () => {
+  let seen = 0;
+  const app = await boot({
+    fetch(url) {
+      if (!url.includes('api.gbif.org')) return null;
+      seen++;
+      // Refuse the first attempt exactly as GBIF does, then answer.
+      if (seen === 1) return { __status: 429 };
+      return '{"count":7}';
+    },
+  });
+  const got = await app.window.__app.gbifJson('https://api.gbif.org/v1/y');
+  assert.ok(seen >= 2, 'the 429 was not retried — it was taken at face value');
+  assert.ok(got && got.count === 7,
+    'a 429 resolved as null, which is the exact shape that poisoned the county cache for 30 days');
 });

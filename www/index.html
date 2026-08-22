@@ -1901,7 +1901,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.12';
+      var APP_VERSION = '1.26.13';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3590,6 +3590,46 @@
       function saveGbifCache() {
         try { localStorage.setItem(GBIF_KEY, JSON.stringify(gbifCache())); } catch (e) {}
       }
+      // ── A FAILURE IS NOT AN ANSWER, AND MUST NEVER BE CACHED AS ONE ────────
+      //
+      // This is why "Iconic spots near me" said "nothing stands out for any
+      // bird" for FIVE releases after the SPECIES_KEY facet fix was supposed to
+      // cure it. Measured against live GBIF 2026-08-21: with the county gid
+      // resolved, Marymoor yields 30 species at =3x, Edmonds Marsh 42,
+      // Snoqualmie Falls 15. The maths was never wrong.
+      //
+      // `gbifJson` returns **null** for any failure — including the 429s this
+      // feature is documented to have provoked — rather than throwing. So
+      // `gbifCountyGid` ran its `.then`, found no rows, produced `gid = null`,
+      // and CACHED THAT NULL for 30 days. Every later run read it back as a
+      // real answer (`{at, v: null}` is truthy), passed null to
+      // `iconicCountyFacet`, got null, and hit `if (!bx || !co || !co.all)
+      // return` — so every hotspot was skipped in silence.
+      //
+      // One rate-limited second therefore disabled the whole section for a
+      // month, and no release could fix it, because the poison lives in
+      // localStorage on the device rather than in the code.
+      //
+      // Two rules, and the second matters as much as the first:
+      //   put — refuse to store a falsy value at all;
+      //   get — treat a stored falsy value as a MISS, so devices already
+      //         carrying the poison heal themselves on the next run instead of
+      //         waiting out the TTL.
+      //
+      // `iconicBoxFacet` and `iconicCountyFacet` already guarded this with
+      // `if (!jj) return null;` before writing, so the rule was known — it was
+      // just missed in the three places below.
+      function gbifCacheGet(ck, ttl) {
+        var e = gbifCache()[ck];
+        if (!e || !e.v) return undefined;
+        if ((Date.now() - (e.at || 0)) >= (ttl || GBIF_TTL_MS)) return undefined;
+        return e.v;
+      }
+      function gbifCachePut(ck, v) {
+        if (!v) return v;
+        var c = gbifCache(); c[ck] = { at: Date.now(), v: v }; saveGbifCache();
+        return v;
+      }
       // Two callers wanting the same URL at the same moment both fetched it,
       // because the cache is only written once a response lands. MEASURED on
       // device 2026-08-17: species/match?name=Anser anser was requested twice
@@ -3598,16 +3638,91 @@
       // the second caller waits on the first rather than repeating it. GBIF is
       // a free service and this project has no excuse for asking twice.
       var _gbifInflight = {};
+
+      // ── F167: THE RATE LIMITER GBIF NEVER HAD ────────────────────────────
+      //
+      // Every eBird call passes through a token bucket. GBIF calls passed
+      // through NOTHING, so the iconic engine, the state-record engine and the
+      // species profile fanned out concurrently and collided with each other
+      // and with themselves.
+      //
+      // MEASURED against live GBIF 2026-08-21, because the SHAPE of the limit
+      // decides the shape of the fix:
+      //
+      //   1-8 calls in parallel, cold ..... 0 x 429
+      //   20 serial, no gap ............... 0 x 429
+      //   sustained at 6-concurrent ....... first 429 at call 61, 3.6s (~17/s)
+      //   continued ....................... 114 calls / 5.7s -> 14 x 429
+      //
+      // So it is a BURST BUDGET of ~60 calls then ~17/s, NOT a concurrency
+      // cap — which is exactly why nobody noticed a limiter was missing. It is
+      // far more generous than eBird's 0.37/s and small sections never reach
+      // it. The iconic engine alone fires ~50 calls, so it sits on the edge of
+      // that budget and tips the moment a second section runs.
+      //
+      // 20 and 5/s is a THIRD of the measured ceiling, deliberately: the cost
+      // of tripping this limit is not a slow section, it is a poisoned cache
+      // (see gbifCachePut). Being wrong in the generous direction costs a
+      // month of a dead feature; being wrong in the cautious direction costs
+      // a few seconds.
+      var GBIF_BUCKET = 20, GBIF_REFILL_PER_S = 5, GBIF_RETRY_MS = 1200;
+      var _gbifTokens = GBIF_BUCKET, _gbifLast = Date.now(), _gbifQueue = [];
+      var _gbifPumping = false;
+      function gbifTake() {
+        var now = Date.now();
+        _gbifTokens = Math.min(GBIF_BUCKET,
+          _gbifTokens + ((now - _gbifLast) / 1000) * GBIF_REFILL_PER_S);
+        _gbifLast = now;
+        if (_gbifTokens >= 1) { _gbifTokens -= 1; return 0; }
+        // How long until one token exists, in ms.
+        return Math.ceil(((1 - _gbifTokens) / GBIF_REFILL_PER_S) * 1000);
+      }
+      function gbifPump() {
+        if (_gbifPumping || !_gbifQueue.length) return;
+        _gbifPumping = true;
+        var wait = gbifTake();
+        if (wait > 0) {
+          _gbifPumping = false;
+          setTimeout(gbifPump, wait);
+          return;
+        }
+        var job = _gbifQueue.shift();
+        _gbifPumping = false;
+        job();
+        if (_gbifQueue.length) gbifPump();
+      }
+      function gbifSchedule(fn) {
+        _gbifQueue.push(fn);
+        gbifPump();
+      }
+      // A 429 is NOT an answer, and the difference matters more here than
+      // anywhere else in the app: gbifJson resolves failures as `null`, and a
+      // cached null used to disable a whole section for 30 days. So a refusal
+      // is retried once after a pause rather than being handed onwards to be
+      // mistaken for "no data".
+      function gbifFetchOnce(url, retriesLeft) {
+        return fetch(url, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) {
+            if (r.status === 429 && retriesLeft > 0) {
+              dbg('warn', 'GBIF 429 — backing off ' + GBIF_RETRY_MS + 'ms · ' + url);
+              return new Promise(function (res) {
+                setTimeout(function () { res(gbifFetchOnce(url, retriesLeft - 1)); },
+                  GBIF_RETRY_MS);
+              });
+            }
+            return r.ok ? r.json() : null;
+          })
+          .catch(function () { return null; });
+      }
       function gbifJson(url) {
         if (Object.prototype.hasOwnProperty.call(_gbifInflight, url)) {
           dbg('net', 'GET(gbif) shared in-flight ' + url);
           return _gbifInflight[url];
         }
         dbg('net', 'GET(gbif) ' + url);
-        var p = fetch(url, { headers: { 'Accept': 'application/json' } })
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .catch(function () { return null; })
-          .then(function (j) { delete _gbifInflight[url]; return j; });
+        var p = new Promise(function (resolve) {
+          gbifSchedule(function () { resolve(gbifFetchOnce(url, 2)); });
+        }).then(function (j) { delete _gbifInflight[url]; return j; });
         _gbifInflight[url] = p;
         return p;
       }
@@ -3825,8 +3940,9 @@
         // while a hotspot near a county line still resolves to the county it is
         // actually in. Coarser rounding is tempting and wrong here: home sits on
         // the King/Snohomish line, which is precisely where this must not slip.
-        var ck = 'gadm|' + (+lat).toFixed(3) + ',' + (+lng).toFixed(3), c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'gadm|' + (+lat).toFixed(3) + ',' + (+lng).toFixed(3);
+        var hit = gbifCacheGet(ck, GBIF_ICONIC_TTL_MS);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifJson('https://api.gbif.org/v1/geocode/reverse?lat=' + encodeURIComponent(lat) +
                         '&lng=' + encodeURIComponent(lng))
           .then(function (j) {
@@ -3837,8 +3953,7 @@
             rows.forEach(function (r) {
               if (r && r.type === 'GADM2' && r.id && !gid) gid = r.id;
             });
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: gid }; saveGbifCache();
-            return gid;
+            return gbifCachePut(ck, gid);
           }).catch(function () { return null; });
       }
       // The pair of numbers that define "average round here". Cached per county
@@ -3846,15 +3961,14 @@
       // re-uses the denominator.
       function gbifCountyRates(taxonKey, gid) {
         if (!taxonKey || !gid) return Promise.resolve(null);
-        var ck = 'corate|' + iconicTag() + '|' + taxonKey + '|' + gid, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'corate|' + iconicTag() + '|' + taxonKey + '|' + gid;
+        var hit = gbifCacheGet(ck, GBIF_ICONIC_TTL_MS);
+        if (hit !== undefined) return Promise.resolve(hit);
         return Promise.all([
           gbifCount(GBIF_OCC + '&taxonKey=' + taxonKey + '&gadmGid=' + encodeURIComponent(gid) + iconicQs()),
           gbifCountyTotal(gid)
         ]).then(function (r) {
-          var v = (r[0] && r[1]) ? { sp: r[0], all: r[1] } : null;
-          var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
-          return v;
+          return gbifCachePut(ck, (r[0] && r[1]) ? { sp: r[0], all: r[1] } : null);
         }).catch(function () { return null; });
       }
       function gbifCountyTotal(gid) {
@@ -6183,7 +6297,16 @@
             var where = p.loc || p.locId || '';
             var cnt = (c.count == null || c.count === '') ? null
                     : parseInt(String(c.count).replace(/[^0-9]/g, ''), 10);
-            out.push(HotspotCards.small({
+            // MEDIUM, not small. "is stakeout using medium hotspot card?" — it
+            // was not, and that is why a bare street address ran to three
+            // oversized lines and the mileage sat mid-sentence: the small card
+            // is the NESTED row shape, so it inherits the outer list's
+            // typography and has no distance column to put a number in.
+            //
+            // Medium gives the numbered pin, the name at card size, and
+            // distance as its own right-hand column — the same shape Birdiest
+            // already uses, which reads better for exactly this reason.
+            out.push(HotspotCards.medium({
               num: num,
               // extA, NOT a raw <a href target="_blank">. In the sideloaded
               // WKWebView a plain target="_blank" is a no-op, which is why
@@ -6191,15 +6314,29 @@
               // delegated opener.
               name: (href ? extA(href, where) : esc(where))
                 + (c.valid === false ? ' \u26a0\ufe0f' : ''),
+              // Passed as a NUMBER so it lands in the column, and therefore
+              // must not also appear in `sub` — two copies of one fact is how
+              // the small card read as cluttered.
+              distance: (p.distMi != null && isFinite(p.distMi)) ? p.distMi : null,
+              distQ: distQ(p.lat, p.lon != null ? p.lon : p.lng),
               sub: [
                 fmtWhenShort(c.dateStr || p.dateStr),
                 (isFinite(cnt) && cnt != null) ? '\u00d7' + cnt : (c.count === null ? '\u00d7X' : ''),
-                (p.distMi != null && isFinite(p.distMi)) ? p.distMi.toFixed(1) + ' mi' : ''
+                // 📷 / 🔊 / 🧾 — "id like to see the media icons too … like
+                // checklist comments and media etc". They cost nothing: the
+                // feed already carries `evidence` and `hasComments` on every
+                // row, and this is the one bird list that was dropping them.
+                // Same helper every other section uses, so a photo means the
+                // same mark wherever it appears.
+                BirdLogic.recordIcons({
+                  evidence: c.evidence || p.evidence || '',
+                  hasComments: !!(c.hasComments || p.hasComments)
+                })
               ].filter(Boolean).join(' \u00b7 ')
             }));
           });
         });
-        return HotspotCards.list('small', out, 'sppl');
+        return HotspotCards.list('medium', out, 'sppl');
       }
 
       // Capped, with the rest one tap away. "we can limit results to 25, so the
@@ -12917,6 +13054,7 @@
             icon: photoSlot(sp, code),
             name: speciesLink(sp, code),
             code: code,
+            alpha: alphaFor(code),
             tags: needTag(code, sp),
             // The drive is now a real column instead of a phrase in the
             // sub-header. It is measured to the CLOSEST report, not the newest.
@@ -13777,6 +13915,7 @@
           icon: photoSlot(o.name, o.code),
           name: speciesLink(o.name, o.code),
           code: o.code,
+          alpha: alphaFor(o.code),
           tags: o.tags || '',
           distMi: o.distMi,
           distQ: nearest ? distQ(nearest.lat, nearest.lon != null ? nearest.lon : nearest.lng) : '',
@@ -14230,13 +14369,12 @@
       // is the one per-species call that cannot be avoided — so it runs only
       // for the handful of birds that actually clear the bar, and caches.
       function gbifSciFor(key) {
-        var ck = 'nm|' + key, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'nm|' + key;
+        var hit = gbifCacheGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifJson('https://api.gbif.org/v1/species/' + encodeURIComponent(key))
           .then(function (s) {
-            var v = (s && (s.canonicalName || s.scientificName)) || '';
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
-            return v;
+            return gbifCachePut(ck, (s && (s.canonicalName || s.scientificName)) || '');
           }).catch(function () { return ''; });
       }
 
@@ -16475,6 +16613,7 @@
             name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
             tags: isNew ? newRarityTag() : '',
             code: e.code,
+              alpha: alphaFor(e.code),
             sub: bits.join(' · ')
           });
         }).join('');
@@ -16814,15 +16953,11 @@
       var peers = (r.pr || []).map(function (q) {
         return esc(q.r) + ' ' + ((q.y || []).length) + 'yr';
       }).join(' \u00b7 ');
-      var head = '<div class="recname">' + esc(r.n)
-        + (seen ? '' : ' <span class="star">need</span>') + '</div>'
-        + '<div class="recwhy">' + esc(r.s)
+      var why = esc(r.s)
         + (yrs ? ' \u00b7 ' + yrs + ' year' + (yrs === 1 ? '' : 's') + ' in '
                 + (doc.window ? doc.window[0] + '\u2013' + doc.window[1] : 'the window')
              : ' \u00b7 never recorded here')
-        + (peers ? ' \u00b7 nearby: ' + peers : '')
-        + '</div>'
-        + '<div class="recp">' + (x.p * 100).toFixed(1) + '%</div>';
+        + (peers ? ' \u00b7 nearby: ' + peers : '');
 
       // ---- the detail: when, how many, and where ---------------------------
       //
@@ -16871,11 +17006,31 @@
         + encodeURIComponent(r.c) + '?env.minX=&r=' + encodeURIComponent(doc.region)
         + '">See every ' + esc(r.n) + ' record on eBird</a>';
 
-      return '<li class="obs-row"><details class="recitem"><summary class="recrow">'
-        + head + '</summary><div class="recdetail">' + body + '</div></details></li>';
+      // THE SAME BIRD CARD EVERY OTHER SECTION USES. "use the species medium
+      // card, theres no photos" — this row was hand-rolled (.recname/.recwhy/
+      // .recp), so it was the one list of birds in the app with no photo, no
+      // species link, no scientific name and no code. A bird should look the
+      // same wherever the app shows one.
+      //
+      // The detail stays expandable by riding in `below`, which is the slot the
+      // unseen-places card already uses for exactly this.
+      return SpeciesCards.medium({
+        cls: 'recitem',
+        sci: sciFor(r.c),
+        icon: photoSlot(r.n, r.c),
+        name: speciesLink(r.n, r.c),
+        code: r.c,
+        alpha: alphaFor(r.c),
+        tags: seen ? '' : ' <span class="star">need</span>',
+        // The odds ARE the ranking, so they take the number column the mileage
+        // uses elsewhere rather than being buried in the sub-line.
+        score: '<b>' + (x.p * 100).toFixed(1) + '%</b>',
+        sub: why,
+        below: '<details class="recmore"><summary>Records, seasons and where to look</summary>'
+          + '<div class="recdetail">' + body + '</div></details>'
+      });
     }).join('');
-          host.innerHTML = '<ul class="obs">' + html + '</ul>';
-
+          host.innerHTML = '<ul class="obs big xl">' + html + '</ul>';
           // Say the hit rate plainly (Q3). A watchlist that implies forecast
           // accuracy reads as broken the first month nothing turns up.
           if (st) {
@@ -19155,6 +19310,11 @@
         // whole contract is that it reads a snapshot and never fetches, and
         // both halves of that are invisible to a regex over source text.
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
+        // F167: exposed so the limiter can be RENDER-probed rather than
+        // regexed. "does it pace" and "does it retry a 429" are both invisible
+        // to a search over source text.
+        gbifJson: gbifJson, GBIF_BUCKET: GBIF_BUCKET,
+        GBIF_REFILL_PER_S: GBIF_REFILL_PER_S,
         watchDropped: watchDropped,
         renderSurge: renderSurge, MEGA_SNAP_KEY: MEGA_SNAP_KEY,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
