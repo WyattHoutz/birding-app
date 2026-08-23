@@ -13223,7 +13223,52 @@ test('Break a record can be scoped to a county, and really reads that file', asy
   app.window.close();
 });
 
-// ── A DIAGNOSTIC THAT CRIES WOLF IS WORSE THAN NONE ──────────────────────
+// ── EVERY REPORT'S SCOPES MUST HAVE AN ASSET BEHIND THEM ──────────────────
+// F170's switcher offers the state and then each county, and an offered scope
+// with nothing bundled behind it opens on "No record list bundled". That is
+// exactly what the Waikoloa report did before this release: it carries
+// stateCode US-HI, and US-HI.json did not exist, so the panel's DEFAULT scope
+// was the broken one.
+//
+// The gap was invisible because the only test covered Washington, where every
+// scope happened to be bundled. A guard that exercises one report cannot see a
+// missing asset in another, so this one walks them all.
+test('every report offers only record scopes that are actually bundled', async () => {
+  const reports = ['wa', 'mo', 'ks', 'az', 'ca', 'waikoloa'];
+  const missing = [];
+  for (const slug of reports) {
+    const app = await boot({ report: slug });
+    const A = app.window.__app;
+    for (const s of A.recScopes()) {
+      const file = path.join(WWW, A.stateRecordFile(s.code));
+      if (!fs.existsSync(file)) missing.push(slug + ' -> ' + s.code + ' (' + s.kind + ')');
+    }
+    app.window.close();
+  }
+  assert.deepEqual(missing, [],
+    'these reports offer a record scope with no bundled asset, so the section '
+    + 'opens on "No record list bundled": ' + missing.join(', '));
+});
+
+// Hawaii is the region with no ecological peer in the ABA area, and the honest
+// consequence is that it can only list birds already recorded there. Worth
+// pinning: an empty peer list must produce a WORKING list, not an empty one.
+test('the Hawaii record lists are real, and the county keeps its established exotics', () => {
+  const state = JSON.parse(fs.readFileSync(path.join(WWW, 'state-records/US-HI.json'), 'utf8'));
+  const county = JSON.parse(fs.readFileSync(path.join(WWW, 'state-records/US-HI-001.json'), 'utf8'));
+  assert.ok(state.rows.length > 20,
+    'the Hawaii state list collapsed to ' + state.rows.length + ' rows — an '
+    + 'empty peer set should still allow local history to carry the model');
+  assert.equal(county.level, 'county');
+  assert.equal(county.parent, 'US-HI');
+  // Rose-ringed Parakeet is in "Old World Parrots", which CAGEBIRD_FAMILIES
+  // excludes outright — so its presence proves ESTABLISHED_BY_REGION is wired
+  // up and not merely defined. It is a genuine Big Island tick.
+  assert.ok(county.rows.some((r) => r.c === 'rorpar'),
+    'Rose-ringed Parakeet is gone from Hawaii County — the regional exemption '
+    + 'is not being applied, so the mainland cagebird rule is deleting birds '
+    + 'that are countable there');
+});
 // The debug geometry line reported "⚠️ OVERFLOWS by 33px" with
 // `layout 402 · scrollW 435 · visual 435 · zoom 0.924`. Nothing overflowed:
 // pinch OUT and WKWebView widens documentElement.scrollWidth to fill the
