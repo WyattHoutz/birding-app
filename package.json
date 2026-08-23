@@ -1,10 +1,10 @@
 {
   "name": "birding-app",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "node --test --test-timeout=300000 tests/*.test.js",
     "test:layout": "node assets/audit-overflow.js 320 1.75 easyread && node assets/audit-overflow.js 320 1.75 && node assets/audit-overflow.js 375 1.75 && node assets/audit-overflow.js 393 1 && node assets/audit-overflow.js 402 1 && node assets/audit-overflow.js 430 1"
   },
   "keywords": [],

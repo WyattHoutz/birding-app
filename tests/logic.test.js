@@ -15,6 +15,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 
 const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
 
@@ -165,6 +166,112 @@ test('convoyDetect: a single shared stop is not a convoy (MIN_STOPS=2)', () => {
   const routes = BL.convoyDetect([chk('S1', 'Ann', 'LA'), chk('S2', 'Bo', 'LA')],
     new Date(day + 'T12:00:00'), 'Me');
   assert.equal(routes.length, 0, 'one stop -> below CONVOY_MIN_STOPS');
+});
+
+// ── A FIELD TRIP IS A CONVOY THAT NEVER DRIVES ANYWHERE ────────────────────
+// Reported from the device: "birder convoys didnt get the group of people at
+// cedar mouth today, there were about 20 people together around 6-10am and many
+// of them reported the rare yellow headed blackbird."
+//
+// Driven by the REAL morning, captured verbatim from eBird into
+// tests/fixtures/convoy-cedar-river-2026-08-22.json, because the owner asked
+// for exactly that: "save these checklists and rare bird reports to build a
+// test". A synthetic six-person group would have proved the code does what it
+// was just written to do; this proves it does what that morning needed.
+//
+// MEASURED in the fixture: 18 checklists, 16 observers, and of those 16 exactly
+// ONE birded a second location that day — so ZERO pairs share two stops and the
+// two-stop rule is unreachable however many people are standing there.
+const CEDAR = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'convoy-cedar-river-2026-08-22.json'), 'utf8'));
+
+test('the Cedar River field trip is a convoy, though it never left the site', () => {
+  // The fixture must still be the case it was captured for.
+  assert.equal(CEDAR._measured.pairsSharingTwoLocations, 0,
+    'the fixture no longer contains the defect it was captured to prove');
+  assert.ok(CEDAR.siteLists.length >= 15, 'the captured morning lost its checklists');
+
+  const day = new Date('2026-08-22T23:00:00');
+  const routes = BL.convoyDetect(CEDAR.siteLists, day, 'Birder Wyatt');
+  assert.ok(routes.length >= 1,
+    'the ~20-person field trip at Cedar River mouth is still invisible — this is '
+    + 'the exact report the fixture was captured for');
+
+  const trip = routes.slice().sort((a, b) => b.members.length - a.members.length)[0];
+  assert.ok(trip.members.length >= 5,
+    'the detected group is smaller than a tour: ' + trip.members.join(', '));
+  // The six who shared ONE list at 07:09 with 28 species.
+  ['Jordan Juranek', 'Connie Daugherty', 'Denning Gillespie',
+   'Casey Herrick', 'Cindy Riskin', 'Erin Chase'].forEach((who) => {
+    assert.ok(trip.members.indexOf(who) >= 0,
+      who + ' shared the 07:09 checklist but is not in the detected group');
+  });
+  assert.equal(trip.stops.length, 1, 'this group has exactly one stop — which is '
+    + 'the whole point: it qualified WITHOUT a second one');
+  assert.ok(trip.shared, 'the group is not flagged as a shared-checklist trip, so '
+    + 'the card cannot explain why a one-stop group counts');
+  // ...and the reader is not told about a couple of friends who birded
+  // together once. A large group is what makes it a tour.
+  assert.ok(!routes.some((r) => r.stops.length === 1 && r.members.length < 5),
+    'a one-stop group below CONVOY_SHARED_MIN was reported; a pair or a carload '
+    + 'sharing one list is friends birding together, not a tour');
+});
+
+// ── CELEBRITY BIRDS NEEDS THE SAME GRACE AS TODAY'S TWITCHES ──────────────
+// "Celebrity birds 24 hour look back needs same grace period as the today's
+//  twitches since checklists may start hours before the bird was sighted."
+//
+// `recTime` reads `obsDt`, which is the checklist's START (F169), so a bird
+// found at the end of a long morning is stamped hours before anyone saw it.
+// MEASURED across live checklists: median 1.07 h, max 5.23 h, 27% run ≥4 h.
+//
+// Driven by the real Cedar River morning rather than synthetic rows, because
+// this lane also demands notability, validity, a public place and FOUR
+// independent events — a hand-built row misses one of those and gets dropped
+// for a reason that has nothing to do with the window, which is exactly what
+// happened on the first attempt at this test.
+test('Celebrity birds keeps a bird whose checklist started before the window', () => {
+  const rows = CEDAR.notable.map((o) => ({
+    code: o.speciesCode, name: o.comName, kind: 'Rarity', rare: true,
+    dateStr: o.obsDt, loc: o.locName, locName: o.locName, locId: o.locId,
+    subId: o.subId, observer: o.userDisplayName, userDisplayName: o.userDisplayName,
+    lat: o.lat, lon: o.lng, distMi: 8, valid: o.obsValid, count: o.howMany,
+  }));
+  const find = (when) => {
+    const out = BL.needNearby(rows, { now: Date.parse(when), seen: {}, maxMi: 50 });
+    return out.find((x) => x.code === 'yehbla') || null;
+  };
+  // The morning ran 05:28-15:29 on 22 Aug. Asked on the 23rd at 09:00, a hard
+  // 24 h cut-off lands at 09:00 on the 22nd and excludes every report before
+  // it — including the 07:09 shared checklist six people filed.
+  assert.ok(find('2026-08-23T09:00'),
+    'the Yellow-headed Blackbird is dropped 26 h on, though its checklists '
+    + 'STARTED early and the bird was seen later — this is the reported bug');
+  assert.ok(find('2026-08-22T22:00'), 'dropped on the evening of the same day');
+  // ...and the grace is a grace, not an unbounded window.
+  assert.ok(!find('2026-08-23T23:00'),
+    'a genuinely stale bird survived 40 h, so the window is not closing at all');
+  assert.equal(BL.NOTABLE_GRACE_H, 5,
+    'the grace is no longer the measured 5 h');
+});
+
+test('a shared checklist counts as ONE party in the busy-hotspot lane', () => {
+  // Six people on one list is one decision to visit, not six. Before this,
+  // Cedar River mouth's 16 observers counted as 16 independent parties and
+  // inflated the very "unusually busy" claim the lane exists to make.
+  const party = BL.buildParties(CEDAR.siteLists);
+  const groups = {};
+  CEDAR.siteLists.forEach((r) => {
+    groups[party(String(r.userDisplayName || '').trim().toLowerCase())] = 1;
+  });
+  const nParties = Object.keys(groups).length;
+  const nPeople = new Set(CEDAR.siteLists.map((r) => r.userDisplayName)).size;
+  assert.ok(nParties < nPeople,
+    'every observer is still its own party (' + nParties + ' of ' + nPeople
+    + '), so the 07:09 shared list is counted six times over');
+  assert.ok(nParties <= nPeople - 5,
+    'the six-person shared list did not collapse to one party: ' + nParties
+    + ' parties from ' + nPeople + ' people');
 });
 
 // --- chase views (end-to-end over a tiny synthetic snapshot) ---------------
@@ -1250,16 +1357,26 @@ test('a celebrity bird needs 4 independent sightings at ONE place, in range', ()
     'two pins you could walk between were treated as two different birds');
 });
 
-// ── THREE PARTIES, NOT THREE PEOPLE ───────────────────────────────────────
+// ── N PARTIES, NOT N PEOPLE ───────────────────────────────────────────────
 // "maybe reduce the number of required uniq observers. Maybe 3 uniq
 // observations at the same hotspot, so long as it is not a convoy"
 //
-// The two halves have to ship together. Lowering the bar to 3 WITHOUT the
-// convoy rule fills the lane with group outings — a carload of birders is one
+// The two halves have to ship together. Lowering the bar WITHOUT the convoy
+// rule fills the lane with group outings — a carload of birders is one
 // decision to go somewhere, wearing three or four names. So `n` counts
-// PARTIES: people seen together at CONVOY_MIN_STOPS+ locations on the same day
-// collapse into one.
-test('hotspotConvergence: three independent birders fire, one carload does not', () => {
+// PARTIES: people seen together at CONVOY_MIN_STOPS+ locations on the same
+// day collapse into one.
+//
+// THE FIXTURE IS SIZED FROM THE RULE, NOT FROM A LITERAL. This guard was
+// written around "three independent birders" and started failing the moment
+// the owner raised the bar to five — the code was right and the test was
+// stale, which is the same "pins the shape, not the property" failure that
+// has now bitten six guards in this repo. `MIN` is read from the shipped
+// constant, so moving the bar again cannot invalidate the behaviour claim.
+const MIN = BL.CONVERGE.MIN_OBSERVERS;
+const WHO = (n) => Array.from({ length: n }, (_, i) => 'birder' + i);
+
+test('hotspotConvergence: independent birders fire, one carload does not', () => {
   // A quiet spot with a real norm, so the ratio is measurable in both cases.
   const norm = (loc) => {
     const r = [];
@@ -1269,29 +1386,34 @@ test('hotspotConvergence: three independent birders fire, one carload does not',
     return r;
   };
 
-  // CASE 1 — three people who each turned up on their own. This is the signal.
-  const solo = norm('L1').concat([
-    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
-    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 9) },
-    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 11) },
-  ]);
+  // CASE 1 — MIN people who each turned up on their own. This is the signal.
+  const solo = norm('L1').concat(WHO(MIN).map((who, i) => (
+    { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: who, subId: 'A' + i, obsDt: DAY(0, 7 + i) }
+  )));
   const outSolo = BL.hotspotConvergence(solo, { now: NOW });
-  assert.equal(outSolo.length, 1, 'three independent birders should now fire — this is the whole point of the change');
-  assert.equal(outSolo[0].observers, 3, 'three separate parties');
+  assert.equal(outSolo.length, 1,
+    MIN + ' independent birders should fire — this is the whole point of the change');
+  assert.equal(outSolo[0].observers, MIN, MIN + ' separate parties');
 
-  // CASE 2 — the SAME three names, but they toured together: three shared
-  // stops on the same day. That is one decision, so the hotspot must NOT fire.
-  const convoy = norm('L2').concat([
-    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'ann', subId: 'A2', obsDt: DAY(0, 7) },
-    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'bob', subId: 'B2', obsDt: DAY(0, 7) },
-    { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: 'cat', subId: 'C2', obsDt: DAY(0, 7) },
-    // ...and the other stops on their route, which is what exposes them.
-    { locId: 'LX', locName: 'Stop two', userDisplayName: 'ann', subId: 'A3', obsDt: DAY(0, 9) },
-    { locId: 'LX', locName: 'Stop two', userDisplayName: 'bob', subId: 'B3', obsDt: DAY(0, 9) },
-    { locId: 'LX', locName: 'Stop two', userDisplayName: 'cat', subId: 'C3', obsDt: DAY(0, 9) },
-  ]);
+  // One BELOW the bar must stay silent, or the threshold is decorative.
+  const under = norm('L1b').concat(WHO(MIN - 1).map((who, i) => (
+    { locId: 'L1b', locName: 'Cedar River Mouth', userDisplayName: who, subId: 'U' + i, obsDt: DAY(0, 7 + i) }
+  )));
+  assert.deepEqual(BL.hotspotConvergence(under, { now: NOW }), [],
+    (MIN - 1) + ' parties is below the bar and must not fire');
+
+  // CASE 2 — the SAME names, but they toured together: two shared stops on the
+  // same day. That is one decision, so the hotspot must NOT fire.
+  const convoy = norm('L2')
+    .concat(WHO(MIN).map((who, i) => (
+      { locId: 'L2', locName: 'Cedar River Mouth', userDisplayName: who, subId: 'B' + i, obsDt: DAY(0, 7) }
+    )))
+    // ...and the other stop on their route, which is what exposes them.
+    .concat(WHO(MIN).map((who, i) => (
+      { locId: 'LX', locName: 'Stop two', userDisplayName: who, subId: 'C' + i, obsDt: DAY(0, 9) }
+    )));
   assert.deepEqual(BL.hotspotConvergence(convoy, { now: NOW }), [],
-    'a carload that birded two stops together is ONE decision, not three');
+    'a carload that birded two stops together is ONE decision, not ' + MIN);
 });
 
 test('hotspotConvergence: party membership is transitive, and one shared stop is a coincidence', () => {
@@ -1305,27 +1427,52 @@ test('hotspotConvergence: party membership is transitive, and one shared stop is
 
   // ONE shared stop is not a convoy — two birders bumping into each other at a
   // hotspot is the ordinary case, and collapsing them would silence the lane.
-  const bumped = norm('L3').concat([
-    { locId: 'L3', locName: 'Spot', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
-    { locId: 'L3', locName: 'Spot', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 7) },
-    { locId: 'L3', locName: 'Spot', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 8) },
-  ]);
+  // Everyone here meets exactly once, at the hotspot itself.
+  const bumped = norm('L3').concat(WHO(MIN).map((who, i) => (
+    { locId: 'L3', locName: 'Spot', userDisplayName: who, subId: 'A' + i, obsDt: DAY(0, 7) }
+  )));
   assert.equal(BL.hotspotConvergence(bumped, { now: NOW }).length, 1,
     'meeting once at one place is a coincidence, not a convoy');
 
-  // TRANSITIVE: ann rode with bob, bob rode with cat, so all three are one car
-  // even though ann and cat never shared a stop beyond the hotspot itself.
-  const chain = norm('L4').concat([
-    { locId: 'L4', locName: 'Spot', userDisplayName: 'ann', subId: 'A1', obsDt: DAY(0, 7) },
-    { locId: 'L4', locName: 'Spot', userDisplayName: 'bob', subId: 'B1', obsDt: DAY(0, 7) },
-    { locId: 'L4', locName: 'Spot', userDisplayName: 'cat', subId: 'C1', obsDt: DAY(0, 7) },
-    { locId: 'LY', locName: 'AB stop', userDisplayName: 'ann', subId: 'A2', obsDt: DAY(0, 9) },
-    { locId: 'LY', locName: 'AB stop', userDisplayName: 'bob', subId: 'B2', obsDt: DAY(0, 9) },
-    { locId: 'LZ', locName: 'BC stop', userDisplayName: 'bob', subId: 'B3', obsDt: DAY(0, 11) },
-    { locId: 'LZ', locName: 'BC stop', userDisplayName: 'cat', subId: 'C3', obsDt: DAY(0, 11) },
-  ]);
+  // TRANSITIVE: each birder rode with the next, so the whole chain is one car
+  // even though the ends never shared a stop beyond the hotspot itself.
+  const chain = norm('L4').concat(WHO(MIN).map((who, i) => (
+    { locId: 'L4', locName: 'Spot', userDisplayName: who, subId: 'A' + i, obsDt: DAY(0, 7) }
+  )));
+  for (let i = 0; i < MIN - 1; i++) {
+    chain.push({ locId: 'LNK' + i, locName: 'link stop ' + i, userDisplayName: 'birder' + i, subId: 'L' + i + 'a', obsDt: DAY(0, 9 + i) });
+    chain.push({ locId: 'LNK' + i, locName: 'link stop ' + i, userDisplayName: 'birder' + (i + 1), subId: 'L' + i + 'b', obsDt: DAY(0, 9 + i) });
+  }
   assert.deepEqual(BL.hotspotConvergence(chain, { now: NOW }), [],
-    'if A rode with B and B rode with C, all three are one car');
+    'if A rode with B and B rode with C, all of them are one car');
+});
+
+// The lane's numbers are published in docs/HAPPENING-NOW.md, and for a whole
+// release the doc said 5/3x while the code shipped 3/3 — two copies of one
+// rule, drifting in the direction that made the lane noisier than its spec.
+// Nothing compared them, so nothing caught it. This does.
+test('the busy-hotspot lane matches the numbers its documentation publishes', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const doc = path.join(__dirname, '..', '..', 'birding', 'docs', 'HAPPENING-NOW.md');
+  if (!fs.existsSync(doc)) return; // the private repo is not always checked out beside us
+  const txt = fs.readFileSync(doc, 'utf8');
+  const lines = txt.split(/\r?\n/);
+  // The doc publishes these as a table row: | `CONVERGE_MIN_OBSERVERS` | **5** |
+  // Anchor on the table row specifically — the same names also appear in prose
+  // further down ("...is exactly the CONVERGE_MIN_RATIO boundary"), and a
+  // looser match would read a number out of the wrong sentence.
+  const num = (name) => {
+    const row = lines.find((l) => new RegExp('^\\s*\\|\\s*`' + name + '`').test(l));
+    assert.ok(row, 'HAPPENING-NOW.md no longer states ' + name + ' in its table — the guard cannot check what it cannot find');
+    const m = /\*\*([0-9]+(?:\.[0-9]+)?)/.exec(row);
+    assert.ok(m, 'HAPPENING-NOW.md states ' + name + ' without a number: ' + row);
+    return Number(m[1]);
+  };
+  assert.equal(num('CONVERGE_MIN_OBSERVERS'), BL.CONVERGE.MIN_OBSERVERS,
+    'the documented birder minimum and the shipped one disagree');
+  assert.equal(num('CONVERGE_MIN_RATIO'), BL.CONVERGE.MIN_RATIO,
+    'the documented ratio and the shipped one disagree');
 });
 
 // ── F169: a checklist's obsDt is its START, so freshness is understated ────

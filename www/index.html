@@ -28,7 +28,34 @@
         if (buf.length > MAX) buf.shift();
         try { if (window.__dbgLive) window.__dbgLive(); } catch (e) {}
       }
-      window.__dbg = { buf: buf, push: push };
+      window.__dbg = { buf: buf, push: push, verdicts: {} };
+      /* ── WHAT THE LOG WAS MISSING: THE DECISION ──────────────────────────
+         Every bug diagnosed from a device log on 2026-08-22 was in what the
+         app CONCLUDED, not in what it fetched — and the log recorded only
+         traffic, so none of them were visible in it:
+
+           Iconic spots said "nothing stands out"   the log showed 4 calls and
+                                                    no geocode at all, so the
+                                                    scan had not run — but
+                                                    nothing said so
+           Dusk listed crows and Mallards           the ratio was right; its
+                                                    DENOMINATOR was 2%, and the
+                                                    baseline was never logged
+           Convoys missed a 20-person field trip    16 observers collapsed to
+                                                    16 parties; the count was
+                                                    never printed
+           Break a record showed grey squares       25 photo slots, 0 hydrated
+
+         So a section now records a one-line VERDICT: what it decided, and the
+         numbers it decided from. Kept newest-per-section in `verdicts` as well
+         as in the buffer, so the dump can lead with "here is what every
+         section concluded" instead of making a reader replay the traffic. */
+      window.__dbg.verdict = function (section, msg) {
+        try {
+          window.__dbg.verdicts[section] = { t: ts(), msg: String(msg) };
+          push('why', [section + ' — ' + msg]);
+        } catch (e) {}
+      };
       var C = window.console || (window.console = {});
       ['log', 'info', 'warn', 'error', 'debug'].forEach(function (m) {
         var orig = C[m] ? C[m].bind(C) : function () {};
@@ -389,6 +416,24 @@
     .newflag { font-size: calc(10px * var(--s)); font-weight: 800; letter-spacing: .04em;
       padding: 2px 5px; border-radius: 4px; margin-right: 4px;
       background: var(--accent); color: var(--accent-ink); }
+    /* THE BADGE HAS A MARGIN ON ONE SIDE ONLY, and that was the whole bug.
+       It was written for callers that put it BEFORE the text ("NEW Ruff"),
+       where margin-right is the correct and only side needed. My year appends
+       it AFTER the name, so it rendered as "Baird's SandpiperNEW" with the
+       badge welded to the last letter.
+       Fixing it in the CALLER — adding a leading space at one call site — is
+       what was done before and it did not hold, because the next caller has no
+       way to know. Fixing it HERE covers every use, including ones not written
+       yet, and cannot be forgotten. :not(:first-child) so a badge that still
+       leads its line is not pushed off its own left edge. */
+    .newflag:not(:first-child) { margin-left: 6px; }
+    /* The My-year ordinal, on its own line. `display:block` rather than a
+       <br>, so the number is still one element the layout audit can measure
+       and a screen reader announces as its own thing. Muted and smaller
+       because it ranks the row, it does not name the bird. */
+    .yrnum { display: block; font-size: calc(13px * var(--s)); font-weight: 700;
+             color: var(--muted); line-height: 1.2; margin-bottom: 2px;
+             font-variant-numeric: tabular-nums; }
     /* No `white-space: nowrap`. At 320px with the 1.75x accessibility scale
        "N new since you last looked" is 300px wide and overflowed the screen by
        27.6px — the status line is prose, and prose wraps. */
@@ -1203,8 +1248,18 @@
        heavier weight, AND a leading ✓ glyph in the markup. Colour alone would
        make the current scope invisible to a red-green colour-blind reader,
        which is the owner. */
-    .recscope { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
-    .recscope button { padding: calc(7px * var(--s)) calc(12px * var(--s));
+    /* The challenge, stated before the numbers. Bolder than a .status line
+       because it is the premise of the whole section, not a footnote about it:
+       a reader who does not know what "breaking a record" means here cannot
+       read a single row below. Sized in --s like everything else. */
+    .recwhat { margin: 4px 0 12px; font-size: calc(15px * var(--s)); line-height: 1.5; }
+    .recwhat p { margin: 0 0 8px; }
+    .recwhat-lead { font-size: calc(17px * var(--s)); font-weight: 700;
+                    line-height: 1.35; color: var(--ink); }
+    .recwhat-eg { border-left: 3px solid var(--accent); padding-left: 10px;
+                  background: color-mix(in srgb, var(--accent) 6%, transparent);
+                  padding-top: 6px; padding-bottom: 6px; border-radius: 0 6px 6px 0; }
+    .recscope { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }    .recscope button { padding: calc(7px * var(--s)) calc(12px * var(--s));
                        font-size: calc(15px * var(--s)); line-height: 1.2;
                        border: 1px solid var(--line); border-radius: 999px;
                        background: var(--bg); color: var(--ink); cursor: pointer; }
@@ -1212,6 +1267,28 @@
                        background: color-mix(in srgb, var(--accent) 18%, transparent);
                        border-color: var(--accent); color: var(--accent);
                        font-weight: 800; }
+    /* F159 second pass: ONE LINE PER BIRDER.
+       "the list should be one line per birder, and birder list should be last"
+       — it was rendered as the generic .obs row, whose name and count are
+       separate blocks, so eight regulars filled a screen and a half and pushed
+       every fact about the PLACE below the fold.
+
+       The count is a flex item pinned right rather than a fixed-width column,
+       so a name that needs the room takes it and "12" never wraps to its own
+       line. Sized in --s like every other box here, because a fixed height
+       around scaling text clips at exactly the setting a low-vision reader
+       would pick. */
+    .stakewho { list-style: none; margin: 6px 0 0; padding: 0; }
+    .stakewho li { display: flex; align-items: baseline; gap: 10px;
+                   padding: calc(7px * var(--s)) 0;
+                   border-top: 1px solid var(--line); }
+    .stakewho li:first-child { border-top: 0; }
+    .stakewho .wname { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere;
+                       font-size: calc(16px * var(--s)); font-weight: 700; }
+    .stakewho .wn { flex: 0 0 auto; font-size: calc(15px * var(--s));
+                    color: var(--muted); font-variant-numeric: tabular-nums;
+                    white-space: nowrap; }
+    .stakewho .wn b { color: var(--ink); font-size: calc(16px * var(--s)); }
     .favrank { display: inline-flex; align-items: center; justify-content: center;
                min-width: calc(22px * var(--s)); height: calc(22px * var(--s)); padding: 0 6px; border-radius: 999px;
                background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -1272,7 +1349,20 @@
     .ranktable { font-variant-numeric: tabular-nums; }
     .rankrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 46px 52px; gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
     .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s)); font-weight: 700; text-align: right; }
-    .rankrow .who { font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rankrow .who { font-size: calc(15px * var(--s)); min-width: 0; }
+    /* The NAME keeps the single clipped line it always had; the newest-bird
+       badge gets its own line beneath it. Putting the badge inside the same
+       nowrap/ellipsis cell simply hid it behind the "…". */
+    .rankrow .wholine { display: block; overflow: hidden; text-overflow: ellipsis;
+                        white-space: nowrap; }
+    /* The last bird this birder added. A tap target, so it clears the 40px
+       rule by padding rather than by font size — the code itself must stay
+       small or it competes with the name it sits under. */
+    .rankrow .ranklast { display: inline-block; margin-top: 2px;
+                         font-size: calc(12px * var(--s)); font-weight: 700;
+                         color: var(--muted); white-space: nowrap; }
+    .rankrow .ranklast a { color: var(--accent); text-decoration: none;
+                           padding: 4px 2px; }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
@@ -1698,6 +1788,7 @@
     <section class="panel" id="recordPanel" hidden>
       <h2>🏅 Break a record</h2>
       <div id="recordStatus" class="status">Megararities that are DUE here — rare enough to be a record, and not found yet this year.</div>
+      <div id="recordWhat" class="recwhat"></div>
       <div id="recordScope" class="recscope"></div>
       <div id="recordBody"></div>
     </section>
@@ -1901,21 +1992,50 @@
        onto the next line. */
     #debugPanel .dbgspacer { flex: 0 1 auto; }
     #debugPanel .dbgbar button { background: #24463a; color: #e6fff4; border: 0; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
-    #dbgLog { flex: 1; width: 100%; box-sizing: border-box; border: 0; resize: none; background: #0b0f0d; color: #d6f2e4; padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
-    #dbgLog:focus { outline: none; }
+    /* Copy is the only thing this panel is really for, so it looks like it. */
+    #debugPanel .dbgbar button.dbgprimary { background: #2f7d5b; font-weight: 700;
+                                            flex: 1 1 auto; min-width: 140px; }
+    #debugPanel .dbgtools { display: flex; flex-wrap: wrap; gap: 8px;
+                            padding: 0 12px 10px; background: #14201a;
+                            border-bottom: 1px solid #2a3a30; }
+    #debugPanel .dbgtools[hidden] { display: none; }
+    #debugPanel .dbgtools button { background: #24463a; color: #e6fff4; border: 0;
+                                   border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+    /* `overflow:auto` and `-webkit-overflow-scrolling` because a <pre> does not
+       scroll on its own the way a textarea did. `user-select: text` so the log
+       can still be selected by hand if the clipboard is refused. */
+    #dbgLog { flex: 1; width: 100%; box-sizing: border-box; border: 0; margin: 0;
+              background: #0b0f0d; color: #d6f2e4; padding: 10px 12px;
+              padding-bottom: calc(10px + env(safe-area-inset-bottom));
+              font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+              white-space: pre; overflow: auto; -webkit-overflow-scrolling: touch;
+              -webkit-user-select: text; user-select: text; }
   </style>
   <div id="debugPanel" hidden>
     <div class="dbgbar">
       <strong>🐞 Debug</strong>
       <span id="dbgCount" class="dbgcount"></span>
       <span class="dbgspacer"></span>
-      <button id="dbgClose" type="button">✕ Close</button>
+      <!-- COPY IS THE JOB. "I generally only copy the data and dont read it on
+           the device" — so one big primary action, and the diagnostics that
+           are used once a month sit behind ⋯ rather than competing with it. -->
+      <button id="dbgCopy" class="dbgprimary" type="button">📋 Copy all</button>
+      <button id="dbgClose" type="button">✕</button>
+      <button id="dbgMore" type="button" aria-expanded="false">⋯</button>
+    </div>
+    <div id="dbgTools" class="dbgtools" hidden>
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
-      <button id="dbgCopy" type="button">Copy</button>
       <button id="dbgClear" type="button">Clear</button>
     </div>
-    <textarea id="dbgLog" readonly spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+    <!-- A <pre>, NOT a <textarea>. A textarea is focusable, and on iOS focus
+         raises the keyboard and resizes the visual viewport — which is the
+         "screen resize issue" this panel kept causing. The old copy fallback
+         made it certain: it called removeAttribute('readonly') then .focus()
+         to run execCommand, so copying ALWAYS opened the keyboard. A <pre>
+         cannot take focus at all, so the failure mode is gone by construction
+         rather than by remembering not to trigger it. -->
+    <pre id="dbgLog" class="dbglog"></pre>
   </div>
 
   <script src="vendor/leaflet.js"></script>
@@ -1932,7 +2052,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.27.0';
+      var APP_VERSION = '1.28.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3426,6 +3546,31 @@
       // count the run of consecutive observation DAYS ending at that bird's most
       // recent sighting, so "📍 Day 3" means genuinely present three days
       // running rather than "seen once, still inside the 7-day feed window".
+      //
+      // ── ONE UNREPORTED DAY MUST NOT END THE RUN ──────────────────────────
+      // "Id like a feature to review the tag for Day X, it seems to reset too
+      //  easily."
+      //
+      // It did, and the cause was a single `break`. The tag claims the bird has
+      // been PRESENT N days; the data only shows which days somebody REPORTED
+      // it. A stakeout nobody visited on a wet Tuesday is not a stakeout that
+      // ended, but the run reset as though it were.
+      //
+      // MEASURED against 1,154 live notable rows over 30 days in King and
+      // Snohomish, allowing a single missing day:
+      //
+      //     Wandering Tattler   Day 1  ->  Day 15
+      //     Tufted Puffin       Day 6  ->  Day 15
+      //     Common Goldeneye    Day 1  ->  Day  4
+      //     ...10 of 107 species were understating how long they had stayed,
+      //     and the longest run in the whole feed went from 6 days to 15.
+      //
+      // ONE day of grace, not two. Two lifts the mean run further (1.33 -> 1.41)
+      // but starts joining genuinely separate visits: at two days a bird seen
+      // Monday and Thursday reads as a four-day stakeout, which is a claim the
+      // data does not support. One day covers the ordinary gap — bad weather, a
+      // weekday, nobody passing — and stops there.
+      var STAKEOUT_GAP_DAYS = 1;
       function stakeoutDays(records) {
         var days = {};
         (records || []).forEach(function (r) {
@@ -3440,11 +3585,16 @@
           var set = days[k], all = Object.keys(set).sort();
           var latest = all[all.length - 1], t = Date.parse(latest + 'T00:00:00');
           if (!isFinite(t)) return;
-          var n = 1;
-          for (var back = 1; back <= 6; back++) {
+          var n = 1, miss = 0;
+          // Walks the whole feed window rather than a fixed 6, because a run
+          // that survives a gap can legitimately be longer than the old cap —
+          // the Tufted Puffin above is 15 days and would have been clipped at
+          // 6 by the loop bound alone.
+          for (var back = 1; back <= 30; back++) {
             var d = new Date(t - back * 86400000).toISOString().slice(0, 10);
-            if (!set[d]) break;
-            n++;
+            if (set[d]) { n++; miss = 0; continue; }
+            miss++;
+            if (miss > STAKEOUT_GAP_DAYS) break;
           }
           out[k] = n;
         });
@@ -7431,7 +7581,47 @@
       function extA(url, text, cls) {
         return url ? '<a class="' + (cls || 'extlink') + '" data-href="' + esc(url) + '">' + esc(text) + '</a>' : esc(text);
       }
-      function speciesLink(name, code) { return code ? extA(speciesUrl(code), name || code) : esc(name || ''); }
+
+      // ── TAPPING A BIRD OR A PLACE STAYS IN THE APP ───────────────────────
+      //
+      // "update all the species template cards to link to the stakeout species
+      //  report for that bird. same for hotspots to stakeout hotspots"
+      //
+      // Every species name in the app used to open ebird.org, and every hotspot
+      // name the same. That sends the reader OUT of the app to a page that
+      // answers a more general question worse: the eBird species page is a
+      // range map for a whole region, where Stakeout bird answers "where do I
+      // stand to see this, today"; the eBird hotspot page buries what Stake out
+      // a hotspot puts on one card.
+      //
+      // Done at the CHOKE POINTS, which is the only reason it is a small
+      // change: `speciesLink` builds every species name in every card, and the
+      // hotspot card builds every place name. Repointing two functions moves
+      // every list in the app at once, and no future card can forget to.
+      //
+      // THE ESCAPE IS KEPT AND MUST STAY. eBird is the source, its pages carry
+      // things this app does not, and a link that silently stops going where it
+      // has always gone is a worse failure than one extra tap — so every card
+      // that had an eBird species or hotspot link still has one, explicitly
+      // labelled. `speciesUrl` and `hotspotUrl` are unchanged for exactly that.
+      function stakeSpeciesLink(name, code) {
+        if (!code) return esc(name || '');
+        return '<a class="splink" data-sp="' + esc(code) + '" data-spname="'
+          + esc(name || code) + '">' + esc(name || code) + '</a>';
+      }
+      function stakeHotspotLink(locId, name) {
+        if (!locId) return esc(name || '');
+        return '<a class="hslink" data-loc="' + esc(locId) + '" data-locname="'
+          + esc(name || locId) + '">' + esc(name || locId) + '</a>';
+      }
+      // The eBird page, still one tap away and now SAID rather than implied.
+      function ebirdSpeciesA(code, label) {
+        return code ? extA(speciesUrl(code), label || 'on eBird', 'ebirdlink') : '';
+      }
+      function ebirdHotspotA(locId, label) {
+        return locId ? extA(hotspotUrl(locId), label || 'on eBird', 'ebirdlink') : '';
+      }
+      function speciesLink(name, code) { return stakeSpeciesLink(name, code); }
       function checklistLink(sub, label) { return sub ? extA(checklistUrl(sub), label || 'checklist') : ''; }
       function mapA(lat, lng, text) {
         return (isFinite(+lat) && isFinite(+lng))
@@ -7508,7 +7698,11 @@
           // parens splitting off the glyph.
           var maps = (isFinite(+lat) && isFinite(+lng))
             ? '<span class="mapwrap">\u00a0(' + mapA(lat, lng, '🗺') + ')</span>' : '';
-          return extA(hotspotUrl(locId), name) + scope + maps;
+          // The hotspot NAME opens Stake out a hotspot; the 🗺 still goes to
+          // Maps and the card's own actions still reach eBird. This is the
+          // single place every observation row in the app builds its location
+          // link, which is why repointing it here reaches all of them.
+          return stakeHotspotLink(locId, name) + scope + maps;
         }
         // Every private location goes through here, so this is the one place
         // the marker has to be added to reach all of them.
@@ -8557,14 +8751,17 @@
             '<div class="favrow"><div class="favmain">' +
               // The hotspot name is the row's subject, so it is a title, not a
               // caption with a distance and a map glyph crammed in beside it.
-              // extA (not locLink) because locLink appends its own inline 🗺,
-              // which duplicated the Open in Maps link directly below.
+              // stakeHotspotLink (not locLink) because locLink appends its own
+              // inline 🗺, which duplicated the Open in Maps link directly
+              // below. The name opens Stake out a hotspot; eBird sits in the
+              // actions row with the map link.
               '<div class="favtitle"><span class="favrank">' + (i + 1) + '</span>' +
-              (f.locId ? extA(hotspotUrl(f.locId), f.locName || f.id)
+              (f.locId ? stakeHotspotLink(f.locId, f.locName || f.id)
                        : esc(f.locName || f.id)) + '</div>' +
               '<div class="recentbox"></div>' +
               '<div class="hsact">' +
                 '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">🗺 Open in Maps ↗</a>' +
+                (f.locId ? ebirdHotspotA(f.locId) : '') +
                 (d == null ? '' : '<span class="dim">' + d.toFixed(1) + ' mi</span>') +
                 (f.locId ? '<a class="recentlink" data-i="' + i + '">Refresh ↻</a>' : '') +
               '</div>' +
@@ -8631,7 +8828,11 @@
       // over a megabyte and localStorage is a ~5 MB budget shared with the photo
       // and ranking caches.
       var HOTSPOT_TTL_MS = 24 * 3600 * 1000;
-      function hotspotCacheKey(region) { return 'ebird_hotspots_v1:' + region; }
+      // v2 because F159 widened the stored row (nc/latest/co). A device holding
+      // a v1 copy would otherwise serve rows missing those fields for the full
+      // TTL, and the stakeout card would silently print nothing for "last
+      // birded" — an absence indistinguishable from a hotspot nobody visits.
+      function hotspotCacheKey(region) { return 'ebird_hotspots_v2:' + region; }
       function loadHotspotIndex(region) {
         var key = hotspotCacheKey(region);
         try {
@@ -8648,7 +8849,15 @@
           })
           .then(function (rows) {
             var out = (rows || []).map(function (h) {
-              return { locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng, n: h.numSpeciesAllTime || 0 };
+              // `latest`, `nc` and `co` are kept for F159's stakeout card. They
+              // arrive in the SAME response and were being thrown away, so the
+              // page that wants "when was this place last birded, and how heavily"
+              // would otherwise buy them a second time.
+              return { locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
+                       n: h.numSpeciesAllTime || 0,
+                       nc: h.numChecklistsAllTime || 0,
+                       latest: h.latestObsDt || '',
+                       co: h.subnational2Code || '' };
             }).filter(function (h) { return h.locId && h.locName; });
             try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), rows: out })); } catch (e) {}
             return out;
@@ -9377,7 +9586,10 @@
       // goes in the icon and the facts; they do not choose the layout.
       function hotspotCard(o) {
         var li = document.createElement('li');
-        var name = o.locId ? extA(hotspotUrl(o.locId), o.locName || o.locId)
+        // The place name opens Stake out a hotspot, not ebird.org — see
+        // stakeHotspotLink. The eBird page is still reachable from the card's
+        // actions row below.
+        var name = o.locId ? stakeHotspotLink(o.locId, o.locName || o.locId)
                            : esc(o.locName || 'Unnamed spot');
         // A fact the section does not know is OMITTED, never printed as
         // "undefined rarities". Five feeds with five record shapes now share this
@@ -9390,6 +9602,7 @@
         var la = parseFloat(o.lat), ln = parseFloat(o.lng);
         var acts = (isFinite(la) && isFinite(ln)
           ? '<a class="maplink" data-q="' + esc(la + ',' + ln) + '">🗺 Open in Maps ↗</a>' : '')
+          + ebirdHotspotA(o.locId)
           + favLink({ locId: o.locId, locName: o.locName, lat: o.lat, lng: o.lng });
         var unseen, seen;
         if (o.seenSpecies != null) {
@@ -12427,6 +12640,52 @@
     });
     return BL.rankDeltas(mine, nowMs);
   }
+  // The last bird this birder added, as a code that opens Stakeout bird.
+  //
+  // "add the bird code for the last added bird that links to the stakeout
+  //  species." COSTS NOTHING: every leaderboard row already carries a `recent`
+  // string ("Ruff — 21 Aug"), which lastNewParse already reads and the Latest
+  // ticks section is already built on. No extra call, no new storage.
+  //
+  // The CODE rather than the name, because the column is narrow and the row
+  // must not wrap — the alpha code is four characters and is what the rest of
+  // the app already prints beside a bird. The full name rides in `title` and in
+  // the link's own data, so nothing is lost, and the date is dropped here
+  // because the ▲/▼ column beside it already says when.
+  //
+  // The code index is region-wide and memoised (lastNewCodeIndex), so the first
+  // board paint may render the NAME and the codes fill in after — better than
+  // holding a whole leaderboard behind one lookup.
+  // The code index is read from the SPECIES INDEX the app already caches for
+  // the region (24 h TTL, and every section that names a bird needs it), not
+  // from lastNewCodeIndex — that one buys a whole 30-day region feed
+  // (measured at 9.8 s on device) and this is a decoration on a table.
+  // Absent index, the row prints the bird's NAME, which is still the answer.
+  var _rankCodeIdx = null;
+  function rankCodeIndex() {
+    if (_rankCodeIdx) return _rankCodeIdx;
+    var out = {};
+    try {
+      var c = JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null');
+      ((c && c.rows) || []).forEach(function (r) {
+        if (r && r.name && r.code) out[String(r.name).toLowerCase()] = r.code;
+      });
+    } catch (e) { /* no index cached yet: names it is */ }
+    _rankCodeIdx = out;
+    return out;
+  }
+  function rankLastNewHTML(r) {
+    var p = lastNewParse(r && r.recent);
+    if (!p || !p.species) return '';
+    var code = rankCodeIndex()[p.species.toLowerCase()] || '';
+    var label = code ? (alphaFor(code) || code) : p.species;
+    var inner = code
+      ? '<a class="splink" data-sp="' + esc(code) + '" data-spname="' + esc(p.species)
+        + '">' + esc(label) + '</a>'
+      : esc(label);
+    return '<span class="ranklast" title="' + esc('newest: ' + p.species
+      + (p.date ? ' \u00b7 ' + p.date : '')) + '">+' + inner + '</span>';
+  }
   // ONE arrow per row, not three. Three deltas plus a name and a species count
   // do not fit at 320px, and "avoid wrapping" was the explicit requirement — so
   // the shortest window that has an answer wins, which is also the freshest
@@ -12618,7 +12877,9 @@
           var mine = !!(me && r.name === me.name);
           h += '<div class="rankrow' + (mine ? ' rankme' : '') + '">' +
             '<span class="rk">' + esc(r.rank) + '</span>' +
-            '<span class="who">' + who + (mine ? ' <span class="star">you</span>' : '') + '</span>' +
+            '<span class="who"><span class="wholine">' + who
+              + (mine ? ' <span class="star">you</span>' : '') + '</span>'
+              + rankLastNewHTML(r) + '</span>' +
               boardMoveHTML(boardDeltasFor(bhist, r.name, bnow)) +
               '<span class="n">' + esc(rankNum(r.species)) + '</span></div>';
         });
@@ -13617,6 +13878,25 @@
           return h + '</ul>';
         }
         var html = section('🌅 Dawn specialists', sp.dawn, 'dawn') + section('🌘 Dusk / night specialists', sp.night, 'night');
+        // THE DENOMINATOR, which is the number that was missing. This section
+        // shipped crows and Mallards as "dusk specialists" at 84-92% after 7pm
+        // — and the ratio was arithmetically right. What nobody could see was
+        // that the SAMPLE's own after-7pm share was the thing out of line:
+        // measured against live King County data the true baseline is 2%.
+        // A share is meaningless without the base rate it is a share OF, so
+        // the log now carries both.
+        var _all = [], _late = 0, _s = todLoad();
+        Object.keys(_s.hours || {}).forEach(function (c) {
+          (_s.hours[c] || []).forEach(function (hh) {
+            _all.push(hh);
+            if (hh >= BL.CONST.TOD_DUSK_START) _late++;
+          });
+        });
+        verdict('Dawn and dusk', _all.length + ' sampled records across ' + sp.n
+          + ' species \u00b7 BASELINE after ' + BL.CONST.TOD_DUSK_START + ':00 is '
+          + (_all.length ? Math.round(100 * _late / _all.length) : 0) + '% '
+          + '\u00b7 bar is ' + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% absolute '
+          + '\u00b7 ' + sp.dawn.length + ' dawn, ' + sp.night.length + ' dusk');
         if (!html) html = '<div class="status">' + sp.n + ' species sampled, but none meet the dawn/dusk thresholds yet — sample again over a few days to enrich it.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
@@ -14494,7 +14774,89 @@
       //     real and the page is useful without it.
       var STAKE_HS_LISTS = 200;      // one call; the cap the feed accepts
       var STAKE_HS_TOP = 8;          // birders named
+      var STAKE_HS_BACK = 30;        // days of observations for the bird list
       var _stakeHsRows = null;
+
+      // WHY THE BIRD LIST IS `data/obs/{loc}/recent`, NOT `product/spplist`.
+      //
+      // spplist looks like the right call — "every species recorded here" — and
+      // for a heavily birded place it is. MEASURED 2026-08-22, repeated three
+      // times each and perfectly stable, so this is systematic and not a flake:
+      //
+      //   hotspot                 checklists  all-time  spplist   ratio
+      //   Discovery Park              23,826       298      313    105%
+      //   Union Bay Natural Area      32,837       265      287    108%
+      //   Crescent Lake WMA            2,101       187        5      3%
+      //   Jetty Island                   648       183        4      2%
+      //
+      // At a quiet hotspot it returns a handful of species and they are not
+      // even a subset of the last 30 days. A card built on it would show four
+      // birds for a 183-species island and look like a bug in this app.
+      //
+      // `data/obs/{loc}/recent?back=30` is one call and returned 72 species for
+      // Jetty Island. It is also the better question for a stake-out: what is
+      // being seen HERE NOW, rather than what was seen in 1997.
+      function stakeHsHotspotRow(locId) {
+        return loadHotspotIndex(getObsRegion()).then(function (rows) {
+          var hit = null;
+          (rows || []).forEach(function (h) { if (h.locId === locId) hit = h; });
+          return hit;
+        }).catch(function () { return null; });
+      }
+
+      // The iconic score for ONE place, reusing the engine Iconic spots uses —
+      // same box, same county comparison, same floors — so a hotspot cannot be
+      // "12x for Eastern Kingbird" in one section and unremarkable in another.
+      function stakeHsIconic(lat, lng) {
+        if (lat == null || lng == null) return Promise.resolve(null);
+        return gbifCountyGid(lat, lng).then(function (gid) {
+          return Promise.all([iconicBoxFacet(lat, lng), iconicCountyFacet(gid)]);
+        }).then(function (r) {
+          var bx = r[0], co = r[1];
+          if (!bx || !co || !co.all) return null;
+          var cand = Object.keys(bx.sp).map(function (k) {
+            var m = BL.iconicMultiplier(bx.sp[k], bx.all, co.sp[k], co.all);
+            return m == null ? null : { key: k, n: bx.sp[k], mult: m };
+          }).filter(function (x) { return x && x.mult >= ICONIC_MIN_MULT; })
+            .sort(function (a, b) { return b.mult - a.mult; })
+            .slice(0, ICONIC_TOP_PER_SPOT);
+          if (!cand.length) return { effort: bx.all, birds: [] };
+          var sci = sciIndex(getObsRegion());
+          return pool(cand, ICONIC_POOL, function (x) {
+            return gbifSciFor(x.key).then(function (s) {
+              var row = s ? sci[String(s).toLowerCase()] : null;
+              x.name = (row && row.name) || s || String(x.key);
+              x.code = (row && row.code) || '';
+              return x;
+            });
+          }).then(function () { return { effort: bx.all, birds: cand }; });
+        }).catch(function () { return null; });
+      }
+
+      // ── OPENING A STAKEOUT FROM ANYWHERE ─────────────────────────────────
+      // Both take the section to its answer directly rather than to its search
+      // box: the reader has already told us which bird or which place by
+      // tapping it, and asking them to type it again would be the section
+      // ignoring what it was just handed.
+      //
+      // The search box is still filled in, so the reader can SEE what was
+      // looked up and edit it — arriving at a result with an empty box reads
+      // as though the app guessed.
+      function openStakeSpecies(code, name) {
+        if (!code) return;
+        if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
+        var inp = $('spLookup');
+        if (inp) inp.value = name || code;
+        if ($('spLookupFound')) $('spLookupFound').innerHTML = '';
+        return lookupSpecies(code, name || code);
+      }
+      function openStakeHotspot(locId, name) {
+        if (!locId) return;
+        if ($('sec-stakeHsBtn')) showSection('sec-stakeHsBtn');
+        var inp = $('stakeHs');
+        if (inp) inp.value = name || locId;
+        return stakeHsOpen(locId, name || locId);
+      }
 
       function stakeHsSearch() {
         var q = ($('stakeHs') || {}).value || '';
@@ -14524,28 +14886,69 @@
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
+        var state = { lists: [], obs: [], hrow: null, iconic: undefined };
+        function paint() {
+          renderStakeHs(locId, name, state.lists, state.obs, state.hrow, state.iconic);
+        }
+        // ── PAINT ON THE FIRST ANSWER, FILL IN THE REST ────────────────────
+        //
+        // An earlier version awaited product/lists, the hotspot index AND the
+        // observation feed together in one Promise.all and rendered once. That
+        // is the mistake this file already documents for the iconic hydration —
+        // "a page that waits on the slowest source shows nothing for as long as
+        // that source takes" — and here it was worse than slow: if ANY of the
+        // three never settled, the page never rendered at all. It hung the test
+        // suite for twenty-five minutes at dom.test.js's stakeout test.
+        //
+        // So the checklists paint the card and everything else patches it. The
+        // bird list, the all-time totals and the iconic score each arrive when
+        // they arrive, and a failure in any one costs that block, not the page.
+        //
         // ebird() takes (path, bg) — there is no params object, so the query
         // string is built here. Passing one silently did nothing, which is the
         // same class of bug as a card slot the template does not declare.
         return ebird('product/lists/' + encodeURIComponent(locId)
                      + '?maxResults=' + STAKE_HS_LISTS)
           .then(function (lists) {
-            lists = Array.isArray(lists) ? lists : [];
-            _stakeHsRows = lists;
-            renderStakeHs(locId, name, lists);
-            st.textContent = lists.length + ' recent checklist'
-              + (lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime();
+            state.lists = Array.isArray(lists) ? lists : [];
+            _stakeHsRows = state.lists;
+            paint();
+            st.textContent = state.lists.length + ' recent checklist'
+              + (state.lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime();
+
+            ebird('data/obs/' + encodeURIComponent(locId)
+                  + '/recent?back=' + STAKE_HS_BACK + '&maxResults=10000')
+              .then(function (obs) {
+                state.obs = Array.isArray(obs) ? obs : [];
+                paint();
+              }).catch(function () { /* no bird list; the card still stands */ });
+
+            stakeHsHotspotRow(locId).then(function (h) {
+              if (!h) return;
+              state.hrow = h;
+              // Only once a coordinate is in hand is the iconic measurement
+              // worth starting. GBIF is slow cold and free for 30 days after,
+              // so it arrives last and nobody waits behind it.
+              state.iconic = null;                    // renders "measuring…"
+              paint();
+              stakeHsIconic(h.lat, h.lng).then(function (ic) {
+                state.iconic = ic || false;
+                paint();
+              }).catch(function () { state.iconic = false; paint(); });
+            }).catch(function () { /* no index; totals stay absent */ });
           })
           .catch(function (e) { st.textContent = netErr(e); });
       }
 
-      function renderStakeHs(locId, name, lists) {
+      function renderStakeHs(locId, name, lists, obs, hrow, iconic) {
         var box = $('stakeHsResults');
-        if (!lists.length) {
+        obs = obs || []; hrow = hrow || {};
+        if (!lists.length && !obs.length) {
           box.innerHTML = '<div class="status">eBird has no recent checklists for this place.</div>';
           return;
         }
-        // WHO BIRDS HERE. Counted from the call already made.
+        // WHO BIRDS HERE, and the visit pattern. Both counted from the call
+        // already made, so neither costs anything.
         var by = {}, days = {}, spp = 0, n = 0;
         lists.forEach(function (r) {
           var who = (r.userDisplayName || '').trim();
@@ -14557,48 +14960,121 @@
         var top = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; })
           .slice(0, STAKE_HS_TOP);
         var nDays = Object.keys(days).length;
-
-        // THE PATTERN LEADS. How often this place is birded, and how rich a
-        // visit usually is, are true all day — unlike "what was seen today",
-        // which is empty every morning by eBird's own design.
         var span = BL.feedSpanDays(lists.map(function (r) {
           return { subId: r.subId, isoObsDate: r.obsDt || r.isoObsDate };
         }));
-        var html = '<div class="hint"><b>' + esc(name || locId) + '</b> \u2014 '
-          + lists.length + ' checklist' + (lists.length === 1 ? '' : 's')
-          + ' across ' + nDays + ' day' + (nDays === 1 ? '' : 's')
-          + (span ? ' (' + span + '-day window)' : '')
-          + (n ? ' \u00b7 typically <b>' + Math.round(spp / n) + ' species</b> a visit' : '')
-          + '</div>';
 
-        html += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b></div><ul class="obs">';
-        html += top.map(function (who) {
-          // Case-insensitive, because eBird's display names are user-typed and
-          // "you" appearing on someone else's row would be worse than missing
-          // it on your own.
-          var mine = String(who).trim().toLowerCase()
-                   === String(getDisplayName() || '').trim().toLowerCase();
-          return '<li><div class="name"><span class="ntext">' + esc(who)
-            + (mine ? ' <b>(you)</b>' : '') + '</span></div>'
-            + '<div class="sp">' + by[who] + ' checklist' + (by[who] === 1 ? '' : 's') + '</div></li>';
-        }).join('') + '</ul>';
+        // The location object rides along on every product/lists row — address,
+        // county and coordinates included — so the address is FREE. Falling back
+        // to the hotspot index covers a place with no recent checklists.
+        var loc = (lists[0] || {}).loc || {};
+        var la = (hrow.lat != null) ? hrow.lat : loc.lat;
+        var ln = (hrow.lng != null) ? hrow.lng : loc.lng;
+        var addr = loc.hierarchicalName || '';
 
-        // ...then the recent checklists, newest first, which product/lists
-        // already gives us in that order (measured).
-        html += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b></div>';
-        html += ChecklistCards.list('small', lists.slice(0, 20).map(function (r) {
-          return ChecklistCards.small({
-            name: r.subId ? checklistLink(r.subId, fmtWhenShort(r.obsDt || r.isoObsDate))
-                          : esc(fmtWhenShort(r.obsDt || r.isoObsDate)),
-            sub: [esc(r.userDisplayName || ''),
-                  isFinite(r.numSpecies) ? r.numSpecies + ' species' : ''
-                 ].filter(Boolean).join(' \u00b7 ')
-          });
-        }));
+        // ---- the bird list, split the way every other hotspot card splits it
+        var isSeen = seenResolver();
+        var byCode = {};
+        obs.forEach(function (o) {
+          var c = o.speciesCode;
+          if (!c || byCode[c]) return;
+          byCode[c] = { comName: o.comName || c, code: c, rare: 0, tag: '' };
+        });
+        var unseen = [], seen = [];
+        Object.keys(byCode).forEach(function (c) {
+          (isSeen(c) ? seen : unseen).push(byCode[c]);
+        });
 
-        html += '<a class="ebirdlink" data-href="' + esc(hotspotUrl(locId))
-          + '">Open this hotspot on eBird</a>';
-        box.innerHTML = html;
+        // ---- THE PATTERN LEADS. How often this place is birded and what it
+        // reliably holds are true all day, unlike "what was seen today", which
+        // is empty every morning by eBird's own design (F159 measurement 3).
+        var facts = [
+          addr ? esc(addr) : '',
+          extA(hotspotUrl(locId), locId, 'extlink'),
+          lists.length ? lists.length + ' recent checklist' + (lists.length === 1 ? '' : 's')
+            + ' across ' + nDays + ' day' + (nDays === 1 ? '' : 's')
+            + (span ? ' (' + span + '-day window)' : '') : '',
+          n ? 'typically <b>' + Math.round(spp / n) + ' species</b> a visit' : '',
+          hrow.n ? '<b>' + fmtInt(hrow.n) + '</b> species all-time' : '',
+          hrow.nc ? fmtInt(hrow.nc) + ' checklists all-time' : '',
+          hrow.latest ? 'last birded ' + esc(fmtWhenShort(hrow.latest)) : '',
+          (la != null && ln != null) ? esc((+la).toFixed(4) + ', ' + (+ln).toFixed(4)) : ''
+        ].filter(Boolean).join(' \u00b7 ');
+
+        // ---- iconic: the score, then the birds that earn it
+        var below = '';
+        if (iconic === null) {
+          below += '<div class="hint">\u2b50 Measuring what this place is iconic for\u2026</div>';
+        } else if (iconic && iconic.birds.length) {
+          var best = iconic.birds[0];
+          below += '<div class="rankhead"><b>\u2b50 Iconic here</b> \u00b7 best '
+            + Math.round(best.mult) + '\u00d7 the county rate \u00b7 '
+            + fmtInt(iconic.effort) + ' records in the 2 km box</div>';
+          below += SpeciesCards.list('small', iconic.birds.map(function (b) {
+            return SpeciesCards.small({
+              sci: b.code ? sciFor(b.code) : '',
+              icon: photoSlot(b.name, b.code),
+              name: b.code ? speciesLink(b.name, b.code) : esc(b.name),
+              code: b.code, alpha: b.code ? alphaFor(b.code) : '',
+              tags: '<span class="ictag">' + Math.round(b.mult) + '\u00d7</span>',
+              sub: fmtInt(b.n) + ' record' + (b.n === 1 ? '' : 's') + ' in the box'
+            });
+          }));
+        } else if (iconic) {
+          below += '<div class="hint">\u2b50 Nothing here is notably above the county '
+            + 'rate \u2014 itself an answer: an ordinary patch rather than a speciality.</div>';
+        }
+
+        // ---- the checklists
+        if (lists.length) {
+          below += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b></div>';
+          below += ChecklistCards.list('small', lists.slice(0, 20).map(function (r) {
+            return ChecklistCards.small({
+              name: r.subId ? checklistLink(r.subId, fmtWhenShort(r.obsDt || r.isoObsDate))
+                            : esc(fmtWhenShort(r.obsDt || r.isoObsDate)),
+              sub: [esc(r.userDisplayName || ''),
+                    isFinite(r.numSpecies) ? r.numSpecies + ' species' : ''
+                   ].filter(Boolean).join(' \u00b7 ')
+            });
+          }));
+        }
+
+        // ---- ...and the birders LAST, one line each.
+        // "the list should be one line per birder, and birder list should be
+        //  last". It was first and two lines deep, so eight regulars pushed
+        //  every fact about the PLACE below the fold — on a page whose whole
+        //  purpose is the place.
+        if (top.length) {
+          below += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b></div>';
+          below += '<ul class="stakewho">' + top.map(function (who) {
+            // Case-insensitive, because eBird's display names are user-typed and
+            // "you" appearing on someone else's row would be worse than missing
+            // it on your own.
+            var mine = String(who).trim().toLowerCase()
+                     === String(getDisplayName() || '').trim().toLowerCase();
+            return '<li><span class="wname">' + esc(who)
+              + (mine ? ' <b>(you)</b>' : '') + '</span>'
+              + '<span class="wn"><b>' + by[who] + '</b> checklist'
+              + (by[who] === 1 ? '' : 's') + '</span></li>';
+          }).join('') + '</ul>';
+        }
+
+        var acts = (la != null && ln != null
+          ? '<a class="maplink" data-q="' + esc(distQ(la, ln)) + '">\ud83d\uddfa Open in Maps \u2197</a>' : '')
+          + favLink({ locId: locId, locName: name || locId, lat: la, lng: ln });
+
+        box.innerHTML = '<ul class="obs">' + HotspotCards.large({
+          name: extA(hotspotUrl(locId), name || loc.locName || locId),
+          sub: facts,
+          unseen: unseen.length ? speciesListHtml(unseen) : '',
+          unseenLabel: unseen.length ? (unseen.length + ' unseen \ud83d\udd0d in the last '
+            + STAKE_HS_BACK + ' days') : '',
+          seen: seen.length ? speciesListHtml(seen) : '',
+          seenLabel: seen.length ? (seen.length + ' more species already seen') : '',
+          below: below,
+          actions: '<div class="hsact">' + acts + '</div>'
+        }) + '</ul>';
+        hydratePhotos(box);
       }
 
       function loadIconicSpots() {
@@ -14674,6 +15150,15 @@
           }).then(function () {
             _iconicRows = out.sort(function (a, b) { return b.mult - a.mult; });
             btn.disabled = false;
+            // THE LINE THAT WOULD HAVE ANSWERED IT. A device log showed this
+            // section reporting "nothing stands out" with only 4 calls and no
+            // geocode at all — so the scan had not run — and nothing said so.
+            // Both numbers are here: how many places were measured, and how
+            // many cleared the bar.
+            verdict('Iconic spots', near.length + ' hotspots measured within '
+              + lim + ' mi, ' + out.length + ' bird-and-place pairings at \u2265'
+              + ICONIC_MIN_MULT + '\u00d7'
+              + (out.length ? '' : ' \u2014 rendering the EMPTY message'));
             if (!out.length) {
               st.textContent = 'Nothing within ' + lim + ' mi stands out strongly for any bird \u2014 '
                 + 'itself an answer: these are ordinary patches rather than specialities.';
@@ -15080,7 +15565,8 @@
           // filled in by loadConvoySpecies once the checklists resolve.
           var head = '<div class="rankhead"><div class="bignum convoytitle" id="' +
             'convoyTitle' + i + '">' +
-            esc(BL.convoyTitle(fmtDate(r.day), r.members.length, r.stops.length, 0, 0)) +
+            esc(BL.convoyTitle(fmtDate(r.day), r.members.length, r.stops.length,
+                               0, 0, !!r.shared)) +
             '</div></div>' +
             '<div class="status">' + allSubs.length + ' checklist' +
             (allSubs.length === 1 ? '' : 's') + ' filed</div>';
@@ -15102,6 +15588,7 @@
           var spp = '<div class="convoysppbox" data-subs="' + esc(allSubs.join(',')) +
             '" data-title="convoyTitle' + i + '" data-day="' + esc(fmtDate(r.day)) +
             '" data-members="' + r.members.length + '" data-stops="' + r.stops.length +
+            '" data-shared="' + (r.shared ? '1' : '0') +
             '"><span class="dim">' + allSubs.length + ' checklist'
             + (allSubs.length === 1 ? '' : 's') + ' to read\u2026</span></div>';
           var ul = '<div class="convoyhead">Stops (' + r.stops.length + ')</div>';
@@ -15244,7 +15731,8 @@
           box.getAttribute('data-day') || '',
           +box.getAttribute('data-members') || 0,
           +box.getAttribute('data-stops') || 0,
-          nSpecies, nUnseen);
+          nSpecies, nUnseen,
+          box.getAttribute('data-shared') === '1');
       }
       function loadConvoySpecies(subs, box) {
         box.innerHTML = '<span class="dim">Loading species…</span>';
@@ -16128,7 +16616,26 @@
               // because it must never depend on GitHub at runtime.
               var hist = BL.mergeHotspotHistory(loadHotspotHistory(), norm, now);
               saveHotspotHistory(hist);
-              return BL.hotspotConvergence(norm, { now: now, history: hist });
+              var conv = BL.hotspotConvergence(norm, { now: now, history: hist });
+              // PEOPLE vs PARTIES is the number that decides this lane, and it
+              // was never printed. A 16-observer morning at Cedar River counted
+              // as 16 independent visits until shared checklists were collapsed
+              // — so "how many people" and "how many decisions" have to appear
+              // side by side or the ratio cannot be checked from a log.
+              try {
+                var _party = BL.buildParties(norm);
+                var _ppl = {}, _grp = {};
+                norm.forEach(function (r) {
+                  var w = String(r.userDisplayName || '').trim().toLowerCase();
+                  if (!w) return;
+                  _ppl[w] = 1; _grp[_party(w)] = 1;
+                });
+                verdict('Busy hotspots', norm.length + ' checklists \u00b7 '
+                  + Object.keys(_ppl).length + ' observers \u2192 '
+                  + Object.keys(_grp).length + ' independent parties \u00b7 '
+                  + conv.length + ' hotspots cleared the gate');
+              } catch (e) { /* a log line must never break a lane */ }
+              return conv;
             }).catch(function () { return []; });
         // F32 costs NOTHING: these are the records the chase wave already
         // merged for pEvents, filtered by two rules that already exist —
@@ -16678,6 +17185,9 @@
       // "19 Jul 2026" (eBird export) → Date, for the "added this week" window.
       var _MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
       var _myYearNaming = false;
+      // The window "NEW" means, named once so the guard and the card cannot
+      // disagree about it.
+      var MY_YEAR_NEW_DAYS = 7;
       function parseYearListDate(s) {
         var m = /^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})$/.exec(String(s || '').trim());
         if (!m) return null;
@@ -16759,7 +17269,19 @@
         // the species code column and the layout audit that covers every other
         // list.
         list.className = 'obs big xl';
-        var newCutoff = new Date(); newCutoff.setDate(newCutoff.getDate() - 7);
+        // MIDNIGHT, not "this time seven days ago". `new Date()` carries the
+        // clock, so the cutoff was 15 Aug 22:02 while parseYearListDate returns
+        // 15 Aug 00:00 — and a bird seen exactly seven days ago was therefore
+        // NOT new, by twenty-two hours.
+        //
+        // That is the reported case exactly: Cassin's Vireo on 15 Aug showed no
+        // NEW mark at 22:02 on 22 Aug, while Horned Lark on 17 Aug did. Worse
+        // than wrong, it was wrong ACCORDING TO THE CLOCK — the same bird
+        // qualified in the morning and stopped qualifying that evening, which
+        // is unreproducible for anyone reading a screenshot later.
+        var newCutoff = new Date();
+        newCutoff.setDate(newCutoff.getDate() - MY_YEAR_NEW_DAYS);
+        newCutoff.setHours(0, 0, 0, 0);
         list.innerHTML = entries.map(function (e, i) {
           var where = String(e.loc || '').split('--')[0].trim();
           var whereHtml = where ? (e.locUrl ? extA(e.locUrl, where) : esc(where)) : '';
@@ -16788,7 +17310,13 @@
           return SpeciesCards.medium({
             sci: sciFor(e && e.code),
             icon: photoSlot(e.name, e.code),
-            name: '<b>' + (total - i) + '.</b> ' + speciesLink(e.name, e.code),
+            // THE ORDINAL GETS ITS OWN LINE. "210. Baird's Sandpiper" broke
+            // mid-name at 393px, so the number and the first word shared a line
+            // and the rest of the bird wrapped under it — the number is a
+            // position in a list, not part of the bird's name, and it should
+            // never be what decides where the name breaks.
+            name: '<span class="yrnum">' + (total - i) + '.</span>'
+              + speciesLink(e.name, e.code),
             tags: isNew ? newRarityTag() : '',
             code: e.code,
               alpha: alphaFor(e.code),
@@ -17154,6 +17682,44 @@
         });
       }
 
+      // THE CHALLENGE, SAID PLAINLY AND FIRST.
+      //
+      // "the challenge needs a clearer and bolder definition. use the red knot
+      //  example." The section led with odds and a scope switcher and never
+      //  said what the game IS, so the numbers had nothing to attach to.
+      //
+      // Red Knot is the right worked example because it is the case that
+      // created the county scope, and both halves of it are measured (F170):
+      // 3,422 Washington records across all ten years of the window, so the
+      // state list can never carry it — and ten records in two years in King
+      // County, which is squarely a county record. It is also a bird the owner
+      // was told about by someone who found one at his local patch.
+      function renderRecordWhat(scope, doc) {
+        var host = $('recordWhat');
+        if (!host) return;
+        var county = scope && scope.kind === 'county';
+        var where = esc((scope && scope.label) || 'here') + (county ? ' County' : '');
+        host.innerHTML =
+          '<p class="recwhat-lead"><b>The challenge:</b> find a bird here that '
+          + 'almost nobody has ever found here.</p>'
+          + '<p>These are the species with a real but <b>very thin</b> history in '
+          + where + ' \u2014 recorded in only a handful of years out of ten, or '
+          + 'never at all. Turning one up is a genuine record. The percentage is '
+          + 'the modelled chance it is reported ' + where + ' <b>this month</b>, '
+          + 'not the chance you personally see it.</p>'
+          + '<p class="recwhat-eg"><b>Worked example \u00b7 Red Knot.</b> '
+          + 'Washington has <b>3,422</b> records across all ten years, so it can '
+          + 'never appear on a state list \u2014 it is simply not rare enough. '
+          + 'King County has <b>10</b>, in <b>two</b> years. Same bird, same '
+          + 'decade: routine for the state, a county record worth chasing. '
+          + 'That is why the scope below changes the answer.</p>'
+          + (county
+              ? '<p class="recwhat-eg"><b>A county record is the achievable one.</b> '
+                + 'It is a lower bar than a state record by construction, which is '
+                + 'why this list is longer than the state one.</p>'
+              : '');
+      }
+
       function loadStateRecords() {
         var host = $('recordBody'), st = $('recordStatus');
         if (!host) return Promise.resolve();
@@ -17167,6 +17733,7 @@
         var scope = getRecScope();
         var region = scope.code.toUpperCase();
         renderRecScope();
+        renderRecordWhat(scope, null);
         host.innerHTML = '<p class="hint">Loading…</p>';
         var got = _recCache[region]
           ? Promise.resolve(_recCache[region])
@@ -17297,6 +17864,13 @@
       });
     }).join('');
           host.innerHTML = '<ul class="obs big xl">' + html + '</ul>';
+          // THE PHOTOS. Every row emits a photoSlot() placeholder, and nothing
+          // filled them — so the whole list rendered as empty grey squares.
+          // Each of the other five sections that use photoSlot calls this
+          // immediately after writing innerHTML; this one never did, which is
+          // exactly the kind of omission a shared card template cannot prevent
+          // because hydration is the caller's job.
+          hydratePhotos(host);
           // Say the hit rate plainly (Q3). A watchlist that implies forecast
           // accuracy reads as broken the first month nothing turns up.
           if (st) {
@@ -18489,7 +19063,10 @@
         dumpSectionsAll(function (m) { if (btn) btn.textContent = m; })
           .then(function (d) {
             var text = JSON.stringify(d, null, 2);
-            if (ta) { ta.value = text; ta.scrollTop = 0; }
+            // textContent, not value — the panel is a <pre> now. Left as
+            // `.value` this silently did nothing and the dump looked like it
+            // had failed.
+            if (ta) { ta.textContent = text; ta.scrollTop = 0; }
             window.__dbgLive = null;   // freeze the panel on the dump
             var n = d.sections.reduce(function (a, s) { return a + s.count; }, 0);
             dbg('net', 'section dump: ' + d.sections.length + ' sections, ' + n + ' entries');
@@ -18503,6 +19080,17 @@
 
       // --- on-device debug console ---
       function dbg(level, msg) { try { if (window.__dbg) window.__dbg.push(level, [msg]); } catch (e) {} }
+      // What a section DECIDED, and the numbers it decided from. See the
+      // capture shim at the top of the file for why this exists: every bug
+      // diagnosed from a device log on 2026-08-22 was in a conclusion, and the
+      // log only ever recorded traffic.
+      //
+      // The rule for a good verdict line is that it must contain the number
+      // that would be WRONG if the section were broken — "0 candidates from 24
+      // hotspots" is a diagnosis, "scan finished" is not.
+      function verdict(section, msg) {
+        try { if (window.__dbg && window.__dbg.verdict) window.__dbg.verdict(section, msg); } catch (e) {}
+      }
       function dbgContext() {
         var out = [];
         function add(s) { out.push(s); }
@@ -18629,6 +19217,26 @@
             var sav = rep.reduce(function (a, r) { return a + r.cached; }, 0);
             add('  ' + tot + ' live calls total, ' + sav + ' served from cache');
           }
+        } catch (e) {}
+        // PHOTO SLOTS, ALWAYS. "Break a record" shipped a screen of empty grey
+        // squares because it never called hydratePhotos — and a verdict inside
+        // that function could not report a function that was never called. So
+        // the count is taken from the DOM instead: any slot still carrying no
+        // data-q was never queued by anybody.
+        try {
+          var _all = document.querySelectorAll('.thumb[data-bird]').length;
+          var _orphan = document.querySelectorAll('.thumb[data-bird]:not([data-q])').length;
+          if (_all) {
+            add('photo slots on screen: ' + _all + ' · ' + _orphan
+              + ' never queued' + (_orphan ? '  <-- a section forgot hydratePhotos()' : ''));
+          }
+        } catch (e) {}
+        // What the visible section concluded, right at the top where it is
+        // read, rather than only in the buffer.
+        try {
+          var vd = (window.__dbg && window.__dbg.verdicts) || {};
+          var ks = Object.keys(vd);
+          if (ks.length) add('sections with a recorded verdict: ' + ks.join(', '));
         } catch (e) {}
         return out.join('\n');
       }
@@ -18779,14 +19387,35 @@
         dbgRender();
       }
 
+      // The full report, built once and used by both the on-screen view and
+      // the clipboard. Verdicts lead, because "what did each section decide"
+      // is the question a log is opened to answer; the traffic is evidence for
+      // it, not a substitute.
+      function dbgText() {
+        var buf = (window.__dbg && window.__dbg.buf) || [];
+        var vd = (window.__dbg && window.__dbg.verdicts) || {};
+        var keys = Object.keys(vd).sort();
+        var head = '';
+        if (keys.length) {
+          head = 'WHAT EACH SECTION DECIDED\n' + keys.map(function (k) {
+            return '  ' + vd[k].t + '  ' + k + ' — ' + vd[k].msg;
+          }).join('\n') + '\n────────────────────────────\n';
+        }
+        var body = buf.map(function (e) {
+          var mark = e.level === 'error' ? '✖'
+            : (e.level === 'warn' ? '!'
+              : (e.level === 'net' ? '↔' : (e.level === 'why' ? '?' : '·')));
+          return e.t + ' ' + mark + ' [' + e.level + '] ' + e.msg;
+        }).join('\n');
+        return dbgContext() + '\n────────────────────────────\n' + head + body + '\n';
+      }
+
       function dbgRender() {
         var ta = $('dbgLog'); if (!ta) return;
         var buf = (window.__dbg && window.__dbg.buf) || [];
-        var body = buf.map(function (e) {
-          var mark = e.level === 'error' ? '✖' : (e.level === 'warn' ? '!' : (e.level === 'net' ? '↔' : '·'));
-          return e.t + ' ' + mark + ' [' + e.level + '] ' + e.msg;
-        }).join('\n');
-        ta.value = dbgContext() + '\n────────────────────────────\n' + body + '\n';
+        // textContent, not value: this is a <pre> now. See the markup comment —
+        // a textarea is focusable and focus raises the iOS keyboard.
+        ta.textContent = dbgText();
         var c = $('dbgCount'); if (c) c.textContent = buf.length + ' entries';
         ta.scrollTop = ta.scrollHeight;
       }
@@ -18796,19 +19425,37 @@
         if (show) { window.__dbgLive = dbgRender; dbgRender(); } else { window.__dbgLive = null; }
       }
       function dbgCopyLog() {
-        var ta = $('dbgLog'); if (!ta) return;
-        var text = ta.value, btn = $('dbgCopy');
-        function done(ok) { if (btn) { btn.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); } }
-        function fallback() {
-          try { ta.removeAttribute('readonly'); ta.focus(); ta.setSelectionRange(0, text.length); var ok = document.execCommand('copy'); ta.setAttribute('readonly', 'readonly'); done(ok); }
-          catch (e) { done(false); }
+        // WHAT IS ON SCREEN, not a freshly built log. Dump replaces the panel
+        // contents and freezes live updates; rebuilding here would have copied
+        // the log back over the dump the reader had just asked for.
+        var el = $('dbgLog');
+        var text = (el && el.textContent) || dbgText();
+        var btn = $('dbgCopy');
+        function done(ok) {
+          if (!btn) return;
+          btn.textContent = ok ? '✓ Copied' : '✕ Copy failed — select by hand';
+          setTimeout(function () { btn.textContent = '📋 Copy all'; }, 1800);
+        }
+        // NOTHING HERE MAY FOCUS AN INPUT. The old fallback made the textarea
+        // writable and focused it to run execCommand, so every copy raised the
+        // keyboard and resized the screen — the exact complaint. Selecting a
+        // Range over the <pre> reaches the same clipboard without focus.
+        function selectFallback() {
+          try {
+            var el = $('dbgLog');
+            var r = document.createRange(); r.selectNodeContents(el);
+            var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+            var ok = document.execCommand('copy');
+            s.removeAllRanges();
+            done(ok);
+          } catch (e) { done(false); }
         }
         try {
           var CB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Clipboard;
-          if (CB && CB.write) { CB.write({ string: text }).then(function () { done(true); }, fallback); return; }
-          if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); return; }
+          if (CB && CB.write) { CB.write({ string: text }).then(function () { done(true); }, selectFallback); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(function () { done(true); }, selectFallback); return; }
         } catch (e) {}
-        fallback();
+        selectFallback();
       }
 
       // --- wire up ---
@@ -19253,6 +19900,12 @@
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       $('dbgCopy').addEventListener('click', dbgCopyLog);
+      $('dbgMore').addEventListener('click', function () {
+        var t = $('dbgTools'), b = $('dbgMore');
+        if (!t) return;
+        t.hidden = !t.hidden;
+        b.setAttribute('aria-expanded', t.hidden ? 'false' : 'true');
+      });
       $('dbgDump').addEventListener('click', dbgDump);
       $('dbgDrag').addEventListener('click', armDragProbe);
       // Sections that answer the same question different ways read as ONE report
@@ -19412,6 +20065,24 @@
             ? (link.getAttribute('data-href') || '')
             : mapPointUrl(link.getAttribute('data-q') || '');
           if (url) openExternal(url);
+          return;
+        }
+        // A bird or a place tapped anywhere in the app opens the section that
+        // was built to answer for it, rather than leaving for ebird.org. Both
+        // go through showSection for the same reason .seclink does: navigation
+        // here is showSection(), not a URL.
+        var spl = ev.target.closest('.splink');
+        if (spl) {
+          ev.preventDefault();
+          openStakeSpecies(spl.getAttribute('data-sp') || '',
+                           spl.getAttribute('data-spname') || '');
+          return;
+        }
+        var hsl = ev.target.closest('.hslink');
+        if (hsl) {
+          ev.preventDefault();
+          openStakeHotspot(hsl.getAttribute('data-loc') || '',
+                           hsl.getAttribute('data-locname') || '');
           return;
         }
         // An in-app jump, not an external one: navigation in this app is

@@ -473,7 +473,12 @@ test('Happening now is wired and renders every lane it detects', async () => {
   assert.match(txt, /20 birders/, 'lane 1: observers, which is the whole signal');
   assert.match(txt, /Terek Sandpiper/, 'lane 2: the leaderboard cascade');
   assert.match(txt, /Stanwood STP/, 'lane 3: the species-blind hotspot convergence');
-  assert.ok(/ebird\.org\/hotspot\/L1/.test(app.$('surgeResults').innerHTML),
+  // The place must be ACTIONABLE — a link, not a bare name. It used to pin an
+  // ebird.org href; the name now opens Stake out a hotspot instead, which is
+  // more actionable rather than less, so the guard asserts the property and
+  // accepts either destination.
+  const surgeHtml = app.$('surgeResults').innerHTML;
+  assert.ok(/data-loc="L1|ebird\.org\/hotspot\/L1/.test(surgeHtml),
     'the place is a link you can act on, not just a name');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors');
   app.window.close();
@@ -2008,7 +2013,12 @@ test('favorites: the hotspot is the heading, its birds are the list under it', (
   // locLink's inline 🗺 duplicated the Open in Maps link sitting right below.
   assert.doesNotMatch(src, /class="favtitle"[\s\S]{0,200}locLink\(/,
     'the title must not use locLink — it appends its own 🗺 beside the name');
-  assert.match(src, /class="favtitle"[\s\S]{0,200}extA\(hotspotUrl\(/,
+  // The title is the hotspot NAME AS A LINK — the assertion is that it links,
+  // not which function builds the href. It used to pin `extA(hotspotUrl(`,
+  // which broke the moment the name started opening Stake out a hotspot
+  // instead of ebird.org: a guard on the layout of the code rather than on the
+  // property the reader cares about.
+  assert.match(src, /class="favtitle"[\s\S]{0,240}(stakeHotspotLink\(|extA\(hotspotUrl\()/,
     'the title is the hotspot name, linked, and nothing else');
   assert.match(src, /class="hsact"[\s\S]{0,300}Open in Maps/,
     'the map link moves below the card, into the shared actions row');
@@ -4736,7 +4746,12 @@ test('busy hotspots rank by the iconic multiplier and tag the row with it', asyn
   const app = await boot({
     fetch: gbif,
     storage: {
-      'ebird_hotspots_v1:US-WA': JSON.stringify({
+      // v2, matching hotspotCacheKey. The key was bumped when the stored row
+      // widened (nc/latest/co for the stakeout card); seeded under the old
+      // name this cache is simply invisible, the lane gets no coordinates, and
+      // the iconic hydration it feeds never runs — which surfaced here as
+      // "no multiplier was tagged" rather than as a cache miss.
+      'ebird_hotspots_v2:US-WA': JSON.stringify({
         at: Date.now(), rows: [{ locId: 'L123', name: 'Cedar River mouth', lat: 47.5, lng: -122.2 }],
       }),
       'ebird_species_v2:US-WA': JSON.stringify({
@@ -4767,7 +4782,12 @@ test('busy hotspots rank by the iconic multiplier and tag the row with it', asyn
   // that a bounded pile of GBIF calls cannot hold the section hostage the way
   // the 221-second phase-2 stall did.
   const nameOf = (li) => {
-    const a = li.querySelector('.ntext a.extlink');
+    // Any anchor, not `a.extlink` specifically: a species name became an
+    // `a.splink` when tapping a bird started opening Stakeout bird instead of
+    // ebird.org. Pinned to the old class this fell through to `.ntext`, which
+    // includes the [R] and 🔍 badges — so the test failed on badge text while
+    // reporting an ordering problem that did not exist.
+    const a = li.querySelector('.ntext a');
     return (a || li.querySelector('.ntext')).textContent.trim();
   };
   const names0 = [...app.$('surgeConvList').querySelectorAll('.sppl > li')].map(nameOf);
@@ -5090,8 +5110,14 @@ test('a card title that is a link keeps the TITLE type, not the action-link type
 
   const link = host.querySelector('.ntext a');
   assert.ok(link, 'the hotspot name really is rendered as a link');
-  assert.match(link.className, /extlink/,
-    'and it really carries the action-link class this guard is about');
+  // The class the guard is about is whichever one index.html ALSO styles as an
+  // action link — that is the collision it exists to catch. It was `extlink`
+  // when the title opened ebird.org; the title now opens Stake out a hotspot
+  // and carries `hslink`. What must stay true is that the title link is a
+  // LINK inside .ntext, because the neutralising rule is written against
+  // `.hscard .ntext a` and therefore covers whatever class it wears.
+  assert.match(link.className, /extlink|hslink/,
+    'and it really carries a link class this guard is about');
 
   // WHY THIS IS RE-STAGED IN A CLEAN DOCUMENT RATHER THAN MEASURED IN PLACE:
   // asserting getComputedStyle on the booted app looks stronger and is in fact
@@ -8055,7 +8081,9 @@ test('docs/CARDS.md matches the code it documents', () => {
     // a photo stranded on its own row above the name — and the reader asked
     // for the Needs-verification shape, which IS the medium card.
     ['SpeciesCards', 'large'],
-    ['HotspotCards', 'large'],
+    // HotspotCards.large left this list on 2026-08-22: 🗺 Stake out a hotspot
+    // is the app's only "one place, in depth" view, which is precisely the
+    // shape the large card was defined for.
     ['HotspotCards', 'marker'],
   ];
   for (const [family, size] of documentedUnused) {
@@ -13569,7 +13597,7 @@ test('Stake out a hotspot leads with the pattern, and names who birds there', as
   // for an hour and people submit later anyway. A page that leads with "what
   // was seen today" is empty every morning, which is exactly when someone is
   // deciding where to go.
-  assert.match(txt, /4 checklists across 4 days/,
+  assert.match(txt, /4 (recent )?checklists across 4 days/,
     'the header does not state how often the place is birded: ' + txt.slice(0, 120));
   assert.match(txt, /typically 19 species/,
     'it does not say what a visit here is usually worth');
@@ -13587,4 +13615,112 @@ test('Stake out a hotspot leads with the pattern, and names who birds there', as
   // than one that lets you leave.
   assert.match(app.$('stakeHsResults').innerHTML, /ebird\.org\/hotspot/,
     'no way back out to eBird');
+});
+
+// ── THE DEBUG PANEL MUST NOT RAISE THE KEYBOARD ───────────────────────────
+// "it needs to stop the screen resize issue still."
+//
+// The cause was structural, not a stray line: the log lived in a <textarea>,
+// which is focusable, and on iOS focus opens the keyboard and resizes the
+// visual viewport. The copy fallback made it certain - it called
+// removeAttribute('readonly') then .focus() to run execCommand, so EVERY copy
+// resized the screen, which is the one action this panel exists for.
+//
+// A <pre> cannot take focus, so the failure is gone by construction. This
+// guard pins the construction rather than the symptom.
+test('the debug log is not focusable, so it cannot raise the iOS keyboard', () => {
+  assert.ok(/<pre id="dbgLog"/.test(HTML),
+    'the debug log is not a <pre> - a focusable control here resizes the screen');
+  assert.ok(!/<textarea[^>]*id="dbgLog"/.test(HTML),
+    'the debug log is a <textarea> again; focusing it opens the keyboard');
+
+  const at = HTML.indexOf('function dbgCopyLog');
+  const fn = HTML.slice(at, HTML.indexOf('\n      }', at));
+  assert.ok(!/\.focus\(\)/.test(fn),
+    'the copy path focuses an element again - that is exactly what raised the '
+    + 'keyboard and resized the screen on every copy');
+  assert.ok(!/removeAttribute\(.readonly/.test(fn),
+    'the copy path makes the log editable again, which implies focusing it');
+  assert.ok(/createRange/.test(fn),
+    'the no-clipboard fallback is gone; without a Range-based copy the only '
+    + 'way back is focusing an input');
+});
+
+// The panel is used to COPY, not to read: "I generally only copy the data and
+// dont read it on the device."
+test('the debug panel leads with Copy and folds its tools away', () => {
+  assert.ok(/id="dbgCopy" class="dbgprimary"/.test(HTML),
+    'Copy is no longer the primary action on the debug panel');
+  assert.ok(/id="dbgTools" class="dbgtools" hidden/.test(HTML),
+    'the seldom-used debug tools are no longer folded away by default');
+});
+
+// ── "📍 Day N" MUST SURVIVE A DAY NOBODY REPORTED ─────────────────────────
+// "Id like a feature to review the tag for Day X, it seems to reset too
+//  easily." It did: the run ended on the first missing day, so the tag claimed
+// PRESENCE while measuring REPORTING. A stakeout nobody visited on a wet
+// Tuesday is not a stakeout that ended.
+//
+// MEASURED over 1,154 live notable rows across 30 days in King and Snohomish:
+// with one day of grace, Wandering Tattler goes Day 1 → 15 and Tufted Puffin
+// Day 6 → 15; 10 of 107 species were understating their stay.
+test('the stakeout day count survives one unreported day, but not two', () => {
+  const at = HTML.indexOf('function stakeoutDays(');
+  const fn = HTML.slice(at, HTML.indexOf('\n      function stakeoutKey(', at));
+  assert.match(fn, /STAKEOUT_GAP_DAYS/,
+    'the run has no gap tolerance again, so one quiet day resets the tag');
+  assert.doesNotMatch(fn, /if \(!set\[d\]\) break;/,
+    'the run breaks on the first missing day again — that is the reported bug');
+  assert.match(HTML, /var STAKEOUT_GAP_DAYS = 1;/,
+    'the gap is not ONE day. Two was measured and rejected: it joins genuinely '
+    + 'separate visits, reading Monday+Thursday as a four-day stakeout');
+  // ...and the loop must be able to COUNT a long run, not just start one. The
+  // old bound of 6 would have clipped the 15-day Tufted Puffin regardless.
+  assert.doesNotMatch(fn, /back <= 6;/,
+    'the lookback is capped at 6 days again, which silently truncates any run '
+    + 'the gap tolerance now makes reachable');
+});
+
+// The busy-hotspot gate, and the reason it can be raised at all.
+test('the busy-hotspot lane matches the rules its own documentation publishes', () => {
+  // docs/HAPPENING-NOW.md has published 5 observers and 3x for a while; the
+  // code shipped 3 and 3. Two copies of one rule, drifting in the direction
+  // that makes the lane noisier than its spec.
+  //
+  // Asserted against the SOURCE, not an export: `BL.CONVERGE_MIN_OBSERVERS` is
+  // not exported, so `BL.CONVERGE_MIN_OBSERVERS ?? 5` would read 5 whatever the
+  // code said — a check that cannot fail, which is worse than no check.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'www', 'logic.js'), 'utf8');
+  assert.match(src, /var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;/,
+    'CONVERGE_MIN_OBSERVERS/RATIO no longer match HAPPENING-NOW.md (5 and 3x)');
+  // The "crowd" path must not become a lower back door than the ordinary gate.
+  assert.match(src, /var CONVERGE_BUSY_ABS = 5,/,
+    'the crowd path admits a smaller number than the main gate, so the higher '
+    + 'bar is decorative');
+});
+
+// ── A LOG THAT RECORDS TRAFFIC BUT NOT DECISIONS CANNOT DIAGNOSE ──────────
+// Every bug found from a device log on 2026-08-22 was in a CONCLUSION, and
+// none was visible: Iconic spots said "nothing stands out" while the log showed
+// only that four calls were made; Dusk ranked crows above owls with a correct
+// ratio over an unlogged 2% baseline; Convoys counted 16 people as 16 parties;
+// Break a record rendered 25 photo slots and hydrated none.
+test('the sections that have failed on device record a verdict', () => {
+  assert.ok(/window\.__dbg\.verdict = function/.test(HTML),
+    'the verdict channel is gone, so the log is back to traffic only');
+  ['Iconic spots', 'Dawn and dusk', 'Busy hotspots'].forEach((s) => {
+    assert.ok(HTML.indexOf("verdict('" + s + "'") > 0,
+      s + ' no longer records what it decided, so an empty or wrong render is '
+      + 'again indistinguishable from a slow feed');
+  });
+  // A verdict must carry the number that would be WRONG, not just say it ran.
+  const at = HTML.indexOf("verdict('Iconic spots'");
+  const line = HTML.slice(at, at + 460);
+  assert.ok(/near\.length/.test(line) && /out\.length/.test(line),
+    'the Iconic verdict does not report both how many places were measured and '
+    + 'how many qualified - one number alone cannot separate "scan never ran" '
+    + 'from "scan found nothing"');
+  assert.ok(/never queued/.test(HTML),
+    'the copied context no longer counts un-hydrated photo slots, which is what '
+    + 'would have caught Break a record rendering empty grey squares');
 });

@@ -54,7 +54,57 @@
     TOD_DAWN_END: 7, TOD_DUSK_START: 19, TOD_MIN_OBS: 5,
     TOD_DAWN_TH: 0.50, TOD_NIGHT_TH: 0.30,
     // convoys (report.py CONVOY_*)
-    CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200
+    CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200,
+    // A FIELD TRIP IS A CONVOY THAT NEVER DRIVES ANYWHERE.
+    //
+    // "birder convoys didnt get the group of people at cedar mouth today, there
+    //  were about 20 people together around 6-10am and many of them reported the
+    //  rare yellow headed blackbird."
+    //
+    // MEASURED at Cedar River mouth L283821 on 2026-08-22, captured verbatim in
+    // tests/fixtures/convoy-cedar-river-2026-08-22.json:
+    //
+    //   18 checklists, 16 distinct observers
+    //   SIX of them filed at exactly 07:09 with exactly 28 species
+    //   observers with a second location that day ...... 1 of 16
+    //   PAIRS sharing two locations ..................... 0
+    //
+    // The last line is the whole defect. CONVOY_MIN_STOPS = 2 proves people were
+    // together by ELIMINATING COINCIDENCE — meeting once is chance, twice is not.
+    // That reasoning is sound for a driving convoy and structurally blind to a
+    // stationary one: a group that works a single site from 06:00 to 10:00 never
+    // has a second stop, so it can never be proved by that route no matter how
+    // many people are standing there.
+    //
+    // But it does not need proving. Six people filing the identical list at the
+    // identical minute is eBird's own share-with-co-observers feature — ONE list
+    // copied to each participant. That is not evidence they were together, it is
+    // eBird SAYING they were together. So a shared checklist qualifies at one
+    // stop, and the two-stop rule keeps doing its job for groups inferred from
+    // co-location alone.
+    //
+    // FIVE, because a LARGE GROUP is what distinguishes a tour from a couple of
+    // friends — the owner's ruling, and the measurement agrees with it.
+    //
+    // Group birding is common: across five counties, 17-61% of observers were on
+    // some shared list, so a low bar reports every pair who ever birded together.
+    // Shared-list sizes over ~a week, every one of them:
+    //
+    //     12  12  10  10  10  10  6  |  5  4  4  3  3  3  3
+    //
+    // The dense tail of 3s and 4s is carloads and couples; the head is organised
+    // outings, including one ten-person group that appears on three consecutive
+    // days across two counties, which is a tour by any reading. Five sits at the
+    // break and yields 7 groups across five counties where two would yield ~70.
+    //
+    // It is also the SAME five the owner set for the busy-hotspot lane
+    // ("minimum birder like 5 birders"), so the app has one idea of "a crowd"
+    // rather than two that drift apart.
+    //
+    // Cedar River's group is six, so the case that prompted this clears the bar
+    // without the bar being drawn around it.
+    CONVOY_SHARED_MIN: 5
+
   };
 
   // ---- report registry (mirror regions.py REGIONS) -------------------------
@@ -1193,7 +1243,23 @@
   // more locations on the same day collapse into one. Three people who each
   // chose the place independently is a stronger claim than five who may not
   // have, so the bar goes DOWN and the evidence goes UP at the same time.
-  var CONVERGE_MIN_OBSERVERS = 3, CONVERGE_MIN_RATIO = 3;
+  // FIVE PARTIES, and the documentation has said so for a while — the code
+  // simply never caught up. `docs/HAPPENING-NOW.md` publishes
+  // CONVERGE_MIN_OBSERVERS = 5 and CONVERGE_MIN_RATIO = 3x; this file shipped
+  // 3 and 3. Two copies of one rule, and the drift ran in the direction that
+  // makes the lane noisier than its own spec.
+  //
+  // Confirmed as the intent 2026-08-22: *"it needs a minimim birder like 5
+  // birders and minimum multiplier of like 3x"* — the same 5 the owner had
+  // already ruled for SURGE.MIN_OBSERVERS ("four people is a coincidence
+  // rather than a crowd").
+  //
+  // It is safe to raise now, and it was not before, because `buildParties`
+  // finally counts PARTIES: a shared checklist collapses to one decision, so
+  // five here means five independent choices to visit rather than five names
+  // that might be one car. Raising the bar without that fix would have swapped
+  // one wrong answer for another.
+  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;
   // A big turnout still has to beat its own norm — it just does not have to
   // TRIPLE it. Five, because the owner has already ruled that four people is
   // "a coincidence rather than a crowd" (see SURGE.MIN_OBSERVERS).
@@ -1205,7 +1271,11 @@
   // Discovery Park (8 birders every day for a fortnight) scores exactly 2.0.
   // 2.25 clears both. This is also why MIN_RATIO is 3 rather than 2: it was
   // absorbing the same skew.
-  var CONVERGE_BUSY_ABS = 3, CONVERGE_BUSY_RATIO = 2.25;
+  //
+  // The ABSOLUTE half rises with the gate above: a "crowd" cannot be a smaller
+  // number than the ordinary bar, or the lower path silently becomes the only
+  // path.
+  var CONVERGE_BUSY_ABS = 5, CONVERGE_BUSY_RATIO = 2.25;
 
   // ---- parties: people who travelled TOGETHER are ONE decision -------------
   // The convoy test the Convoys section already uses (CONVOY_MIN_STOPS): a set
@@ -1224,6 +1294,22 @@
   // towards showing a hotspot rather than hiding one.
   function buildParties(rows) {
     var atLocDay = {};
+    // A SHARED CHECKLIST IS ONE PARTY, FULL STOP. The pair-counting below
+    // needs CONVOY_MIN_STOPS meetings to call two people a group, and the
+    // Cedar River field trip proved that is unreachable for a stationary
+    // outing: six people, one site, zero second stops. Without this, that
+    // morning counted as SIX independent decisions to visit — inflating the
+    // very "unusually busy" claim this lane exists to make.
+    var sharedList = {};
+    (rows || []).forEach(function (r) {
+      if (!r || !r.locId) return;
+      var t = r.obsTime || r.isoObsDate || r.dateStr;
+      if (!t) return;
+      var k = r.locId + '|' + dayStr(r.obsDt || r.dateStr) + '|' + t
+        + '|' + (r.numSpecies == null ? '' : r.numSpecies);
+      var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
+      (sharedList[k] = sharedList[k] || {})[who] = 1;
+    });
     (rows || []).forEach(function (r) {
       if (!r || !r.locId) return;
       var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
@@ -1253,6 +1339,15 @@
       if (shared[pk] < CONST.CONVOY_MIN_STOPS) return;
       var p = pk.split('\u0000'), a = find(p[0]), b = find(p[1]);
       if (a !== b) parent[b] = a;
+    });
+    // ...and everyone on one shared list is one party, needing no second stop.
+    Object.keys(sharedList).forEach(function (k) {
+      var obs = Object.keys(sharedList[k]);
+      if (obs.length < 2) return;
+      for (var i = 1; i < obs.length; i++) {
+        var a = find(obs[0]), b = find(obs[i]);
+        if (a !== b) parent[b] = a;
+      }
     });
     return find;
   }
@@ -1518,8 +1613,13 @@
   // second read as a duplicate of the first and looked like a lost route.
   // nSpecies === 0 means no checklist detail is loaded yet, so the species
   // clause is omitted rather than printed as a zero that reads as "birdless".
-  function convoyTitle(dayLabel, nMembers, nStops, nSpecies, nUnseen) {
-    var bits = [dayLabel, 'Convoy of ' + nMembers,
+  function convoyTitle(dayLabel, nMembers, nStops, nSpecies, nUnseen, shared) {
+    // "Convoy of 6 · 1 stop" invites the obvious objection — a convoy that
+    // never went anywhere. It IS a group, and the word for a large group on one
+    // shared checklist is a field trip, so the heading says that instead of
+    // making the reader wonder whether the section is broken.
+    var bits = [dayLabel,
+                (shared ? 'Field trip of ' : 'Convoy of ') + nMembers,
                 nStops + ' stop' + (nStops === 1 ? '' : 's')];
     if (nSpecies) {
       bits.push(nSpecies + ' species');
@@ -1569,12 +1669,23 @@
       Object.keys(chks[0]).forEach(function (k) { visit[k] = chks[0][k]; });
       visit._subs = chks.map(function (c) { return c.subId || c.subID; })
         .filter(Boolean);
+      // How many people filed THIS one list. `members` counts the whole day's
+      // group, which is the same number only when the group has one stop —
+      // recorded per stop so a single-stop trip can be told apart from a
+      // two-person pair that happened to meet twice.
+      visit._shared = members.length;
       g.stops.push(visit);
+      if (members.length > (g.maxShared || 0)) g.maxShared = members.length;
     });
     var routes = [];
     Object.keys(convoys).forEach(function (k) {
       var g = convoys[k];
-      if (g.stops.length < CONST.CONVOY_MIN_STOPS) return;
+      // Two stops, OR one stop that is a genuinely shared checklist. See
+      // CONVOY_SHARED_MIN: a shared list is eBird stating the group, so it
+      // does not need a second stop to eliminate coincidence.
+      var sharedTrip = (g.maxShared || 0) >= CONST.CONVOY_SHARED_MIN;
+      if (g.stops.length < CONST.CONVOY_MIN_STOPS && !sharedTrip) return;
+      g.shared = sharedTrip;
       g.stops.sort(function (a, b) { return String(a.isoObsDate).localeCompare(String(b.isoObsDate)); });
       routes.push(g);
     });
@@ -2969,7 +3080,23 @@
     // your list. Exposed as an option so a caller that genuinely wants the
     // personal view - All unseen reports - can still have it from one function.
     var notableOnly = opts.notableOnly !== false;
-    var from = now - hours * 3600 * 1000;
+    // THE SAME GRACE AS TODAY'S TWITCHES, and for the same measured reason.
+    //
+    // "Celebrity birds 24 hour look back needs same grace period as the today's
+    //  twitches since checklists may start hours before the bird was sighted."
+    //
+    // `recTime` reads `obsDt`, which is the checklist's START (F169). A bird
+    // found at the end of a four-hour morning walk is stamped four hours before
+    // anyone saw it, so a hard 24 h cut-off drops it while it is still standing
+    // there. MEASURED across live checklists: median duration 1.07 h, max
+    // 5.23 h, 59% run ≥1 h and 27% ≥4 h — a quarter of all checklists are long
+    // enough for this to bite.
+    //
+    // Reuses NOTABLE_GRACE_H rather than declaring a second constant. The two
+    // lanes are correcting the ONE upstream fact, and two names for it would
+    // drift the moment either is tuned — which is the F165 failure in a
+    // different costume.
+    var from = now - hours * 3600 * 1000 - NOTABLE_GRACE_H * 3600 * 1000;
 
     var byCode = {}, order = [];
     (records || []).forEach(function (r) {
@@ -3394,6 +3521,22 @@
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    // The busy-hotspot lane's thresholds, exported so a guard can size its
+    // fixture from the RULE instead of pinning a literal. Two guards were
+    // built around "three independent birders" and went stale the moment the
+    // bar moved 3 -> 5, failing while the code was correct. A fixture derived
+    // from this cannot go stale, and `docs/HAPPENING-NOW.md` can be diffed
+    // against it — the doc and the code disagreed for a whole release because
+    // nothing compared them.
+    CONVERGE: {
+      MIN_OBSERVERS: CONVERGE_MIN_OBSERVERS, MIN_RATIO: CONVERGE_MIN_RATIO,
+      BUSY_ABS: CONVERGE_BUSY_ABS, BUSY_RATIO: CONVERGE_BUSY_RATIO
+    },
+    // Exported so the party rule can be tested directly. It gates the
+    // busy-hotspot lane, and "six people on one checklist is one party" is a
+    // claim about the DATA that is far easier to prove here than through the
+    // whole lane.
+    buildParties: buildParties,
     recTime: recTime,
     observerKey: observerKey,
     baselineDays: baselineDays,

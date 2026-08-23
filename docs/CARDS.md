@@ -57,7 +57,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `hotspotCard` | 🥇 Top destinations · 🚗 Top excursions · 🧭 Trip planner · 🚶 Quick outing · 📍 Closest spots · 🔥 Hot hotspots · ❄️ Cold hotspots — **every** hotspot list in the app goes through this one builder |
 | `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
 | `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
-| `large` | — | **unused** |
+| `large` | `renderStakeHs` | 🗺 Stake out a hotspot — ONE place, in depth: eBird code, address, all-time totals, the birds seen there in the last 30 days, its iconic score, its recent checklists, and who birds it. The one section that is about a single hotspot rather than a list of them, which is exactly what the large card is for |
 | `marker` | — | **unused** — and it is a trap, not an oversight: `build()` derives the badge from `num`/`icon`, so a caller passing a ready-made `marker` has it silently dropped. Stakeout *By odds* numbers its rows by passing `num` |
 
 ### ChecklistCards — a row is a checklist
@@ -72,14 +72,15 @@ Sizes are a **rank of attention**, not a rank of importance:
 
 ## The unused ones
 
-`HotspotCards.large`, `HotspotCards.marker` and `SpeciesCards.large` are
-defined, styled and tested but called from nowhere in `index.html`.
+`HotspotCards.marker` and `SpeciesCards.large` are defined, styled and tested
+but called from nowhere in `index.html`.
 
-> Was "the unused four", then two, and `SpeciesCards.large` is back on the
-> list: it went to 📅 My year on 2026-08-18 and returned on 2026-08-20, because
-> that section's container carries the MEDIUM class and the reader wanted the
+> Was "the unused four", then two, and now one and a half. `SpeciesCards.large`
+> went to 📅 My year on 2026-08-18 and returned on 2026-08-20, because that
+> section's container carries the MEDIUM class and the reader wanted the
 > Needs-verification shape anyway. `HotspotCards.small` went to the Stakeout
-> *By odds* view — which is the argument below playing out as intended: the
+> *By odds* view, and **`HotspotCards.large` went to Stake out a hotspot on
+> 2026-08-22** — which is the argument below playing out as intended: the
 > shape was there when a section needed it, so nobody invented a fourth.
 >
 > `marker` is a special case. *By odds* really does number its rows, but
