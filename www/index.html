@@ -1194,6 +1194,24 @@
               color: var(--ink); cursor: pointer; }
     .favbtn[disabled] { opacity: .35; cursor: default; }
     .favbtn.del { color: #c2331f; }
+    /* F170: the record-scope switcher. Every box here is sized in `--s` for the
+       same reason .favbtn is — a fixed box around scaling text clips at exactly
+       the setting a low-vision reader would choose, and there is a CSS-wide
+       guard that fails the build on it.
+
+       The SELECTED chip is marked three ways, not one: a filled background, a
+       heavier weight, AND a leading ✓ glyph in the markup. Colour alone would
+       make the current scope invisible to a red-green colour-blind reader,
+       which is the owner. */
+    .recscope { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+    .recscope button { padding: calc(7px * var(--s)) calc(12px * var(--s));
+                       font-size: calc(15px * var(--s)); line-height: 1.2;
+                       border: 1px solid var(--line); border-radius: 999px;
+                       background: var(--bg); color: var(--ink); cursor: pointer; }
+    .recscope button[aria-pressed="true"] {
+                       background: color-mix(in srgb, var(--accent) 18%, transparent);
+                       border-color: var(--accent); color: var(--accent);
+                       font-weight: 800; }
     .favrank { display: inline-flex; align-items: center; justify-content: center;
                min-width: calc(22px * var(--s)); height: calc(22px * var(--s)); padding: 0 6px; border-radius: 999px;
                background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -1678,8 +1696,9 @@
     </section>
 
     <section class="panel" id="recordPanel" hidden>
-      <h2>🏅 Break a state record</h2>
-      <div id="recordStatus" class="status">Megararities that are DUE here — rare enough to be a state record, and not found yet this year.</div>
+      <h2>🏅 Break a record</h2>
+      <div id="recordStatus" class="status">Megararities that are DUE here — rare enough to be a record, and not found yet this year.</div>
+      <div id="recordScope" class="recscope"></div>
       <div id="recordBody"></div>
     </section>
 
@@ -1913,7 +1932,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.26.16';
+      var APP_VERSION = '1.27.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -16912,7 +16931,7 @@
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Your list & the app' },
         // LAST, deliberately: a manual is what you reach for after the thing
         // you came in for, not before it.
-        { at: 'recordBody',    label: '🏅 Break a state record', group: 'Rare birds' },
+        { at: 'recordBody',    label: '🏅 Break a record', group: 'Rare birds' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Your list & the app' }
       ];
       function menuApplies(m) {
@@ -17064,6 +17083,77 @@
       function stateRecordFile(region) {
         return 'state-records/' + String(region || '').toUpperCase() + '.json';
       }
+
+      // ---- F170: scope it down to a county -----------------------------------
+      //
+      // "he primarily birds at cedar river mouth, and focuses on county records
+      //  more than state records for realistic targets… he saw a red knot once
+      //  at his local patch, and wasnt interested in snohomish county records."
+      //
+      // Both halves of that are measurable, and both say the state is the wrong
+      // unit for a patch birder (window 2016-2025):
+      //
+      //   Red Knot         Washington  3,422 records across ALL ten years, so
+      //                                the state model can never list it
+      //                    King Co        10 records in 2 years - squarely a
+      //                                county record, and the bird he found
+      //   Terek Sandpiper  King Co 0 · Snohomish Co 13 - the state's headline
+      //                                rarity is useless to a King lister
+      //
+      // The scope is remembered PER REPORT, because it is a fact about where you
+      // bird, not a view setting: switching to the Big Island must not leave you
+      // scoped to King County.
+      function recScopeKey() { return 'ebird_rec_scope:' + getReportSlug(); }
+      function recScopes() {
+        // The state always leads - it is the widest scope and the one every
+        // region has an asset for. Counties follow in the report's own order.
+        var out = [{ code: getRegion(), label: getReport().label || getRegion(),
+                     kind: 'state' }];
+        getCounties().forEach(function (c) {
+          var code = (c && (c.code || c)) || '';
+          if (!code || String(code).split('-').length < 3) return;
+          out.push({ code: String(code),
+                     label: (c && c.label) || String(code), kind: 'county' });
+        });
+        return out;
+      }
+      function getRecScope() {
+        var all = recScopes(), want = localStorage.getItem(recScopeKey());
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].code === want) return all[i];
+        }
+        return all[0];
+      }
+      function renderRecScope() {
+        var host = $('recordScope');
+        if (!host) return;
+        var all = recScopes();
+        // One scope is no choice, and a switcher with a single button is
+        // clutter that says nothing. Rarity trackers (lower48/aba) have no
+        // counties at all.
+        if (all.length < 2) { host.innerHTML = ''; return; }
+        var cur = getRecScope();
+        host.innerHTML = all.map(function (s) {
+          var on = s.code === cur.code;
+          // The ✓ is in the MARKUP, not the stylesheet: the selected chip must
+          // be distinguishable without seeing its colour.
+          return '<button type="button" data-scope="' + esc(s.code) + '"'
+            + ' aria-pressed="' + (on ? 'true' : 'false') + '">'
+            + (on ? '\u2713 ' : '')
+            + esc(s.label + (s.kind === 'county' ? ' County' : ''))
+            + '</button>';
+        }).join('');
+        Array.prototype.forEach.call(host.querySelectorAll('button'), function (b) {
+          b.addEventListener('click', function () {
+            localStorage.setItem(recScopeKey(), b.getAttribute('data-scope'));
+            // loadStateRecords() re-renders the chips itself, so the selected
+            // mark follows the data rather than being set separately and
+            // possibly disagreeing with what was actually loaded.
+            loadStateRecords();
+          });
+        });
+      }
+
       function loadStateRecords() {
         var host = $('recordBody'), st = $('recordStatus');
         if (!host) return Promise.resolve();
@@ -17074,7 +17164,9 @@
         // file that was sitting right there in the bundle. The message even
         // said "Washington", because it falls back to the report LABEL - so
         // the one clue that would have pointed at the region was hidden.
-        var region = getRegion().toUpperCase();
+        var scope = getRecScope();
+        var region = scope.code.toUpperCase();
+        renderRecScope();
         host.innerHTML = '<p class="hint">Loading…</p>';
         var got = _recCache[region]
           ? Promise.resolve(_recCache[region])
@@ -17086,8 +17178,9 @@
             // Absent must say WHY. Not every region has been built yet, and that
             // is a fact about the asset rather than a failure the reader caused.
             host.innerHTML = '';
-            if (st) st.textContent = 'No state-record list bundled for '
-              + (getReport().label || region || 'this region') + ' yet.';
+            if (st) st.textContent = 'No record list bundled for '
+              + (scope.label || region || 'this region')
+              + (scope.kind === 'county' ? ' County' : '') + ' yet.';
             return;
           }
           _recCache[region] = doc;
@@ -17158,7 +17251,12 @@
             + ' \u2014 this would be a first')
         + '</div>';
       if ((r.pr || []).length) {
-        body += '<div class="recfact"><b>Nearby</b> \u00b7 '
+        // For a county the single peer IS the parent state, and "Nearby ·
+        // Washington" reads as if Washington were somewhere adjacent. The peer
+        // means "the same bird, elsewhere in the state you are standing in".
+        body += '<div class="recfact"><b>'
+          + (doc.level === 'county' ? 'Elsewhere in the state' : 'Nearby')
+          + '</b> \u00b7 '
           + (r.pr).map(function (q) {
               var ys = q.y || [];
               return esc(q.r) + ' (' + ys.length + ' year'
@@ -17202,10 +17300,18 @@
           // Say the hit rate plainly (Q3). A watchlist that implies forecast
           // accuracy reads as broken the first month nothing turns up.
           if (st) {
+            // The hit rate is quoted for the STATE model, and a county is not
+            // the same bet — a county record is by construction more reachable,
+            // which is the entire point of the scope. Claiming the state's 1-in-6
+            // for it would be inventing a number, so the county wording says
+            // what is true and no more.
             st.textContent = top.length + ' worth knowing this month, of '
               + doc.rows.length + ' tracked in ' + (doc.label || region)
-              + ' · roughly 1 in 6 of these turn up within two years — it is a '
-              + 'watchlist, not a forecast · ' + nowTime();
+              + (doc.level === 'county'
+                  ? ' · a county record is a lower bar than a state one, which '
+                    + 'is why this list is longer'
+                  : ' · roughly 1 in 6 of these turn up within two years')
+              + ' — it is a watchlist, not a forecast · ' + nowTime();
           }
         }).catch(function (e) {
           // A SECTION THAT FAILS MUST SAY SO. Without this the whole body ran
@@ -17214,7 +17320,7 @@
           // `map@[native code]` line in the debug console. Silence is the worst
           // failure mode: it is indistinguishable from a slow network.
           host.innerHTML = '';
-          if (st) st.textContent = 'Could not build the state-record list: '
+          if (st) st.textContent = 'Could not build the record list: '
             + ((e && e.message) || e);
           dbg('warn', 'state records: ' + ((e && e.stack) || e));
         });
@@ -19551,6 +19657,8 @@
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
+        recScopes: recScopes, getRecScope: getRecScope,
+        stateRecordFile: stateRecordFile, renderRecScope: renderRecScope,
         renderLastNew: renderLastNew, lastNewChecklists: lastNewChecklists,
       lastNewKey: lastNewKey, lastNewPick: lastNewPick,
       loadLastNewCache: loadLastNewCache, saveLastNewCache: saveLastNewCache,

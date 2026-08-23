@@ -546,24 +546,28 @@
     },
     "recordBody": {
       "report": null,
-      "summary": "The megararities that are DUE here — rare enough to be a state record, and not found yet this year.",
+      "summary": "The megararities that are DUE here — rare enough to be a record, and not found yet this year. Scope it to your county for targets you might actually break.",
       "inputs": [
         "a bundled list computed offline from GBIF, refreshed on app release",
-        "your region, to choose which list to read",
+        "your region, and which scope you picked — the whole state, or one county",
         "today's month, to rank by what is plausible NOW"
       ],
       "how": [
         "Counts DISTINCT YEARS a species has been recorded here, never observations — one twitched bird inflates a row count 12-17x, so Terek Sandpiper's 15 Washington 'records' are one bird over two days.",
         "Uses a 10-year window, because eBird's growth means an all-time count compares eras that are not comparable. Measured: this roughly triples the hit rate and halves the list. Washington's records committee reached the same rule independently — its review list is 'birds with 20 or fewer records in the previous 10-year period'.",
         "Adds evidence from ecologically similar regions, which is the only way a bird with NO local history can be predicted at all. The Terek found at Stanwood in July 2026 had one prior precedent: Sooke, BC, the same fortnight in 1987.",
+        "At COUNTY scope the comparison region is the parent state, because a vagrant loose in Washington is loose in Washington. Measured: of the 132 species recorded in Washington but never in King County, the state reaches all 132 in one query while the three most similar counties reach 40.",
         "Ranks by the odds for THIS MONTH, not by rarity. A 4% annual chance concentrated into one fortnight is a chase decision; spread across a year it is trivia.",
-        "Excludes escaped cagebirds by family, and anything eBird does not treat as a full species."
+        "Excludes escaped cagebirds by family, plus an explicit list of collection birds that families cannot express — Black Swan is a waterfowl, Golden Pheasant a phasianid, so excluding those families would delete Emperor Goose and Sooty Grouse with them.",
+        "The exclusions carry a per-region exemption, because countability is regional: Common Waxbill and Rose-ringed Parakeet are established and countable in Hawaii while being escapees on the mainland."
       ],
       "limits": [
-        "It is a WATCHLIST, not a forecast. Roughly one in six listed birds turns up within two years — the rest are the season worth knowing, not a promise.",
+        "It is a WATCHLIST, not a forecast. At state scope roughly one in six listed birds turns up within two years. A county record is a lower bar, which is why the county list is longer — no separate hit rate has been measured for it.",
         "It cannot see a bird nobody has ever reported near you. A first record with no precedent anywhere in the region is exactly the case no history can predict.",
-        "The list is bundled and only changes when the app updates, because the model needs decades of data the phone does not have.",
-        "A species rare next door because it is endangered and local, rather than because it wanders, can still slip in."
+        "Hawaii has no ecological peer in the ABA area, so its list can only contain birds already recorded there — a Hawaiian vagrant arrives off the Pacific, and no mainland state predicts it.",
+        "The list is bundled and only changes when the app updates, because the model needs decades of data the phone does not have. Only counties the reports cover are bundled.",
+        "A species rare next door because it is endangered and local, rather than because it wanders, can still slip in.",
+        "The escapee list is hand-authored, because no machine-readable source survived measurement — so a collection bird nobody has listed yet can still appear. African Collared-Dove does, for King County."
       ]
     },
     "stakeHsBtn": {

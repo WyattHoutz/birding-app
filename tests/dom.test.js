@@ -11767,7 +11767,15 @@ test('tapping a state-record bird says when and how many, and is honest about wh
             || /<b>When<\/b>/.test(HTML),
     'it says how many records and in which month they peak');
   assert.ok(/<b>Which years<\/b>/.test(HTML), 'and which years');
-  assert.ok(/<b>Nearby<\/b>/.test(HTML), 'and which nearby regions have had it');
+  // The peer row is labelled by SCOPE, not by one fixed word. At state scope
+  // the peers are neighbouring states and "Nearby" is right; at county scope
+  // (F170) the single peer IS the parent state, and "Nearby · Washington" reads
+  // as if Washington were somewhere adjacent. Asserting the literal "Nearby"
+  // failed on a section that had just been made more accurate — the property
+  // that matters is that the peer evidence is labelled at all.
+  assert.ok(/Elsewhere in the state/.test(HTML) && /'Nearby'/.test(HTML),
+    'the peer row no longer labels itself by scope, so a county says "Nearby: '
+    + 'Washington" about the state it is inside');
 
   // The honesty line is the point, not decoration: without it the section
   // implies it knows a spot it has never been told.
@@ -13100,7 +13108,7 @@ test('a GBIF facet is found by its shape, not by a literal string', async () => 
 // indistinguishable from a feed that had not answered yet.
 test('Break a state record renders its rows, and says so when it cannot', async () => {
   const app = await boot();
-  app.open(/Break a state record/);
+  app.open(/Break a record/);
   // `li` rather than `li.obs-row`: the row is now the shared MEDIUM species
   // card ("use the species medium card, theres no photos"), which emits its
   // own classes. Pinning the old hand-rolled class made this guard fail on a
@@ -13128,6 +13136,90 @@ test('Break a state record renders its rows, and says so when it cannot', async 
     'the promise chain is unguarded again, so a throw would be silent');
   assert.match(fn, /var isSeen = seenResolver\(\)/,
     'isSeen is unbound in this scope — that is the ReferenceError this test exists for');
+  app.window.close();
+});
+
+// ── F170: BREAK A RECORD SCOPES DOWN TO A COUNTY ──────────────────────────
+// "he primarily birds at cedar river mouth, and focuses on county records more
+//  than state records for realistic targets… he saw a red knot once at his
+//  local patch, and wasnt interested in snohomish county records."
+//
+// Both halves are measurable and both say the state is the wrong unit for a
+// patch birder. Red Knot has 3,422 Washington records across all ten years of
+// the window — so the state model can never list it — and 10 records in 2 years
+// in King County, which is squarely a county record. Terek Sandpiper is 13
+// records in Snohomish and 0 in King.
+//
+// THE TRAP THIS GUARDS is a switcher that changes the heading but not the data.
+// GBIF ignores its own `county` parameter silently (county=Zzzznotacounty
+// returns the whole state), so the Python side had every opportunity to ship
+// state numbers under a county heading, and the app has the mirror-image
+// opportunity: render chips, store the choice, and keep reading US-WA.json.
+test('Break a record can be scoped to a county, and really reads that file', async () => {
+  const app = await boot();
+  app.open(/Break a record/);
+  const A = app.window.__app;
+
+  const scopes = A.recScopes();
+  assert.ok(scopes.length > 1,
+    'no county scopes offered for Washington, which configures King + Snohomish');
+  assert.equal(scopes[0].kind, 'state',
+    'the state is not the first scope — it is the widest and every region has one');
+  assert.ok(scopes.some((s) => s.code === 'US-WA-033'),
+    'King County is not offered, so Cedar River mouth cannot be scoped to');
+
+  // The file path must FOLLOW the scope. This is the assertion that fails if
+  // the chips are decorative.
+  assert.equal(A.stateRecordFile('US-WA-033'), 'state-records/US-WA-033.json');
+  assert.notEqual(A.stateRecordFile('US-WA-033'), A.stateRecordFile('US-WA'),
+    'a county and its state resolve to the same asset — the switcher is a label');
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 25));
+    if (app.$('recordScope').querySelector('button')) break;
+  }
+  const chips = app.$('recordScope').querySelectorAll('button');
+  assert.ok(chips.length > 1, 'the scope switcher rendered no chips');
+
+  // Selection must be visible WITHOUT colour. The owner is red-green colour
+  // blind, so aria-pressed plus a background is not enough on its own — the
+  // chosen chip carries a ✓ in its text.
+  const on = Array.from(chips).filter((b) => b.getAttribute('aria-pressed') === 'true');
+  assert.equal(on.length, 1, 'exactly one scope should be selected');
+  assert.match(on[0].textContent, /\u2713/,
+    'the selected chip is marked by colour alone — it needs a glyph too');
+
+  // ── THE ASSERTION THAT MATTERS: the loader must FETCH the county file. ────
+  // An earlier version of this test checked only that stateRecordFile() maps a
+  // county code to a county path, and a mutation replacing the loader's
+  //     var region = scope.code.toUpperCase();
+  // with
+  //     var region = getRegion().toUpperCase();
+  // SURVIVED it — the mapping function was still perfect, and the section
+  // quietly read US-WA.json under a King County heading. That is the same class
+  // of defect as GBIF's ignored `county` parameter on the Python side: a
+  // plausible answer to a question nobody asked. Watch the actual fetch.
+  const king = Array.from(chips).find((b) => b.getAttribute('data-scope') === 'US-WA-033');
+  const before = app.state.fetches.length;
+  king.click();
+  for (let i = 0; i < 80; i++) {
+    await new Promise((r) => setTimeout(r, 25));
+    if (app.state.fetches.slice(before).some((u) => /state-records\//.test(u))) break;
+  }
+  const asked = app.state.fetches.slice(before).filter((u) => /state-records\//.test(u));
+  assert.ok(asked.length > 0, 'choosing a county fetched no record list at all');
+  assert.ok(asked.some((u) => /US-WA-033\.json/.test(u)),
+    'choosing King County did not fetch US-WA-033.json — it asked for: ' + asked.join(', '));
+  assert.ok(!asked.some((u) => /US-WA\.json/.test(u)),
+    'choosing King County still fetched the STATE file, so the switcher only '
+    + 'changes the heading');
+
+  // ...and the choice persists per REPORT, not globally: switching to the Big
+  // Island must not leave you scoped to King County.
+  assert.equal(A.getRecScope().code, 'US-WA-033', 'the county choice did not stick');
+  const keys = Object.keys(app.window.localStorage);
+  assert.ok(keys.some((k) => /^ebird_rec_scope:.+/.test(k)),
+    'the scope was stored globally rather than per report');
   app.window.close();
 });
 
