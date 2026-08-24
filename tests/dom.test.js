@@ -7929,6 +7929,78 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   app.window.close();
 });
 
+// "iconic spots is empty. i thought we fixed this" — reported twice, on
+// releases whose fix measured clean against live GBIF each time.
+//
+// It kept coming back because the fix and the failure live in different places:
+// the CODE was fixed, the POISON sat in localStorage for 30 days under a cache
+// key carrying no version (`iconicTag()` returns 'all'), so no release could
+// reach it.
+//
+// The poison is not null and not zero — both were already guarded. It is a
+// TRUTHY object with a correct total and an empty breakdown,
+// `{all: 8032812, sp: {}}`, which is exactly what the old facetCounts produced
+// when it matched 'SPECIESKEY' against GBIF's 'SPECIES_KEY'. It sails through
+// `if (!bx || !co || !co.all) return;` and then yields no candidate species at
+// every hotspot.
+//
+// MEASURED against live GBIF 2026-08-24: six boxes and two counties, all
+// returning 164-627 species, ZERO with occurrences-but-no-species; a control
+// requesting no facet reproduces the poison shape exactly. So the shape is
+// provably a broken read, never a real answer.
+test('a GBIF facet failure is never cached, and a poisoned device heals', async () => {
+  const app = await boot();
+  const w = app.window, A = w.__app;
+
+  // ---- the rule itself, over every shape these caches hold ----------------
+  assert.equal(A.gbifFacetUsable({ all: 12, sp: { 42: 5 } }), true,
+    'a real facet pair is usable');
+
+  // THE SHAPE THAT BROKE IT. Truthy, real total, empty breakdown.
+  assert.equal(A.gbifFacetUsable({ all: 8032812, sp: {} }), false,
+    'occurrences with no species breakdown is a broken read, not an answer');
+
+  assert.equal(A.gbifFacetUsable(null), false, 'null was already guarded');
+  assert.equal(A.gbifFacetUsable({ all: 0, sp: {} }), false,
+    'zero occurrences cannot be a denominator');
+  // Counts and year-lists go through the same door.
+  assert.equal(A.gbifFacetUsable(1234), true, 'a real count is usable');
+  assert.equal(A.gbifFacetUsable(0), false, 'a zero count is a failed read');
+  assert.equal(A.gbifFacetUsable([{ name: '2024', count: 3 }]), true,
+    'a real year facet is usable');
+  assert.equal(A.gbifFacetUsable([]), false,
+    'an empty year list is what gbifBoxYears used to write down as an answer');
+
+  // ---- WRITE: a failure must not be stored --------------------------------
+  A.gbifFacetPut('probe|poison', { all: 8032812, sp: {} });
+  assert.equal(A.gbifFacetGet('probe|poison'), undefined,
+    'a broken read must never be written to the cache');
+  A.gbifFacetPut('probe|good', { all: 100, sp: { 7: 4 } });
+  assert.ok(A.gbifFacetGet('probe|good'), 'a real answer still caches');
+
+  // ---- READ: a device ALREADY carrying the poison must heal ---------------
+  // This is the half that matters. Refusing to write it only helps devices not
+  // yet poisoned; the owner's has been poisoned for weeks. Written through the
+  // app's own put, then corrupted in place, so the entry is indistinguishable
+  // from one an older release left behind.
+  A.gbifFacetPut('probe|legacy', { all: 8032812, sp: { 1: 1 } });
+  const store = A.gbifCache ? A.gbifCache() : null;
+  assert.ok(store && store['probe|legacy'], 'seeded an entry to corrupt');
+  store['probe|legacy'].v = { all: 8032812, sp: {} };
+  assert.equal(A.gbifFacetGet('probe|legacy'), undefined,
+    'a stored poison entry reads as a MISS, so the next scan re-asks GBIF '
+    + 'instead of waiting out a 30-day TTL');
+
+  // ---- and the scan really goes through these doors -----------------------
+  assert.match(HTML, /function iconicBoxFacet[\s\S]{0,400}gbifFacetGet\(ck\)/,
+    'iconicBoxFacet reads through the guarded helper');
+  assert.match(HTML, /function iconicCountyFacet[\s\S]{0,400}gbifFacetGet\(ck\)/,
+    'iconicCountyFacet reads through the guarded helper');
+  assert.ok(!/v: v \|\| \[\] \}/.test(HTML),
+    'gbifBoxYears no longer writes an empty list down as an answer');
+  app.window.close();
+});
+
 // The generalised form of the bug behind "it doesn't seem to be using the
 // medium hotspot card". A card of one family rendered inside a container that
 // claims a DIFFERENT family gets the other family's geometry, because

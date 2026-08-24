@@ -2066,7 +2066,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.28.2';
+      var APP_VERSION = '1.28.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3825,6 +3825,82 @@
         var c = gbifCache(); c[ck] = { at: Date.now(), v: v }; saveGbifCache();
         return v;
       }
+      // ── ...AND A FACET FAILURE IS NOT FALSY, WHICH IS WHY IT SURVIVED ─────
+      //
+      // The rule above catches a cached `null`. It cannot catch the failure the
+      // iconic engine actually suffers, because that one arrives as a TRUTHY
+      // OBJECT: `{all: 8032812, sp: {}}` — a correct occurrence total with an
+      // empty species breakdown.
+      //
+      // That is the exact fingerprint of the `facetCounts` bug documented
+      // below: GBIF answers `facet=speciesKey` with the field named
+      // **SPECIES_KEY**, the old matcher produced SPECIESKEY, and every reply
+      // yielded []. The total was right, so `if (!bx || !co || !co.all)` let it
+      // through; the breakdown was empty, so `Object.keys(bx.sp)` gave nothing
+      // at EVERY hotspot, and the section rendered "nothing stands out for any
+      // bird".
+      //
+      // The matcher was fixed. The SECTION was not, because the poison lives in
+      // localStorage for **30 days** under a key that carries no version
+      // (`iconicTag()` returns 'all'), so no release can reach it — which is
+      // why this was reported twice as "i thought we fixed this". A device log
+      // quoted at the scan shows the signature: the whole section finished in
+      // FOUR calls with no geocode at all, i.e. served almost entirely from a
+      // poisoned cache.
+      //
+      // MEASURED against live GBIF 2026-08-24, six boxes and two counties:
+      //   Cedar River mouth  114,030 occurrences / 232 species
+      //   Marymoor Park      561,015 / 264      Discovery Park   700,760 / 300
+      //   Union Bay        1,138,788 / 300      Edmonds Marsh    412,847 / 272
+      //   Snoqualmie Falls    11,211 / 164
+      //   King County      8,032,812 / 627      Snohomish      2,035,124 / 403
+      // ZERO healthy replies had occurrences but no species, and a control that
+      // requests no facet reproduces the poison shape exactly (8,032,812 / 0).
+      // So `all > 0 && sp == {}` is not a state healthy GBIF produces — it is
+      // provably a broken read, and safe to refuse.
+      //
+      // Both directions again, and the second is the one that heals a device
+      // already carrying the poison rather than making it wait out the TTL.
+      //
+      // The trade is stated rather than hidden: a box that genuinely holds no
+      // bird records becomes uncacheable and costs one call per scan. That is
+      // bounded — the scan only ever considers hotspots with 100+ species on
+      // eBird, and GBIF ingests eBird — and it is the cheap side of a mistake
+      // whose expensive side was a dead section for months.
+      function gbifFacetUsable(v) {
+        if (!v) return false;
+        // A count. Zero occurrences is a failed read for these queries, and it
+        // is also unusable arithmetic — it is the denominator of the iconic
+        // multiplier.
+        if (typeof v === 'number') return v > 0;
+        // A facet list (years observed). `[]` is truthy, so the falsy rule
+        // above never saw it, and gbifBoxYears cached `v || []` outright —
+        // writing down "observed 0 of N years" whenever a call failed.
+        if (Array.isArray(v)) return v.length > 0;
+        // The {all, sp} facet pair: occurrences AND a breakdown of them.
+        if (v.all != null || v.sp != null) {
+          if (!(v.all > 0)) return false;
+          for (var k in v.sp) {
+            if (Object.prototype.hasOwnProperty.call(v.sp, k)) return true;
+          }
+          return false;
+        }
+        return true;
+      }
+      // Read/write pair for the two iconic facet caches. They previously did
+      // their own raw `c[ck]` read and `cc[ck] = ...` write, which is precisely
+      // how they drifted away from gbifCachePut's rule and never got the fix.
+      function gbifFacetGet(ck) {
+        var e = gbifCache()[ck];
+        if (!e) return undefined;
+        if ((Date.now() - (e.at || 0)) >= GBIF_ICONIC_TTL_MS) return undefined;
+        return gbifFacetUsable(e.v) ? e.v : undefined;
+      }
+      function gbifFacetPut(ck, v) {
+        if (!gbifFacetUsable(v)) return v;
+        var c = gbifCache(); c[ck] = { at: Date.now(), v: v }; saveGbifCache();
+        return v;
+      }
       // Two callers wanting the same URL at the same moment both fetched it,
       // because the cache is only written once a response lands. MEASURED on
       // device 2026-08-17: species/match?name=Anser anser was requested twice
@@ -4098,20 +4174,22 @@
       // cached per box and shared across every species ever looked up there.
       // That turns the second lookup at a hotspot from two calls into one.
       function gbifBoxTotal(wkt, stateName) {
-        var ck = 'box|' + iconicTag() + '|' + wkt, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'box|' + iconicTag() + '|' + wkt;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + iconicQs())
           .then(function (v) {
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            gbifFacetPut(ck, v);
             return v;
           });
       }
       function gbifRegionTotal(stateName) {
-        var ck = 'aves|' + iconicTag() + '|' + stateName, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'aves|' + iconicTag() + '|' + stateName;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&country=US&stateProvince=' + encodeURIComponent(stateName) + iconicQs())
           .then(function (v) {
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            gbifFacetPut(ck, v);
             return v;
           });
       }
@@ -4167,11 +4245,12 @@
         }).catch(function () { return null; });
       }
       function gbifCountyTotal(gid) {
-        var ck = 'coall|' + iconicTag() + '|' + gid, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'coall|' + iconicTag() + '|' + gid;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifCount(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid) + iconicQs())
           .then(function (v) {
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
+            gbifFacetPut(ck, v);
             return v;
           });
       }
@@ -4179,12 +4258,15 @@
       // effort facet is a property of the PLACE, so it is shared like the box
       // total is.
       function gbifBoxYears(wkt) {
-        var ck = 'boxyr|' + iconicTag() + '|' + wkt, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'boxyr|' + iconicTag() + '|' + wkt;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifFacet(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt) + iconicQs() +
                          '&limit=0&facet=year&facetLimit=60', 'year')
           .then(function (v) {
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v || [] }; saveGbifCache();
+            // Was `v || []` on BOTH sides, which wrote an empty list down as an
+            // answer and then read it back for 30 days as "observed 0 years".
+            gbifFacetPut(ck, v);
             return v || [];
           });
       }
@@ -14747,32 +14829,36 @@
       // ONE call per hotspot: the box total AND every species' share in it.
       function iconicBoxFacet(lat, lng) {
         var wkt = BL.gbifBoxWkt(lat, lng);
-        var ck = 'boxfacet|' + iconicTag() + '|' + wkt, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'boxfacet|' + iconicTag() + '|' + wkt;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifJson(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&geometry=' + encodeURIComponent(wkt)
                         + iconicQs() + '&limit=0&facet=speciesKey&facetLimit=300')
           .then(function (jj) {
             if (!jj) return null;
             var v = { all: jj.count || 0, sp: {} };
             facetCounts(jj, 'speciesKey').forEach(function (x) { v.sp[x.name] = x.count; });
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
-            return v;
+            // Return the value either way: a bad read should fail THIS scan,
+            // not be written down and fail every scan for a month.
+            gbifFacetPut(ck, v);
+            return gbifFacetUsable(v) ? v : null;
           }).catch(function () { return null; });
       }
 
       // ...and ONE per county, shared by every hotspot inside it.
       function iconicCountyFacet(gid) {
         if (!gid) return Promise.resolve(null);
-        var ck = 'cofacet|' + iconicTag() + '|' + gid, c = gbifCache();
-        if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_ICONIC_TTL_MS) return Promise.resolve(c[ck].v);
+        var ck = 'cofacet|' + iconicTag() + '|' + gid;
+        var hit = gbifFacetGet(ck);
+        if (hit !== undefined) return Promise.resolve(hit);
         return gbifJson(GBIF_OCC + '&taxonKey=' + GBIF_AVES + '&gadmGid=' + encodeURIComponent(gid)
                         + iconicQs() + '&limit=0&facet=speciesKey&facetLimit=900')
           .then(function (jj) {
             if (!jj) return null;
             var v = { all: jj.count || 0, sp: {} };
             facetCounts(jj, 'speciesKey').forEach(function (x) { v.sp[x.name] = x.count; });
-            var cc = gbifCache(); cc[ck] = { at: Date.now(), v: v }; saveGbifCache();
-            return v;
+            gbifFacetPut(ck, v);
+            return gbifFacetUsable(v) ? v : null;
           }).catch(function () { return null; });
       }
 
@@ -20328,6 +20414,12 @@
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
         reviewFlag: reviewFlag,
+        // Exported so the poison rule can be tested against the SHAPE that
+        // actually broke Iconic spots — a truthy object with a real total and
+        // an empty breakdown — rather than only against null.
+        gbifFacetUsable: gbifFacetUsable,
+        gbifFacetGet: gbifFacetGet, gbifFacetPut: gbifFacetPut,
+        gbifCache: gbifCache,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
