@@ -2018,7 +2018,25 @@
       locId: cluster.locId || '', locName: cluster.loc || 'Unknown location',
       lat: cluster.lat, lng: cluster.lon,
       species: (cluster.species || []).map(function (s) {
-        return { code: s.code || '', comName: s.name || s.code || 'Unknown species', rare: s.kind === 'Rarity' };
+        // EVERYTHING THE ROW CAN RENDER, not just its name. This projection
+        // kept only code/comName/rare and dropped six fields the small species
+        // card already knows how to show — so a hotspot's bird list was a bare
+        // list of names while the identical card elsewhere carried the date,
+        // the count, the media marks and a link to the checklist.
+        //
+        // Asked for as *"add the last seen date to small species card items,
+        // like 8/24"* and *"also include count like x2"*, 2026-08-24. The rest
+        // came with them because they were dropped at the same line and cost
+        // nothing to carry: `subId` is what makes the name a link to the
+        // evidence, `evidence` is the 📷/🔊 mark, `sciName` saves a Wikipedia
+        // lookup for the photo, and `reviewState` is the Confirmed badge.
+        return {
+          code: s.code || '', comName: s.name || s.code || 'Unknown species',
+          rare: s.kind === 'Rarity',
+          dateStr: s.dateStr || '', count: (s.count == null ? null : s.count),
+          subId: s.subId || '', evidence: s.evidence || '',
+          sciName: s.sciName || '', reviewState: s.reviewState || '',
+        };
       }),
       score: cluster.score, rare: cluster.rareCount,
       dist: cluster.distMi == null || cluster.distMi === Infinity ? null : cluster.distMi
