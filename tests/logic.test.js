@@ -1357,7 +1357,163 @@ test('a celebrity bird needs 4 independent sightings at ONE place, in range', ()
     'two pins you could walk between were treated as two different birds');
 });
 
+// "spuh is not valid bird for my year" (owner, 2026-08-24) — rows 214 and 213
+// of the year list were `gull/tern sp.` and `Western x Glaucous-winged Gull
+// (hybrid)`, under a header reading "214 species".
+//
+// The rule is decided on the NAME, and the alternative was measured and
+// rejected: the app already carried a code heuristic, /^[xy]\d+$/, annotated
+// "98% of that pattern is non-species". Against the real taxonomy that is 98.8%
+// precision and 64% RECALL — it would delete Iceland Gull (y00478) and American
+// Coot (y00475) while keeping `kiwi sp.` and `Snow x Ross's Goose`.
+test('an unresolved identification is not a tick, and a real species always is', () => {
+  // The two reported rows.
+  assert.equal(BL.countableTaxon('gull/tern sp.'), false, 'a spuh is not a tick');
+  assert.equal(BL.countableTaxon('Western x Glaucous-winged Gull (hybrid)'), false,
+    'a hybrid is not a tick');
+  assert.equal(BL.countableTaxon('Western/Glaucous-winged Gull'), false,
+    'a slash is not a tick');
+
+  // THE DIRECTION THAT WOULD BE A DISASTER. The code heuristic deleted these.
+  ['Iceland Gull', 'American Coot', 'Western Gull', 'Mallard',
+   "Hutton's Vireo", 'Eurasian Wigeon', 'Northern Flicker',
+   'Greater White-fronted Goose'].forEach(function (n) {
+    assert.equal(BL.countableTaxon(n), true, n + ' is a real species and must count');
+  });
+
+  // THE PARENTHETICAL IS STRIPPED FIRST. eBird puts a FORM's qualifier inside
+  // parentheses and an unresolved id's marker outside; without the strip these
+  // 124 real birds are deleted.
+  assert.equal(BL.countableTaxon('Dunlin (pacifica/arcticola)'), true,
+    'a slash INSIDE the parenthetical is a form of a real bird');
+  assert.equal(BL.countableTaxon('Brant (Dark-bellied x Black)'), true,
+    'an intergrade of one species still counts as that species');
+  assert.equal(BL.countableTaxon('Canada Goose (moffitti/maxima)'), true,
+    'a subspecies group is still Canada Goose');
+  assert.equal(BL.countableTaxon("Hutton's Vireo (Pacific)"), true,
+    'a plain form is still the bird');
+
+  // ...and the strip must not become a loophole: the marker OUTSIDE still wins.
+  assert.equal(BL.countableTaxon('Snow x Ross\u2019s Goose (hybrid)'), false,
+    'a hybrid with a parenthetical suffix is still a hybrid');
+  assert.equal(BL.countableTaxon('storm-petrel sp. (dark-rumped)'), false,
+    'a spuh with a qualifier is still a spuh');
+  assert.equal(BL.countableTaxon(''), false, 'no name is not a tick');
+  assert.equal(BL.countableTaxon(null), false, 'nothing is not a tick');
+});
+
+// "franklin gull is missing from twitches" ... "did it filter out a bunch of
+// birds?" — yes. Both rarity lists deduped on the CHECKLIST ALONE, so a
+// checklist carrying two rare birds contributed only its first.
+//
+// MEASURED over the live Washington notable feed: on 2026-08-23, 252 rows kept
+// 140 on subId against 187 on subId+species — 47 lost in one day, 112 over
+// seven — and two species vanished from the section entirely.
+test('two rare birds on one checklist are two rows, not one', () => {
+  const NOW = Date.parse('2026-08-24T12:00:00');
+  const at = (code, name) => ({
+    kind: 'Rarity', code: code, name: name, subId: 'S1',
+    locId: 'L1', loc: 'Jetty Island', dateStr: '2026-08-24 10:03',
+    lat: 47.9, lon: -122.2,
+  });
+  // The reported checklist: one list, two rare birds.
+  const rows = [at('margod', 'Marbled Godwit'), at('fragul', "Franklin's Gull")];
+  const out = BL.notableRecent(rows, NOW);
+  assert.equal(out.length, 2,
+    'both rare birds on one checklist must appear — this is the reported bug');
+  const names = out.map((r) => r.name).sort();
+  assert.deepEqual(names, ["Franklin's Gull", 'Marbled Godwit']);
+
+  // ...and the duplicate it IS meant to remove still goes: the same bird on the
+  // same checklist arriving from two different feeds.
+  const dup = [at('fragul', "Franklin's Gull"), at('fragul', "Franklin's Gull")];
+  assert.equal(BL.notableRecent(dup, NOW).length, 1,
+    'the same rarity from king-notable and geo-notable is still one row');
+
+  // The calendar-day variant shares the key and the fix.
+  assert.equal(BL.notableToday(rows, '2026-08-24').length, 2,
+    'the archived-day list must not lose a bird either');
+  assert.equal(BL.notableToday(dup, '2026-08-24').length, 1);
+
+  // A row with no checklist id cannot be deduped and must not be dropped.
+  const noSub = rows.map((r) => Object.assign({}, r, { subId: '' }));
+  assert.equal(BL.notableRecent(noSub, NOW).length, 2,
+    'rows with no submission id are kept, not collapsed into one');
+});
+
+// "dusk birds are still broken" — reported three times, most recently with a
+// screenshot reading American Crow 93%, Song Sparrow 88%, Mallard 84%. Then
+// the diagnosis, from the owner: *"is it accounting for birds seen at all
+// times"* and *"crows are excessively common"*.
+//
+// A bird seen at ALL hours lands on every evening checklist too, so its
+// "% after 7pm" measures how evening-heavy the SAMPLE is, not the bird. The
+// section's own verdict proved the bar was meaningless: baseline 27%, bar 30%
+// absolute — a 1.1x effective lift, which is chance.
+test('a bird seen at all hours is never a dusk specialist, however common', () => {
+  // A REALISTIC sample: birding is mostly daylight. Measured against the live
+  // historic feeds 2026-08-24, 33 of 218 checklist start-hours were after
+  // 19:00 — about 15%, which is the shape used here.
+  const CHECKLIST_HOURS = [6, 7, 7, 8, 9, 9, 10, 11, 11, 12,
+                           13, 13, 14, 15, 16, 16, 17, 20, 21, 22];
+  const LATE = CHECKLIST_HOURS.filter((h) => h >= 19).length;
+  const baseShare = LATE / CHECKLIST_HOURS.length;      // 3/20 = 15%
+
+  const hours = {
+    // Seen on EVERY checklist — so its distribution IS the sample's.
+    amecro: CHECKLIST_HOURS.slice(),
+    // Seen only after dark.
+    grhowl: [20, 21, 22, 20, 21],
+    // A dawn bird, for the other half of the same rule.
+    sonspa: [6, 6, 5, 6, 4, 6],
+  };
+  const names = { amecro: 'American Crow', grhowl: 'Great Horned Owl',
+                  sonspa: 'Song Sparrow' };
+  const opts = { checklistHours: CHECKLIST_HOURS };
+
+  const out = BL.todSpecialists(hours, names, 5, opts);
+  const night = out.night.map((e) => e.code);
+
+  // THE REPORTED BUG.
+  assert.ok(!night.includes('amecro'),
+    'a bird seen at every hour must not be a dusk specialist');
+  assert.ok(night.includes('grhowl'),
+    'and the bird that really is only seen after dark must still be there');
+
+  // The reason it works: the ubiquitous bird's lift is ~1, BY CONSTRUCTION —
+  // it cannot be tuned away by moving a threshold.
+  const crow = BL.todSpecialists(hours, names, 5,
+    { checklistHours: CHECKLIST_HOURS, minLift: 0 })
+    .night.find((e) => e.code === 'amecro');
+  assert.ok(!crow || Math.abs(crow.late_lift - 1) < 0.01,
+    'a bird seen at all hours scores ~1.0x lift');
+
+  // The baseline is on the same unit as the numerator: one hour per CHECKLIST.
+  assert.ok(Math.abs(out.baseline.late - baseShare) < 0.001,
+    'the baseline is the checklist distribution, got ' + out.baseline.late);
+
+  // The owl beats it by a wide margin rather than a rounding error.
+  const owl = out.night.find((e) => e.code === 'grhowl');
+  assert.ok(owl.late_lift >= 4,
+    'a real specialist clears the baseline by a wide margin, got ' + owl.late_lift);
+
+  // A sample with nothing late names no dusk specialist rather than dividing
+  // by zero and promoting everything.
+  const daytime = BL.todSpecialists({ a: [9, 10, 11, 12, 13] }, { a: 'Any' }, 5,
+    { checklistHours: [9, 10, 11, 12, 13] });
+  assert.deepEqual(daytime.night, [],
+    'no late records in the sample means no dusk specialists, not an error');
+
+  // ...and the per-CHECKLIST baseline really differs from the per-record one.
+  // Flattening the species map weights it by how species-rich each checklist
+  // was, which is what let a crow read 93% against a 27% baseline.
+  const flat = BL.todSpecialists(hours, names, 5, {});
+  assert.notEqual(flat.baseline.late, out.baseline.late,
+    'the two units give different baselines — that difference WAS the bug');
+});
+
 // ── IS THIS RARITY CONFIRMED? ─────────────────────────────────────────────
+
 // Owner, 2026-08-23: "indicate whether a rare bird is confirmed on twitch.
 // its in the aba feeds".
 //

@@ -8088,8 +8088,60 @@ test('the My-year NEW window is decided by dates, never by the time of day', asy
   app.window.close();
 });
 
-// The generalised form of the bug behind "it doesn't seem to be using the
-// medium hotspot card". A card of one family rendered inside a container that
+// "Recent checklists" under a staked-out hotspot rendered TWENTY COMPLETELY
+// EMPTY ROWS — reported with a screenshot, 2026-08-24.
+//
+// The cause is a card-contract mismatch: the call passed `{name, sub}`, which
+// are the SPECIES card's fields, while ChecklistCards.small reads
+// `date`/`href`/`who`/`sp`. Unknown keys are simply ignored, so every field
+// vanished and the template emitted structure with no content.
+//
+// THIS CLASS OF BUG FAILS SILENTLY BY CONSTRUCTION, and neither existing check
+// could see it: the unit suite asserted the block was PRESENT, never that it
+// had text, and the layout audit is blind to it because an empty row overflows
+// nothing. So this guard asserts CONTENT.
+test('a checklist row under a hotspot actually says something', async () => {
+  const app = await boot();
+  const w = app.window, doc = w.document;
+
+  const html = w.ChecklistCards.list('small', [
+    w.ChecklistCards.small({
+      date: '2026-08-23 10:03',
+      href: 'https://ebird.org/checklist/S1',
+      who: 'Eric Hope',
+      sp: 28,
+    }),
+  ]);
+  const host = doc.createElement('div');
+  host.innerHTML = html;
+  doc.body.appendChild(host);
+
+  const row = host.querySelector('li');
+  assert.ok(row, 'a row is rendered');
+  const text = (row.textContent || '').replace(/\s+/g, ' ').trim();
+  assert.ok(text.length > 0, 'THE ROW IS NOT EMPTY — this is the reported bug');
+  assert.match(text, /Eric Hope/, 'it names who filed the checklist');
+  assert.match(text, /28/, 'and how many species it held');
+  assert.ok(row.querySelector('[href], [data-href]'),
+    'and it links to the checklist');
+
+  // The mismatch that caused it must stay visibly broken, so nobody
+  // "simplifies" the call site back to the species card's field names.
+  const wrong = w.ChecklistCards.small({ name: 'x', sub: 'y' });
+  const probe = doc.createElement('div');
+  probe.innerHTML = w.ChecklistCards.list('small', [wrong]);
+  assert.equal((probe.textContent || '').trim(), '',
+    'the species card\u2019s field names produce an EMPTY checklist row — '
+    + 'which is exactly why the bug was invisible');
+
+  // ...and no call site anywhere passes the species card's field names to a
+  // checklist card. Asserted over the WHOLE file rather than a slice: the
+  // mismatch is what makes the row empty, and it is equally invisible wherever
+  // it happens.
+  assert.ok(!/ChecklistCards\.(small|medium)\(\{\s*(name|sub)\s*:/.test(HTML),
+    'a checklist card must never be handed the species card\u2019s fields');
+  app.window.close();
+});
 // claims a DIFFERENT family gets the other family's geometry, because
 // cards-species.js scopes some rules as three-class descendants
 // (`.obs.big .name`) which outrank the hotspot card's own two-class

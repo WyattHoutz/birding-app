@@ -2066,7 +2066,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.28.4';
+      var APP_VERSION = '1.29.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -5013,6 +5013,14 @@
             + (fresh.length
                ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
                : '')
+            // SAY THAT THIS LIST IS FILTERED, because it is. The section is fed
+            // `unseenAll`, so a rarity you have already ticked never appears —
+            // which is right for a chase list and invisible on screen. Reported
+            // as a bug: *"franklin gull is missing from twitches"*, after the
+            // owner had seen it himself the day before. A count that says
+            // "3 reports" while silently holding back a fourth is a count that
+            // cannot be checked against eBird.
+            + rarityHiddenNote(c)
             + ' ' + raritySortControl('todaySort');
           wireRaritySort('todaySort', refresh);
           var days = stakeoutDays(c.cv.merged || []);
@@ -6888,6 +6896,38 @@
       // the list already spends colour on distance and the rarity badge, and a
       // third colour-only signal is one nobody decodes.
       function newRarityTag() { return '<span class="newflag">NEW</span>'; }
+
+      // How many rarities this section is holding back because you have already
+      // seen the bird — computed from the SAME merged records the section is
+      // built from, so it costs nothing and cannot drift from what is on screen.
+      //
+      // The section is fed `unseenAll`, which is correct for a chase list: it
+      // answers "what can I go and get". But nothing said so, and the count read
+      // as a complete tally of nearby rarity reports. Reported exactly that way
+      // — *"franklin gull is missing from twitches"* — for a bird the owner had
+      // ticked himself the day before, at 13.7 mi and 27 h old, well inside both
+      // the radius and the window.
+      function rarityHiddenNote(c) {
+        try {
+          var all = (c && c.cv && c.cv.merged) || [];
+          var shown = {};
+          ((c && c.cv && c.cv.notableToday) || []).forEach(function (r) {
+            shown[BL.obsDedupKey(r)] = 1;
+          });
+          var hid = BL.notableRecent(all, Date.now());
+          var n = 0, names = {};
+          hid.forEach(function (r) {
+            if (shown[BL.obsDedupKey(r)]) return;
+            if (r.distMi > chaseMaxMi()) return;
+            if (!BL.countableTaxon(r.name)) return;
+            n++; names[r.name] = 1;
+          });
+          if (!n) return '';
+          var list = Object.keys(names).sort();
+          return ' <span class="dim">\u00b7 ' + esc(list.length + ' more nearby you have already seen ('
+            + list.slice(0, 3).join(', ') + (list.length > 3 ? ', \u2026' : '') + ')') + '</span>';
+        } catch (e) { return ''; }
+      }
 
       // "indicate whether a rare bird is confirmed on twitch. its in the aba
       // feeds" (owner, 2026-08-23).
@@ -13992,6 +14032,14 @@
           s.seen[key] = 1;
           (s.hours[code] = s.hours[code] || []).push(hh);
           if (s.hours[code].length > 300) s.hours[code].shift();
+          // ONE HOUR PER CHECKLIST — the baseline a species is compared
+          // against. Accumulated alongside the per-species hours so the two
+          // are always drawn from the same sample. See BL.todSpecialists: a
+          // per-RECORD baseline weights by how species-rich each checklist
+          // was, which is not a fact about when birding happens, and that is
+          // what let American Crow read 93% against a 27% baseline.
+          if (!s.chk) s.chk = {};
+          if (s.chk[sub] == null) s.chk[sub] = hh;
           if (!s.names[code] && o.comName) s.names[code] = o.comName;
           added++;
         });
@@ -14003,10 +14051,22 @@
       // We keep our own persistent hour accumulator (todAccumulate) because the
       // app pools samples across taps, mirroring the report pooling daily
       // snapshots — but the math that turns hours -> specialists is shared.
+      function todChecklistHours(s) {
+        var out = [];
+        Object.keys((s && s.chk) || {}).forEach(function (k) { out.push(s.chk[k]); });
+        return out;
+      }
       function todSpecialists() {
         var s = todLoad();
-        var r = BL.todSpecialists(s.hours || {}, s.names || {}, BL.CONST.TOD_MIN_OBS);
-        return { dawn: r.dawn, night: r.night, n: Object.keys(s.hours || {}).length };
+        // A device sampled before this shipped has no per-checklist store yet.
+        // Passing an empty list would divide by a zero baseline and promote
+        // nothing, so fall back to the old flattened map for one run — it
+        // rebuilds on the next sample.
+        var ch = todChecklistHours(s);
+        var r = BL.todSpecialists(s.hours || {}, s.names || {}, BL.CONST.TOD_MIN_OBS,
+          ch.length ? { checklistHours: ch } : {});
+        return { dawn: r.dawn, night: r.night, baseline: r.baseline,
+                 n: Object.keys(s.hours || {}).length, chk: ch.length };
       }
       function todHourLabel(h) { var hr = ((h + 11) % 12) + 1; return hr + (h < 12 ? 'am' : 'pm'); }
       function renderTimeOfDay() {
@@ -14024,31 +14084,32 @@
           arr.slice(0, 15).forEach(function (e) {
             var pct = Math.round((kind === 'dawn' ? e.early_pct : e.late_pct) * 100);
             var when = kind === 'dawn' ? 'before 7am' : 'after 7pm';
+            // THE LIFT IS THE NUMBER THAT DECIDES, so it is the number shown.
+            // A bare "93% after 7pm" cannot be read without the base rate it is
+            // a share OF — and printing only the share is what made a crow look
+            // like an owl. "6.7× the norm" says the thing the reader wants.
+            var lift = kind === 'dawn' ? e.early_lift : e.late_lift;
+            var base = Math.round((kind === 'dawn' ? e.base_early : e.base_late) * 100);
             h += '<li><div class="name">' + photoSlot(e.name, e.code) + speciesLink(e.name, e.code) + needTag(e.code, e.name) +
-              '</div><div class="sp">' + pct + '% ' + when +
-              ' · n=' + e.n + ' · typ ' + todHourLabel(Math.round(e.median_hour)) + ' (' + todHourLabel(e.min_hour) + '–' + todHourLabel(e.max_hour) + ')</div></li>';
+              '</div><div class="sp">' + '<b>' + (isFinite(lift) ? lift.toFixed(1) : '?') + '\u00d7</b> the norm'
+              + ' \u00b7 ' + pct + '% ' + when + ' vs ' + base + '% for all birding'
+              + ' \u00b7 n=' + e.n + ' \u00b7 typ ' + todHourLabel(Math.round(e.median_hour)) + ' (' + todHourLabel(e.min_hour) + '\u2013' + todHourLabel(e.max_hour) + ')</div></li>';
           });
           return h + '</ul>';
         }
         var html = section('🌅 Dawn specialists', sp.dawn, 'dawn') + section('🌘 Dusk / night specialists', sp.night, 'night');
-        // THE DENOMINATOR, which is the number that was missing. This section
-        // shipped crows and Mallards as "dusk specialists" at 84-92% after 7pm
-        // — and the ratio was arithmetically right. What nobody could see was
-        // that the SAMPLE's own after-7pm share was the thing out of line:
-        // measured against live King County data the true baseline is 2%.
-        // A share is meaningless without the base rate it is a share OF, so
-        // the log now carries both.
-        var _all = [], _late = 0, _s = todLoad();
-        Object.keys(_s.hours || {}).forEach(function (c) {
-          (_s.hours[c] || []).forEach(function (hh) {
-            _all.push(hh);
-            if (hh >= BL.CONST.TOD_DUSK_START) _late++;
-          });
-        });
-        verdict('Dawn and dusk', _all.length + ' sampled records across ' + sp.n
+        // BOTH numbers, and now on the SAME UNIT. This section shipped crows and
+        // Mallards as "dusk specialists" at 84-93% after 7pm, and the ratio was
+        // arithmetically right — what was wrong was the comparison. A species is
+        // measured one hour per CHECKLIST (obsDt is the checklist's start), so a
+        // per-RECORD baseline weights by how species-rich each list was and is
+        // not the same quantity at all.
+        var _b = sp.baseline || { late: 0, n: 0 };
+        verdict('Dawn and dusk', _b.n + ' checklists across ' + sp.n
           + ' species \u00b7 BASELINE after ' + BL.CONST.TOD_DUSK_START + ':00 is '
-          + (_all.length ? Math.round(100 * _late / _all.length) : 0) + '% '
-          + '\u00b7 bar is ' + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% absolute '
+          + Math.round(100 * _b.late) + '% of checklists '
+          + '\u00b7 bar is ' + BL.CONST.TOD_MIN_LIFT + '\u00d7 that, and \u2265'
+          + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% '
           + '\u00b7 ' + sp.dawn.length + ' dawn, ' + sp.night.length + ' dusk');
         if (!html) html = '<div class="status">' + sp.n + ' species sampled, but none meet the dawn/dusk thresholds yet — sample again over a few days to enrich it.</div>';
         el.innerHTML = html;
@@ -15185,13 +15246,27 @@
         // ---- the checklists
         if (lists.length) {
           below += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b></div>';
+          // THE CHECKLIST CARD'S OWN FIELD NAMES. This passed `{name, sub}`,
+          // which belong to the SPECIES card — ChecklistCards.small reads
+          // `date`/`href`/`who`/`sp`, so every field was ignored and twenty rows
+          // rendered completely empty. Reported with a screenshot of the blank
+          // block, 2026-08-24.
+          //
+          // Nothing caught it: the unit suite never asserted the rows had text,
+          // and the layout audit cannot see it because an EMPTY row overflows
+          // nothing. A card contract mismatch fails silently by construction,
+          // which is why the guard below checks for CONTENT rather than shape.
+          //
+          // `place` is deliberately omitted — the heading above already names
+          // the hotspot, so the DATE becomes the link and `who` is printed
+          // (the template only shows the observer on a small row when there is
+          // no place competing for the width).
           below += ChecklistCards.list('small', lists.slice(0, 20).map(function (r) {
             return ChecklistCards.small({
-              name: r.subId ? checklistLink(r.subId, fmtWhenShort(r.obsDt || r.isoObsDate))
-                            : esc(fmtWhenShort(r.obsDt || r.isoObsDate)),
-              sub: [esc(r.userDisplayName || ''),
-                    isFinite(r.numSpecies) ? r.numSpecies + ' species' : ''
-                   ].filter(Boolean).join(' \u00b7 ')
+              date: r.obsDt || r.isoObsDate || '',
+              href: r.subId ? checklistUrl(r.subId) : '',
+              who: esc(r.userDisplayName || ''),
+              sp: isFinite(r.numSpecies) ? r.numSpecies : ''
             });
           }));
         }
@@ -17274,6 +17349,17 @@
       // The export, plus anything it does not know about yet.
       function mergedYearList() {
         var seed = reportYearList(), own = ownYearEntries();
+        // A YEAR LIST IS A LIST OF SPECIES, so an unresolved identification is
+        // not a row on it. "spuh is not valid bird for my year" (2026-08-24),
+        // reporting `gull/tern sp.` and `Western x Glaucous-winged Gull
+        // (hybrid)` as rows 214 and 213 under a header claiming "214 species".
+        //
+        // Applied to BOTH halves, because the export can carry them too — and
+        // applied here rather than at the render, so the COUNT above the list
+        // and the rows in it can never disagree. See BL.countableTaxon for the
+        // rule and the taxonomy measurement behind it.
+        seed = (seed || []).filter(function (e) { return BL.countableTaxon(e && e.name); });
+        own = own.filter(function (e) { return BL.countableTaxon(e && e.name); });
         if (!own.length) return seed;
         var have = {}, haveName = {};
         seed.forEach(function (e) {

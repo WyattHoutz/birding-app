@@ -53,6 +53,15 @@
     // time-of-day (time_of_day.py)
     TOD_DAWN_END: 7, TOD_DUSK_START: 19, TOD_MIN_OBS: 5,
     TOD_DAWN_TH: 0.50, TOD_NIGHT_TH: 0.30,
+    // How far above the SAMPLE'S OWN base rate a bird must sit to be called a
+    // specialist. 2x, and the number is chosen from the failure it fixes: the
+    // section shipped a 30% absolute bar against a measured 27% baseline, so
+    // the effective lift required was 1.1x — indistinguishable from chance,
+    // which is why American Crow, Song Sparrow and Mallard led a list that is
+    // supposed to be owls. 2x means "seen after dark twice as often as birding
+    // itself happens after dark", which a bird active at all hours cannot
+    // reach: its lift is 1.0 by construction, whatever its raw share.
+    TOD_MIN_LIFT: 2.0,
     // convoys (report.py CONVOY_*)
     CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200,
     // A FIELD TRIP IS A CONVOY THAT NEVER DRIVES ANYWHERE.
@@ -558,6 +567,16 @@
     opts = opts || {};
     return (records || []).filter(function (r) {
       if (!r.code || isSeen(r.code, seen)) return false;
+      // A SPUH IS NOT A BIRD YOU CAN GO AND GET. Owner, 2026-08-24: *"i dont
+      // think spuh should be highlighted as unseen"*.
+      //
+      // `gull/tern sp.` is an identification nobody finished, so it can never
+      // be ticked and can never be chased — yet it was never in the seen list
+      // either, which is exactly what "unseen" tests, so it rendered as a
+      // target. Filtering here rather than at each render because this one
+      // function feeds ALL of it: unseenAll, unseen, near, destinations,
+      // excursions and the twitch list. Nine call sites, one rule.
+      if (!countableTaxon(r.name)) return false;
       if (opts.excludeOwn && isOwn(r.observer, opts.ownName)) return false;
       return true;
     });
@@ -974,6 +993,84 @@
   // 5 h, not the 5.23 h maximum: rounding down keeps the claim ("reported in
   // the last day") defensible, and the tail beyond 5 h is one checklist in 22.
   var NOTABLE_GRACE_H = 5;
+  // ---- is this taxon a tick at all? ---------------------------------------
+  // "spuh is not valid bird for my year" (owner, 2026-08-24), reporting a year
+  // list whose top two rows were `gull/tern sp.` and `Western x Glaucous-winged
+  // Gull (hybrid)` under a header reading "214 species".
+  //
+  // eBird's taxonomy has eight categories. Three of them are an identification
+  // that was never resolved to one species and can never be a tick:
+  //     spuh   722   "gull/tern sp."
+  //     slash  1,035 "Western/Glaucous-winged Gull"
+  //     hybrid 792   "Western x Glaucous-winged Gull (hybrid)"
+  // The rest are a species or roll up into one (species 11,167, issf 3,952,
+  // form 156, intergrade 42, domestic 25).
+  //
+  // DECIDED ON THE NAME, NOT THE CODE, and the difference was measured. The app
+  // already carried a code heuristic, `/^[xy]\d+$/`, annotated "98% of that
+  // pattern is non-species". Checked against the taxonomy that is 98.8%
+  // PRECISION and only 64% RECALL — it would have deleted 20 real species
+  // including **Iceland Gull (y00478)** and **American Coot (y00475)** while
+  // keeping 942 non-species such as `kiwi sp.` and `Snow x Ross's Goose`. A
+  // year-list filter that quietly drops Iceland Gull is worse than the spuh it
+  // was written to remove.
+  //
+  // THE TRAILING PARENTHETICAL IS STRIPPED FIRST, and that is the whole
+  // difference between a working rule and one that deletes 124 real birds.
+  // eBird puts a form's qualifier INSIDE parentheses — "Dunlin
+  // (pacifica/arcticola)", "Brant (Dark-bellied x Black)", "Canada Goose
+  // (moffitti/maxima)" — while an unresolved identification carries the marker
+  // OUTSIDE it. index.html already depends on this distinction for Wikipedia
+  // titles ("the ' x ' must be OUTSIDE the parentheses to mean a hybrid").
+  //
+  // MEASURED against the full 17,891-row taxonomy, 2026-08-24:
+  //     hybrid  792/792   100%      slash  1,035/1,035  100%
+  //     spuh    722/722   100%      plain species wrongly deleted: 0
+  // The only two false positives are "Domestic goose sp." and "Domestic
+  // lovebird sp.", which are themselves unidentified and have no business on a
+  // species list either.
+  var _HYBRID_SUFFIX = /\(\s*hybrid\s*\)\s*$/i;
+  var _TRAILING_PAREN = /\s*\([^()]*\)\s*$/;
+  function countableTaxon(name) {
+    var t = String(name == null ? '' : name).trim();
+    if (!t) return false;
+    // "(hybrid)" is a MARKER, not a qualifier, so it is read before stripping.
+    if (_HYBRID_SUFFIX.test(t)) return false;
+    var bare = t.replace(_TRAILING_PAREN, '').trim();
+    if (/\bsp\.\s*$/i.test(bare)) return false;   // spuh
+    if (bare.indexOf('/') >= 0) return false;     // slash
+    if (/\s+x\s+/i.test(bare)) return false;      // hybrid without the suffix
+    return true;
+  }
+
+  // The key these two lists dedup on. ONE CHECKLIST CAN HOLD TWO RARE BIRDS,
+  // and keying on the checklist alone deleted every rarity on it but the first.
+  //
+  // Reported 2026-08-24: *"franklin gull is missing from twitches"* — one Jetty
+  // Island checklist carried Marbled Godwit AND Franklin's Gull, so the Godwit
+  // rendered and the Gull vanished. Then, sharper: *"did it filter out a bunch
+  // of birds?"* It did. MEASURED over the live Washington notable feed:
+  //     2026-08-23   252 rows -> 140 kept on subId, 187 on subId+species  (47 lost)
+  //     seven days   112 rows deleted in total
+  // and on 2026-08-24 two species — Black-throated Gray Warbler and Bonaparte's
+  // Gull — disappeared from the section ENTIRELY.
+  //
+  // The stated intent was never this. report.py says it plainly: "Same rarity
+  // often appears in multiple notable feeds (king + geo); dedup on checklist id
+  // so we don't double-print the same sighting." The SAME rarity — so the key
+  // is the checklist AND the species. On the checklist alone it also collapses
+  // DIFFERENT species, which is pure loss.
+  //
+  // This is the key mergeSnapshot already uses (see obsKey), so cross-feed
+  // duplicates are in fact removed before these lists ever run; keying on the
+  // checklist alone was doing nothing but harm.
+  function obsDedupKey(r) {
+    if (!r) return '';
+    var sub = r.subId || '';
+    if (!sub) return '';
+    return sub + ':' + (r.code || r.speciesCode || '');
+  }
+
   function notableRecent(records, nowMs, hours) {
     var now = isFinite(nowMs) ? nowMs : Date.now();
     var span = (isFinite(hours) ? hours : NOTABLE_WINDOW_H) * 3600000;
@@ -990,7 +1087,7 @@
       // The grace applies only to the OLD edge. A future-dated row is a clock
       // problem, not a long walk, and widening that side would let one in.
       if (age > span + grace || age < -span) return;
-      var sub = r.subId;
+      var sub = obsDedupKey(r);
       if (sub && seenSubs[sub]) return;
       if (sub) seenSubs[sub] = 1;
       out.push(r);
@@ -1008,7 +1105,7 @@
     (records || []).forEach(function (r) {
       if (r.kind !== 'Rarity') return;
       if (dayStr(r.dateStr) !== snapshotDate) return;
-      var sub = r.subId;
+      var sub = obsDedupKey(r);
       if (sub && seenSubs[sub]) return;
       if (sub) seenSubs[sub] = 1;
       out.push(r);
@@ -1519,7 +1616,7 @@
   // (subId, speciesCode). Rows are raw eBird objs (speciesCode, subId, obsDt,
   // comName) — same shape the report reads from snapshot feeds.
   function todBuildHours(rows) {
-    var hours = {}, names = {}, seen = {};
+    var hours = {}, names = {}, seen = {}, checklists = {};
     (rows || []).forEach(function (o) {
       var code = o.speciesCode, sub = o.subId, dt = (o.obsDt || '').toString();
       if (!code || !sub || dt.length < 13) return;
@@ -1529,9 +1626,17 @@
       if (!(hh >= 0 && hh <= 23)) return;
       seen[key] = 1;
       (hours[code] = hours[code] || []).push(hh);
+      // ONE HOUR PER CHECKLIST — the baseline a species must be compared
+      // against. `obsDt` carries the checklist's START, so every species on a
+      // list shares its hour; counting per RECORD instead weights the baseline
+      // by how species-rich each checklist was, which is not a fact about when
+      // birding happens. See todSpecialists.
+      checklists[sub] = hh;
       if (names[code] == null && o.comName) names[code] = o.comName;
     });
-    return { hours: hours, names: names };
+    var ch = [];
+    Object.keys(checklists).forEach(function (s) { ch.push(checklists[s]); });
+    return { hours: hours, names: names, checklistHours: ch };
   }
 
   function todProfile(hs) {
@@ -1544,21 +1649,94 @@
     return { n: n, early_pct: early / n, late_pct: late / n, median_hour: median, min_hour: srt[0], max_hour: srt[n - 1] };
   }
 
-  function todSpecialists(hours, names, minObs) {
+  // A BIRD SEEN AT ALL TIMES IS NOT A SPECIALIST, however common it is.
+  //
+  // Reported three times, most recently 2026-08-24 with a screenshot of the
+  // Dusk/night list reading American Crow 93%, Song Sparrow 88%, Mallard 84%,
+  // Black-capped Chickadee 81% — no owls — and then the diagnosis, in the
+  // owner's own words: *"is it accounting for birds seen at all times"* and
+  // *"crows are excessively common"*. That is exactly the flaw.
+  //
+  // TWO FAULTS, and the second is arithmetic rather than a threshold.
+  //
+  // 1. THE BAR WAS ABSOLUTE. The section's own verdict line reported "BASELINE
+  //    after 19:00 is 27% · bar is 30% absolute" — a three-point margin over
+  //    chance, so "dusk specialist" meant little more than "common bird". No
+  //    constant can be right here: the number to beat is whatever the sample's
+  //    own base rate happens to be that day.
+  //
+  // 2. THE BASELINE WAS ON THE WRONG UNIT, which is what let a crow reach 93%
+  //    against a 27% baseline at all. MEASURED against the live historic feeds
+  //    2026-08-24: `obsDt` carries the CHECKLIST START time, so every species
+  //    on a checklist is stamped with the same hour — the printed histogram is
+  //    literally a histogram of checklist start hours. A species' numerator is
+  //    therefore ONE HOUR PER CHECKLIST, while the old baseline counted every
+  //    RECORD. A species-rich midday checklist contributes sixty records and a
+  //    species-poor evening one contributes three, so the record-weighted
+  //    baseline skews to daylight while a ubiquitous bird's own distribution
+  //    follows the checklists. The two were never comparable.
+  //
+  // So: compare like with like (one hour per checklist on BOTH sides), and
+  // score a LIFT rather than a share. A lift is self-normalising — if the
+  // sample is evening-heavy, numerator and denominator move together — which
+  // is the property an absolute bar can never have.
+  //
+  // A bird seen at all hours now scores ~1.0x BY CONSTRUCTION and cannot
+  // appear, no matter how common. A true dusk bird is seen ONLY late, so its
+  // share is near 1.0 against a baseline well below it.
+  function todBaseline(src) {
+    // Accepts the CHECKLIST hour list (correct) or, as a fallback for callers
+    // that only kept the per-species map, that map flattened. The fallback is
+    // weaker on purpose and is why todBuildHours now returns checklistHours:
+    // flattening the map weights the baseline by how species-rich each
+    // checklist was, which is not a fact about when birding happens.
+    var all = [];
+    if (Array.isArray(src)) {
+      all = src;
+    } else {
+      Object.keys(src || {}).forEach(function (code) {
+        (src[code] || []).forEach(function (hh) { all.push(hh); });
+      });
+    }
+    var early = 0, late = 0, n = all.length;
+    for (var i = 0; i < n; i++) {
+      if (all[i] < CONST.TOD_DAWN_END) early++;
+      if (all[i] >= CONST.TOD_DUSK_START) late++;
+    }
+    if (!n) return { n: 0, early: 0, late: 0 };
+    return { n: n, early: early / n, late: late / n };
+  }
+
+  function todSpecialists(hours, names, minObs, opts) {
     minObs = minObs == null ? CONST.TOD_MIN_OBS : minObs;
+    opts = opts || {};
+    var base = opts.baseline
+      || todBaseline(opts.checklistHours || hours);
+    var minLift = opts.minLift == null ? CONST.TOD_MIN_LIFT : opts.minLift;
     var dawn = [], night = [];
     Object.keys(hours).forEach(function (code) {
       var p = todProfile(hours[code]);
       if (p.n < minObs) return;
+      // A baseline of zero cannot divide. It also cannot be argued with: if
+      // nothing in the sample is late, no bird in it is a dusk specialist.
+      var lateLift = base.late > 0 ? (p.late_pct / base.late) : 0;
+      var earlyLift = base.early > 0 ? (p.early_pct / base.early) : 0;
       var e = { code: code, name: (names[code] != null ? names[code] : code), n: p.n,
         early_pct: p.early_pct, late_pct: p.late_pct, median_hour: p.median_hour,
-        min_hour: p.min_hour, max_hour: p.max_hour };
-      if (p.early_pct >= CONST.TOD_DAWN_TH) dawn.push(e);
-      if (p.late_pct >= CONST.TOD_NIGHT_TH) night.push(e);
+        min_hour: p.min_hour, max_hour: p.max_hour,
+        early_lift: earlyLift, late_lift: lateLift,
+        base_early: base.early, base_late: base.late };
+      // BOTH gates. The lift says "unusual for this sample"; the absolute floor
+      // stops a bird qualifying on a lift over a near-zero baseline while
+      // barely being late at all.
+      if (p.early_pct >= CONST.TOD_DAWN_TH && earlyLift >= minLift) dawn.push(e);
+      if (p.late_pct >= CONST.TOD_NIGHT_TH && lateLift >= minLift) night.push(e);
     });
-    dawn.sort(function (a, b) { return (b.early_pct - a.early_pct) || (b.n - a.n); });
-    night.sort(function (a, b) { return (b.late_pct - a.late_pct) || (b.n - a.n); });
-    return { dawn: dawn, night: night };
+    // Sorted by LIFT, so the most distinctive bird leads rather than the most
+    // frequently reported one.
+    dawn.sort(function (a, b) { return (b.early_lift - a.early_lift) || (b.n - a.n); });
+    night.sort(function (a, b) { return (b.late_lift - a.late_lift) || (b.n - a.n); });
+    return { dawn: dawn, night: night, baseline: base };
   }
 
   // ---- rolling hotspot history (mirror report.update_hotspot_history) ------
@@ -3560,6 +3738,10 @@
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    // Exported so "is this a tick at all?" can be tested against the real
+    // taxonomy rather than against the two rows that prompted it.
+    countableTaxon: countableTaxon,
+    obsDedupKey: obsDedupKey,
     // Exported so the three-state rule can be tested directly — in particular
     // that ABSENT fields stay 'unknown' rather than defaulting to confirmed,
     // which is the one way this could tell the user something untrue.
