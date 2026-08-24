@@ -2066,7 +2066,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.28.3';
+      var APP_VERSION = '1.28.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -12814,6 +12814,23 @@
   // do not fit at 320px, and "avoid wrapping" was the explicit requirement — so
   // the shortest window that has an answer wins, which is also the freshest
   // news. The period is labelled because "▲5" alone cannot say over what.
+  //
+  // THE LABEL USED TO LIE, which is why it drew the question *"what does 1d
+  // mean?"*. It printed the WINDOW's name ('1d'), not the distance actually
+  // measured. `prior` is the newest snapshot at or before the cutoff, so if the
+  // app has not been opened for a while there may be no recent snapshot to
+  // compare against: MEASURED with snapshots on 2026-08-01 and 2026-08-24, the
+  // 'day' window matches the 23-day-old row and returns places=3 with
+  // spanDays=23 — and the row rendered "▲3 1d". Three places in one day and
+  // three places in three weeks are very different claims about form.
+  //
+  // `spanDays` already carried the truth and was simply never displayed. So the
+  // window stays as the SELECTION rule (prefer the freshest news) and the label
+  // reports the span that was really measured.
+  //
+  // "in 23d" rather than "23d": a bare duration next to a number reads as two
+  // numbers, and the preposition is what makes it a sentence — "up 3 places in
+  // 23 days". It is two characters more and it still fits at 320px.
   function boardMoveHTML(deltas) {
     if (!deltas) return '<span class="mv"></span>';
     var order = BL.RANK_WINDOWS || [];
@@ -12821,11 +12838,14 @@
       var d = deltas[order[i].key];
       if (d && d.places) {
         var up = d.places > 0;
+        var n = Math.abs(d.places);
+        var span = d.spanDays || order[i].days;
         return '<span class="mv ' + (up ? 'up' : 'down') + '" title="'
-          + esc(Math.abs(d.places) + ' place' + (Math.abs(d.places) === 1 ? '' : 's')
-                + (up ? ' up' : ' down') + ' since ' + d.from) + '">'
-          + (up ? '▲' : '▼') + Math.abs(d.places)
-          + '<small>' + esc(order[i].label) + '</small></span>';
+          + esc(n + ' place' + (n === 1 ? '' : 's') + (up ? ' up' : ' down')
+                + ' in ' + span + ' day' + (span === 1 ? '' : 's')
+                + ', since ' + d.from) + '">'
+          + (up ? '▲' : '▼') + n
+          + '<small>in ' + span + 'd</small></span>';
       }
     }
     return '<span class="mv"></span>';
@@ -12869,11 +12889,20 @@
         // "no change": there is no answer yet, and inventing a zero would be
         // the one reading that is definitely wrong.
         var deltas = BL.rankDeltas(hist);
-        var recent = [];
+        var recent = [], seenSpan = {};
         (BL.RANK_WINDOWS || []).forEach(function (w) {
           var d = deltas[w.key];
           if (!d || !d.places) return;
-          recent.push(w.label + ' ' + (d.places > 0 ? '▲' : '▼') + rankNum(Math.abs(d.places)));
+          // The SPAN actually measured, not the window's name — same correction
+          // as boardMoveHTML. Here it also removes a duplicate: when the app has
+          // not been opened for a while, several windows resolve to the SAME
+          // prior snapshot, so the old code rendered "1d ▲3 · 7d ▲3" — one
+          // movement printed twice under two different and equally wrong
+          // labels.
+          var span = d.spanDays || w.days;
+          if (seenSpan[span]) return;
+          seenSpan[span] = 1;
+          recent.push(span + 'd ' + (d.places > 0 ? '▲' : '▼') + rankNum(Math.abs(d.places)));
         });
         var recentHtml = recent.length
           ? '<b class="dim rankwin">' + esc(recent.join(' · ')) + '</b>' : '';
@@ -17316,6 +17345,30 @@
       // The window "NEW" means, named once so the guard and the card cannot
       // disagree about it.
       var MY_YEAR_NEW_DAYS = 7;
+      // MIDNIGHT, not "this time N days ago" — and pulled out of the render so
+      // it can be tested as a PROPERTY rather than pinned as a line of source.
+      //
+      // `new Date()` carries the clock, so the cutoff was 15 Aug 22:02 while
+      // parseYearListDate returns 15 Aug 00:00, and a bird seen exactly seven
+      // days ago was NOT new, by twenty-two hours. Reported exactly that way:
+      // Cassin's Vireo (15 Aug) showed no NEW mark at 22:02 on 22 Aug while
+      // Horned Lark (17 Aug) did.
+      //
+      // Worse than wrong, it was wrong ACCORDING TO THE CLOCK — the same bird
+      // qualified in the morning and stopped qualifying that evening, which is
+      // unreproducible for anyone reading a screenshot later. A date-based
+      // window has to be decided on dates, or the answer depends on when you
+      // happen to look.
+      function myYearNewCutoff(now) {
+        var c = now == null ? new Date() : new Date(now);
+        c.setDate(c.getDate() - MY_YEAR_NEW_DAYS);
+        c.setHours(0, 0, 0, 0);
+        return c;
+      }
+      function myYearIsNew(dateStr, now) {
+        var d = parseYearListDate(dateStr);
+        return !!(d && d >= myYearNewCutoff(now));
+      }
       function parseYearListDate(s) {
         var m = /^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})$/.exec(String(s || '').trim());
         if (!m) return null;
@@ -17397,19 +17450,8 @@
         // the species code column and the layout audit that covers every other
         // list.
         list.className = 'obs big xl';
-        // MIDNIGHT, not "this time seven days ago". `new Date()` carries the
-        // clock, so the cutoff was 15 Aug 22:02 while parseYearListDate returns
-        // 15 Aug 00:00 — and a bird seen exactly seven days ago was therefore
-        // NOT new, by twenty-two hours.
-        //
-        // That is the reported case exactly: Cassin's Vireo on 15 Aug showed no
-        // NEW mark at 22:02 on 22 Aug, while Horned Lark on 17 Aug did. Worse
-        // than wrong, it was wrong ACCORDING TO THE CLOCK — the same bird
-        // qualified in the morning and stopped qualifying that evening, which
-        // is unreproducible for anyone reading a screenshot later.
-        var newCutoff = new Date();
-        newCutoff.setDate(newCutoff.getDate() - MY_YEAR_NEW_DAYS);
-        newCutoff.setHours(0, 0, 0, 0);
+        // The NEW window is decided by myYearIsNew (see MY_YEAR_NEW_DAYS) —
+        // dates compared as dates, never against the current clock.
         list.innerHTML = entries.map(function (e, i) {
           var where = String(e.loc || '').split('--')[0].trim();
           var whereHtml = where ? (e.locUrl ? extA(e.locUrl, where) : esc(where)) : '';
@@ -17424,8 +17466,7 @@
           // sit above the list restating rows already on screen. The mark says the
           // same thing where the reader already is, and it is the same tag every
           // other section uses for "this just happened".
-          var d = parseYearListDate(e.date);
-          var isNew = d && d >= newCutoff;
+          var isNew = myYearIsNew(e.date);
           // LARGE, on request. The large card was missing code, dist and conf,
           // so those were added to it first - switching size should not quietly
           // drop facts the reader had a moment ago.
@@ -20420,6 +20461,8 @@
         gbifFacetUsable: gbifFacetUsable,
         gbifFacetGet: gbifFacetGet, gbifFacetPut: gbifFacetPut,
         gbifCache: gbifCache,
+        myYearIsNew: myYearIsNew, MY_YEAR_NEW_DAYS: MY_YEAR_NEW_DAYS,
+        boardMoveHTML: boardMoveHTML,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,

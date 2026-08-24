@@ -8001,6 +8001,93 @@ test('a GBIF facet failure is never cached, and a poisoned device heals', async 
   app.window.close();
 });
 
+// "what does 1d mean?" — asked about a Top 100 row reading "▲3 1d".
+//
+// The honest answer was worse than "it is terse": the label printed the
+// WINDOW's name, not the distance actually measured. `prior` is the newest
+// snapshot at or before the cutoff, so if the app has not been opened for a
+// while there is no recent snapshot to compare against — and the row still
+// claimed "1d".
+//
+// MEASURED with snapshots on 2026-08-01 and 2026-08-24: the 'day' window
+// returns places=3 with spanDays=23, and the row rendered "▲3 1d". Three
+// places in a day and three in three weeks are different claims about form.
+test('a rank move reports the span it actually measured, not the window name', async () => {
+  const app = await boot();
+  const w = app.window, A = w.__app;
+
+  // Two snapshots three weeks apart: every window resolves to the same prior.
+  const hist = [{ d: '2026-08-01', rank: 40, species: 200 },
+                { d: '2026-08-24', rank: 37, species: 210 }];
+  const deltas = w.BirdLogic.rankDeltas(hist, Date.parse('2026-08-24T12:00:00'));
+  assert.equal(deltas.day.spanDays, 23,
+    'the day window really did match a 23-day-old snapshot');
+
+  const html = A.boardMoveHTML(deltas);
+  assert.match(html, /23d/, 'the row states the span it measured');
+  assert.ok(!/>1d</.test(html) && !/\b1d</.test(html),
+    'and never claims a window it did not measure: ' + html);
+  assert.match(html, /▲3/, 'three places up');
+  // A duration next to a number reads as two numbers; the preposition is what
+  // makes it a sentence.
+  assert.match(html, /in 23d/, 'reads as "up 3 places in 23 days"');
+  // The title carries the long form AND the date, so the claim is checkable.
+  assert.match(html, /title="[^"]*23 days[^"]*2026-08-01/,
+    'the tooltip states the span in words and the date it started from');
+
+  // A genuine one-day move still says 1d, or the fix would just be a rename.
+  const dayHist = [{ d: '2026-08-23', rank: 40 }, { d: '2026-08-24', rank: 38 }];
+  const d2 = w.BirdLogic.rankDeltas(dayHist, Date.parse('2026-08-24T12:00:00'));
+  assert.match(A.boardMoveHTML(d2), /in 1d/,
+    'a real one-day move still reports one day');
+
+  // Direction is a SHAPE (▲/▼) as well as a colour, and the two colours are
+  // Okabe-Ito blue vs vermillion rather than green vs red.
+  const down = w.BirdLogic.rankDeltas(
+    [{ d: '2026-08-23', rank: 30 }, { d: '2026-08-24', rank: 34 }],
+    Date.parse('2026-08-24T12:00:00'));
+  assert.match(A.boardMoveHTML(down), /▼4/, 'a drop is a different glyph, not just a colour');
+  app.window.close();
+});
+
+// "why is Cassin's Vireo not marked NEW?" — 210 Baird's Sandpiper (17 Aug) and
+// 209 Horned Lark carried NEW; 208 Cassin's Vireo (15 Aug) did not, read at
+// 22:02 on 22 Aug.
+//
+// It was a real defect, and the shape of it is the point: the cutoff carried
+// the CLOCK (22:02) while a parsed list date is midnight, so a bird seen
+// exactly seven days ago missed by twenty-two hours. The same bird qualified
+// that morning and stopped qualifying that evening — an answer that depends on
+// when you happen to look is not reproducible from a screenshot.
+test('the My-year NEW window is decided by dates, never by the time of day', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const N = A.MY_YEAR_NEW_DAYS;
+  assert.ok(N > 0, 'the window is a real number of days');
+
+  // The reported case: read late in the evening, exactly N days after the bird.
+  const evening = new Date(2026, 7, 22, 22, 2, 0).getTime();  // 22 Aug 22:02
+  assert.equal(A.myYearIsNew('15 Aug 2026', evening), true,
+    'a bird seen exactly ' + N + ' days ago is NEW even when read at 22:02');
+  assert.equal(A.myYearIsNew('17 Aug 2026', evening), true,
+    'and so is a more recent one');
+
+  // THE PROPERTY: the answer must not move with the clock. Same date, same
+  // bird, every hour of the day.
+  for (let h = 0; h < 24; h++) {
+    const t = new Date(2026, 7, 22, h, 30, 0).getTime();
+    assert.equal(A.myYearIsNew('15 Aug 2026', t), true,
+      'NEW changed at ' + h + ':30 — the window is reading the clock again');
+  }
+
+  // ...and the window still has an edge, or it would mark everything.
+  assert.equal(A.myYearIsNew('14 Aug 2026', evening), false,
+    'one day past the window is not NEW');
+  assert.equal(A.myYearIsNew('', evening), false, 'no date is not NEW');
+  assert.equal(A.myYearIsNew('not a date', evening), false, 'an unparsable date is not NEW');
+  app.window.close();
+});
+
 // The generalised form of the bug behind "it doesn't seem to be using the
 // medium hotspot card". A card of one family rendered inside a container that
 // claims a DIFFERENT family gets the other family's geometry, because
