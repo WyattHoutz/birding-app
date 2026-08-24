@@ -7860,6 +7860,75 @@ test('Today\u2019s rarities: the icon and the name open the checklist', async ()
   app.window.close();
 });
 
+// "indicate whether a rare bird is confirmed on twitch. its in the aba feeds"
+// (owner, 2026-08-23).
+//
+// A render probe rather than a source regex, because the risk is that the badge
+// says the WRONG THING, and the specific way it could is invisible to a search
+// over source text: `valid` folds an ABSENT field into `true`, so the obvious
+// implementation prints "Confirmed" for every row of the scraped ABA alert,
+// which carries no review fields at all.
+test('a rarity says whether it is confirmed, and never guesses', async () => {
+  const app = await boot();
+  const w = app.window, A = w.__app;
+
+  const conf = A.reviewFlag({ reviewState: 'confirmed' });
+  const pend = A.reviewFlag({ reviewState: 'pending' });
+
+  // 1. THE WORD IS THERE, not just a colour and not just a glyph. The owner is
+  //    red-green colour blind, so the text is the channel that must carry it.
+  assert.match(conf, /Confirmed/, 'a confirmed rarity says so in words');
+  assert.match(pend, /Unreviewed/, 'an unreviewed one says so in words');
+
+  // 2. ...and the two are distinguishable with NO colour at all: different
+  //    words and different glyph shapes (check vs triangle).
+  assert.ok(conf.includes('\u2713'), 'confirmed carries the check mark');
+  assert.ok(pend.includes('\u26a0'), 'pending carries the warning triangle');
+  assert.notEqual(conf.replace(/<[^>]*>/g, '').trim(),
+                  pend.replace(/<[^>]*>/g, '').trim(),
+                  'the two states must not read identically without colour');
+
+  // 3. THE ONE THAT WOULD TELL THE USER SOMETHING UNTRUE.
+  assert.equal(A.reviewFlag({ reviewState: 'unknown' }), '',
+    'a row with no review fields claims nothing');
+  assert.equal(A.reviewFlag({}), '', 'and neither does an empty row');
+  assert.equal(A.reviewFlag({ comName: 'Ruff', subId: 'S1' }), '',
+    'an ABA-alert row carries no review fields and must not claim "Confirmed"');
+
+  // 4. The legacy shape still works: rows built before this change carry
+  //    `valid` and no reviewState.
+  assert.match(A.reviewFlag({ valid: false }), /Unreviewed/,
+    'a legacy row with valid=false still reports as unreviewed');
+
+  // 5. It really reaches the screen — the badge must survive into a rendered
+  //    card, not merely exist as a string.
+  const doc = w.document;
+  const host = doc.createElement('ul');
+  host.className = 'obs big xl';
+  host.innerHTML = w.SpeciesCards.medium({
+    icon: '', name: 'Elegant Tern', tags: '',
+    sub: '<span class="meta">' + pend + '</span>',
+  });
+  doc.body.appendChild(host);
+  const pill = host.querySelector('.revpend');
+  assert.ok(pill, 'the pending badge renders inside a real card');
+  assert.match(pill.textContent, /Unreviewed/);
+  // A pill is ONE token; a two-word badge that breaks across lines renders as
+  // half a badge. The same rule .stakeflag already follows.
+  const cs = w.getComputedStyle(pill);
+  assert.equal(cs.whiteSpace, 'nowrap', 'the badge cannot break in half');
+  assert.equal(cs.display, 'inline-block',
+    'so its padding is not split at a line break');
+
+  // 6. Both twitch sections use it, rather than one of them keeping a
+  //    hand-rolled lookalike — which is how these two drifted before.
+  assert.match(HTML, /var warn = reviewFlag\(r\);/,
+    'Twitches today renders review status through the shared helper');
+  assert.match(HTML, /var warn = reviewFlag\(r\.closest\);/,
+    'and so does Twitches this week');
+  app.window.close();
+});
+
 // The generalised form of the bug behind "it doesn't seem to be using the
 // medium hotspot card". A card of one family rendered inside a container that
 // claims a DIFFERENT family gets the other family's geometry, because

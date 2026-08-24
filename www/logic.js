@@ -427,6 +427,25 @@
     return r.obsId || ((r.subId || '') + ':' + (r.speciesCode || ''));
   }
 
+  // 'confirmed' | 'pending' | 'unknown' — three states, because ABSENCE is a
+  // real answer and must stay distinct from both others. A feed that never
+  // carried these fields (the scraped ABA alert) knows nothing about review
+  // status, and printing either badge there would be inventing a fact.
+  //
+  // reviewed-and-rejected is folded into 'pending' deliberately. It does not
+  // occur in a public feed — measured at 0 of 1,053 live WA notable rows,
+  // because eBird withholds rejected records — so giving it its own UI state
+  // would add a branch nobody can ever see or test. If eBird ever did start
+  // emitting it, "not confirmed" is the safe reading: this function may fail
+  // towards withholding a confirmation, never towards inventing one.
+  function reviewState(r) {
+    if (!r) return 'unknown';
+    var rev = r.obsReviewed, val = r.obsValid;
+    if (rev == null && val == null) return 'unknown';
+    if (rev == null) return val ? 'confirmed' : 'pending';
+    return (rev && val) ? 'confirmed' : 'pending';
+  }
+
   function mergeSnapshot(feeds) {
     var order = [];        // encounter order of obsIds (parity with dict insertion)
     var byObs = {};        // obsId -> merged raw row + sources
@@ -474,6 +493,26 @@
         observer: r.userDisplayName || '',
         subId: r.subId || '',
         valid: r.obsValid == null ? true : !!r.obsValid,
+        // Has a reviewer ACCEPTED this record, or has nobody looked yet?
+        //
+        // `valid` above cannot answer that and must not be made to: it folds an
+        // ABSENT field into `true`, which is correct for its job (assume a
+        // record stands unless eBird says otherwise) and wrong for a badge —
+        // it would print "Confirmed" on any row whose feed never carried the
+        // field at all, such as the scraped ABA alert. Inventing a confirmation
+        // is worse than showing none.
+        //
+        // MEASURED 2026-08-23 over 1,053 live WA notable rows: obsReviewed and
+        // obsValid are perfectly correlated — 811 (77%) reviewed+valid, 242
+        // (23%) unreviewed+invalid, and NOTHING reviewed-and-rejected, because
+        // eBird drops rejected records from public feeds. So obsValid=false
+        // does NOT mean "a reviewer threw this out"; it means "nobody has
+        // looked yet", which is the normal state of the freshest and most
+        // chaseable rarity on the list. The old UI stamped a bare warning
+        // triangle on exactly those 23%, implying doubt about the bird.
+        //
+        // Present on every feed including detail=simple, so this costs nothing.
+        reviewState: reviewState(r),
         location_private: !!r.locationPrivate,
         // Evidence attached to the observation, straight off the notable feed
         // — no checklist lookup, so this costs NOTHING. 'P' photo, 'A' audio,
@@ -3521,6 +3560,10 @@
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    // Exported so the three-state rule can be tested directly — in particular
+    // that ABSENT fields stay 'unknown' rather than defaulting to confirmed,
+    // which is the one way this could tell the user something untrue.
+    reviewState: reviewState,
     // The busy-hotspot lane's thresholds, exported so a guard can size its
     // fixture from the RULE instead of pinning a literal. Two guards were
     // built around "three independent birders" and went stale the moment the

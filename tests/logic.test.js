@@ -1357,7 +1357,52 @@ test('a celebrity bird needs 4 independent sightings at ONE place, in range', ()
     'two pins you could walk between were treated as two different birds');
 });
 
-// ── N PARTIES, NOT N PEOPLE ───────────────────────────────────────────────
+// ── IS THIS RARITY CONFIRMED? ─────────────────────────────────────────────
+// Owner, 2026-08-23: "indicate whether a rare bird is confirmed on twitch.
+// its in the aba feeds".
+//
+// The state that matters most here is the THIRD one. `valid` folds an absent
+// field into `true`, which is right for its own job and catastrophic for a
+// badge: it would print "Confirmed" for a row whose feed never carried the
+// field, which is every row of the scraped ABA alert.
+test('review status is three states, and an absent field is never "confirmed"', () => {
+  assert.equal(BL.reviewState({ obsReviewed: true, obsValid: true }), 'confirmed');
+  assert.equal(BL.reviewState({ obsReviewed: false, obsValid: false }), 'pending');
+
+  // THE ONE THAT COULD TELL THE USER SOMETHING UNTRUE.
+  assert.equal(BL.reviewState({}), 'unknown',
+    'a feed that never carried the fields knows nothing — it must not claim confirmed');
+  assert.equal(BL.reviewState({ comName: 'Ruff', subId: 'S1' }), 'unknown',
+    'an ABA-alert row carries no review fields and must stay unknown');
+  assert.equal(BL.reviewState(null), 'unknown');
+
+  // Fails towards WITHHOLDING a confirmation, never towards inventing one.
+  // This pair does not occur in a public feed (0 of 1,053 measured), but if
+  // eBird ever emits it, "not confirmed" is the only safe reading.
+  assert.equal(BL.reviewState({ obsReviewed: true, obsValid: false }), 'pending',
+    'reviewed-and-rejected must never read as confirmed');
+
+  // Only one field present: believe it rather than guessing the other.
+  assert.equal(BL.reviewState({ obsValid: true }), 'confirmed');
+  assert.equal(BL.reviewState({ obsValid: false }), 'pending');
+});
+
+test('the merged projection carries review status onto every row', () => {
+  const rows = BL.mergeSnapshot([{ kind: 'notable', src: 'N', rows: [
+    { speciesCode: 'ruff', comName: 'Ruff', locId: 'L1', locName: 'Spot',
+      obsDt: '2026-08-23 08:00', subId: 'S1', lat: 47, lng: -122,
+      obsReviewed: true, obsValid: true },
+    { speciesCode: 'eleter', comName: 'Elegant Tern', locId: 'L2', locName: 'Marina',
+      obsDt: '2026-08-23 09:00', subId: 'S2', lat: 47, lng: -122,
+      obsReviewed: false, obsValid: false },
+  ] }]);
+  const by = {};
+  rows.forEach((r) => { by[r.code] = r; });
+  assert.equal(by.ruff.reviewState, 'confirmed');
+  assert.equal(by.eleter.reviewState, 'pending');
+  // ...and the older flag keeps its own meaning, so nothing downstream shifts.
+  assert.equal(by.eleter.valid, false);
+});
 // "maybe reduce the number of required uniq observers. Maybe 3 uniq
 // observations at the same hotspot, so long as it is not a convoy"
 //

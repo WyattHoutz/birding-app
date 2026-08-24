@@ -1296,6 +1296,20 @@
     .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: #0f7a52;
                  background: color-mix(in srgb, #0f7a52 14%, transparent);
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
+    /* Review status. NEVER colour alone: each pill carries a distinct GLYPH
+       shape (check vs triangle) AND the word itself, so the meaning survives
+       with no colour perception at all — the colour is the third channel, not
+       the first.
+       Hues are Okabe-Ito, and the text variants are DARKENED on purpose: the
+       Q29 audit measured raw #E69F00 at 2.3:1 on white, which fails 4.5:1, so
+       the palette is used for the FILL while the text takes a darker variant
+       of the same hue (#8a5a00 measures 13.8:1). #0072B2 passes at 5.2:1 and
+       is used as-is. Deliberately not green-vs-red. */
+    .revok, .revpend { font-size: calc(12px * var(--s)); font-weight: 800;
+                 border-radius: 999px; padding: 2px 7px; margin-left: 4px;
+                 white-space: nowrap; display: inline-block; }
+    .revok   { color: #0072B2; background: color-mix(in srgb, #0072B2 12%, transparent); }
+    .revpend { color: #8a5a00; background: color-mix(in srgb, #E69F00 18%, transparent); }
     /* A pill is one token. `.stakeflag` already said so; these two did not, so
        a two-word pill could break across lines and render as half a badge.
        inline-block also stops the pill's padding being split at a line break,
@@ -2052,7 +2066,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.28.1';
+      var APP_VERSION = '1.28.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4930,7 +4944,7 @@
             var flock = (r.count != null && r.count !== '') ? '<span class="dim">×' + esc(r.count) + '</span>' : '';
             var n = days[stakeoutKey(r)] || 0;
             var stake = n >= 2 ? '<span class="stakeflag">📍 Day ' + n + '</span>' : '';
-            var warn = (r.valid === false) ? '<span class="dim" title="not yet reviewed">⚠️</span>' : '';
+            var warn = reviewFlag(r);
             // EVERYTHING except the bird's name lives on the second row.
             //
             // The header used to carry the name plus 🔍, ×count, 📍 Day N and
@@ -6792,6 +6806,35 @@
       // the list already spends colour on distance and the rarity badge, and a
       // third colour-only signal is one nobody decodes.
       function newRarityTag() { return '<span class="newflag">NEW</span>'; }
+
+      // "indicate whether a rare bird is confirmed on twitch. its in the aba
+      // feeds" (owner, 2026-08-23).
+      //
+      // THREE states, and the third one matters most. A row whose feed never
+      // carried the fields returns '' — saying nothing is the only honest
+      // answer there, and a badge that claimed "Confirmed" from no evidence
+      // would be the worst outcome of this change.
+      //
+      // The pending wording is chosen against the MEASUREMENT, not from the
+      // field name. 242 of 1,053 live WA notable rows are unreviewed, and the
+      // old UI stamped them with a bare ⚠️ — which reads as "this bird may not
+      // be real" when it actually means "nobody has got to it yet", the normal
+      // state of the freshest rarity on the list. It now says so in words, and
+      // the tooltip says it is not a doubt about the bird.
+      function reviewFlag(r) {
+        var s = r && r.reviewState;
+        if (!s) s = (r && r.valid === false) ? 'pending' : '';
+        if (s === 'confirmed') {
+          return '<span class="revok" title="a reviewer has accepted this record">'
+               + '\u2713 Confirmed</span>';
+        }
+        if (s === 'pending') {
+          return '<span class="revpend" title="nobody has reviewed this record yet '
+               + '\u2014 usual for a fresh rarity, and not a doubt about the bird">'
+               + '\u26a0\ufe0f Unreviewed</span>';
+        }
+        return '';
+      }
 
       var CHASE_NS = 'ebird_chase_v1:';
       // Set by the ↻ button and by pull-to-refresh, consumed by whichever
@@ -10713,8 +10756,7 @@
               ? esc(fmtDate(r.first)) + ' → ' + esc(fmtDate(r.latest)) : esc(fmtDate(r.latest));
             var stake = r.stakeDays >= 2
               ? '<span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
-            var warn = (r.closest && r.closest.valid === false)
-              ? '<span class="dim" title="not yet reviewed">⚠️</span>' : '';
+            var warn = reviewFlag(r.closest);
             var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name) + stake + warn;
             // This used to hand-roll a .name/.meta/.cklrows lookalike of the
             // medium card. That is the same drift Easy misses had before it was
@@ -20285,6 +20327,7 @@
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
+        reviewFlag: reviewFlag,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
