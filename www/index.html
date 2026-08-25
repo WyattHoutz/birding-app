@@ -1888,6 +1888,14 @@
       <label for="abaSid">ABA rare-bird alert code</label>
       <input id="abaSid" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="SN10489" />
       <p class="hint">eBird alert id for the “ABA Rarities” needs alert (default <code>SN10489</code>). Paste a regional RBA alert id to track a smaller area.</p>
+      <label for="bcProfileSel">Account profile</label>
+      <select id="bcProfileSel">
+        <option value="">Main</option>
+        <option value="2">Test 2</option>
+        <option value="3">Test 3</option>
+        <option value="4">Test 4</option>
+      </select>
+      <p class="hint">Keeps a <b>separate</b> eBird key, alert code, year list, favourites and rank history per profile, so several accounts can be tested on one phone. Switching reloads the app. Hotspot, GBIF and taxonomy caches are shared on purpose — they describe <i>places</i>, not you, and re-fetching them per profile would burn the API budget you are trying to test.</p>
       <div class="row" style="margin-top:8px">
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
@@ -2063,10 +2071,103 @@
   <script src="arrivals.js"></script>
   <script>
     (function () {
+      // ── F177: SEVERAL eBIRD ACCOUNTS ON ONE PHONE ───────────────────────
+      //
+      // "Id like a way to test multiple ebird accounts on my device… each has a
+      // separate api and web key. I'd prefer to use my same iphone."
+      //
+      // Every per-account fact this app holds is in localStorage in ONE
+      // WKWebView, so a profile is just a second namespace on the key. This
+      // shim SHADOWS the global `localStorage` for the whole app scope, which
+      // is why there are no call-site changes: all 192 existing
+      // localStorage.getItem/setItem calls resolve to this object instead.
+      // Editing 192 sites by hand is how one gets missed, and a missed one is a
+      // silent leak between accounts.
+      //
+      // DEFAULT-ISOLATE, EXPLICITLY SHARE — and the direction matters. Anything
+      // not on the share list is namespaced, so a key added later is isolated
+      // by default: forgetting one costs a redundant fetch, while the opposite
+      // default would leak one birder's data into another's list. The failure
+      // mode is chosen, not inherited.
+      //
+      // SHARED are facts about PLACES, not about a person: GBIF results, the
+      // hotspot index, the reference/taxonomy cache, checklist bodies, the
+      // public ABA archive. Sharing them is not a shortcut, it is the point —
+      // eBird runs at 0.37 calls/sec and the hotspot index alone is a measured
+      // 9.3-second call, so duplicating them per profile would triple the API
+      // cost of the very thing being tested. `bc_easyread` is shared too: text
+      // scale is about the reader's eyes, not the account.
+      //
+      // The pointer itself is NEVER namespaced, or switching could not find its
+      // way back. An empty profile means "no prefix", so every device that
+      // already has data keeps it and upgrades to profile 0 untouched.
+      var PROFILE_PTR = 'bc_profile';
+      var PROFILE_NS = 'bcp:';
+      var SHARED_KEYS = [
+        'ebird_gbif_v1',            // GBIF facts about boxes and counties
+        'ebird_hotspots_v2:',       // the hotspot index — a 9.3s call
+        'bc_ref:',                  // eBird reference/taxonomy cache
+        'ebird_birdinfo_v2',        // species blurbs and photos
+        'bc_ckl:',                  // checklist bodies: public documents
+        'ebird_ebirders_count_v1',  // a published statistic
+        'ebird_aba_archive_v1',     // the ABA alert archive
+        'bc_easyread'               // accessibility, not identity
+      ];
+      var _rawLS = window.localStorage;
+      function bcProfile() {
+        try { return (_rawLS.getItem(PROFILE_PTR) || '').trim(); } catch (e) { return ''; }
+      }
+      function bcShared(k) {
+        for (var i = 0; i < SHARED_KEYS.length; i++) {
+          var s = SHARED_KEYS[i];
+          if (k === s || k.indexOf(s) === 0) return true;
+        }
+        return false;
+      }
+      // app key -> storage key
+      function bcReal(k) {
+        var p = bcProfile();
+        if (!p || k === PROFILE_PTR || bcShared(k)) return k;
+        return PROFILE_NS + p + ':' + k;
+      }
+      // storage key -> app key, or null when it belongs to another profile.
+      // Enumeration has to be filtered as well as mapped, or scrubPersonalData
+      // would erase every profile at once instead of the one you are in.
+      function bcApp(sk) {
+        var p = bcProfile();
+        if (sk === PROFILE_PTR) return null;
+        if (!p) return sk.indexOf(PROFILE_NS) === 0 ? null : sk;
+        if (bcShared(sk)) return sk;
+        var pre = PROFILE_NS + p + ':';
+        return sk.indexOf(pre) === 0 ? sk.slice(pre.length) : null;
+      }
+      function bcVisibleKeys() {
+        var out = [];
+        for (var i = 0; i < _rawLS.length; i++) {
+          var a = bcApp(_rawLS.key(i));
+          if (a != null) out.push(a);
+        }
+        return out;
+      }
+      var localStorage = {
+        getItem: function (k) { return _rawLS.getItem(bcReal(k)); },
+        setItem: function (k, v) { return _rawLS.setItem(bcReal(k), v); },
+        removeItem: function (k) { return _rawLS.removeItem(bcReal(k)); },
+        key: function (i) { var ks = bcVisibleKeys(); return i < ks.length ? ks[i] : null; },
+        get length() { return bcVisibleKeys().length; }
+      };
+      // Switching is a RELOAD, not a re-render. Caches, in-memory indexes and
+      // the chase snapshot are all built from the previous account; repainting
+      // over them would show one birder's list under another's key.
+      function bcSetProfile(p) {
+        try { _rawLS.setItem(PROFILE_PTR, String(p == null ? '' : p).trim()); } catch (e) {}
+        try { window.location.reload(); } catch (e) {}
+      }
+
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.29.1';
+      var APP_VERSION = '1.30.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -19129,6 +19230,10 @@
       function loadSettings() {
         populateReportSelect();
         $('apiKey').value = getKey();
+        // F177. Read from the RAW store, not the shim: the pointer is the one
+        // key that must never be namespaced, or switching could not find its
+        // way back to the other profiles.
+        if ($('bcProfileSel')) $('bcProfileSel').value = bcProfile();
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
         if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
         if ($('sciNames')) $('sciNames').value = getSciNames() ? 'on' : 'off';
@@ -20009,8 +20114,7 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
-      $('iconicBtn').addEventListener('click', loadIconicSpots);
-      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
+      $('iconicBtn').addEventListener('click', loadIconicSpots);      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
       if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
@@ -20477,6 +20581,13 @@
           // pressed Save, undoing the default above.
           localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim());
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
+          // F177: switching profile is the LAST thing Save does, because it
+          // reloads. Everything above has to land in the profile being left,
+          // not the one being entered — otherwise pressing Save while switching
+          // would write this account's key into the other account's namespace,
+          // which is the one failure this feature must never have.
+          var wantP = $('bcProfileSel') ? ($('bcProfileSel').value || '') : bcProfile();
+          if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
           clearChaseCache();
           _autoLoaded = {};
           loadSettings();
@@ -20547,6 +20658,9 @@
         gbifFacetUsable: gbifFacetUsable,
         gbifFacetGet: gbifFacetGet, gbifFacetPut: gbifFacetPut,
         gbifCache: gbifCache,
+        bcProfile: bcProfile, bcSetProfile: bcSetProfile, bcReal: bcReal,
+        bcShared: bcShared, bcVisibleKeys: bcVisibleKeys,
+        BC_SHARED_KEYS: SHARED_KEYS, BC_PROFILE_PTR: PROFILE_PTR,
         myYearIsNew: myYearIsNew, MY_YEAR_NEW_DAYS: MY_YEAR_NEW_DAYS,
         boardMoveHTML: boardMoveHTML,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,

@@ -1512,6 +1512,61 @@ test('a bird seen at all hours is never a dusk specialist, however common', () =
     'the two units give different baselines — that difference WAS the bug');
 });
 
+// ── F124: ONE DEFINITION OF INDEPENDENCE, TWO READINGS ────────────────────
+// Q7/Q21 answered 2026-08-18: "id like to have one algorithm, not two" — and
+// the answer was NOT "make the two numbers match", because the owner gave the
+// reason they differ: "four observers... are a convoy, so they agreed to go, so
+// this can be a stronger observation than one person."
+//
+// The teeth here are that `count()` must REPRODUCE each section's own number.
+// A shared constant that nothing checks is decoration; this fails if either
+// section drifts away from the definition it claims to use.
+test('surge and the busy lane take different readings of ONE definition', () => {
+  // Four names, but two of them travelled together: A and B share two stops on
+  // the same day, which is the convoy rule. So: 4 names, 3 parties.
+  const day = '2026-08-20';
+  const at = (loc, who, sub) => ({
+    locId: loc, locName: loc, userDisplayName: who, subId: sub,
+    obsDt: day + ' 08:00', speciesCode: 'ruff', comName: 'Ruff',
+  });
+  const rows = [
+    at('L1', 'ann', 'S1'), at('L1', 'bob', 'S2'),
+    at('L1', 'cat', 'S3'), at('L1', 'dan', 'S4'),
+    // ...the second and third shared stops that make ann+bob one party.
+    at('L2', 'ann', 'S5'), at('L2', 'bob', 'S6'),
+    at('L3', 'ann', 'S7'), at('L3', 'bob', 'S8'),
+  ];
+
+  const attention = BL.INDEPENDENCE.count(rows, BL.INDEPENDENCE.ATTENTION);
+  const decision = BL.INDEPENDENCE.count(rows, BL.INDEPENDENCE.DECISION);
+
+  assert.equal(attention, 4,
+    'ATTENTION counts NAMES — a convoy of four is four people who cared');
+  assert.ok(decision < attention,
+    'DECISION counts PARTIES, so travelling together collapses');
+  assert.equal(decision, 3, 'ann and bob rode together: 4 names, 3 decisions');
+
+  // The two sections must take DIFFERENT readings, and both must come from the
+  // one definition — that is the whole of F124 in one assertion.
+  assert.equal(BL.SURGE_READING, BL.INDEPENDENCE.ATTENTION,
+    'surge asks "is this getting attention?"');
+  assert.equal(BL.CONVERGE_READING, BL.INDEPENDENCE.DECISION,
+    'the busy lane asks "did people independently choose this place?"');
+  assert.notEqual(BL.SURGE_READING, BL.CONVERGE_READING,
+    'they are deliberately different — that difference is the feature');
+
+  // ...and the identity half is genuinely SHARED, not two lookalikes.
+  assert.equal(typeof BL.INDEPENDENCE.who, 'function');
+  assert.equal(BL.INDEPENDENCE.who({ observer: 'Ann' }),
+               BL.INDEPENDENCE.who({ userDisplayName: 'ann' }),
+    'one identity function, case- and field-insensitive, for both readings');
+
+  // An anonymous row can never be collapsed into someone else's party.
+  const anon = BL.INDEPENDENCE.count(
+    [{ subId: 'X1' }, { subId: 'X2' }], BL.INDEPENDENCE.DECISION);
+  assert.equal(anon, 2, 'nameless rows stay distinct rather than merging');
+});
+
 // ── IS THIS RARITY CONFIRMED? ─────────────────────────────────────────────
 
 // Owner, 2026-08-23: "indicate whether a rare bird is confirmed on twitch.

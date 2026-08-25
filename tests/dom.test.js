@@ -7929,7 +7929,72 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   app.window.close();
 });
 
-// "iconic spots is empty. i thought we fixed this" — reported twice, on
+// F177: "Id like a way to test multiple ebird accounts on my device… each has a
+// separate api and web key. I'd prefer to use my same iphone."
+//
+// The design is DEFAULT-ISOLATE, EXPLICITLY SHARE, and the direction is the
+// whole safety argument: a key added later is namespaced automatically, so
+// forgetting one costs a redundant fetch — while the opposite default would
+// leak one birder's list into another's.
+test('two profiles cannot see each other, but still share the place caches', async () => {
+  const app = await boot();
+  const w = app.window, A = w.__app;
+  const raw = w.localStorage;   // the REAL store, not the app's shim
+
+  assert.equal(A.bcProfile(), '', 'an existing device starts on the unnamed profile');
+
+  // A per-account key and a shared one, written on the default profile.
+  A.bcSetProfile === undefined && assert.fail('profile switching is not wired');
+  raw.setItem(A.bcReal('ebird_api_key'), 'KEY-MAIN');
+  raw.setItem(A.bcReal('ebird_gbif_v1'), '{"shared":1}');
+
+  // ---- the mapping, without reloading the page -------------------------
+  assert.equal(A.bcReal('ebird_api_key'), 'ebird_api_key',
+    'the default profile is un-prefixed, so existing devices keep their data');
+
+  raw.setItem(A.BC_PROFILE_PTR, '2');
+  assert.equal(A.bcProfile(), '2');
+  assert.notEqual(A.bcReal('ebird_api_key'), 'ebird_api_key',
+    'a named profile namespaces the API key');
+  assert.equal(raw.getItem(A.bcReal('ebird_api_key')), null,
+    'THE POINT: profile 2 cannot see profile 1\u2019s eBird key');
+
+  // ...while the place caches are deliberately common ground.
+  assert.ok(A.bcShared('ebird_gbif_v1'), 'GBIF results are facts about places');
+  assert.ok(A.bcShared('ebird_hotspots_v2:US-WA'), 'so is the hotspot index');
+  assert.equal(A.bcReal('ebird_gbif_v1'), 'ebird_gbif_v1',
+    'a shared key is never namespaced');
+  assert.equal(raw.getItem(A.bcReal('ebird_gbif_v1')), '{"shared":1}',
+    'so profile 2 inherits the expensive caches rather than re-fetching them');
+
+  // The pointer itself must never be namespaced, or switching could not find
+  // its way back to the other profiles.
+  assert.equal(A.bcReal(A.BC_PROFILE_PTR), A.BC_PROFILE_PTR);
+
+  // DEFAULT-ISOLATE: a key nobody thought about is isolated, not leaked.
+  assert.ok(!A.bcShared('ebird_something_invented_later'));
+  assert.notEqual(A.bcReal('ebird_something_invented_later'),
+                  'ebird_something_invented_later');
+
+  // Enumeration is filtered as well as mapped, or scrubPersonalData would
+  // erase every profile at once instead of the one you are standing in.
+  raw.setItem(A.bcReal('ebird_seen'), '{}');
+  const vis = A.bcVisibleKeys();
+  assert.ok(vis.indexOf('ebird_seen') >= 0, 'own keys enumerate under their app name');
+  assert.ok(vis.indexOf(A.BC_PROFILE_PTR) < 0, 'the pointer is not part of any profile');
+  raw.setItem(A.BC_PROFILE_PTR, '');
+  assert.ok(A.bcVisibleKeys().indexOf('ebird_seen') >= 0,
+    'the default profile still sees its own copy');
+
+  // Every shared key must be a real one the app writes — a typo here would
+  // silently isolate an expensive cache instead of sharing it.
+  const src = HTML;
+  A.BC_SHARED_KEYS.forEach(function (k) {
+    assert.ok(src.indexOf(k) >= 0,
+      'shared key ' + k + ' does not appear in the app \u2014 typo?');
+  });
+  app.window.close();
+});
 // releases whose fix measured clean against live GBIF each time.
 //
 // It kept coming back because the fix and the failure live in different places:

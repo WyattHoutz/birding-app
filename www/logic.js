@@ -1176,6 +1176,54 @@
   }
   // Who filed it. Falls back to the checklist id so an anonymous row still
   // counts once instead of collapsing every anonymous report into one person.
+  // ── F124: ONE DEFINITION OF INDEPENDENCE, TWO READINGS ────────────────
+  //
+  // Q7 and Q21, both answered 2026-08-18: *"id like to have one algorithm, not
+  // two."* Settled — but NOT by forcing the two sections to produce the same
+  // number, because the owner supplied the reason they differ and it is a good
+  // one: *"four observers are more likely to spot something, and are a convoy,
+  // so they agreed to go, so this can be a stronger observation than one
+  // person."*
+  //
+  // So there is ONE identity function and TWO questions asked of it:
+  //
+  //   ATTENTION — "is this bird getting attention right now?" A convoy of four
+  //               is four people who cared, so this counts NAMES. Surge takes
+  //               this reading.
+  //   DECISION  — "did people independently choose to come here?" A carload is
+  //               ONE decision however many names it wears, so this counts
+  //               PARTIES. The busy-hotspot lane takes this reading.
+  //
+  // WHY THIS NEEDED WRITING DOWN. The two sections really did drift, and
+  // v1.28.0 widened the gap rather than closing it: `buildParties` was added to
+  // hotspotConvergence and not to surgeEvents, so one counted parties and the
+  // other counted names with nothing in the code saying that was deliberate. A
+  // difference nobody can see is indistinguishable from a bug — which is
+  // exactly how F124 was found in the first place, by the algorithm registry
+  // rather than by anyone reading the code.
+  //
+  // The readings are declared, not implied: each section names the one it takes
+  // and `count()` reproduces that section's own number, so the two can be
+  // compared by a guard instead of by eye.
+  var INDEPENDENCE = {
+    ATTENTION: 'attention',
+    DECISION: 'decision',
+    who: observerKey,
+    count: function (rows, reading) {
+      var party = (reading === 'decision') ? buildParties(rows) : null;
+      var seen = {}, n = 0;
+      (rows || []).forEach(function (r) {
+        if (!r) return;
+        var who = observerKey({ observer: r.userDisplayName || r.observer,
+                                subId: r.subId });
+        var k = party ? party(who) : who;
+        if (seen[k]) return;
+        seen[k] = 1; n++;
+      });
+      return n;
+    }
+  };
+
   function observerKey(rec) {
     var who = String((rec && (rec.observer || rec.userDisplayName)) || '').trim().toLowerCase();
     return who || ('sub:' + ((rec && rec.subId) || Math.random()));
@@ -3756,6 +3804,11 @@
     surgeEvents: surgeEvents,
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    // F124: one definition, two readings — each section declares which it
+    // takes, so the difference is a stated choice rather than an accident.
+    INDEPENDENCE: INDEPENDENCE,
+    SURGE_READING: INDEPENDENCE.ATTENTION,
+    CONVERGE_READING: INDEPENDENCE.DECISION,
     // Exported so "is this a tick at all?" can be tested against the real
     // taxonomy rather than against the two rows that prompted it.
     countableTaxon: countableTaxon,
