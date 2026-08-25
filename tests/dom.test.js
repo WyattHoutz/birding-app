@@ -15090,3 +15090,33 @@ test('the window display counts calls that have actually started', async () => {
     'and the display can never exceed the cap it is printed against');
   app.window.close();
 });
+// "searching for here or entering redmond doesnt seem to change results."
+//
+// Correct, and NOT a bug - which is why it needed saying rather than fixing.
+// The anchor recomputes every distance (measured on the device: Edmonds
+// Waterfront moved 11 mi from Home to 16 mi from Redmond, and the H pin moved)
+// but rerankFromAnchor sorts by SCORE first and uses distance only to break a
+// tie. A place that wins on merit wins from either anchor.
+//
+// The trap is that the Here / Home / Find… control implies proximity ranks, so
+// an unchanged order reads as a broken control. The section now says which
+// question it answered - the same rule that made "35 mi" a chip label rather
+// than a hidden threshold.
+test('the hotspot ranking says it is by value, not by distance', () => {
+  const start = HTML.indexOf('function rerankFromAnchor');
+  assert.ok(start > -1, 'rerankFromAnchor() should exist');
+  const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
+
+  // Score dominates; distance breaks ties. If that ever inverts, the status
+  // line below becomes a lie and this guard should be revisited with it.
+  assert.match(src, /if \(sx !== sy\) return sy - sx;/,
+    'score decides the order');
+  assert.match(src, /return dx - dy;/, 'and distance only breaks a tie');
+
+  // The status line must say so, because the anchor control implies otherwise.
+  const load = HTML.slice(HTML.indexOf('function loadDestinations'),
+    HTML.indexOf('\n      function ', HTML.indexOf('function loadDestinations') + 1));
+  assert.match(load, /best first, not nearest/,
+    'the section states its ranking basis, so an unchanged order after moving '
+    + 'the anchor reads as an answer rather than a dead control');
+});

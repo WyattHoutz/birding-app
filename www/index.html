@@ -11079,7 +11079,8 @@
           var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
           st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
-            + fromHere() + coverageNote(dests) + ' · updated ' + nowTime();
+            + fromHere() + ' · best first, not nearest' + coverageNote(dests)
+            + ' · updated ' + nowTime();
           // A SHORT LIST HERE IS AN ANSWER, NOT A FAULT - but only if it says
           // which question it answered. Reported as "top patches shows only two
           // options": both rows were 11 mi out and the section stops at the
