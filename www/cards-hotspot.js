@@ -56,14 +56,14 @@
   /* ---------------------------------------------------------------- markup */
 
   var SMALL = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{data}}>',
     '  <div class="name">{{marker}}<span class="ntext">{{name}}{{sub}}</span></div>',
     '  {{below}}',
     '</li>'
   ].join('\n');
 
   var MEDIUM = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{data}}>',
     '  <div class="name">{{marker}}<span class="ntext">{{name}}</span>{{dist}}</div>',
     '  <div class="meta">{{sub}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
@@ -73,7 +73,7 @@
   ].join('\n');
 
   var LARGE = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{data}}>',
     '  <div class="hscardhead">{{marker}}<span class="ntext">{{name}}</span></div>',
     '  <div class="meta">{{sub}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
@@ -212,8 +212,18 @@
        Pier & Olympic Beach") that wrap to two or three lines at that size. The
        sub-header steps down with it, 16 -> 15, so the name still outranks it by
        the same 1.2 ratio the species card uses; dropping the name alone would
-       have left the two nearly equal and cost the card its subject. */
-    '  font-size: calc(19px * var(--s)); font-weight: 700; line-height: 1.15;',
+       have left the two nearly equal and cost the card its subject.
+
+       F183, and the THIRD report of "font is too large" (26 -> 21 -> 19 -> and
+       still too big). TWO things were wrong, which is why shrinking the name
+       alone kept failing. The name is now 17px — the same size the medium
+       SPECIES card gives its subject, which is the only non-arbitrary target
+       available and is the comparison the paragraph above had already
+       identified without acting on. And the distance beside it was set at
+       24px/800 against a 19px name, so the NUMBER outranked the SUBJECT: a list
+       of places was being read as a list of mileages. See the distance rule
+       below. */
+    '  font-size: calc(17px * var(--s)); font-weight: 700; line-height: 1.15;',
     '  overflow-wrap: break-word; word-break: normal; hyphens: none; }',
     /* The sub-header spans ALL THREE columns on its own row, rather than
        sitting under the name in column 2. Row 1 is now three real cells —
@@ -224,15 +234,37 @@
        it was the first thing to wrap. */
     '.hscard-md > .meta {',
     '  grid-column: 1 / -1; grid-row: 2; align-self: start; min-width: 0;',
-    '  font-size: calc(15px * var(--s)); line-height: 1.35;',
+    /* Steps down WITH the name, 15 -> 14, keeping the >= 1.15 ranking the
+       guard enforces: 17/14 = 1.21. Moving the name alone took the ratio to
+       1.13 and the suite caught it, which is the whole point of pinning a
+       ratio rather than two sizes. */
+    '  font-size: calc(14px * var(--s)); line-height: 1.35;',
     '  font-weight: 500; color: var(--muted); }',
     /* The distance column. Big enough to scan down the edge of a list, and
        the unit is a caption on it rather than a second number — "8.0 mi" read
-       at one size makes the reader parse two tokens to get one value. */
+       at one size makes the reader parse two tokens to get one value.
+
+       F183: 17px, down from 24. At 24px/800 beside a 19px name the distance
+       was the largest thing on a hotspot card, so the number outranked the
+       place it described. It stays scannable by ALIGNMENT and WEIGHT — tabular
+       figures, weight 800, its own right-hand column — rather than by size,
+       which is what it should have been doing all along. It must never again
+       be set larger than `.ntext` above it; there is a guard. */
     '.hscard-md > .name > .hsdist {',
     '  grid-column: 3; grid-row: 1; align-self: start; justify-self: end;',
     '  text-align: right; white-space: nowrap;',
-    '  font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.1;',
+    /* A COLUMN, not just a right-aligned cell. Every card is an INDEPENDENT
+       grid, so nothing made column 3 the same width from one row to the next —
+       and "right-aligned inside its own card" is not "an aligned column",
+       which is the only reason to give distance a column at all. Reserving a
+       common minimum in `ch` (with tabular figures above, so 1ch is exactly one
+       digit) makes the numbers line up down the list at every text scale.
+       ⚠️ PARTIAL: this fixes cards within one list. The reported screenshot also
+       shows the near row and the "43 more places" rows disagreeing, and those
+       sit in DIFFERENT lists — the expander nests its own. That half is not yet
+       measured, so it is not yet claimed as fixed. */
+    '  min-width: 4ch;',
+    '  font-size: calc(17px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
     /* The linked distance keeps the column's typography and takes the accent
        colour to read as tappable; `.maplink`'s 8px top margin is undone
@@ -361,6 +393,30 @@
       + v.seen + '</details>';
   }
 
+  /* Data hooks on the card's own <li>. The checklist card already accepts
+     these; the hotspot card did not, which is why the Stakeout bird list could
+     ask for evidence icons and never receive any — `hydrateChecklistEvidence`
+     selects `[data-ev-sub]`, and no hotspot card could carry one.
+
+     Keys are restricted to the shape a data attribute may legally have, and
+     values are escaped, because unlike the rest of this file these DO carry
+     eBird strings (a place name travels in `ev-place`). */
+  function dataHtml(v) {
+    var d = v.data;
+    if (!d) return '';
+    var out = '';
+    for (var k in d) {
+      if (!Object.prototype.hasOwnProperty.call(d, k)) continue;
+      if (!/^[a-z][a-z0-9-]*$/.test(k)) continue;
+      var val = d[k];
+      if (val == null || val === '') continue;
+      out += ' data-' + k + '="' + String(val)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"';
+    }
+    return out;
+  }
+
   function build(tpl, v, cls) {
     v = v || {};
     // Only the medium card has a distance COLUMN. On small and large the
@@ -369,6 +425,7 @@
     var isMedium = (tpl === MEDIUM);
     return fill(tpl, {
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' '),
+      data: dataHtml(v),
       marker: markerHtml(v),
       name: v.name || '',
       sub: subHtml(v, tpl === SMALL, isMedium),

@@ -14523,3 +14523,95 @@ test('the Contents grid cannot crush a tile label', () => {
   assert.match(audit, /rows\.length > words \+ 1/,
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
+
+// F183. Reported for the third time as "font is too large" (26 -> 21 -> 19).
+// Shrinking the name alone kept failing because the name was not the only
+// thing wrong: the DISTANCE beside it was set at 24px/800 against a 19px name,
+// so the number outranked the subject and a list of places read as a list of
+// mileages.
+//
+// Asserts the RANKING, not the sizes, so a later restyle may move both as long
+// as the place still outranks its own mileage.
+test('a hotspot card is about the place, not the mileage', () => {
+  const src = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
+  const px = (selector) => {
+    const at = src.indexOf(selector);
+    assert.ok(at > -1, selector + ' should exist');
+    // Bounded by the NEXT rule, not a byte count: these rules carry long
+    // comments between the selector and its declarations, and a fixed window
+    // is the mistake F181's own guard had to be repaired for.
+    const next = src.indexOf("'.hscard", at + selector.length);
+    const block = src.slice(at, next > -1 ? next : src.length);
+    const m = /font-size:\s*calc\((\d+(?:\.\d+)?)px \* var\(--s\)\)/.exec(block);
+    assert.ok(m, selector + ' should set a scaled font-size');
+    return parseFloat(m[1]);
+  };
+  const name = px("'.hscard-md > .name > .ntext {'");
+  const dist = px("'.hscard-md > .name > .hsdist {'");
+  assert.ok(dist <= name,
+    'the distance (' + dist + 'px) must not be set larger than the place it '
+    + 'describes (' + name + 'px) - the number outranking the subject is why '
+    + 'three rounds of shrinking the name alone did not fix "font is too large"');
+
+  // It stays scannable by weight and alignment rather than by size, which is
+  // what makes shrinking it safe.
+  const distAt = src.indexOf("'.hscard-md > .name > .hsdist {'");
+  const distEnd = src.indexOf("'.hscard", distAt + 32);
+  const distRule = src.slice(distAt, distEnd > -1 ? distEnd : src.length);
+  assert.match(distRule, /font-weight:\s*800/,
+    'weight carries the distance now that size does not');
+  assert.match(distRule, /font-variant-numeric:\s*tabular-nums/,
+    'tabular figures are what let the column be compared down its length');
+  assert.match(distRule, /min-width:\s*\d+ch/,
+    'and a reserved minimum makes it a column rather than a right-aligned cell');
+});
+
+// F183. Four of the seven reports were about the SAME row, and three of them
+// were the row not saying what it knew: the place name carried the checklist
+// link, the time carried nothing, and the checklist id - already in hand at
+// the point the row was built - was never printed.
+//
+// The fourth is the interesting one. The row ALREADY asked for evidence icons
+// and always rendered none, so it read as a forgotten render. It was not:
+// hydrateChecklistEvidence selects `[data-ev-sub]`, and a hotspot card had no
+// way to carry a data attribute at all, so nothing could ever have filled it.
+test('a stakeout place row links the place, the time and its checklist id', () => {
+  const src = HTML.slice(HTML.indexOf('function spLookupRowsHtml'),
+    HTML.indexOf('\n      function ', HTML.indexOf('function spLookupRowsHtml') + 1));
+  assert.ok(src.length > 200, 'spLookupRowsHtml should be found and bounded');
+
+  // The place name stays in the app and opens Stake out a hotspot.
+  assert.match(src, /stakeHotspotLink\(p\.locId, where\)/,
+    'the place name opens the hotspot, not a checklist');
+  assert.doesNotMatch(src, /name:\s*\(href \? extA\(href, where\)/,
+    'the old name-carries-the-checklist-link form must not come back');
+
+  // The time is the only thing on the row that refers to a single visit.
+  assert.match(src, /whenHtml\s*=\s*\(whenTxt && c\.subId\)\s*\?\s*extA\(checklistUrl\(c\.subId\), whenTxt\)/,
+    'the time opens the checklist that reported the bird');
+
+  // The id you quote to another birder.
+  assert.match(src, /subHtml\s*=\s*c\.subId \? extA\(checklistUrl\(c\.subId\), c\.subId\)/,
+    'the checklist id is shown and linked');
+
+  // The hook without which the icons can never arrive.
+  assert.match(src, /'ev-sub':\s*c\.subId/, 'the row carries the evidence hook');
+  assert.match(src, /'ev-code':/, 'and the species it is a report of');
+});
+
+// The hotspot card could not carry a data attribute, which is why the hook
+// above had nowhere to live. Asserted on the shared card rather than on the
+// one caller, because the next section to need a hook should not have to
+// rediscover this.
+test('a hotspot card can carry data hooks, and escapes them', () => {
+  const src = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
+  assert.equal((src.match(/<li class="\{\{cls\}\}"\{\{data\}\}>/g) || []).length, 3,
+    'all three card sizes accept data hooks - small, medium and large');
+  assert.match(src, /function dataHtml/, 'and a builder fills them');
+  // A place name travels in ev-place, so unlike the rest of this file these
+  // values really do carry eBird strings.
+  const fn = src.slice(src.indexOf('function dataHtml'), src.indexOf('function build'));
+  assert.match(fn, /replace\(\/&\/g, '&amp;'\)/, 'values are escaped');
+  assert.match(fn, /replace\(\/"\/g, '&quot;'\)/, 'including the quote that would end the attribute');
+  assert.match(fn, /\^\[a-z\]\[a-z0-9-\]\*\$/, 'and the key is restricted to a legal attribute name');
+});
