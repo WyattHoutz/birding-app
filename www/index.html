@@ -130,21 +130,91 @@
          wash of the accent. */
       --band: #d3e5da;
       --shadow: 0 1px 3px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.04);
+      /* The warning amber, themed once. F138: `.warnbtn`, `.docbtn.hasnote`
+         and the caveat rule each hard-coded these with NO dark variant, so
+         they stayed dark amber on a dark card. */
+      --warn: #d97706;
+      --warn-ink: #b45309;
+      /* The live caveat inside the ℹ dialog. Themed, so an explicit dark
+         choice reaches it — it used to carry its own media query, which an
+         attribute-driven theme cannot trigger. */
+      --note-ink: var(--warn-ink);
+      --note-bg: #fffbeb;
+      --note-line: #fcd34d;
+
+      /* ---- The DARK palette, declared once ------------------------------
+         F138 needs three ways into dark: the system asking for it, the reader
+         explicitly choosing it, and neither (explicit light must win over a
+         dark system). CSS cannot share one declaration list between a media
+         query and an attribute selector, so the obvious shape duplicates every
+         hex — and a second copy of a colour is exactly the drift the palette
+         guard was just written to catch.
+         Declaring the values HERE and letting both entry points reference them
+         keeps one source of truth, and keeps every literal inside `:root`
+         where the guard can see it. */
+      --dark-bg: #0e1512;
+      --dark-card: #17201b;
+      --dark-ink: #eaf1ec;
+      --dark-muted: #9fb0a6;
+      --dark-accent: #37d391;
+      --dark-accent-deep: #14503a;
+      --dark-safe-blue: #56B4E9;
+      --dark-accent-ink: #06120c;
+      --dark-line: #26302a;
+      --dark-band: #273a30;
+      /* Easy read wants MORE contrast than the ordinary dark theme, which is
+         tuned for looks rather than legibility. */
+      --dark-a11y-muted: #d3e3d9;
+      --dark-a11y-line: #6a7d72;
+      --dark-a11y-band: #2f4a3c;
+      --dark-note-ink: #fcd34d;
+      --dark-warn: #fcd34d;
+      --dark-warn-ink: #fcd34d;
+      --dark-note-bg: #2a2313;
+      --dark-note-line: #6b5a1e;
     }
+    /* The dark palette applied. Two entry points, one set of values.
+       `html:not([data-theme="light"])` is what makes an explicit LIGHT choice
+       beat a dark system — without it, choosing Light would do nothing on a
+       phone in dark mode, which is precisely the setting someone reaches for
+       the picker to escape. */
     @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0e1512;
-        --card: #17201b;
-        --ink: #eaf1ec;
-        --muted: #9fb0a6;
-        --accent: #37d391;
-        --accent-deep: #14503a;
-    --safe-blue: #56B4E9;
-        --accent-ink: #06120c;
-        --line: #26302a;
-        --band: #273a30;
+      html:not([data-theme="light"]) {
+        --bg: var(--dark-bg);
+        --card: var(--dark-card);
+        --ink: var(--dark-ink);
+        --muted: var(--dark-muted);
+        --accent: var(--dark-accent);
+        --accent-deep: var(--dark-accent-deep);
+        --safe-blue: var(--dark-safe-blue);
+        --accent-ink: var(--dark-accent-ink);
+        --line: var(--dark-line);
+        --band: var(--dark-band);
+        --note-ink: var(--dark-note-ink);
+        --note-bg: var(--dark-note-bg);
+        --note-line: var(--dark-note-line);
+        --warn: var(--dark-warn);
+        --warn-ink: var(--dark-warn-ink);
         --shadow: none;
       }
+    }
+    html[data-theme="dark"] {
+      --bg: var(--dark-bg);
+      --card: var(--dark-card);
+      --ink: var(--dark-ink);
+      --muted: var(--dark-muted);
+      --accent: var(--dark-accent);
+      --accent-deep: var(--dark-accent-deep);
+      --safe-blue: var(--dark-safe-blue);
+      --accent-ink: var(--dark-accent-ink);
+      --line: var(--dark-line);
+      --band: var(--dark-band);
+      --note-ink: var(--dark-note-ink);
+      --note-bg: var(--dark-note-bg);
+      --note-line: var(--dark-note-line);
+      --warn: var(--dark-warn);
+      --warn-ink: var(--dark-warn-ink);
+      --shadow: none;
     }
     /* ---- F142 "Easy read" -------------------------------------------------
        Turned on from Settings. It COMPOSES with the text-size setting above and
@@ -162,7 +232,12 @@
       --band:  #c2dccd;
     }
     @media (prefers-color-scheme: dark) {
-      html[data-a11y="on"] { --muted: #d3e3d9; --line: #6a7d72; --band: #2f4a3c; }
+      html[data-a11y="on"]:not([data-theme="light"]) {
+        --muted: var(--dark-a11y-muted); --line: var(--dark-a11y-line); --band: var(--dark-a11y-band);
+      }
+    }
+    html[data-theme="dark"][data-a11y="on"] {
+      --muted: var(--dark-a11y-muted); --line: var(--dark-a11y-line); --band: var(--dark-a11y-band);
     }
     /* 44px minimum. A control that is hard to SEE is also hard to HIT, and a
        missed tap costs more than small text does. */
@@ -613,9 +688,9 @@
     .warnbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
                min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));
                padding: 0; margin-left: 6px; vertical-align: middle;
-               border-radius: 999px; border: 1px solid #d97706;
-               background: color-mix(in srgb, #d97706 14%, transparent); color: #b45309; }
-    .warnbtn[aria-expanded=true] { background: #d97706; color: #fff; border-color: transparent; }
+               border-radius: 999px; border: 1px solid var(--warn);
+               background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn-ink); }
+    .warnbtn[aria-expanded=true] { background: var(--warn); color: #fff; border-color: transparent; }
     #abaCapWarn[hidden] { display: none; }
     .sectiondoc { border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
                   padding: 12px 14px; margin: 10px 0 14px; }
@@ -625,15 +700,12 @@
        permanent yellow block above the results, which is what it used to be —
        taller than the first two rows of the answer it was qualifying. */
     .docnote { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
-               color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
+               color: var(--note-ink); background: var(--note-bg); border: 1px solid var(--note-line);
                font-weight: 700; font-size: calc(14px * var(--s)); }
-    @media (prefers-color-scheme: dark) {
-      .docnote { color: #fcd34d; background: #2a2313; border-color: #6b5a1e; }
-    }
     /* An explanation nobody knows is there is the same as no explanation, so
        the ℹ button MARKS ITSELF whenever a note is attached. */
-    .docbtn.hasnote { border-color: #d97706; color: #b45309; }
-    .docbtn.hasnote::after { content: "\2022"; color: #d97706; margin-left: 1px; }
+    .docbtn.hasnote { border-color: var(--warn); color: var(--warn-ink); }
+    .docbtn.hasnote::after { content: "\2022"; color: var(--warn); margin-left: 1px; }
     .doch { margin: 10px 0 4px; font-size: calc(11px * var(--s)); font-weight: 700;
             letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .doclist { margin: 0; padding-left: 18px; font-size: calc(13px * var(--s)); line-height: 1.45; }
@@ -1239,8 +1311,8 @@
        birds that fit". Styled like a warning rather than a caption because a
        hedge in muted grey under a confident list does not get read. */
     .capwarn { margin: 10px 0 14px; padding: 10px 12px; border-radius: 10px;
-               border-left: 4px solid #d97706; line-height: 1.45;
-               background: color-mix(in srgb, #d97706 12%, transparent);
+               border-left: 4px solid var(--warn); line-height: 1.45;
+               background: color-mix(in srgb, var(--warn) 12%, transparent);
                font-size: calc(14px * var(--s)); }
     .capwarn b { display: block; margin-bottom: 3px; font-size: calc(15px * var(--s)); }
     /* Favorites: a saved list you MAINTAIN, so every row carries its own
@@ -1991,6 +2063,14 @@
       </select>
       <p class="hint">Adds the Latin name to the bigger bird cards, in italics \u2014 <em>Setophaga nigrescens</em> under Black-throated Gray Warbler. The compact lists stay as they are.</p>
 
+      <label for="themeMode">Theme</label>
+      <select id="themeMode">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+      <p class="hint">System follows your phone. An explicit choice wins until you set it back &mdash; picking Light keeps the app light even when the phone is dark. Easy read below is a separate switch and works with any of the three.</p>
+
       <label for="a11yMode">Easy read</label>
       <select id="a11yMode">
         <option value="off">Off</option>
@@ -2278,7 +2358,8 @@
         'bc_ckl:',                  // checklist bodies: public documents
         'ebird_ebirders_count_v1',  // a published statistic
         'ebird_aba_archive_v1',     // the ABA alert archive
-        'bc_easyread'               // accessibility, not identity
+        'bc_easyread',              // accessibility, not identity
+        'bc_theme'                  // a look, not a list - shared like text size
       ];
       var _rawLS = window.localStorage;
       function bcProfile() {
@@ -2334,7 +2415,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.36.0';
+      var APP_VERSION = '1.37.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2505,6 +2586,44 @@
         return on;
       }
       applyA11y(getA11y());
+      // F138 "Theme". THREE values, not two: System is the default, and an
+      // explicit choice wins until it is cleared.
+      //
+      // `light` has to be a real stored value rather than "not dark", because
+      // the dark palette also applies under `prefers-color-scheme: dark` — so
+      // without an explicit marker, choosing Light on a phone in dark mode
+      // would do nothing, which is precisely the situation someone opens the
+      // picker to escape. The CSS reads
+      // `html:not([data-theme="light"])` inside the media query for exactly
+      // that reason.
+      //
+      // Easy read is deliberately NOT one of the values here. It is a separate
+      // switch that COMPOSES with any of the three (see A11Y_KEY above) — a
+      // reader who needs bigger targets and more contrast should not have to
+      // give up dark to get them.
+      var THEME_KEY = 'bc_theme';
+      var THEMES = ['system', 'light', 'dark'];
+      function getTheme() {
+        var v = localStorage.getItem(THEME_KEY);
+        return THEMES.indexOf(v) > -1 ? v : 'system';
+      }
+      function applyTheme(name) {
+        if (name === 'light' || name === 'dark') {
+          document.documentElement.setAttribute('data-theme', name);
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+        }
+      }
+      function setTheme(name) {
+        if (THEMES.indexOf(name) < 0) name = 'system';
+        localStorage.setItem(THEME_KEY, name);
+        applyTheme(name);
+        // Leaflet caches its container's computed colours for the attribution
+        // strip and panes; the same reason text size and Easy read refresh.
+        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
+        return name;
+      }
+      applyTheme(getTheme());
       // Scientific names on the medium and large cards. ON by default: the
       // binomial is the name that does not change between apps, books or
       // countries, and a birder reading a rarity card is exactly the reader who
@@ -20297,6 +20416,7 @@
         // way back to the other profiles.
         if ($('bcProfileSel')) $('bcProfileSel').value = bcProfile();
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
+        if ($('themeMode')) $('themeMode').value = getTheme();
         if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
         if ($('sciNames')) $('sciNames').value = getSciNames() ? 'on' : 'off';
         if ($('mapProvider')) $('mapProvider').value = getMapProvider();
@@ -20955,6 +21075,7 @@
         }).finally(function () { btn.disabled = false; });
       });
       $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
+      if ($('themeMode')) $('themeMode').addEventListener('change', function () { setTheme(this.value); });
       if ($('a11yMode')) $('a11yMode').addEventListener('change', function () { setA11y(this.value === 'on'); });
       if ($('sciNames')) $('sciNames').addEventListener('change', function () { setSciNames(this.value === 'on'); });
       if ($('wallProbeBtn')) $('wallProbeBtn').addEventListener('click', probeWall);
@@ -21712,6 +21833,7 @@
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
+        getTheme: getTheme, setTheme: setTheme, applyTheme: applyTheme, THEMES: THEMES,
         // F160: the mega lane, exposed so it can be RENDER-probed. The lane's
         // whole contract is that it reads a snapshot and never fetches, and
         // both halves of that are invisible to a regex over source text.

@@ -14802,9 +14802,10 @@ test('the colour-blind-safe hues are never themed', () => {
   for (const block of themeBlocks) {
     for (const hex of SAFE) {
       // A theme MAY hold one of these, but only in a variable whose NAME says
-      // it carries a colour-blind-safe value - `--safe-blue` is the blue/sky
-      // blue pair, and `--link` resolves to it. That is the same goal as the
-      // palette rather than a violation of it.
+      // it carries a colour-blind-safe value — `--safe-blue` and its
+      // `--dark-safe-blue` counterpart are the blue/sky-blue pair, and
+      // `--link` resolves to them. That is the same goal as the palette rather
+      // than a violation of it.
       //
       // Any OTHER variable taking an Okabe-Ito hue is the violation this
       // catches: it means a theme has quietly adopted one of these colours for
@@ -14812,7 +14813,7 @@ test('the colour-blind-safe hues are never themed', () => {
       // theme is free to re-tint it into something unsafe.
       const re = new RegExp('(--[a-z0-9-]+)\\s*:\\s*' + hex + '\\b', 'i');
       const m = re.exec(block);
-      if (m && !/^--safe-/.test(m[1]) && m[1] !== '--link') themedSafe.push(`${m[1]}: ${hex}`);
+      if (m && !/safe-/.test(m[1]) && m[1] !== '--link') themedSafe.push(`${m[1]}: ${hex}`);
     }
   }
   assert.equal(themedSafe.length, 0,
@@ -14824,4 +14825,71 @@ test('the colour-blind-safe hues are never themed', () => {
   const present = SAFE.filter((hex) => new RegExp(hex, 'i').test(css));
   assert.ok(present.length >= 3,
     'the colour-blind-safe palette is still in use (found ' + present.join(', ') + ')');
+});
+
+// F138. The four-way theme: System, Light, Dark, and Easy read alongside them.
+//
+// The subtle requirement is that LIGHT must be a real stored value rather than
+// "not dark". The dark palette also applies under `prefers-color-scheme: dark`,
+// so without an explicit marker, choosing Light on a phone in dark mode would
+// do nothing - which is exactly the situation someone opens the picker to
+// escape. The CSS carries `html:not([data-theme="light"])` inside the media
+// query for that reason, and this guards it.
+test('an explicit Light choice beats a dark phone', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const html = app.window.document.documentElement;
+
+  // `.join()`, not deepEqual: THEMES comes from the jsdom realm and a
+  // cross-realm deepEqual fails with the uniquely unhelpful
+  // "actual: [...] expected: [...]".
+  assert.equal(A.THEMES.join(','), 'system,light,dark', 'three values, System first');
+  assert.equal(A.getTheme(), 'system', 'System is the default until something is chosen');
+  assert.equal(html.getAttribute('data-theme'), null, 'and System sets no attribute at all');
+
+  A.setTheme('dark');
+  assert.equal(html.getAttribute('data-theme'), 'dark');
+  A.setTheme('light');
+  assert.equal(html.getAttribute('data-theme'), 'light',
+    'Light is MARKED, not merely the absence of dark');
+  A.setTheme('system');
+  assert.equal(html.getAttribute('data-theme'), null, 'and clearing it removes the marker');
+
+  // Junk in, System out - never a half-applied theme.
+  A.setTheme('chartreuse');
+  assert.equal(A.getTheme(), 'system', 'an unknown theme falls back to System');
+
+  // The CSS half: the media query must exclude an explicit light choice, or
+  // the attribute above would be set and do nothing.
+  const css = /<style>([\s\S]*?)<\/style>/.exec(HTML)[1];
+  assert.match(css, /@media \(prefers-color-scheme: dark\)\s*\{\s*html:not\(\[data-theme="light"\]\)/,
+    'the dark media query must yield to an explicit Light choice');
+  assert.match(css, /html\[data-theme="dark"\]\s*\{/,
+    'and an explicit Dark choice must apply the palette without the system asking');
+
+  // Easy read COMPOSES rather than being a fourth mutually exclusive value:
+  // a reader who needs bigger targets should not have to give up dark.
+  assert.match(css, /html\[data-theme="dark"\]\[data-a11y="on"\]/,
+    'Easy read and Dark must be able to be true at once');
+  app.window.close();
+});
+
+test('the dark palette is declared once, not twice', () => {
+  // Two entry points into dark - the media query and the attribute - and CSS
+  // cannot share a declaration list between them. The obvious shape duplicates
+  // every hex, which is precisely the drift the palette guard exists to catch,
+  // so the VALUES live in :root as --dark-* and both entry points reference
+  // them.
+  const css = /<style>([\s\S]*?)<\/style>/.exec(HTML)[1].replace(/\/\*[\s\S]*?\*\//g, '');
+  const applied = css.match(/html\[data-theme="dark"\]\s*\{[^}]*\}/g) || [];
+  assert.ok(applied.length >= 1, 'the explicit dark block exists');
+  for (const block of applied) {
+    const hexes = block.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+    assert.equal(hexes.length, 0,
+      'the dark application block must reference --dark-* variables, not repeat '
+      + 'colours: ' + hexes.join(', '));
+  }
+  const root = /:root\s*\{[^}]*\}/.exec(css);
+  assert.ok(root && /--dark-bg:\s*#/.test(root[0]),
+    'and the dark values are declared once, in :root');
 });
