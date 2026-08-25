@@ -2178,7 +2178,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.32.0';
+      var APP_VERSION = '1.32.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14380,38 +14380,99 @@
 
       // --- P13: time-of-day specialists (dawn / dusk accumulator) ---
       var TOD_DAWN_END = 7, TOD_DUSK_START = 19, TOD_MIN_OBS = 5, TOD_DAWN_TH = 0.50, TOD_NIGHT_TH = 0.30;
+      // How far the pooled species sample may sit from the checklist baseline
+      // before the two are treated as different samples rather than a finding.
+      // Measured, not picked: on the report's 12,187-checklist WA sample the
+      // pooled per-record evening share is 8.17% against a 7.70% baseline —
+      // a ratio of 1.06. The broken device showed ~0.80 against 0.10 — a
+      // ratio of 8. A bar of 3 is nowhere near either, so it separates a
+      // healthy sample from a corrupt one without judging any species.
+      var TOD_COHERENCE_MAX = 3.0;
+      // ONE retention bound, applied to BOTH halves (see todAccumulate).
+      var TOD_KEEP = 300, TOD_CHK_KEEP = 4000;
       function todKey() { return 'ebird_tod_' + getReportSlug(); }
+      function todCoherence(s) {
+        var hrs = (s && s.hours) || {}, chk = (s && s.chk) || {};
+        var late = 0, tot = 0;
+        Object.keys(hrs).forEach(function (c) {
+          (hrs[c] || []).forEach(function (h) { tot++; if (h >= TOD_DUSK_START) late++; });
+        });
+        var ck = Object.keys(chk), clate = 0;
+        ck.forEach(function (k) { if (chk[k] >= TOD_DUSK_START) clate++; });
+        if (!tot || !ck.length || !clate) return null;
+        return (late / tot) / (clate / ck.length);
+      }
       function todLoad() {
-        try { return JSON.parse(localStorage.getItem(todKey()) || 'null') || { seen: {}, hours: {}, names: {} }; }
-        catch (e) { return { seen: {}, hours: {}, names: {} }; }
+        var s;
+        try { s = JSON.parse(localStorage.getItem(todKey()) || 'null'); }
+        catch (e) { s = null; }
+        if (!s || typeof s !== 'object') return { seen: {}, hours: {}, names: {} };
+        s.seen = s.seen || {}; s.hours = s.hours || {}; s.names = s.names || {};
+        // HEAL ON READ, because no release can otherwise reach a poisoned
+        // accumulator: the species dedupe means re-sampling the same feeds
+        // adds nothing, so a bad sample stays bad forever. Two shapes are
+        // unrepairable and must be rebuilt rather than patched — a state with
+        // per-species hours but no checklist baseline at all (pre-F175), and
+        // one whose two halves demonstrably disagree. `names` is kept: it is
+        // a code->label map, cannot be wrong, and saves refetching.
+        var ch = Object.keys(s.chk || {}).length;
+        var nh = Object.keys(s.hours).length;
+        var coh = todCoherence(s);
+        if ((nh && !ch) || (coh != null && coh > TOD_COHERENCE_MAX)) {
+          return { seen: {}, hours: {}, names: s.names, chk: {}, rebuilt: 1 };
+        }
+        return s;
       }
       function todSave(s) { try { localStorage.setItem(todKey(), JSON.stringify(s)); } catch (e) {} }
       function todAccumulate(obs) {
         if (!obs || !obs.length) return 0;
-        var s = todLoad(), added = 0;
+        var s = todLoad(), added = 0, chkAdded = 0;
         obs.forEach(function (o) {
           var code = o.speciesCode, sub = o.subId, dt = (o.obsDt || '').toString();
           if (!code || !sub || dt.length < 13) return;
-          var key = sub + '|' + code;
-          if (s.seen[key]) return;
           var hh = parseInt(dt.slice(11, 13), 10);
           if (!(hh >= 0 && hh <= 23)) return;
+          // ONE HOUR PER CHECKLIST — the baseline every species is measured
+          // against. THIS IS RECORDED BEFORE THE SPECIES DEDUPE RETURN, and
+          // that order is the whole fix. It used to sit after it, so on any
+          // device that accumulated before `chk` existed every old sub|code
+          // pair short-circuited and its checklist hour never reached the
+          // baseline: the numerator kept a long history while the denominator
+          // only saw checklists first seen after the upgrade. Two samples,
+          // one ratio. That is how the device showed a 10% evening baseline
+          // beside species at 74-93% evening — an impossibility from one
+          // sample, and the shape that put American Crow atop a list of owls.
+          if (!s.chk) s.chk = {};
+          if (s.chk[sub] == null) { s.chk[sub] = hh; chkAdded++; }
+          var key = sub + '|' + code;
+          if (s.seen[key]) return;
           s.seen[key] = 1;
           (s.hours[code] = s.hours[code] || []).push(hh);
-          if (s.hours[code].length > 300) s.hours[code].shift();
-          // ONE HOUR PER CHECKLIST — the baseline a species is compared
-          // against. Accumulated alongside the per-species hours so the two
-          // are always drawn from the same sample. See BL.todSpecialists: a
-          // per-RECORD baseline weights by how species-rich each checklist
-          // was, which is not a fact about when birding happens, and that is
-          // what let American Crow read 93% against a 27% baseline.
-          if (!s.chk) s.chk = {};
-          if (s.chk[sub] == null) s.chk[sub] = hh;
+          // Retention must match on BOTH halves or they drift apart again by
+          // a slower route: a per-species ring buffer against an uncapped
+          // baseline is still two samples. todPrune caps the checklists too.
+          if (s.hours[code].length > TOD_KEEP) s.hours[code].shift();
           if (!s.names[code] && o.comName) s.names[code] = o.comName;
           added++;
         });
-        if (added) todSave(s);
+        // SAVE ON EITHER HALF CHANGING. Keying the write on `added` alone is
+        // the same two-sample fault in miniature: a feed whose species pairs
+        // are all already counted still carries checklist hours the baseline
+        // has never seen, and discarding them is exactly how the denominator
+        // fell behind the numerator in the first place.
+        if (added || chkAdded) { todPrune(s); todSave(s); }
         return added;
+      }
+      // Keep both halves bounded, and bound them TOGETHER. A per-species ring
+      // buffer beside an uncapped checklist store is the same two-sample fault
+      // by a slower route: once a common species starts dropping its oldest
+      // hours while the baseline keeps every checklist, the ratio drifts.
+      function todPrune(s) {
+        var ck = Object.keys(s.chk || {});
+        if (ck.length > TOD_CHK_KEEP) {
+          // String keys keep insertion order, so the head is the oldest.
+          ck.slice(0, ck.length - TOD_CHK_KEEP).forEach(function (k) { delete s.chk[k]; });
+        }
       }
       // Specialist selection delegates to BirdLogic (BL.todSpecialists) so the
       // dawn/dusk thresholds + ranking are identical to report.section_time_of_day.
@@ -14425,15 +14486,22 @@
       }
       function todSpecialists() {
         var s = todLoad();
-        // A device sampled before this shipped has no per-checklist store yet.
-        // Passing an empty list would divide by a zero baseline and promote
-        // nothing, so fall back to the old flattened map for one run — it
-        // rebuilds on the next sample.
+        // NO PER-RECORD FALLBACK. It was the wrong unit (it weights by how
+        // species-rich each checklist was, which is not a fact about when
+        // birding happens), and a list computed on the wrong unit is worse
+        // than no list — it is a wrong list that looks like a finding. With
+        // no checklist baseline there is nothing to compare against, so the
+        // section says so and asks for a sample instead of guessing.
         var ch = todChecklistHours(s);
+        if (!ch.length) {
+          return { dawn: [], night: [], baseline: null, n: 0, chk: 0,
+                   needSample: 1, rebuilt: s.rebuilt ? 1 : 0 };
+        }
         var r = BL.todSpecialists(s.hours || {}, s.names || {}, BL.CONST.TOD_MIN_OBS,
-          ch.length ? { checklistHours: ch } : {});
+          { checklistHours: ch });
         return { dawn: r.dawn, night: r.night, baseline: r.baseline,
-                 n: Object.keys(s.hours || {}).length, chk: ch.length };
+                 n: Object.keys(s.hours || {}).length, chk: ch.length,
+                 rebuilt: s.rebuilt ? 1 : 0 };
       }
       function todHourLabel(h) { var hr = ((h + 11) % 12) + 1; return hr + (h < 12 ? 'am' : 'pm'); }
       function renderTimeOfDay() {
@@ -14444,7 +14512,13 @@
           return;
         }
         var sp = todSpecialists();
-        if (!sp.n) { el.innerHTML = '<div class="status">No timed checklists sampled yet — tap “Sample recent checklists”.</div>'; return; }
+        if (!sp.n) {
+          el.innerHTML = '<div class="status">' + (sp.rebuilt
+            ? 'The stored sample was rebuilt — its species history and its checklist baseline had come from different samples, which is what put common birds at the top of this list. '
+            : 'No timed checklists sampled yet — ')
+            + 'tap \u201cSample recent checklists\u201d.</div>';
+          return;
+        }
         function section(title, arr, kind) {
           if (!arr.length) return '';
           var h = '<div class="rankhead"><b>' + esc(title) + '</b></div><ul class="obs dest">';
@@ -14472,9 +14546,24 @@
         // per-RECORD baseline weights by how species-rich each list was and is
         // not the same quantity at all.
         var _b = sp.baseline || { late: 0, n: 0 };
-        verdict('Dawn and dusk', _b.n + ' checklists across ' + sp.n
+        // WHICH UNIT, SAID OUT LOUD. `sp.chk` is the count of per-CHECKLIST
+        // hours; when it is zero the baseline fell back to the flattened
+        // per-record map, which is the very unit F175 exists to stop using.
+        // A verdict that prints "12426 checklists" when it counted RECORDS is
+        // the same class of dishonesty as the "here" button that worked and
+        // said nothing — the number looks authoritative and is measuring
+        // something else.
+        //
+        // It happens on a real device rather than in theory: the per-checklist
+        // store only started filling when F175 shipped, so a device upgrading
+        // into it carried a long species history against a baseline that had
+        // only just begun — two samples, one ratio. todLoad now rebuilds such
+        // a state rather than reporting from it, so the unit is never in
+        // doubt here and the fallback wording is gone with the fallback.
+        var _unit = 'checklists';
+        verdict('Dawn and dusk', _b.n + ' ' + _unit + ' across ' + sp.n
           + ' species \u00b7 BASELINE after ' + BL.CONST.TOD_DUSK_START + ':00 is '
-          + Math.round(100 * _b.late) + '% of checklists '
+          + Math.round(100 * _b.late) + '% '
           + '\u00b7 bar is ' + BL.CONST.TOD_MIN_LIFT + '\u00d7 that, and \u2265'
           + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% '
           + '\u00b7 ' + sp.dawn.length + ' dawn, ' + sp.night.length + ' dusk');
@@ -20989,6 +21078,13 @@
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
         reviewFlag: reviewFlag,
+        // F175 follow-up: exposed so the two-sample fault can be reproduced
+        // rather than regexed. The bug was not a threshold — it was a stored
+        // state whose species history and checklist baseline came from
+        // different samples, which no reading of the source reveals.
+        todLoad: todLoad, todAccumulate: todAccumulate,
+        todSpecialists: todSpecialists, todCoherence: todCoherence,
+        TOD_COHERENCE_MAX: TOD_COHERENCE_MAX,
         // Exported so the poison rule can be tested against the SHAPE that
         // actually broke Iconic spots — a truthy object with a real total and
         // an empty breakdown — rather than only against null.

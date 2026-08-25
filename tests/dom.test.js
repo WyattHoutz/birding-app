@@ -14232,3 +14232,102 @@ test('the sections that have failed on device record a verdict', () => {
     'the copied context no longer counts un-hydrated photo slots, which is what '
     + 'would have caught Break a record rendering empty grey squares');
 });
+
+// ---------------------------------------------------------------------------
+// F175 follow-up: the dusk list led with American Crow, Song Sparrow, Mallard
+// and Black-capped Chickadee on a real device, AFTER the lift fix shipped.
+// The device screenshot carries its own disproof: the baseline read "10% for
+// all birding" while every listed species read 74-93% after 7pm, and every
+// species reported EXACTLY n=96. One sample cannot say both things. The
+// species history and the checklist baseline had come from different samples,
+// because todAccumulate recorded the checklist hour AFTER the species dedupe
+// return - so on a device that accumulated before `chk` existed, every old
+// sub|code pair short-circuited and its hour never reached the baseline.
+// Re-sampling could not heal it either, for the same reason.
+test('a dusk list cannot be built from two different samples', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const ls = app.window.localStorage;
+
+  // Rebuild the device's exact shape: species hours overwhelmingly evening,
+  // a checklist baseline that is overwhelmingly daytime.
+  const hours = {}, seen = {}, chk = {};
+  const common = { amecro: 0.93, sonspa: 0.88, mallar: 0.84, bkcchi: 0.81 };
+  Object.keys(common).forEach((code) => {
+    const late = Math.round(96 * common[code]);
+    hours[code] = [];
+    for (let i = 0; i < 96; i++) hours[code].push(i < late ? 20 : 9);
+    for (let i = 0; i < 96; i++) seen[`S${i}|${code}`] = 1;
+  });
+  for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 100 ? 20 : 9); // 10% evening
+  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {
+    amecro: 'American Crow', sonspa: 'Song Sparrow',
+    mallar: 'Mallard', bkcchi: 'Black-capped Chickadee' } }));
+
+  const coh = A.todCoherence({ hours, chk });
+  assert.ok(coh > A.TOD_COHERENCE_MAX,
+    `the two halves disagree by ${coh && coh.toFixed(1)}x, which must be detected`);
+
+  const loaded = A.todLoad();
+  assert.equal(loaded.rebuilt, 1, 'an incoherent accumulator is rebuilt, not reported from');
+  assert.equal(Object.keys(loaded.hours).length, 0, 'the poisoned species history is dropped');
+  assert.ok(loaded.names && loaded.names.amecro,
+    'names are a code->label map, cannot be wrong, and are kept');
+
+  const sp = A.todSpecialists();
+  const listed = sp.night.concat(sp.dawn).map((e) => e.code);
+  assert.equal(listed.length, 0,
+    `no species may be promoted from a rebuilt sample; got ${JSON.stringify(listed)}`);
+  assert.equal(sp.needSample, 1, 'it asks for a fresh sample instead of guessing');
+});
+
+// The guard above must not fire on a HEALTHY sample, or it would delete good
+// data on every read. Measured on the report's 12,187-checklist WA sample: the
+// pooled per-record evening share is 8.17% against a 7.70% baseline, a ratio
+// of 1.06 - nowhere near the bar of 3.
+test('a coherent accumulator is left alone', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const ls = app.window.localStorage;
+
+  const hours = { amecro: [], grhowl: [] }, seen = {}, chk = {};
+  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? 20 : 9);   // ~ baseline
+  for (let i = 0; i < 100; i++) hours.grhowl.push(i < 36 ? 20 : 9);  // a real owl
+  for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 77 ? 20 : 9);   // 7.7% evening
+  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk,
+    names: { amecro: 'American Crow', grhowl: 'Great Horned Owl' } }));
+
+  assert.ok(A.todCoherence({ hours, chk }) <= A.TOD_COHERENCE_MAX, 'healthy sample passes');
+  const loaded = A.todLoad();
+  assert.ok(!loaded.rebuilt, 'a healthy accumulator survives a read');
+
+  const sp = A.todSpecialists();
+  const night = sp.night.map((e) => e.code);
+  assert.ok(night.includes('grhowl'), 'the owl is still promoted');
+  assert.ok(!night.includes('amecro'),
+    'a bird sitting at the baseline is not a dusk specialist, however common');
+});
+
+// The ordering fix itself: a checklist hour must reach the baseline even when
+// its species pair was already counted. Without this the baseline can only
+// ever see checklists first observed after the upgrade.
+test('a checklist hour is recorded even when the species pair is a duplicate', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const ls = app.window.localStorage;
+
+  // A COHERENT accumulator (so todLoad does not rebuild it) that is none the
+  // less missing one checklist from its baseline while already holding that
+  // checklist's species pair. Only the ordering fix can record S1's hour.
+  const hours = { amecro: [] }, seen = { 'S1|amecro': 1 }, chk = {};
+  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? 20 : 9);
+  for (let i = 0; i < 1000; i++) chk['T' + i] = (i < 77 ? 20 : 9);
+  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {} }));
+
+  A.todAccumulate([{ speciesCode: 'amecro', subId: 'S1',
+    obsDt: '2026-08-24 20:15', comName: 'American Crow' }]);
+
+  const after = JSON.parse(ls.getItem('ebird_tod_wa'));
+  assert.equal(after.chk && after.chk.S1, 20,
+    'the checklist hour is recorded before the species dedupe return');
+});
