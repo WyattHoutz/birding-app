@@ -15034,3 +15034,59 @@ test('tapping a birder opens their patch page', async () => {
     'with the birder\u2019s patches actually rendered');
   app.window.close();
 });
+
+// The rate limiter reported `window 23/22` on the device, and a number that
+// exceeds its own cap sends the next reader hunting an overrun. It has now
+// done this TWICE - `21/20` before, "fixed" by raising the cap to 22, which
+// moved the symptom rather than removing it.
+//
+// MEASURED, by driving the real scheduler rather than reading it: the limiter
+// does not overshoot. So both reports were the DISPLAY, and the cap must not
+// be raised again.
+test('the rate limiter does not exceed its own window', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const MS = A.FG_WINDOW_MS, CAP = A.FG_WINDOW_MAX;
+
+  A.fgWindowReset();
+  let t = 1000000;
+  const starts = [];
+  for (let i = 0; i < 300; i++) {
+    t += A.fgWindowWait(t, false);   // honour the wait the limiter asks for
+    A.fgWindowPush(t);
+    starts.push(t);
+    t += 250;                        // the minimum gap between attempts
+  }
+  // Counted independently of the limiter, so this cannot agree with it by
+  // sharing its arithmetic.
+  let worst = 0;
+  for (let i = 0; i < starts.length; i++) {
+    let n = 0;
+    for (let j = i; j < starts.length && starts[j] < starts[i] + MS; j++) n++;
+    if (n > worst) worst = n;
+  }
+  assert.ok(worst <= CAP,
+    'the scheduler allowed ' + worst + ' starts inside a ' + (MS / 1000)
+    + 's window against a cap of ' + CAP);
+  app.window.close();
+});
+
+test('the window display counts calls that have actually started', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = Date.now();
+
+  // `_fgStarts` holds SCHEDULED starts and the queue is paced, so entries
+  // sitting in the future are normal. Counting them reports calls that have
+  // not happened - which is exactly how `window 23/22` reached the log while
+  // only 18 calls had run.
+  A.fgWindowReset();
+  for (let i = 0; i < 18; i++) A.fgWindowPush(now - 50000 + i * 100);  // started
+  for (let i = 0; i < 5; i++) A.fgWindowPush(now + 1000 + i * 250);    // scheduled ahead
+
+  assert.equal(A.fgWindowUsed(), 18,
+    'a call counts once it has STARTED and until it ages out - never before it runs');
+  assert.ok(A.fgWindowUsed() <= A.FG_WINDOW_MAX,
+    'and the display can never exceed the cap it is printed against');
+  app.window.close();
+});

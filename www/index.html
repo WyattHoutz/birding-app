@@ -3870,9 +3870,26 @@
       // can exceed its own cap teaches the reader to distrust the number rather
       // than the limiter, which is the wrong lesson: this one is a display, and
       // the real overrun (measured, and fixed above) was a different bug.
+      //
+      // ⚠️ AND IT STILL LIED, one step up. The device reported `window 23/22`,
+      // and that number sent the next reader hunting an overrun that is not
+      // there. MEASURED: driving the real scheduler 300 calls gives a maximum
+      // of 22 starts in any 60 s window — exactly the cap, overshoot zero. The
+      // display was the fault again, for a NEW reason: `_fgStarts` holds
+      // SCHEDULED starts, and the queue is paced, so entries sitting in the
+      // future are normal. Counting them against a now-based cutoff reports
+      // calls that have not happened. Measured directly: 18 started plus 5
+      // scheduled ahead reported as 23.
+      //
+      // So the cut is now bounded at BOTH ends. A call counts once it has
+      // started and until it ages out — never before it has run.
+      // ⛔ Do not "fix" a 23/22 by raising the cap. That was done once already
+      // (20 -> 22) and it moved the symptom rather than removing it.
       function fgWindowUsed() {
-        var cut = Date.now() - FG_WINDOW_MS, n = 0;
-        for (var i = 0; i < _fgStarts.length; i++) if (_fgStarts[i] > cut) n++;
+        var now = Date.now(), cut = now - FG_WINDOW_MS, n = 0;
+        for (var i = 0; i < _fgStarts.length; i++) {
+          if (_fgStarts[i] > cut && _fgStarts[i] <= now) n++;
+        }
         return n;
       }
       // TWO LANES, not one queue.
@@ -21914,6 +21931,18 @@
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
       window.__app = {
+        // The rate limiter's window accounting, exposed so it can be DRIVEN
+        // rather than reasoned about. The 20 -> 22 change was justified by a
+        // 300-call simulation described in a comment, but nothing in the suite
+        // could run one — so when the device reported `window 23/22`, the same
+        // overshoot one step up, there was no way to tell a real overrun from
+        // a display artefact without adding this.
+        fgWindowWait: fgWindowWait, fgWindowUsed: fgWindowUsed,
+        fgWindowState: function () { return _fgStarts.slice(); },
+        fgWindowReset: function () { _fgStarts.length = 0; },
+        fgWindowPush: function (t) { _fgStarts.push(t); },
+        FG_WINDOW_MS: FG_WINDOW_MS, FG_WINDOW_MAX: FG_WINDOW_MAX,
+        FG_WINDOW_RESERVE: FG_WINDOW_RESERVE,
         getTheme: getTheme, setTheme: setTheme, applyTheme: applyTheme, THEMES: THEMES,
         // F160: the mega lane, exposed so it can be RENDER-probed. The lane's
         // whole contract is that it reads a snapshot and never fetches, and
