@@ -7929,6 +7929,40 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   app.window.close();
 });
 
+// "the here buttons are still not working" — and they WERE working, which is
+// why this took two wrong diagnoses to find.
+//
+// Three sections carry the 📍 Here / 🏠 Home / 🔎 Find anchor switch. Targets
+// near you ranked from the anchor correctly (buildClosestSpots(cv,
+// getAnchors())) and then betrayed it twice on screen: the status line never
+// named the anchor, and the map was centred on getHome() regardless. Both
+// visible signals still said "home", so a working button looked dead.
+//
+// The invariant, and it is about HONESTY rather than ranking: a section that
+// can be re-anchored must SAY where it ranked from, and draw itself around
+// that point. A silent correct answer is indistinguishable from no answer.
+test('a re-anchorable section says where it ranked from, and maps it there', () => {
+  const anchored = ['loadTargets', 'loadDestinations', 'loadExcursions'];
+  anchored.forEach(function (fn) {
+    const at = HTML.indexOf('function ' + fn + '(');
+    assert.ok(at > 0, fn + ' exists');
+    const body = HTML.slice(at, at + 4000);
+
+    assert.ok(body.indexOf('fromHere()') >= 0,
+      fn + ' must print fromHere() — otherwise re-anchoring changes the '
+      + 'ranking silently and reads as a dead button');
+
+    // The map is the other half. Centring on home while ranking from "here"
+    // is worse than not moving at all: it actively contradicts the list.
+    const map = /renderMap\([^;]*?\);/.exec(body);
+    if (map) {
+      assert.ok(map[0].indexOf('getHome()') < 0,
+        fn + ' centres its map on getHome() while the list is ranked from the '
+        + 'anchor — the two disagree: ' + map[0].slice(0, 90));
+    }
+  });
+});
+
 // F177: "Id like a way to test multiple ebird accounts on my device… each has a
 // separate api and web key. I'd prefer to use my same iphone."
 //
