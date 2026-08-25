@@ -1590,7 +1590,13 @@
        would be forced to 44px square by the Easy-read rule and would sit in
        the middle of a card title looking like a control, and an href would ask
        the WKWebView for a navigation this app does not do. */
+    /* A button that must not look like one: it is a NAME in a list, and the
+       row already carries a real button shape in the distance chip. Border and
+       background are stripped, the type is inherited so it matches the card,
+       and the underline does the work of saying it is tappable. */
     .patchwho { color: var(--link); text-decoration: underline;
+                border: 0; background: none; padding: 0; margin: 0;
+                font: inherit; text-align: left;
                 text-underline-offset: 2px; cursor: pointer; }
     /* The lift, and the only number on the row worth comparing down the list.
        Tabular figures so the decimal points line up; NO colour scale, because
@@ -14040,7 +14046,20 @@
         var row = e.best, dm = patchDistMi(row);
         return HotspotCards.medium({
           num: num,
-          name: '<a class="patchwho" data-birder="' + esc(e.n) + '">' + esc(e.n) + '</a> '
+          // A BUTTON, not an href-less <a>. It shipped as an anchor and did
+          // nothing on the device — "clicking a birder doesnt show their
+          // details or anything else" — while working in jsdom, where 100
+          // .patchwho elements render and a dispatched click opens the page.
+          // So the failure is WKWebView-only, and rather than guess a fourth
+          // time at which quirk (cursor: pointer is already set; .hslink and
+          // .splink are href-less anchors that DO work and carry no CSS at
+          // all), this removes the class of failure: a control that performs
+          // an action is a button, which is natively tappable on iOS and
+          // cannot depend on click delegation reaching a non-interactive
+          // element. It is also focusable, which the anchor never was.
+          // Same shape the evidence marks already use (.evidbtn).
+          name: '<button type="button" class="patchwho" data-birder="' + esc(e.n)
+            + '">' + esc(e.n) + '</button> '
               + patchBoardLabel(e.r),
           distance: (dm != null && isFinite(dm)) ? dm : null,
           distQ: distQ(row.lat, row.lng),

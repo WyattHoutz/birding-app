@@ -14991,3 +14991,46 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
   assert.match(src, /names: s\.names/,
     'names survive the rebuild - a code->label map cannot be wrong');
 });
+
+// F28 shipped this broken, and the guard I accepted did not cover the click
+// path at all - it asserted the ROWS were right and never that tapping one did
+// anything. Reported as "clicking a birder doesnt show their details or
+// anything else", while jsdom rendered 100 .patchwho elements and a dispatched
+// click opened the page. A device-only failure, so the fix removes the class:
+// a control that performs an action is a <button>, natively tappable on iOS
+// rather than depending on click delegation reaching a bare <a>.
+test('tapping a birder opens their patch page', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  await A.loadChoicePatches();
+
+  const res = app.$('patchResults');
+  assert.ok(res, '#patchResults exists');
+  const who = res.querySelectorAll('.patchwho');
+  assert.ok(who.length > 0, 'the leaderboard renders birder controls');
+
+  // A BUTTON. An href-less <a> is not natively interactive, and that is what
+  // shipped and did nothing on the device.
+  assert.equal(who[0].tagName, 'BUTTON',
+    'the birder control is a button, not a bare anchor');
+  assert.equal(who[0].getAttribute('type'), 'button',
+    'and is typed, so it cannot submit anything');
+
+  // The name in the attribute must be the name the lookup searches for, or
+  // the handler runs and silently finds nobody - which looks identical to
+  // nothing happening.
+  const name = who[0].getAttribute('data-birder');
+  const d = A.choicePatchData();
+  assert.ok(d.birders.some((b) => b.n === name),
+    'data-birder matches a name in the table exactly: ' + JSON.stringify(name));
+
+  // The path that was never exercised: a real click, through the delegated
+  // handler, opening the page.
+  const before = app.$('patchDetail').hidden;
+  who[0].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(before, true, 'the detail page starts hidden');
+  assert.equal(app.$('patchDetail').hidden, false, 'and a tap opens it');
+  assert.ok(app.$('patchDetailBody').innerHTML.length > 100,
+    'with the birder\u2019s patches actually rendered');
+  app.window.close();
+});
