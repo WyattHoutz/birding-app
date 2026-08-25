@@ -128,8 +128,8 @@
     },
     {
       "at": "lastNewBtn",
-      "label": "🔭 Latest ticks on the leaderboard",
-      "report": "## 🔭 Latest ticks on the leaderboard",
+      "label": "🔭 Leader Board Ticks",
+      "report": "## 🔭 Leader Board Ticks",
       "map": null,
       "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them"
     },

@@ -46,7 +46,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `refresh` | 🌅 Today's rarity reports |
 | `medium` | `renderSpeciesLookup` | 📖 Species lookup |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
-| `medium` | `lastNewCard` | 🔭 Latest ticks on the leaderboard |
+| `medium` | `lastNewCard` | 🔭 Leader Board Ticks |
 | `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
 | `large` | — | **unused** — went to 📅 My year on 2026-08-18 and came back on 2026-08-20. The section's container is `obs big xl`, the MEDIUM class, so a large-shaped `<li>` inside it rendered as a photo stranded on its own row above the name: *"this is not rendering right"*. The reader then asked for the Needs-verification shape, which is the medium card — a big square photo left, name and facts right |
 
@@ -66,7 +66,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 |---|---|---|
 | `small` | `unseenPlacesHtml` | 📋 All unseen reports · 🥚 Easy misses — one line per checklist under each bird |
 | `small` | `rarityChecklistDetails` | ⭐ Active rarities — the checklists behind one rarity |
-| `small` | `lastNewCard` | 🔭 Latest ticks — the recent checklists for one bird |
+| `small` | `lastNewCard` | 🔭 Leader Board Ticks — the recent checklists for one bird |
 | `medium` | `loadBirdiest` | 🦜 Birdiest checklists |
 | `medium` | `loadRecentLists` | 🦜 Birdiest checklists → *Newest* mode |
 

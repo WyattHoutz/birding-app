@@ -2,7 +2,7 @@
  * cards-checklist.js — one shared way to render A LIST OF CHECKLISTS.
  *
  * Four sections were each hand-rolling their own checklist row: Today's
- * rarities, Last 7-Days' expander, Latest ticks, and All unseen. They printed
+ * rarities, Last 7-Days' expander, Leader Board Ticks, and All unseen. They printed
  * overlapping-but-different subsets of the same five facts, in different
  * orders, at different sizes — which is the drift the species and hotspot card
  * modules were created to stop. This is the third of those modules and it

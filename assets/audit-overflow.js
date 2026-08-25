@@ -197,9 +197,44 @@ const AUDIT = `<script>
         }
       }
     }
+    // F181. Text that is CRUSHED rather than clipped: a label broken in the
+    // middle of a word. Invisible to every overflow check by construction —
+    // the whole point of the collapse is that nothing passes the edge — and
+    // invisible to jsdom, which has no line boxes at all. Measured from real
+    // line boxes: a break is mid-word when a line ends on a non-space and the
+    // next begins on one.
+    var crushed = [];
+    var tl = document.querySelectorAll('.tilelabel');
+    for (var c = 0; c < tl.length; c++) {
+      var cel = tl[c];
+      if (!cel.offsetParent) continue;
+      var rows = [], tw = document.createTreeWalker(cel, NodeFilter.SHOW_TEXT, null), tn;
+      while ((tn = tw.nextNode())) {
+        var tv = tn.nodeValue, curl = null;
+        for (var ci = 0; ci < tv.length; ci++) {
+          var rg = document.createRange(); rg.setStart(tn, ci); rg.setEnd(tn, ci + 1);
+          var rr = rg.getBoundingClientRect(); if (!rr.height) continue;
+          var rt = Math.round(rr.top);
+          if (!curl || Math.abs(curl.top - rt) > 2) { curl = { top: rt, s: '' }; rows.push(curl); }
+          curl.s += tv[ci];
+        }
+      }
+      // A label needs at most one line per word — plus one, to allow a single
+      // unavoidable split of one genuinely long word. Needing MORE lines than
+      // that means words are being shredded, which is the collapse this
+      // catches: measured at 320px/Easy read before the fix, five words were
+      // rendered on 27 lines, one letter each, in a label column of 0px.
+      var words = (cel.textContent || '').trim().split(/\\s+/).filter(Boolean).length;
+      if (rows.length > words + 1) {
+        crushed.push({ sel: chain(cel), lines: rows.length, words: words,
+                       saw: rows.slice(0, 4).map(function (x) { return x.s; }).join('|'),
+                       w: +cel.getBoundingClientRect().width.toFixed(1) });
+      }
+    }
     var vis = document.querySelector('section.panel:not([hidden])');
     return {
       label: label, vw: vw, n: all.length,
+      crushed: crushed.slice(0, 8),
       maxRight: +maxRight.toFixed(1),
       text: vis ? (vis.textContent || '').replace(/\\s+/g, ' ').trim().length : -1,
       docScrollW: document.documentElement.scrollWidth,
@@ -305,6 +340,14 @@ server.listen(0, '127.0.0.1', () => {
         bad++;
         nameless.forEach(function (it) {
           console.log('   NO ACCESSIBLE NAME  saw "' + it.saw + '"  ' + it.sel);
+        });
+      }
+      var squashed = r.crushed || [];
+      if (squashed.length) {
+        bad++;
+        squashed.forEach(function (it) {
+          console.log('   CRUSHED LABEL  ' + it.lines + ' lines for ' + it.words
+            + ' words  w=' + it.w + '  "' + it.saw + '"  ' + it.sel);
         });
       }
       var tiny = r.small || [];

@@ -533,8 +533,16 @@
        set at the same weight is a wall to scan, while a glyph per tile lets
        the eye jump straight to the section it wants. Labels keep the .toclink
        hook so routing (and the DOM contract test) is unchanged. */
+    /* F181. The threshold SCALES with the text, because the thing it must fit
+       scales with the text. A fixed px minimum kept two columns at Easy read,
+       where the icon column alone took 91.3px of a 110.5px tile and the label
+       column was measured at ZERO — every one of the 29 tiles broke mid-word,
+       one character per line. Nothing overflowed, which is why the layout
+       audit passed it for months: crushed text is not clipped text.
+       150 is the largest value that still fits 320px; 160 was measured
+       overflowing it by 12px (maxRight 317 against a 305px viewport). */
     .toc { list-style: none; padding: 0; margin: 10px 0 0; display: grid;
-           grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+           grid-template-columns: repeat(auto-fit, minmax(calc(150px * var(--s)), 1fr)); gap: 10px; }
     .toc li { border-top: 0; display: flex; min-width: 0; }
     /* ICON LEFT, LABEL RIGHT, EXPLANATION UNDER BOTH.
        "Let's try showing the Icon on left side and bold label like Top Patches
@@ -560,7 +568,11 @@
        30px, sized down when the tiles gained a sub-line; with the sub-lines now
        one short line each the tile has the room back, and the glyph is what the
        eye lands on first when scanning a grid of near-identical cards. */
-    .tileicon { font-size: calc(38px * var(--s)); line-height: 1;
+    /* CAPPED. `auto` sizes this track to the glyph, so at Easy read it grew to
+       91.3px inside a 110.5px tile and left the label nothing. The icon marks
+       the tile; it must not be able to consume it. Capping costs nothing at
+       ordinary scale, where 38px is already below the cap. */
+    .tileicon { font-size: min(calc(38px * var(--s)), 44px); line-height: 1;
                 grid-column: 1; grid-row: 1; }
     /* "How is this calculated?" — an info affordance on every section heading.
        Sized as a real 34px touch target rather than a decorative glyph: a help
@@ -614,7 +626,10 @@
        tile shouted, so nothing on the screen was emphasised relative to
        anything else and the grid read as a wall. The sub-line beneath is 400,
        so 500 still separates title from translation without the shout. */
-    .tilelabel { display: block; min-width: 0; overflow-wrap: anywhere;
+    /* `break-word`, NOT `anywhere`. `anywhere` also shrinks min-content to a
+       single character, so the grid was free to hand this column 0px and let
+       the label break one letter per line rather than demand room. */
+    .tilelabel { display: block; min-width: 0; overflow-wrap: break-word;
                  grid-column: 2; grid-row: 1;
                  font-size: calc(17px * var(--s)); font-weight: 500;
                  letter-spacing: -.01em; }
@@ -654,16 +669,28 @@
        the label, so the bar stays one line tall however wide the screen is.
        `flex` rather than the tiles' grid, because there is only one thing to
        lay out here and it is left-to-right. */
-    .toc li.wide .toclink { min-height: 0; flex-direction: row; align-items: center;
+    /* `display: flex` was MISSING. The comment above says "flex rather than
+       the tiles' grid", but without it the tile stayed a grid, `flex-direction`
+       and `flex-wrap` did nothing, and the nowrap sub-line was auto-placed into
+       the `auto` first column — where it sized that column to its own full
+       width and left the LABEL 31.9px. Two words then rendered on eleven lines.
+       Same shape as F182: an intent stated in CSS that the parser never had. */
+    .toc li.wide .toclink { display: flex; min-height: 0; flex-direction: row; align-items: center;
                             gap: 12px; font-size: calc(17px * var(--s));
                             flex-wrap: nowrap;
                             background: linear-gradient(135deg, rgba(46,160,67,.20), rgba(46,160,67,.06));
                             border-color: rgba(46,160,67,.45); }
-    .toc li.wide .tilelabel { grid-column: auto; grid-row: auto; flex: 0 0 auto; }
+    /* Shrinkable: at 320px/Easy read the label alone is wider than the tile,
+       so `flex: 0 0 auto` would push the bar off the screen. */
+    .toc li.wide .tilelabel { grid-column: auto; grid-row: auto; flex: 0 1 auto; min-width: 0; }
     .toc li.wide .tilesub { grid-column: auto; grid-row: auto; margin: 0;
                             flex: 1 1 auto; min-width: 0;
                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .toc li.wide .tileicon { font-size: calc(42px * var(--s)); }
+    /* Capped for the same reason as .tileicon, and it needs saying twice
+       because this rule is more specific and would otherwise reinstate the
+       uncapped size. Measured before the cap at 320px/Easy read: "Happening
+       now" — two words — rendered on ELEVEN lines in a 31.9px label column. */
+    .toc li.wide .tileicon { font-size: min(calc(42px * var(--s)), 48px); }
     label { display: block; font-size: calc(12px * var(--s)); color: var(--muted); margin: 12px 0 4px; font-weight: 600; letter-spacing: .02em; }
     input[type=text], input[type=password], input[type=search] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
     input:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -696,7 +723,14 @@
        the layout audit measures it at 320px. This trims the ORDINARY size,
        which was 11px/16px of padding on a 17px font - comfortably past the
        minimum and paying for it in wrapped rows. */
-    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer; } max-width: 100%; overflow-wrap: anywhere; white-space: normal min-width: 0;
+    /* These four lived OUTSIDE the closing brace from commit fc11d76 (the tile
+       redesign) until F182 — stray declarations at stylesheet top level, which
+       the parser discards. Buttons therefore had no overflow protection for
+       seven minor releases. `white-space: normal min-width: 0` was also missing
+       its semicolon, so even inside a rule it would have dropped both.
+       Guarded by "the stylesheet has no declarations outside a rule". */
+    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer;
+             max-width: 100%; overflow-wrap: anywhere; white-space: normal; min-width: 0; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
     button:disabled { opacity: .5; cursor: default; }
@@ -1035,7 +1069,7 @@
     .cklneed.hit { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px;
                    background: color-mix(in srgb, var(--accent) 7%, transparent);
                    border-radius: 0 8px 8px 0; }
-    /* Latest ticks / rarity rows: a checklist list is scanned, not read, so
+    /* Leader Board Ticks / rarity rows: a checklist list is scanned, not read, so
        each field lands in the same place on every row. */
     .cklrows { list-style: none; margin: 6px 0 4px; padding: 0; font-size: calc(14px * var(--s)); }
     .cklrows li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px;
@@ -1720,9 +1754,9 @@
     </section>
 
     <section class="panel">
-      <h2>🔭 Latest ticks on the leaderboard</h2>
+      <h2>🔭 Leader Board Ticks</h2>
       <div class="row">
-        <button id="lastNewBtn">Load latest ticks</button>
+        <button id="lastNewBtn">Load Leader Board Ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
       <ul id="lastNewResults" class="obs big xl"></ul>
@@ -2187,7 +2221,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.32.1';
+      var APP_VERSION = '1.33.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13575,7 +13609,7 @@
         out.appendChild(foot);
       }
 
-      // --- Latest ticks on the leaderboard -----------------------------------
+      // --- Leader Board Ticks -----------------------------------
       // Mirrors report.py::section_leaderboard_last_new. eBird's top100 page
       // prints each birder's most recently added species; grouping that column
       // by bird turns the leaderboard into a chase board, because a species
@@ -13684,7 +13718,7 @@
       // pool with the same in-flight cap the convoy loader uses, and report
       // progress: a bounded fan-out is fast without stampeding the key.
       var LAST_NEW_FETCH_CONC = 4;
-      // Latest ticks is the most expensive section in the app: one region-wide
+      // Leader Board Ticks is the most expensive section in the app: one region-wide
       // feed plus ONE CALL PER SPECIES the top 100 recently added — measured at
       // ~46 calls, which at the rate limit eBird actually enforces is over two
       // minutes of paced fetching every time the section is opened.
@@ -13776,7 +13810,7 @@
                 return true;
               });
               if (wanted.length !== missing.length) {
-                dbg('net', 'latest ticks: ' + (wanted.length - missing.length) + ' of '
+                dbg('net', 'Leader Board Ticks: ' + (wanted.length - missing.length) + ' of '
                   + wanted.length + ' species served from today\u2019s cache');
               }
               // Cached species are answers we ALREADY HAVE, so they land on
@@ -16982,7 +17016,7 @@
             + 'first — that is the answer to why it is busy.</p>'
         }
       };
-      // The checklists behind one bird, collapsed — the same shape Latest ticks
+      // The checklists behind one bird, collapsed — the same shape Leader Board Ticks
       // uses, built from the merged feed rather than a fetch. The row above is
       // the decision; these are the evidence you open once you have made it.
       function speciesChecklists(merged, code) {
@@ -17020,7 +17054,7 @@
           }));
       }
 
-      // The reports behind a cascade, collapsed — same shape as Latest ticks.
+      // The reports behind a cascade, collapsed — same shape as Leader Board Ticks.
       // These rows come from a species-scoped state feed, not the board, which
       // is why they carry a place and a checklist at all.
       function cascadeChecklists(recent) {
@@ -17169,7 +17203,7 @@
           // bird worth dropping everything for should not open with a
           // paragraph explaining itself.
           html += '<h3 class="lanehead">🎯 Celebrity Birds' + laneHelpBtn('celebrity') + '</h3>';
-          // THE SAME CARD LATEST TICKS USES. "celebrity birds should match
+          // THE SAME CARD LEADER BOARD TICKS USES. "celebrity birds should match
           // format" — so a bird looks the same wherever the app shows one, and
           // the row gains what that card carries: the scientific name, the
           // distance as a real column that opens maps, and the checklists
@@ -17280,7 +17314,7 @@
             var r0 = pair.near;
             var near = r0 ? r0._mi : null, nearAt = r0 ? distQ(r0.lat, r0.lng) : '';
             // WHO added it, as one sentence rather than a row each — the same
-            // shape Latest ticks settled on, for the same reason: the decision
+            // shape Leader Board Ticks settled on, for the same reason: the decision
             // is "several of the top 100 got this recently", which a sentence
             // carries in a line and a table spends ten on.
             var WHO = 4;
@@ -17320,13 +17354,13 @@
               below: who + ck
             });
           }).join('') + '</ul>';
-          // "add a link to jump to the latest ticks on the leaderboard section
+          // "add a link to jump to the Leader Board Ticks section
           // after the list." This lane is a SIGNAL off the board - a few of the
           // top 100 converging on one bird - and the obvious next question is
           // what else the board has been ticking. That section already exists;
           // a reader should not have to go back to the menu to find it.
           html += '<div class="destfoot"><a class="seclink" data-sec="sec-lastNewBtn">'
-            + '🔭 Latest ticks on the leaderboard →</a></div>';
+            + '🔭 Leader Board Ticks →</a></div>';
         }
         if (convergence.length) {
           html += '<h3 class="lanehead">📍 ' + convergence.length + ' hotspot'
@@ -18329,7 +18363,7 @@
         { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Rare birds' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Rare birds' },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Rare birds' },
-        { at: 'lastNewBtn',    label: '🔭 Latest ticks on the leaderboard', needs: 'geo', group: 'Rare birds' },
+        { at: 'lastNewBtn',    label: '🔭 Leader Board Ticks', needs: 'geo', group: 'Rare birds' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
         { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
         { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Hotspots & birders' },

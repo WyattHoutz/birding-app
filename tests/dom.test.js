@@ -507,9 +507,9 @@ test('a surge with no baseline reads as "new here", never as an infinite ratio',
   app.window.close();
 });
 
-test('Latest ticks section is wired and auto-loads from the leaderboard', async () => {
+test('Leader Board Ticks section is wired and auto-loads from the leaderboard', async () => {
   const app = await boot();
-  app.open(/Latest ticks/);
+  app.open(/Leader Board Ticks/);
   assert.equal(app.$('lastNewResults').closest('section').hidden, false,
     'the section is the one on screen');
   assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,
@@ -1335,7 +1335,7 @@ test('a cached board from the wrong region is treated as a miss', async () => {
   app.window.close();
 });
 
-test('Latest ticks reads ONE leaderboard: the active report\'s', async () => {
+test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () => {
   // It used to union this region + Lower 48, so a Washington chase board
   // listed European Goldfinch, Yellow-headed Amazon and Palila - and, when
   // both fetches returned the same board, every birder twice.
@@ -1349,7 +1349,7 @@ test('Latest ticks reads ONE leaderboard: the active report\'s', async () => {
   assert.match(src, /rankPrimaryRegion\(\)/,
     'it follows the same one-report-one-board rule as the rankings section');
 
-  app.open(/Latest ticks/);
+  app.open(/Leader Board Ticks/);
   await new Promise((r) => setTimeout(r, 120));
   const boards = app.state.fetches.filter((u) => /top100/.test(u));
   assert.equal(boards.length, 1, 'exactly one leaderboard is fetched');
@@ -2038,7 +2038,7 @@ test('favorites: the hotspot is the heading, its birds are the list under it', (
     `the hotspot title (${fav[1]}px) must clearly outrank the 17px species names under it`);
 });
 
-test('latest ticks: the bird outranks the roster of who added it', () => {
+test('Leader Board Ticks: the bird outranks the roster of who added it', () => {
   // The row's subject is the BIRD. "Who added it" is a roster read at a glance
   // — how many, how recently — not row by row, and at the checklist size it
   // competed with the name it was evidence for. Sized by what the list IS, so
@@ -2060,7 +2060,7 @@ test('latest ticks: the bird outranks the roster of who added it', () => {
     'and no longer renders as a checklist-style table');
 });
 
-test('latest ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+test('Leader Board Ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
   assert.match(src, /speciesLink\(sp, code\)/,
     'the bird title is a link to ebird.org/species/<code>/<region>');
@@ -4679,7 +4679,7 @@ test('Happening now labels every count and lists names as rows', async () => {
     'the badge must carry the row number, so a card can be tied to its map pin');
 
   // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph,
-  // then eight labelled rows. It now uses the SAME card as Latest ticks, where
+  // then eight labelled rows. It now uses the SAME card as Leader Board Ticks, where
   // the roster is ONE SENTENCE with a capped list — which is what stops a
   // forty-birder cascade filling the screen.
   const cascade = box.querySelectorAll('ul.obs')[1];
@@ -4999,7 +4999,7 @@ test('the medium card is a real 2x2 grid, not a float', async () => {
   app.window.close();
 });
 
-test('Latest ticks answers how far away the bird is', async () => {
+test('Leader Board Ticks answers how far away the bird is', async () => {
   const app = await boot({ storage: { 'ebird_home_lat:wa': '47.75', 'ebird_home_lng:wa': '-122.15' } });
   const A = app.window.__app, d = app.window.document;
   const groups = {}, byName = {};
@@ -5556,7 +5556,7 @@ test('a section that renders photo slots must also hydrate them', () => {
     ['the trip planner', 'function renderRoute(', 'function loadTripPlanner('],
     ['top destinations', 'function renderDestinations(', 'function renderRoute('],
     ['closest spots', 'function renderTargetPlaces(', 'function refresh()'],
-    ['latest ticks', 'function renderLastNew(', 'function loadAbaAlert('],
+    ['Leader Board Ticks', 'function renderLastNew(', 'function loadAbaAlert('],
     ["today's rarities", 'function refresh()', 'function buildClosestSpots('],
   ]) {
     const src = HTML.slice(HTML.indexOf(from), HTML.indexOf(to));
@@ -5566,7 +5566,7 @@ test('a section that renders photo slots must also hydrate them', () => {
 });
 
 // The sub-header is what you decide on, so it must not be a run-on of names.
-test('latest ticks: names are a list sorted newest first, not a run-on', () => {
+test('Leader Board Ticks: names are a list sorted newest first, not a run-on', () => {
   const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
   assert.doesNotMatch(src, /birders[\s\S]{0,80}\.join\(' · '\)/,
@@ -6216,8 +6216,19 @@ test('the flexible tracks that carry text can actually shrink', () => {
   // Contents tiles: a grid track that is already minmax(0,1fr) still overflows
   // if the flex item inside it refuses to shrink.
   assert.match(css, /\.toc li\s*\{[^}]*min-width:\s*0/, 'contents tiles may shrink');
-  assert.match(css, /\.tilelabel\s*\{[^}]*overflow-wrap:\s*anywhere/,
-    'and a long tile label breaks rather than pushing the tile wide');
+  // `break-word`, NOT `anywhere`. `anywhere` also shrinks min-content to one
+  // character, so the label never demanded room and the grid was free to hand
+  // it 0px: measured in Chrome at 320px/Easy read, the icon track took 91.3px
+  // of a 110.5px tile, the label column was ZERO, and all 29 tiles broke one
+  // letter per line. Nothing overflowed, so this file could not see it.
+  assert.match(css, /\.tilelabel\s*\{[^}]*overflow-wrap:\s*break-word/,
+    'a long tile label wraps at a space rather than being crushed to nothing');
+  assert.doesNotMatch(css, /\.tilelabel\s*\{[^}]*overflow-wrap:\s*anywhere/,
+    'anywhere is what allowed the crushing; it must not come back');
+  assert.match(css, /\.toc\s*\{[^}]*minmax\(calc\(\s*150px\s*\*\s*var\(--s\)\s*\)/,
+    'the column threshold scales with the text it has to fit');
+  assert.match(css, /\.tileicon\s*\{[^}]*font-size:\s*min\(/,
+    'the icon is capped so it cannot consume the tile at large text');
 
   // The photo yields before the touch targets do.
   assert.match(css, /\.nvrow > \.thumb\s*\{[^}]*flex:\s*0 1 auto/,
@@ -7280,7 +7291,7 @@ test('the hotspot medium card is three cells over a full-width sub-header', () =
     '.meta must not be reset to grid-column:auto after being told to span');
 });
 
-test('latest ticks: today\u2019s species feeds are cached, and only new birds cost a call', async () => {
+test('Leader Board Ticks: today\u2019s species feeds are cached, and only new birds cost a call', async () => {
   // The most expensive section in the app: one region feed plus ONE CALL PER
   // SPECIES the top 100 recently added — measured at ~46, which at the rate
   // limit eBird actually enforces is over two minutes of paced fetching.
@@ -7415,7 +7426,7 @@ test('the section you are looking at is not queued behind the background wave', 
 // recent checklists…" and an otherwise empty section. Everything on the card
 // EXCEPT the checklists comes from one leaderboard read that has already
 // returned, so there was no reason to hold it back.
-test('latest ticks paints the board before the checklists arrive', () => {
+test('Leader Board Ticks paints the board before the checklists arrive', () => {
   const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
                           HTML.indexOf('function lastNewKey('));
   assert.match(load, /renderLastNew\(groups, \{\}, region, codeIdx\)/,
@@ -7453,7 +7464,7 @@ test('latest ticks paints the board before the checklists arrive', () => {
   assert.match(card, /finding recent checklists/, 'and says so while it waits');
 });
 
-// "I would like the latest ticks on the leaderboard to be split, showing the
+// "I would like the Leader Board Ticks to be split, showing the
 // unseen birds first and seen birds second." The list is the longest in the
 // app and the magnifier was carrying the whole distinction on its own.
 //
@@ -7462,7 +7473,7 @@ test('latest ticks paints the board before the checklists arrive', () => {
 // stamps positionally. Interleaving heading rows shifts every index by one, and
 // a mis-stamped list means lastNewPatch silently updates the WRONG bird as each
 // checklist feed lands. Source regexes cannot see that.
-test('latest ticks splits unseen birds from seen ones', async () => {
+test('Leader Board Ticks splits unseen birds from seen ones', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -9100,7 +9111,7 @@ test('convoy stops render as small hotspot cards, numbered to match the map', as
   app.window.close();
 });
 
-// "Remove the Load latest ticks button, since there's already a refresh
+// "Remove the Load Leader Board Ticks button, since there's already a refresh
 // button" — and the same complaint had already been made about Birdiest
 // checklists. Rather than fix them one at a time, this asserts the RULE for
 // every section at once.
@@ -13020,11 +13031,11 @@ test('the odds rows are numbered, readable, and within reach first', () => {
 });
 
 test('the cascade lane can hand you off to the board it came from', () => {
-  // "add a link to jump to the latest ticks on the leaderboard section after
+  // "add a link to jump to the Leader Board Ticks section after
   // the list." The obvious next question after "a few of the top 100 are
   // ticking this" is what else the board has been ticking.
   const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
-  assert.match(src, /data-sec="sec-lastNewBtn"/, 'there is no jump to Latest ticks');
+  assert.match(src, /data-sec="sec-lastNewBtn"/, 'there is no jump to Leader Board Ticks');
 
   // WIRED, not just rendered. A link that navigates nowhere is the same bug as
   // the rankings scope control that sat dead for a whole release — and in this
@@ -14440,4 +14451,75 @@ test('a checklist hour is recorded even when the species pair is a duplicate', a
   const after = JSON.parse(ls.getItem('ebird_tod_wa'));
   assert.equal(after.chk && after.chk.S1, 20,
     'the checklist hour is recorded before the species dedupe return');
+});
+
+// F182. Four properties sat OUTSIDE the `button {...}` closing brace from the
+// tile redesign (fc11d76) onward: `max-width`, `overflow-wrap`, `white-space`
+// and `min-width`. A declaration at stylesheet top level is discarded, so
+// buttons had no overflow protection for seven minor releases and nothing
+// noticed - the same botched-edit shape that once left `.farrare > summary`
+// and `.wxtable th` jammed onto one line.
+//
+// Asserts the PROPERTY (a selector never contains a semicolon), not the text
+// of any one rule, so it catches the class rather than the instance.
+test('the stylesheet has no declarations outside a rule', () => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(HTML);
+  assert.ok(style, 'index.html has a <style> block');
+  let css = style[1].replace(/\/\*[\s\S]*?\*\//g, '');   // comments
+  css = css.replace(/@[\w-]+[^;{]*;/g, '');              // @import/@charset statements
+  const strays = [];
+  let buf = '';
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i];
+    if (ch === '{') {
+      // `buf` is a selector or at-rule prelude. Neither may contain a
+      // semicolon; a semicolon here means a declaration leaked out of a rule.
+      if (buf.indexOf(';') > -1) strays.push(buf.trim().replace(/\s+/g, ' ').slice(-90));
+      buf = '';
+    } else if (ch === '}') {
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.indexOf(';') > -1) strays.push('(after the last rule) ' + buf.trim().replace(/\s+/g, ' ').slice(0, 90));
+  assert.deepEqual(strays, [],
+    'these declarations are outside any rule and are silently discarded: ' + strays.join(' // '));
+});
+
+// F181. Reported as "leaderboard doesn't wrap at leaderboar-d". Measured in
+// real Chrome: the icon track took 91.3px of a 110.5px tile at Easy read and
+// the label column was ZERO - all 29 tiles broke one letter per line. Nothing
+// overflowed, so the layout audit passed it and jsdom, having no line boxes,
+// could never see it at all.
+//
+// The real guard is the CRUSHED LABEL check in assets/audit-overflow.js, which
+// measures line boxes in six viewport/text combinations. This one pins the
+// three CSS decisions that make it possible, so a restyle cannot quietly undo
+// them and leave only a browser check to notice.
+test('the Contents grid cannot crush a tile label', () => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(HTML);
+  const css = style[1];
+
+  assert.match(css, /\.toc\s*\{[^}]*repeat\(auto-fit,\s*minmax\(calc\(\s*150px\s*\*\s*var\(--s\)\s*\)/,
+    'the column threshold scales with the text it must fit - a fixed px minimum kept two columns at Easy read');
+  assert.doesNotMatch(css, /\.toc\s*\{[^}]*repeat\(2,/,
+    'a hard two-column grid is what left the label 0px');
+  assert.match(css, /\.tileicon\s*\{[^}]*font-size:\s*min\(/,
+    'the icon is capped so it cannot consume the tile');
+  assert.match(css, /\.toc li\.wide \.tileicon\s*\{[^}]*font-size:\s*min\(/,
+    'and the wide tile caps it too - that rule is more specific and would reinstate it');
+  // The wide bar declared flex-direction and flex-wrap while still being a
+  // grid, so the nowrap sub-line sized the auto column and starved the label.
+  assert.match(css, /\.toc li\.wide \.toclink\s*\{[^}]*display:\s*flex/,
+    'the wide tile is actually a flex row, not a grid pretending to be one');
+  assert.match(css, /\.toc li\.wide \.tilelabel\s*\{[^}]*flex:\s*0 1 auto/,
+    'and its label may shrink, or the bar runs off a 320px screen');
+
+  // The browser-side check must exist, or the CSS above is unwitnessed.
+  const audit = fs.readFileSync(path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  assert.match(audit, /CRUSHED LABEL/,
+    'the layout audit reports crushed labels');
+  assert.match(audit, /rows\.length > words \+ 1/,
+    'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });

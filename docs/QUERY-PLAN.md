@@ -158,7 +158,7 @@ are repainted when it advances. Everything else is listed with what it adds.
 | 🔴 Happening now | same feed | **0** | shares `_listsCache` |
 | 👥 Birder convoys | same feed + `product/checklist/view` | ~50 | `bc_ckl:` — durable, age-aware |
 | 🔥/🥶 Hot / Cold hotspots | `ref/hotspot/geo` + `{locId}/recent` per card | ~20 | `HOTSPOT_TTL_MS` 24 h |
-| 🔭 Latest ticks | `{region}/recent?back=30` + `recent/{species}` | ~47 | `bc_lastnew:` |
+| 🔭 Leader Board Ticks | `{region}/recent?back=30` + `recent/{species}` | ~47 | `bc_lastnew:` |
 | 🚶 Quick outing | `ref/hotspot/geo` | 1 | `bc_ref:` 7 d |
 | 📖 Species lookup | `product/spplist` + `ref/taxonomy` + species feed | 1–2 | `SPECIES_TTL_MS` 24 h |
 | 🥚 Easy misses | `{county}/recent` × sampled days | many | `easymiss_v1:` — past days never change |

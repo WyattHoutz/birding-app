@@ -3289,7 +3289,7 @@
     { term: 'self-found', def: 'A rarity you found yourself instead of twitching. Worth more to most birders.', where: 'Rarity reports' },
     { term: 'mega', def: 'A seriously rare bird - the kind people drive through the night for.', where: 'ABA Code 3+ rarities' },
     { term: 'stakeout', def: 'A known bird sitting still enough at one spot that you can go and get it.', where: 'Closest spots with unseen birds' },
-    { term: 'tick', def: 'A species added to a list. A year tick counts for the year, not for life.', where: 'Latest ticks, My year' },
+    { term: 'tick', def: 'A species added to a list. A year tick counts for the year, not for life.', where: 'Leader Board Ticks, My year' },
     { term: 'lifer', def: 'A bird seen for the first time ever. Once only, and never again.', where: 'My year, species cards' },
     { term: 'nemesis bird', def: 'The species everyone else keeps seeing near you and you never do.', where: 'Birds you still need' },
     { term: 'dip', def: 'To go for a bird and not see it. The risk every chase carries.', where: 'Conditions for chasing' },

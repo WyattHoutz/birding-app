@@ -183,7 +183,7 @@
       ]
     },
     "lastNewBtn": {
-      "report": "## 🔭 Latest ticks on the leaderboard",
+      "report": "## 🔭 Leader Board Ticks",
       "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
       "inputs": [
         "the region's Top 100 board (each row prints that birder's most recent year tick)"

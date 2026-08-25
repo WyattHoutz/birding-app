@@ -13,11 +13,11 @@ profile the examples use.
 
 | # | Endpoint | What it answers | Called by |
 |---|---|---|---|
-| 1 | `data/obs/{region}/recent` | everything reported lately in a county/state — **one row per species** | chase wave (per county), Latest ticks code index |
+| 1 | `data/obs/{region}/recent` | everything reported lately in a county/state — **one row per species** | chase wave (per county), Leader Board Ticks code index |
 | 2 | `data/obs/{region}/recent/notable` | just the flagged rarities | chase wave (per county) |
 | 3 | `data/obs/geo/recent` | same, as a circle around home (**capped at 50 km**) | chase wave |
 | 4 | `data/obs/geo/recent/notable` | rarities in that circle | chase wave |
-| 5 | `data/obs/{region}/recent/{species}` | **every** recent report of ONE bird | chase phase 2, Latest ticks, rarity cascade |
+| 5 | `data/obs/{region}/recent/{species}` | **every** recent report of ONE bird | chase phase 2, Leader Board Ticks, rarity cascade |
 | 6 | `data/obs/{locId}/recent` | the species list for ONE hotspot | hotspot cards, favourites |
 | 7 | `data/obs/{locId}/historic/{y}/{m}/{d}` | what was at a place on a past date | ABA history, GBIF-style baselines |
 | 8 | `product/lists/{region}` | recent checklists for a county | Birdiest · Convoys · Happening now (**one shared cached promise**) |
@@ -75,7 +75,7 @@ graph LR
   L --> NOW["Happening now<br/>+0"]
 
   HOT["Hot / Cold hotspots<br/>2 + 1 per card ~20"]
-  TICKS["Latest ticks<br/>1 + ~46 species feeds"]
+  TICKS["Leader Board Ticks<br/>1 + ~46 species feeds"]
   QUICK["Quick outing<br/>1 hotspot/geo"]
   LOOK["Species lookup<br/>1-2"]
   FAV["Favourites<br/>1 per saved spot"]
@@ -98,7 +98,7 @@ graph LR
 | Happening now | 0 | same cached promise |
 | Birder convoys | **~50** | one `checklist/view` per checklist on the routes |
 | Hot / Cold hotspots | **~20** | 2 scans + one `{locId}/recent` per card |
-| Latest ticks | **~47** | 1 region index + one species feed per bird the top 100 added |
+| Leader Board Ticks | **~47** | 1 region index + one species feed per bird the top 100 added |
 | Quick outing | **1** | one `ref/hotspot/geo` |
 | Species lookup | **1–2** | spplist + one species feed |
 | Favourites | 1 per saved spot | one `{locId}/recent` each |
@@ -129,7 +129,7 @@ not a client bug and no amount of re-pacing fixes it.
 
 | Section | Calls | Floor at eBird's own ceiling |
 |---|---:|---:|
-| Latest ticks | 47 | ~2min 7s |
+| Leader Board Ticks | 47 | ~2min 7s |
 | Birder convoys | ~52 | ~2min 20s |
 | Chase wave (both phases) | 47 | ~2min 7s |
 | Hot / Cold hotspots | ~22 | ~1min |
