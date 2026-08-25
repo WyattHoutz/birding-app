@@ -1443,12 +1443,13 @@ test('rankings: your own row on the board is highlighted', async () => {
 
 test("Today's rarities render the report's section, not a raw notable feed", () => {
   // The app read /recent/notable directly, which is eBird's 14-DAY window, so
-  // it listed birds the report never printed. BirdLogic.notableToday IS
-  // report.py::section_today and is covered by the cross-repo golden.
+  // it listed birds the report never printed. F180 needs the unfiltered merged
+  // records for its All toggle, but the window and checklist dedupe must still
+  // run through BirdLogic's parity-tested rule rather than being rebuilt here.
   const src = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function loadTargets('));
-  assert.match(src, /cv\.notableToday/,
-    'the section must come from the parity-tested view, not its own fetch');
+  assert.match(src, /BL\.notableRecent\(\(c\.cv && c\.cv\.merged\) \|\| \[\], Date\.now\(\)\)/,
+    'the complete set still passes through the parity-tested 24-hour rule');
   assert.ok(!/recent\/notable/.test(src),
     'no raw notable read: that window is 14 days, the section is today only');
   assert.ok(!/dedupeObs/.test(src),
@@ -1880,12 +1881,17 @@ test('rare means the same thing on a hotspot card and in the 7-day list', () => 
     HTML.indexOf('function buildActiveRarities(') + 2200);
   assert.match(act, /r\.kind !== 'Rarity'/,
     'and the 7-day list selects on the very same field');
-  // Both are built from cv.merged, so a bird cannot be rare in one and not the
-  // other. The ONE legitimate divergence is distance: the 7-day list is bounded
-  // by the chase radius, so a rarity further out is still badged on its hotspot
-  // card and still absent from that list.
-  assert.match(act, /chaseMaxMi\(\)/,
-    'the only difference is the chase radius, and it is applied here');
+  // Distance now belongs to the shared F180 filter, because the 7-day builder
+  // has to be capable of grouping BOTH the near set and its region-wide
+  // superset. The renderer must pass its raw records through that choke point.
+  const filters = HTML.slice(HTML.indexOf('function rarityFilterRecords('),
+    HTML.indexOf('function rarityFilterControl('));
+  assert.match(filters, /mi > chaseMaxMi\(\)/,
+    'the shared rarity filter reads the live chase radius');
+  const render = HTML.slice(HTML.indexOf('function loadActiveRarities('),
+    HTML.indexOf('function rarityChecklistDetails('));
+  assert.match(render, /rarityFilterRecords\(allRecords/,
+    'the 7-day list applies that shared filter to the same merged rows');
 });
 
 // The R badge, and why it is not a star.
@@ -6428,54 +6434,160 @@ test('the overflow reporter ignores Leaflet, which overflows by design', async (
     'map tiles sit outside their clipped container on purpose and are never the cause');
   app.window.close();
 });
-// --- Today's rarity reports respects the chase radius -----------------------
-// Reported from the device: the section was listing birds 60+ miles out beside
-// one four miles from the house, in the one section whose entire job is "what
-// can I go and see today". The radius already existed — report.py wrote it
-// down once for Closest spots and called it "a reasonable chase" — it was just
-// never applied here. Far reports are SORTED APART, not deleted: a rarity is
-// still worth a longer drive on the right day, and this is the only section
-// that lists today's.
-test("today's rarities lead with what is inside the chase radius", async () => {
+// F180. The two twitch sections expose the same preferences: unseen/all and
+// chase-radius/region. This drives the rendered controls and rows, because a
+// regex cannot prove that a chip actually changes what appears on screen.
+test('F180 filters both twitch sections from one stored preference', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
-  const R = A.CHASE_MAX_MI;
-  assert.equal(R, BL.CONST.CHASE_MAX_MI,
-    'the app reads the radius from the shared logic module, not its own copy');
+  const R = A.chaseMaxMi();
+  seedSeen(app, ['daejun', 'watchbir'], ['Dark-eyed Junco', 'Watch Bird']);
+  A.setWatchlist([{ code: 'watchbir', name: 'Watch Bird' }]);
 
+  const stamp = todayFixtureDate() + ' 14:23';
+  const rows = [
+    // Seen through reportAs and the trailing-parenthetical fallback, not by a
+    // raw daejun5 === daejun comparison.
+    { kind: 'Rarity', code: 'daejun5', name: 'Dark-eyed Junco (Oregon)',
+      parentOf: { daejun5: 'daejun' }, distMi: 4, dateStr: stamp,
+      loc: 'Near Park', locId: 'L1', subId: 'S1', observer: 'A' },
+    // On the year list, but deliberately UNSEEN for chasing while watched.
+    { kind: 'Rarity', code: 'watchbir', name: 'Watch Bird',
+      distMi: 5, dateStr: stamp, loc: 'Near Park', locId: 'L2',
+      subId: 'S2', observer: 'B' },
+    { kind: 'Rarity', code: 'newbird', name: 'New Bird',
+      distMi: 6, dateStr: stamp, loc: 'Near Park', locId: 'L3',
+      subId: 'S3', observer: 'C' },
+    { kind: 'Rarity', code: 'farbird', name: 'Far Bird',
+      distMi: R + 30, dateStr: stamp, loc: 'Far Park', locId: 'L4',
+      subId: 'S4', observer: 'D' },
+  ];
   A.seedChase(A.getReportSlug(), {
     t: Date.now(), rarity: false,
-    cv: {
-      merged: [],
-      notableToday: [
-        { code: 'nearbird', name: 'Near Rarity', distMi: 4.2, dateStr: '2026-07-31 08:00',
-          loc: 'Close Park', locId: 'L1', lat: 47.7, lon: -122.2, subId: 'S1', observer: 'A B' },
-        { code: 'farbird', name: 'Far Rarity', distMi: R + 30, dateStr: '2026-07-31 07:00',
-          loc: 'Distant Slough', locId: 'L2', lat: 48.5, lon: -122.9, subId: 'S2', observer: 'C D' },
-      ],
-    },
+    cv: { merged: rows, stakeout: {} },
   });
   A.refresh();
-  await new Promise((r) => setTimeout(r, 60));
+  await waitFor(() => doc.getElementById('todayControls'),
+    'Today\u2019s F180 controls to render');
 
   const out = doc.getElementById('results');
-  const far = out.querySelector('details.farrare');
-  assert.ok(far, 'the out-of-range reports are still there');
-  assert.ok(!far.open, 'but collapsed - they are not what the section is for');
-  assert.match(far.querySelector('summary').textContent, new RegExp(`1 more beyond ${R} mi`),
-    'and the summary says how many and past what');
-  assert.match(far.textContent, /Far Rarity/, 'the far bird lives inside the collapsed half');
+  const controls = doc.getElementById('todayControls');
+  const controlRows = controls.querySelectorAll('.raritycontrolrow');
+  assert.equal(controlRows.length, 2, 'sort and filters occupy two rows');
+  assert.deepEqual(
+    [...controlRows[0].querySelectorAll('button')].map((b) => b.textContent.trim()),
+    ['Newest', 'Nearest'], 'sort has its own row');
+  assert.deepEqual(
+    [...controlRows[1].querySelectorAll('button')].map((b) => b.textContent.trim()),
+    ['Unseen', 'All', `${R} mi`, 'Statewide'],
+    'the second row holds both filters, including the live radius and region-derived label');
+  assert.equal(doc.querySelector('#todayYear [data-value="unseen"]').getAttribute('aria-pressed'),
+    'true', 'Unseen is the default');
+  assert.equal(doc.querySelector('#todayDistance [data-value="near"]').getAttribute('aria-pressed'),
+    'true', 'the chase radius is the default');
 
-  // The near bird must be OUTSIDE the <details>, or "filtering" just means
-  // "everything moved one tap down".
-  const nearHtml = out.innerHTML.slice(0, out.innerHTML.indexOf('farrare'));
-  assert.match(nearHtml, /Near Rarity/, 'the near bird is listed directly');
-  assert.ok(!/Far Rarity/.test(nearHtml), 'and the far one is not');
-
+  // Default = unseen AND near. The form resolves to its parent and disappears;
+  // the watched bird stays a chase target despite also being on the year list.
+  assert.doesNotMatch(out.textContent, /Dark-eyed Junco/);
+  assert.match(out.textContent, /Watch Bird/);
+  assert.match(out.textContent, /New Bird/);
+  assert.doesNotMatch(out.textContent, /Far Bird/);
   assert.match(doc.getElementById('status').textContent,
-    new RegExp(`1 rarity report within ${R} mi`),
-    'the count in the header counts what it is showing, not the whole feed');
+    new RegExp(`2 unseen rarity reports shown of 3 total within ${R} mi`),
+    'the header distinguishes the filtered set from the total set');
+
+  // All widens the YEAR axis but leaves the distance axis untouched.
+  doc.querySelector('#todayYear [data-value="all"]').click();
+  await waitFor(() => /Dark-eyed Junco/.test(out.textContent), 'All to include a seen bird');
+  assert.doesNotMatch(out.textContent, /Far Bird/,
+    'All is not also a hidden distance change');
+
+  // Statewide widens the DISTANCE axis to a superset: near rows stay and the
+  // far row joins them. It never swaps in only the remainder.
+  doc.querySelector('#todayDistance [data-value="region"]').click();
+  await waitFor(() => /Far Bird/.test(out.textContent), 'Statewide to include the far bird');
+  for (const name of ['Dark-eyed Junco', 'Watch Bird', 'New Bird', 'Far Bird']) {
+    assert.match(out.textContent, new RegExp(name), `wide All keeps ${name}`);
+  }
+  assert.match(doc.getElementById('status').textContent,
+    new RegExp(`4 total rarity reports shown .*3 total within ${R} mi \\+ 1 total farther out`),
+    'the wide header states both the near and farther-out sets');
+
+  // The other section reads the SAME stored object, not a second per-window
+  // preference. No network request is needed: both rerender cached rows.
+  A.loadActiveRarities();
+  await waitFor(() => doc.getElementById('activeControls'),
+    'This week\u2019s F180 controls to render');
+  assert.equal(doc.querySelector('#activeYear [data-value="all"]').getAttribute('aria-pressed'),
+    'true', 'the All choice carries into the weekly list');
+  assert.equal(doc.querySelector('#activeDistance [data-value="region"]').getAttribute('aria-pressed'),
+    'true', 'the wide choice carries into the weekly list');
+  assert.match(doc.getElementById('activeResults').textContent, /Far Bird/);
+  const saved = JSON.parse(app.window.localStorage.getItem(A.RARITY_FILTER_KEY));
+  assert.deepEqual(saved, { year: 'all', distance: 'region' },
+    'one stored object carries both filters for both time windows');
+  app.window.close();
+});
+
+test('F180 never renders an unexplained empty twitch list', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, ['seenone', 'seentwo'], ['Seen One', 'Seen Two']);
+  A.setWatchlist([]);
+  const stamp = todayFixtureDate() + ' 14:23';
+  const rows = [
+    { kind: 'Rarity', code: 'seenone', name: 'Seen One', distMi: 3,
+      dateStr: stamp, loc: 'Park A', locId: 'L1', subId: 'S1', observer: 'A' },
+    { kind: 'Rarity', code: 'seentwo', name: 'Seen Two', distMi: 4,
+      dateStr: stamp, loc: 'Park B', locId: 'L2', subId: 'S2', observer: 'B' },
+  ];
+  A.seedChase(A.getReportSlug(), {
+    t: Date.now(), rarity: false, cv: { merged: rows, stakeout: {} },
+  });
+
+  A.refresh();
+  await waitFor(() => doc.getElementById('todayControls'), 'Today controls');
+  assert.match(doc.getElementById('status').textContent,
+    /All 2 rarity reports within 35 mi are already on your year list/,
+    'Today explains why the filtered list is empty');
+  assert.ok(doc.getElementById('todayControls'),
+    'and keeps the controls available so the filter can be changed');
+  assert.equal(doc.querySelectorAll('#results .cardname').length, 0);
+
+  A.loadActiveRarities();
+  await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
+  assert.match(doc.getElementById('activeStatus').textContent,
+    /All 2 rare species within 35 mi are already on your year list/,
+    'This week explains the same empty state in species units');
+  assert.ok(doc.getElementById('activeControls'),
+    'and its controls remain available too');
+  assert.equal(doc.querySelectorAll('#activeResults .cardname').length, 0);
+  app.window.close();
+});
+
+test('F180 distance labels follow the live radius and active region', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window, doc = W.document;
+  W.localStorage.setItem(A.chaseMiKey(), '75');
+
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityControls('probe');
+  assert.deepEqual(
+    [...host.querySelectorAll('#probeDistance button')].map((b) => b.textContent.trim()),
+    ['75 mi', 'Statewide'],
+    'the near chip reads the setting now in force, never a 35 mi literal');
+
+  for (const [slug, expected] of [
+    ['wa', 'Statewide'],
+    ['lower48', 'Lower 48'],
+    ['aba', 'ABA Area'],
+    ['waikoloa', 'Big Island'],
+  ]) {
+    W.localStorage.setItem('ebird_report', slug);
+    assert.equal(A.rarityRegionName(), expected,
+      `${slug} gets a truthful short region label`);
+  }
   app.window.close();
 });
 // --- a hotspot's species list must describe the HOTSPOT ---------------------
@@ -7790,8 +7902,14 @@ test('the medium species card has one second row, and it obeys the spec', async 
 
   // The point of extracting it: both sections feed the SAME builder, so the
   // media mark that only ABA showed now reaches the two rarity sections.
-  const src = HTML.slice(HTML.indexOf('function loadActiveRarities'),
-    HTML.indexOf('function loadActiveRarities') + 8000);
+  // Bounded by the NEXT sibling declaration, not by a character count. The
+  // count was 8000 and the call sat at 6774; F180 inserted its summary logic
+  // above the card renderer and pushed it to 9981, so a guard that was really
+  // asserting "this call is near the top of the function" started failing on
+  // a section whose icons were never touched. Assert the property.
+  const fnAt = HTML.indexOf('function loadActiveRarities');
+  assert.ok(fnAt > -1, 'loadActiveRarities() should exist');
+  const src = HTML.slice(fnAt, HTML.indexOf('\n      function ', fnAt + 1));
   assert.match(src, /icons: BirdLogic\.recordIcons\(/,
     'Last 7-Days passes the evidence marks it always had in its feed');
   app.window.close();
@@ -9390,7 +9508,7 @@ test('no personal eBird identity is hardcoded in the shipped source', () => {
 // per location, so an Eastern Kingbird is unremarkable in one county and notable
 // in the next. A nearby checklist holding the bird is worth seeing whether or
 // not that sighting was flagged; filtering on the flag drops the useful case.
-test('rarity reports are bounded by the chase radius, not by the flag', async () => {
+test('the shared rarity distance filter bounds near rows and keeps wide as a superset', async () => {
   const app = await boot();
   const A = app.window.__app;
   const home = { lat: 47.75, lng: -122.16 };
@@ -9411,7 +9529,9 @@ test('rarity reports are bounded by the chase radius, not by the flag', async ()
       observer: 'Someone', dateStr: '2026-08-03', ...at(66) },
   ];
 
-  const rows = A.buildActiveRarities(recs, home);
+  const nearRecords = A.rarityFilterRecords(recs, home,
+    { year: 'all', distance: 'near' });
+  const rows = A.buildActiveRarities(nearRecords, home);
   assert.equal(rows.length, 1, 'one species row');
   const row = rows[0];
 
@@ -9424,12 +9544,18 @@ test('rarity reports are bounded by the chase radius, not by the flag', async ()
   assert.equal(subs, 'S378544956,S378890306',
     'only the checklists inside the radius survive');
   assert.ok(row.distMi < A.CHASE_MAX_MI, 'and the closest is genuinely close');
-  assert.equal(rows.droppedFar, 3, 'what was withheld is counted, not silently dropped');
-
   // A species whose every report is far away is not a chase at all.
-  const onlyFar = A.buildActiveRarities(recs.slice(2), home);
+  const onlyFar = A.rarityFilterRecords(recs.slice(2), home,
+    { year: 'all', distance: 'near' });
   assert.equal(onlyFar.length, 0,
     'a species with nothing inside the radius gets no row - there is nowhere to go');
+
+  // The wide option is near PLUS far, never only the remainder.
+  const wide = A.rarityFilterRecords(recs, home,
+    { year: 'all', distance: 'region' });
+  assert.equal(wide.length, 5, 'wide retains every near and far report');
+  assert.equal(A.buildActiveRarities(wide, home)[0].reports, 5,
+    'and the grouped count describes the same wide set its expander renders');
   app.window.close();
 });
 
@@ -10941,34 +11067,18 @@ test('a card photo frame follows the photo, within limits', async () => {
 
 
 
-// "some of the species items are not spanning the width of the screen, and the
-// mile distance is not right aligned."
-//
-// The rows inside the "N more beyond X mi" expander. The medium card's CSS is
-// child-scoped (`.obs.xl > li`) ON PURPOSE, so a nested small-card list cannot
-// inherit the outer row's grid — but that also means an <li> sitting inside a
-// <details> is not a child of the list and falls back to the pre-grid float
-// layout: the name stops filling the row and the distance stops being a
-// column. It was invalid markup too; <details> is not a permitted child of
-// <ul>, nor a bare <li> of <details>.
-test('the far-rarity expander keeps its rows inside a real list', () => {
-  const src = HTML.slice(HTML.indexOf('if (far.length) {'),
-                         HTML.indexOf('if (far.length) {') + 1400);
-  assert.match(src, /<li class="farhost">/,
-    'a host <li> makes the expander a legal child of the results <ul>');
-  assert.match(src, /<ul class="obs big xl">/,
-    'and the far rows sit in their own list, so the medium-card grid applies');
-  // The wrapper class must match the medium card's own, or those rows render
-  // at a different size than the identical rows above them.
-  const wrapper = (CARDS_SPECIES.match(/medium: *'([^']+)'/)
-               || CARDS_SPECIES.match(/medium: *"([^"]+)"/) || [])[1];
-  assert.ok(wrapper, 'cards-species.js still names the medium wrapper');
-  assert.ok(src.indexOf('<ul class="' + wrapper + '">') >= 0,
-    'the nested list wears the medium wrapper "' + wrapper + '", not a lookalike');
-  // ...and the host must opt OUT of being a card itself, or it draws an empty
-  // frame around the expander.
-  assert.match(HTML, /\.obs > li\.farhost \{[^}]*display: block/,
-    'the host row is not styled as a card');
+// F180 retires the far-only expander. A distance toggle promises two scopes:
+// near, or the near+far superset. Leaving the old expander in the near view
+// would make "35 mi" a disclosure style rather than a filter.
+test('the rarity distance chip replaces the far-only expander', () => {
+  assert.doesNotMatch(HTML, /<details class="farrare"/,
+    'the 35 mi view must not secretly render far rows behind a disclosure');
+  assert.match(HTML, /choose ' \+ esc\(rarityRegionName\(\)\)[\s\S]{0,120}nearby reports/,
+    'the near view tells the reader which chip reveals the superset');
+  assert.match(HTML, /\.raritycontrols \{[^}]*flex-direction: column/,
+    'sort and filters are laid out as separate rows');
+  assert.match(HTML, /\.rarityfilterrow \.sortpick \{[^}]*flex:/,
+    'the two filter pairs share the second row instead of overflowing it');
 });
 
 

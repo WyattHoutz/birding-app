@@ -409,7 +409,19 @@
     .sortbtn { font-size: calc(12px * var(--s)); font-weight: 700; line-height: 1;
       padding: 5px 10px; border: 0; background: var(--card); color: var(--muted);
       cursor: pointer; }
-    .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+    .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink);
+      text-decoration: underline; text-underline-offset: 3px; }
+    /* F180. Sort is one question; the two filters are another row. Keeping
+       them separate lets a 402px card breathe, while flex-wrap still protects
+       the narrowest large-text layout. All three use the established chip
+       shape rather than introducing a third kind of control. */
+    .raritycontrols { display: flex; flex-direction: column; gap: 6px;
+      margin-top: 9px; }
+    .raritycontrolrow { display: flex; gap: 6px; align-items: center;
+      flex-wrap: wrap; }
+    .raritycontrolrow .sortpick { margin-left: 0; }
+    .rarityfilterrow .sortpick { flex: 1 1 130px; min-width: 0; }
+    .rarityfilterrow .sortbtn { flex: 1 1 auto; min-width: 0; }
     /* "id like to know quickly if a new rarity has been observed."
        A WORD, not a colour: the row already spends colour on distance and on
        the rarity badge, and a third colour-only signal is one nobody decodes. */
@@ -970,15 +982,12 @@
     .farplaces { margin-top: 8px; }
     .farplaces > summary { cursor: pointer; color: var(--muted);
                            font-size: calc(13px * var(--s)); padding: 4px 0; }
-    .farrare { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
-    /* The host row exists to make the markup legal and the nested list a real
-       child of a `.obs` — so it must NOT be styled as a card itself. Without
-       this it inherits `.obs.xl > li`'s grid and border and draws an empty
-       card frame around the expander. */
+    /* A list footer is still a list item for valid markup, but not a bird
+       card. F180 uses it to point at the wide-scope chip without hiding the
+       far records inside the near view. */
     .obs > li.farhost { display: block; grid-template-columns: none; border: 0;
                         padding: 0; margin: 0; background: none; overflow: visible; }
-    .obs > li.farhost > .farrare > ul { margin: 8px 0 0; padding: 0; }
-    .farrare > summary { cursor: pointer; color: var(--muted); font-size: calc(14px * var(--s)); }    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+    .wxtable th, .wxtable td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
     .wxtable th { color: var(--muted); font-weight: 600; font-size: calc(12px * var(--s)); }
     .wxtable tr.tiderise td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
     /* The row you are standing in. A left rule rather than another fill, so it
@@ -5335,54 +5344,83 @@
         // species+location and left in feed order. That is a different section
         // from the report's — it showed 31 rows spanning two weeks where the
         // report showed 13 from today, with no distance and no observer.
-        // BirdLogic.notableToday IS section_today (today only, deduped by
-        // CHECKLIST so each observer's report of the same bird stands, newest
-        // first) and is covered by the cross-repo golden, so use it.
+        // BirdLogic.notableRecent is the live form of section_today (rolling
+        // 24 h, deduped by CHECKLIST so each observer's report of the same bird
+        // stands, newest first) and is covered by the cross-repo golden.
         getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var all = c.cv.notableToday || [];
-          if (!all.length) {
-            st.textContent = 'No rarity reports in the last 24 hours. eBird processes notable submissions faster ' +
-              'than common-bird checklists, so this fills in through the morning.';
-            return;
-          }
-          // A rarity 60 miles away is not the same proposition as one four
-          // miles away, and this section is the day's "what can I go and see".
-          // The far ones are sorted apart, not dropped: a rarity is still worth
-          // a longer drive on the right day, so they stay one tap down instead
-          // of vanishing from the only section that lists them. Same radius and
-          // same split as report.section_today.
-          var rows = all.filter(function (r) {
-            return !(r.distMi > chaseMaxMi());
-          });
-          var far = all.filter(function (r) { return r.distMi > chaseMaxMi(); });
+          // Start from EVERY rarity, not computeChaseViews.notableToday: that
+          // view is deliberately built from unseenAll and therefore cannot
+          // power an All toggle. notableRecent applies the same rolling 24 h
+          // and checklist-dedupe rule to the unfiltered merged records.
+          var filters = rarityFilters(), home = getHome();
+          var all = rarityFilterRecords(
+            BL.notableRecent((c.cv && c.cv.merged) || [], Date.now()), home,
+            { year: 'all', distance: 'region' });
+          var scopeAll = rarityFilterRecords(all, home,
+            { year: 'all', distance: filters.distance });
+          var yearWide = rarityFilterRecords(all, home,
+            { year: filters.year, distance: 'region' });
+          var yearNear = rarityFilterRecords(all, home,
+            { year: filters.year, distance: 'near' });
+          var rows = rarityFilterRecords(all, home, filters);
           var order = { dist: function (r) { return r.distMi; },
                         date: function (r) { return r.dateStr; } };
           rows = raritySorted(rows, order);
-          far = raritySorted(far, order);
           // What arrived since you last looked at this section.
           var known = rarityKnownFor(all.map(rarityRowId));
           var fresh = rows.filter(function (r) {
             var id = rarityRowId(r);
             return id && !known[id];
           });
-          st.innerHTML = esc(rows.length + ' rarity report' + (rows.length === 1 ? '' : 's')
-            + ' within ' + chaseMaxMi() + ' mi in the last 24 h · '
-            + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
-            + ' · updated ' + dataTime(c))
+          var farEligible = yearWide.length - yearNear.length;
+          var summary;
+          if (!all.length) {
+            summary = 'No rarity reports in the last 24 hours. eBird processes notable '
+              + 'submissions faster than common-bird checklists, so this fills in through the morning.';
+          } else if (!rows.length && filters.year === 'unseen' && scopeAll.length) {
+            summary = 'All ' + scopeAll.length + ' rarity report'
+              + (scopeAll.length === 1 ? '' : 's') + ' '
+              + (filters.distance === 'near'
+                ? 'within ' + chaseMaxMi() + ' mi'
+                : 'in the selected region')
+              + (scopeAll.length === 1 ? ' is' : ' are') + ' already on your year list.';
+          } else if (!rows.length && filters.distance === 'near' && yearWide.length) {
+            summary = 'No ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'rarity reports are within ' + chaseMaxMi() + ' mi · '
+              + yearWide.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'report' + (yearWide.length === 1 ? '' : 's') + ' farther out available.';
+          } else if (!rows.length) {
+            summary = 'No ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'rarity reports in the selected region.';
+          } else if (filters.distance === 'region') {
+            summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'rarity report' + (rows.length === 1 ? '' : 's') + ' shown'
+              + (filters.year === 'unseen'
+                ? ' of ' + scopeAll.length + ' total in this region' : '')
+              + ' · scope: ' + rarityRegionName()
+              + ' · ' + yearNear.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'within ' + chaseMaxMi() + ' mi + ' + farEligible + ' '
+              + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out';
+          } else {
+            summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'rarity report' + (rows.length === 1 ? '' : 's') + ' shown'
+              + (filters.year === 'unseen'
+                ? ' of ' + scopeAll.length + ' total' : '')
+              + ' within ' + chaseMaxMi() + ' mi'
+              + (farEligible ? ' · ' + farEligible + ' '
+                + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out available' : '');
+          }
+          st.innerHTML = esc(summary
+            + (rows.length
+              ? ' · ' + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
+                + ' · updated ' + dataTime(c)
+              : ''))
             + (fresh.length
                ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
                : '')
-            // SAY THAT THIS LIST IS FILTERED, because it is. The section is fed
-            // `unseenAll`, so a rarity you have already ticked never appears —
-            // which is right for a chase list and invisible on screen. Reported
-            // as a bug: *"franklin gull is missing from twitches"*, after the
-            // owner had seen it himself the day before. A count that says
-            // "3 reports" while silently holding back a fourth is a count that
-            // cannot be checked against eBird.
-            + rarityHiddenNote(c)
-            + ' ' + raritySortControl('todaySort');
-          wireRaritySort('todaySort', refresh);
+            + rarityControls('today');
+          wireRarityControls('today', refresh);
           var days = stakeoutDays(c.cv.merged || []);
           // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
           // reports — one row per checklist — so it is scanned, not read. It
@@ -5453,32 +5491,21 @@
               })
             });
           }
-          var html = rows.length ? rows.map(card).join('')
-            : '<div class="status">Nothing rare within ' + chaseMaxMi() + ' mi today.</div>';
+          var html = rows.length ? rows.map(card).join('') : '';
           // F128 follow-up: where to go when the radius filtered something out.
-          var stLink = stateAlertLink(rows.length && rows[0].county);
-          if (stLink) html += '<div class="hint">Wider than your radius: ' + stLink + '</div>';
-          if (far.length) {
-            // THE ROWS INSIDE HERE GET NO GRID unless they are direct children
-            // of a `.obs.card-md` list.
-            //
-            // "some of the species items are not spanning the width of the
-            // screen, and the mile distance is not right aligned" — these
-            // ones. The medium card's CSS is child-scoped (`.obs.xl > li`) on
-            // purpose, so a nested small-card list cannot inherit the outer
-            // row's grid; but that also means a <li> sitting inside a
-            // <details> is not a child of the list and falls back to the
-            // pre-grid float layout. The name stops filling the row and the
-            // distance stops being a column.
-            //
-            // It was invalid markup too: <details> is not a permitted child of
-            // <ul>, and neither is a bare <li> of <details>. A host <li>
-            // carrying its own nested list fixes the layout and the HTML at
-            // once.
-            html += '<li class="farhost"><details class="farrare"><summary>' + far.length
-              + ' more beyond ' + chaseMaxMi() + ' mi</summary>'
-              + '<ul class="obs big xl">' + far.map(card).join('') + '</ul>'
-              + '</details></li>';
+          var stLink = stateAlertLink((scopeAll[0] || all[0] || {}).county);
+          if (filters.distance === 'near' && stLink) {
+            html += '<li class="farhost"><div class="hint">Wider than your radius: '
+              + stLink + '</div></li>';
+          }
+          if (filters.distance === 'near' && farEligible) {
+            // Near really is a FILTER now. The wide chip reveals a SUPERSET
+            // (near + far); it never swaps in only the remainder.
+            html += '<li class="farhost"><div class="hint">' + farEligible + ' '
+              + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'rarity report' + (farEligible === 1 ? '' : 's') + ' beyond '
+              + chaseMaxMi() + ' mi · choose ' + esc(rarityRegionName())
+              + ' to show them with the nearby reports.</div></li>';
           }
           out.innerHTML = html;
           hydratePhotos(out);
@@ -7264,38 +7291,6 @@
       // third colour-only signal is one nobody decodes.
       function newRarityTag() { return '<span class="newflag">NEW</span>'; }
 
-      // How many rarities this section is holding back because you have already
-      // seen the bird — computed from the SAME merged records the section is
-      // built from, so it costs nothing and cannot drift from what is on screen.
-      //
-      // The section is fed `unseenAll`, which is correct for a chase list: it
-      // answers "what can I go and get". But nothing said so, and the count read
-      // as a complete tally of nearby rarity reports. Reported exactly that way
-      // — *"franklin gull is missing from twitches"* — for a bird the owner had
-      // ticked himself the day before, at 13.7 mi and 27 h old, well inside both
-      // the radius and the window.
-      function rarityHiddenNote(c) {
-        try {
-          var all = (c && c.cv && c.cv.merged) || [];
-          var shown = {};
-          ((c && c.cv && c.cv.notableToday) || []).forEach(function (r) {
-            shown[BL.obsDedupKey(r)] = 1;
-          });
-          var hid = BL.notableRecent(all, Date.now());
-          var n = 0, names = {};
-          hid.forEach(function (r) {
-            if (shown[BL.obsDedupKey(r)]) return;
-            if (r.distMi > chaseMaxMi()) return;
-            if (!BL.countableTaxon(r.name)) return;
-            n++; names[r.name] = 1;
-          });
-          if (!n) return '';
-          var list = Object.keys(names).sort();
-          return ' <span class="dim">\u00b7 ' + esc(list.length + ' more nearby you have already seen ('
-            + list.slice(0, 3).join(', ') + (list.length > 3 ? ', \u2026' : '') + ')') + '</span>';
-        } catch (e) { return ''; }
-      }
-
       // "indicate whether a rare bird is confirmed on twitch. its in the aba
       // feeds" (owner, 2026-08-23).
       //
@@ -7346,6 +7341,95 @@
       }
       function setRaritySort(v) {
         localStorage.setItem(RARITY_SORT_KEY, v === 'distance' ? 'distance' : 'date');
+      }
+      // F180. These are preferences about the rarity lists, not about one
+      // time window, so Today's and Last 7-Days read one stored object. The
+      // localStorage shim above makes it per profile without a second key
+      // convention here.
+      var RARITY_FILTER_KEY = 'ebird_rarity_filters_v1';
+      function rarityFilters() {
+        var value = null;
+        try { value = JSON.parse(localStorage.getItem(RARITY_FILTER_KEY) || 'null'); }
+        catch (e) { value = null; }
+        return {
+          year: value && value.year === 'all' ? 'all' : 'unseen',
+          distance: value && value.distance === 'region' ? 'region' : 'near'
+        };
+      }
+      function setRarityFilter(kind, value) {
+        var next = rarityFilters();
+        if (kind === 'year') next.year = value === 'all' ? 'all' : 'unseen';
+        if (kind === 'distance') next.distance = value === 'region' ? 'region' : 'near';
+        try { localStorage.setItem(RARITY_FILTER_KEY, JSON.stringify(next)); } catch (e) {}
+        return next;
+      }
+      // The wide chip must name the region it actually belongs to. "Statewide"
+      // is right for a state report and false for the continent trackers and
+      // the Big Island trip, so start with the same resolver the leaderboard
+      // header uses and then shorten only the labels this control needs.
+      function rarityRegionName() {
+        var p = getReport() || {};
+        if (p.slug === 'waikoloa' || /Big Island/i.test(p.label || '')) return 'Big Island';
+        var named = rankRegionName(p.stateCode || '');
+        if (named === 'Lower 48' || named === 'ABA Area') return named;
+        if (p.kind === 'region' && /^US-[A-Z]{2}$/i.test(p.stateCode || '')) return 'Statewide';
+        return named || 'Everywhere';
+      }
+      function rarityRecordDistance(r, home) {
+        if (r && isFinite(r.distMi)) return +r.distMi;
+        if (r && home && isFinite(r.lat) && isFinite(r.lon)) {
+          return haversineMi(home.lat, home.lng, r.lat, r.lon);
+        }
+        return null;
+      }
+      // One filter path for both twitch sections. In particular this calls
+      // isSpeciesSeen rather than comparing raw codes, so reportAs parents,
+      // trailing parenthetical forms and the watchlist subtraction all keep
+      // their existing meaning.
+      function rarityFilterRecords(rows, home, prefs) {
+        prefs = prefs || rarityFilters();
+        return (rows || []).filter(function (r) {
+          if (!r || r.kind !== 'Rarity' || !r.code || !BL.countableTaxon(r.name)) return false;
+          if (prefs.year !== 'all' && isSpeciesSeen(r.code, r.name, r.parentOf)) return false;
+          if (prefs.distance !== 'region') {
+            var mi = rarityRecordDistance(r, home);
+            if (mi != null && mi > chaseMaxMi()) return false;
+          }
+          return true;
+        });
+      }
+      function rarityFilterControl(id, kind, leftValue, leftLabel, rightValue, rightLabel) {
+        var selected = rarityFilters()[kind];
+        return '<span class="sortpick raritypick" id="' + id + '" role="group" aria-label="'
+          + (kind === 'year' ? 'Filter by year list' : 'Filter by distance') + '">'
+          + '<button type="button" class="sortbtn rarityfilterbtn" data-filter="' + kind
+          + '" data-value="' + leftValue + '" aria-pressed="' + (selected === leftValue) + '">'
+          + esc(leftLabel) + '</button>'
+          + '<button type="button" class="sortbtn rarityfilterbtn" data-filter="' + kind
+          + '" data-value="' + rightValue + '" aria-pressed="' + (selected === rightValue) + '">'
+          + esc(rightLabel) + '</button></span>';
+      }
+      function rarityControls(prefix) {
+        return '<div class="raritycontrols" id="' + prefix + 'Controls">'
+          + '<div class="raritycontrolrow raritysortrow">'
+          + raritySortControl(prefix + 'Sort') + '</div>'
+          + '<div class="raritycontrolrow rarityfilterrow" id="' + prefix + 'Filters">'
+          + rarityFilterControl(prefix + 'Year', 'year', 'unseen', 'Unseen', 'all', 'All')
+          + rarityFilterControl(prefix + 'Distance', 'distance', 'near',
+              chaseMaxMi() + ' mi', 'region', rarityRegionName())
+          + '</div></div>';
+      }
+      function wireRarityControls(prefix, reload) {
+        wireRaritySort(prefix + 'Sort', reload);
+        var host = document.getElementById(prefix + 'Filters');
+        if (!host) return;
+        host.addEventListener('click', function (ev) {
+          var b = ev.target.closest ? ev.target.closest('.rarityfilterbtn') : null;
+          if (!b) return;
+          setRarityFilter(b.getAttribute('data-filter'), b.getAttribute('data-value'));
+          // Filtering is local work over the cached rows, just like sorting.
+          reload();
+        });
       }
       // One comparator for both sections. `date` is the field each already
       // sorted by, so choosing "newest first" reproduces the old order exactly
@@ -11115,29 +11199,9 @@
       // first/latest dates. Distinct from "Today's rarity reports", which lists
       // today's individual sightings.
       function buildActiveRarities(records, home) {
-        var byCode = {}, order = [], droppedFar = 0;
+        var byCode = {}, order = [];
         (records || []).forEach(function (r) {
           if (r.kind !== 'Rarity' || !r.code) return;
-          // BOUND BY THE CHASE RADIUS, exactly as report.section_rarities does.
-          //
-          // kind === 'Rarity' is not a local marker: the pool includes raw
-          // statewide notable records (the ABA Code 3+ recovery path fetches a
-          // whole state's notable feed), so this section listed a Nashville
-          // Warbler with 16 "reports" whose expander offered checklists from
-          // Clarkston, 252 miles away across the Cascades, beside the two at
-          // Bolt Creek Burn that were the actual reports for it.
-          //
-          // The filter is DISTANCE, not "did eBird flag it here". eBird judges
-          // rarity per location — an Eastern Kingbird is unremarkable in one
-          // county and notable in the next — so a nearby checklist holding the
-          // bird is worth seeing whether or not that sighting was flagged.
-          // Filtering on the flag would drop exactly the useful case.
-          //
-          // A record with no coordinates keeps its place; the report treats a
-          // missing distance the same way.
-          var dm = (home && isFinite(r.lat) && isFinite(r.lon))
-            ? haversineMi(home.lat, home.lng, r.lat, r.lon) : null;
-          if (dm != null && dm > chaseMaxMi()) { droppedFar++; return; }
           if (!byCode[r.code]) { byCode[r.code] = []; order.push(r.code); }
           byCode[r.code].push(r);
         });
@@ -11159,6 +11223,7 @@
           if (!closest) closest = { rec: rs[0], distMi: null };
           return {
             code: code, name: rs[0].name || code,
+            parentOf: rs[0].parentOf,
             reports: Object.keys(subs).length || rs.length,
             observers: Object.keys(obs).length,
             closest: closest.rec, distMi: closest.distMi,
@@ -11170,10 +11235,6 @@
           };
         });
         out.sort(function (a, b) { return String(b.latest).localeCompare(String(a.latest)); });
-        // Carried on the array so the status line can say what was withheld.
-        // Silence is how this went unnoticed: nobody questions a count whose
-        // workings they cannot see.
-        out.droppedFar = droppedFar;
         return out;
       }
 
@@ -11181,33 +11242,45 @@
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
-        var snap = null;
+        var snap = null, days = {};
         getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
           // The snapshot's own timestamp, kept so the status line can say when
           // the DATA was read rather than when the page was painted.
           snap = c;
-          // Rarity trackers (Lower 48 / ABA) have no county feeds; their report
-          // builds this section from the ABA alert filtered to unseen species,
-          // so do the same rather than showing nothing.
-          if (c.rarity) return abaActiveRarities();
-          var rows = buildActiveRarities(c.cv.merged || [], getHome());
+          // Rarity trackers (Lower 48 / ABA) have no county feeds. Return the
+          // raw alert records here too: the shared filters below need the full
+          // set to make All and the region-wide distance option truthful.
+          if (c.rarity) return abaRarityRecords();
           // 📍 Day N is measured over the whole merged snapshot, not this
           // section's grouped rows, exactly as report.section_rarities reads
           // _compute_stakeouts. Without it the app dropped the one marker that
           // separates "still there" from "seen once last Tuesday".
-          var days = stakeoutDays(c.cv.merged || []);
+          days = stakeoutDays(c.cv.merged || []);
+          return c.cv.merged || [];
+        }).then(function (records) {
+          if (!records) return;
+          var filters = rarityFilters(), home = getHome();
+          var allRecords = rarityFilterRecords(records, home,
+            { year: 'all', distance: 'region' });
+          var scopeAllRecords = rarityFilterRecords(allRecords, home,
+            { year: 'all', distance: filters.distance });
+          var yearWideRecords = rarityFilterRecords(allRecords, home,
+            { year: filters.year, distance: 'region' });
+          var yearNearRecords = rarityFilterRecords(allRecords, home,
+            { year: filters.year, distance: 'near' });
+          var visibleRecords = rarityFilterRecords(allRecords, home, filters);
+          var allGroups = buildActiveRarities(allRecords, home);
+          var scopeAllGroups = buildActiveRarities(scopeAllRecords, home);
+          var yearWideGroups = buildActiveRarities(yearWideRecords, home);
+          var yearNearGroups = buildActiveRarities(yearNearRecords, home);
+          var rows = buildActiveRarities(visibleRecords, home);
           rows.forEach(function (r) { r.stakeDays = days[stakeoutKey(r.closest)] || 0; });
-          return rows;
-        }).then(function (rows) {
-          if (!rows) return;
-          if (!rows.length) { st.textContent = 'No rarities currently reported in ' + label + '.'; return; }
           // Same control, same comparator, same wording as Today's rarities —
           // "these reports should look the same except the last 7 days groups
           // by species". Here a row is a SPECIES, so its date is the latest
           // report of it and its distance is the closest one.
           var order = { dist: function (r) { return r.distMi; },
                         date: function (r) { return r.latest; } };
-          var droppedFar = rows.droppedFar;
           rows = raritySorted(rows, order);
           // Same "what's new" rule as Today's rarities: reported in the last
           // 24 hours. Here a row is a SPECIES, so it is the most recent report
@@ -11219,17 +11292,56 @@
             r.isNew = BL.isFresh(newest.dateStr);
             if (r.isNew) freshCount++;
           });
-          st.innerHTML = esc(rows.length + ' rare species reported recently · within '
-            + chaseMaxMi() + ' mi · '
-            + (raritySort() === 'distance' ? 'nearest first' : 'most recent first')
-            + ' · updated ' + dataTime(snap)
-            + (droppedFar ? ' · ' + droppedFar + ' report'
-               + (droppedFar === 1 ? '' : 's') + ' farther out not shown' : ''))
+          var farYearSpecies = yearWideGroups.length - yearNearGroups.length;
+          var summary;
+          if (!allGroups.length) {
+            summary = 'No rarities currently reported in ' + label + '.';
+          } else if (!rows.length && filters.year === 'unseen' && scopeAllGroups.length) {
+            summary = 'All ' + scopeAllGroups.length + ' rare '
+              + (scopeAllGroups.length === 1 ? 'species' : 'species') + ' '
+              + (filters.distance === 'near'
+                ? 'within ' + chaseMaxMi() + ' mi'
+                : 'in the selected region')
+              + (scopeAllGroups.length === 1 ? ' is' : ' are')
+              + ' already on your year list.';
+          } else if (!rows.length && filters.distance === 'near' && yearWideGroups.length) {
+            summary = 'No ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'rare species are within ' + chaseMaxMi() + ' mi · '
+              + yearWideGroups.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'species farther out available.';
+          } else if (!rows.length) {
+            summary = 'No ' + (filters.year === 'unseen' ? 'unseen ' : '')
+              + 'rare species in the selected region.';
+          } else if (filters.distance === 'region') {
+            summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'rare species shown'
+              + (filters.year === 'unseen'
+                ? ' of ' + scopeAllGroups.length + ' total in this region' : '')
+              + ' · scope: ' + rarityRegionName()
+              + ' · ' + yearNearGroups.length + ' '
+              + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'within ' + chaseMaxMi() + ' mi + ' + farYearSpecies + ' '
+              + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out';
+          } else {
+            summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
+              + 'rare species shown'
+              + (filters.year === 'unseen'
+                ? ' of ' + scopeAllGroups.length + ' total' : '')
+              + ' within ' + chaseMaxMi() + ' mi'
+              + (farYearSpecies ? ' · ' + farYearSpecies + ' additional '
+                + (filters.year === 'unseen' ? 'unseen ' : '')
+                + (farYearSpecies === 1 ? 'species' : 'species') + ' farther out available' : '');
+          }
+          st.innerHTML = esc(summary
+            + (rows.length
+              ? ' · ' + (raritySort() === 'distance' ? 'nearest first' : 'most recent first')
+                + ' · updated ' + dataTime(snap)
+              : ''))
             + (freshCount
                ? ' <span class="newcount">' + freshCount + ' new since you last looked</span>'
                : '')
-            + ' ' + raritySortControl('activeSort');
-          wireRaritySort('activeSort', loadActiveRarities);
+            + rarityControls('active');
+          wireRarityControls('active', loadActiveRarities);
           // SPLIT: birds you still need first, birds you already have second —
           // mirroring report.section_rarities. One list left the 🔍 marker to
           // carry the whole distinction, which is the thing this section is
@@ -11938,7 +12050,7 @@
         lower48: { country: 'United States', exclude: ['US-AK', 'US-HI', 'US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'] },
         aba: { country: null, exclude: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'] }
       };
-      function abaActiveRarities() {
+      function abaRarityRecords() {
         // Newest first, the pair the reader quoted. This is the one alert URL the
         // app has a sid for, so it is the one place the exact form applies.
         var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid())
@@ -11946,7 +12058,7 @@
         var scope = RARITY_SCOPE[getReportSlug()] || RARITY_SCOPE.lower48;
         var drop = {}; scope.exclude.forEach(function (c) { drop[c] = 1; });
         return fetchPublicHTML(url).then(function (html) {
-          var recs = parseAlertHTML(html).filter(function (o) {
+          return parseAlertHTML(html).filter(function (o) {
             if (scope.country && o.country !== scope.country) return false;
             return !drop[o.subnational1Code];
           }).map(function (o) {
@@ -11955,8 +12067,7 @@
               locId: '', lat: o.lat, lon: o.lng, dateStr: o.obsDt, subId: o.subId,
               observer: o.userDisplayName || '', location_private: true
             };
-          }).filter(function (r) { return !isSpeciesSeen(r.code, r.name); });
-          return buildActiveRarities(recs, getHome());
+          });
         });
       }
 
@@ -21111,6 +21222,10 @@
         updateMyYear: updateMyYear,
         raritySort: raritySort, setRaritySort: setRaritySort,
         raritySorted: raritySorted, takeForce: takeForce,
+        rarityFilters: rarityFilters, setRarityFilter: setRarityFilter,
+        rarityFilterRecords: rarityFilterRecords, rarityRegionName: rarityRegionName,
+        rarityControls: rarityControls, RARITY_FILTER_KEY: RARITY_FILTER_KEY,
+        loadActiveRarities: loadActiveRarities,
         raritySeenIds: raritySeenIds, markRaritySeen: markRaritySeen,
         rarityRowId: rarityRowId,
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
