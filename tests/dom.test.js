@@ -7929,6 +7929,42 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   app.window.close();
 });
 
+// "the here buttons are still not working" … "no location prompts"
+//
+// Every "here" button (Rank from here, Iconic here, Nothing unseen here) calls
+// Geolocation.requestPermissions() and then getCurrentPosition. The JS was
+// correct the whole time. iOS was refusing INSTANTLY AND SILENTLY, because the
+// app had never declared why it wanted location: there was no NSLocation* key
+// anywhere in the iOS project.
+//
+// That failure mode is invisible to this suite by construction — jsdom has no
+// Info.plist and no permission model — so nothing here could ever have caught
+// it, and the buttons could never have worked on device. The guard therefore
+// reads the actual file the build ships.
+test('iOS declares why it wants location, or every "here" button dies silently', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const plist = path.join(__dirname, '..', 'ios', 'App', 'App', 'Info.plist');
+  if (!fs.existsSync(plist)) return;   // the iOS project is not always present
+  const txt = fs.readFileSync(plist, 'utf8');
+
+  assert.match(txt, /<key>NSLocationWhenInUseUsageDescription<\/key>/,
+    'Info.plist must declare NSLocationWhenInUseUsageDescription — without it '
+    + 'iOS denies location with NO PROMPT and the "here" buttons do nothing');
+
+  // A present-but-empty string is the same failure with extra steps: iOS
+  // rejects the app rather than the request, and the reason is just as hidden.
+  const m = /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/.exec(txt);
+  assert.ok(m, 'the key must be followed by a string value');
+  assert.ok(m[1].trim().length >= 20,
+    'the purpose string is shown to the reader in the system dialog, so it has '
+    + 'to say something: got ' + JSON.stringify(m[1]));
+
+  // ...and the app really does ask, or the declaration is decoration.
+  assert.match(HTML, /requestPermissions\(\)/,
+    'the app calls requestPermissions(), which is what raises the dialog');
+});
+
 // F177: "Id like a way to test multiple ebird accounts on my device… each has a
 // separate api and web key. I'd prefer to use my same iphone."
 //

@@ -1031,6 +1031,48 @@
   // species list either.
   var _HYBRID_SUFFIX = /\(\s*hybrid\s*\)\s*$/i;
   var _TRAILING_PAREN = /\s*\([^()]*\)\s*$/;
+  // ── F176: WHERE A BIRD BELONGS ON A YEAR LIST ────────────────────────
+  //
+  // eBird's own year list has FOUR buckets, and only the first is numbered:
+  //
+  //     1..N              the species total
+  //     EXOTIC: ESCAPEE   Chukar, 29 May 2026 — orange circle, white asterisk
+  //     HYBRIDS           Western x Glaucous-winged Gull
+  //     ADDITIONAL TAXA   gull/tern sp., loon sp., Calidris sp. …
+  //
+  // v1.29.0 stopped counting the last three, which was right — but it also
+  // stopped SHOWING them, which is why an absence read as a defect: *"I have a
+  // chukar and its not included in my list of washington birds for 2026"*. It
+  // was not missing; eBird excludes it from its own numbered total too. What
+  // was missing was eBird's second half — the bird is visible, just outside the
+  // count.
+  //
+  // ORDER MATTERS: the taxon SHAPE is decided before the exotic flag, because a
+  // hybrid that is also an escapee is filed under hybrids on eBird's own list.
+  //
+  // exoticCategory is read from the ROW, never looked up per species. Measured
+  // 2026-08-24: across 315 live WA rows Chukar reads `N` (naturalized, and
+  // naturalized birds DO count — European Starling, House Sparrow and Rock
+  // Pigeon are all N), yet the owner's own list files a west-side Chukar as
+  // `X`. A Chukar in the arid east is naturalized; one at Snoqualmie is an
+  // escapee. The same species is countable in one place and not in another, so
+  // a per-species lookup would mislabel it — as mine did, out loud, before the
+  // screenshot corrected me.
+  function taxonKind(name, exoticCategory) {
+    var t = String(name == null ? '' : name).trim();
+    if (!t) return 'additional';
+    if (_HYBRID_SUFFIX.test(t)) return 'hybrid';
+    var bare = t.replace(_TRAILING_PAREN, '').trim();
+    if (/\s+x\s+/i.test(bare)) return 'hybrid';
+    if (/\bsp\.\s*$/i.test(bare)) return 'additional';
+    if (bare.indexOf('/') >= 0) return 'additional';
+    var x = String(exoticCategory == null ? '' : exoticCategory).trim().toUpperCase();
+    // X = escapee, P = provisional. N = naturalized and COUNTS — flagging it
+    // would wrongly demote ten common countable species.
+    if (x === 'X' || x === 'P') return 'escapee';
+    return 'species';
+  }
+
   function countableTaxon(name) {
     var t = String(name == null ? '' : name).trim();
     if (!t) return false;
@@ -3812,6 +3854,7 @@
     // Exported so "is this a tick at all?" can be tested against the real
     // taxonomy rather than against the two rows that prompted it.
     countableTaxon: countableTaxon,
+    taxonKind: taxonKind,
     obsDedupKey: obsDedupKey,
     // Exported so the three-state rule can be tested directly — in particular
     // that ABSENT fields stay 'unknown' rather than defaulting to confirmed,

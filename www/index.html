@@ -1310,6 +1310,17 @@
                  white-space: nowrap; display: inline-block; }
     .revok   { color: #0072B2; background: color-mix(in srgb, #0072B2 12%, transparent); }
     .revpend { color: #8a5a00; background: color-mix(in srgb, #E69F00 18%, transparent); }
+    /* F176. eBird marks an escapee with a filled circle carrying a white
+       asterisk; this is the same idea in one glyph, and it is ALWAYS printed
+       beside a word — the circle is the third channel, never the only one.
+       Vermillion rather than red, and paired with text, because the owner is
+       red-green colour blind. */
+    .exomark { display: inline-flex; align-items: center; justify-content: center;
+               width: calc(15px * var(--s)); height: calc(15px * var(--s));
+               border-radius: 50%; background: #D55E00; color: #fff;
+               font-size: calc(11px * var(--s)); font-weight: 800;
+               line-height: 1; margin-right: 4px; flex: 0 0 auto; }
+    .exorow { font-size: calc(13px * var(--s)); color: var(--muted); }
     /* A pill is one token. `.stakeflag` already said so; these two did not, so
        a two-word pill could break across lines and render as half a badge.
        inline-block also stops the pill's padding being split at a line break,
@@ -2167,7 +2178,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.30.0';
+      var APP_VERSION = '1.31.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2861,6 +2872,11 @@
                 l: loc.name || loc.locName || row.locName || '',
                 i: loc.locId || row.locId || '',
                 h: loc.isHotspot ? 1 : 0,
+                // F176. The checklist response already carries this per row, so
+                // it costs NOTHING — and it must be stored per OBSERVATION,
+                // because the same species is an escapee in one place and
+                // naturalized in another.
+                x: String(o.exoticCategory || '').trim().toUpperCase() || '',
               };
               fresh.push(c);
               learned++;
@@ -17442,11 +17458,33 @@
           out.push({
             code: c, name: v.n, date: v.d || '', subId: v.s || '', loc: v.l || '',
             locUrl: (v.h && v.i) ? ('https://ebird.org/hotspot/' + encodeURIComponent(v.i)) : '',
+            exoticCategory: v.x || '',
             own: true,
           });
         });
         return out;
       }
+      // F176. The three buckets eBird prints BELOW its numbered total, built
+      // from the same two halves mergedYearList counts — so a bird is in
+      // exactly one of the four places and the total can never disagree with
+      // what is on screen.
+      //
+      // ⚠️ COVERAGE, stated rather than implied: the seed comes from eBird's
+      // own numbered list, which had ALREADY removed these rows before the app
+      // ever saw them (measured: 0 of 209 seed rows are spuh/slash/hybrid). So
+      // these sections can only show what the app harvested itself. A bird
+      // seen before the export — the Chukar of 29 May 2026 — will not appear
+      // here until F8's on-demand harvest walks the whole year.
+      function yearListExtras() {
+        var all = (reportYearList() || []).concat(ownYearEntries() || []);
+        var out = { escapee: [], hybrid: [], additional: [] };
+        all.forEach(function (e) {
+          var k = BL.taxonKind(e && e.name, e && e.exoticCategory);
+          if (k !== 'species' && out[k]) out[k].push(e);
+        });
+        return out;
+      }
+
       // The export, plus anything it does not know about yet.
       function mergedYearList() {
         var seed = reportYearList(), own = ownYearEntries();
@@ -17459,8 +17497,15 @@
         // applied here rather than at the render, so the COUNT above the list
         // and the rows in it can never disagree. See BL.countableTaxon for the
         // rule and the taxonomy measurement behind it.
-        seed = (seed || []).filter(function (e) { return BL.countableTaxon(e && e.name); });
-        own = own.filter(function (e) { return BL.countableTaxon(e && e.name); });
+        //
+        // F176: what is filtered out is no longer thrown away. yearListExtras()
+        // reads the same two halves and returns the three buckets eBird prints
+        // BELOW its own numbered total, so the birds stay visible without being
+        // counted — which is the half F174 was missing when it stopped counting
+        // them.
+        var _kind = function (e) { return BL.taxonKind(e && e.name, e && e.exoticCategory); };
+        seed = (seed || []).filter(function (e) { return _kind(e) === 'species'; });
+        own = own.filter(function (e) { return _kind(e) === 'species'; });
         if (!own.length) return seed;
         var have = {}, haveName = {};
         seed.forEach(function (e) {
@@ -17679,6 +17724,42 @@
             sub: bits.join(' · ')
           });
         }).join('');
+        // F176. eBird's three trailing sections, below the numbered total —
+        // the birds stay visible without being counted. Appended rather than
+        // woven in, so the ordinal numbering above is untouched.
+        var ex = yearListExtras();
+        var groups = [
+          ['escapee', '\u2731 Exotic: escapee', 'Released or escaped birds. eBird does not count these toward your species total, and neither does this list.'],
+          ['hybrid', '\u2731 Hybrids', 'A cross between two species, so it is neither one of them.'],
+          ['additional', '\u2731 Additional taxa', 'Identifications that were never resolved to one species \u2014 "gull/tern sp." and the like.']
+        ];
+        var extraHtml = '';
+        groups.forEach(function (g) {
+          var rows = ex[g[0]] || [];
+          if (!rows.length) return;
+          extraHtml += '<div class="rankhead"><b>' + esc(g[1]) + ' (' + rows.length + ')</b></div>'
+            + '<p class="hint">' + esc(g[2]) + '</p>'
+            + '<ul class="obs big xl">' + rows.map(function (e) {
+              return SpeciesCards.medium({
+                sci: sciFor(e && e.code),
+                icon: photoSlot(e.name, e.code),
+                name: e.subId ? checklistLink(e.subId, e.name) : esc(e.name),
+                // The mark is ALWAYS beside the word, never instead of it.
+                tags: '<span class="exomark">\u2731</span>',
+                sub: speciesMetaRow({
+                  flags: '', icons: '',
+                  loc: e.loc ? esc(String(e.loc).split('--')[0].trim()) : '',
+                  when: e.date ? esc(e.date) : '', observer: ''
+                })
+              });
+            }).join('') + '</ul>';
+        });
+        if (extraHtml) {
+          var extras = document.createElement('div');
+          extras.innerHTML = extraHtml;
+          list.parentNode.appendChild(extras);
+          hydratePhotos(extras);
+        }
         hydratePhotos(list);
       }
 
