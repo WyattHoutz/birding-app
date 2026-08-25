@@ -142,6 +142,17 @@
       --note-bg: #fffbeb;
       --note-line: #fcd34d;
 
+      /* ---- Button shape, F138 ------------------------------------------
+         Audited 2026-08-25: 8 button classes across 31 rules had drifted to
+         THREE radii (0, 10px, 999px) and EIGHT paddings, each rule inventing
+         its own. The three radii are real and meaningful — a square segment,
+         an ordinary button, a pill — so they are NAMED rather than collapsed,
+         which is the difference between a coherent component and a smaller
+         one. A fourth radius appearing is now a guard failure. */
+      --btn-radius: 10px;      /* the ordinary button */
+      --btn-radius-pill: 999px; /* round chips: refresh, ℹ, the caveat toggle */
+      --btn-radius-flat: 0;    /* segments inside a switch, which must butt up */
+
       /* ---- The DARK palette, declared once ------------------------------
          F138 needs three ways into dark: the system asking for it, the reader
          explicitly choosing it, and neither (explicit light must win over a
@@ -492,7 +503,7 @@
        button below it: it is a verb you use occasionally, and it was taking a
        full row in every section. */
     .refreshbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
-                  margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+                  margin-left: 6px; padding: 2px 8px; border-radius: var(--btn-radius-pill);
                   border: 1px solid var(--line); background: transparent;
                   color: var(--muted); vertical-align: middle; }
     .refreshbtn:disabled { opacity: .45; }
@@ -676,7 +687,7 @@
     .docbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
               min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));
               padding: 0; margin-left: 8px; vertical-align: middle;
-              border-radius: 999px; border: 1px solid var(--line);
+              border-radius: var(--btn-radius-pill); border: 1px solid var(--line);
               background: var(--bg); color: var(--muted); }
     .docbtn[aria-expanded=true] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
     /* The truncation notice is important but it is CONTEXT, not content: it says
@@ -688,7 +699,7 @@
     .warnbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
                min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));
                padding: 0; margin-left: 6px; vertical-align: middle;
-               border-radius: 999px; border: 1px solid var(--warn);
+               border-radius: var(--btn-radius-pill); border: 1px solid var(--warn);
                background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn-ink); }
     .warnbtn[aria-expanded=true] { background: var(--warn); color: #fff; border-color: transparent; }
     #abaCapWarn[hidden] { display: none; }
@@ -822,7 +833,7 @@
        seven minor releases. `white-space: normal min-width: 0` was also missing
        its semicolon, so even inside a rule it would have dropped both.
        Guarded by "the stylesheet has no declarations outside a rule". */
-    button { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    button { font: inherit; font-weight: 700; border: none; border-radius: var(--btn-radius); padding: 8px 12px; font-size: calc(15px * var(--s)); background: var(--accent); color: var(--accent-ink); cursor: pointer;
              max-width: 100%; overflow-wrap: anywhere; white-space: normal; min-width: 0; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
@@ -849,7 +860,7 @@
     .obs .name { font-weight: 700; font-size: calc(17px * var(--s)); color: var(--accent); line-height: 1.3; }
     .obs .meta { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 2px; }
     .obs .count { float: right; font-size: calc(12px * var(--s)); color: var(--muted); font-variant-numeric: tabular-nums; }
-    .filebtn { font: inherit; font-weight: 700; border: none; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
+    .filebtn { font: inherit; font-weight: 700; border: none; border-radius: var(--btn-radius); padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
@@ -1195,7 +1206,7 @@
        its natural width instead of every chip being 1/6 of the screen. */
     .modeswitch { gap: 0; margin-bottom: 10px; border: 1px solid var(--line);
                   border-radius: 12px; overflow: hidden; flex-wrap: wrap; }
-    .modeswitch .modebtn { flex: 1 1 auto; min-width: 0; border-radius: 0; border: 0;
+    .modeswitch .modebtn { flex: 1 1 auto; min-width: 0; border-radius: var(--btn-radius-flat); border: 0;
                            display: inline-flex; align-items: center; justify-content: center;
                            gap: 5px;
                            padding: 10px 8px; font-size: calc(14px * var(--s));
@@ -1371,7 +1382,7 @@
     /* 40px is the smallest comfortable touch target, and this app is used
        one-handed with binoculars in the other hand. */
     .favbtn { width: calc(40px * var(--s)); height: calc(40px * var(--s)); padding: 0; font-size: calc(17px * var(--s)); line-height: 1;
-              border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+              border: 1px solid var(--line); border-radius: var(--btn-radius); background: var(--bg);
               color: var(--ink); cursor: pointer; }
     .favbtn[disabled] { opacity: .35; cursor: default; }
     .favbtn.del { color: #c2331f; }
@@ -1397,7 +1408,7 @@
                   padding-top: 6px; padding-bottom: 6px; border-radius: 0 6px 6px 0; }
     .recscope { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }    .recscope button { padding: calc(7px * var(--s)) calc(12px * var(--s));
                        font-size: calc(15px * var(--s)); line-height: 1.2;
-                       border: 1px solid var(--line); border-radius: 999px;
+                       border: 1px solid var(--line); border-radius: var(--btn-radius-pill);
                        background: var(--bg); color: var(--ink); cursor: pointer; }
     .recscope button[aria-pressed="true"] {
                        background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -2415,7 +2426,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.37.0';
+      var APP_VERSION = '1.38.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;

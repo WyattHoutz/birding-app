@@ -14893,3 +14893,42 @@ test('the dark palette is declared once, not twice', () => {
   assert.ok(root && /--dark-bg:\s*#/.test(root[0]),
     'and the dark values are declared once, in :root');
 });
+
+// F138, the button component. Audited 2026-08-25: eight button classes across
+// 31 rules had drifted to THREE radii and EIGHT paddings, each rule inventing
+// its own shape.
+//
+// The three radii are kept, not collapsed, because they mean different things -
+// a square segment inside a switch, an ordinary button, a round chip - and
+// collapsing them would make the app smaller rather than more coherent. What
+// changed is that they are NAMED, so a restyle has one place to go and a fourth
+// shape cannot appear by accident.
+test('every button takes its shape from the same three tokens', () => {
+  const css = /<style>([\s\S]*?)<\/style>/.exec(HTML)[1].replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const TOKENS = ['--btn-radius', '--btn-radius-pill', '--btn-radius-flat'];
+  const root = /:root\s*\{[^}]*\}/.exec(css);
+  assert.ok(root, ':root exists');
+  for (const t of TOKENS) {
+    assert.ok(new RegExp(t + '\\s*:').test(root[0]), t + ' is declared once, in :root');
+  }
+
+  // Every rule whose SELECTOR is about a button must take its radius from a
+  // token. A literal here is a fourth shape nobody decided on.
+  const rules = (css.match(/[^{}]+\{[^}]*\}/g) || [])
+    .filter((r) => /^[^{]*(button|btn)/i.test(r));
+  assert.ok(rules.length > 20, 'the button rules were found (' + rules.length + ')');
+
+  const literals = [];
+  for (const rule of rules) {
+    const m = /border-radius:\s*([^;}]+)/.exec(rule);
+    if (!m) continue;
+    const value = m[1].trim();
+    if (!/^var\(--btn-radius/.test(value)) {
+      literals.push(rule.split('{')[0].trim().replace(/\s+/g, ' ') + ' -> ' + value);
+    }
+  }
+  assert.equal(literals.length, 0,
+    'a button radius that is not one of the three named shapes is a fourth shape '
+    + 'nobody chose: ' + literals.join('; '));
+});
