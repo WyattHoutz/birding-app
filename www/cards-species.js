@@ -507,9 +507,24 @@
      shape the formatter produces, exactly as confHtml does: anything else means
      something upstream is wrong, and rendering nothing beats rendering a
      sanitised half-string. */
+  /* A date is only printed in a shape the reader can scan: `8/25` or
+     `8/25 7:15A`. Anything else is a formatting mistake upstream, and printing
+     it raw would put an ISO timestamp in the middle of a bird name.
+
+     ⚠️ IT USED TO REJECT SILENTLY, and that cost a whole debugging session.
+     Today's patches shipped species rows with no date and no count; the render
+     chain was traced end to end - normaliser, toRenderDest, toDest,
+     locSpeciesSplit, speciesListHtml, this card - and every link preserved
+     `dateStr`. A validation that discards without a word makes itself the last
+     place anyone looks, which is the same fault as a cache that stored a falsy
+     result and told nobody. So it now says what it threw away. */
   function whenText(x) {
     var t = String(x == null ? '' : x).trim();
-    return /^\d{1,2}\/\d{1,2}( \d{1,2}:\d{2}[AaPp])?$/.test(t) ? t : '';
+    if (/^\d{1,2}\/\d{1,2}( \d{1,2}:\d{2}[AaPp])?$/.test(t)) return t;
+    if (t && typeof console !== 'undefined' && console.warn) {
+      console.warn('[cards] a date was dropped for not matching M/D[ h:mmA]: ' + JSON.stringify(t));
+    }
+    return '';
   }
 
   function whenHtml(v, tpl) {

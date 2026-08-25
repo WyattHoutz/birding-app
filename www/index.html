@@ -10610,8 +10610,15 @@
         // sub-header — reported at Sandel Lookout, ranked #1 with nothing
         // under it.
         try {
+          // The whole ROW is carried across, not just enough to identify the
+          // bird. This attribute is the only thing that survives into the
+          // hydration pass, so a field missing here is a field the corrected
+          // card can never show — which is precisely how the date and the
+          // count went missing from every destination row.
           el.setAttribute('data-scored', JSON.stringify(unseen.map(function (u) {
-            return { code: u.code || '', name: u.comName || u.name || '' };
+            return { code: u.code || '', name: u.comName || u.name || '',
+                     dateStr: u.dateStr || '', subId: u.subId || '',
+                     count: (u.count == null ? null : u.count) };
           }).filter(function (u) { return u.code || u.name; })));
         } catch (e) { /* a card without this simply keeps the old behaviour */ }
         return el;
@@ -10649,8 +10656,12 @@
               // subId travels with the row now: the feed already carries it,
               // and without it the nested species list cannot link to the
               // checklist that actually holds the bird.
+              // howMany travels too. It is the other half of what the row says
+              // — "Anna's Hummingbird ×3, 8/25 7:15A" — and dropping it here
+              // is why the corrected rows showed a bare name.
               return { code: o.speciesCode, name: o.comName || o.speciesCode,
-                       dateStr: o.obsDt || '', subId: o.subId || '' };
+                       dateStr: o.obsDt || '', subId: o.subId || '',
+                       count: (o.howMany == null ? null : o.howMany) };
             }).filter(function (o) { return o.code; });
             try { localStorage.setItem(key, JSON.stringify({ d: today, v: out })); } catch (e) {}
             return out;
@@ -10871,6 +10882,9 @@
                 // Seen rows carry no flags: the marks mean "worth chasing".
                 rare: hit ? 0 : ((b && b.rare) ? 1 : 0),
                 subId: o.subId || '',
+                // WHEN and HOW MANY, which this pass used to drop on the floor.
+                dateStr: o.dateStr || '',
+                count: (o.count == null ? null : o.count),
                 tag: hit ? '' : '<span class="needflag">🔍</span>'
                   + ((b && b.rare) ? rareBadge() : '')
               });
@@ -10895,7 +10909,13 @@
                 var b2 = bucket[u.code];
                 unseen.push({
                   comName: u.name, code: u.code,
-                  rare: (b2 && b2.rare) ? 1 : 0, subId: '',
+                  rare: (b2 && b2.rare) ? 1 : 0,
+                  // subId was hard-coded empty, so a bird folded back in from
+                  // the scored set also lost its link to the checklist that
+                  // reported it. Same drop, third place.
+                  subId: u.subId || '',
+                  dateStr: u.dateStr || '',
+                  count: (u.count == null ? null : u.count),
                   tag: '<span class="needflag">🔍</span>'
                     + ((b2 && b2.rare) ? rareBadge() : '')
                 });

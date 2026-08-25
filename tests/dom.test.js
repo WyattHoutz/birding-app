@@ -15120,3 +15120,139 @@ test('the hotspot ranking says it is by value, not by distance', () => {
     'the section states its ranking basis, so an unchanged order after moving '
     + 'the anchor reads as an answer rather than a dead control');
 });
+
+// "the date does not show before or after refreshing the todays patches."
+//
+// The render chain was traced end to end and every link preserves dateStr:
+// the normaliser sets it from obsDt, toRenderDest carries it, toDest carries
+// it (it had been dropped there once and was fixed), locSpeciesSplit preserves
+// ownUnseen intact, and speciesListHtml -> SpeciesCards.small emits
+// <span class="spwhen">8/25 7:15A</span> when given one. Driven in jsdom it
+// renders correctly.
+//
+// So the value arriving at the card is wrong, not the plumbing - and whenText
+// was DISCARDING it without a word, which made the validation the last place
+// anyone looked. A silent reject is the same fault as a cache that stored a
+// falsy result and told nobody.
+test('a date the card cannot format is reported, not swallowed', () => {
+  const src = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
+  const start = src.indexOf('function whenText');
+  assert.ok(start > -1, 'whenText() exists');
+  const fn = src.slice(start, src.indexOf('function whenHtml'));
+
+  assert.match(fn, /console\.warn/,
+    'an unrecognised date shape is reported so the next device run answers '
+    + 'this in one screenshot instead of a session of tracing');
+  assert.match(fn, /JSON\.stringify\(t\)/,
+    'and the offending value is quoted, so an empty string and a space are '
+    + 'distinguishable in the log');
+  // It must still REJECT - printing an ISO timestamp mid-row was the reason
+  // the validation exists.
+  assert.match(fn, /return '';/, 'and it still refuses to print an unscannable date');
+});
+// --- the hydration pass was DELETING the date and the count ----------------
+// "the date does not show before or after refreshing the todays patches."
+//
+// Traced end to end first, and every link in the render chain was innocent:
+// the normaliser sets dateStr from obsDt, toRenderDest carries it, toDest
+// carries it, speciesListHtml emits <span class="spwhen"> and fmtWhenShort
+// produces exactly the M/D h:mmA shape the card accepts. Driven in jsdom the
+// first paint is correct.
+//
+// It is the SECOND paint that is wrong. hydrateLocSpecies re-splits every
+// hotspot card against its own location feed and replaces .hslists wholesale,
+// and the rows it built carried only { comName, code, rare, subId, tag } -
+// no dateStr and no count. So the correct row was rendered and then
+// overwritten by a poorer one a moment later, which is why the answer was the
+// same "before or after refreshing": the pass runs on every render.
+//
+// Four separate drops, one fault: locRecentSpecies discarded howMany, both
+// push sites omitted dateStr/count, and data-scored serialised only
+// {code,name} so a bird folded back in from the scored set could not carry
+// what it knew either.
+test('correcting a hotspot card must not cost it the date and the count', async () => {
+  const today = new Date();
+  const ymd = today.getFullYear() + '-'
+    + String(today.getMonth() + 1).padStart(2, '0') + '-'
+    + String(today.getDate()).padStart(2, '0');
+  const md = (today.getMonth() + 1) + '/' + today.getDate();
+
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/taxonomy/.test(url)) return [];
+      if (!/data\/obs\/(L\d+)\/recent/.test(url)) return null;
+      return [
+        { speciesCode: 'sp0', comName: 'Bird 0', obsDt: ymd + ' 08:00', howMany: 6,
+          subId: 'S111' },
+        { speciesCode: 'sp1', comName: 'Bird 1', obsDt: ymd + ' 09:30', howMany: 2,
+          subId: 'S222' },
+      ];
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  A.renderHot({
+    hot: [{
+      locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+      fresh: 2, checklists: 3, share: 5, latest: ymd,
+      birds: [{ name: 'Bird 0', code: 'sp0', unseen: true }],
+    }],
+  });
+  await new Promise((r) => setTimeout(r, 120));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  assert.ok(card, 'the card rendered and carries its locId');
+  const lists = card.querySelector('.hslists');
+  assert.ok(lists && lists.innerHTML.trim(), 'the correction pass ran and wrote rows');
+
+  // THE DATE. Asserted as "the day the feed reported", not as a literal
+  // string, so the guard cannot be satisfied by a formatter that happens to
+  // emit something date-shaped.
+  const whens = [].slice.call(lists.querySelectorAll('.spwhen'))
+    .map((n) => n.textContent.trim()).filter(Boolean);
+  assert.ok(whens.length >= 2,
+    `every corrected row keeps when it was seen, got ${whens.length}: ${whens.join(' | ')}`);
+  assert.ok(whens.every((w) => w.indexOf(md) === 0),
+    `and it is the date the LOCATION feed gave, not some other row's: ${whens.join(' | ')}`);
+
+  // THE COUNT. Six birds last week is a different decision from six this
+  // morning, which is exactly why these two travel together.
+  const counts = [].slice.call(lists.querySelectorAll('.spcount'))
+    .map((n) => n.textContent.trim());
+  assert.ok(counts.some((c) => /6/.test(c)),
+    `howMany survives the correction too, got: ${counts.join(' | ')}`);
+
+  app.window.close();
+});
+
+// The other half of the same drop: a bird the short location feed never saw
+// is folded back in from the scored set, and data-scored is the ONLY thing
+// that survives into the hydration pass. A field missing from that attribute
+// is a field the corrected card can never show, however well the renderer
+// handles it.
+test('the scored set is carried across whole, not just enough to name the bird', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const host = doc.createElement('ul');
+  doc.body.appendChild(host);
+
+  host.appendChild(A.hotspotCard({
+    n: 1, locId: 'L9', locName: 'Test Spot', lat: 47.7, lng: -122.2, distMi: 4,
+    facts: ['1 target'],
+    species: [{ comName: 'Bird 0', code: 'sp0', rare: 0,
+                dateStr: '2026-08-25 07:15', count: 6, subId: 'S999' }],
+  }));
+
+  const el = host.querySelector('[data-hsloc]');
+  assert.ok(el, 'the card carries its locId');
+  const scored = JSON.parse(el.getAttribute('data-scored') || '[]');
+  assert.equal(scored.length, 1, 'the scored target is published for the correction pass');
+  assert.equal(scored[0].dateStr, '2026-08-25 07:15', 'WHEN survives the round trip');
+  assert.equal(scored[0].count, 6, 'HOW MANY survives the round trip');
+  assert.equal(scored[0].subId, 'S999',
+    'and the checklist that reported it, so the folded-back row can still link to its evidence');
+
+  app.window.close();
+});
