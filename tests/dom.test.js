@@ -14615,3 +14615,122 @@ test('a hotspot card can carry data hooks, and escapes them', () => {
   assert.match(fn, /replace\(\/"\/g, '&quot;'\)/, 'including the quote that would end the attribute');
   assert.match(fn, /\^\[a-z\]\[a-z0-9-\]\*\$/, 'and the key is restricted to a legal attribute name');
 });
+
+// ── F28: where the top 100 actually bird ────────────────────────────────────
+//
+// The metric IS the feature, and it took two corrections to get there. Ranking
+// places by how many checklists they hold reproduces a population map, so the
+// famous parks win and the reader learns nothing they can act on. Both
+// corrections were forced by the validation set rather than by taste:
+//
+//   1. The specified formula - a raw share over a raw base - is degenerate
+//      wherever a birder is the sole visitor: it collapses to `all / theirs`,
+//      a CONSTANT maximum. Measured on the real harvest, every one of Eric
+//      Hope's singleton pins tied at 186.0x and every one of Heron G's at
+//      175.26x, burying Union Bay, which is his actual patch.
+//   2. The specified POPULATION - the statewide board - cannot contain the
+//      answer: Eric Hope and Heron G are not on it at all yet file 604 and 641
+//      checklists in these counties, while Ryan Merrill is on it at rank 11
+//      with nothing public.
+//
+// These guard the app side of that. The number itself is guarded across
+// languages by birding/tests/parity/test_choice_lift.py.
+test('choice patches rank by lift, not by how often the birder went', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // A famous place they visit often, and a quiet one they visit less. Raw
+  // visits would put the famous one first; the lift must not.
+  const data = {
+    grand: 100000,
+    places: {
+      LFAM: ['Famous Park', 20000, 47.6, -122.3],
+      LQUIET: ['Quiet Patch', 200, 47.7, -122.2],
+    },
+    birders: [{ n: 'Test Birder', r: null, t: 100, p: [['LFAM', 60], ['LQUIET', 40]] }],
+  };
+  const rows = A.patchRowsFor(data.birders[0], data);
+  assert.equal(rows.length, 2, 'both places are ranked');
+  assert.equal(rows[0].name, 'Quiet Patch',
+    'the quiet patch outranks the famous one despite fewer visits - that is the whole feature');
+  assert.ok(rows[0].lift > rows[1].lift, 'and the ordering is by lift, descending');
+
+  // The degeneracy that sank the first design: a place they went to ONCE, and
+  // are the only visitor of, must not beat a place they returned to.
+  const solo = {
+    grand: 100000,
+    places: {
+      LPIN: ['A Private Pin', 1, 47.5, -122.1],
+      LREAL: ['A Real Patch', 1400, 47.4, -122.0],
+    },
+    birders: [{ n: 'T', r: null, t: 600, p: [['LREAL', 107], ['LPIN', 1]] }],
+  };
+  const sr = A.patchRowsFor(solo.birders[0], solo);
+  assert.equal(sr[0].name, 'A Real Patch',
+    'a 107-visit patch beats a one-visit pin (the specified formula tied them at the maximum)');
+
+  app.window.close();
+});
+
+test('the choice patch section computes nothing of its own', async () => {
+  // The lift lives in logic.js precisely so the report and the app cannot
+  // drift, and it is driven from both sides by the parity suite. A share
+  // recomputed here would sit outside that net, which is where the drift
+  // this project keeps being bitten by happens.
+  //
+  // Bounded by the HELPER that does the ranking, not by loadChoicePatches:
+  // patchRowsFor is defined ~9,000 characters earlier, so slicing from the
+  // loader missed the call entirely. That is the same fixed-boundary mistake
+  // F181's guard had to be repaired for - assert the property, and bound it
+  // on something that cannot drift with length.
+  const start = HTML.indexOf('function patchRowsFor');
+  assert.ok(start > -1, 'patchRowsFor() should exist');
+  const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
+  assert.match(src, /BirdLogic\.choiceLift\(|BL\.choiceLift\(/,
+    'the ranking asks logic.js for the lift');
+  assert.doesNotMatch(src, /wilson/i,
+    'and does not reimplement the bound it depends on');
+});
+
+test('the choice patch section states what it cannot see', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const data = A.choicePatchData && A.choicePatchData();
+  assert.ok(data && data.birders && data.birders.length,
+    'the bundled table loaded from choice-patches.js');
+
+  // Coverage is part of the ANSWER here, not a footnote. A birder who keeps
+  // their checklists private looks identical to a birder with no patch, and
+  // only one of those is true - so the ones that could not be placed are
+  // NAMED rather than silently ranked low. Ryan Merrill is the recorded
+  // example: on the board at rank 11, nothing public in these counties.
+  assert.ok(data.coverage && /publishes/.test(data.coverage),
+    'the data carries its own coverage sentence');
+  assert.ok(Array.isArray(data.unmatched) && data.unmatched.length,
+    'and names the board birders it could not place');
+
+  await A.loadChoicePatches();
+  const cov = app.$('patchLead') || app.$('patchStatus');
+  assert.ok(cov && /publish/i.test(cov.textContent),
+    'the rendered section says what it is measured over');
+
+  const unplaced = app.$('patchUnplaced');
+  assert.ok(unplaced && /says nothing about where they bird/i.test(unplaced.textContent),
+    'and refuses to let an absence read as an answer');
+
+  // The two populations are not the same thing, and the section must not
+  // imply they are: only about a fifth of the local-effort hundred appear on
+  // the statewide species board.
+  assert.ok(data.on_board < data.population,
+    'local effort is not merely a copy of the statewide board');
+
+  const placed = new Set(data.birders.map((b) => b.n));
+  const overlap = data.unmatched.filter((n) => placed.has(n));
+  // `.length`, not deepEqual against []: these arrays come from the jsdom
+  // realm, and a cross-realm deepEqual fails with the uniquely unhelpful
+  // "actual: [] expected: []".
+  assert.equal(overlap.length, 0,
+    'nobody is both ranked and reported as unplaced: ' + overlap.join(', '));
+
+  app.window.close();
+});

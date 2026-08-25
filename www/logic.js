@@ -3117,6 +3117,49 @@
   // the underlying number cannot support — it is a weighted count of birds, not
   // a measurement.
   var YIELD_MIN_SAMPLE = 4;      // fewer than this and a "grade" is noise
+  var CHOICE_Z = 1.96;
+
+  /* A 95% Wilson bound on a share. Mirrors analyze._wilson.
+
+     Wilson rather than a raw share because BOTH sides of the choice lift are
+     shares estimated from wildly different sample sizes, and a raw share
+     treats 1-of-1 as certainty. Wilson rather than a plain +k smoothing
+     because the denominator here can be tiny: adding pseudo-counts to the
+     numerator does nothing when the base rate itself is 1/112343. */
+  function wilsonBound(k, n, upper) {
+    if (!(n > 0)) return 0;
+    var p = k / n, z2 = CHOICE_Z * CHOICE_Z;
+    var den = 1 + z2 / n;
+    var centre = p + z2 / (2 * n);
+    var margin = CHOICE_Z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n);
+    var out = (upper ? (centre + margin) : (centre - margin)) / den;
+    return out > 0 ? out : 0;
+  }
+
+  /* How disproportionately one birder chooses one place. Mirrors choice_lift.
+
+     F28, and the metric IS the feature: ranking places by how many top-100
+     checklists they hold just reproduces a population map, so Discovery Park
+     wins and the reader learns nothing they can act on.
+
+     ⚠️ The SPECIFIED form - a raw share over a raw base - was measured against
+     its own validation set and FAILED. Where a birder is the only visitor the
+     ratio collapses to `all / theirs`, a CONSTANT maximum: every one of Eric
+     Hope's singleton pins tied at 186.0x and every one of Heron G's at
+     175.26x, burying Union Bay, which is his actual patch.
+
+     A minimum-visits threshold was measured and rejected too: at `>= 5` only
+     40 of 85 matched birders kept a single row, median 0. So the evidence is
+     WEIGHTED rather than filtered, on both sides, and nothing is deleted. */
+  function choiceLift(theirVisits, theirTotal, placeVisits, allVisits) {
+    var c = +theirVisits || 0, mine = +theirTotal || 0;
+    var pv = +placeVisits || 0, grand = +allVisits || 0;
+    if (!(mine > 0) || !(grand > 0) || !(c > 0) || !(pv > 0)) return 0;
+    var base = wilsonBound(pv, grand, true);
+    if (!(base > 0)) return 0;
+    return wilsonBound(c, mine, false) / base;
+  }
+
   function yieldBand(value, values) {
     // Number(null) is 0 and Number('') is 0, both of which are finite — so a
     // MISSING score would grade as "below average" rather than as no grade at
@@ -3785,6 +3828,7 @@
     needNearby: needNearby,
     NEED_MIN_SIGHTINGS: NEED_MIN_SIGHTINGS,
     yieldBand: yieldBand,
+    choiceLift: choiceLift, wilsonBound: wilsonBound, CHOICE_Z: CHOICE_Z,
     chaseConfidence: chaseConfidence,
     confidenceNote: confidenceNote,
     rankDeltas: rankDeltas,

@@ -376,5 +376,12 @@ server.listen(0, '127.0.0.1', () => {
   // with the previous run's profile cleanup. A timeout here is scored as a
   // FAILURE (exit 3), so a tight budget would turn this check flaky, and a
   // flaky check is worse than no check.
-  setTimeout(() => done(null), +(process.env.AUDIT_TIMEOUT_MS || 120000));
+  //
+  // Raised 120s -> 240s when F28's section pushed the page from ~4,600
+  // elements to 6,013 and the 430px run - the LAST of the six, so the most
+  // contended - reported "audit never reported (page did not run)". Measured
+  // immediately afterwards standalone: the same run finishes in 22.4s. So the
+  // budget was never the sweep's duration, it was the contended browser boot,
+  // and the margin needed to grow with the page rather than with the clock.
+  setTimeout(() => done(null), +(process.env.AUDIT_TIMEOUT_MS || 240000));
 });

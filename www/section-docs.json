@@ -132,6 +132,26 @@
         "Each published day is a dated snapshot; eBird cannot re-serve yesterday's board."
       ]
     },
+    "patchBtn": {
+      "report": "## 🧭 Where the top 100 actually bird",
+      "summary": "Where the hundred busiest local birders actually go, ranked by how disproportionately they choose a place rather than by how many checklists it holds.",
+      "inputs": [
+        "data/wa/choice-patches.json, built from 730 harvested county-days (product/lists/{region}/{y}/{m}/{d})",
+        "eBird's ref/hotspot index, to tell a hotspot from a personal pin",
+        "ebird.org/top100 for the statewide board rank annotation only"
+      ],
+      "how": [
+        "A place's score is a LIFT: the share of that birder's checklists filed there, over the share of everyone's checklists filed there. 5x means they choose it five times as often as the counties as a whole do.",
+        "Both shares are evidence-weighted — a 95% Wilson lower bound on the birder's share over a Wilson upper bound on the population's — so a place visited once cannot tie a place visited two hundred times.",
+        "Personal pins are excluded and only eBird hotspots are ranked: pins are 92% of places but under half the effort, and a birder is usually their sole visitor, which is what made them dominate a raw ranking.",
+        "The population is the top 100 by LOCAL EFFORT in these counties, not the statewide species board — only about a fifth of them overlap."
+      ],
+      "limits": [
+        "Coverage is part of the answer: this sees only the checklists eBird publishes, so a birder who keeps their lists private looks like they have no patch. Those birders are NAMED rather than ranked low.",
+        "Two counties (King, Snohomish) over 365 days. A birder who birds elsewhere in the state will not appear.",
+        "The join key is a display NAME — eBird's day feed carries no user id — so two birders sharing a name would merge."
+      ]
+    },
     "refreshBtn": {
       "report": "## 🌅 Today's rarity reports",
       "summary": "Every rare-bird checklist filed TODAY in the report's counties, one row per report.",

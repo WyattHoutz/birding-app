@@ -1460,6 +1460,54 @@
     .rankme .rk, .rankme .n { color: var(--ink); }
     .rankme .star { font-size: calc(10px * var(--s)); font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
     .obs .sp .star { color: var(--accent); font-weight: 800; }
+    /* ---- F28 · 🧭 Where the top 100 actually bird -------------------------
+       The premise before the rows, same reasoning as .recwhat above: a reader
+       who has not been told what a "lift" is cannot read a single row, and
+       "368.1×" beside a place name means nothing on its own. */
+    .patchlead { margin: 4px 0 12px; font-size: calc(15px * var(--s)); line-height: 1.5; }
+    .patchlead p { margin: 0 0 8px; }
+    .patchlead-eg { font-size: calc(17px * var(--s)); font-weight: 700;
+                    line-height: 1.35; color: var(--ink); }
+    /* COVERAGE IS PART OF THE ANSWER, NOT A FOOTNOTE. It is called out rather
+       than set in the muted grey a caveat would get, because "a birder whose
+       lists are private looks like they have no patch" changes how you read
+       every row above it. Marked with a border and a ⓘ glyph, never by colour
+       alone. */
+    .patchcov { border-left: 3px solid var(--accent); padding: 6px 0 6px 10px;
+                background: color-mix(in srgb, var(--accent) 6%, transparent);
+                border-radius: 0 6px 6px 0;
+                font-size: calc(13px * var(--s)); line-height: 1.5; }
+    /* The birder's name in a leaderboard row. An <a> with no href and a
+       delegated handler, exactly like .hslink and .splink — a <button> here
+       would be forced to 44px square by the Easy-read rule and would sit in
+       the middle of a card title looking like a control, and an href would ask
+       the WKWebView for a navigation this app does not do. */
+    .patchwho { color: var(--link); text-decoration: underline;
+                text-underline-offset: 2px; cursor: pointer; }
+    /* The lift, and the only number on the row worth comparing down the list.
+       Tabular figures so the decimal points line up; NO colour scale, because
+       magnitude carried by colour is exactly what a red-green reader cannot
+       read — the digits are the encoding. */
+    .patchlift { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--ink); }
+    /* Board rank, or its absence. Both are printed: an empty cell reads as a
+       lookup that failed rather than as "not on the board". Stepped down to
+       13px because it sits INSIDE the card's 17px/700 subject cell, where an
+       un-sized span would shout as loudly as the birder's own name — and this
+       is an annotation on the row, never the thing being ranked. */
+    .patchboard { display: inline-block; font-size: calc(13px * var(--s));
+                  font-weight: 600; color: var(--muted); white-space: nowrap; }
+    .patchsub { font-size: calc(13px * var(--s)); color: var(--muted);
+                margin: 10px 0 4px; }
+    .patchunplaced { margin-top: 18px; border-top: 1px solid var(--line);
+                     padding-top: 12px; }
+    .patchunplaced h3 { font-size: calc(16px * var(--s)); margin: 0 0 6px; }
+    /* Seventy-nine names in one paragraph. `anywhere` because a couple of them
+       are longer than 320px of Huge text on their own. */
+    .patchnames { font-size: calc(14px * var(--s)); line-height: 1.6;
+                  overflow-wrap: anywhere; margin: 0; }
+    .patchhead { margin: 0 0 8px; }
+    .patchhead .patchname { font-size: calc(20px * var(--s)); font-weight: 800;
+                            line-height: 1.25; overflow-wrap: anywhere; }
     select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
   </style>
 </head>
@@ -1751,6 +1799,39 @@
       <div id="rankStatus" class="status">Your standing plus the full Top 100 board for the region you’re birding, and how your rank has moved since you started tracking. Switch regions from the nav.</div>
       <div id="rankSummary"></div>
       <div id="rankResults"></div>
+    </section>
+
+    <!-- F28 · 🧭 Where the top 100 actually bird.
+         Sits right after the rankings panel because that is where report.py
+         emits it (section_rankings, then section_choice_patches) and the order
+         of the two is a contract three files check.
+
+         The pairing is not an accident either: the panel above ranks birders by
+         SPECIES for the year, this one ranks them by EFFORT on the ground, and
+         reading them next to each other is what makes it obvious they are
+         nearly different populations — only a fifth of this hundred sit on that
+         board at all. That fact is printed, not implied. -->
+    <section class="panel">
+      <h2>🧭 Where the top 100 actually bird</h2>
+      <div class="row">
+        <button id="patchBtn">Load choice patches</button>
+      </div>
+      <div id="patchStatus" class="status">Where the hundred busiest birders in these counties actually spend their effort — ranked by how disproportionately they choose a place, not by how many checklists it holds.</div>
+      <div id="patchLead" class="patchlead"></div>
+      <div id="patchResults"></div>
+      <div id="patchUnplaced"></div>
+      <!-- The per-birder SUB-PAGE, and the actual feature: the leaderboard is
+           only a way in. One birder's full patch list runs to 138 hotspots, so
+           a hundred of them inlined under a leaderboard would be a section you
+           scroll past rather than read. Same shape as the mega-rarity profile
+           above — the navbar back button returns to the list rather than to
+           Contents, because back means "up one level". -->
+      <div id="patchDetail" hidden>
+        <div class="row">
+          <button id="patchBack" class="secondary" type="button">‹ All birders</button>
+        </div>
+        <div id="patchDetailBody"></div>
+      </div>
     </section>
 
     <section class="panel">
@@ -2123,6 +2204,13 @@
   <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
   <script src="arrivals.js"></script>
+  <!-- F28. Generated by scripts/build_choice_patches.py in the pipeline repo and
+       committed as a plain assignment to window.__CHOICE_PATCHES__, exactly like
+       arrivals.js above it. A script tag rather than a .json fetch for the reason
+       every bundled table here is one: the app has no runtime GitHub dependency
+       and has to answer with the phone in a canyon, and a file the parser has
+       already run cannot be half-loaded when a renderer asks for it. -->
+  <script src="choice-patches.js"></script>
   <script>
     (function () {
       // ── F177: SEVERAL eBIRD ACCOUNTS ON ONE PHONE ───────────────────────
@@ -2221,7 +2309,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.34.0';
+      var APP_VERSION = '1.35.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13648,6 +13736,326 @@
         out.appendChild(foot);
       }
 
+      // --- 🧭 Where the top 100 actually bird (F28) ---------------------------
+      //
+      // "I like the recommendation of exposing hotspots that the best birders
+      //  return to, as choice patches. Some hotspots are highly frequented just
+      //  because they are in populous areas or are popular parks. What id like
+      //  to find out is where do the best birders go? … so Id like to know that
+      //  these top 100 birders prefer these hotspots, which may have far less
+      //  activity and checklists than the rest of the hotspots in the county."
+      //
+      // THE METRIC IS THE FEATURE. Ranking places by how many top-100 lists
+      // they hold reproduces a POPULATION MAP: Discovery Park and Union Bay win
+      // because everyone goes there, which the reader already knew and cannot
+      // act on. The lift asks the other question — where does one birder spend
+      // effort DISPROPORTIONATELY — so a quiet patch beats a famous park, which
+      // is the entire point of the section and not a side effect of it.
+      //
+      // The maths is NOT re-implemented here. `BirdLogic.choiceLift` sits in
+      // logic.js beside its Python twin `analyze.choice_lift`, and the parity
+      // suite drives both from the same fixtures. A second copy of a formula in
+      // a renderer is how the app and the report end up printing different
+      // numbers under one heading.
+      //
+      // Mirrors report.py::section_choice_patches for the leaderboard, the lead
+      // and the coverage sentence. The PER-BIRDER page is app-only: a Markdown
+      // report is a document you scroll, so it prints one table and stops; a
+      // phone can afford a hundred sub-pages because you only ever open one.
+      //
+      // TWO CORRECTIONS ARE BAKED INTO THE DATA AND MUST BE SAID OUT LOUD:
+      //
+      //   1. The population is the top 100 by LOCAL EFFORT in these two
+      //      counties, not the statewide species leaderboard. Only 21 of the
+      //      100 are on that board. The board rank is an ANNOTATION on a row,
+      //      never the thing being ranked, or the section quietly claims the
+      //      two are the same population.
+      //   2. Coverage is part of the answer, not a footnote. This sees only the
+      //      checklists eBird publishes, so a birder whose lists are private
+      //      looks like they have no patch. `unmatched` are NAMED as not
+      //      placed — "no public data" and "no patch" are different answers and
+      //      only one of them is true.
+      //
+      // Head of 25 rows to match the Markdown table (report.py slices rows[:25]);
+      // the tail is an expander rather than a cut, because "every hotspot they
+      // used" is the claim the per-birder page makes and a silent cap breaks it.
+      var PATCH_ROWS = 25;
+
+      function choicePatchData() {
+        var d = window.__CHOICE_PATCHES__;
+        if (!d || !d.places || !d.birders || !d.birders.length) return null;
+        return d;
+      }
+
+      // The bundled table is a HARVEST of two named counties, not a live feed,
+      // so it answers for those counties and for nothing else. Showing King
+      // County birders to someone whose report is Oregon would be a confident
+      // wrong answer, which is worse than an empty section.
+      function patchScopeMatches(d) {
+        var mine = countyCodes();
+        if (!mine.length || !d.counties || !d.counties.length) return false;
+        return d.counties.some(function (c) { return mine.indexOf(c) > -1; });
+      }
+
+      // "368.1×", and never "0.0×". A birder who filed one list somewhere has a
+      // tiny lift, not a zero one, and 0.0 would claim they have never been —
+      // the one thing the row itself proves is false. 0.05 is not a chosen
+      // threshold: it is exactly where toFixed(1) starts rounding to "0.0".
+      function patchLift(n) {
+        if (!(n > 0)) return '\u2014';
+        return n < 0.05 ? '<0.1\u00d7' : n.toFixed(1) + '\u00d7';
+      }
+
+      // Both states are PRINTED. An empty cell where a rank belongs reads as a
+      // lookup that failed rather than as "not on the board", and the em dash
+      // alone says nothing through a screen reader — hence the visually-hidden
+      // words beside it.
+      function patchBoardLabel(rank) {
+        return rank
+          ? '<span class="patchboard">board #' + esc(rank) + '</span>'
+          : '<span class="patchboard">board <span aria-hidden="true">\u2014</span>'
+            + '<span class="vh">not ranked</span></span>';
+      }
+
+      // Every place this birder filed a public list at, strongest first. A row
+      // whose locId is missing from the bundled place index is dropped rather
+      // than drawn with a blank name — report.py does the same, because a row
+      // that cannot name where it is cannot be acted on.
+      function patchRowsFor(b, d) {
+        var out = [];
+        (b.p || []).forEach(function (pr) {
+          var meta = d.places[pr[0]];
+          if (!meta) return;
+          out.push({
+            locId: pr[0], name: meta[0], mine: pr[1], theirs: meta[1],
+            lat: meta[2], lng: meta[3],
+            lift: BirdLogic.choiceLift(pr[1], b.t, meta[1], d.grand)
+          });
+        });
+        out.sort(function (x, y) { return y.lift - x.lift; });
+        return out;
+      }
+
+      function patchLeaders(d) {
+        var out = [];
+        d.birders.forEach(function (b) {
+          var rows = patchRowsFor(b, d);
+          if (!rows.length) return;
+          out.push({ n: b.n, r: b.r, t: b.t, best: rows[0], places: rows.length });
+        });
+        out.sort(function (x, y) { return y.best.lift - x.best.lift; });
+        return out;
+      }
+
+      function patchDistMi(row) {
+        var h = getHome();
+        if (!h || !isFinite(row.lat) || !isFinite(row.lng)) return null;
+        return haversineMi(h.lat, h.lng, row.lat, row.lng);
+      }
+
+      // HotspotCards.medium, not hand-rolled markup. This project has shipped
+      // lookalike rows that then drifted from the shared card often enough that
+      // building one by hand is now the thing needing justification, and the
+      // medium card is the shape every other ranked list of places already
+      // uses: numbered pin, name at card size, distance as its own column.
+      //
+      // The place name goes through stakeHotspotLink, the same choke point
+      // every place name in the app goes through, so tapping it opens Stake out
+      // a hotspot instead of leaving for ebird.org.
+      function patchPlaceCard(row, num, tag) {
+        var dm = patchDistMi(row);
+        return HotspotCards.medium({
+          num: num,
+          name: stakeHotspotLink(row.locId, row.name),
+          distance: (dm != null && isFinite(dm)) ? dm : null,
+          distQ: distQ(row.lat, row.lng),
+          sub: [
+            row.mine + ' of ' + row.theirs + ' lists',
+            '<span class="patchlift">' + patchLift(row.lift) + '</span>',
+            tag || ''
+          ].filter(Boolean).join(' \u00b7 ')
+        });
+      }
+
+      // A leaderboard row is a BIRDER whose payload is one place, so the birder
+      // is the headline and the patch is the sub-line. The distance column
+      // still measures the PLACE, which is the only distance on the row that
+      // means anything — and it is what answers "could I go and see why".
+      function patchLeaderCard(e, num) {
+        var row = e.best, dm = patchDistMi(row);
+        return HotspotCards.medium({
+          num: num,
+          name: '<a class="patchwho" data-birder="' + esc(e.n) + '">' + esc(e.n) + '</a> '
+              + patchBoardLabel(e.r),
+          distance: (dm != null && isFinite(dm)) ? dm : null,
+          distQ: distQ(row.lat, row.lng),
+          sub: stakeHotspotLink(row.locId, row.name)
+             + ' \u00b7 ' + row.mine + ' of ' + row.theirs + ' lists \u00b7 '
+             + '<span class="patchlift">' + patchLift(row.lift) + '</span>'
+        });
+      }
+
+      function patchCapped(cards, noun) {
+        if (cards.length <= PATCH_ROWS) return HotspotCards.list('medium', cards);
+        var rest = cards.slice(PATCH_ROWS);
+        return HotspotCards.list('medium', cards.slice(0, PATCH_ROWS))
+          + '<details class="farplaces"><summary>' + rest.length + ' more ' + noun
+          + (rest.length === 1 ? '' : 's') + '</summary>'
+          + HotspotCards.list('medium', rest) + '</details>';
+      }
+
+      function patchLeadHtml(d) {
+        return '<p class="patchlead-eg">The ' + esc(d.population) + ' birders who file the '
+          + 'most checklists in ' + esc(d.scope) + ', ranked by <b>where they choose to '
+          + 'go</b> rather than by how many lists a place holds.</p>'
+          + '<p>A score of <b>5\u00d7</b> means they file five times the share of their '
+          + 'checklists there that these counties as a whole do \u2014 so a quiet patch '
+          + 'can beat a famous park, which is the point. Tap a birder to see every '
+          + 'hotspot they used.</p>'
+          + '<div class="patchcov">\u2139\uFE0F <b>Coverage is part of the answer.</b> '
+          + 'Measured ' + esc(d.coverage) + '. Of these ' + esc(d.matched) + ' birders, '
+          + '<b>' + esc(d.on_board) + ' of ' + esc(d.population) + '</b> also sit on the '
+          + 'statewide top-' + esc(d.board) + ' board \u2014 the two are nearly different '
+          + 'populations, because that board ranks species for the year and this ranks '
+          + 'effort on the ground.</div>';
+      }
+
+      // NAMED, not ranked low. A birder with no public lists here has no patch
+      // in this table and a patch in real life; ranking them last would be the
+      // app asserting the second thing from the absence of the first.
+      function patchUnplacedHtml(d) {
+        var names = d.unmatched || [];
+        if (!names.length) return '';
+        return '<div class="patchunplaced">'
+          + '<h3>\u26A0\uFE0F Not placed \u2014 no public checklists here</h3>'
+          + '<p class="patchsub">' + names.length + ' birders on the statewide top-'
+          + esc(d.board) + ' board filed no public checklist in ' + esc(d.scope)
+          + ', so there is nothing here to rank them by. <b>This says nothing about '
+          + 'where they bird</b> \u2014 only that eBird does not publish their lists in '
+          + 'this window.</p>'
+          + '<p class="patchnames">' + names.map(esc).join(' \u00b7 ') + '</p></div>';
+      }
+
+      function patchBirderHtml(b, d) {
+        var rows = patchRowsFor(b, d);
+        var head = '<div class="patchhead">'
+          + '<div class="patchname">' + esc(b.n) + '</div>'
+          + '<div class="patchsub">' + esc(b.t) + ' hotspot checklists in '
+          + esc(d.scope) + ' \u00b7 ' + rows.length + ' hotspot'
+          + (rows.length === 1 ? '' : 's') + ' used \u00b7 ' + patchBoardLabel(b.r)
+          + '</div></div>';
+        if (!rows.length) {
+          return head + '<p class="hint">None of this birder\u2019s places are in the '
+            + 'bundled hotspot index, so there is nothing to rank. Personal pins are '
+            + 'excluded by construction \u2014 see how this section is calculated.</p>';
+        }
+        var cards = rows.map(function (r, i) {
+          // The strongest patch is marked with a WORD and a GLYPH, never a
+          // colour or a colour scale: this is the one row the page exists to
+          // show, and a reader who cannot separate red from green would
+          // otherwise be told nothing at all.
+          return patchPlaceCard(r, i + 1,
+            i === 0 ? '<span class="tag">\uD83D\uDCCC strongest patch</span>' : '');
+        });
+        return head
+          + '<p class="patchsub">Every hotspot ' + esc(b.n) + ' filed a public list at, '
+          + 'strongest first \u2014 their lists there, of every list filed there, then '
+          + 'the lift.</p>'
+          + patchCapped(cards, 'hotspot');
+      }
+
+      // The per-birder SUB-PAGE. Same model as the mega-rarity profile: the
+      // list hides, the page shows, and the navbar back button is told where it
+      // is rather than a second back affordance being invented.
+      var _patchOpen = '';
+      var PATCH_PARTS = ['patchLead', 'patchResults', 'patchUnplaced'];
+      function patchOpenBirder(name) {
+        var d = choicePatchData();
+        if (!d) return false;
+        var b = null;
+        for (var i = 0; i < d.birders.length; i++) {
+          if (d.birders[i].n === name) { b = d.birders[i]; break; }
+        }
+        if (!b) return false;
+        var detail = $('patchDetail'), body = $('patchDetailBody');
+        if (!detail || !body) return false;
+        body.innerHTML = patchBirderHtml(b, d);
+        PATCH_PARTS.forEach(function (id) { var el = $(id); if (el) el.hidden = true; });
+        var st = $('patchStatus'); if (st) st.hidden = true;
+        detail.hidden = false;
+        _patchOpen = name;
+        // The navbar names where you ARE, so it names the birder.
+        var t = $('navTitle'); if (t) t.textContent = b.n;
+        var back = $('navBack');
+        if (back) back.setAttribute('aria-label', 'Back to the birder list');
+        try { window.scrollTo(0, 0); } catch (e) {}
+        return true;
+      }
+      function patchCloseBirder() {
+        var detail = $('patchDetail');
+        if (detail) detail.hidden = true;
+        PATCH_PARTS.forEach(function (id) { var el = $(id); if (el) el.hidden = false; });
+        var st = $('patchStatus'); if (st) st.hidden = false;
+        // Everything above is idempotent and safe to run on a section that was
+        // never opened; the navbar is NOT — resetting a title nobody changed
+        // would overwrite whichever section the reader is actually in.
+        if (!_patchOpen) return;
+        _patchOpen = '';
+        var back = $('navBack');
+        if (back) back.setAttribute('aria-label', 'Back to Contents');
+        var sec = detail && detail.closest ? detail.closest('section') : null;
+        var t = $('navTitle'), h = sec && sec.querySelector('h2');
+        if (t && h) t.textContent = h.textContent.trim();
+      }
+
+      function loadChoicePatches() {
+        var st = $('patchStatus'), lead = $('patchLead'), out = $('patchResults'),
+            un = $('patchUnplaced');
+        if (!out || !lead || !un) return;
+        patchCloseBirder();
+        var d = choicePatchData();
+        // NEVER A BLANK PANEL. A section that renders nothing is
+        // indistinguishable from a section that is broken, and this one has
+        // exactly one input — so name the input rather than leave the reader to
+        // guess which of the two they are looking at.
+        if (!d) {
+          lead.innerHTML = ''; un.innerHTML = '';
+          out.innerHTML = '<p class="hint">No choice-patch table is bundled with this '
+            + 'build (<code>choice-patches.js</code>). Nothing was fetched and nothing '
+            + 'is cached \u2014 the section is empty because its only input is absent, '
+            + 'not because the top 100 have no patches.</p>';
+          if (st) st.textContent = 'No table bundled.';
+          return;
+        }
+        if (!patchScopeMatches(d)) {
+          lead.innerHTML = ''; un.innerHTML = '';
+          out.innerHTML = '<p class="hint">The bundled choice-patch table covers '
+            + esc(d.scope) + ', which this report does not include. It is a harvest of '
+            + 'named counties rather than a live feed, so there is nothing honest to '
+            + 'show for ' + esc(countyLabelStr()) + ' yet \u2014 switch region, or wait '
+            + 'for a build that covers it.</p>';
+          if (st) st.textContent = 'Bundled table covers ' + d.scope + '.';
+          return;
+        }
+        var leaders = patchLeaders(d);
+        lead.innerHTML = patchLeadHtml(d);
+        out.innerHTML = leaders.length
+          ? patchCapped(leaders.map(function (e, i) { return patchLeaderCard(e, i + 1); }),
+                        'birder')
+          : '<p class="hint">The bundled table holds no birder with a placeable '
+            + 'hotspot, so there is nothing to rank.</p>';
+        un.innerHTML = patchUnplacedHtml(d);
+        // The one fact nothing else on the page states: this is a SNAPSHOT, and
+        // an old one is still a true one — it just is not today.
+        //
+        // The ISO date the generator wrote, NOT fmtDate: that helper drops the
+        // year, and "Aug 12" read in March would claim a table seven months old
+        // was built last week. It also cannot shift a day across a timezone,
+        // because nothing parses it.
+        if (st) st.textContent = 'Bundled table built ' + String(d.generated).slice(0, 10)
+          + ' \u00b7 ' + d.scope;
+      }
+
       // --- Leader Board Ticks -----------------------------------
       // Mirrors report.py::section_leaderboard_last_new. eBird's top100 page
       // prints each birder's most recently added species; grouping that column
@@ -18318,6 +18726,7 @@
         wxBtn:         'Is today worth it',
         dueBackBtn:    'Migrants due back soon',
         rankBtn:       'Your standing',
+        patchBtn:      'Where experts go',
         destBtn:       'Top hotspots to visit',
         excBtn:        'Top excursion hotspots',
         quickBtn:      'Local hotspots',
@@ -18351,6 +18760,19 @@
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
+        // F28. Immediately after the rankings, because that is where report.py
+        // emits it and the ARRAY order is the contract the Markdown report is
+        // compared against. It is GROUPED elsewhere for the usual reason —
+        // grouping is about what you are trying to do, and this section is not
+        // about you at all. It is about which places a hundred other birders
+        // choose, which is the question Big days and Birder convoys ask too.
+        //
+        // `needs: county` because the table is a HARVEST OF NAMED COUNTIES, not
+        // a live feed. A rarity tracker has none, so the tile could only ever
+        // lead to "not covered here" — and the rule for this menu is that it is
+        // the selected region's table of contents, not a fixed list with dead
+        // entries in it.
+        { at: 'patchBtn',      label: '🧭 Where the top 100 actually bird', needs: 'county', group: 'Hotspots & birders' },
         // GO BIRDING leads. The report's mission is (1) find unseen birds,
         // (2) find the best places to go today — and "where do I go" is the
         // question with a deadline, since a hotspot list is only useful while
@@ -18461,6 +18883,10 @@
         surgeBtn:   { fn: loadSurge,        needsKey: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
+        // No needsKey and no needsHome: the table is bundled, so this section
+        // is the one that still answers with the phone in airplane mode. Home
+        // only decorates it with a distance column when there is one.
+        patchBtn:   { fn: loadChoicePatches },
         lastNewBtn: { fn: loadLastNew,      needsKey: true },
         refreshBtn: { fn: refresh,          needsKey: true },
         activeBtn:  { fn: loadActiveRarities, needsKey: true, fromChase: true },
@@ -19441,6 +19867,7 @@
         // Leaving the section closes any sub-page it had open, or coming back
         // later lands you on a bird's profile with no memory of choosing it.
         if (_abaOpen) abaCloseBird();
+        if (_patchOpen) patchCloseBirder();
         // Everything fetched from here on is this section's cost.
         var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
         costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
@@ -20440,6 +20867,10 @@
       if ($('abaBack')) $('abaBack').addEventListener('click', function () {
         abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {}
       });
+      // Same pairing for the per-birder patch page, and for the same reason.
+      if ($('patchBack')) $('patchBack').addEventListener('click', function () {
+        patchCloseBirder(); try { window.scrollTo(0, 0); } catch (e) {}
+      });
       bindSwipeBack();
       bindZoomReset();
       bindDoubleTapGuard();
@@ -20720,6 +21151,7 @@
       });
       $('wxBtn').addEventListener('click', loadConditions);
       $('rankBtn').addEventListener('click', loadRankings);
+      $('patchBtn').addEventListener('click', loadChoicePatches);
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
@@ -20989,6 +21421,7 @@
       // bird would jump them all the way to Contents.
       function navBack() {
         if (_abaOpen) { abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {} return; }
+        if (_patchOpen) { patchCloseBirder(); try { window.scrollTo(0, 0); } catch (e) {} return; }
         showMenu();
       }
       document.addEventListener('click', function (ev) {
@@ -21052,6 +21485,15 @@
           ev.preventDefault();
           openStakeHotspot(hsl.getAttribute('data-loc') || '',
                            hsl.getAttribute('data-locname') || '');
+          return;
+        }
+        // F28. A birder tapped in the choice-patch leaderboard opens their own
+        // patch page. Placed AFTER .hslink deliberately: a leaderboard row
+        // carries both links, and the place name must keep opening the place.
+        var pw = ev.target.closest('.patchwho');
+        if (pw) {
+          ev.preventDefault();
+          patchOpenBirder(pw.getAttribute('data-birder') || '');
           return;
         }
         // An in-app jump, not an external one: navigation in this app is
@@ -21386,6 +21828,11 @@
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         renderAbaAlert: renderAbaAlert,
         abaOpenBird: abaOpenBird, abaCloseBird: abaCloseBird, navBack: navBack,
+        loadChoicePatches: loadChoicePatches, choicePatchData: choicePatchData,
+        patchRowsFor: patchRowsFor, patchLeaders: patchLeaders,
+        patchOpenBirder: patchOpenBirder, patchCloseBirder: patchCloseBirder,
+        patchLift: patchLift, patchScopeMatches: patchScopeMatches,
+        PATCH_ROWS: PATCH_ROWS,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifArrival: gbifArrival, sciNameFor: sciNameFor,
         ebird: ebird, retryAfterMs: retryAfterMs,

@@ -214,6 +214,34 @@
           who: 'Dan McDougall-Treacy'
         });
       }
+      // F28 — the choice-patch leaderboard row, and the one shape here worth
+      // looking at in a stack: the TITLE is a BIRDER and the sub-header is the
+      // place, which is the reverse of every other hotspot list in the app.
+      // Awkward on both halves on purpose — a parenthesised name and a place
+      // name carrying an orthography most fonts have to fall back for — because
+      // a stack of tidy short strings has never caught anything here.
+      //
+      // .patchwho / .patchboard / .patchlift are styled in index.html, not in a
+      // card file, so they render plain in this gallery. That is deliberate and
+      // is the limit of what this row checks: the SHAPE of the stack, not the
+      // weight of the lift.
+      var BIRDERS = [
+        ['Min-Yu Yang', 'board #14', 'Llama Lake', '126 of 143', '368.1'],
+        ['Dianne (Marie) Murray', 'board \u2014', LONG_PLACE, '99 of 110', '221.4'],
+        ['Jasper Brueggeman', 'board #3',
+         '\u019B\u0315ax\u030C\u02B7adis (Tl\u2019 awh-ah-dees) Park', '32 of 37', '9.7']
+      ];
+      function patchLeader(i) {
+        var b = BIRDERS[i % BIRDERS.length];
+        return window.HotspotCards.medium({
+          num: i + 1,
+          name: '<a class="patchwho" href="#" onclick="return false">' + b[0] + '</a> '
+              + '<span class="patchboard">' + b[1] + '</span>',
+          distMi: parseFloat(PLACES[i % PLACES.length][1]),
+          sub: A(b[2]) + ' \u00b7 ' + b[3] + ' lists \u00b7 '
+             + '<span class="patchlift">' + b[4] + '\u00d7</span>'
+        });
+      }
       // The evidence marks the app derives from the feed's `evidence` field
       // (P photo, A audio, V video) and the observer's note. Rotated so a stack
       // shows the real mix rather than the same row eight times.
@@ -250,6 +278,19 @@
           builder: 'loadRankings', note: 'your standing plus the Top 100 board',
           stub: ['You: #42 in King County, 201 species',
                  '1. Neil Pankey 284 \u00b7 2. Dan McDougall-Treacy 279'] },
+        // F28. Immediately after the rankings, matching report.py (section_rankings
+        // then section_choice_patches) and the MENU array in index.html — the
+        // order of the two is a contract these three files are compared on.
+        //
+        // NOT a sketch: the section really is built from the medium hotspot card,
+        // so the gallery composes it from the same builder the app calls. The
+        // leaderboard row is the awkward one worth looking at in a stack — a
+        // birder's name as the title with the PLACE in the sub-header, which is
+        // the reverse of every other hotspot list here.
+        { at: 'patchBtn', label: '\uD83E\uDDED Where the top 100 actually bird',
+          builder: 'patchLeaderCard + patchPlaceCard',
+          note: 'one row per birder: their strongest patch and its lift',
+          cards: [patchLeader] },
         { at: 'refreshBtn', label: '\uD83C\uDF05 Today\u2019s rarity reports',
           builder: 'refresh', note: 'one medium species row per bird',
           cards: [speciesMedium] },
@@ -332,6 +373,11 @@
         if (fn === speciesMedium) return 'obs big xl';
         if (fn === speciesSmall) return 'obs card-sm sppl';
         if (fn === hotspotMedium) return 'obs dest';
+        // The EXACT class HotspotCards.list('medium', …) emits, which is what
+        // the app wraps the choice-patch leaderboard in. Naming it here rather
+        // than reusing 'obs dest' keeps the gallery showing the container the
+        // section really has — a row is styled by what it sits in.
+        if (fn === patchLeader) return 'obs hscards hscards-medium';
         return 'cklcards cklcards-sm';
       }
 

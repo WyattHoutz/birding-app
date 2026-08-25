@@ -52,6 +52,13 @@
       "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve"
     },
     {
+      "at": "patchBtn",
+      "label": "🧭 Where the top 100 actually bird",
+      "report": "## 🧭 Where the top 100 actually bird",
+      "map": null,
+      "why": "where the hundred busiest birders in these counties choose to spend their effort, ranked by LIFT rather than by checklist count — a raw count just reproduces a population map, so the famous parks win and the reader learns nothing they can act on"
+    },
+    {
       "at": "destBtn",
       "label": "🥇 Today’s patches",
       "report": "## 🥇 Top destinations",
