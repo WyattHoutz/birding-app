@@ -15256,3 +15256,69 @@ test('the scored set is carried across whole, not just enough to name the bird',
 
   app.window.close();
 });
+
+// --- the rate limiter, DRIVEN rather than argued about ---------------------
+// The 20 -> 22 change was justified by "a 300-call simulation" described in a
+// comment that nothing could run. Since then the same limiter has been
+// accused three times, and all three were the DISPLAY: window 21/20 (an
+// unpruned array), window 23/22 (calls scheduled ahead of now), and a
+// 102,109ms "call" that was ~100s of queue.
+//
+// So the simulation is a test now. It drives the real scheduling arithmetic
+// with a synthetic clock, serially, exactly as FG_MAX_CONC = 1 makes the app
+// behave, and asserts the one property that matters: the key never sees more
+// starts in any 60-second window than the cap allows.
+test('300 calls through the real scheduler never overrun the window', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const T0 = 1000000, NET = 300, N = 300;
+  A.fgSchedReset(T0);
+  let now = T0;
+  const starts = [];
+  for (let i = 0; i < N; i++) {
+    const at = A.fgSchedule(now, false);
+    starts.push(at);
+    now = at + NET;          // this call runs, then the next take() happens
+  }
+  let worst = 0;
+  for (let i = 0; i < N; i++) {
+    let c = 0;
+    for (let j = 0; j < N; j++) if (starts[j] > starts[i] - 60000 && starts[j] <= starts[i]) c++;
+    if (c > worst) worst = c;
+  }
+  assert.ok(worst <= A.FG_WINDOW_MAX,
+    `max starts in any 60s window was ${worst}, cap is ${A.FG_WINDOW_MAX}`);
+  // ...and it must actually REACH the cap, or the guard would pass just as
+  // happily on a limiter that had seized up.
+  assert.equal(worst, A.FG_WINDOW_MAX,
+    `the limiter should use its whole budget, not sit under it: ${worst}`);
+
+  // MEASURED, and it is the answer to the "102-second stall": a call sitting
+  // 38 deep waits about 76 seconds because that is what 38 calls cost at the
+  // rate the key allows. Nothing is stalling. Asserted as a band rather than a
+  // literal so it fails on a change of RATE, not on arithmetic noise.
+  const drain38 = (starts[37] - starts[0]) / 1000;
+  assert.ok(drain38 > 60 && drain38 < 95,
+    `draining a 38-deep queue took ${drain38.toFixed(1)}s; if this moved, the `
+    + 'enforced rate moved, and the device log will read differently');
+  app.window.close();
+});
+
+// A queue stall and a hung request need opposite responses, and until now they
+// shared one number: t0 is taken before a slot is acquired, so `done Nms`
+// counted every call this one waited behind. That single number sent the same
+// reader hunting the same non-bug three times.
+test('a slow call says how much of it was queue and how much was network', async () => {
+  const lines = [];
+  const app = await boot({
+    fetch(url) { return /ref\/region/.test(url) ? [] : null; },
+  });
+  app.window.__dbg = { push: (lvl, a) => lines.push(String(a && a[0])) };
+  await app.window.__app.ebird('ref/region/list/subnational2/US-WA');
+  const done = lines.filter((l) => /^done /.test(l));
+  assert.ok(done.length, `no completion line was logged: ${lines.join(' | ')}`);
+  assert.match(done[0], /\d+ms queued \+ \d+ms net/,
+    'the completion line must separate waiting for other calls from this call: '
+    + done[0]);
+  app.window.close();
+});

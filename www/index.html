@@ -3907,16 +3907,29 @@
       // Nothing is starved: the wave resumes the moment the tap is served, and
       // both lanes pass through the same token bucket and rolling window, so
       // the rate the key sees is unchanged.
+      // WHEN may a call start? Separated from the promise plumbing so it can
+      // be DRIVEN rather than reasoned about. Three times now a rate-limiter
+      // "bug" has turned out to be a number that lied — window 21/20, window
+      // 23/22, and a 102-second "call" that was 100 seconds of queue — and
+      // each time the reason it took so long to settle was that the arithmetic
+      // could only be read, not run.
+      //
+      // Returns the wall-clock time this call may begin, and records it, so
+      // driving it N times produces exactly the schedule the app would follow.
+      function fgSchedule(now, bg) {
+        var at = Math.max(now, _fgNextAt) + fgTakeToken(now);
+        at += fgWindowWait(at, bg);
+        _fgStarts.push(at);
+        _fgNextAt = at + _fgGap;
+        return at;
+      }
       function fgSlot(bg) {
         if (fgDead()) return new Promise(function () {});
         return new Promise(function (resolve) {
           function take() {
             _fgActive++;
             var now = Date.now();
-            var at = Math.max(now, _fgNextAt) + fgTakeToken(now);
-            at += fgWindowWait(at, bg);
-            _fgStarts.push(at);
-            _fgNextAt = at + _fgGap;
+            var at = fgSchedule(now, bg);
             var wait = at - now;
             if (wait > 0) setTimeout(resolve, wait); else resolve();
           }
@@ -3935,8 +3948,11 @@
         if (isFinite(s) && s > 0) return Math.min(30000, s * 1000);
         return Math.min(FG_COOLDOWN_MS, Math.pow(2, attempt) * 1000);
       }
-      function fgAttempt(path, attempt, bg) {
+      function fgAttempt(path, attempt, bg, stat) {
         return fgSlot(bg).then(function () {
+          // The moment the queue let this call go. Everything before it is
+          // waiting for OTHER calls; everything after is this one.
+          if (stat && stat.slotAt == null) stat.slotAt = Date.now();
           return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
             .then(function (r) { fgRelease(); return r; },
                   function (e) { fgRelease(); throw e; });
@@ -3963,7 +3979,7 @@
               _fgNextAt = Math.max(_fgNextAt, Date.now() + Math.max(back, FG_COOLDOWN_MS));
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
-                return fgAttempt(path, attempt + 1, bg);
+                return fgAttempt(path, attempt + 1, bg, stat);
               });
             }
             dbg('error', 'eBird HTTP ' + r.status + ' · ' + path);
@@ -4138,7 +4154,21 @@
         _fgInFlight++; rlPause();
         function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
         var t0 = Date.now();
-        var p = fgAttempt(path, 0, bg)
+        // ONE NUMBER WAS DOING TWO JOBS, and it sent the same reader hunting
+        // the same non-bug three times.
+        //
+        // `done 102109ms · tokens 0.0` reads as "this call took a hundred
+        // seconds", so it was filed as a stall in the burst bucket. It is not.
+        // t0 is taken here, BEFORE fgAttempt acquires a slot, so the number
+        // includes every other call this one waited behind — and at the
+        // sustained rate the key allows, thirty-odd queued calls really is a
+        // hundred seconds. The bucket reading 0.0 is the wave running, not a
+        // fault.
+        //
+        // A queue stall and a hung request need opposite responses, so they no
+        // longer share a number.
+        var stat = {};
+        var p = fgAttempt(path, 0, bg, stat)
           .then(function (v) {
             release(); fgNoteOk();
             ebRefPut(path, v);
@@ -4146,7 +4176,10 @@
             // explain a slow load, and neither was in the log before: without
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
-            dbg('net', 'done ' + (Date.now() - t0) + 'ms · ' + _fgDone + ' calls'
+            var total = Date.now() - t0;
+            var queued = stat.slotAt == null ? 0 : Math.max(0, stat.slotAt - t0);
+            dbg('net', 'done ' + total + 'ms (' + queued + 'ms queued + '
+              + (total - queued) + 'ms net) · ' + _fgDone + ' calls'
               + ' · queue ' + _fgWaiters.length + '+' + _fgBgWaiters.length + 'bg/' + _fgActive
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
               + ' · window ' + fgWindowUsed() + '/' + FG_WINDOW_MAX
@@ -4154,7 +4187,10 @@
             return v;
           }, function (e) {
             release(); fgProgressSync();
-            dbg('error', 'failed after ' + (Date.now() - t0) + 'ms · ' + path
+            var total = Date.now() - t0;
+            var queued = stat.slotAt == null ? total : Math.max(0, stat.slotAt - t0);
+            dbg('error', 'failed after ' + total + 'ms (' + queued + 'ms queued + '
+              + (total - queued) + 'ms net) · ' + path
               + ' · ' + ((e && e.message) || e));
             if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
             throw e;
@@ -21959,6 +21995,13 @@
         // overshoot one step up, there was no way to tell a real overrun from
         // a display artefact without adding this.
         fgWindowWait: fgWindowWait, fgWindowUsed: fgWindowUsed,
+        // The whole scheduling decision, exposed so 300 calls can be DRIVEN
+        // through it with a synthetic clock instead of argued about.
+        fgSchedule: fgSchedule,
+        fgSchedReset: function (t) {
+          _fgStarts.length = 0; _fgNextAt = 0;
+          _fgTokens = FG_BUCKET; _fgTokenAt = t; _fgGap = FG_MIN_GAP_MS;
+        },
         fgWindowState: function () { return _fgStarts.slice(); },
         fgWindowReset: function () { _fgStarts.length = 0; },
         fgWindowPush: function (t) { _fgStarts.push(t); },
