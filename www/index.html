@@ -109,7 +109,19 @@
       --ink: #16211b;
       --muted: #5c6b63;
       --accent: #0f7a52;
-    --link: #0072B2;
+      /* The deep end of the header gradient. A VARIABLE because it is an
+         accent shade: hard-coded it stayed a light-theme green under a
+         dark-theme accent (F138). */
+      --accent-deep: #0b5a3c;
+      /* The colour-blind-safe emphasis blue, themed once. Okabe-Ito blue on
+         light, sky blue on dark — the pair chosen because they stay
+         distinguishable with no red/green perception at all.
+         F138: six rules hard-coded `#0072B2` with NO dark variant, so badges,
+         "up" arrows and the verified pill stayed dark blue on a dark card
+         while `--link` beside them switched to sky blue. Naming the concept
+         once fixes the legibility and makes a theme a swap rather than a hunt. */
+      --safe-blue: #0072B2;
+      --link: var(--safe-blue);
       --accent-ink: #ffffff;
       --line: #e4e8e4;
       /* The tint behind a group heading. A named colour rather than a
@@ -126,7 +138,8 @@
         --ink: #eaf1ec;
         --muted: #9fb0a6;
         --accent: #37d391;
-    --link: #56B4E9;
+        --accent-deep: #14503a;
+    --safe-blue: #56B4E9;
         --accent-ink: #06120c;
         --line: #26302a;
         --band: #273a30;
@@ -198,8 +211,12 @@
        with colour doing nothing load-bearing. */
     .tag { font-size: calc(12px * var(--s)); padding: 2px 8px; border-radius: 999px;
            border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-    .tag.cold { border-color: #0072B2; color: #0072B2; font-weight: 600; }
-    @media (prefers-color-scheme: dark) { .tag.cold { border-color: #56B4E9; color: #56B4E9; } }
+    /* F138: `var(--link)`, not two hard-coded Okabe-Ito blues plus a SECOND
+       dark-mode media query. `--link` already holds exactly this value per
+       theme — blue on light, sky blue on dark — chosen for the same reason
+       this tag wants it: it stays legible without red/green perception.
+       Two copies of one light/dark decision drift; one does not. */
+    .tag.cold { border-color: var(--link); color: var(--link); font-weight: 600; }
     /* A row that DOES something has to look like it does something, or the
        only discoverable target stays the little icon at the end. */
     li.tappable { cursor: pointer; }
@@ -314,7 +331,11 @@
          header's height and the padding is its air, so trimming one alone
          just changes which looks wrong. */
       padding: calc(env(safe-area-inset-top) + 8px) 20px 8px;
-      background: linear-gradient(160deg, var(--accent), #0b5a3c);
+      /* F138: `--accent-deep`, not a literal `#0b5a3c`. This is the second
+         stop of the header gradient and it is an ACCENT shade, so it has to
+         move when the accent does — hard-coded, the dark theme drew a
+         light-theme green under a dark-theme accent. */
+      background: linear-gradient(160deg, var(--accent), var(--accent-deep));
       color: var(--accent-ink);
     }
     /* Brand lockup. The mark is the SAME kingfisher photograph the home-screen
@@ -648,7 +669,7 @@
     .tilebadge { margin-left: auto; flex: 0 0 auto; font-size: calc(11px * var(--s));
                  line-height: 1; padding: 3px 7px; border-radius: 999px;
                  border: 1px solid var(--line); color: var(--muted); }
-    .tilebadge.isnew { border-color: #0072B2; color: #0072B2; font-weight: 700; }
+    .tilebadge.isnew { border-color: var(--safe-blue); color: var(--safe-blue); font-weight: 700; }
     /* The first tile is what the app opens on, so it spans the row and says
        what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
@@ -766,7 +787,7 @@
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
     .pinbubble { width: calc(24px * var(--s)); height: calc(24px * var(--s)); border-radius: 50%; background: var(--pin, #e5484d); color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: calc(24px * var(--s) - 4px); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
-    .pinbubble.home { background: #0f7a52; }
+    .pinbubble.home { background: var(--accent); }
     .dest .rank { display: inline-flex; align-items: center; justify-content: center; width: calc(22px * var(--s)); height: calc(22px * var(--s)); border-radius: 999px; background: #e5484d; color: #fff; font-size: calc(12px * var(--s)); font-weight: 800; margin-right: 8px; vertical-align: middle; }
     .dest .name { vertical-align: middle; }
     .dest .sp { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 4px; }
@@ -783,7 +804,7 @@
        identically in greyscale. Sized in em (no fixed box) so it tracks the UI
        text scale instead of clipping at the largest setting. Okabe-Ito blue. */
     .ictag { display: inline-block; margin-left: 0.3em; padding: 0 0.36em;
-             border: 1px solid #0072B2; border-radius: 0.5em; color: #0072B2;
+             border: 1px solid var(--safe-blue); border-radius: 0.5em; color: var(--safe-blue);
              font-size: 0.82em; font-weight: 700; font-variant-numeric: tabular-nums;
              vertical-align: 0.04em; }
     /* ...and WHEN. Lighter weight so the multiplier still leads, but inside
@@ -1336,8 +1357,12 @@
                min-width: calc(22px * var(--s)); height: calc(22px * var(--s)); padding: 0 6px; border-radius: 999px;
                background: color-mix(in srgb, var(--accent) 18%, transparent);
                color: var(--accent); font-size: calc(12px * var(--s)); font-weight: 800; margin-right: 8px; }
-    .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: #0f7a52;
-                 background: color-mix(in srgb, #0f7a52 14%, transparent);
+    /* F138: was `#0f7a52` twice — a hard-coded copy of `--accent`'s LIGHT
+       value. Dark mode redefines `--accent` to `#37d391`, so this pill stayed
+       light-green on a dark card while every other accent switched. A second
+       copy of a colour is the same drift as a second copy of a status. */
+    .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--accent);
+                 background: color-mix(in srgb, var(--accent) 14%, transparent);
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
     /* Review status. NEVER colour alone: each pill carries a distinct GLYPH
        shape (check vs triangle) AND the word itself, so the meaning survives
@@ -1351,7 +1376,7 @@
     .revok, .revpend { font-size: calc(12px * var(--s)); font-weight: 800;
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px;
                  white-space: nowrap; display: inline-block; }
-    .revok   { color: #0072B2; background: color-mix(in srgb, #0072B2 12%, transparent); }
+    .revok   { color: var(--safe-blue); background: color-mix(in srgb, var(--safe-blue) 12%, transparent); }
     .revpend { color: #8a5a00; background: color-mix(in srgb, #E69F00 18%, transparent); }
     /* F176. eBird marks an escapee with a filled circle carrying a white
        asterisk; this is the same idea in one glyph, and it is ALWAYS printed
@@ -1407,7 +1432,7 @@
        redundant here by design — and red-vs-green is the one pairing this
        app's reader cannot separate. Okabe-Ito blue and vermillion instead,
        which stay distinct to everyone. */
-    .ranktrend b.up { color: #0072B2; }
+    .ranktrend b.up { color: var(--safe-blue); }
     .ranktrend b.down { color: #D55E00; }
     .ranktrend b.rankwin { font-size: calc(12px * var(--s)); letter-spacing: .2px;
                            white-space: nowrap; }
@@ -1450,7 +1475,7 @@
        browser - and says so visually. */
     .rbalink { color: var(--link); text-decoration: underline;
                text-underline-offset: 2px; cursor: pointer; }
-    .rankrow .mv.up { color: #0072B2; }
+    .rankrow .mv.up { color: var(--safe-blue); }
     .rankrow .mv.down { color: #D55E00; }
     .rankrow .mv small { font-weight: 600; opacity: .75; margin-left: 2px;
                          font-size: calc(10px * var(--s)); }
@@ -2309,7 +2334,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.35.1';
+      var APP_VERSION = '1.36.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;

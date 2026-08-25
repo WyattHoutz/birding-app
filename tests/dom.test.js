@@ -12079,8 +12079,22 @@ test('the board records itself so each birder can show movement', async () => {
   assert.match(html, /\.rankrow \.mv \{[^}]*white-space: nowrap/,
     'the movement column can wrap, which is the one thing that was ruled out');
   // Direction must not be carried by colour alone, and must not be red/green.
+  //
+  // Asserted as the PROPERTY, not as a literal. F138 replaced the hard-coded
+  // `#0072B2` with `var(--safe-blue)` - a variable that holds Okabe-Ito blue on
+  // light and sky blue on dark - because the literal had no dark variant and
+  // stayed dark blue on a dark card. A guard pinned to the old hex would have
+  // forced that legibility bug to stay.
   assert.ok(!/\.rankrow \.mv\.down \{ color: #e5484d/.test(html), 'red/green pairing is back');
-  assert.match(html, /\.rankrow \.mv\.up \{ color: #0072B2/);
+  assert.match(html, /\.rankrow \.mv\.up \{ color: (var\(--safe-blue\)|#0072B2)/i,
+    'up is the colour-blind-safe blue');
+  // Down is Okabe-Ito vermillion, which pairs with that blue rather than
+  // opposing it as red does with green. Whatever it is, it may not be a hue
+  // this owner cannot separate from the blue.
+  const down = /\.rankrow \.mv\.down \{ color: ([^;}]+)/i.exec(html);
+  assert.ok(down, 'down has a colour');
+  assert.ok(/#D55E00|var\(--/i.test(down[1]),
+    'down is a colour-blind-safe hue or a themed variable, not a raw red: ' + down[1]);
 });
 
 test('the county RBA tag is BOTH styled and tap-wired (F128)', () => {
@@ -14733,4 +14747,81 @@ test('the choice patch section states what it cannot see', async () => {
     'nobody is both ranked and reported as unplaced: ' + overlap.join(', '));
 
   app.window.close();
+});
+
+// ── F138: the palette, before any theme ─────────────────────────────────────
+//
+// Audited 2026-08-25: 70 of 96 colour literals in <style> sat outside a theme
+// block. "Move them all into variables" is the WRONG fix and the audit is what
+// shows why - 16 of them are Okabe-Ito hues chosen for colour-blindness
+// safety, and a theme that re-tints those silently removes the property they
+// exist for.
+//
+// These two guards are the ones that must exist BEFORE a theme picker, because
+// a theme is only safe once (a) no accent is duplicated as a literal and (b)
+// the colour-blind-safe hues are provably out of scope.
+test('no theme colour is also hard-coded somewhere else', () => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(HTML);
+  assert.ok(style, 'index.html has a <style> block');
+  // Comments carry hex values ON PURPOSE - they record what a value used to be
+  // - so they must be stripped or this guard reports its own documentation.
+  const css = style[1].replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Every value any theme block assigns to a custom property.
+  const themeBlocks = css.match(/:root\s*\{[^}]*\}|html\[data-a11y="on"\]\s*\{[^}]*\}/g) || [];
+  const themed = new Map();
+  for (const block of themeBlocks) {
+    const re = /(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\b/g;
+    let m;
+    while ((m = re.exec(block))) themed.set(m[2].toLowerCase(), m[1]);
+  }
+  assert.ok(themed.size >= 8, 'the theme blocks define colours to compare against');
+
+  // The rest of the stylesheet must not repeat any of them.
+  const outside = css.split(/:root\s*\{[^}]*\}|html\[data-a11y="on"\]\s*\{[^}]*\}/).join('\n');
+  const dupes = [];
+  for (const [hex, name] of themed) {
+    if (new RegExp(hex, 'i').test(outside)) dupes.push(`${hex} duplicates ${name}`);
+  }
+  assert.equal(dupes.length, 0,
+    'a themed colour repeated as a literal will not follow its theme - '
+    + 'dark mode redefines --accent, so a hard-coded copy stayed light-green '
+    + 'on a dark card: ' + dupes.join('; '));
+});
+
+test('the colour-blind-safe hues are never themed', () => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(HTML);
+  const css = style[1].replace(/\/\*[\s\S]*?\*\//g, '');
+  // Okabe-Ito. Chosen because they stay distinguishable without red/green
+  // perception, which is the whole reason they are in this file. A theme that
+  // re-tints them keeps the look and deletes the guarantee - so they are
+  // deliberately NOT variables, and this asserts they stay that way.
+  const SAFE = ['#0072b2', '#56b4e9', '#e69f00', '#d55e00', '#009e73', '#cc79a7', '#f0e442'];
+  const themeBlocks = css.match(/:root\s*\{[^}]*\}|html\[data-a11y="on"\]\s*\{[^}]*\}/g) || [];
+  const themedSafe = [];
+  for (const block of themeBlocks) {
+    for (const hex of SAFE) {
+      // A theme MAY hold one of these, but only in a variable whose NAME says
+      // it carries a colour-blind-safe value - `--safe-blue` is the blue/sky
+      // blue pair, and `--link` resolves to it. That is the same goal as the
+      // palette rather than a violation of it.
+      //
+      // Any OTHER variable taking an Okabe-Ito hue is the violation this
+      // catches: it means a theme has quietly adopted one of these colours for
+      // a purpose that has nothing to do with colour-blindness, and the next
+      // theme is free to re-tint it into something unsafe.
+      const re = new RegExp('(--[a-z0-9-]+)\\s*:\\s*' + hex + '\\b', 'i');
+      const m = re.exec(block);
+      if (m && !/^--safe-/.test(m[1]) && m[1] !== '--link') themedSafe.push(`${m[1]}: ${hex}`);
+    }
+  }
+  assert.equal(themedSafe.length, 0,
+    'these hues are picked for colour-blindness safety, so only a --safe-* '
+    + 'variable may hold one: ' + themedSafe.join('; '));
+
+  // And they must still be present - a guard that passes because the palette
+  // was deleted would be worse than no guard.
+  const present = SAFE.filter((hex) => new RegExp(hex, 'i').test(css));
+  assert.ok(present.length >= 3,
+    'the colour-blind-safe palette is still in use (found ' + present.join(', ') + ')');
 });
