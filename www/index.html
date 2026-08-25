@@ -15137,6 +15137,12 @@
       var TOD_COHERENCE_MAX = 3.0;
       // ONE retention bound, applied to BOTH halves (see todAccumulate).
       var TOD_KEEP = 300, TOD_CHK_KEEP = 4000;
+      // Bumped whenever the SAMPLING RULE changes, so a state gathered under
+      // the old rule is rebuilt rather than blended with the new one. v2 drops
+      // `cat=species`, which had been collapsing each county-day to one row
+      // per species and so building the numerator on a different unit from
+      // the denominator.
+      var TOD_SAMPLE_V = 2;
       function todKey() { return 'ebird_tod_' + getReportSlug(); }
       function todCoherence(s) {
         var hrs = (s && s.hours) || {}, chk = (s && s.chk) || {};
@@ -15153,20 +15159,30 @@
         var s;
         try { s = JSON.parse(localStorage.getItem(todKey()) || 'null'); }
         catch (e) { s = null; }
-        if (!s || typeof s !== 'object') return { seen: {}, hours: {}, names: {} };
+        if (!s || typeof s !== 'object') return { seen: {}, hours: {}, names: {}, v: TOD_SAMPLE_V };
         s.seen = s.seen || {}; s.hours = s.hours || {}; s.names = s.names || {};
         // HEAL ON READ, because no release can otherwise reach a poisoned
         // accumulator: the species dedupe means re-sampling the same feeds
-        // adds nothing, so a bad sample stays bad forever. Two shapes are
+        // adds nothing, so a bad sample stays bad forever. Three shapes are
         // unrepairable and must be rebuilt rather than patched — a state with
-        // per-species hours but no checklist baseline at all (pre-F175), and
-        // one whose two halves demonstrably disagree. `names` is kept: it is
-        // a code->label map, cannot be wrong, and saves refetching.
+        // per-species hours but no checklist baseline at all (pre-F175), one
+        // whose two halves demonstrably disagree, and one gathered under an
+        // OLDER SAMPLING RULE. `names` is kept: it is a code->label map,
+        // cannot be wrong, and saves refetching.
+        //
+        // The version stamp is the third, and it exists because the second
+        // could not see the v1.38.0 fault at all. `todCoherence` compares the
+        // two halves' late RATES; it cannot see that they were CONSTRUCTED
+        // differently — a numerator built one-per-county-day by `cat=species`
+        // against a denominator built one-per-checklist passes it cleanly.
+        // A stamp asks the only question that catches a changed unit: was this
+        // gathered by the rule we are now using?
         var ch = Object.keys(s.chk || {}).length;
         var nh = Object.keys(s.hours).length;
         var coh = todCoherence(s);
-        if ((nh && !ch) || (coh != null && coh > TOD_COHERENCE_MAX)) {
-          return { seen: {}, hours: {}, names: s.names, chk: {}, rebuilt: 1 };
+        if (s.v !== TOD_SAMPLE_V || (nh && !ch) || (coh != null && coh > TOD_COHERENCE_MAX)) {
+          return { seen: {}, hours: {}, names: s.names, chk: {}, days: {},
+                   rebuilt: 1, v: TOD_SAMPLE_V };
         }
         return s;
       }
@@ -15339,16 +15355,51 @@
         });
         todSave(s);
       }
+      // Every hour in this sample must describe the same thing, and until
+      // v1.39.0 it did not.
+      //
+      // The request carried `cat=species`, which collapses a region-day to ONE
+      // ROW PER SPECIES. So the two halves of the ratio were built from
+      // different units — again, and this is the third form of the same fault:
+      //   numerator   s.hours[code]  one entry per species per COUNTY-DAY
+      //   denominator s.chk[sub]     one entry per CHECKLIST those rows came from
+      // Measured on the device: every dusk species reported n=42, which is
+      // 21 days x 2 counties exactly, against a 2,393-checklist baseline.
+      //
+      // Worse than a size mismatch: eBird's `cat=species` representative is
+      // the day's LATEST record of that species, so a bird present all day is
+      // represented by its last sighting. The commonest birds therefore got 42
+      // samples all skewed late, against a 16% all-hours baseline — which is
+      // why American Crow led a list of owls at 86% after 7pm.
+      //
+      // ⚠️ `maxResults` is 2000, not 200. F101 measured that ceiling. Dropping
+      // `cat=species` returns real checklist rows, which is many more per day,
+      // so the cap has to rise with it — and truncation at the cap is SILENT,
+      // so it is detected and surfaced rather than discovered later.
+      var TOD_DAY_MAX = 2000;
+      var _todTruncated = 0;
       function todFetchHistoric(region, dates, onProg) {
         return dates.reduce(function (p, dt, idx) {
           return p.then(function (acc) {
             if (onProg) onProg(idx + 1, dates.length);
-            var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&cat=species&maxResults=200';
+            var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&maxResults=' + TOD_DAY_MAX;
             // Background lane: same 1.2s spacing + backoff as the report's
             // ebird.py, so a 21-day × N-county sample can't exhaust the key.
             // The limiter supplies the spacing, so no extra sleep here.
             return ebirdBg(path)
-              .then(function (r) { if (Array.isArray(r)) acc.push.apply(acc, r); return acc; })
+              .then(function (r) {
+                if (Array.isArray(r)) {
+                  // A day that comes back exactly at the cap was almost
+                  // certainly cut off. Saying so beats a quietly partial day.
+                  if (r.length >= TOD_DAY_MAX) {
+                    _todTruncated++;
+                    dbg('net', 'time-of-day: ' + region + ' ' + dt.toISOString().slice(0, 10)
+                      + ' hit the ' + TOD_DAY_MAX + '-row cap — that day is truncated');
+                  }
+                  acc.push.apply(acc, r);
+                }
+                return acc;
+              })
               .catch(function () { return acc; });
           });
         }, Promise.resolve([]));

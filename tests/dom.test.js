@@ -14430,6 +14430,11 @@ test('a coherent accumulator is left alone', async () => {
   for (let i = 0; i < 100; i++) hours.grhowl.push(i < 36 ? 20 : 9);  // a real owl
   for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 77 ? 20 : 9);   // 7.7% evening
   ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk,
+    // v2, because a healthy sample must also be a CURRENT-RULE sample. Before
+    // v1.39.0 this fixture had no version and passed - which is precisely the
+    // hole the stamp closes: a coherent-looking state gathered under the old
+    // `cat=species` rule sailed through every check there was.
+    v: 2,
     names: { amecro: 'American Crow', grhowl: 'Great Horned Owl' } }));
 
   assert.ok(A.todCoherence({ hours, chk }) <= A.TOD_COHERENCE_MAX, 'healthy sample passes');
@@ -14931,4 +14936,58 @@ test('every button takes its shape from the same three tokens', () => {
   assert.equal(literals.length, 0,
     'a button radius that is not one of the three named shapes is a fourth shape '
     + 'nobody chose: ' + literals.join('; '));
+});
+
+// The dusk list shipped WRONG TWICE, and the second fix did not fix it.
+//
+// v1.32.1 fixed the ordering fault (the checklist hour was recorded after the
+// species dedupe return) and added a coherence check. The device still showed
+// American Crow leading a list of owls, every dusk species reporting the
+// identical n=42 against a 2,393-checklist baseline.
+//
+// 42 = 21 days x 2 counties. The historic request carried `cat=species`, which
+// collapses a region-day to ONE ROW PER SPECIES - so the numerator was built
+// one-per-county-day while the denominator was built one-per-checklist. The
+// same two-sample fault as F175, in its third form. And eBird's cat=species
+// representative is the day's LATEST record, so the commonest birds got 42
+// samples all skewed late against a 16% all-hours baseline.
+//
+// ⚠️ todCoherence could not catch it: it compares the two halves' late RATES,
+// and two samples constructed differently can share a rate.
+test('the time-of-day sample is built one row per CHECKLIST, not per species', () => {
+  const start = HTML.indexOf('function todFetchHistoric');
+  assert.ok(start > -1, 'todFetchHistoric() should exist');
+  const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
+
+  assert.doesNotMatch(src, /cat=species/,
+    'cat=species collapses a county-day to one row per species, which builds the '
+    + 'numerator on a different unit from the denominator - that is what put '
+    + 'crows and chickadees at the top of a dusk list');
+
+  // Dropping cat=species means far more rows per day, so the cap has to rise
+  // with it. F101 measured the real ceiling at 2000, not 200.
+  const cap = /maxResults=' \+ TOD_DAY_MAX/.test(src) || /maxResults=2000/.test(src);
+  assert.ok(cap, 'the day request asks for the measured 2000-row ceiling');
+  assert.match(HTML, /var TOD_DAY_MAX = 2000/, 'and that ceiling is named');
+
+  // Truncation at the cap is SILENT - the caveat F28 already documents - so a
+  // day that comes back exactly at the limit must SAY so.
+  assert.match(src, /r\.length >= TOD_DAY_MAX/,
+    'a day returning exactly the cap is detected as truncated');
+  assert.match(src, /truncated/i, 'and reported rather than silently accepted');
+});
+
+test('a sample gathered under the old rule is rebuilt, not blended', () => {
+  // The species dedupe means re-sampling adds nothing to an existing pair, so
+  // a sample gathered under a superseded rule survives every future release
+  // unless something explicitly discards it. That is the F172 unreachable-state
+  // shape: the thing that would repair it is the thing being blocked.
+  assert.match(HTML, /var TOD_SAMPLE_V = 2/, 'the sampling rule is versioned');
+  const start = HTML.indexOf('function todLoad');
+  const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
+  assert.match(src, /s\.v !== TOD_SAMPLE_V/,
+    'a state stamped with an older sampling rule is rebuilt');
+  assert.match(src, /rebuilt: 1/, 'and the rebuild is announced, not silent');
+  assert.match(src, /names: s\.names/,
+    'names survive the rebuild - a code->label map cannot be wrong');
 });
