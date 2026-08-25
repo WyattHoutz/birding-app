@@ -2178,7 +2178,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.31.1';
+      var APP_VERSION = '1.32.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2841,12 +2841,255 @@
           // recentLists() harvests internally; redraw so a bird learned just
           // now appears without the reader having to do anything.
           try { updateMyYear(); } catch (e) {}
+          // F8. The recent feeds only reach back as far as 200 checklists per
+          // county — measured at 2 days in King County — so they can never
+          // rebuild a YEAR. The backfill walks the rest, well behind this.
+          try { startOwnBackfill(); } catch (e) {}
           return 1;
         }).catch(function () { return 0; });
       }
 
-      function harvestOwnChecklists(lists) {
-        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+      // ── F8, THE CHEAP PATH: ONE CALL INSTEAD OF SEVEN HUNDRED ────────────
+      //
+      // "So F8 works, but its an expensive brute force solution." Correct, and
+      // the day-walk below should never have been the FIRST thing tried.
+      //
+      // The whole year list already exists on one page — `ebird.org/lifelist/
+      // {region}?time=year` is the very page whose screenshot settled the
+      // Chukar question. It carries the numbered species with dates and
+      // locations AND the three trailing sections (escapee / hybrids /
+      // additional taxa), which is also exactly what F176 could not populate
+      // from the seed.
+      //
+      // MEASURED 2026-08-24, and the measurement is why this is TRIED rather
+      // than ASSUMED: from a plain client the page 302s to Cornell CAS
+      // (`secure.birds.cornell.edu/cassso/login`), so it needs a signed-in
+      // session. But the DEVICE has one — the same request pattern fetches
+      // `ebird.org/top100` 200 OK on device while it 302-loops from a desktop
+      // with no cookie jar. The WKWebView carries an eBird session the CLI
+      // never sees.
+      //
+      // So: try the one call. If it comes back as a login page, or parses to
+      // nothing, fall through to the 730-call walk, which is slow but cannot be
+      // locked out. A cheap path that MIGHT work plus an expensive path that
+      // always does beats picking either alone.
+      var LIFELIST_MIN_ROWS = 5;   // fewer than this is a login page, not a list
+
+      function lifelistYearUrl() {
+        var st = (getReport().stateCode || '').toUpperCase();
+        return st ? 'https://ebird.org/lifelist/' + encodeURIComponent(st) + '?time=year' : '';
+      }
+      // Rows look like: "1. Hairy Woodpecker … 01 Jan 2026 … Dendron Arbor".
+      // Parsed loosely on purpose: eBird's markup is not a contract, and a
+      // parser that pins their class names breaks on their next deploy while a
+      // shape-based one degrades to "found nothing" and falls back.
+      function parseLifelistHTML(html) {
+        var out = [], seen = {};
+        var text = String(html || '');
+        if (!text || /cassso\/login|Sign in to eBird/i.test(text)) return out;
+        var re = /\/species\/([a-z0-9]+)[^>]*>\s*([^<]{2,60}?)\s*<[\s\S]{0,600}?(\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4})/g;
+        var m;
+        while ((m = re.exec(text)) !== null) {
+          var code = m[1], name = m[2].trim(), date = m[3];
+          if (!code || seen[code]) continue;
+          seen[code] = 1;
+          out.push({ code: code, name: name, date: date });
+        }
+        return out;
+      }
+      function tryLifelistYear() {
+        var url = lifelistYearUrl();
+        if (!url) return Promise.resolve(0);
+        return fetchPublicHTML(url).then(function (html) {
+          var rows = parseLifelistHTML(html);
+          if (rows.length < LIFELIST_MIN_ROWS) {
+            verdict('My year', 'lifelist page returned ' + rows.length + ' rows — '
+              + 'not signed in, so falling back to the day-by-day walk');
+            return 0;
+          }
+          var codes = ownSeenCodes(), learned = 0;
+          rows.forEach(function (r) {
+            var c = String(r.code || '').trim().toLowerCase();
+            if (!c || codes[c]) return;
+            codes[c] = { n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '' };
+            learned++;
+          });
+          if (learned) {
+            try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
+          }
+          verdict('My year', 'lifelist page read in ONE call: ' + rows.length
+            + ' species, ' + learned + ' new — the 730-call walk was skipped');
+          return rows.length;
+        }).catch(function (e) {
+          verdict('My year', 'lifelist page unreachable (' + ((e && e.message) || e)
+            + ') — falling back to the day-by-day walk');
+          return 0;
+        });
+      }
+
+      // ── F8: THE YEAR LIST, HARVESTED RATHER THAN EXPORTED ────────────────
+      //
+      // "the biggest issue is that I have these birdlist markdown files that id
+      // rather not manage, and id like to get this information from ebird on
+      // demand."
+      //
+      // MEASURED, and the measurement is why this is a BACKFILL rather than a
+      // fetch: eBird has **no personal endpoint**. There is no `/my/` anything —
+      // only region-scoped feeds — so a year list can only be rebuilt by walking
+      // the region's day lists and keeping the rows that carry your name. Q16
+      // sized it at ~730 day-list calls plus ~250 checklist reads across two
+      // counties: about 45 minutes at eBird's 0.37/s ceiling.
+      //
+      // Forty-five minutes is not a request, it is a JOB. So it is:
+      //
+      //   * RESUMABLE — a durable cursor per county, so closing the app costs
+      //     the current day and nothing else. Anything not resumable would have
+      //     to start again from the top every launch and would therefore never
+      //     finish.
+      //   * BACKGROUND — ebirdBg(), the same lane the migration history uses,
+      //     which yields to the chase wave the reader is actually watching.
+      //     scheduleOwnHarvest already learned this lesson the hard way: an
+      //     inline version pushed five tests past their timeouts.
+      //   * BOUNDED PER TICK — BACKFILL_SLICE days, then re-arm. A long
+      //     synchronous chain is the shape that hung the suite once already.
+      //
+      // It is an ACCELERATOR, NEVER A PREREQUISITE (same rule as F145). The CSV
+      // import still works and is instant; this exists so nobody is REQUIRED to
+      // keep a markdown file by hand. Both fill the same store, so whichever
+      // runs first simply leaves less for the other.
+      var BACKFILL_SLICE = 4;          // day-lists per tick
+      var BACKFILL_GAP_MS = 4000;      // between ticks; the lane is shared
+      var _backfillRunning = false, _backfillTimer = null;
+
+      function backfillKey() { return 'ebird_backfill_' + getReportSlug(); }
+      function backfillState() {
+        try {
+          var v = JSON.parse(localStorage.getItem(backfillKey()) || 'null');
+          if (v && v.year === seedYear()) return v;
+        } catch (e) { /* fall through to a fresh one */ }
+        return { year: seedYear(), cursor: {}, days: 0, found: 0, done: false };
+      }
+      function backfillSave(s) {
+        try { localStorage.setItem(backfillKey(), JSON.stringify(s)); } catch (e) {}
+      }
+      // The next day to ask about for one county, walking BACKWARDS from today.
+      // Backwards because the most recent birding is the most likely to be
+      // missing from an export taken weeks ago — so the first minute of a
+      // forty-five minute job is the minute that pays.
+      function backfillNextDay(state, county) {
+        var cur = state.cursor[county];
+        var d = cur ? new Date(cur + 'T12:00:00') : new Date();
+        if (cur) d.setDate(d.getDate() - 1);
+        var jan1 = new Date(seedYear(), 0, 1);
+        if (d < jan1) return null;
+        return d.getFullYear() + '-'
+          + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1) + '-'
+          + (d.getDate() < 10 ? '0' : '') + d.getDate();
+      }
+      function backfillTotalDays() {
+        var jan1 = new Date(seedYear(), 0, 1), now = new Date();
+        return Math.max(1, Math.round((now - jan1) / 86400000) + 1);
+      }
+      function backfillProgress() {
+        var s = backfillState(), codes = countyCodes();
+        if (!codes.length) return null;
+        return { done: s.days, total: backfillTotalDays() * codes.length,
+                 found: s.found, finished: !!s.done };
+      }
+
+      function backfillTick() {
+        if (_backfillRunning) return;
+        if (!getKey() || !getDisplayName()) return;
+        var s = backfillState();
+        if (s.done) return;
+        var codes = countyCodes();
+        if (!codes.length) { s.done = true; backfillSave(s); return; }
+
+        // One county's next day at a time, round-robin, so a two-county report
+        // makes visible progress on both rather than finishing one first.
+        var jobs = [];
+        for (var i = 0; i < codes.length && jobs.length < BACKFILL_SLICE; i++) {
+          var day = backfillNextDay(s, codes[i]);
+          if (day) jobs.push({ county: codes[i], day: day });
+        }
+        if (!jobs.length) {
+          s.done = true; backfillSave(s);
+          dbg('net', 'own-list backfill complete: ' + s.days + ' day-lists, '
+            + s.found + ' of your checklists found');
+          try { updateMyYear(); } catch (e) {}
+          return;
+        }
+
+        _backfillRunning = true;
+        dbg('net', 'own-list backfill: ' + jobs.length + ' day-list(s), '
+          + s.days + ' done');
+        jobs.reduce(function (p, j) {
+          return p.then(function () {
+            var d = j.day.split('-');
+            return ebirdBg('product/lists/' + encodeURIComponent(j.county)
+                + '/' + (+d[0]) + '/' + (+d[1]) + '/' + (+d[2])
+                + '?maxResults=200')
+              .then(function (rows) {
+                var mine = (Array.isArray(rows) ? rows : []).filter(isOwnRow);
+                s.found += mine.length;
+                // Reuse the ONE harvester. A second implementation of "read my
+                // checklist and learn its birds" would drift from this one, and
+                // it is the piece that now also records exoticCategory.
+                if (mine.length) { try { harvestOwnChecklists(mine); } catch (e) {} }
+              })
+              .catch(function () { /* a missing day is not a failure worth stopping for */ })
+              .then(function () {
+                // The cursor advances even when the day failed. A day that
+                // cannot be read will not become readable on the next pass, and
+                // retrying it forever is how a backfill stops being a backfill.
+                s.cursor[j.county] = j.day;
+                s.days += 1;
+                backfillSave(s);
+              });
+          });
+        }, Promise.resolve()).finally(function () {
+          _backfillRunning = false;
+          backfillSave(s);
+          try { updateMyYear(); } catch (e) {}
+          clearTimeout(_backfillTimer);
+          _backfillTimer = setTimeout(backfillTick, BACKFILL_GAP_MS);
+        });
+      }
+      function startOwnBackfill(delayMs) {
+        clearTimeout(_backfillTimer);
+        _backfillTimer = setTimeout(function () {
+          // CHEAP PATH FIRST. One call reads the whole year when the device has
+          // an eBird session; only if that fails do we spend 730.
+          var s = backfillState();
+          if (s.done) return;
+          tryLifelistYear().then(function (n) {
+            if (n >= LIFELIST_MIN_ROWS) {
+              s.done = true; s.viaLifelist = true; backfillSave(s);
+              try { updateMyYear(); } catch (e) {}
+              return;
+            }
+            backfillTick();
+          }).catch(function () { backfillTick(); });
+        }, delayMs == null ? 20000 : delayMs);
+      }
+      // Said in the register the rest of the app uses: what it is doing, how far
+      // in, and — the part that matters — that the list is not final yet.
+      function backfillNote() {
+        var p = backfillProgress();
+        if (!p) return '';
+        if (p.finished) {
+          return '<div class="hint">Your own ' + esc(seedYear()) + ' checklists have all been read, '
+            + 'so this list no longer depends on the exported file.</div>';
+        }
+        var pct = Math.min(99, Math.round(100 * p.done / p.total));
+        return '<div class="hint">Reading your ' + esc(seedYear()) + ' checklists straight from eBird — '
+          + '<b>' + pct + '%</b> (' + p.done + ' of ' + p.total + ' day-lists, '
+          + p.found + ' of yours found). eBird publishes no personal endpoint, so this '
+          + 'walks the region day by day in the background; it survives closing the app. '
+          + '<b>Until it finishes this list may be short.</b></div>';
+      }
+
+      function harvestOwnChecklists(lists) {        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         var subs = ownNewSubs(lists).slice(0, OWN_HARVEST_MAX);
         if (!subs.length) return Promise.resolve(0);
         var bySub = {};
@@ -17632,7 +17875,13 @@
             '<div class="meta">' + esc(label) + ' · native, naturalized and provisional species · newest first. ' +
             (nOwn ? '<b>' + nOwn + '</b> of these came from your own checklists since the export, '
                   + 'so this is ahead of the eBird link above. ' : '') +
-            'First seen links to that checklist; all obs opens every ' + esc(year) + ' checklist for the species.</div>';
+            'First seen links to that checklist; all obs opens every ' + esc(year) + ' checklist for the species.</div>'
+            // F8. A forty-five minute job that says nothing looks like a job
+            // that is not running — and the reason to show it is not progress
+            // for its own sake, it is that the list is INCOMPLETE until this
+            // finishes, and the reader deserves to know which of the two they
+            // are looking at.
+            + backfillNote();
       // The "Added this week: ..." paragraph used to sit here, restating rows
       // already on screen directly beneath it. Those rows now carry the NEW
       // mark instead, which says the same thing where the reader already is —
@@ -20750,6 +20999,11 @@
         bcShared: bcShared, bcVisibleKeys: bcVisibleKeys,
         BC_SHARED_KEYS: SHARED_KEYS, BC_PROFILE_PTR: PROFILE_PTR,
         myYearIsNew: myYearIsNew, MY_YEAR_NEW_DAYS: MY_YEAR_NEW_DAYS,
+        backfillState: backfillState, backfillNextDay: backfillNextDay,
+        backfillProgress: backfillProgress, backfillTick: backfillTick,
+        parseLifelistHTML: parseLifelistHTML, lifelistYearUrl: lifelistYearUrl,
+        LIFELIST_MIN_ROWS: LIFELIST_MIN_ROWS,
+        startOwnBackfill: startOwnBackfill, yearListExtras: yearListExtras,
         boardMoveHTML: boardMoveHTML,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, syncChaseMi: syncChaseMi, toDest: toDest,

@@ -7963,6 +7963,135 @@ test('a re-anchorable section says where it ranked from, and maps it there', () 
   });
 });
 
+// F8's CHEAP PATH. "So F8 works, but its an expensive brute force solution" —
+// correct, and the 730-call walk should never have been the first thing tried.
+//
+// The whole year list is on ONE page: ebird.org/lifelist/{region}?time=year,
+// the very page whose screenshot settled the Chukar question. MEASURED
+// 2026-08-24: from a plain client it 302s to secure.birds.cornell.edu/cassso,
+// so it needs a session — but the DEVICE has one, since the same pattern
+// fetches ebird.org/top100 200 OK on device while it 302-loops from a desktop
+// with no cookie jar.
+//
+// So the parser must FAIL SAFE: a login page has to parse to nothing, or the
+// app would mark the year "complete" from a sign-in form and never run the
+// walk that actually works.
+test('the lifelist parser reads a real page and refuses a login page', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // A login page must yield NOTHING. This is the safety property: parsing it
+  // as a list would skip the fallback and leave the year list permanently short.
+  //
+  // THE FIXTURE CARRIES SPECIES LINKS ON PURPOSE. A bare login page has no
+  // /species/ hrefs, so the parser returns nothing whether or not the login
+  // check exists — and a first version of this test passed with that check
+  // DELETED, which is a check that cannot fail. eBird's signed-out pages do
+  // carry site chrome, so the realistic hostile input is a login form wrapped
+  // in navigation that links to species.
+  //
+  // Length, not deepEqual([]). The array comes from the JSDOM realm, so
+  // deepStrictEqual rejects it against a Node-realm [] and reports
+  // "actual: [] expected: []", which is a misleading way to spend ten minutes.
+  const loginPage = `<html><body>
+    <nav><a href="/species/amecro">American Crow</a><span>01 Jan 2026</span></nav>
+    <h1>Sign in to eBird</h1><form action="/cassso/login"><input name="password"></form>
+  </body></html>`;
+  assert.equal(A.parseLifelistHTML(loginPage).length, 0,
+    'a CAS login page is not a year list, even when the site chrome links species');
+  assert.equal(A.parseLifelistHTML('').length, 0, 'empty is not a year list');
+  assert.equal(A.parseLifelistHTML(null).length, 0, 'nothing is not a year list');
+
+  // A real page shape: species links carrying a code, each with a date nearby.
+  const real = `<html><body>
+    <div><a href="/species/hairwo">Hairy Woodpecker</a><span>01 Jan 2026</span><span>Dendron Arbor</span></div>
+    <div><a href="/species/amecro">American Crow</a><span>01 Jan 2026</span><span>Dendron Arbor</span></div>
+    <div><a href="/species/chukar">Chukar</a><span>29 May 2026</span><span>Snoqualmie Wildlife Area</span></div>
+  </body></html>`;
+  const rows = A.parseLifelistHTML(real);
+  assert.ok(rows.length >= 3, 'reads the species rows, got ' + rows.length);
+  const byCode = {};
+  rows.forEach(function (r) { byCode[r.code] = r; });
+  assert.equal(byCode.hairwo.name, 'Hairy Woodpecker');
+  assert.equal(byCode.chukar.date, '29 May 2026',
+    'carries the date, which is what makes it a YEAR list rather than a life list');
+
+  // Deduped by code: eBird links the same species more than once per page.
+  const dupes = A.parseLifelistHTML(real + real);
+  assert.equal(dupes.length, rows.length, 'a species is one row however often it is linked');
+
+  // The threshold exists so a nearly-empty page cannot pass as a full year.
+  assert.ok(A.LIFELIST_MIN_ROWS >= 5,
+    'a handful of rows is a broken read, not a year list');
+
+  // ...and the URL is built from the ACTIVE report, not hard-coded.
+  const url = A.lifelistYearUrl();
+  assert.ok(!url || /\/lifelist\/[A-Z-]+\?time=year$/.test(url),
+    'the lifelist url is region-scoped and year-scoped: ' + url);
+  app.window.close();
+});
+
+// ── F8: THE YEAR LIST, HARVESTED RATHER THAN EXPORTED ─────────────────────
+// "the biggest issue is that I have these birdlist markdown files that id
+// rather not manage, and id like to get this information from ebird on demand."
+//
+// eBird publishes NO personal endpoint — no /my/ anything, only region-scoped
+// feeds — so a year list can only be rebuilt by walking the region's day lists
+// and keeping the rows that carry your name. Q16 sized that at ~730 day-list
+// calls plus ~250 checklist reads across two counties: about 45 minutes at
+// 0.37/s.
+//
+// RESUMABILITY IS THE WHOLE FEATURE. Forty-five minutes is longer than anyone
+// holds an app open, so a backfill that restarts from the top each launch would
+// never finish — it would just burn the API budget forever. The cursor is
+// therefore what this guard is really about.
+test('the year backfill resumes where it stopped, and walks backwards', async () => {
+  const app = await boot();
+  const w = app.window, A = w.__app;
+
+  const s0 = A.backfillState();
+  assert.equal(typeof s0.done, 'boolean', 'state carries a done flag');
+  assert.equal(typeof s0.cursor, 'object', 'and a per-county cursor');
+
+  // BACKWARDS FROM TODAY, because the most recent birding is the most likely
+  // to be missing from an export taken weeks ago — so the first minute of a
+  // 45-minute job is the minute that pays.
+  const first = A.backfillNextDay({ cursor: {} }, 'US-WA-033');
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(first), 'a day is an ISO date, got ' + first);
+  const second = A.backfillNextDay({ cursor: { 'US-WA-033': first } }, 'US-WA-033');
+  assert.ok(second < first, 'the walk goes BACKWARDS: ' + second + ' follows ' + first);
+
+  // RESUME: a state carrying a cursor continues from it rather than from today.
+  const midYear = A.backfillNextDay({ cursor: { 'US-WA-033': '2026-05-10' } }, 'US-WA-033');
+  assert.equal(midYear, '2026-05-09',
+    'it picks up the day before the cursor — closing the app costs ONE day');
+
+  // ...and it STOPS at the year boundary rather than walking into last year,
+  // which would run forever and answer a question nobody asked.
+  assert.equal(A.backfillNextDay({ cursor: { 'US-WA-033': '2026-01-01' } }, 'US-WA-033'),
+    null, 'the walk ends at 1 January');
+
+  // Per COUNTY, so one county's progress never advances another's.
+  const two = { cursor: { 'US-WA-033': '2026-05-10' } };
+  assert.notEqual(A.backfillNextDay(two, 'US-WA-061'), '2026-05-09',
+    'a county with no cursor starts from today, not from its neighbour');
+
+  // Progress is reported honestly: the denominator counts BOTH counties, so a
+  // two-county report cannot read 100% while half the work is outstanding.
+  const p = A.backfillProgress();
+  if (p) {
+    assert.ok(p.total > backfillDaysThisYear(),
+      'the total covers every county, not just one (' + p.total + ')');
+    assert.ok(p.done <= p.total, 'done never exceeds total');
+  }
+  app.window.close();
+
+  function backfillDaysThisYear() {
+    const jan1 = new Date(new Date().getFullYear(), 0, 1);
+    return Math.round((new Date() - jan1) / 86400000) + 1;
+  }
+});
+
 // F177: "Id like a way to test multiple ebird accounts on my device… each has a
 // separate api and web key. I'd prefer to use my same iphone."
 //
