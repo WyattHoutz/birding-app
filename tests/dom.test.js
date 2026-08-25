@@ -15322,3 +15322,95 @@ test('a slow call says how much of it was queue and how much was network', async
     + done[0]);
   app.window.close();
 });
+
+// --- an unscoped modifier reached into a nested card and broke its grid -----
+// THIRD report of "the hotspot distance does not line up". Two fixes failed
+// because both were aimed at the distance column itself; the column was never
+// the problem.
+//
+// MEASURED in real Chrome (assets/audit-overflow.js is the only harness that
+// can see geometry - jsdom has no layout engine, which is exactly why this
+// survived two attempts):
+//
+//   the same card, in a plain list   grid-template-columns: 40px 160.3px 40.7px
+//   the same card, inside Stakeout   grid-template-columns: 203.5px 77.5px 0px
+//   .name computed display           contents  ->  flex
+//
+// Stake out a bird nests a list of HOTSPOT medium cards inside a SPECIES
+// medium card. `.obs.big .name` is a descendant selector at (0,3,0) and
+// `.hscard-md > .name { display: contents }` is (0,2,0), so the species file
+// won and the hotspot row stopped being a grid at all. Its third column
+// collapsed to 0px and the mileage flowed inline straight after the place
+// name - which is why the screenshot showed six mileages at six different
+// x-positions rather than a ragged column.
+//
+// The four `.obs.big` rules were ALSO no-ops for the card they were written
+// for: the `.obs.xl > li > ...` rules have equal or higher specificity and
+// come later. Every effect they ever had was leakage.
+test('a card modifier may not reach into a card nested inside it', () => {
+  // Rules are authored as quoted strings in an array, so read them that way.
+  const rules = CARDS_SPECIES.split('\n')
+    .map((l) => (/^\s*'([^']*\{[^']*)',?\s*$/.exec(l) || [])[1])
+    .filter(Boolean);
+  // The classes a CARD TEMPLATE builds its own structure from. A modifier
+  // reaching one of these below its own row is restyling somebody else's card.
+  // A descendant step onto a leaf (`small`, `.seenflag`, `.who`) is fine —
+  // those belong to whatever contains them and no card is built out of them.
+  const STRUCT = /\.(name|thumb|ntext|meta|count|hsdist|hsnum|hslists|bcname)\b/;
+  const leaky = [];
+  rules.forEach((r) => {
+    const sel = r.slice(0, r.indexOf('{')).trim();
+    sel.split(',').forEach((s) => {
+      s = s.trim();
+      // A MODIFIER is a class stacked on the list wrapper (.obs.big, .obs.xl,
+      // .obs.card-md). Anything structural it styles below the wrapper must be
+      // reached by child combinators only, or it also styles whatever a card
+      // happens to nest.
+      if (!/^\.obs\.(big|xl|card-md)\b/.test(s)) return;
+      const tail = s.replace(/^\.obs\.(big|xl|card-md)\b/, '')
+        .replace(/\s*>\s*/g, '>');
+      // Each descendant (space-separated) step after the wrapper.
+      tail.split(/\s+/).slice(1).forEach((step) => {
+        if (STRUCT.test(step)) leaky.push(s);
+      });
+    });
+  });
+  assert.deepEqual(leaky.length, 0,
+    'these reach a nested card\u2019s own structure rather than their row\u2019s, '
+    + `so they restyle cards nested inside a card: ${leaky.join(' | ')}`);
+});
+
+// The behavioural half, in the real nesting the app builds: a hotspot medium
+// card living inside a species medium card must keep its own grid. The
+// geometry is only visible in real Chrome, but whether `.name` dissolves is
+// the single fact the whole three-column layout hangs on, and that is a
+// cascade question jsdom can answer.
+test('a hotspot card nested in a species card keeps its own grid', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const host = doc.getElementById('spLookupResults');
+  assert.ok(host, 'the Stake out a bird results host exists');
+
+  const places = ['Seward Park', '12510 461 Ave SE', '23217 39th Ave W, Brier']
+    .map((loc, i) => ({ loc, locId: 'L' + i, lat: 47.7, lon: -122.2,
+                        distMi: [15, 27, 6.3][i], dateStr: '2026-08-25 07:1' + i,
+                        count: 2, subId: 'S' + i }));
+  host.innerHTML = app.window.SpeciesCards.medium({
+    icon: '', name: 'Black-throated Gray Warbler', code: 'bkgwar', tags: '',
+    distMi: 6.3, sub: '3 places',
+    below: A.spLookupPlacesHtml(places, { code: 'bkgwar', name: 'Black-throated Gray Warbler' }),
+  });
+
+  const cards = [].slice.call(host.querySelectorAll('li.hscard-md'));
+  assert.equal(cards.length, 3, 'the places rendered as medium hotspot cards');
+  cards.forEach((li) => {
+    const name = li.querySelector('.name');
+    assert.equal(app.window.getComputedStyle(name).display, 'contents',
+      '.name must dissolve, or .hsnum/.ntext/.hsdist are not cells of the '
+      + "card's grid and the distance flows inline after the place name");
+    assert.equal(app.window.getComputedStyle(li).display, 'grid',
+      'and the row itself is still the grid those cells belong to');
+  });
+  app.window.close();
+});

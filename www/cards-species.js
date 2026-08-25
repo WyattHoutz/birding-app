@@ -92,11 +92,34 @@
 
     /* ---- BIG icon modifier: for the sections read as "which bird is this"
        rather than "how many", where the thumbnail is the fastest way to
-       recognise a bird. Stacks with a size below. ---- */
-    '.obs.big .name { display: flex; align-items: center; gap: 12px; font-size: calc(20px * var(--s)); font-weight: 800; line-height: 1.25; }',
-    '.obs.big .thumb { float: none; flex: 0 0 auto; width: calc(64px * var(--s)); height: calc(64px * var(--s)); margin: 0; }',
-    '.obs.big .meta { margin-top: 6px; }',
-    '.obs.big .count { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); }',
+       recognise a bird. Stacks with a size below.
+
+       ⚠️ EVERY RULE HERE IS `>`-SCOPED, AND THAT IS LOAD-BEARING — the same
+       lesson `.card-md` already learned, re-learned the hard way.
+
+       These four were descendant selectors, so they reached ANY `.name` /
+       `.thumb` / `.meta` / `.count` nested inside a medium card, not just the
+       card's own. Stake out a bird nests a list of HOTSPOT medium cards inside
+       a species medium card, and `.obs.big .name` (0,3,0) outranked
+       `.hscard-md > .name` (0,2,0) — so `display: contents` lost, the hotspot
+       row stopped being a three-column grid, its distance column collapsed to
+       0px and the mileage flowed inline right after the place name.
+
+       MEASURED in real Chrome, after two fixes aimed at the wrong thing:
+         isolated list   grid-template-columns: 40px 160.3px 40.7px   (correct)
+         inside Stakeout grid-template-columns: 203.5px 77.5px 0px    (broken)
+         .name display   contents  ->  flex
+       That 0px third column is the whole bug, and it is why the distances sat
+       at six different x-positions rather than one ragged column.
+
+       Note these were ALSO no-ops for the card they were written for: the
+       `.obs.xl > li > ...` rules below have equal or higher specificity and
+       come later, so they already won. Every effect these rules ever had was
+       leakage. ---- */
+    '.obs.big > li > .name { display: flex; align-items: center; gap: 12px; font-size: calc(20px * var(--s)); font-weight: 800; line-height: 1.25; }',
+    '.obs.big > li > .name > .thumb { float: none; flex: 0 0 auto; width: calc(64px * var(--s)); height: calc(64px * var(--s)); margin: 0; }',
+    '.obs.big > li > .meta { margin-top: 6px; }',
+    '.obs.big > li > .count { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); }',
 
     /* ---- SMALL: one row, icon and name on a single line ---- */
     /* The small card is the row shape used INSIDE other cards — a hotspot's
