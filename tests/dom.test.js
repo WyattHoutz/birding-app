@@ -16034,3 +16034,70 @@ test('.thumb .birdpic fills its slot and biases the crop toward the head', () =>
   assert.ok(Number(pos[2]) < 50,
     `the vertical bias must sit ABOVE centre to keep the head, got ${pos[2]}%`);
 });
+
+// ── F186: a section is counted once, not once per heading spelling ─────────
+// costEnter used to key on h2.textContent with `· region` and everything
+// after it stripped. Measured in jsdom across all 32 sections: 18 have no `·`
+// at all, so the strip was a no-op and the key came out as
+// "🔔 Happening now ℹ↻" — the ℹ and ↻ are real buttons inside the heading.
+// The ⚠ cap-warning button is added at RENDER time, which moved the key for
+// all 18 and filed one section's calls under two names. The remaining 14 were
+// stable only by accident. Keying on the section id cannot drift; the printed
+// label comes from the menu entry, which no button can move.
+test('one section is one row in the cost report, however its heading grows', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const D = app.window.document;
+  const sec = D.getElementById('sec-surgeBtn');
+  assert.ok(sec, 'sec-surgeBtn is the section this guard drives');
+  // It must be one of the headings with no `·`, or the old code would have
+  // passed this too and the guard would prove nothing.
+  assert.ok(!/\u00B7/.test(sec.querySelector('h2').textContent),
+    'this heading must have no · region label for the test to be meaningful');
+
+  A.showSection('sec-surgeBtn');
+  A.costNote('probe/1', false);
+  // Exactly what setAbaCapWarn does after a render.
+  const warn = D.createElement('button');
+  warn.className = 'warnbtn'; warn.textContent = '\u26A0';
+  sec.querySelector('h2').appendChild(warn);
+  A.showSection('sec-surgeBtn');
+  A.costNote('probe/2', false);
+
+  const mine = A.costReport().filter((r) => r.id === 'sec-surgeBtn');
+  assert.equal(mine.length, 1,
+    `the section was filed under ${mine.length} keys: `
+    + JSON.stringify(A.costReport().map((r) => r.section)));
+  assert.ok(mine[0].calls >= 2,
+    `both calls must land on the one row, got ${mine[0].calls}`);
+  // And what gets PRINTED is the section's name, not its chrome.
+  assert.ok(!/[\u2139\u21BB\u26A0]/.test(mine[0].section),
+    `the cost report prints UI button glyphs: ${JSON.stringify(mine[0].section)}`);
+  app.window.close();
+});
+
+// ── F186: the Mega rarities verdict ────────────────────────────────────────
+// "Only three patches in the list" and "there are no megas" look identical on
+// screen. This section can lose rows in three separate places — the scrape,
+// the region filter, the render — and until now an empty screen named none of
+// them. The rendered figure is the one that matters and the one easiest to
+// fake: "we built rows" and "rows are on screen" are exactly the two claims
+// that diverge when this breaks, so it must be READ BACK from the DOM.
+test('the Mega rarities verdict names every place its rows can be lost', () => {
+  const i = HTML.indexOf("verdict('Mega rarities'");
+  assert.ok(i > 0, 'Mega rarities has no verdict() line');
+  const call = HTML.slice(i, HTML.indexOf(');', i));
+  assert.match(call, /list\.length \+ ' alert rows'/,
+    'the verdict must say how many rows the scrape returned');
+  assert.match(call, /_abaTruncated/,
+    'and whether the continent-wide alert hit its 500-row cap');
+  assert.match(call, /rows\.length \+ ' cleared the '/,
+    'and how many survived the region filter');
+  // Not rows.length again: that would restate a number already printed and
+  // would still read "6 rendered" while the list was empty.
+  assert.match(call, /_abaUl \? _abaUl\.children\.length : 0/,
+    'the rendered count must be observed, not inferred from the row count');
+  const decl = HTML.slice(HTML.lastIndexOf('var _abaUl', i), i);
+  assert.match(decl, /\$\('abaResults'\)[\s\S]*querySelector\('ul'\)/,
+    '_abaUl must come from the rendered DOM');
+});

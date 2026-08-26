@@ -4198,15 +4198,34 @@
       // when they go out, so "Hot & Cold costs four heavy feeds" is something
       // you can read rather than something you have to reconstruct from
       // timestamps. Shown in the debug panel; costs nothing when unread.
-      var _apiCost = {}, _costSection = 'startup';
-      function costEnter(label) { _costSection = label || 'startup'; }
+      // The KEY is the section id, never its heading text. h2.textContent is
+      // not stable: `ℹ` and `↻` are real buttons inside the h2, and the `⚠`
+      // cap-warning button is added at RENDER time, so a heading gains
+      // characters after the section has already been entered once. Measured
+      // in jsdom over all 32 sections: 18 have no `·` region label, so the
+      // old `.replace(/\s*·.*$/, '')` stripped nothing and the key read
+      // "🔔 Happening now ℹ↻"; adding the ⚠ moved the key for all 18, filing
+      // one section under two names. The other 14 were stable only by
+      // accident, because their region label happened to sit before the
+      // buttons and the strip took the glyphs with it.
+      //
+      // The label is carried alongside for display. It comes from the menu
+      // entry (sec._label), which is the section's declared name and cannot
+      // be moved by a button.
+      var _apiCost = {}, _costSection = 'startup', _costLabel = { startup: 'startup' };
+      function costEnter(id, label) {
+        _costSection = id || 'startup';
+        if (label) _costLabel[_costSection] = label;
+        else if (!_costLabel[_costSection]) _costLabel[_costSection] = _costSection;
+      }
       function costNote(path, cached) {
         var e = _apiCost[_costSection] || (_apiCost[_costSection] = { calls: 0, cached: 0 });
         if (cached) e.cached++; else e.calls++;
       }
       function costReport() {
         return Object.keys(_apiCost).map(function (k) {
-          return { section: k, calls: _apiCost[k].calls, cached: _apiCost[k].cached };
+          return { id: k, section: _costLabel[k] || k,
+                   calls: _apiCost[k].calls, cached: _apiCost[k].cached };
         }).sort(function (a, b) { return b.calls - a.calls; });
       }
       // `bg` marks a call nobody is waiting on — the detached phase-2 species
@@ -15161,6 +15180,25 @@
             st.textContent = n
               ? (n + ' ABA Code 3+ ' + (n === 1 ? 'species' : 'species') + ' · ' + rows.length + ' reports · ' + unseen + ' you still need · ' + nowTime())
               : ('None — no ABA Code 3+ rarities currently reported in ' + (getReport().label || 'this region') + ' · ' + nowTime());
+            // F186: name the numbers that would be wrong if this were broken.
+            //
+            // "Only three patches in the list" and "no megas" look identical
+            // from outside, and this section has three places to lose rows —
+            // the scrape, the region filter, and the render — so an empty
+            // screen has never said WHICH. Every figure here is observed, not
+            // inferred: the rendered count is read back out of the DOM rather
+            // than assumed equal to the row count, because "we built rows" and
+            // "rows are on screen" are the two claims that differ when this
+            // fails. Never assert a cause the code cannot observe.
+            var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
+            verdict('Mega rarities',
+              list.length + ' alert rows'
+              + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
+              + ' · ' + (scoped
+                ? rows.length + ' cleared the ' + region + ' filter'
+                : 'unfiltered — ' + (getReport().label || 'rarity tracker') + ' has no state')
+              + ' · ' + n + ' species, ' + unseen + ' unseen'
+              + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
             // Then deepen it. The alert gives the ABA-code filter but a
             // truncated report count, so pull each species' real state history
             // AND its real continent-wide history, then re-render. Rendering
@@ -20533,9 +20571,12 @@
         // later lands you on a bird's profile with no memory of choosing it.
         if (_abaOpen) abaCloseBird();
         if (_patchOpen) patchCloseBirder();
-        // Everything fetched from here on is this section's cost.
+        // Everything fetched from here on is this section's cost, filed under
+        // the section ID. `sec._label` is the menu's declared name and is the
+        // only part safe to print - see costEnter for why the heading text is
+        // not.
         var sec0 = $(id), h20 = sec0 && sec0.querySelector('h2');
-        costEnter(h20 ? h20.textContent.trim().replace(/\s*·.*$/, '') : id);
+        costEnter(id, sec0 && sec0._label);
         // THE EXPLANATION FOLLOWS YOU IN. "This should also be shown inside of
         // the report header."
         //
