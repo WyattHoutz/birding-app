@@ -7507,14 +7507,20 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
   assert.match(load, /lastNewPatch\(sp, groups\[sp\], info, region, codeIdx/,
     'each row is replaced as its own feed lands');
 
-  // The order must be decided by the leaderboard alone, or rows would jump
-  // around under a thumb that is already reaching for one.
+  // The FIRST order must be decided by the leaderboard alone — the initial
+  // paint passes `{}` for byName, so nothing that arrives later can be in it.
+  // What the list must never do is re-order ON ITS OWN, and that property is
+  // enforced by lastNewPatch below, not by the comparator.
   const order = HTML.slice(HTML.indexOf('function lastNewOrder('),
                            HTML.indexOf('function renderLastNew('));
+  assert.match(order, /raritySort\(\)/,
+    'F193: the comparator consults the sort chips — it used to consult neither, '
+    + 'so "Newest" and "Nearest" both re-rendered an identical list');
   assert.match(order, /groups\[b\]\.birders\.length - groups\[a\]\.birders\.length/,
-    'ranked by how many of the top 100 added it');
-  assert.ok(!/byName|info\./.test(order),
-    'and never by anything that arrives later, so the list cannot reshuffle');
+    'how many of the top 100 added it survives as the tie-break');
+  assert.match(order, /Infinity/,
+    'a row whose checklists have not landed has no distance and cannot claim '
+    + 'to be nearest, so it sorts last rather than as zero');
 
   // Patching ONE row rather than re-rendering the list: a full re-render would
   // restart photo hydration ~46 times and close any expander already opened.
@@ -15775,7 +15781,67 @@ test('Leader Board Ticks can be filtered to unseen and to chase range', async ()
   app.window.close();
 });
 
-// --- rank as a FILTER, because it cannot be a sort -------------------------
+// --- F193: the sort chips have to reach the sort ---------------------------
+// "clicking newest toggle does nothing". This section painted the shared
+// Newest/Nearest pair and then ordered by birders-desc, consulting NEITHER —
+// so both chips re-rendered an identical list, before and after loading.
+//
+// The first diagnosis blamed a loading race on `_lastNewState`. That was
+// wrong, and worth recording: the state is published by the FIRST render, so
+// the chips were dead permanently rather than for two minutes. From the device
+// those look the same, which is how the wrong cause survived being written
+// down.
+//
+// Asserted on the rendered DOM rather than the source, because the failure IS
+// an order and a regex cannot see an order.
+test('Leader Board Ticks: Newest and Nearest actually reorder the list', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const W = app.window;
+  W.localStorage.removeItem(A.RARITY_FILTER_KEY);
+  W.localStorage.removeItem(A.RARITY_SORT_KEY);
+
+  const groups = {
+    'Old Near': { birders: [{ name: 'A', rank: 1, date: '2026-08-20' }], latest: '2026-08-20' },
+    'New Far': { birders: [{ name: 'B', rank: 2, date: '2026-08-25' }], latest: '2026-08-25' },
+    'No Feed': { birders: [{ name: 'C', rank: 3, date: '2026-08-22' }], latest: '2026-08-22' },
+  };
+  // Home is 47.75 / -122.16 in the harness: ~0 mi and ~15 mi, both inside the
+  // chase radius so the distance FILTER cannot be what moves them. 'No Feed'
+  // has no entry at all — its per-species checklists have not landed, which is
+  // the state ~46 rows are in for the first two minutes.
+  const byName = {
+    'Old Near': { code: 'oldn', obs: [{ lat: 47.75, lng: -122.16 }] },
+    'New Far': { code: 'newf', obs: [{ lat: 47.9, lng: -122.3 }] },
+  };
+  A.renderLastNew(groups, byName, 'US-WA', {});
+
+  function names() {
+    return [].slice.call(doc.querySelectorAll('#lastNewResults > li'))
+      .map((li) => li.getAttribute('data-sp')).filter(Boolean);
+  }
+  assert.deepEqual(names(), ['New Far', 'No Feed', 'Old Near'],
+    'the default chip says Newest, so the list is newest first — it used to be '
+    + 'ranked by how many of the top 100 added it, which is what neither chip claims');
+
+  const host = doc.getElementById('lastNewSort');
+  assert.ok(host, 'the sort pair is painted from the first render');
+  const pick = (v) => [].slice.call(host.querySelectorAll('.sortbtn'))
+    .find((b) => b.getAttribute('data-sort') === v);
+
+  pick('distance').click();
+  assert.deepEqual(names(), ['Old Near', 'New Far', 'No Feed'],
+    'Nearest orders by the closest checklist, and a bird whose feed has not '
+    + 'landed sorts LAST rather than as zero — it cannot claim to be nearest');
+
+  pick('date').click();
+  assert.deepEqual(names(), ['New Far', 'No Feed', 'Old Near'],
+    'and back, off rows already in hand — re-sorting must never cost 47 calls');
+  app.window.close();
+});
+
+
 // "i think it should show their leaderboard rank and sort by that, but i see
 // few of the top 100 have public checklists."
 //

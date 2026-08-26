@@ -15661,11 +15661,50 @@
         }
         return true;
       }
-      function lastNewOrder(groups) {
+      // F193. This section painted a Newest/Nearest control and then sorted by
+      // NEITHER. `raritySorted` is called by both twitch sections and was
+      // never called here, so both chips re-rendered an identical list.
+      //
+      // Reported as *"clicking newest toggle does nothing"*, and the first
+      // diagnosis — a loading race on `_lastNewState` — was WRONG: that state
+      // is published by the FIRST render, before any checklist lands, so the
+      // chips were inert after loading finished too. A control that is dead
+      // for two minutes and a control that is dead forever look identical from
+      // the device, which is why the report was taken mid-load.
+      //
+      // The old order was birders-desc, which is what neither chip claims.
+      // "Newest" now means newest, and being true costs nothing: `latest`
+      // comes from the leaderboard read, so it is known before any checklist
+      // arrives. Birders stays as the TIE-BREAK, which is what that ranking
+      // was really doing — separating two birds ticked on the same day.
+      //
+      // "Nearest" needs the per-species checklists, which land minutes later.
+      // A row whose feed has not arrived has no distance and cannot claim to
+      // be nearest, so it sorts LAST rather than as zero — the same rule
+      // raritySorted follows.
+      //
+      // This does NOT reintroduce the reshuffle the old guard was written
+      // against. That guard asserted the file's shape (`lastNewOrder` must not
+      // mention `byName`) as a stand-in for the real property: the list must
+      // never re-order ON ITS OWN. That property is enforced where it actually
+      // lives — `lastNewPatch` swaps one row in place and never re-sorts — so
+      // the order changes only when the reader asks for it.
+      function lastNewOrder(groups, byName) {
+        var mode = raritySort();
+        var far = {};
+        if (mode === 'distance') {
+          Object.keys(groups).forEach(function (sp) {
+            var mi = lastNewNearest((byName || {})[sp] || null);
+            far[sp] = (mi == null || !isFinite(mi)) ? Infinity : mi;
+          });
+        }
         return Object.keys(groups).sort(function (a, b) {
+          if (mode === 'distance' && far[a] !== far[b]) return far[a] - far[b];
+          if (groups[a].latest !== groups[b].latest) {
+            return groups[a].latest < groups[b].latest ? 1 : -1;
+          }
           var d = groups[b].birders.length - groups[a].birders.length;
           if (d) return d;
-          if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
           return a < b ? -1 : 1;
         });
       }
@@ -15688,7 +15727,7 @@
 
       function renderLastNew(groups, byName, region, codeIdx) {
         var out = $('lastNewResults');
-        var keys = lastNewOrder(groups);
+        var keys = lastNewOrder(groups, byName);
         codeIdx = codeIdx || {};
         _lastNewState = { groups: groups, byName: byName, region: region, codeIdx: codeIdx };
         // The controls are painted from the FIRST render, which happens as soon
