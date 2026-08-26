@@ -14198,6 +14198,43 @@
         });
       }
 
+      // "i think it should show their leaderboard rank and sort by that."
+      //
+      // THE SORT REQUEST CONFLICTS WITH THE DATA, so it is answered as a
+      // FILTER instead. MEASURED on the bundled table: only 21 of the 100
+      // carry a statewide board rank, because this population is the top 100
+      // by CHECKLISTS FILED in these counties and the board ranks SPECIES for
+      // the year — nearly different populations, which the coverage note
+      // already says. Sorting by rank would rank four fifths of the list on a
+      // field they do not have, and would bury exactly the patch-birders the
+      // section exists to surface: Min-Yu Yang (126 of 143 lists at Llama
+      // Lake, 368x) and Teresa Heck (218 of 226 at May Creek Park, 244x) both
+      // read "board —".
+      //
+      // So the lift sort stays and rank becomes a way to LOOK at the list.
+      // Same chip shape as the twitch filters rather than a third control.
+      var PATCH_BOARD_KEY = 'ebird_patch_board_v1';
+      function patchBoardFilter() {
+        try { return localStorage.getItem(PATCH_BOARD_KEY) === 'board' ? 'board' : 'all'; }
+        catch (e) { return 'all'; }
+      }
+      function setPatchBoardFilter(v) {
+        try { localStorage.setItem(PATCH_BOARD_KEY, v === 'board' ? 'board' : 'all'); }
+        catch (e) {}
+      }
+      function patchBoardControl() {
+        var sel = patchBoardFilter();
+        function btn(v, label) {
+          return '<button type="button" class="sortbtn patchboardbtn" data-value="' + v
+            + '" aria-pressed="' + (sel === v) + '">' + esc(label) + '</button>';
+        }
+        return '<div class="raritycontrols" id="patchControls">'
+          + '<div class="raritycontrolrow rarityfilterrow">'
+          + '<span class="sortpick raritypick" role="group" aria-label="Filter by leaderboard rank">'
+          + btn('all', 'All') + btn('board', 'On the board')
+          + '</span></div></div>';
+      }
+
       function patchCapped(cards, noun) {
         if (cards.length <= PATCH_ROWS) return HotspotCards.list('medium', cards);
         var rest = cards.slice(PATCH_ROWS);
@@ -14342,11 +14379,35 @@
         }
         var leaders = patchLeaders(d);
         lead.innerHTML = patchLeadHtml(d);
-        out.innerHTML = leaders.length
-          ? patchCapped(leaders.map(function (e, i) { return patchLeaderCard(e, i + 1); }),
+        var onBoard = patchBoardFilter() === 'board';
+        var shown = onBoard
+          ? leaders.filter(function (e) { return e.r != null && e.r !== ''; })
+          : leaders;
+        var hidden = leaders.length - shown.length;
+        out.innerHTML = patchBoardControl() + (shown.length
+          ? patchCapped(shown.map(function (e, i) { return patchLeaderCard(e, i + 1); }),
                         'birder')
-          : '<p class="hint">The bundled table holds no birder with a placeable '
-            + 'hotspot, so there is nothing to rank.</p>';
+            // Naming what the filter removed matters more here than usual: it
+            // is the section's own finding that most of these birders are NOT
+            // on the statewide board, so the gap is the answer, not a gap.
+            + (hidden ? '<p class="hint">' + hidden + ' birder'
+                        + (hidden === 1 ? '' : 's') + ' hidden \u2014 they file the most '
+                        + 'checklists here but do not sit on the statewide board. That '
+                        + 'is the finding, not a gap.</p>' : '')
+          : '<p class="hint">' + (onBoard
+              ? 'None of the birders with a placeable hotspot here also sit on the '
+                + 'statewide board. Switch to All to see them.'
+              : 'The bundled table holds no birder with a placeable hotspot, so there '
+                + 'is nothing to rank.') + '</p>');
+        var ctl = document.getElementById('patchControls');
+        if (ctl) {
+          ctl.addEventListener('click', function (ev) {
+            var b = ev.target.closest ? ev.target.closest('.patchboardbtn') : null;
+            if (!b) return;
+            setPatchBoardFilter(b.getAttribute('data-value'));
+            loadChoicePatches();
+          });
+        }
         un.innerHTML = patchUnplacedHtml(d);
         // The one fact nothing else on the page states: this is a SNAPSHOT, and
         // an old one is still a true one — it just is not today.

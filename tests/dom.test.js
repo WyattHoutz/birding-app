@@ -15672,3 +15672,55 @@ test('Leader Board Ticks can be filtered to unseen and to chase range', async ()
     'the count of what the filter removed is stated');
   app.window.close();
 });
+
+// --- rank as a FILTER, because it cannot be a sort -------------------------
+// "i think it should show their leaderboard rank and sort by that, but i see
+// few of the top 100 have public checklists."
+//
+// MEASURED on the bundled table: only 21 of the 100 carry a statewide board
+// rank. The population here is the top 100 by CHECKLISTS FILED in these
+// counties; the board ranks SPECIES for the year. Sorting by rank would rank
+// four fifths of the list on a field they do not have, and would bury exactly
+// the patch-birders the section exists to surface - the ones with 126 of 143
+// lists at one lake - because they read "board -". So the lift sort stays and
+// rank becomes a way to LOOK at the list.
+test('the patch board filters by leaderboard rank rather than sorting by it', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  app.window.localStorage.removeItem(A.PATCH_BOARD_KEY);
+  const d = A.choicePatchData();
+  if (!d) { app.window.close(); return; }   // no table bundled in this build
+
+  A.loadChoicePatches();
+  const ctl = doc.querySelector('#patchControls');
+  assert.ok(ctl, 'the section carries the rank filter');
+  const chips = [].slice.call(ctl.querySelectorAll('.patchboardbtn'))
+    .map((b) => b.textContent.trim());
+  assert.deepEqual(chips.join('|'), 'All|On the board',
+    `two chips, defaulting to All: ${chips.join('|')}`);
+
+  const all = doc.querySelectorAll('#patchResults li.hscard-md').length;
+  assert.ok(all > 0, 'the unfiltered board lists birders');
+
+  // The ORDER must still be lift, not rank - that is the whole point.
+  const leaders = A.patchLeaders(d);
+  const lifts = leaders.slice(0, 5).map((e) => e.best.lift);
+  for (let i = 1; i < lifts.length; i++) {
+    assert.ok(lifts[i] <= lifts[i - 1],
+      `still ranked by lift, not by board rank: ${lifts.join(' ')}`);
+  }
+
+  ctl.querySelector('.patchboardbtn[data-value="board"]').click();
+  const onBoard = doc.querySelectorAll('#patchResults li.hscard-md').length;
+  const ranked = leaders.filter((e) => e.r != null && e.r !== '').length;
+  assert.ok(onBoard < all,
+    `the filter must actually remove the unranked majority: ${onBoard} of ${all}`);
+  assert.ok(ranked < leaders.length,
+    `and the data really is mostly unranked - ${ranked} of ${leaders.length} carry `
+    + 'a board rank, which is why this is a filter and not a sort');
+  assert.match(doc.getElementById('patchResults').textContent,
+    /hidden .* do not sit on the statewide board/,
+    'and it says what it removed, because the gap IS the finding');
+  app.window.close();
+});
