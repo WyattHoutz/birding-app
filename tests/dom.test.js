@@ -17047,3 +17047,53 @@ test('F189: the county picker says what it is, on screen', async () => {
     'naming the list that still decides');
   app.window.close();
 });
+
+test('F191: the scouted place renders ABOVE the rows it replaces', async () => {
+  // "yakima still doesnt show any nearby hotspots" - it HAD fetched them.
+  // appendChild put the answer below seven hotspot cards and every species
+  // list they carry, so the one thing the search was for was the last thing on
+  // the screen. Placement is invisible to a regex, so this reads the DOM.
+  const app = await boot();
+  const A = app.window.__app;
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+
+  A.autoScoutForAnchor({ lat: 46.6021, lng: -120.5059, label: 'Yakima', state: 'Washington' });
+  const box = app.window.document.querySelector('.scoutinline');
+  assert.ok(box, 'the block exists');
+
+  const sec = box.closest('section');
+  assert.ok(sec, 'and lives inside the open section');
+  const kids = [...sec.children];
+  const iBox = kids.indexOf(box);
+  assert.ok(iBox >= 0, 'it is a direct child of the section');
+  // It must come BEFORE the bulk of the section, not after it.
+  assert.ok(iBox <= 3,
+    `the scouted place must be near the top; it is child ${iBox} of ${kids.length}`);
+  assert.ok(iBox < kids.length - 1,
+    'and specifically not appended last, which is the reported bug');
+
+  // ...and it follows the heading block rather than displacing it.
+  const h2 = sec.querySelector('h2');
+  assert.ok(h2 && kids.indexOf(h2) < iBox,
+    'the heading still comes first');
+
+  A.clearInlineScout();
+  app.window.close();
+});
+
+test('F191: the status stops claiming nothing closer was fetched', () => {
+  // The sentence was written before a search could fetch anything, and became
+  // false the moment auto-scout shipped. It is the line the owner read as
+  // "the search did nothing".
+  const fn = HTML.slice(HTML.indexOf('function coverageNote(list)'),
+                        HTML.indexOf('function coverageNote(list)') + 1400);
+  assert.match(fn, /querySelector\('\.scoutinline'\)/,
+    'the note must check whether a scout actually fetched');
+  const guarded = fn.slice(fn.indexOf("querySelector('.scoutinline')"));
+  assert.match(guarded, /the places actually around there are below/,
+    'and say so when one did');
+  // The old sentence survives ONLY for the case where it is still true.
+  assert.match(fn, /nothing closer was fetched/,
+    'the original wording is still correct when no scout ran, and is kept');
+});

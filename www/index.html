@@ -335,9 +335,10 @@
     /* The scouted place, rendered inside whichever section you searched from.
        A rule of its own so it reads as a separate answer rather than as more
        rows of the list above it. */
-    .scoutinline { margin-top: 18px; padding-top: 12px;
-                   border-top: 2px solid var(--line); }
-    /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
+    /* F191: it sits ABOVE the report's own rows now, so it is separated by a
+       rule underneath rather than above — it introduces what follows it. */
+    .scoutinline { margin: 0 0 18px; padding-bottom: 12px;
+                   border-bottom: 2px solid var(--line); }    /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
        "Stop tracking Horned Lark" - its width is the length of a species name,
        which cannot be budgeted for at 320px. Higher specificity than the base
        button rule because .row's flex sizing was still winning. */
@@ -7347,7 +7348,17 @@
           box.className = 'scoutinline';
           box.innerHTML = '<h3 class="lanehead">🧭 Around <span class="scoutinplace"></span></h3>'
             + '<div class="status scoutinstatus"></div><div class="scoutinbody"></div>';
-          open.appendChild(box);
+          // F191: AT THE TOP, not appended to the end.
+          //
+          // Reported as "yakima still doesnt show any nearby hotspots". It had
+          // fetched them — appendChild put the answer BELOW seven hotspot cards
+          // and every species list they carry, so the one thing the search was
+          // for was the last thing on the screen. Placed under the heading
+          // block instead, above the rows it is meant to replace.
+          var head = open.querySelector('.secscope') || open.querySelector('.sechint')
+                  || open.querySelector('h2');
+          if (head) head.insertAdjacentElement('afterend', box);
+          else open.insertBefore(box, open.firstChild);
         }
         box.hidden = false;
         box.querySelector('.scoutinplace').textContent = place.label || 'there';
@@ -11917,6 +11928,15 @@
           if (isFinite(d.dist) && d.dist < near) near = d.dist;
         });
         if (!isFinite(near) || near <= chaseMaxMi()) return '';
+        // F191: do not say "nothing closer was fetched" when a scout HAS
+        // fetched closer. Searching a place now runs the three geo calls
+        // centred on it, so this sentence — written before that existed —
+        // became false the moment the feature shipped, and it is the sentence
+        // the owner read as "the search did nothing".
+        if (document.querySelector('.scoutinline')) {
+          return ' · nearest in this report is ' + Math.round(near)
+            + ' mi — the places actually around there are below';
+        }
         return ' · nearest is ' + Math.round(near) + ' mi — this report covers '
           + countyLabelStr() + ', so nothing closer was fetched';
       }
