@@ -248,6 +248,19 @@
        ratio rather than two sizes. */
     '  font-size: calc(14px * var(--s)); line-height: 1.35;',
     '  font-weight: 500; color: var(--muted); }',
+    /* THE SUB-LINE'S LINKS ARE TAP TARGETS, and they were 17.5px tall with no
+       padding at all. MEASURED in real Chrome: the checklist id finished
+       5.3px above the next card's own tap area, which is the reported "hard
+       to click on details like checklist id since its too close to next
+       item" - two neighbouring links from two different rows competing for
+       one thumb.
+       Padding rather than font-size, the same way `.hsdist` and `.favbtn`
+       already do it: this line is deliberately the small print, and growing
+       the type to win a tap target would undo the ranking the guard above
+       pins. The negative inline margin keeps the visual gap between the
+       date, the count and the id unchanged while the boxes themselves grow. */
+    '.hscard-md > .meta a { display: inline-block; padding: 7px 3px;',
+    '                       margin: -1px -1px; }',
     /* The distance column. Big enough to scan down the edge of a list, and
        the unit is a caption on it rather than a second number — "8.0 mi" read
        at one size makes the reader parse two tokens to get one value.

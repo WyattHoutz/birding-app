@@ -15544,3 +15544,67 @@ test('a hotspot pin number reads smaller than the name beside it', () => {
     `the badge box (${numBox}px) dwarfs the name line it sits against `
     + `(${lineH.toFixed(1)}px); measured at 40px it was 2.05x and was reported`);
 });
+
+// --- two neighbouring links were competing for one thumb -------------------
+// "its hard to click on details like checklist id since its too close to next
+// item." MEASURED in real Chrome on a Stakeout row:
+//
+//   sub-line link      17.5px tall, padding 0
+//   card padding       2px  (its own rule says 10px)
+//   gap to next card   0px - the rows sat completely flush
+//   link bottom -> next card's tap area   5.3px
+//
+// The 2px is the tell. `.hscard-md { padding: 10px 0 }` was being overridden
+// by `.obs.sppl li { padding: 2px 0; border-top: none }` at (0,2,1) against
+// (0,1,0) - and `sppl` means "a long SPECIES list nested inside another row".
+// The Stakeout places list is a list of HOTSPOT cards and was being handed
+// the species-list class, so it inherited species-row spacing. Same shape as
+// the `.obs.big .name` fault above: a class from one card family reaching
+// into another.
+//
+// After: link 31.5px, card padding 12px, so two neighbouring tap targets are
+// about 24px apart instead of 5.
+test('a hotspot list is not handed the species-list class', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const html = A.spLookupPlacesHtml(
+    [{ loc: 'Seward Park', locId: 'L1', lat: 47.7, lon: -122.2, distMi: 5,
+       dateStr: '2026-08-25 07:15', count: 2, subId: 'S1' }],
+    { code: 'x', name: 'Test Bird' });
+  const div = app.window.document.createElement('div');
+  div.innerHTML = html;
+  const ul = div.querySelector('ul');
+  assert.ok(ul, 'the places render as a list');
+  assert.ok(/hscards/.test(ul.className), 'a list of hotspot cards');
+  assert.ok(!/\bsppl\b/.test(ul.className),
+    'and NOT the species-list class, whose 2px row padding outranks the '
+    + `hotspot card's own 10px: ${ul.className}`);
+  app.window.close();
+});
+
+// The other half: the sub-line's links are tap targets and had no padding at
+// all. Padding rather than font-size, because this line is deliberately the
+// small print and growing the type would undo the size ranking the pin-number
+// and distance guards pin.
+test('the checklist id on a hotspot sub-line is big enough to hit', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const host = doc.createElement('ul');
+  host.className = 'obs hscards hscards-medium';
+  doc.body.appendChild(host);
+  host.innerHTML = app.window.HotspotCards.medium({
+    num: 1, name: 'Seward Park', dist: '5 mi',
+    sub: '<a class="ebirdlink" data-href="#">8/25 7:15A</a> \u00b7 '
+       + '<a class="ebirdlink" data-href="#">S12345</a>',
+  });
+  const a = host.querySelector('.meta a');
+  assert.ok(a, 'the sub-line carries its links');
+  const st = app.window.getComputedStyle(a);
+  assert.equal(st.display, 'inline-block',
+    'an inline box cannot take vertical padding, so the target never grows');
+  const padY = parseFloat(st.paddingTop) + parseFloat(st.paddingBottom);
+  assert.ok(padY >= 12,
+    `the link needs real vertical padding to be hittable, got ${padY}px; at 0 `
+    + 'it measured 17.5px tall and finished 5.3px from the next card');
+  app.window.close();
+});

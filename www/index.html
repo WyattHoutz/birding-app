@@ -7413,7 +7413,16 @@
             }));
           });
         });
-        return HotspotCards.list('medium', out, 'sppl');
+        // NOT 'sppl'. That class means "a long SPECIES list nested inside
+        // another row" and it carries species-row spacing - `padding: 2px 0;
+        // border-top: none` - which outranks `.hscard-md`'s own `padding:
+        // 10px 0` at (0,2,1) against (0,1,0). MEASURED in real Chrome: the
+        // cards sat completely flush (gap to next row: 0px) and the sub-line's
+        // checklist link ended 5.3px above the next card's tap area, which is
+        // the reported "hard to click on details like checklist id since its
+        // too close to next item". The patch-board list two thousand lines
+        // below passes no extra class at all and spaces correctly.
+        return HotspotCards.list('medium', out);
       }
 
       // Capped, with the rest one tap away. "we can limit results to 25, so the
