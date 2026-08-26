@@ -1036,7 +1036,7 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
       `${id} renders .cklrows under a .thumb, so it needs the float-clearing `
       + `"big" layout; it has class="${m[1]}"`);
   }
-  assert.match(CARDS_SPECIES, /\.obs\.big \.thumb \{[^}]*float:\s*none/,
+  assert.match(CARDS_SPECIES, /\.obs\.big > li > \.name > \.thumb \{[^}]*float:\s*none/,
     '.obs.big is the float-clearing layout — if it stops clearing, the guard above means nothing');
   // Today's rarities renders .cklrows under a .thumb too. It is a MEDIUM card
   // now, so it relies on .obs.big clearing the float — pinned just above.
@@ -1996,7 +1996,7 @@ test('the three species sections use the large icon + title treatment', () => {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m && /\bbig\b/.test(m[1]), id + ' renders large rows');
   });
-  assert.match(CARDS_SPECIES, /\.obs\.big \.thumb \{[^}]*width: calc\(64px \* var\(--s\)\)/,
+  assert.match(CARDS_SPECIES, /\.obs\.big > li > \.name > \.thumb \{[^}]*width: calc\(64px \* var\(--s\)\)/,
     'the icon is actually bigger, not just a class name');
   // Today's rarities is a LIST of today's rare-bird checklists — one row per
   // report — so it uses the SMALL card. The large card is for reading about ONE
@@ -5008,6 +5008,12 @@ test('Leader Board Ticks answers how far away the bird is', async () => {
     { obsDt: '2026-07-28 10:00', locName: 'Far', lat: 46.0, lng: -122.15, subId: 'S1' },
     { obsDt: '2026-07-27 10:00', locName: 'Near', lat: 47.70, lng: -122.15, subId: 'S2' },
   ] };
+  // Leader Board Ticks now carries the shared Unseen/All and distance chips,
+  // and the stored preference defaults to unseen + within the chase radius. A
+  // test about the DISTANCE COLUMN has to ask for the view that contains a far
+  // bird, or it is asserting against a row the filter correctly removed.
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
   A.renderLastNew(groups, byName, 'US-WA');
   const txt = d.getElementById('lastNewResults').textContent;
   // The CLOSEST report, not the newest: the nearest one is where you would go.
@@ -6485,14 +6491,16 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   const out = doc.getElementById('results');
   const controls = doc.getElementById('todayControls');
   const controlRows = controls.querySelectorAll('.raritycontrolrow');
-  assert.equal(controlRows.length, 2, 'sort and filters occupy two rows');
+  assert.equal(controlRows.length, 1,
+    'all three chip pairs share ONE row now. MEASURED in real Chrome: they '
+    + 'want 311.9px in 314px at 393px/scale 1 (one line), and 288px in 233px '
+    + 'at 320px/Easy read, where they wrap rather than crush');
   assert.deepEqual(
     [...controlRows[0].querySelectorAll('button')].map((b) => b.textContent.trim()),
-    ['Newest', 'Nearest'], 'sort has its own row');
-  assert.deepEqual(
-    [...controlRows[1].querySelectorAll('button')].map((b) => b.textContent.trim()),
-    ['Unseen', 'All', `${R} mi`, 'Statewide'],
-    'the second row holds both filters, including the live radius and region-derived label');
+    ['Newest', 'Nearest', 'Unseen', 'All', `${R} mi`, 'Statewide'],
+    'the one row holds all three pairs in reading order — how it is sorted, '
+    + 'then the two things that decide what is in it, including the live '
+    + 'radius and the region-derived label');
   assert.equal(doc.querySelector('#todayYear [data-value="unseen"]').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
   assert.equal(doc.querySelector('#todayDistance [data-value="near"]').getAttribute('aria-pressed'),
@@ -7239,7 +7247,7 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
   const src = HTML.slice(HTML.indexOf('function ebird(path, bg)'),
-                         HTML.indexOf('function ebird(path, bg)') + 2400);
+                         HTML.indexOf('function ebird(path, bg)') + 3600);
   assert.match(src, /delete _ebCache\[path\]/,
     'a rejected call is evicted so the next attempt actually goes out');
   assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,
@@ -7351,7 +7359,9 @@ test('the sustained limit is a sliding window, not just a bucket', async () => {
     + 'of the same budget whenever it is running');
   assert.equal(A.FG_WINDOW_MS, 60000, 'measured over a minute, like the limit');
 
-  const src = HTML.slice(HTML.indexOf('function fgSlot('),
+  // The arithmetic moved into fgSchedule so 300 calls can be DRIVEN through
+  // it; the slice follows it rather than pinning which function holds it.
+  const src = HTML.slice(HTML.indexOf('function fgSchedule('),
                          HTML.indexOf('function fgSlot(') + 700);
   // Takes the lane now: background stops short of the cap so an interactive
   // tap always has budget. Every call still passes through the same window.
@@ -7397,7 +7407,7 @@ test('the section you are looking at is not queued behind the background wave', 
   const st = A.fgState();
   assert.ok('queuedBg' in st, 'and reports the two lanes separately');
 
-  const src = HTML.slice(HTML.indexOf('function fgSlot('),
+  const src = HTML.slice(HTML.indexOf('function fgSchedule('),
                          HTML.indexOf('function retryAfterMs('));
   assert.match(src, /else if \(bg\) _fgBgWaiters\.push\(take\);/,
     'background callers queue in their own lane');
@@ -7479,6 +7489,12 @@ test('Leader Board Ticks splits unseen birds from seen ones', async () => {
   const doc = app.window.document;
   seedSeen(app, ['zzseen1']);
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  // The section now carries the shared Unseen/All chips, which default to
+  // Unseen — and a test about the SPLIT has to ask for the view that contains
+  // both halves, or it is asserting against a group the filter removed on
+  // purpose.
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
 
   // Synthetic species on purpose: every real bird the leaderboard shows is a
   // WA bird, and isSpeciesSeen also matches against the bundled year-list
@@ -11086,10 +11102,13 @@ test('the rarity distance chip replaces the far-only expander', () => {
     'the 35 mi view must not secretly render far rows behind a disclosure');
   assert.match(HTML, /choose ' \+ esc\(rarityRegionName\(\)\)[\s\S]{0,120}nearby reports/,
     'the near view tells the reader which chip reveals the superset');
-  assert.match(HTML, /\.raritycontrols \{[^}]*flex-direction: column/,
-    'sort and filters are laid out as separate rows');
-  assert.match(HTML, /\.rarityfilterrow \.sortpick \{[^}]*flex:/,
-    'the two filter pairs share the second row instead of overflowing it');
+  assert.match(HTML, /\.raritycontrols \{[^}]*flex-wrap: wrap/,
+    'the three chip pairs share ONE row that wraps only when it must. MEASURED: '
+    + 'they want 311.9px in 314px at 393px/scale 1 (one line) and 288px in 233px '
+    + 'at 320px/Easy read, where six 44px tap targets cannot fit however styled');
+  assert.match(HTML, /\.rarityfilterrow \.sortpick \{[^}]*flex: 0 0 auto/,
+    'and a group must never shrink, or the narrow case is crushed one letter '
+    + 'per line instead of wrapping');
 });
 
 
@@ -12816,7 +12835,7 @@ test('the stakeout list shows every checklist a place actually has', async () =>
   app.window.__app.runSpeciesLookup();
   await new Promise((r) => setTimeout(r, 500));
 
-  const rows = [...doc.querySelectorAll('#spLookupResults .sppl > li')];
+  const rows = [...doc.querySelectorAll('#spLookupResults .hscards-medium > li')];
   assert.equal(rows.length, 3,
     `all three checklists at the one place should be rows, got ${rows.length}`);
 

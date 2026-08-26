@@ -2490,7 +2490,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.38.0';
+      var APP_VERSION = '1.39.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14750,31 +14750,6 @@
       // is fetched and never reshuffles as the rows hydrate. That is what makes
       // painting the board first safe: a row cannot jump out from under a
       // thumb that is already reaching for it.
-      function lastNewOrder(groups) {
-        return Object.keys(groups).sort(function (a, b) {
-          var d = groups[b].birders.length - groups[a].birders.length;
-          if (d) return d;
-          if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
-          return a < b ? -1 : 1;
-        });
-      }
-
-      // SPLIT: birds you still need first, birds you already have second — the
-      // same shape section_leaderboard_last_new now prints and the same shape
-      // the Last 7-Days rarity section uses. This is the longest list in the
-      // app, and one stream left the magnifier to carry the whole distinction:
-      // a tick you already have is worth knowing about, but it is not a reason
-      // to go anywhere, and it was interleaved at the same weight.
-      //
-      // The 🔍 marker STAYS on the needed rows. Redundant under the heading by
-      // design — these are cards, and a card that only means "unseen" because
-      // of a heading above it loses that meaning the moment it is scrolled
-      // past or read on its own.
-      function lastNewGroupHead(label, why) {
-        return '<li class="cardgroup"><span class="cghead">' + label
-          + '</span><span class="cgwhy">' + why + '</span></li>';
-      }
-
       // "it does say Leader Board Ticks on menu button and report but the
       // toggles are missing." Not a regression - F180 was scoped to the two
       // twitch lists - but the same two questions apply here, and the section
@@ -14813,6 +14788,31 @@
         }
         return true;
       }
+      function lastNewOrder(groups) {
+        return Object.keys(groups).sort(function (a, b) {
+          var d = groups[b].birders.length - groups[a].birders.length;
+          if (d) return d;
+          if (groups[a].latest !== groups[b].latest) return groups[a].latest < groups[b].latest ? 1 : -1;
+          return a < b ? -1 : 1;
+        });
+      }
+
+      // SPLIT: birds you still need first, birds you already have second — the
+      // same shape section_leaderboard_last_new now prints and the same shape
+      // the Last 7-Days rarity section uses. This is the longest list in the
+      // app, and one stream left the magnifier to carry the whole distinction:
+      // a tick you already have is worth knowing about, but it is not a reason
+      // to go anywhere, and it was interleaved at the same weight.
+      //
+      // The 🔍 marker STAYS on the needed rows. Redundant under the heading by
+      // design — these are cards, and a card that only means "unseen" because
+      // of a heading above it loses that meaning the moment it is scrolled
+      // past or read on its own.
+      function lastNewGroupHead(label, why) {
+        return '<li class="cardgroup"><span class="cghead">' + label
+          + '</span><span class="cgwhy">' + why + '</span></li>';
+      }
+
       function renderLastNew(groups, byName, region, codeIdx) {
         var out = $('lastNewResults');
         var keys = lastNewOrder(groups);
@@ -15527,7 +15527,7 @@
         // cannot be wrong, and saves refetching.
         //
         // The version stamp is the third, and it exists because the second
-        // could not see the v1.38.0 fault at all. `todCoherence` compares the
+        // could not see the 1.38.0 fault at all. `todCoherence` compares the
         // two halves' late RATES; it cannot see that they were CONSTRUCTED
         // differently — a numerator built one-per-county-day by `cat=species`
         // against a denominator built one-per-checklist passes it cleanly.
@@ -15711,8 +15711,8 @@
         });
         todSave(s);
       }
-      // Every hour in this sample must describe the same thing, and until
-      // v1.39.0 it did not.
+      // Every hour in this sample must describe the same thing, and until this
+      // release it did not.
       //
       // The request carried `cat=species`, which collapses a region-day to ONE
       // ROW PER SPECIES. So the two halves of the ratio were built from
