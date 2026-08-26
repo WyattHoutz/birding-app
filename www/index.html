@@ -2208,6 +2208,19 @@
         <button id="keyTestBtn" class="secondary" type="button">Test</button>
       </div>
       <p id="keyStatus" class="hint keystate"></p>
+      <!-- F188: the profile sits beside the KEY it scopes, not fourteen
+           controls further down. They are one decision — which account is
+           this? — and separating them is why the picker could not be found. -->
+      <label for="bcProfileSel">Account profile</label>
+      <div class="row">
+        <select id="bcProfileSel"></select>
+        <input id="bcProfileName" type="text" autocorrect="off" spellcheck="false" placeholder="Name this profile" maxlength="24" />
+      </div>
+      <p class="hint"><b>Switching happens when you press Save</b>, and reloads the app.
+        Each profile keeps a <b>separate</b> eBird key, alert code, year list, favourites and
+        rank history, so several accounts can be tested on one phone. Hotspot, GBIF and
+        taxonomy caches are shared on purpose — they describe <i>places</i>, not you, and
+        re-fetching them per profile would burn the API budget you are trying to test.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
@@ -2231,14 +2244,6 @@
       <label for="abaSid">ABA rare-bird alert code</label>
       <input id="abaSid" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="SN10489" />
       <p class="hint">eBird alert id for the “ABA Rarities” needs alert (default <code>SN10489</code>). Paste a regional RBA alert id to track a smaller area.</p>
-      <label for="bcProfileSel">Account profile</label>
-      <select id="bcProfileSel">
-        <option value="">Main</option>
-        <option value="2">Test 2</option>
-        <option value="3">Test 3</option>
-        <option value="4">Test 4</option>
-      </select>
-      <p class="hint">Keeps a <b>separate</b> eBird key, alert code, year list, favourites and rank history per profile, so several accounts can be tested on one phone. Switching reloads the app. Hotspot, GBIF and taxonomy caches are shared on purpose — they describe <i>places</i>, not you, and re-fetching them per profile would burn the API budget you are trying to test.</p>
       <div class="row" style="margin-top:8px">
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
@@ -2514,6 +2519,41 @@
         try { _rawLS.setItem(PROFILE_PTR, String(p == null ? '' : p).trim()); } catch (e) {}
         try { window.location.reload(); } catch (e) {}
       }
+      // F188: A PROFILE NEEDS A NAME, not a slot number.
+      //
+      // "Test 2" says which drawer the data is in, not whose data it is, and a
+      // marker you cannot read is no better than no marker. The label is stored
+      // per profile in the SHARED namespace on purpose — you have to be able to
+      // read the name of a profile you are not currently standing in, to render
+      // the picker at all.
+      // `ebird_` prefix ON PURPOSE: SCRUB_PREFIX is 'ebird_', so a name you
+      // typed is erased by "scrub personal data" along with the display name it
+      // resembles. The `bc_` keys beside it (theme, easy read) are settings,
+      // not identity, which is why they are not scrubbed and this is.
+      // Read through _rawLS rather than the shim, because the picker has to
+      // name profiles it is NOT standing in.
+      var PROFILE_NAME_KEY = 'ebird_profile_names';
+      var PROFILE_SLOTS = ['', '2', '3', '4'];
+      function profileNames() {
+        try { return JSON.parse(_rawLS.getItem(PROFILE_NAME_KEY) || '{}') || {}; }
+        catch (e) { return {}; }
+      }
+      function setProfileName(slot, name) {
+        var all = profileNames();
+        var k = String(slot || '');
+        if (name) all[k] = String(name).slice(0, 24); else delete all[k];
+        try { _rawLS.setItem(PROFILE_NAME_KEY, JSON.stringify(all)); } catch (e) {}
+      }
+      // The DEFAULT slot is "Main" and the others fall back to their slot
+      // number, so an unnamed profile still reads as something rather than as
+      // blank — absent must not render as empty.
+      function profileLabel(slot) {
+        var k = String(slot == null ? '' : slot);
+        var named = profileNames()[k];
+        if (named) return named;
+        return k ? 'Test ' + k : 'Main';
+      }
+      function isDefaultProfile() { return !bcProfile(); }
 
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
@@ -21024,6 +21064,11 @@
             + '<select id="menuCounty"></select></span>';
         }
         if (!name && !bits.length && !coHtml) return '';
+        // F188: the Contents screen is the one you always pass through, so a
+        // non-default profile is named here too. Silent on Main.
+        var profHtml = isDefaultProfile() ? ''
+          : '<div class="secscope secprofile menuprofile">👤 ' + esc(profileLabel(bcProfile()))
+            + ' — a test profile. Settings → Account profile to switch back.</div>';
         // THE REGION SITS BESIDE THE NAME, hard right. "id like the region drop
         // down to be aligned right of my birder wyatt name in the same cell,
         // aligned to the right side of the screen." It was briefly a grid cell
@@ -21038,6 +21083,7 @@
           + ((bits.length || coHtml)
               ? '<span class="menuidsub">' + bits.join(' · ') + coHtml + '</span>'
               : '')
+          + profHtml
           + '</div>';
       }
       function renderMenuIdentity() {
@@ -21295,6 +21341,35 @@
          }
          el.textContent = '📍 ' + countyViewLabel() + ' only — your '
            + getReport().label + ' year list still decides what counts as unseen.';
+        })();
+        // F188: WHOSE LIST IS THIS? Silent on Main, loud on anything else.
+        //
+        // An ever-present marker stops being read, which is why this repo
+        // already keeps menu badges and the F152 county chip quiet in the
+        // default case. But a test profile is genuinely dangerous to mistake:
+        // MEASURED, reportYearList() returns the SAME count in every profile,
+        // because the bundled seed is shipped CODE and not per-profile
+        // storage — so a test profile prints the main birder's species count
+        // as its own. Until the live list replaces the seed (F8), the honest
+        // move is to name the profile and say the number is not its own.
+        (function () {
+          if (!sec0 || !h20 || isDefaultProfile()) {
+            var stale = sec0 && sec0.querySelector('.secprofile');
+            if (stale) stale.parentNode.removeChild(stale);
+            return;
+          }
+          var el = sec0.querySelector('.secprofile');
+          if (!el) {
+            el = document.createElement('div');
+            el.className = 'secscope secprofile';
+            var anchor = sec0.querySelector('.secscope') || sec0.querySelector('.sechint') || h20;
+            anchor.insertAdjacentElement('afterend', el);
+          }
+          el.textContent = '👤 ' + profileLabel(bcProfile())
+            + ' — a test profile. Its own key and harvested list are separate, '
+            + 'but the bundled year-list seed is shared, so any species count '
+            + 'you see here is the main profile\u2019s until this one harvests '
+            + 'its own.';
         })();
         // F134: opening a section is what makes its news old. Placed AFTER
         // costEnter, because cost attribution must stay the first thing that
@@ -21711,7 +21786,20 @@
         // F177. Read from the RAW store, not the shim: the pointer is the one
         // key that must never be namespaced, or switching could not find its
         // way back to the other profiles.
-        if ($('bcProfileSel')) $('bcProfileSel').value = bcProfile();
+        if ($('bcProfileSel')) {
+          // Rebuilt every time, because a profile can be RENAMED and the
+          // option text is derived from that name rather than stored twice.
+          var _sel = $('bcProfileSel'), _cur = bcProfile();
+          _sel.innerHTML = '';
+          PROFILE_SLOTS.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s;
+            o.textContent = profileLabel(s) + (s ? '' : ' (default)');
+            _sel.appendChild(o);
+          });
+          _sel.value = _cur;
+          if ($('bcProfileName')) $('bcProfileName').value = profileNames()[String(_cur)] || '';
+        }
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
         if ($('themeMode')) $('themeMode').value = getTheme();
         if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
@@ -22001,6 +22089,14 @@
               : 'never (no CSV yet)'));
       } catch (e) {}
         try { add('displayName: ' + getDisplayName()); } catch (e) {}
+        // F188: WHICH ACCOUNT IS THIS LOG FROM? Printed UNCONDITIONALLY,
+        // including for Main. Every device log this project has read was
+        // assumed to be the main account and nothing in the header would have
+        // contradicted that — a diagnostic artifact must not have ambiguous
+        // provenance. This is the one place the rule is "always say", because
+        // on screen an ever-present marker stops being read, but a log is read
+        // once, later, by someone who cannot ask.
+        try { add('profile: ' + profileLabel(bcProfile()) + (bcProfile() ? '' : ' (default)')); } catch (e) {}
         try { add('abaSid: ' + getAbaSid()); } catch (e) {}
         // Why the Top 100 movement column may be blank. It needs TWO board
         // snapshots, and one is only taken when the rankings section is
@@ -23088,6 +23184,13 @@
           // would write this account's key into the other account's namespace,
           // which is the one failure this feature must never have.
           var wantP = $('bcProfileSel') ? ($('bcProfileSel').value || '') : bcProfile();
+          // F188: the NAME belongs to the profile being named, and the name box
+          // shows the CURRENT profile's name — so it is saved against the
+          // current slot before any switch, for the same reason everything else
+          // above lands in the profile being left. Stored in the shared
+          // namespace because the picker must be able to read the name of a
+          // profile it is not standing in.
+          if ($('bcProfileName')) setProfileName(bcProfile(), ($('bcProfileName').value || '').trim());
           if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
           clearChaseCache();
           _autoLoaded = {};
@@ -23207,6 +23310,9 @@
         gbifFacetGet: gbifFacetGet, gbifFacetPut: gbifFacetPut,
         gbifCache: gbifCache,
         bcProfile: bcProfile, bcSetProfile: bcSetProfile, bcReal: bcReal,
+        profileLabel: profileLabel, profileNames: profileNames,
+        setProfileName: setProfileName, isDefaultProfile: isDefaultProfile,
+        PROFILE_SLOTS: PROFILE_SLOTS, PROFILE_NAME_KEY: PROFILE_NAME_KEY,
         bcShared: bcShared, bcVisibleKeys: bcVisibleKeys,
         BC_SHARED_KEYS: SHARED_KEYS, BC_PROFILE_PTR: PROFILE_PTR,
         myYearIsNew: myYearIsNew, MY_YEAR_NEW_DAYS: MY_YEAR_NEW_DAYS,

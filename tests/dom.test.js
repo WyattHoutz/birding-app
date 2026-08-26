@@ -16847,3 +16847,105 @@ test('F8: the CSV route is tried first, and the page route still carries codes',
     'and absent says absent rather than reading as old');
   app.window.close();
 });
+
+// ---------------------------------------------------------------------------
+// F188 — the active profile must be visible. Filed FORWARD from F177 (shipped
+// v1.30.0); F177 is not reopened. F177 isolated the STORAGE correctly, and
+// bcVisibleKeys proves it. What it never did was tell you which account you
+// were looking at: MEASURED, nothing outside Settings read bcProfile() — all
+// six call sites were the storage shim plus the Settings picker.
+// ---------------------------------------------------------------------------
+
+test('F188: a profile has a NAME, and an unnamed one still reads as something', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.profileLabel(''), 'Main', 'the default slot is Main, not blank');
+  assert.equal(A.profileLabel('2'), 'Test 2',
+    'an unnamed slot falls back to its number — absent must not render as empty');
+  A.setProfileName('2', 'Sarah');
+  assert.equal(A.profileLabel('2'), 'Sarah', 'a named slot uses its name');
+  assert.equal(A.profileLabel(''), 'Main', 'and naming one does not rename another');
+  A.setProfileName('2', '');
+  assert.equal(A.profileLabel('2'), 'Test 2', 'clearing the name restores the fallback');
+
+  // Scrubbable: a name you typed is identity, like the display name it
+  // resembles — unlike bc_theme / bc_easyread beside it, which are settings.
+  assert.match(A.PROFILE_NAME_KEY, new RegExp('^' + A.SCRUB_PREFIX),
+    'the profile name must fall under SCRUB_PREFIX so "scrub personal data" reaches it');
+  app.window.close();
+});
+
+test('F188: the debug header names the profile ALWAYS, including Main', () => {
+  // This is the one place the rule is "always say". On screen an ever-present
+  // marker stops being read; a LOG is read once, later, by someone who cannot
+  // ask. Every device log this project has read was assumed to be Main and
+  // nothing in the header would have contradicted it.
+  const at = HTML.indexOf("add('displayName: '");
+  assert.ok(at > 0, 'the debug header still prints the display name');
+  const near = HTML.slice(at, at + 900);
+  assert.match(near, /add\('profile: ' \+ profileLabel\(bcProfile\(\)\)/,
+    'and the profile, right beside it');
+  assert.ok(!/isDefaultProfile\(\)\s*\?|if \(bcProfile\(\)\)/.test(
+    near.slice(0, near.indexOf('abaSid'))),
+    'unconditionally — a diagnostic artifact must not have ambiguous provenance');
+});
+
+test('F188: the profile chip shows on a test profile and never on Main', async () => {
+  // A RENDER probe. Whether a chip reached the screen is invisible to a regex,
+  // which is the lesson v1.0.28 learned by shipping "undefined rarities".
+  const app = await boot();
+  const A = app.window.__app;
+
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(!app.window.document.querySelector('.secprofile'),
+    'Main is the normal case and says nothing — a marker that is always there '
+    + 'stops being read');
+
+  app.window.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+  assert.equal(A.isDefaultProfile(), false, 'now standing in a test profile');
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  const chip = app.window.document.querySelector('.secprofile');
+  assert.ok(chip, 'a test profile says so');
+  assert.match(chip.textContent, /Test 2/, 'and names which one');
+  // THE MEASURED HAZARD, stated on screen: reportYearList() returns the SAME
+  // count in every profile, because the bundled seed is shipped CODE and not
+  // per-profile storage. A test profile therefore prints the main birder's
+  // species count as its own until it harvests its own list.
+  assert.match(chip.textContent, /seed is shared/,
+    'and warns that the species count is not its own yet');
+  assert.ok(!/^\s*$/.test(chip.textContent));
+
+  app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(!app.window.document.querySelector('.secprofile'),
+    'switching back takes the chip away — a notice that outlives its cause is '
+    + 'worse than none');
+  app.window.close();
+});
+
+test('F188: the picker sits beside the key it scopes, and says when it acts', () => {
+  // It was the 13th labelled control in Settings, behind uiScale, sciNames,
+  // themeMode, a11yMode, mapProvider, chaseMi, apiKey, reportSelect, tripName,
+  // region, ebirdName and abaSid — which is why it could not be found.
+  const labels = [...HTML.matchAll(/<label for="([^"]+)"/g)].map((m) => m[1]);
+  const iKey = labels.indexOf('apiKey');
+  const iProf = labels.indexOf('bcProfileSel');
+  const iAba = labels.indexOf('abaSid');
+  assert.ok(iKey >= 0 && iProf >= 0, 'both controls exist');
+  assert.equal(iProf, iKey + 1,
+    `the profile must follow the API key it scopes; key at ${iKey}, profile at ${iProf}`);
+  assert.ok(iProf < iAba, 'and come before the alert code, not after it');
+
+  // SWITCHING ONLY HAPPENS ON SAVE, and nothing said so — changing the
+  // dropdown and navigating away did nothing, which reads as a broken control.
+  const panel = HTML.slice(HTML.indexOf('<label for="bcProfileSel">'),
+                           HTML.indexOf('<label for="abaSid">'));
+  assert.match(panel, /Switching happens when you press Save/,
+    'the control must say when it takes effect');
+  assert.match(panel, /id="bcProfileName"/, 'and offer a name field');
+  assert.ok(!/<option value="2">Test 2<\/option>/.test(panel),
+    'the options are built from the stored names, not hard-coded slot numbers');
+});
