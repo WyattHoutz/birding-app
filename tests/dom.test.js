@@ -16724,13 +16724,126 @@ test('F8: the verdict names WHICH failure, so one device run settles it', async 
   assert.equal(A.lifelistTitle('<html><body>no head</body></html>'), '(no title)',
     'and a missing title says so rather than reading as empty');
 
-  const src = HTML.slice(HTML.indexOf('function tryLifelistYear()'),
-                         HTML.indexOf('function tryLifelistYear()') + 1600);
+  // Sliced to the NEXT function, not a magic length, and pointed at the
+  // function that actually holds the verdict. This guard broke when
+  // tryLifelistYear became a three-line dispatcher and the page verdict moved
+  // into tryLifelistPage — a `+ 1600` window pins the layout of the file
+  // rather than the property, which is the same fault as `fgWindowWait + 800`.
+  const src = HTML.slice(HTML.indexOf('function tryLifelistPage()'),
+                         HTML.indexOf('// ── F8: THE YEAR LIST, HARVESTED'));
+  assert.ok(src.length > 200 && src.length < 4000,
+    `the slice must really bracket the function, got ${src.length} chars`);
   assert.match(src, /lifelistTitle\(html\)/, 'the verdict prints the title');
   assert.match(src, /lifelistIsLogin\(html\)/, 'and whether it read as a login');
   assert.match(src, /parsed ' \+ rows\.length/, 'and the row count');
   assert.ok(!/not signed in, so falling back/.test(src),
     'and it must NOT assert "not signed in" for every zero — that is a cause '
     + 'the code did not observe');
+  app.window.close();
+});
+
+// ---------------------------------------------------------------------------
+// F8 — the CSV route. Owner's boundary, 2026-08-26: fetch on demand with at
+// most an in-app browser login popup, NEVER an export / download-link / import
+// round trip. Two different things are called "CSV" and only Download My Data
+// was ever the problem; lifelist?...&fmt=csv is one synchronous 200 with a
+// body, measured on device at 29,423 B for the WA year list.
+// ---------------------------------------------------------------------------
+
+test('F8: the CSV parser is header-driven, never positional', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // The column ORDER of this export has not been measured - no sample exists
+  // in either repo and F146's importer is not built - so pinning one would be
+  // asserting something nothing here has observed. Two headers with the SAME
+  // data in DIFFERENT orders must parse identically.
+  const a = [
+    'Common Name,Scientific Name,Date,Location',
+    'Hairy Woodpecker,Dryobates villosus,01 Jan 2026,"Marymoor Park, King, Washington"',
+    'American Crow,Corvus brachyrhynchos,02 Jan 2026,Home',
+  ].join('\n');
+  const b = [
+    'Date,Location,Scientific Name,Common Name',
+    '01 Jan 2026,"Marymoor Park, King, Washington",Dryobates villosus,Hairy Woodpecker',
+    '02 Jan 2026,Home,Corvus brachyrhynchos,American Crow',
+  ].join('\n');
+
+  const ra = A.parseLifelistCSV(a), rb = A.parseLifelistCSV(b);
+  assert.equal(ra.length, 2, `first order parsed ${ra.length}`);
+  assert.equal(rb.length, 2, `reordered header parsed ${rb.length}`);
+  assert.equal(ra[0].name, 'Hairy Woodpecker');
+  assert.equal(rb[0].name, 'Hairy Woodpecker',
+    'a reordered header must give the SAME answer, or the parser is positional');
+  assert.equal(ra[0].sci, 'Dryobates villosus');
+  assert.equal(rb[0].sci, 'Dryobates villosus');
+  assert.equal(ra[0].date, '01 Jan 2026');
+
+  // A QUOTED FIELD CONTAINING COMMAS. eBird location names almost always do -
+  // "Marymoor Park, King, Washington" - and splitting on /,/ shears every row.
+  assert.match(a, /"Marymoor Park, King, Washington"/,
+    'the fixture must actually contain the trap, or this proves nothing');
+  assert.equal(A.splitCsvLine('a,"b,c",d').length, 3, 'quoted commas are one field');
+  assert.equal(A.splitCsvLine('a,"b,c",d')[1], 'b,c');
+  assert.equal(A.splitCsvLine('a,"say ""hi""",b')[1], 'say "hi"', 'escaped quotes');
+  app.window.close();
+});
+
+test('F8: an unrecognised or non-CSV body yields nothing rather than a mis-parse', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // eBird answers a lost session with 200 + HTML, so the STATUS says nothing
+  // and the shape has to be the check.
+  assert.equal(A.parseLifelistCSV('<!doctype html><html><body>hi</body></html>').length, 0,
+    'HTML returned with a 200 is not a CSV');
+  assert.equal(A.parseLifelistCSV(LIFELIST_LOGIN).length, 0, 'nor is a login page');
+  assert.equal(A.parseLifelistCSV('').length, 0);
+  assert.equal(A.parseLifelistCSV(null).length, 0);
+
+  // A header this cannot recognise must yield NOTHING and fall through to the
+  // page route, rather than confidently reading column 0 as a species name.
+  const alien = ['Alpha,Beta,Gamma', 'one,two,three'].join('\n');
+  assert.equal(A.parseLifelistCSV(alien).length, 0,
+    'an unknown header is a fall-through, not a guess');
+
+  // ...but a header carrying only a SPECIES CODE is enough, because the code
+  // is what the seen set is keyed by.
+  const codeOnly = ['Species Code,Date', 'haiwoo,01 Jan 2026'].join('\n');
+  const r = A.parseLifelistCSV(codeOnly);
+  assert.equal(r.length, 1, 'a code column alone identifies the bird');
+  assert.equal(r[0].code, 'haiwoo');
+  app.window.close();
+});
+
+test('F8: the CSV route is tried first, and the page route still carries codes', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  assert.match(A.lifelistCsvUrl(), /fmt=csv/, 'the CSV url asks for CSV');
+  assert.match(A.lifelistCsvUrl(), /time=year/, 'and for the year, not the life list');
+  assert.match(A.lifelistCsvUrl(), /ebird\.org\/lifelist/,
+    'the INLINE endpoint - not Download My Data, which is an async emailed '
+    + 'archive and is rejected on UX grounds');
+
+  const src = HTML.slice(HTML.indexOf('function tryLifelistYear()'),
+                         HTML.indexOf('function absorbLifelistRows('));
+  assert.match(src, /tryLifelistCsv\(\)/, 'CSV is attempted');
+  assert.ok(src.indexOf('tryLifelistCsv()') < src.indexOf('tryLifelistPage()'),
+    'and it is attempted FIRST');
+  assert.match(src, /LIFELIST_MIN_ROWS \? n : tryLifelistPage\(\)/,
+    'too few rows falls through to the page rather than accepting a thin answer');
+
+  // FRESHNESS IS UNMEASURED, and the verdict has to say so out loud rather
+  // than the app implying same-day accuracy nobody has checked.
+  const abs = HTML.slice(HTML.indexOf('function absorbLifelistRows('),
+                         HTML.indexOf('function tryLifelistCsv('));
+  assert.match(abs, /lifelistNewest\(rows\)/,
+    'the verdict prints the newest date, so ONE device run answers whether an '
+    + 'export reflects a checklist submitted minutes ago');
+  assert.equal(A.lifelistNewest([{ date: '01 Jan 2026' }, { date: '05 Mar 2026' }]),
+    '05 Mar 2026', 'newest wins');
+  assert.equal(A.lifelistNewest([{ date: '' }]), '(no dates)',
+    'and absent says absent rather than reading as old');
   app.window.close();
 });

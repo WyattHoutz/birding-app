@@ -3308,7 +3308,188 @@
         }
         return out;
       }
+      // ── THE CSV ROUTE ────────────────────────────────────────────────────
+      //
+      // Owner's boundary, 2026-08-26: the app may fetch on demand with at most
+      // an in-app browser login popup, NEVER an export / download-link /
+      // import round trip. Two quite different things are both called "CSV"
+      // and only one of them was ever the problem:
+      //
+      //   Download My Data      async, emailed link, ~a day stale, manual
+      //                         import — REJECTED, and it is what the "day
+      //                         lag" note on record actually refers to
+      //   lifelist?...&fmt=csv  ONE synchronous 200 with a body, no user
+      //                         action at all — measured on device at
+      //                         29,423 B for the WA year list
+      //
+      // The day-lag objection must not be re-attached to the second.
+      function lifelistCsvUrl() {
+        var st = (getReport().stateCode || '').toUpperCase();
+        return st ? 'https://ebird.org/lifelist?r=' + encodeURIComponent(st)
+                  + '&time=year&fmt=csv' : '';
+      }
+      // A field may be quoted and contain commas — a location name almost
+      // always does. Splitting on /,/ would shear every row at "Marymoor Park,
+      // King, Washington".
+      function splitCsvLine(line) {
+        var out = [], cur = '', q = false;
+        for (var i = 0; i < line.length; i++) {
+          var c = line[i];
+          if (q) {
+            if (c === '"') {
+              if (line[i + 1] === '"') { cur += '"'; i++; }   // escaped quote
+              else q = false;
+            } else cur += c;
+          } else if (c === '"') q = true;
+          else if (c === ',') { out.push(cur); cur = ''; }
+          else cur += c;
+        }
+        out.push(cur);
+        return out;
+      }
+      // HEADER-DRIVEN, never positional.
+      //
+      // The column order of this export has NOT been measured — no sample
+      // exists in either repo and F146's importer is not built — so pinning
+      // one would be asserting something nothing here has observed. Columns
+      // are found by NAME instead, and a header this cannot recognise yields
+      // nothing rather than a confident mis-parse, which drops cleanly to the
+      // HTML route.
+      function parseLifelistCSV(text) {
+        var t = String(text || '');
+        if (!t) return [];
+        // eBird answers a lost session with 200 + HTML, so status says nothing;
+        // shape does. A CSV never opens with a doctype.
+        if (/^\s*<(!doctype|html)/i.test(t) || lifelistIsLogin(t)) return [];
+        var lines = t.split(/\r?\n/).filter(function (l) { return l.trim(); });
+        if (lines.length < 2) return [];
+        var head = splitCsvLine(lines[0]).map(function (h) {
+          return h.replace(/^\uFEFF/, '').trim().toLowerCase();
+        });
+        function col() {
+          var pats = Array.prototype.slice.call(arguments);
+          for (var p = 0; p < pats.length; p++) {
+            for (var i = 0; i < head.length; i++) if (pats[p].test(head[i])) return i;
+          }
+          return -1;
+        }
+        var iCode = col(/^species\s*code$/, /speciescode/);
+        var iName = col(/^common\s*name$/, /common.*name/, /^species$/);
+        var iSci  = col(/^scientific\s*name$/, /scientific/);
+        var iDate = col(/^date$/, /\bdate\b/);
+        // Without something to identify the bird by, there is no row.
+        if (iCode < 0 && iName < 0 && iSci < 0) return [];
+        var out = [], seen = {};
+        for (var r = 1; r < lines.length; r++) {
+          var f = splitCsvLine(lines[r]);
+          if (f.length < head.length - 2) continue;      // ragged line, skip
+          var code = iCode >= 0 ? String(f[iCode] || '').trim().toLowerCase() : '';
+          var name = iName >= 0 ? String(f[iName] || '').trim() : '';
+          var sci  = iSci  >= 0 ? String(f[iSci]  || '').trim() : '';
+          var date = iDate >= 0 ? String(f[iDate] || '').trim() : '';
+          if (!code && !name && !sci) continue;
+          var key = code || sci.toLowerCase() || name.toLowerCase();
+          if (seen[key]) continue;
+          seen[key] = 1;
+          out.push({ code: code, name: name, sci: sci, date: date });
+        }
+        return out;
+      }
+      // Resolve rows that carry only names into species CODES, which is what
+      // the seen set is keyed by. FREE when the index is warm: loadSpeciesIndex
+      // is already cached with a TTL and already fetched by several sections,
+      // and it returns {code, name, sci}. Scientific name is tried FIRST
+      // because it is unambiguous; a common name is not.
+      function lifelistResolveCodes(rows) {
+        var need = (rows || []).filter(function (r) { return !r.code; });
+        if (!need.length) return Promise.resolve(rows || []);
+        return loadSpeciesIndex(getObsRegion()).then(function (idx) {
+          var bySci = {}, byName = {};
+          (idx || []).forEach(function (s) {
+            if (s.sci) bySci[String(s.sci).toLowerCase()] = s.code;
+            if (s.name) byName[String(s.name).toLowerCase()] = s.code;
+          });
+          need.forEach(function (r) {
+            var hit = (r.sci && bySci[r.sci.toLowerCase()])
+                   || (r.name && byName[r.name.toLowerCase()])
+                   || (r.name && byName[baseSpeciesName(r.name).toLowerCase()]);
+            if (hit) r.code = hit;
+          });
+          return rows;
+        }).catch(function () { return rows; });
+      }
+      // The newest date in the list, printed in the verdict so ONE device run
+      // answers the question nobody has measured: does an export reflect a
+      // checklist submitted minutes ago? Until that is known, this feature is
+      // not claimed to be same-day.
+      function lifelistNewest(rows) {
+        var best = 0, bestS = '';
+        (rows || []).forEach(function (r) {
+          var t = Date.parse(r.date || '');
+          if (!isNaN(t) && t > best) { best = t; bestS = r.date; }
+        });
+        return bestS || '(no dates)';
+      }
+
       function tryLifelistYear() {
+        // CSV FIRST, HTML SECOND, the 730-call walk as the floor.
+        //
+        // CSV is a stable format and this file's own comment says eBird's
+        // markup "is not a contract", so the scraped page is the more fragile
+        // of the two. But the HTML page carries `/species/{code}` links and
+        // the seen set is keyed by CODE, so the CSV route needs a name→code
+        // step the HTML route does not — which is why it is tried first but
+        // not trusted blindly: too few rows and it falls straight through.
+        return tryLifelistCsv().then(function (n) {
+          return n >= LIFELIST_MIN_ROWS ? n : tryLifelistPage();
+        });
+      }
+      function absorbLifelistRows(rows, how, extra) {
+        var codes = ownSeenCodes(), learned = 0, unresolved = 0;
+        rows.forEach(function (r) {
+          var c = String(r.code || '').trim().toLowerCase();
+          if (!c) { unresolved++; return; }
+          if (codes[c]) return;
+          codes[c] = { n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '' };
+          learned++;
+        });
+        if (learned) {
+          try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
+        }
+        verdict('My year', how + ' read in ONE call: ' + rows.length
+          + ' species, ' + learned + ' new'
+          + (unresolved ? ', ' + unresolved + ' unresolved to a code' : '')
+          + ' · newest ' + lifelistNewest(rows)
+          + (extra || '') + ' — the 730-call walk was skipped');
+        return rows.length;
+      }
+      function tryLifelistCsv() {
+        var url = lifelistCsvUrl();
+        if (!url) return Promise.resolve(0);
+        return fetchPublicHTML(url).then(function (body) {
+          var rows = parseLifelistCSV(body);
+          if (rows.length < LIFELIST_MIN_ROWS) {
+            // SAY WHICH FAILURE IT WAS, and this one has four causes: not
+            // signed in, an unrecognised header, HTML returned with a 200, or
+            // an empty list. They need opposite fixes.
+            verdict('My year', 'lifelist CSV: ' + fmtInt(String(body || '').length)
+              + ' B · ' + (/^\s*<(!doctype|html)/i.test(String(body || ''))
+                            ? 'came back as HTML, not CSV'
+                            : 'parsed ' + rows.length + ' rows')
+              + (lifelistIsLogin(body) ? ' · reads as a LOGIN page' : '')
+              + ' — trying the page instead');
+            return 0;
+          }
+          return lifelistResolveCodes(rows).then(function (res) {
+            return absorbLifelistRows(res, 'lifelist CSV');
+          });
+        }).catch(function (e) {
+          verdict('My year', 'lifelist CSV unreachable (' + ((e && e.message) || e)
+            + ') — trying the page instead');
+          return 0;
+        });
+      }
+      function tryLifelistPage() {
         var url = lifelistYearUrl();
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (html) {
@@ -3338,7 +3519,8 @@
             try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
           }
           verdict('My year', 'lifelist page read in ONE call: ' + rows.length
-            + ' species, ' + learned + ' new — the 730-call walk was skipped');
+            + ' species, ' + learned + ' new · newest ' + lifelistNewest(rows)
+            + ' — the 730-call walk was skipped');
           return rows.length;
         }).catch(function (e) {
           verdict('My year', 'lifelist page unreachable (' + ((e && e.message) || e)
@@ -23032,6 +23214,10 @@
         backfillProgress: backfillProgress, backfillTick: backfillTick,
         parseLifelistHTML: parseLifelistHTML, lifelistYearUrl: lifelistYearUrl,
         lifelistIsLogin: lifelistIsLogin, lifelistTitle: lifelistTitle,
+        parseLifelistCSV: parseLifelistCSV, lifelistCsvUrl: lifelistCsvUrl,
+        splitCsvLine: splitCsvLine, lifelistNewest: lifelistNewest,
+        lifelistResolveCodes: lifelistResolveCodes,
+        tryLifelistCsv: tryLifelistCsv, tryLifelistPage: tryLifelistPage,
         LIFELIST_MIN_ROWS: LIFELIST_MIN_ROWS,
         startOwnBackfill: startOwnBackfill, yearListExtras: yearListExtras,
         boardMoveHTML: boardMoveHTML,
