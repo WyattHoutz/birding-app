@@ -10138,23 +10138,25 @@
         var title = (txt.match(/<title[^>]*>([\s\S]{0,120}?)<\/title>/i) || [, ''])[1]
           .replace(/\s+/g, ' ').trim();
         var isHtml = /<html/i.test(txt.slice(0, 400));
-        // Scan the WHOLE body, not the opening tag, which is what the first
-        // probe got wrong.
-        var login = /sign in to ebird|cassso|name="password"|id="input-password"|\/cas\/login/i.test(txt);
+        // `lifeish` says the page has life-list CONTENT. It is used only to
+        // separate "logged in but the wrong format" from "some other HTML".
         var lifeish = /life list|species total|Taxonomic Order|checklist/i.test(txt);
         var csv = !isHtml && /,/.test(txt) && /\n/.test(txt);
         // POSITIVE IDENTIFICATION BEATS A NEGATIVE MARKER.
         //
-        // `login` was tested BEFORE `lifeish`, and both are true of the same
-        // page — so a real, signed-in life list was reported as a login page
-        // because its chrome contains a CAS url. MEASURED on device
-        // 2026-08-25/26: this route returned 200 with the title
-        // "Washington Life List - eBird" and 556,681 B, then 556,678 B eight
-        // minutes later. A static CAS login page does not carry that title and
-        // does not change size between reads.
+        // There used to be a `login` flag here, tested BEFORE `lifeish`, and
+        // both are true of the same page — so a real, signed-in life list was
+        // reported as a login page because its chrome contains a CAS url.
+        // MEASURED on device 2026-08-25/26: this route returned 200 with the
+        // title "Washington Life List - eBird" and 556,681 B, then 556,678 B
+        // eight minutes later. A static CAS login page does not carry that
+        // title and does not change size between reads.
         //
-        // If the page says what it IS, believe it. A login URL somewhere in a
-        // header is not evidence that this is that page.
+        // That flag is now DELETED rather than left unused, because dead code
+        // encoding the old rule reads to the next person as the current rule.
+        // F184: one shared pageKind() decides this for all three callers —
+        // a real login page POSTS to CAS, carries a password field, or says so
+        // in its own <title>. Merely linking to CAS is somebody's account menu.
         var reallyLogin = pageKind(txt) === 'LOGIN';
         var verdict = !r.ok ? 'HTTP ' + r.status
           : csv ? 'CSV \u2705'
