@@ -15724,3 +15724,61 @@ test('the patch board filters by leaderboard rank rather than sorting by it', as
     'and it says what it removed, because the gap IS the finding');
   app.window.close();
 });
+
+// --- four answers on one card, now announced as four ------------------------
+// "the separate sections need more distinct headers and separation, and their
+// data should use the small template cards like the checklist."
+//
+// The second half turned out to be ALREADY TRUE and is recorded as a
+// correction rather than acted on: the bird rows go through speciesListHtml ->
+// SpeciesCards.small and the iconic rows through SpeciesCards.small directly.
+// The inconsistency in the screenshot - "Aratinga mitrata shows no species
+// codes while Eared Grebe shows eargre EAGR" - is not hand-rolled markup, it
+// is a GBIF name with no eBird code behind it, so `code` and `alpha` are empty
+// and the template correctly prints nothing.
+//
+// The real gap was the first half. The bird split rendered through the large
+// card's own unseen/seen slots, which carry a count label and no heading, so
+// the FIRST block on the card was the one with nothing naming it - and
+// `.rankhead`'s 2px/4px margins gave the rest no more separation than two
+// paragraphs of one block.
+test('every block on a stakeout hotspot card is announced and separated', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  A.renderStakeHs('L1', 'Seward Park',
+    [{ subId: 'S1', obsDt: '2026-08-25 07:15', userDisplayName: 'A Birder',
+       numSpecies: 30, loc: { lat: 47.55, lng: -122.25 } }],
+    [{ speciesCode: 'norcar', comName: 'Northern Cardinal' }],
+    { lat: 47.55, lng: -122.25, n: 200, nc: 900 },
+    { effort: 73921, birds: [{ name: 'Eared Grebe', code: 'eargre', mult: 97, n: 120 }] });
+
+  const heads = [].slice.call(doc.querySelectorAll('#stakeHsResults .rankhead b'))
+    .map((b) => b.textContent.trim());
+  ['Birds reported here', 'Iconic here', 'Recent checklists', 'Who birds here']
+    .forEach((want) => {
+      assert.ok(heads.some((h) => h.indexOf(want) > -1),
+        `"${want}" needs a header of the same weight as the others: ${heads.join(' | ')}`);
+    });
+
+  // A header is a TITLE with its numbers beneath, not one run-on sentence -
+  // as prose the iconic line read as a continuation of the block above it.
+  const iconic = [].slice.call(doc.querySelectorAll('#stakeHsResults .rankhead'))
+    .find((h) => /Iconic here/.test(h.textContent));
+  assert.ok(iconic.querySelector('.rankwhy'),
+    'the multiplier and the record count belong on a sub-line, not in the title');
+
+  // And real separation: a divider and space before each block after the first.
+  const st = app.window.getComputedStyle(iconic);
+  assert.ok(parseFloat(st.marginTop) >= 12,
+    `blocks need space between them, got ${st.marginTop}`);
+  assert.notEqual(st.borderTopStyle, 'none',
+    'and a divider, or four answers still read as one');
+
+  // The rows themselves are the SHARED small card, which is what the second
+  // half of the request asked for and what was already the case.
+  assert.ok(doc.querySelector('#stakeHsResults .obs.card-sm'),
+    'species rows render through the shared small species card');
+  app.window.close();
+});

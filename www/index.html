@@ -1493,6 +1493,28 @@
                             letter-spacing: .04em; text-transform: uppercase;
                             padding: 4px 0; }
     .rankhead { margin: 2px 0 4px; }
+    /* ---- SECTION HEADERS INSIDE A STAKEOUT CARD ----
+       "the separate sections need more distinct headers and separation."
+       The Stake-out-a-hotspot card runs four different answers together —
+       which birds are here, what the place is iconic for, who has filed
+       checklists, and who birds here — and `.rankhead`'s 2px/4px margins gave
+       them no more separation than two paragraphs of the same block, so the
+       iconic block read as a continuation of the bird list.
+       A rule, not four: a divider and real space before each header, dropped
+       on the first one because a card does not need a line above its own top.
+       The header also stops being one run-on sentence — the TITLE is a title
+       and the numbers behind it become a sub-line (`.rankwhy`), the same
+       shape `.cardgroup`/`.cgwhy` already uses for the Leader Board Ticks
+       group heads. */
+    .hscard-lg .rankhead { margin: 22px 0 8px; padding-top: 16px;
+                           border-top-width: 1px; border-top-style: solid;
+                           border-top-color: var(--line); }
+    .hscard-lg .rankhead:first-child { margin-top: 4px; padding-top: 0;
+                                       border-top-style: none; }
+    .hscard-lg .rankhead b { font-size: calc(17px * var(--s)); font-weight: 800; }
+    .hscard-lg .rankwhy { display: block; margin-top: 3px;
+                          font-size: calc(13px * var(--s)); font-weight: 500;
+                          color: var(--muted); }
     .rankhead .bignum small { display: inline; }
     .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
     /* Rankings: one standing card, then a real aligned board. */
@@ -16763,15 +16785,38 @@
           (la != null && ln != null) ? esc((+la).toFixed(4) + ', ' + (+ln).toFixed(4)) : ''
         ].filter(Boolean).join(' \u00b7 ');
 
-        // ---- iconic: the score, then the birds that earn it
+        // ---- the birds, with a header of their own.
+        // Reported as "only Recent checklists has a real header": the bird
+        // split rendered through the large card's own unseen/seen slots, which
+        // carry a count label and no heading, so the first block on the card
+        // was the one block with nothing naming it. It moves into `below`
+        // alongside the other three, built from the SAME splitLists the medium
+        // card uses, so nothing about the rows changes - only that they are
+        // now announced.
         var below = '';
+        if (unseen.length || seen.length) {
+          below += '<div class="rankhead"><b>\ud83d\udc26 Birds reported here</b>'
+            + '<span class="rankwhy">the last ' + STAKE_HS_BACK + ' days, '
+            + 'still-needed birds first</span></div>';
+          below += HotspotCards.splitLists({
+            unseen: unseen.length ? speciesListHtml(unseen) : '',
+            unseenLabel: unseen.length ? (unseen.length + ' unseen \ud83d\udd0d') : '',
+            seen: seen.length ? speciesListHtml(seen) : '',
+            seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
+          });
+        }
+        // ---- iconic: the score, then the birds that earn it
         if (iconic === null) {
           below += '<div class="hint">\u2b50 Measuring what this place is iconic for\u2026</div>';
         } else if (iconic && iconic.birds.length) {
           var best = iconic.birds[0];
-          below += '<div class="rankhead"><b>\u2b50 Iconic here</b> \u00b7 best '
-            + Math.round(best.mult) + '\u00d7 the county rate \u00b7 '
-            + fmtInt(iconic.effort) + ' records in the 2 km box</div>';
+          // TITLE, then the numbers behind it. As one sentence this read as
+          // prose continuing the block above rather than as the head of a new
+          // one, which is most of why the two ran together.
+          below += '<div class="rankhead"><b>\u2b50 Iconic here</b>'
+            + '<span class="rankwhy">best ' + Math.round(best.mult)
+            + '\u00d7 the county rate \u00b7 ' + fmtInt(iconic.effort)
+            + ' records in the 2 km box</span></div>';
           below += SpeciesCards.list('small', iconic.birds.map(function (b) {
             return SpeciesCards.small({
               sci: b.code ? sciFor(b.code) : '',
@@ -16789,7 +16834,9 @@
 
         // ---- the checklists
         if (lists.length) {
-          below += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b></div>';
+          below += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b>'
+            + '<span class="rankwhy">' + lists.length + ' in the last '
+            + (span || nDays) + ' days \u00b7 newest first</span></div>';
           // THE CHECKLIST CARD'S OWN FIELD NAMES. This passed `{name, sub}`,
           // which belong to the SPECIES card — ChecklistCards.small reads
           // `date`/`href`/`who`/`sp`, so every field was ignored and twenty rows
@@ -16821,7 +16868,8 @@
         //  every fact about the PLACE below the fold — on a page whose whole
         //  purpose is the place.
         if (top.length) {
-          below += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b></div>';
+          below += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b>'
+            + '<span class="rankwhy">most checklists filed in this window</span></div>';
           below += '<ul class="stakewho">' + top.map(function (who) {
             // Case-insensitive, because eBird's display names are user-typed and
             // "you" appearing on someone else's row would be worse than missing
@@ -16842,11 +16890,10 @@
         box.innerHTML = '<ul class="obs">' + HotspotCards.large({
           name: extA(hotspotUrl(locId), name || loc.locName || locId),
           sub: facts,
-          unseen: unseen.length ? speciesListHtml(unseen) : '',
-          unseenLabel: unseen.length ? (unseen.length + ' unseen \ud83d\udd0d in the last '
-            + STAKE_HS_BACK + ' days') : '',
-          seen: seen.length ? speciesListHtml(seen) : '',
-          seenLabel: seen.length ? (seen.length + ' more species already seen') : '',
+          // The bird split moved into `below` so it could carry a header like
+          // every other block on this card. These slots stay empty rather than
+          // rendering the same list twice.
+          unseen: '', unseenLabel: '', seen: '', seenLabel: '',
           below: below,
           actions: '<div class="hsact">' + acts + '</div>'
         }) + '</ul>';
@@ -22210,6 +22257,10 @@
         // both halves of that are invisible to a regex over source text.
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
         stakeHsOpen: stakeHsOpen, stakeHsSearch: stakeHsSearch,
+        // Exposed so the card's four blocks can be RENDER-probed. Whether a
+        // block carries a header, and whether there is space between it and
+        // the next, is invisible to a regex over source text.
+        renderStakeHs: renderStakeHs,
         // F167: exposed so the limiter can be RENDER-probed rather than
         // regexed. "does it pace" and "does it retry a 429" are both invisible
         // to a search over source text.
