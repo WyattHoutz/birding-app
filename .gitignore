@@ -21,3 +21,6 @@ npm-debug.log*
 # Scratch files from test runs (npm test > _t.txt)
 _*.txt
 *.verify*
+
+# assets/ carries Python build tooling (square-icons.py and friends)
+__pycache__/
