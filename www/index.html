@@ -1001,18 +1001,31 @@
       margin-top: 2px;
     }
 
-    /* `contain`, not `cover`. A square slot with `cover` always throws away
-       part of the picture, and which part depends on the photo's aspect — 56
-       distinct shapes are bundled, from 3:2 landscape to 2:3 portrait. That
-       produced two separate reports: portrait shots lost the head off the top,
-       and Wilson's Phalarope (250x156 landscape) lost the bird off the sides.
-       `object-position` can only trade one of those for the other.
+    /* `cover`, not `contain` — and the premise for `contain` is gone.
 
-       So the icon is never cropped now. It is letterboxed against the slot's
-       own background instead, which at 46-70px is barely visible and, unlike
-       any crop rule, cannot cut the bird in half. The bundled photos are 240px
-       wide, so there is resolution to spare for the smaller rendered box. */
-    .thumb .birdpic { width: 100%; height: 100%; object-fit: contain; display: block; }
+       `contain` was correct when the bundled photos had 56 distinct aspect
+       ratios, from 3:2 landscape to 2:3 portrait: a square slot with `cover`
+       always throws away part of the picture, and which part depends on the
+       photo, so portrait shots lost the head off the top and Wilson's
+       Phalarope (250x156 landscape) lost the bird off the sides.
+       `object-position` could only trade one of those for the other.
+
+       Every bundled icon is now cropped square at build time by
+       assets/square-icons.py, which picks the window by where the bird
+       actually is and protects the head. Measured after that run: 0 of 1335
+       report icons and 0 of 1288 app icons are non-square. For a square image
+       in a square slot `cover` and `contain` are identical, so this rule
+       cannot crop anything we ship.
+
+       It earns its place on what we do NOT ship: tier-3 photos fetched live
+       from Wikipedia arrive at whatever shape the uploader chose. `contain`
+       letterboxes those into a 46px slot, which wastes most of an already
+       tiny box; `cover` fills it. 50% 35% is the same head-bias the ABA hero
+       has shipped with since v1.0.24 (cards-species.js) — one number, not a
+       second one to keep in step. The hero and the fallback keep their own
+       more specific rules there. */
+    .thumb .birdpic { width: 100%; height: 100%; object-fit: cover;
+                      object-position: 50% 35%; display: block; }
     .obs li { overflow: hidden; }
     .bcnow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
       background: #f6f8f6; font-size: calc(18px * var(--s)); line-height: 1.4; }

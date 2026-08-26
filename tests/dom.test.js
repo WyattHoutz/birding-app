@@ -15978,3 +15978,59 @@ test('the wall probe reports what it saw instead of asserting why', async () => 
   assert.match(HTML, /\\nmatched: ' \+ \(a\.hits/, 'and the markers it matched');
   app.window.close();
 });
+
+// ── Squared bird icons, and the CSS rule that depends on them ──────────────
+// v1.40.0 replaced `object-fit: contain` with `cover` on list thumbs. That is
+// only safe because assets/square-icons.py now crops every bundled icon square
+// around the bird. `contain` existed precisely because the seed carried 56
+// different aspect ratios, so a square slot either letterboxed them or cut a
+// head off. If a non-square icon is ever added back, `cover` starts silently
+// cropping it again — at 46px, where nobody notices until a head is gone.
+function imageSize(buf) {
+  if (buf.length > 24 && buf.toString('ascii', 1, 4) === 'PNG') {
+    return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+  }
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let p = 2;
+    while (p + 9 < buf.length) {
+      if (buf[p] !== 0xff) { p += 1; continue; }
+      const m = buf[p + 1];
+      // SOF0..SOF15 carry the frame size; C4/C8/CC are other tables.
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { h: buf.readUInt16BE(p + 5), w: buf.readUInt16BE(p + 7) };
+      }
+      if (m === 0xd8 || (m >= 0xd0 && m <= 0xd9)) { p += 2; continue; }
+      p += 2 + buf.readUInt16BE(p + 2);
+    }
+  }
+  return null;
+}
+
+test('every bundled bird icon is square, which is what lets .thumb use cover', () => {
+  const dir = path.join(WWW, 'assets', 'birds');
+  const files = fs.readdirSync(dir).filter((f) => /\.(jpe?g|png)$/i.test(f));
+  // A guard that runs over an empty directory passes and proves nothing.
+  assert.ok(files.length > 1000,
+    `expected the bundled icon seed, found only ${files.length} icons`);
+  const bad = [];
+  for (const f of files) {
+    const d = imageSize(fs.readFileSync(path.join(dir, f)));
+    assert.ok(d, `could not read the pixel size of ${f}`);
+    if (Math.abs(d.w - d.h) > 1) bad.push(`${f} is ${d.w}x${d.h}`);
+  }
+  assert.deepEqual(bad, [],
+    `these icons are not square, so object-fit: cover will crop them:\n  ${bad.join('\n  ')}`);
+});
+
+test('.thumb .birdpic fills its slot and biases the crop toward the head', () => {
+  const m = HTML.match(/\.thumb \.birdpic \{([^}]*)\}/);
+  assert.ok(m, 'the .thumb .birdpic rule is missing');
+  assert.match(m[1], /object-fit:\s*cover/,
+    'a 46px slot is too small to letterbox a live Wikipedia photo into');
+  const pos = m[1].match(/object-position:\s*(\d+)%\s+(\d+)%/);
+  assert.ok(pos, '.thumb .birdpic needs an explicit object-position');
+  // Assert the PROPERTY, not the literal 35%: birds carry their head above
+  // their centre, so a tall photo must lose the tail, never the face.
+  assert.ok(Number(pos[2]) < 50,
+    `the vertical bias must sit ABOVE centre to keep the head, got ${pos[2]}%`);
+});
