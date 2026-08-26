@@ -17000,3 +17000,50 @@ test('F184: linking to CAS is not evidence — posting to it is', async () => {
     'and the wall probe no longer reports failure on a success');
   app.window.close();
 });
+
+// ---------------------------------------------------------------------------
+// F189 — the county picker had an accessible name and no VISIBLE one.
+//
+// "so this drop down is confusing. what does each option mean?" Reported from
+// the device against v1.40.0, which is the release that added it. Three causes,
+// all measured: the label was class="vh" (clipped to 1px), it sat directly
+// under "#180 in Washington · 209 species this year" so it read as part of that
+// sentence, and its default option was spelled as DATA ("King + Snohomish" —
+// which counties does this report cover) rather than as a STATE ("All counties"
+// — am I filtering?).
+// ---------------------------------------------------------------------------
+
+test('F189: the county picker says what it is, on screen', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const sel = app.$('menuCounty');
+  assert.ok(sel, 'the picker exists on a report with more than one county');
+
+  // A VISIBLE label. An accessible name is necessary and NOT sufficient - a
+  // sighted reader saw an unnamed box.
+  const label = doc.querySelector('label[for="menuCounty"]');
+  assert.ok(label, 'it has a label at all');
+  assert.ok(!label.classList.contains('vh'),
+    'and that label is not clipped to 1px — .vh was the whole bug');
+  assert.ok(label.textContent.trim().length > 0, 'the label has words in it');
+
+  // The default option is a STATE, not a list of the data.
+  const opts = [...sel.options].map((o) => o.textContent);
+  assert.equal(opts[0], 'All counties',
+    `the default must answer "am I filtering?", got ${JSON.stringify(opts[0])}`);
+  assert.ok(opts.slice(1).every((o) => / only$/.test(o)),
+    `every other option must say it NARROWS: ${JSON.stringify(opts)}`);
+  assert.deepEqual(opts.slice(1), ['King only', 'Snohomish only']);
+  assert.equal(sel.options[0].value, '', 'and the default is the no-filter value');
+
+  // ...and a line saying what it does AND what it never touches, because the
+  // second half is the part that is genuinely surprising.
+  const hint = doc.querySelector('.menuidhint');
+  assert.ok(hint, 'the control explains itself');
+  assert.match(hint.textContent, /no eBird calls/, 'it is free, and says so');
+  assert.match(hint.textContent, /never changes what counts as seen/,
+    'and it does not redefine seen — the F152 hard constraint, said out loud');
+  assert.match(hint.textContent, /Washington year list/,
+    'naming the list that still decides');
+  app.window.close();
+});

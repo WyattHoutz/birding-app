@@ -321,8 +321,15 @@
        words carry it, because colour alone is never allowed to be the signal
        here. Padding is in em so the box grows with the text scale instead of
        clipping it at the setting a low-vision reader would choose. */
-    .secscope { font-size: calc(13px * var(--s)); line-height: 1.35;
-                margin: 0 0 10px; padding: 0.45em 0.6em; border-radius: 8px;
+    /* F189: the county picker needs a VISIBLE name, not only an accessible
+       one, and a line saying what it does. Same shape as .regionpick's label
+       so the two controls read as siblings. */
+    .countypick label { font-size: calc(12px * var(--s)); font-weight: 800;
+                        color: var(--muted); text-transform: uppercase;
+                        letter-spacing: .04em; margin-right: 6px; }
+    .menuidhint { display: block; font-size: calc(12px * var(--s));
+                  line-height: 1.35; color: var(--muted); margin-top: 4px; }
+    .secscope { font-size: calc(13px * var(--s)); line-height: 1.35;                margin: 0 0 10px; padding: 0.45em 0.6em; border-radius: 8px;
                 border: 1px solid var(--line); background: var(--card);
                 color: var(--fg); }
     /* The scouted place, rendered inside whichever section you searched from.
@@ -21089,7 +21096,15 @@
         // that county is a control that does nothing.
         var coHtml = '';
         if (getCounties().length > 1) {
-          coHtml = '<span class="countypick"><label class="vh" for="menuCounty">County view</label>'
+          // F189: A VISIBLE LABEL, not only an accessible one.
+          //
+          // Reported from the device: "so this drop down is confusing. what
+          // does each option mean?" The label was `class="vh"` — clipped to
+          // 1px — so a screen reader heard "County view" and a sighted reader
+          // saw an unnamed box sitting directly under "#180 in Washington ·
+          // 209 species this year", where it read as part of that sentence.
+          // An accessible name is necessary and is NOT sufficient.
+          coHtml = '<span class="countypick"><label for="menuCounty">Show</label>'
             + '<select id="menuCounty"></select></span>';
         }
         if (!name && !bits.length && !coHtml) return '';
@@ -21111,6 +21126,11 @@
           + '</div>'
           + ((bits.length || coHtml)
               ? '<span class="menuidsub">' + bits.join(' · ') + coHtml + '</span>'
+              : '')
+          + (coHtml
+              ? '<span class="menuidhint">Narrows every list to one county. '
+                + 'Costs no eBird calls, and never changes what counts as seen — '
+                + 'your ' + esc(getReport().label) + ' year list still decides that.</span>'
               : '')
           + profHtml
           + '</div>';
@@ -21757,12 +21777,16 @@
         sel.innerHTML = '';
         var all = document.createElement('option');
         all.value = '';
-        all.textContent = countyLabelStr();
+        // F189: the default is a STATE, not a list of data. "King + Snohomish"
+        // answers "which counties does this report cover", which is not the
+        // question the control asks. "All counties" answers "am I filtering?",
+        // which is.
+        all.textContent = 'All counties';
         sel.appendChild(all);
         getCounties().forEach(function (c) {
           if (!c || !c.code) return;
           var o = document.createElement('option');
-          o.value = c.code; o.textContent = c.label;
+          o.value = c.code; o.textContent = c.label + ' only';
           sel.appendChild(o);
         });
         sel.value = getCountyView();
