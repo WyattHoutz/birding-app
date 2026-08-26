@@ -317,6 +317,14 @@
     .sechint { color: var(--muted); font-size: calc(13px * var(--s));
 
                line-height: 1.35; margin: -2px 0 10px; }
+    /* F152: the county-view chip. Not colour-coded — the pin glyph and the
+       words carry it, because colour alone is never allowed to be the signal
+       here. Padding is in em so the box grows with the text scale instead of
+       clipping it at the setting a low-vision reader would choose. */
+    .secscope { font-size: calc(13px * var(--s)); line-height: 1.35;
+                margin: 0 0 10px; padding: 0.45em 0.6em; border-radius: 8px;
+                border: 1px solid var(--line); background: var(--card);
+                color: var(--fg); }
     /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
        "Stop tracking Horned Lark" - its width is the length of a species name,
        which cannot be budgeted for at 320px. Higher specificity than the base
@@ -1979,8 +1987,10 @@
       <h2>🏅 My eBird rankings <span class="dim" id="rankRegionLabel"></span></h2>
       <div class="row">
         <button id="rankBtn">Load rankings</button>
+        <label class="vh" for="rankScope">Which leaderboard</label>
+        <select id="rankScope" hidden></select>
       </div>
-      <div id="rankStatus" class="status">Your standing plus the full Top 100 board for the region you’re birding, and how your rank has moved since you started tracking. Switch regions from the nav.</div>
+      <div id="rankStatus" class="status">Your standing plus the full Top 100 board for the region you’re birding, and how your rank has moved since you started tracking. Switch regions from the nav, or pick a county board here.</div>
       <div id="rankSummary"></div>
       <div id="rankResults"></div>
     </section>
@@ -8138,6 +8148,107 @@
           drop.forEach(function (k) { if (k !== keep) localStorage.removeItem(k); });
         } catch (e) { /* nothing worth reporting */ }
       }
+      // --- F152 · the county PLACE FILTER -----------------------------------
+      //
+      // Asked for as *"it gives me an idea of where to go find a bird that was
+      // in one county or the other"*, and *"someone with limited mobility may
+      // want this"*.
+      //
+      // MEASURED before building, and this is why it is cheap: the county is
+      // already on every record — logic.js copies `subnational2Code` off the
+      // detail=full feed into `r.county` — and the feeds are ALREADY fetched
+      // per county. So this is a post-filter over data in hand. It needs no new
+      // fetch, and it never touches planFeeds, so the static feed-plan golden
+      // that blocks F1 and F9 does not apply here.
+      //
+      // TWO THINGS IT DELIBERATELY DOES NOT DO:
+      //
+      // 1. It does not redefine *seen*. A bird you saw in Snohomish is still on
+      //    your Washington year list. The filter runs AFTER computeChaseViews,
+      //    over its output, so the seen set it was computed against is the
+      //    state one exactly as before — and the chip on every filtered section
+      //    says which list that is.
+      // 2. It does not touch the SNAPSHOT. saveSnapCodes runs inside finish(),
+      //    before this ever sees the result, so tomorrow's "new since" is still
+      //    compared against everything that was fetched. Filtering first would
+      //    have made every Snohomish bird look new the moment you looked at
+      //    King, which is a silent corruption of a stored fact.
+      var COUNTY_VIEW_KEY = 'ebird_county_view';
+      function countyViewKey() { return COUNTY_VIEW_KEY + ':' + getReportSlug(); }
+      function getCountyView() {
+        var want = '';
+        try { want = localStorage.getItem(countyViewKey()) || ''; } catch (e) { return ''; }
+        if (!want) return '';
+        // A stored county that is not one of THIS report's counties is a miss,
+        // not an instruction to show nothing.
+        var ok = getCounties().some(function (c) {
+          return String(c.code || '').toLowerCase() === want.toLowerCase();
+        });
+        return ok ? want : '';
+      }
+      function setCountyView(code) {
+        try {
+          if (code) localStorage.setItem(countyViewKey(), String(code));
+          else localStorage.removeItem(countyViewKey());
+        } catch (e) {}
+      }
+      function countyViewLabel() {
+        var code = getCountyView();
+        if (!code) return '';
+        var hit = getCounties().filter(function (c) {
+          return String(c.code || '').toLowerCase() === code.toLowerCase();
+        })[0];
+        return hit ? hit.label : code;
+      }
+      function recInCounty(r, code) {
+        return !!(r && String(r.county || '').toLowerCase() === String(code).toLowerCase());
+      }
+      // A cluster is a 250 m bag of records, so its county is its records'.
+      // `records` is carried on every scored cluster by scoreDestinationClusters,
+      // so this needs no geometry and no lookup — and a cluster straddling a
+      // county line is kept for BOTH, which is the honest answer for a place
+      // 250 m across.
+      function clusterInCounty(cl, code) {
+        var recs = (cl && cl.records) || [];
+        for (var i = 0; i < recs.length; i++) if (recInCounty(recs[i], code)) return true;
+        return false;
+      }
+      function filterCvByCounty(cv, code) {
+        if (!cv || !code) return cv;
+        function recs(a) {
+          return (a || []).filter(function (r) { return recInCounty(r, code); });
+        }
+        function clusters(a) {
+          var out = (a || []).filter(function (c) { return clusterInCounty(c, code); });
+          // radiusMi is a PROPERTY on the array, not an element, and .filter
+          // does not carry it. Losing it makes destRadiusMi undefined and the
+          // "patches stop where excursions start" line unprintable.
+          out.radiusMi = (a && a.radiusMi);
+          return out;
+        }
+        var out = {};
+        for (var k in cv) if (Object.prototype.hasOwnProperty.call(cv, k)) out[k] = cv[k];
+        out.merged = recs(cv.merged);
+        out.unseenAll = recs(cv.unseenAll);
+        out.unseen = recs(cv.unseen);
+        out.near = recs(cv.near);
+        out.notableToday = recs(cv.notableToday);
+        out.destinations = clusters(cv.destinations);
+        out.excursions = clusters(cv.excursions);
+        // `stakeout` is a locId eligibility set, not a display list. Narrowing
+        // it would change whether a place is CHASEABLE, which is a different
+        // claim from whether it is in the county you are looking at.
+        return out;
+      }
+      function countyView(c) {
+        var code = getCountyView();
+        if (!c || !code || !c.cv) return c;
+        var out = {};
+        for (var k in c) if (Object.prototype.hasOwnProperty.call(c, k)) out[k] = c[k];
+        out.cv = filterCvByCounty(c.cv, code);
+        out.countyView = code;
+        return out;
+      }
       // What the two rarity sections read. A rarity list needs the notable
       // feeds and nothing else, so it must not be made to wait for the half of
       // phase 1 that exists to score destinations.
@@ -8148,13 +8259,13 @@
       function getChaseRarity(force) {
         var slug = getReport().slug;
         var full = _chase[slug];
-        if (!force && full && (Date.now() - full.t) < CHASE_TTL_MS) return Promise.resolve(full);
+        if (!force && full && (Date.now() - full.t) < CHASE_TTL_MS) return Promise.resolve(countyView(full));
         var p = _chaseRarity[slug];
         if (!force && p) {
           // Keep the wave running underneath — this is a head start, not a
           // substitute for it, and onRarityEarly repaints when it completes.
           getChase(force);
-          return Promise.resolve(p);
+          return Promise.resolve(countyView(p));
         }
         return getChase(force);
       }
@@ -8174,6 +8285,14 @@
         });
       }
       function getChase(force) {
+        // F152: the county view is applied HERE, at the single point every
+        // section reads through, rather than in thirty renderers. It is a
+        // projection of an already-computed result — no refetch, no recompute,
+        // and the raw result stays in _chase so the snapshot, the rarity-code
+        // lookup and tomorrow's "new since" all still see everything fetched.
+        return getChaseAll(force).then(countyView);
+      }
+      function getChaseAll(force) {
         var profile = getReport(), slug = profile.slug;
         var c = _chase[slug];
         // FORCE is what makes Refresh mean something. The comment below has
@@ -13664,15 +13783,102 @@
         if (low === 'aba') return 'ABA Area';
         var m = /^US-([A-Z]{2})$/.exec(reg.toUpperCase());
         if (m) for (var k in _US_STATES) if (_US_STATES[k] === m[1]) return k;
+        // F152: a county board is a real board, so it needs a real name. The
+        // county list the report already carries has both halves — code and
+        // label — so 'US-WA-033' reads as 'King County' with no new lookup and
+        // no new fetch.
+        var co = getCounties().filter(function (c) {
+          return rankRegionMatches(c.code, reg);
+        })[0];
+        if (co) return co.label;
         return reg;
+      }
+
+      // --- F152 · the county LEADERBOARD is a view, never a Region -----------
+      //
+      // Asked for as *"sometimes im interested in my rank in king and snohomish
+      // county"*. Measured before building: `rankingsUrl` already counts the
+      // dashes in a region code and emits `locInfo.regionType=subnational2`, so
+      // 'US-WA-033' produces a valid King County top100 URL with no new code,
+      // and the v1.0.13 board-region check validates a county board exactly as
+      // it validates a state one — eBird names itself in the canonical link
+      // whatever the scope.
+      //
+      // What this deliberately does NOT do is make a county a Region. A Region
+      // needs its own birdlist-*.md, because analyze.py computes *seen* from
+      // that file — which would recreate by hand precisely the maintenance F8
+      // exists to remove. Nothing here touches the seen set: a bird seen in
+      // Snohomish is still on the Washington year list. This is a different
+      // BOARD, not a different list, and the card says so.
+      var RANK_SCOPE_KEY = 'ebird_rank_scope';
+      function rankScopeKey() { return RANK_SCOPE_KEY + ':' + getReportSlug(); }
+      // The boards this report can honestly offer: its own, plus one per county
+      // it already fetches. A rarity tracker has no counties, so it gets exactly
+      // one option and the control hides itself rather than offering a choice
+      // of one.
+      function rankScopeOptions() {
+        var rr = rankPrimaryRegion();
+        var opts = [{ region: rr.region, label: rr.label, max: rr.max || 500, primary: true }];
+        getCounties().forEach(function (c) {
+          if (!c || !c.code) return;
+          if (rankRegionMatches(c.code, rr.region)) return;
+          opts.push({ region: c.code, label: c.label, max: 500, primary: false });
+        });
+        return opts;
+      }
+      function getRankScope() {
+        var opts = rankScopeOptions(), want = '';
+        try { want = localStorage.getItem(rankScopeKey()) || ''; } catch (e) { want = ''; }
+        for (var i = 0; i < opts.length; i++) {
+          if (rankRegionMatches(opts[i].region, want)) return opts[i];
+        }
+        // An unknown stored scope is a miss, not an instruction: fall back to
+        // the report's own board rather than rendering nothing.
+        return opts[0];
+      }
+      function setRankScope(region) {
+        try { localStorage.setItem(rankScopeKey(), String(region || '')); } catch (e) {}
       }
       // The <h2> suffix names the board on screen. It used to name the active
       // REPORT while a scope selector could point the rows somewhere else, so
-      // Lower-48 numbers could sit under a "Washington" heading. There is no
-      // scope selector anymore: one report, one region, one board.
+      // Lower-48 numbers could sit under a "Washington" heading.
+      //
+      // F152 brings a scope selector back — for counties of THIS report only —
+      // so the invariant it broke has to be re-established rather than assumed:
+      // the label is derived from getRankScope(), the same call loadRankings
+      // fetches from, so the heading cannot name one board while the rows are
+      // another. The change listener is wired here, beside the fill, because a
+      // control with no listener is exactly the bug that hid the rankings scope
+      // for a whole release (v1.0.10).
       function syncRankRegionUI() {
+        var sc = getRankScope();
         if ($('rankRegionLabel')) {
-          $('rankRegionLabel').textContent = '· ' + rankPrimaryRegion().label;
+          $('rankRegionLabel').textContent = '· ' + sc.label;
+        }
+        var sel = $('rankScope');
+        if (!sel) return;
+        var opts = rankScopeOptions();
+        // One board is not a choice. A rarity tracker has no counties, so the
+        // control would offer its own single option and mean nothing.
+        sel.hidden = opts.length < 2;
+        var want = opts.map(function (o) { return o.region; }).join('|');
+        if (sel.dataset.filled !== want) {
+          sel.innerHTML = '';
+          opts.forEach(function (o) {
+            var el = document.createElement('option');
+            el.value = o.region;
+            el.textContent = o.label;
+            sel.appendChild(el);
+          });
+          sel.dataset.filled = want;
+        }
+        if (sel.value !== sc.region) sel.value = sc.region;
+        if (!sel.dataset.bound) {
+          sel.addEventListener('change', function () {
+            setRankScope(this.value);
+            loadRankings();
+          });
+          sel.dataset.bound = '1';
         }
       }
       // rankings.py caches the scrape once per day (the Lower-48 page is huge);
@@ -14158,7 +14364,15 @@
       }
 
       function loadRankings() {
-        var rr = rankPrimaryRegion();
+        // F152: the SCOPE, not the report's primary board. Everything
+        // downstream — the URL, the cache key, the region check, the rank
+        // history and the board history — is already keyed by region code, so
+        // a county board gets its own of each and cannot collide with the
+        // state one. Other sections (Latest ticks, Where the top 100 bird)
+        // deliberately keep reading rankPrimaryRegion(): they pool a board to
+        // answer a question about the whole region, and a guard asserts Latest
+        // ticks reads exactly ONE board.
+        var rr = getRankScope();
         var region = rr.region;
         syncRankRegionUI();
         var year = new Date().getFullYear();
@@ -14243,6 +14457,20 @@
         cap.className = 'rankcap';
         cap.textContent = '🥇 Top ' + TOP_BOARD_N + ' eBirders — ' + label + ' (' + year + ')';
         out.appendChild(cap);
+        // F152's hard constraint, said out loud rather than assumed: a county
+        // board is a different BOARD, not a different list. Nothing in the app
+        // starts calling a Snohomish bird unseen because you are looking at the
+        // King County standings — the year list is still the state one. The
+        // species number on these rows is eBird's own county total for that
+        // birder, which is why it is smaller than the state figure.
+        if (!rankRegionMatches(region, rankPrimaryRegion().region)) {
+          var scopeNote = document.createElement('div');
+          scopeNote.className = 'hint';
+          scopeNote.textContent = 'This is eBird’s ' + label + ' board. Your '
+            + rankPrimaryRegion().label + ' year list is unchanged — nothing else '
+            + 'in the app is re-scored by picking a county here.';
+          out.appendChild(scopeNote);
+        }
         var tbl = document.createElement('div'); tbl.className = 'ranktable';
         var h = '<div class="rankrow rankhdr"><span class="rk">#</span>' +
             '<span class="who">Birder</span><span class="mv"></span>' +
@@ -19667,6 +19895,12 @@
       // and issue no requests of their own. Only those may be repainted when
       // phase 1 publishes.
       //
+      // `countyView` (F152) is a DIFFERENT and wider set: every loader that
+      // READS the chase cache, whether or not it also fetches. Those are the
+      // sections a county view narrows, so those are the sections that must
+      // carry the chip saying so. A section that shows narrowed rows without
+      // saying they are narrowed is the same silent-degradation defect as F2.
+      //
       // Getting this wrong is what put Happening now in a load loop: it calls
       // getChase() AND fetches its own convoy feeds, so repainting it re-ran
       // those fetches — at 3.3 s per call under the measured rate limit, that
@@ -19677,8 +19911,8 @@
         // search against an empty box on every open would spend a call to say
         // "type something".
         stakeHsBtn:   { needsKey: true },
-        allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true },
-        surgeBtn:   { fn: loadSurge,        needsKey: true },
+        allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true, countyView: true },
+        surgeBtn:   { fn: loadSurge,        needsKey: true, countyView: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
         rankBtn:    { fn: loadRankings,     needsKey: true },
         // No needsKey and no needsHome: the table is bundled, so this section
@@ -19686,14 +19920,14 @@
         // only decorates it with a distance column when there is one.
         patchBtn:   { fn: loadChoicePatches },
         lastNewBtn: { fn: loadLastNew,      needsKey: true },
-        refreshBtn: { fn: refresh,          needsKey: true },
-        activeBtn:  { fn: loadActiveRarities, needsKey: true, fromChase: true },
+        refreshBtn: { fn: refresh,          needsKey: true, countyView: true },
+        activeBtn:  { fn: loadActiveRarities, needsKey: true, fromChase: true, countyView: true },
         abaBtn:     { fn: loadAbaAlert,     needsKey: true },
-        tripBtn:    { fn: loadTripPlanner,  needsKey: true },
-        destBtn:    { fn: loadDestinations, needsKey: true, fromChase: true },
-        targetsBtn: { fn: loadTargets,      needsKey: true, fromChase: true },
+        tripBtn:    { fn: loadTripPlanner,  needsKey: true, countyView: true },
+        destBtn:    { fn: loadDestinations, needsKey: true, fromChase: true, countyView: true },
+        targetsBtn: { fn: loadTargets,      needsKey: true, fromChase: true, countyView: true },
         quickBtn:   { fn: loadQuickOuting,  needsKey: true },
-        excBtn:     { fn: loadExcursions,   needsKey: true, fromChase: true },
+        excBtn:     { fn: loadExcursions,   needsKey: true, fromChase: true, countyView: true },
         hotBtn:     { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadChecklists,   needsKey: true },
@@ -20446,7 +20680,18 @@
         var year = 0;
         try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
         if (year) bits.push(esc(year) + ' species this year');
-        if (!name && !bits.length) return '';
+        // F152: the county VIEW sits on the sub-line, not beside the region.
+        // The region picker changes which REPORT you are reading; this narrows
+        // the one you are already in, which is a smaller act and belongs on the
+        // smaller line. Offered only when the report has more than one county —
+        // a rarity tracker has none, and narrowing a single-county report to
+        // that county is a control that does nothing.
+        var coHtml = '';
+        if (getCounties().length > 1) {
+          coHtml = '<span class="countypick"><label class="vh" for="menuCounty">County view</label>'
+            + '<select id="menuCounty"></select></span>';
+        }
+        if (!name && !bits.length && !coHtml) return '';
         // THE REGION SITS BESIDE THE NAME, hard right. "id like the region drop
         // down to be aligned right of my birder wyatt name in the same cell,
         // aligned to the right side of the screen." It was briefly a grid cell
@@ -20458,7 +20703,9 @@
           + '<span class="regionpick"><label class="vh" for="menuRegion">Region</label>'
           + '<select id="menuRegion"></select></span>'
           + '</div>'
-          + (bits.length ? '<span class="menuidsub">' + bits.join(' · ') + '</span>' : '')
+          + ((bits.length || coHtml)
+              ? '<span class="menuidsub">' + bits.join(' · ') + coHtml + '</span>'
+              : '')
           + '</div>';
       }
       function renderMenuIdentity() {
@@ -20691,6 +20938,31 @@
             h20.insertAdjacentElement('afterend', el);
           }
           el.textContent = txt;
+        })();
+        // F152: SAY that the list is narrowed, and say which list still decides
+        // what counts as unseen. A county view changes which rows you see; it
+        // does NOT change what "seen" means — a bird you saw in Snohomish is
+        // still on your Washington year list — and a filtered section that does
+        // not admit it is filtered is the silent-degradation defect F2 exists
+        // to complain about. Only sections whose loader actually reads the
+        // chase cache get the chip; a guard checks that flag against the source.
+        (function () {
+         if (!sec0 || !h20) return;
+         var el = sec0.querySelector('.secscope');
+         var code = getCountyView();
+         var spec = sec0._loader;
+         if (!code || !spec || !spec.countyView) {
+           if (el) el.parentNode.removeChild(el);
+           return;
+         }
+         if (!el) {
+           el = document.createElement('div');
+           el.className = 'secscope';
+           var anchor = sec0.querySelector('.sechint') || h20;
+           anchor.insertAdjacentElement('afterend', el);
+         }
+         el.textContent = '📍 ' + countyViewLabel() + ' only — your '
+           + getReport().label + ' year list still decides what counts as unseen.';
         })();
         // F134: opening a section is what makes its news old. Placed AFTER
         // costEnter, because cost attribution must stay the first thing that
@@ -21036,7 +21308,43 @@
           sel.addEventListener('change', function () { setActiveReport(this.value); });
           sel.dataset.bound = '1';
         });
+        bindCountyPicker();
         syncRegionNav();
+      }
+      // F152. Rebuilt with the identity cell, so it binds here for the same
+      // reason the region picker does: a listener attached once at boot is
+      // thrown away the first time the menu re-renders, which is the exact
+      // shape of the bug that hid the rankings scope for a whole release.
+      function bindCountyPicker() {
+        var sel = $('menuCounty');
+        if (!sel || sel.dataset.bound) return;
+        sel.innerHTML = '';
+        var all = document.createElement('option');
+        all.value = '';
+        all.textContent = countyLabelStr();
+        sel.appendChild(all);
+        getCounties().forEach(function (c) {
+          if (!c || !c.code) return;
+          var o = document.createElement('option');
+          o.value = c.code; o.textContent = c.label;
+          sel.appendChild(o);
+        });
+        sel.value = getCountyView();
+        sel.addEventListener('change', function () {
+          setCountyView(this.value);
+          applyCountyView();
+        });
+        sel.dataset.bound = '1';
+      }
+      // Nothing is refetched. _chase still holds the wave's result and the view
+      // is a projection of it, so this is a repaint: clear what is on screen,
+      // drop the once-only flags, and let the same loaders run again over the
+      // same cached data. Measured cost: zero eBird calls.
+      function applyCountyView() {
+        RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
+        _autoLoaded = {};
+        var open = _sections.filter(function (s) { return !s.hidden; })[0];
+        if (open) showSection(open.id);
       }
       function syncRegionNav() {
         var slug = getReportSlug();
@@ -22587,6 +22895,16 @@
         rarityRowId: rarityRowId,
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
         geocodePlace: geocodePlace, GEOCODER_HOST: GEOCODER_HOST,
+        // F152: exposed so the county VIEW can be probed for the two things a
+        // regex over source text cannot see — that filtering narrows the rows
+        // an already-computed view hands out, and that it leaves the seen set
+        // and the stored snapshot alone.
+        getCountyView: getCountyView, setCountyView: setCountyView,
+        countyViewLabel: countyViewLabel, filterCvByCounty: filterCvByCounty,
+        countyView: countyView, getCounties: getCounties,
+        getRankScope: getRankScope, setRankScope: setRankScope,
+        rankScopeOptions: rankScopeOptions, rankRegionName: rankRegionName,
+        LOADERS: LOADERS,
         coverageNote: coverageNote, chaseMaxMi: chaseMaxMi, countyLabelStr: countyLabelStr,
         spLookupPlacesHtml: spLookupPlacesHtml,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,

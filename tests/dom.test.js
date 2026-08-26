@@ -1201,7 +1201,16 @@ test('rankings: the board is scoped to the active report and includes the Top 10
     'a Washington report must load ONLY the Washington board');
   assert.match(app.$('rankRegionLabel').textContent, /Washington/,
     'the heading names the region, not the raw region code');
-  assert.ok(!app.$('rankScope'), 'the scope selector is gone — region comes from the report');
+  // F152 brings a scope control back — for COUNTY boards of this same report.
+  // The invariant that removing it protected is what matters, and it is now
+  // asserted directly in "F152: a county board is a view, not a region"
+  // below: the heading is derived from the same call the fetch uses, so it
+  // cannot name one board while the rows are another.
+  assert.ok(app.$('rankScope'), 'the county board picker is present');
+  assert.ok(app.$('rankScope').options.length >= 2,
+    'a report with counties offers its own board plus each county');
+  assert.equal(app.$('rankScope').value, 'US-WA',
+    'and opens on the report\'s own board, not a county');
   const src = HTML.slice(HTML.indexOf('function renderRankings('),
     HTML.indexOf('function loadLastNew('));
   assert.match(src, /Top ' \+ TOP_BOARD_N \+ ' eBirders/,
@@ -16198,4 +16207,189 @@ test('the pause message only blames eBird when eBird actually refused', () => {
                            HTML.indexOf('_fgTokens = 0; _fgTokenAt = Date.now();') + 500);
   assert.match(retry, /_fgHoldWhy = 'limit'/,
     'only a real refusal may record itself as a rate limit');
+});
+
+// ---------------------------------------------------------------------------
+// F152 — county views. Two halves, and the guards are about the CONSTRAINTS
+// the backlog entry names, not about the wiring: it must be a VIEW never a
+// Region, and it must not redefine what "seen" means.
+// ---------------------------------------------------------------------------
+
+test('F152: a county board is a different board, not a different region', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.open(/eBird Rankings/);
+  await new Promise((r) => setTimeout(r, 60));
+
+  const sel = app.$('rankScope');
+  assert.ok(sel, 'the section offers its county boards');
+  const opts = [...sel.options].map((o) => o.value);
+  assert.deepEqual(opts, ['US-WA', 'US-WA-033', 'US-WA-061'],
+    'the report own board first, then each county it already fetches');
+
+  const before = app.state.fetches.filter((u) => /top100/.test(u)).length;
+  sel.value = 'US-WA-033';
+  sel.dispatchEvent(new app.window.Event('change'));
+  await new Promise((r) => setTimeout(r, 60));
+  const after = app.state.fetches.filter((u) => /top100/.test(u));
+  assert.ok(after.length > before,
+    'changing the board fetches that board — a control with no listener is the '
+    + 'v1.0.10 bug that hid the rankings scope for a whole release');
+  const last = after[after.length - 1];
+  assert.match(last, /US-WA-033/, 'and it asks for the county');
+  assert.match(last, /subnational2/,
+    'as a subnational2, which rankingsUrl already emitted before this feature '
+    + 'existed — that is why the leaderboard half was measured as cheap');
+
+  // THE INVARIANT REMOVING THE OLD SELECTOR PROTECTED. The heading must name
+  // the board the rows came from; Lower-48 numbers under a "Washington" title
+  // is the bug that produced this control being deleted in v1.0.12.
+  assert.match(app.$('rankRegionLabel').textContent, /King/,
+    'the heading follows the board');
+
+  // AND THE HARD CONSTRAINT: this is a board, not a region. Nothing about the
+  // seen set moved.
+  assert.equal(A.getCountyView(), '',
+    'picking a county BOARD does not switch the app into a county view');
+  app.window.close();
+});
+
+test('F152: a county view filters places without redefining seen', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // Array.from, not .map straight off the app's array: the app runs in the
+  // jsdom realm, so an array it produced has a DIFFERENT Array.prototype and
+  // deepStrictEqual compares prototypes. Measured — the two arrays printed
+  // identically and the assertion still failed.
+  const cos = Array.from(A.getCounties()).map((c) => c.code);
+  assert.deepEqual(cos, ['US-WA-033', 'US-WA-061'],
+    'the fixture report has two counties to choose between');
+
+  const rec = (county, code) => ({ county, code, comName: code, loc: code + ' pond' });
+  const cv = {
+    merged: [rec('US-WA-033', 'a'), rec('US-WA-061', 'b')],
+    unseen: [rec('US-WA-033', 'a'), rec('US-WA-061', 'b')],
+    unseenAll: [rec('US-WA-061', 'b')],
+    near: [rec('US-WA-033', 'a')],
+    notableToday: [rec('US-WA-061', 'b')],
+    destinations: Object.assign(
+      [{ loc: 'King spot', records: [rec('US-WA-033', 'a')] },
+       { loc: 'Sno spot', records: [rec('US-WA-061', 'b')] }],
+      { radiusMi: 12 }),
+    excursions: Object.assign([{ loc: 'Sno far', records: [rec('US-WA-061', 'b')] }],
+      { radiusMi: 12 }),
+    stakeout: { L1: 1, L2: 1 }
+  };
+
+  const king = A.filterCvByCounty(cv, 'US-WA-033');
+  assert.deepEqual(king.merged.map((r) => r.code), ['a'], 'records outside the county go');
+  assert.deepEqual(king.unseenAll.map((r) => r.code), [],
+    'and a view with nothing in that county is empty, not unfiltered');
+  assert.deepEqual(king.destinations.map((d) => d.loc), ['King spot'],
+    'a cluster is placed by the records it is made of — no geometry needed');
+  assert.deepEqual(king.excursions.map((d) => d.loc), [],
+    'excursions filter the same way');
+
+  // radiusMi is a PROPERTY ON THE ARRAY, and .filter does not carry it.
+  // Losing it makes destRadiusMi undefined and "patches stop where excursions
+  // start" unprintable.
+  assert.equal(king.destinations.radiusMi, 12,
+    'the adaptive boundary survives the filter');
+
+  // THE DECISION TO AVOID, asserted directly: stakeout is an eligibility set,
+  // not a display list. Narrowing it would change whether a place is
+  // CHASEABLE, which is a different claim from where it is.
+  assert.deepEqual(Object.keys(king.stakeout).sort(), ['L1', 'L2'],
+    'the stakeout eligibility set is not a place list and must not be filtered');
+
+  // ...and the original is untouched, because the raw result stays in _chase
+  // for the snapshot and the rarity-code lookup to read.
+  assert.equal(cv.merged.length, 2, 'filtering is a projection, not a mutation');
+
+  // No filter set => the same object back, so the unfiltered path costs nothing.
+  assert.strictEqual(A.filterCvByCounty(cv, ''), cv);
+  app.window.close();
+});
+
+test('F152: a stored county that is not this report\u2019s is a miss, not an instruction', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+  assert.equal(A.getCountyView(), 'US-WA-033', 'a real county of this report sticks');
+  assert.match(A.countyViewLabel(), /King/, 'and it has a name, not a code');
+  A.setCountyView('US-MO-047');
+  assert.equal(A.getCountyView(), '',
+    'a county from another report falls back to the whole report — showing '
+    + 'nothing would be indistinguishable from "no birds here"');
+  A.setCountyView('');
+  app.window.close();
+});
+
+test('F152: every section a county view narrows says that it is narrowed', async () => {
+  // The flag is hand-written, so this checks it against the SOURCE. A section
+  // that reads the chase cache and does not carry `countyView` would show
+  // filtered rows with nothing on screen admitting it — the same silent
+  // degradation F2 complains about.
+  const app = await boot();
+  const A = app.window.__app;
+  const L = A.LOADERS;
+  const named = Object.keys(L).filter((k) => L[k] && L[k].fn && L[k].fn.name);
+  assert.ok(named.length > 10, `expected the loader table, got ${named.length}`);
+
+  let checked = 0;
+  named.forEach((k) => {
+    const fn = L[k].fn.name;
+    const at = HTML.indexOf('\n      function ' + fn + '(');
+    if (at < 0) return;                       // inline/anonymous — nothing to read
+    const end = HTML.indexOf('\n      function ', at + 10);
+    const body = HTML.slice(at, end < 0 ? HTML.length : end);
+    const reads = /getChase\(|getChaseRarity\(/.test(body);
+    checked++;
+    assert.equal(!!L[k].countyView, reads,
+      `${k} (${fn}) ${reads ? 'reads' : 'does not read'} the chase cache, so `
+      + `countyView must be ${reads ? 'true' : 'absent'}`);
+  });
+  assert.ok(checked > 15, `the scan must actually read bodies, read ${checked}`);
+  assert.ok(Object.keys(L).some((k) => L[k].countyView),
+    'and at least one section must be flagged, or the check cannot fail');
+  app.window.close();
+});
+
+test('F152: the county chip is RENDERED, and only where it is true', async () => {
+  // A regex over source text cannot see whether a chip reached the screen -
+  // that is the lesson v1.0.28 learned the hard way, when a green 145-test
+  // suite still shipped "undefined rarities" to the phone. So open the real
+  // sections and read the DOM back.
+  const app = await boot();
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+
+  app.open(/Closest unseen birds/);
+  await new Promise((r) => setTimeout(r, 40));
+  const chip = app.window.document.querySelector('#sec-targetsBtn .secscope, .secscope');
+  assert.ok(chip, 'a section that reads the chase cache carries the chip');
+  assert.match(chip.textContent, /King/, 'the chip names the county being shown');
+  assert.match(chip.textContent, /Washington year list/,
+    'and names the list that still decides what counts as unseen - a county '
+    + 'view must never be mistaken for a county year list');
+
+  // A section that does NOT read the chase cache must not claim to be filtered.
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  const open = [...app.window.document.querySelectorAll('section')]
+    .filter((s) => !s.hidden);
+  open.forEach((s) => {
+    assert.ok(!s.querySelector('.secscope'),
+      `${s.id} does not read the chase cache, so it must not say it is filtered`);
+  });
+
+  // Clearing it takes the chip away again - a notice that outlives its cause
+  // is worse than none.
+  A.setCountyView('');
+  app.open(/Closest unseen birds/);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(!app.window.document.querySelector('.secscope'),
+    'no county view, no chip');
+  app.window.close();
 });
