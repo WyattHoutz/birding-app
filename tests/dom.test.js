@@ -15504,3 +15504,43 @@ test('a board painted before the species index arrives still gets its codes', as
     `the code must appear on the next paint, not wait for a restart: ${second}`);
   app.window.close();
 });
+
+// --- the pin number must not outweigh the place it numbers -----------------
+// "hotspot number is too big". MEASURED in real Chrome on a Stakeout row
+// before the change:
+//
+//   .hsnum box        40 x 40
+//   .ntext name line  19.55px tall, 17px font
+//   .hsnum font       17px  - EXACTLY the name's
+//
+// A label the same size as its subject and 2.05x its height, hanging 10px
+// above and below the line it belongs to. After: 28px box (1.43x the line),
+// 14px font. Measured again to confirm, rather than assumed.
+//
+// Asserted as a RELATIONSHIP, not as the literal 28 and 14 - the F183 lesson.
+// Either number may be retuned; what may not change is that the marker reads
+// smaller than what it marks.
+test('a hotspot pin number reads smaller than the name beside it', () => {
+  function px(re) {
+    const m = re.exec(CARDS_HOTSPOT);
+    assert.ok(m, `expected to find ${re}`);
+    return Number(m[1]);
+  }
+  // The medium card is the one every list uses, and the one that was reported.
+  const numBox = px(/\.hscard-md \.hsnum \{ width: calc\((\d+)px/);
+  const numFont = px(/\.hscard-md \.hsnum \{[\s\S]{0,160}?font-size: calc\((\d+)px/);
+  const nameFont = px(/\.hscard-md > \.name > \.ntext \{[\s\S]*?font-size: calc\((\d+)px/);
+  const lhM = /\.hscard-md > \.name > \.ntext \{[\s\S]*?line-height: ([\d.]+)/.exec(CARDS_HOTSPOT);
+  assert.ok(lhM, 'the name declares a line-height');
+  const lineH = nameFont * Number(lhM[1]);
+
+  assert.ok(numFont < nameFont,
+    `the number (${numFont}px) must read smaller than the hotspot name `
+    + `(${nameFont}px) - it labels the row, it is not the subject of it`);
+  // The badge is a circle, so its BOX is what dominates the row, not its type.
+  // Anything past ~1.6x the name's line reads as a headline with a number
+  // stuck to it, and with align-self: start it hangs above and below the name.
+  assert.ok(numBox <= lineH * 1.6,
+    `the badge box (${numBox}px) dwarfs the name line it sits against `
+    + `(${lineH.toFixed(1)}px); measured at 40px it was 2.05x and was reported`);
+});

@@ -116,12 +116,20 @@
     '  font-size: calc(19px * var(--s)); }',
     '.hscard-sm .hsnum { width: calc(34px * var(--s)); height: calc(34px * var(--s));',
     '                    font-size: calc(15px * var(--s)); }',
-    /* 40, not 46: the badge spans both header rows, and a spanning grid item
-       taller than the rows it spans stretches them. See the note on .ntext —
-       the text block has to win that comparison or the dead space under the
-       number comes straight back. */
-    '.hscard-md .hsnum { width: calc(40px * var(--s)); height: calc(40px * var(--s));',
-    '                    font-size: calc(17px * var(--s)); }',
+    /* SIZED TO THE LINE IT LABELS, not to the map pin it mirrors.
+       MEASURED in real Chrome on a Stakeout row: the badge was 40x40 against a
+       name line 19.55px tall - 2.05x the height of the thing it numbers - and
+       its font was 17px, EXACTLY the name's. A label the same size as its
+       subject and twice as tall is the whole of "the hotspot number is too
+       big"; with align-self: start it also hung 10px above and 10px below the
+       name it belongs to.
+       28px is ~1.4x the line, so it still reads as a pin rather than a bullet,
+       and 14px keeps the digits clearly UNDER the name in type - a marker must
+       not compete with what it marks. The old 40px floor was justified by the
+       badge spanning both header rows; it does not span any more (grid-row: 1
+       below), so the floor went with the span. */
+    '.hscard-md .hsnum { width: calc(28px * var(--s)); height: calc(28px * var(--s));',
+    '                    font-size: calc(14px * var(--s)); }',
     '.hscard-lg .hsnum { width: calc(56px * var(--s)); height: calc(56px * var(--s));',
     '                    font-size: calc(23px * var(--s)); }',
     /* Home keeps the green it has on the map. */
