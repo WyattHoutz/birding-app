@@ -16393,3 +16393,129 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
     'no county view, no chip');
   app.window.close();
 });
+
+// ---------------------------------------------------------------------------
+// "id like a search for yakima to look up results near yakima, even if its out
+// of my chase area" / "automatically do scouting".
+//
+// The reported bug was exact and it was accurate: "searching for yakima
+// returns same results exactly only home changed". Find... re-anchored the
+// RANKING, but the candidate set was still the King + Snohomish records the
+// report had fetched, so a search 119 mi away re-sorted the same rows.
+// Ranking cannot invent a record that was never fetched.
+// ---------------------------------------------------------------------------
+
+test('searching a place FETCHES that place, it does not just re-sort home', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // A section has to be OPEN: the scouted place renders into the section you
+  // searched from, because the Look up a place panel is hidden and unreachable.
+  //
+  // BirdCast, deliberately, and this took a probe to work out. Opening Today's
+  // patches starts the ~47-call chase wave, and boot() stubs fetch with a
+  // promise that NEVER settles — so nothing releases, the limiter's slots stay
+  // taken, and the scout's calls queue behind a wave that can never finish. In
+  // that state the section under test issues nothing and the failure looks
+  // like a missing feature rather than a saturated queue.
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  const before = app.state.fetches.length;
+
+  const yakima = { lat: 46.6021, lng: -120.5059, label: 'Yakima', state: 'Washington' };
+  // NOT awaited, for the same reason: the promise cannot resolve against a
+  // fetch stub that never settles. What is observable is that a call went OUT,
+  // and where it was centred — which is exactly the reported bug, because the
+  // old behaviour issued nothing at all for the place you named.
+  A.autoScoutForAnchor(yakima);
+  const geoOf = () => app.state.fetches.slice(before)
+    .filter((u) => /geo\/recent|ref\/hotspot\/geo/.test(u));
+  for (let i = 0; i < 60 && !geoOf().length; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const geo = geoOf();
+  assert.ok(geo.length,
+    'searching a place must FETCH it — re-ranking cannot invent a record that '
+    + 'was never fetched, which is why "yakima returns same results exactly"');
+
+  // Centred on the PLACE, not on home. This is the whole bug: 47.75/-122.15
+  // in these URLs would mean the search changed nothing but the sort order.
+  geo.forEach((u) => {
+    assert.match(u, /lat=46\.6/, `centred on Yakima, not home: ${u}`);
+    assert.match(u, /lng=-120\.5/, `centred on Yakima, not home: ${u}`);
+    assert.match(u, /dist=50/, 'SCOUT_DIST_KM, reused unchanged');
+    assert.match(u, /back=7/, 'SCOUT_BACK_D, reused unchanged');
+  });
+
+  // And it landed in the section you searched from.
+  const box = app.window.document.querySelector('.scoutinline');
+  assert.ok(box, 'the scouted place renders where you asked for it');
+  assert.match(box.textContent, /Yakima/, 'and says which place it is');
+
+  A.clearInlineScout();
+  assert.ok(!app.window.document.querySelector('.scoutinline'),
+    'a new search must not inherit its predecessor\u2019s rows');
+  app.window.close();
+});
+
+test('the place search is wired to the fetch, not only to the ranking', () => {
+  // The bug was a MISSING CALL, so the guard is about the call being there.
+  // Both submit paths — the Find... sheet that serves the four Go birding
+  // sections, and Quick outing's own place box — must scout.
+  const find = HTML.slice(HTML.indexOf("showSheet('Rank from a place'"),
+                          HTML.indexOf("showSheet('Rank from a place'") + 1800);
+  assert.match(find, /autoScoutForAnchor\(found\)/,
+    'the Find… sheet scouts the place it resolved');
+  assert.ok(!/oninput|addEventListener\('input'[^)]*autoScout/.test(find),
+    'on SUBMIT, not while typing — three eBird calls per keystroke is not a search box');
+
+  const quick = HTML.slice(HTML.indexOf('function quickFindPlace()'),
+                           HTML.indexOf('function loadQuickOuting('));
+  assert.match(quick, /autoScoutForAnchor\(found\)/,
+    'and so does Quick outing\u2019s own place box');
+
+  // THREE CALLS, whatever the distance. The behavioural half above can only
+  // observe the first — the fetch stub never settles, so the queue never
+  // drains — so the contract itself is pinned here, in the one Promise.all
+  // that issues them.
+  const body = HTML.slice(HTML.indexOf('function scoutAtPlace('),
+                          HTML.indexOf('function autoScoutForAnchor('));
+  const calls = body.match(/ebird\('/g) || [];
+  assert.equal(calls.length, 3,
+    `Scout is three calls, whatever the distance — found ${calls.length}`);
+  assert.match(body, /data\/obs\/geo\/recent\?/, 'everything reported');
+  assert.match(body, /data\/obs\/geo\/recent\/notable/, 'the rarities');
+  assert.match(body, /ref\/hotspot\/geo/, 'and the hotspots');
+  // NO SAME-REGION GATE ON THE FETCH. Scout already draws that line in the
+  // right place: _scoutAway suppresses only the unseen marking, because out of
+  // region the seen list is the wrong list, while the sightings, hotspots and
+  // distances travel fine. A gate here would make "look before you go" the one
+  // thing the feature cannot do.
+  assert.ok(!/if\s*\(away\)\s*return/.test(body),
+    'out of region must still fetch — only the "you need this" claim is dropped');
+  assert.match(body, /_scoutAway = !!away/,
+    'and that is the only thing being out of region changes');
+
+  // planFeeds is UNTOUCHED. "anchors RANK, they never GATHER" (v1.0.19) was
+  // measured about a PERMANENT second circle in the feed plan — 1.4% more
+  // locations for a 43% reshuffle at double the geo cost. This is on-demand,
+  // so the golden that pins the feed plan must still see nothing.
+  const plan = HTML.indexOf('BL.planFeeds(');
+  assert.ok(plan > 0, 'the feed plan still comes from the shared logic');
+  // COMMENTS STRIPPED FIRST. The block above literally explains why this does
+  // not touch planFeeds, so a naive scan of the slice matched its own prose
+  // and the check "failed" on a paragraph. Measured, not guessed: the raw
+  // slice was 5,931 chars and the only hit was in a comment.
+  const nocomment = (s) => s.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  const scoutFn = nocomment(HTML.slice(HTML.indexOf('function scoutAtPlace('),
+                                       HTML.indexOf('function autoScoutForAnchor(')));
+  assert.ok(!/planFeeds/.test(scoutFn),
+    'scouting must never reach into the feed plan');
+
+  // The state has to survive resolveFound, or every scouted place looks
+  // in-region and claims "you still need this" against the wrong list.
+  const rf = HTML.slice(HTML.indexOf('function resolveFound(q)'),
+                        HTML.indexOf('function quickUseHere()'));
+  assert.match(rf, /state: r\.state/, 'the place\u2019s state is carried through');
+});
+
+

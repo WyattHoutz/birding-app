@@ -325,6 +325,11 @@
                 margin: 0 0 10px; padding: 0.45em 0.6em; border-radius: 8px;
                 border: 1px solid var(--line); background: var(--card);
                 color: var(--fg); }
+    /* The scouted place, rendered inside whichever section you searched from.
+       A rule of its own so it reads as a separate answer rather than as more
+       rows of the list above it. */
+    .scoutinline { margin-top: 18px; padding-top: 12px;
+                   border-top: 2px solid var(--line); }
     /* A button whose LABEL IS DATA must be allowed to shrink. #nvCopyBtn reads
        "Stop tracking Horned Lark" - its width is the length of a species name,
        which cannot be budgeted for at 320px. Higher specificity than the base
@@ -6850,8 +6855,14 @@
       // marks are the only thing that is actually wrong there, so it is the
       // only thing suppressed.
       var _scoutAway = false;
-      function renderScout(data, partial) {
-        var host = $('scoutResults'), st = $('scoutStatus');
+      function renderScout(data, partial, hosts) {
+        // `hosts` (owner: "automatically do scouting") lets the SAME renderer
+        // paint into a section other than the hidden Look-up-a-place panel.
+        // Passing the two nodes in beats moving them: ids stay unique, every
+        // existing handler stays attached, and there is still exactly one
+        // implementation of what a scouted place looks like.
+        hosts = hosts || {};
+        var host = hosts.host || $('scoutResults'), st = hosts.st || $('scoutStatus');
         if (!host || !data) return;
         var groups = BL.scoutGroups(data.rows, {
           // Out of region the seen list is the WRONG list, so no list is passed
@@ -6916,9 +6927,148 @@
           + '</details>';
         host.innerHTML = h;
         hydratePhotos(host);
-        st.textContent = data.label + ' · ' + groups.length + ' species · '
+        if (st) st.textContent = data.label + ' · ' + groups.length + ' species · '
           + needs.length + ' you need · ' + hs.length + ' hotspots · '
           + (partial ? 'loading…' : 'fetched ' + fmtDateTime(new Date(data.at)));
+      }
+
+      // THE FETCH HALF OF SCOUT, taking an ALREADY-RESOLVED place.
+      //
+      // Split out so the same three calls serve both the Look-up-a-place box
+      // and the Find… anchor sheet. Written as an extraction, not a second
+      // implementation: there is still exactly one geo fetch, one distance,
+      // one back-window and one slot. "temporary is the feature."
+      function scoutAtPlace(place, run, hosts) {
+        function alive() { return _scoutRun === run; }
+        hosts = hosts || {};
+        var st = hosts.st || $('scoutStatus');
+        var w = hosts.host || $('scoutResults');
+        // OUT OF REGION: suppress the wrong thing, offer the switch only when
+        // there IS one.
+        //
+        // Asked: should searching a place outside the region prompt you to
+        // switch regions first? Checked rather than assumed, and I think the
+        // answer is NO as a default - though the instinct behind it is right.
+        //
+        // Three reasons, in order of how much they weigh:
+        //
+        //  1. THE PROMPT OFTEN HAS NOWHERE TO GO. The app has Washington,
+        //     Missouri, Kansas, Arizona, California, Hawaii, Lower 48 and ABA.
+        //     There is no Oregon - so "Bend, Oregon", the example that raised
+        //     this, would offer a switch to a region that does not exist. A
+        //     prompt you cannot act on is worse than a label.
+        //  2. SWITCHING IS EXPENSIVE. It re-seeds the species index, the
+        //     hotspot directory and the GBIF caches. That is a heavy hammer
+        //     for "let me look at somewhere before a trip".
+        //  3. LOOKING ACROSS THE BORDER IS THE POINT. Scouting is what you do
+        //     BEFORE you go, while your list is still the one at home.
+        //
+        // This is also why the FETCH is never gated on region. Scout already
+        // draws the line in the right place: the sightings, the hotspots and
+        // the distances are geographic and travel fine; only "you still need
+        // this" is judged against a list that does not apply. So fetch always,
+        // and let Scout decide what it is entitled to claim.
+        var homeState = BL.stateNameFor(getReport()) || '';
+        var away = place.state && homeState
+          && String(place.state).toLowerCase() !== String(homeState).toLowerCase();
+        _scoutAway = !!away;
+        if (st) st.textContent = 'Reading what is being reported around ' + place.label + ' \u2014 3 calls\u2026';
+        if (away && w) {
+          var target = null;
+          try {
+            target = (BL.reportsForState ? BL.reportsForState(place.state) : []) [0] || null;
+          } catch (e) {}
+          w.innerHTML = '<p class="hint"><strong>' + esc(place.state) + ' is outside '
+            + esc(homeState) + '.</strong> The sightings and hotspots below are real. '
+            + 'What is hidden is the \u201cyou still need this\u201d marking, because that is '
+            + 'judged against your ' + esc(homeState) + ' list and would be wrong here.'
+            + (target
+                ? ' <button type="button" class="secondary" id="scoutSwitch" data-slug="'
+                  + esc(target.slug) + '">Switch to ' + esc(target.label) + '</button>'
+                : ' <button type="button" class="secondary" id="scoutCreate" data-label="'
+                  + esc(place.state) + '" data-lat="' + place.lat + '" data-lng="' + place.lng
+                  + '">Add ' + esc(place.state) + ' as a region…</button>'
+                + ' <span class="dim">a new region takes a moment to initialise</span>')
+            + '</p>';
+        }
+        var p = { lat: BL.round4(place.lat), lng: BL.round4(place.lng),
+                  dist: SCOUT_DIST_KM, back: SCOUT_BACK_D, detail: 'full' };
+        var qs = function (extra) {
+          var o = [];
+          Object.keys(p).forEach(function (k) { o.push(k + '=' + encodeURIComponent(p[k])); });
+          (extra || []).forEach(function (x) { o.push(x); });
+          return o.join('&');
+        };
+        return Promise.all([
+          ebird('data/obs/geo/recent?' + qs(['includeProvisional=true'])).catch(function () { return []; }),
+          ebird('data/obs/geo/recent/notable?' + qs()).catch(function () { return []; }),
+          ebird('ref/hotspot/geo?lat=' + p.lat + '&lng=' + p.lng + '&dist=' + p.dist
+                + '&back=30&fmt=json').catch(function () { return []; })
+        ]).then(function (r) {
+          if (!alive()) return null;
+          var recent = r[0] || [], notable = r[1] || [], hotspots = r[2] || [];
+          // Tag the notable rows before merging so a rarity keeps its star.
+          // The two feeds overlap, and the plain feed cannot tell you a bird
+          // was flagged.
+          notable.forEach(function (x) { x.__notable = true; });
+          var data = {
+            v: 1, at: Date.now(), label: place.label,
+            lat: place.lat, lng: place.lng,
+            rows: recent.concat(notable), hotspots: hotspots
+          };
+          saveScout(data);
+          if ($('scoutClear')) $('scoutClear').hidden = false;
+          renderScout(data, false, hosts);
+          return data;
+        });
+      }
+
+      // SEARCHING A PLACE SCOUTS IT. Owner: *"id like a search for yakima to
+      // look up results near yakima, even if its out of my chase area"* and
+      // *"automatically do scouting"*.
+      //
+      // The reported bug was exact: *"searching for yakima returns same results
+      // exactly only home changed"*. It was accurate. Find… re-anchored the
+      // ranking, but the CANDIDATE SET is still the King + Snohomish records
+      // the report fetched — so a search 119 mi away re-sorted the same rows by
+      // their distance from Yakima. Ranking cannot invent a record that was
+      // never fetched.
+      //
+      // This does NOT violate "anchors RANK, they never GATHER" (v1.0.19).
+      // That was measured about adding a PERMANENT second circle to planFeeds:
+      // 1.4% more locations for a 43% reshuffle, at double the geo-lane cost on
+      // every run. This is on-demand and user-initiated, fires on SUBMIT and
+      // not while typing, and planFeeds and the feed-plan golden are untouched.
+      function autoScoutForAnchor(place) {
+        if (!place || !getKey()) return Promise.resolve(null);
+        var open = _sections.filter(function (s) { return !s.hidden; })[0];
+        if (!open) return Promise.resolve(null);
+        var box = open.querySelector('.scoutinline');
+        if (!box) {
+          box = document.createElement('div');
+          box.className = 'scoutinline';
+          box.innerHTML = '<h3 class="lanehead">🧭 Around <span class="scoutinplace"></span></h3>'
+            + '<div class="status scoutinstatus"></div><div class="scoutinbody"></div>';
+          open.appendChild(box);
+        }
+        box.hidden = false;
+        box.querySelector('.scoutinplace').textContent = place.label || 'there';
+        var hosts = { host: box.querySelector('.scoutinbody'),
+                      st: box.querySelector('.scoutinstatus') };
+        hosts.host.innerHTML = '';
+        var run = ++_scoutRun;
+        return scoutAtPlace(place, run, hosts).catch(function (e) {
+          hosts.st.textContent = (e && e.message) || netErr(e);
+          return null;
+        });
+      }
+      // Leaving a place behind must take its scouted results with it, or the
+      // next search reads its predecessor's rows as its own.
+      function clearInlineScout() {
+        var boxes = document.querySelectorAll('.scoutinline');
+        for (var i = 0; i < boxes.length; i++) {
+          boxes[i].parentNode.removeChild(boxes[i]);
+        }
       }
 
       function scoutPlaceRun() {
@@ -6933,86 +7083,7 @@
         st.textContent = 'Finding “' + q + '”…';
         geocodePlace(q).then(function (place) {
           if (!alive()) return;
-          // OUT OF REGION: suppress the wrong thing, offer the switch only when
-          // there IS one.
-          //
-          // Asked: should searching a place outside the region prompt you to
-          // switch regions first? Checked rather than assumed, and I think the
-          // answer is NO as a default - though the instinct behind it is right.
-          //
-          // Three reasons, in order of how much they weigh:
-          //
-          //  1. THE PROMPT OFTEN HAS NOWHERE TO GO. The app has Washington,
-          //     Missouri, Kansas, Arizona, California, Hawaii, Lower 48 and ABA.
-          //     There is no Oregon - so "Bend, Oregon", the example that raised
-          //     this, would offer a switch to a region that does not exist. A
-          //     prompt you cannot act on is worse than a label.
-          //  2. SWITCHING IS EXPENSIVE. It re-seeds the species index, the
-          //     hotspot directory and the GBIF caches. That is a heavy hammer
-          //     for "let me look at somewhere before a trip".
-          //  3. LOOKING ACROSS THE BORDER IS THE POINT. Scouting is what you do
-          //     BEFORE you go, while your list is still the one at home.
-          //
-          // What is actually wrong out of region is narrower than the region:
-          // the sightings are real and the hotspots are real, but "you need
-          // this" is judged against the wrong list. So suppress exactly that,
-          // say where you are, and offer the switch only when a configured
-          // region matches.
-          var homeState = BL.stateNameFor(getReport()) || '';
-          var away = place.state && homeState
-            && String(place.state).toLowerCase() !== String(homeState).toLowerCase();
-          _scoutAway = !!away;
-          st.textContent = 'Reading what is being reported around ' + place.label + ' \u2014 3 calls\u2026';
-          if (away) {
-            var target = null;
-            try {
-              target = (BL.reportsForState ? BL.reportsForState(place.state) : []) [0] || null;
-            } catch (e) {}
-            var w = $('scoutResults');
-            if (w) {
-              w.innerHTML = '<p class="hint"><strong>' + esc(place.state) + ' is outside '
-                + esc(homeState) + '.</strong> The sightings and hotspots below are real. '
-                + 'What is hidden is the \u201cyou still need this\u201d marking, because that is '
-                + 'judged against your ' + esc(homeState) + ' list and would be wrong here.'
-                + (target
-                    ? ' <button type="button" class="secondary" id="scoutSwitch" data-slug="'
-                      + esc(target.slug) + '">Switch to ' + esc(target.label) + '</button>'
-                    : ' <button type="button" class="secondary" id="scoutCreate" data-label="'
-                      + esc(place.state) + '" data-lat="' + place.lat + '" data-lng="' + place.lng
-                      + '">Add ' + esc(place.state) + ' as a region…</button>'
-                    + ' <span class="dim">a new region takes a moment to initialise</span>')
-                + '</p>';
-            }
-          }
-          var p = { lat: BL.round4(place.lat), lng: BL.round4(place.lng),
-                    dist: SCOUT_DIST_KM, back: SCOUT_BACK_D, detail: 'full' };
-          var qs = function (extra) {
-            var o = [];
-            Object.keys(p).forEach(function (k) { o.push(k + '=' + encodeURIComponent(p[k])); });
-            (extra || []).forEach(function (x) { o.push(x); });
-            return o.join('&');
-          };
-          return Promise.all([
-            ebird('data/obs/geo/recent?' + qs(['includeProvisional=true'])).catch(function () { return []; }),
-            ebird('data/obs/geo/recent/notable?' + qs()).catch(function () { return []; }),
-            ebird('ref/hotspot/geo?lat=' + p.lat + '&lng=' + p.lng + '&dist=' + p.dist
-                  + '&back=30&fmt=json').catch(function () { return []; })
-          ]).then(function (r) {
-            if (!alive()) return;
-            var recent = r[0] || [], notable = r[1] || [], hotspots = r[2] || [];
-            // Tag the notable rows before merging so a rarity keeps its star.
-            // The two feeds overlap, and the plain feed cannot tell you a bird
-            // was flagged.
-            notable.forEach(function (x) { x.__notable = true; });
-            var data = {
-              v: 1, at: Date.now(), label: place.label,
-              lat: place.lat, lng: place.lng,
-              rows: recent.concat(notable), hotspots: hotspots
-            };
-            saveScout(data);
-            $('scoutClear').hidden = false;
-            renderScout(data, false);
-          });
+          return scoutAtPlace(place, run, null);
         }).catch(function (e) {
           if (!alive()) return;
           var msg = (e && e.message) ? e.message : netErr(e);
@@ -13104,7 +13175,13 @@
           // says where you actually asked about, and a later tap on Current
           // location still means the device's position rather than the last
           // thing you searched for.
-          quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0] };
+          //
+          // `state` is carried through because auto-scout needs it: it is the
+          // only thing that decides whether "you still need this" is being
+          // judged against the right list. Dropping it here made every scouted
+          // place look in-region.
+          quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0],
+                         state: r.state || '' };
           return quickFound;
         });
       }
@@ -13122,9 +13199,13 @@
       function quickFindPlace() {
         var q = ($('quickHerePlace').value || '').trim();
         $('quickStatus').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
-        resolveFound(q).then(function () {
+        resolveFound(q).then(function (found) {
           $('quickHereRow').hidden = true;
+          clearInlineScout();
           loadQuickOuting('find');
+          // Same reason as the Find… sheet: re-ranking cannot show you a bird
+          // that was never fetched. Scout the place you actually named.
+          autoScoutForAnchor(found);
         }).catch(function (e) { $('quickStatus').textContent = e.message || String(e); });
       }
 
@@ -22172,7 +22253,7 @@
             var q = ($('anchorFind').value || '').trim();
             if (!q) return;
             $('anchorFindMsg').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
-            resolveFound(q).then(function () {
+            resolveFound(q).then(function (found) {
               quickOrigin = 'find';
               // The pill has to move with the anchor. Without this the label
               // said "from Yakima" while Home stayed lit — the same heading
@@ -22180,7 +22261,13 @@
               // and the reason a 124-mile list looked like a local one.
               syncAnchorSwitches();
               hideSheet();
+              clearInlineScout();
               reload();
+              // ...and RANKING IS NOT ENOUGH. The rows above are still the
+              // ones this report fetched; scouting is what actually goes and
+              // looks at the place you named. Fires here, on submit, not on
+              // every keystroke.
+              autoScoutForAnchor(found);
             }).catch(function (e) {
               $('anchorFindMsg').textContent = (e && e.message) || String(e);
             });
@@ -22978,6 +23065,13 @@
         scoutPlaceRun: scoutPlaceRun, renderScout: renderScout,
         loadScout: loadScout, saveScout: saveScout, clearScout: clearScout,
         SCOUT_KEY: SCOUT_KEY, SCOUT_DIST_KM: SCOUT_DIST_KM,
+        // Auto-scout, exposed so the reported bug can be REPRODUCED rather
+        // than regexed: "searching for yakima returns same results exactly".
+        // Whether a search issues the three geo calls, and whether the rows it
+        // paints came from them, are both invisible to a scan of source text.
+        scoutAtPlace: scoutAtPlace, autoScoutForAnchor: autoScoutForAnchor,
+        clearInlineScout: clearInlineScout, resolveFound: resolveFound,
+        SCOUT_BACK_D: SCOUT_BACK_D,
         ensureOwnHarvest: ensureOwnHarvest, scheduleOwnHarvest: scheduleOwnHarvest,
         sweepArrivals: sweepArrivals, loadArrivalStore: loadArrivalStore,
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
