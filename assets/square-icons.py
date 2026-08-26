@@ -65,6 +65,28 @@ TOP_BAND = 0.35
 # The anchor must sit at least this far inside the crop, as a fraction of the
 # crop side, or the head is judged to be at risk of clipping.
 EDGE_MARGIN = 0.10
+# F190. How much clear frame the HEAD END of the subject box must keep, as a
+# fraction of the square's side. EDGE_MARGIN guards the head ANCHOR (a point);
+# this guards the bird's actual extremity, which is what was landing on the
+# edge.
+#
+# MEASURED against the 17 icons the owner flagged, running the real
+# analyse()/square_box() at 0.00 (shipped) and at 0.05:
+#
+#     touching the frame at the head end:  before 9  ->  after 4
+#     fixed outright: comloo -0.003 -> 0.051, norpin 0.000 -> 0.048,
+#                     renpha 0.001 -> 0.049, pelcor 0.002 -> 0.050,
+#                     bongul 0.002 -> 0.049
+#
+# ⚠️ NOT a complete fix, and the residual is a DIFFERENT fault. baleag, brncre
+# and killde stay at 0.000 -- but all three were reported as TAIL cuts, which
+# this rule deliberately permits. marmur stays at 0.000 and is a real miss.
+# More telling: comter (0.100), caster1 (0.112) and parjae (0.079) already had
+# healthy head-end margins and were STILL reported as beaks cut. So for those
+# the subject BOX is under-covering the extremity -- a thin beak against water
+# falls below the energy threshold and the box stops at the head. That is a
+# detection problem, not a placement one, and moving this number cannot fix it.
+HEAD_PAD = 0.05
 
 ANALYSIS_LONG_SIDE = 160
 
@@ -323,6 +345,24 @@ def square_box(w, h, a, name=None):
         hi = hx * w - side * EDGE_MARGIN
         left = max(lo, min(hi, left))
         left = max(0, min(w - side, left))
+        # F190: PROTECT THE HEAD END, LOSE THE TAIL. Owner's rule, 2026-08-26:
+        # "better trim tail than head".
+        #
+        # EDGE_MARGIN above guards the head ANCHOR, which is a point roughly at
+        # the centre of the head blob. A beak reaching past that centroid can
+        # still land on the frame while the anchor sits a comfortable 10%
+        # inside -- which is exactly what was reported for Common Tern,
+        # Parasitic Jaeger, Bonaparte's Gull, Caspian Tern and Red-necked
+        # Phalarope. So the SUBJECT BOX, not the anchor, is what must clear the
+        # edge, and only at the head end: the other end is the tail and is
+        # allowed to go.
+        bx0, bx1 = a['box'][0] * w, a['box'][2] * w
+        hxp = hx * w
+        if (hxp - bx0) <= (bx1 - hxp):        # head nearer the LEFT extremity
+            left = min(left, bx0 - HEAD_PAD * side)
+        else:                                  # head nearer the RIGHT
+            left = max(left, bx1 + HEAD_PAD * side - side)
+        left = max(0, min(w - side, left))
         return (int(round(left)), 0, int(round(left)) + side, side)
 
     # Portrait: full width; slide vertically. Heads are up, so the top of the
@@ -336,6 +376,13 @@ def square_box(w, h, a, name=None):
     top = max(lo, min(hi, top))
     # ...and never so far from the body window that the bird itself is missed.
     top = max(wy0 * h - side * 0.5, min(wy0 * h + side * 0.5, top))
+    top = max(0, min(h - side, top))
+    # F190: same rule on the vertical axis, and here the head end is simply UP.
+    # Reported as "western tanager top of head", "canada geese head is cut off".
+    # The crown sits ABOVE the head anchor, so a margin measured from the
+    # anchor does not protect it; the subject box does. Whatever has to be lost
+    # comes off the BOTTOM, which is the tail.
+    top = min(top, a['box'][1] * h - HEAD_PAD * side)
     top = max(0, min(h - side, top))
     return (0, int(round(top)), side, int(round(top)) + side)
 
