@@ -9535,13 +9535,27 @@
         var login = /sign in to ebird|cassso|name="password"|id="input-password"|\/cas\/login/i.test(txt);
         var lifeish = /life list|species total|Taxonomic Order|checklist/i.test(txt);
         var csv = !isHtml && /,/.test(txt) && /\n/.test(txt);
+        // POSITIVE IDENTIFICATION BEATS A NEGATIVE MARKER.
+        //
+        // `login` was tested BEFORE `lifeish`, and both are true of the same
+        // page — so a real, signed-in life list was reported as a login page
+        // because its chrome contains a CAS url. MEASURED on device
+        // 2026-08-25/26: this route returned 200 with the title
+        // "Washington Life List - eBird" and 556,681 B, then 556,678 B eight
+        // minutes later. A static CAS login page does not carry that title and
+        // does not change size between reads.
+        //
+        // If the page says what it IS, believe it. A login URL somewhere in a
+        // header is not evidence that this is that page.
+        var reallyLogin = login && !lifeish;
         var verdict = !r.ok ? 'HTTP ' + r.status
           : csv ? 'CSV \u2705'
-          : login ? 'LOGIN page \u26d4'
+          : reallyLogin ? 'LOGIN page \u26d4'
           : isHtml && lifeish ? 'life-list HTML (logged IN, wrong format) \u26a0'
           : isHtml ? 'other HTML \u26a0'
           : 'non-HTML, non-CSV \u26a0';
-        return { verdict: verdict, title: title, bytes: txt.length, csv: csv, login: login };
+        return { verdict: verdict, title: title, bytes: txt.length, csv: csv,
+                 login: reallyLogin };
       }
 
       // ---- Anubis wall probe -------------------------------------------
@@ -9566,6 +9580,44 @@
         if (/cassso|\/cas\/login/i.test(t)) return 'LOGIN';
         return 'OPEN';
       }
+      // WHAT WAS ACTUALLY SEEN, not what was concluded from it.
+      //
+      // The verdict above decides LOGIN on a bare SUBSTRING, and every eBird
+      // page carries account chrome — a sign-in or sign-out link, a CAS URL in
+      // a JS config block — so a fully authenticated page can contain
+      // `/cas/login` and be called a login page. It infers failure from a
+      // NEGATIVE marker rather than confirming the real page from a positive
+      // one, which is the same fault as a validator that rejects its input and
+      // says nothing.
+      //
+      // MEASURED, and this is why it matters (device, 2026-08-25/26):
+      //   the Anubis wall          4,130 B
+      //   eBird's real login page  556,681 B   (from the lifelist probe)
+      //   what this probe got      1,048,836 B
+      // A CAS login page at a megabyte is not plausible; that is the size of
+      // the real region page. And the owner watched the browser view solve the
+      // challenge once and go straight through on every run after — so the
+      // wall is passed and the verdict is very probably reporting failure on a
+      // success.
+      //
+      // It is NOT fixed here, because fixing it would mean guessing which
+      // marker identifies a genuine CAS page, and this project has already
+      // paid for guessing twice this week. Instead the probe now REPORTS: the
+      // title, the size, and which markers matched. One screenshot then
+      // settles it, which is what the next step needs.
+      function wallMarkers(txt) {
+        var t = String(txt || '');
+        var title = (/<title[^>]*>([\s\S]{0,120}?)<\/title>/i.exec(t) || [])[1] || '';
+        var hit = [];
+        if (/anubis_challenge/i.test(t)) hit.push('anubis_challenge');
+        if (/not a bot/i.test(t)) hit.push('"not a bot"');
+        if (/\/cas\/login/i.test(t)) hit.push('/cas/login');
+        if (/cassso/i.test(t)) hit.push('cassso');
+        // A real CAS page POSTS to it. A page that merely links to it is
+        // somebody's account menu, which every signed-in page has.
+        if (/<form[^>]{0,400}?\/cas\/login/i.test(t)) hit.push('FORM->cas (a real login page)');
+        return { title: title.replace(/\s+/g, ' ').trim(), hits: hit };
+      }
 
       function wallFetch() {
         // cache:'no-store' matters: a cached copy of the interstitial would
@@ -9573,7 +9625,9 @@
         return fetch(WALL_URL, { credentials: 'include', cache: 'no-store' })
           .then(function (r) {
             return r.text().then(function (b) {
-              return { status: r.status, bytes: b.length, verdict: wallVerdict(b) };
+              var m = wallMarkers(b);
+              return { status: r.status, bytes: b.length, verdict: wallVerdict(b),
+                       title: m.title, hits: m.hits };
             });
           })
           .catch(function (e) { return { blocked: String((e && e.message) || e) }; });
@@ -9615,8 +9669,19 @@
               if (a.blocked) { say('After: blocked (' + a.blocked + ')'); return; }
               say((a.verdict === 'OPEN'
                     ? '\u2705 THROUGH THE WALL \u2014 the browser view\u2019s cookie reached our request. F2, F8, F11 and F19 all unpark.'
-                    : '\u26d4 Still ' + a.verdict + ' \u2014 the cookie did not carry over to fetch (ITP blocks cross-origin cookies from capacitor://localhost). The browser view can still be used to SHOW the page.')
-                  + '\nbefore ' + before.verdict + ' ' + before.bytes + 'B \u2192 after ' + a.verdict + ' ' + a.bytes + 'B');
+                    // NOT "the cookie did not carry over". That named a cause
+                    // the probe never observed, and the app had already
+                    // disproved it 43 seconds earlier by pulling 29 KB of
+                    // authenticated CSV through the same fetch. Report what was
+                    // seen and let the evidence decide.
+                    : '\u26d4 Read as ' + a.verdict + ' \u2014 but check the size and title below '
+                      + 'before believing it. The Anubis wall is 4 KB and eBird\u2019s login page '
+                      + 'is ~557 KB, so a megabyte here is the real page and this verdict is '
+                      + 'wrong. See F184.')
+                  + '\nbefore ' + before.verdict + ' ' + before.bytes + 'B \u2192 after '
+                    + a.verdict + ' ' + a.bytes + 'B'
+                  + '\ntitle: ' + (a.title || '(none)')
+                  + '\nmatched: ' + (a.hits && a.hits.length ? a.hits.join(', ') : '(nothing)'));
             });
           };
           try { if (typeof IB.addListener === 'function') IB.addListener('closeEvent', after); } catch (e) {}
@@ -22283,6 +22348,10 @@
         // overshoot one step up, there was no way to tell a real overrun from
         // a display artefact without adding this.
         fgWindowWait: fgWindowWait, fgWindowUsed: fgWindowUsed,
+        // F184: exposed so the classifier can be driven against real page
+        // SHAPES rather than argued about. The bug it is chasing is that a
+        // verdict was inferred from a negative marker.
+        wallVerdict: wallVerdict, wallMarkers: wallMarkers, classifyF8: classifyF8,
         // The whole scheduling decision, exposed so 300 calls can be DRIVEN
         // through it with a synthetic clock instead of argued about.
         fgSchedule: fgSchedule,

@@ -15872,3 +15872,91 @@ test('the twitch header ranks the count above the prose it replaced', () => {
   assert.match(HTML, /class="twitchtime">updated '/,
     'and when the data was read');
 });
+
+// --- a page that says what it is should be believed ------------------------
+// Two probes both reported failure on a success, for the same reason: each
+// decided "this is a login page" from a BARE SUBSTRING that real eBird pages
+// also carry in their account chrome, and each tested that negative marker
+// BEFORE the positive identification it already had in hand.
+//
+// MEASURED on device, 2026-08-25 and 2026-08-26. The disproof is five seconds
+// wide, inside one log:
+//
+//   22:08:40.546  wall  ⛔ ... the cookie did not carry over to fetch
+//   22:08:45.768  F8    → lifelist csv → 200 · CSV ✅ · 29423B
+//
+// Same origin, same fetch, same cookie jar, five seconds apart. Cookies carry.
+//
+// And the life-list route: 200, title "Washington Life List - eBird",
+// 556,681 B — then 556,678 B eight minutes later. A static CAS login page does
+// not carry that title and does not change size between reads.
+//
+// Also settled by the same log: `Before: ANUBIS (4130B)` became
+// `Before: LOGIN (1048836B)` and stayed there across three runs and a night.
+// The owner watched the browser view solve the challenge once and go straight
+// through afterwards. The proof-of-work is passed and it persists.
+test('a real life list is not called a login page for linking to the login', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // The shape the device actually returned: a genuine life-list page whose
+  // chrome links to CAS, as every signed-in eBird page's account menu does.
+  const real = '<html><head><title>Washington Life List - eBird</title></head>'
+    + '<body><a href="https://secure.birds.cornell.edu/cassso/login">Sign out</a>'
+    + '<h1>Life List</h1><table>Taxonomic Order</table></body></html>';
+  const got = A.classifyF8({ ok: true, status: 200 }, real);
+  assert.equal(got.login, false,
+    'it identifies itself as a life list; a login URL in the header is not '
+    + 'evidence that this IS the login page');
+  assert.match(got.verdict, /life-list HTML/,
+    `the positive identification wins: ${got.verdict}`);
+  assert.match(got.title, /Washington Life List/, 'and the title is reported');
+
+  // A REAL login page still has to be caught, or the fix is just a hole.
+  const login = '<html><head><title>eBird Login</title></head><body>'
+    + '<form action="/cas/login"><input name="password"></form></body></html>';
+  const bad = A.classifyF8({ ok: true, status: 200 }, login);
+  assert.equal(bad.login, true,
+    'a page with a password form and no life-list content is still a login page');
+  assert.match(bad.verdict, /LOGIN page/, bad.verdict);
+  app.window.close();
+});
+
+// The wall probe is NOT re-judged here, deliberately. Guessing which marker
+// identifies a genuine CAS page is what produced this bug, and there is no
+// real region-page sample in the repo to check against — the only eBird HTML
+// fixtures are trimmed to ~9 KB from 1.2 MB, with exactly the chrome stripped
+// that the question turns on. So it REPORTS instead: title, size and every
+// marker it matched, which is what lets one screenshot settle it.
+test('the wall probe reports what it saw instead of asserting why', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  const m = A.wallMarkers('<html><head><title>Washington - eBird</title></head>'
+    + '<body><a href="/cas/login">Sign in</a></body></html>');
+  assert.equal(m.title, 'Washington - eBird', 'the title is extracted and reported');
+  assert.ok(m.hits.indexOf('/cas/login') > -1,
+    `the marker that drove the verdict is named: ${m.hits.join(', ')}`);
+  assert.ok(m.hits.indexOf('FORM->cas (a real login page)') < 0,
+    'and a bare LINK is distinguished from a form that posts to CAS');
+
+  const wall = A.wallMarkers('<html><body>Making sure you\u2019re not a bot!</body></html>');
+  assert.ok(wall.hits.some((h) => /not a bot/.test(h)),
+    `the Anubis wall is still identified positively: ${wall.hits.join(', ')}`);
+
+  // The message must no longer name a cause the probe never observed.
+  assert.ok(!/ITP blocks cross-origin cookies/.test(HTML),
+    'the cookie explanation was disproved by the app\u2019s own measurement five '
+    + 'seconds later and must not be asserted');
+  // ...and the markers must actually REACH the screen. wallFetch does a real
+  // network read, so it cannot be driven here; the wiring is asserted instead.
+  // Without this the test passes just as happily on a probe that computes the
+  // markers and throws them away, which is a check that cannot fail.
+  const wf = HTML.slice(HTML.indexOf('function wallFetch()'),
+                        HTML.indexOf('function probeWall()'));
+  assert.match(wf, /title: m\.title, hits: m\.hits/,
+    'wallFetch carries the markers out of the response');
+  assert.match(HTML, /\\ntitle: ' \+ \(a\.title/, 'and the probe prints the title');
+  assert.match(HTML, /\\nmatched: ' \+ \(a\.hits/, 'and the markers it matched');
+  app.window.close();
+});
