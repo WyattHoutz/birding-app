@@ -3261,10 +3261,43 @@
       // Parsed loosely on purpose: eBird's markup is not a contract, and a
       // parser that pins their class names breaks on their next deploy while a
       // shape-based one degrades to "found nothing" and falls back.
+      //
+      // ⚠️ POSITIVE IDENTIFICATION, NOT A NEGATIVE MARKER. This used to bail on
+      //     if (/cassso\/login|Sign in to eBird/i.test(text)) return out;
+      // which is the SAME fault `classifyF8` was corrected for: every eBird
+      // page carries CAS chrome in its sign-in link, so a real signed-in life
+      // list contains that string and was thrown away unread. The failure was
+      // silent and expensive — `tryLifelistYear` would report "not signed in"
+      // and drop to the 730-call day-by-day walk, roughly 45 minutes at
+      // eBird's 0.37 calls/s, to rebuild a list the one call had already
+      // fetched.
+      //
+      // MEASURED on device 2026-08-25/26, which is what makes this a fix and
+      // not a preference: this route returned 200 with the title
+      // "Washington Life List - eBird" at 556,681 B, and 556,678 B eight
+      // minutes later. A static CAS login page does not carry that title and
+      // does not change size between reads.
+      //
+      // So: a page is a login page only when it says it is AND has no life-list
+      // content. Better still, the ROWS decide — if the species pattern
+      // matches, whatever the page calls itself, it is a life list.
+      function lifelistIsLogin(text) {
+        var t = String(text || '');
+        var login = /sign in to ebird|cassso|name="password"|id="input-password"|\/cas\/login/i.test(t);
+        var lifeish = /life list|species total|taxonomic order|<title[^>]*>[^<]*life list/i.test(t);
+        return login && !lifeish;
+      }
+      // The page's own <title> is the cheapest positive identifier there is —
+      // "Washington Life List - eBird" versus a CAS sign-in title — so it goes
+      // in the verdict line rather than being inferred from length.
+      function lifelistTitle(html) {
+        var m = String(html || '').match(/<title[^>]*>([\s\S]{0,120}?)<\/title>/i);
+        return m ? m[1].replace(/\s+/g, ' ').trim() : '(no title)';
+      }
       function parseLifelistHTML(html) {
         var out = [], seen = {};
         var text = String(html || '');
-        if (!text || /cassso\/login|Sign in to eBird/i.test(text)) return out;
+        if (!text || lifelistIsLogin(text)) return out;
         var re = /\/species\/([a-z0-9]+)[^>]*>\s*([^<]{2,60}?)\s*<[\s\S]{0,600}?(\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4})/g;
         var m;
         while ((m = re.exec(text)) !== null) {
@@ -3281,8 +3314,17 @@
         return fetchPublicHTML(url).then(function (html) {
           var rows = parseLifelistHTML(html);
           if (rows.length < LIFELIST_MIN_ROWS) {
-            verdict('My year', 'lifelist page returned ' + rows.length + ' rows — '
-              + 'not signed in, so falling back to the day-by-day walk');
+            // SAY WHICH FAILURE IT WAS. "0 rows" has three quite different
+            // causes — not signed in, signed in but the markup moved, or an
+            // empty list — and they need opposite fixes. The old line asserted
+            // the first one for all three, which is the same defect as F184's
+            // verdict and F187's pause message: a cause the code did not
+            // observe. These four numbers settle it in ONE device run.
+            verdict('My year', 'lifelist page: ' + fmtInt(String(html || '').length)
+              + ' B · title "' + lifelistTitle(html) + '" · '
+              + (lifelistIsLogin(html) ? 'reads as a LOGIN page' : 'reads as a real page')
+              + ' · parsed ' + rows.length + ' rows — falling back to the '
+              + 'day-by-day walk');
             return 0;
           }
           var codes = ownSeenCodes(), learned = 0;
@@ -22989,6 +23031,7 @@
         backfillState: backfillState, backfillNextDay: backfillNextDay,
         backfillProgress: backfillProgress, backfillTick: backfillTick,
         parseLifelistHTML: parseLifelistHTML, lifelistYearUrl: lifelistYearUrl,
+        lifelistIsLogin: lifelistIsLogin, lifelistTitle: lifelistTitle,
         LIFELIST_MIN_ROWS: LIFELIST_MIN_ROWS,
         startOwnBackfill: startOwnBackfill, yearListExtras: yearListExtras,
         boardMoveHTML: boardMoveHTML,

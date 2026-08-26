@@ -16629,3 +16629,108 @@ test('F185: the limiter and the display share ONE definition of the window', asy
   A.fgWindowReset();
   app.window.close();
 });
+
+// ---------------------------------------------------------------------------
+// F8 — the life-list parser must identify a page POSITIVELY.
+//
+// It used to bail on /cassso\/login|Sign in to eBird/, which is the same fault
+// classifyF8 was corrected for: EVERY eBird page carries a CAS url in its
+// sign-in chrome, so a real signed-in life list contained the marker and was
+// thrown away unread. The failure was silent and expensive — tryLifelistYear
+// reported "not signed in" and fell back to the 730-call day-by-day walk,
+// ~45 minutes at eBird's measured 0.37 calls/s, to rebuild a list the single
+// call had already fetched.
+//
+// MEASURED on device 2026-08-25/26: this route returned 200, title
+// "Washington Life List - eBird", 556,681 B, then 556,678 B eight minutes
+// later. A static CAS login page carries neither that title nor a changing
+// size.
+// ---------------------------------------------------------------------------
+
+// A REAL life list, carrying the sign-in chrome every eBird page carries.
+const LIFELIST_REAL = [
+  '<!doctype html><html><head><title>Washington Life List - eBird</title></head><body>',
+  '<a href="https://secure.birds.cornell.edu/cassso/login?service=https%3A%2F%2Febird.org">Sign in</a>',
+  '<h1>Life List</h1><p>Species Total: 6</p>',
+  '<div><a href="/species/haiwoo/US-WA">Hairy Woodpecker</a><span>01 Jan 2026</span></div>',
+  '<div><a href="/species/amecro/US-WA">American Crow</a><span>02 Jan 2026</span></div>',
+  '<div><a href="/species/bkcchi/US-WA">Black-capped Chickadee</a><span>03 Jan 2026</span></div>',
+  '<div><a href="/species/sonspa/US-WA">Song Sparrow</a><span>04 Jan 2026</span></div>',
+  '<div><a href="/species/spotow/US-WA">Spotted Towhee</a><span>05 Jan 2026</span></div>',
+  '<div><a href="/species/norfli/US-WA">Northern Flicker</a><span>06 Jan 2026</span></div>',
+  '</body></html>',
+].join('\n');
+
+// A genuine login page. It mentions "checklist" on purpose: the first draft of
+// the positive marker set included that word, and it is far too loose — eBird's
+// login chrome talks about checklists too.
+const LIFELIST_LOGIN = [
+  '<!doctype html><html><head><title>Sign in to eBird</title></head><body>',
+  '<form action="https://secure.birds.cornell.edu/cassso/login">',
+  '<input id="input-password" name="password" type="password">',
+  '</form><footer>Submit a checklist after you sign in.</footer>',
+  '</body></html>',
+].join('\n');
+
+test('F8: a real life list is read, even though it carries a CAS sign-in link', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // The fixture must actually contain the marker, or this guard proves nothing
+  // — it would be asserting that a page WITHOUT the trap survives the trap.
+  assert.match(LIFELIST_REAL, /cassso\/login/,
+    'the fixture must carry the sign-in chrome that broke the old parser');
+
+  assert.equal(A.lifelistIsLogin(LIFELIST_REAL), false,
+    'a page that says "Life List" is not a login page, whatever its chrome says');
+  const rows = A.parseLifelistHTML(LIFELIST_REAL);
+  assert.equal(rows.length, 6, `expected 6 species, got ${rows.length}`);
+  assert.equal(rows[0].code, 'haiwoo');
+  assert.equal(rows[0].name, 'Hairy Woodpecker');
+  assert.equal(rows[0].date, '01 Jan 2026');
+  assert.ok(rows.length >= A.LIFELIST_MIN_ROWS,
+    'and it must clear the floor, or tryLifelistYear still drops to the '
+    + '730-call walk — the expensive half of the bug');
+  app.window.close();
+});
+
+test('F8: a genuine login page is still rejected', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.lifelistIsLogin(LIFELIST_LOGIN), true,
+    'a real login page must still be recognised — loosening the test until '
+    + 'everything passes is not a fix');
+  // .length, NOT deepEqual against []. The app builds its array inside the
+  // jsdom realm, so its Array.prototype differs and deepStrictEqual fails with
+  // actual [] and expected [] printing IDENTICALLY. Second time this trap has
+  // been hit in one session — the F152 guard above already carries the note.
+  assert.equal(A.parseLifelistHTML(LIFELIST_LOGIN).length, 0,
+    'and it yields no species');
+  assert.equal(A.parseLifelistHTML('').length, 0, 'an empty body is not a list');
+  assert.equal(A.parseLifelistHTML(null).length, 0, 'nor is a missing one');
+  app.window.close();
+});
+
+test('F8: the verdict names WHICH failure, so one device run settles it', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // Three quite different causes produce "0 rows" — not signed in, signed in
+  // but the markup moved, and an empty list — and they need opposite fixes.
+  // The old line asserted the first for all three, which is the same defect as
+  // F184's verdict and F187's pause message.
+  assert.equal(A.lifelistTitle(LIFELIST_REAL), 'Washington Life List - eBird',
+    'the page title is the cheapest positive identifier there is');
+  assert.equal(A.lifelistTitle(LIFELIST_LOGIN), 'Sign in to eBird');
+  assert.equal(A.lifelistTitle('<html><body>no head</body></html>'), '(no title)',
+    'and a missing title says so rather than reading as empty');
+
+  const src = HTML.slice(HTML.indexOf('function tryLifelistYear()'),
+                         HTML.indexOf('function tryLifelistYear()') + 1600);
+  assert.match(src, /lifelistTitle\(html\)/, 'the verdict prints the title');
+  assert.match(src, /lifelistIsLogin\(html\)/, 'and whether it read as a login');
+  assert.match(src, /parsed ' \+ rows\.length/, 'and the row count');
+  assert.ok(!/not signed in, so falling back/.test(src),
+    'and it must NOT assert "not signed in" for every zero — that is a cause '
+    + 'the code did not observe');
+  app.window.close();
+});
