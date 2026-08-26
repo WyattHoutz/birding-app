@@ -12655,7 +12655,25 @@ test('the wall probe measures before AND after, and judges by content', () => {
     'it does not compare before with after, which is the whole measurement');
   assert.ok(/openWebView|IB\.open/.test(fn), 'it never opens the browser view');
   assert.ok(/THROUGH THE WALL/.test(fn), 'it does not say plainly when it works');
-  assert.ok(/ITP/.test(fn), 'it does not name the likely cause when it fails');
+  // THIS GUARD USED TO REQUIRE THE OPPOSITE, and in doing so it pinned the bug.
+  //
+  // It read `assert.ok(/ITP/.test(fn), 'it does not name the likely cause when
+  // it fails')` — so the suite INSISTED the probe assert that ITP blocked a
+  // cross-origin cookie. MEASURED on device 2026-08-26, the disproof is five
+  // seconds wide inside one log: the wall probe said the cookie had not
+  // carried over at 22:08:40, and at 22:08:45 the same fetch, same origin,
+  // same cookie jar, pulled 29,423 B of authenticated CSV.
+  //
+  // A probe cannot observe ITP. It can observe a title, a size and a set of
+  // markers, and those are what it must report — see F184. Same shape as the
+  // widenThumb guard that asserted a 640px URL and thereby froze an HTTP 400
+  // in place: a guard written around the explanation instead of the evidence.
+  assert.ok(!/ITP/.test(fn),
+    'the probe must not assert a cause it cannot observe, and this one was '
+    + 'disproved by the app\u2019s own measurement five seconds later');
+  assert.ok(/a\.title/.test(fn) && /a\.hits/.test(fn),
+    'it must report what it SAW — the title and the markers it matched — so a '
+    + 'screenshot can settle what the verdict could not');
 });
 
 test('F2: being blocked is recorded and reported, never silently absorbed', () => {
