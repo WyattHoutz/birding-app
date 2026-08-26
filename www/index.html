@@ -2566,7 +2566,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.0';
+      var APP_VERSION = '1.41.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -10281,6 +10281,10 @@
           .then(function (r) {
             return r.text().then(function (b) {
               var m = wallMarkers(b);
+              // F194: the probe is the most authoritative reading there is —
+              // it is a live fetch of the very URL the banner names — so it
+              // must be allowed to retract the banner, not only to raise it.
+              if (wallVerdict(b) === 'OPEN') clearWall(WALL_URL);
               return { status: r.status, bytes: b.length, verdict: wallVerdict(b),
                        title: m.title, hits: m.hits };
             });
@@ -14473,6 +14477,25 @@
         } catch (e) {}
         dbg('warn', 'blocked by ' + kind + ' \u00b7 ' + url);
       }
+      // F194: A WALL THAT IS GONE MUST STOP BEING REPORTED.
+      //
+      // `noteWall` wrote this and NOTHING ever cleared it, so a block seen once
+      // was asserted for ever. Measured in the device log of 2026-08-26: the
+      // header still read "⛔ blocked by eBird's bot filter at
+      // ebird.org/region/US-WA (last seen 2026-08-25 21:26)" while the wall
+      // probe, in the same session, twice reported "already OPEN (1048368B) —
+      // no wall in the way, nothing to defeat."
+      //
+      // Two statements about the same URL, minutes apart, and the stale one
+      // was the louder. That is the same defect as F184, F186 and F187: the app
+      // asserting a state it can observe to be false.
+      function clearWall(url) {
+        var prev = wallSeen();
+        if (!prev) return;
+        try { localStorage.removeItem(WALL_SEEN_KEY); } catch (e) {}
+        dbg('info', 'wall cleared \u00b7 ' + (url || '') + ' is open again (was '
+          + (prev.kind || 'blocked') + ' at ' + (prev.at || '?') + ')');
+      }
       function wallSeen() {
         try { return JSON.parse(localStorage.getItem(WALL_SEEN_KEY) || 'null'); }
         catch (e) { return null; }
@@ -14484,6 +14507,8 @@
             var v = wallVerdict(html);
             if (v !== 'OPEN') { noteWall(v === 'ANUBIS' ? 'eBird\u2019s bot filter' : 'an eBird login wall',
               'ebird.org/region/US-WA'); return null; }
+            // F194: reaching it is proof the wall is not there any more.
+            clearWall('ebird.org/region/US-WA');
             var key = extractWebKey(html);
             // A page that IS reachable but yields no token is a different
             // fault - eBird changed the page - and must not be reported as a
@@ -23323,7 +23348,9 @@
         // F184: exposed so the classifier can be driven against real page
         // SHAPES rather than argued about. The bug it is chasing is that a
         // verdict was inferred from a negative marker.
-        wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind, classifyF8: classifyF8,
+        wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind,
+        noteWall: noteWall, clearWall: clearWall, wallSeen: wallSeen,
+        WALL_SEEN_KEY: WALL_SEEN_KEY, classifyF8: classifyF8,
         // The whole scheduling decision, exposed so 300 calls can be DRIVEN
         // through it with a synthetic clock instead of argued about.
         fgSchedule: fgSchedule,

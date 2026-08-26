@@ -17097,3 +17097,40 @@ test('F191: the status stops claiming nothing closer was fetched', () => {
   assert.match(fn, /nothing closer was fetched/,
     'the original wording is still correct when no scout ran, and is kept');
 });
+
+test('F194: a wall that is gone stops being reported', async () => {
+  // MEASURED in the device log of 2026-08-26: the debug header read
+  // "⛔ blocked by eBird's bot filter at ebird.org/region/US-WA (last seen
+  // 2026-08-25 21:26)" while the wall probe, in the SAME session, twice
+  // reported "already OPEN (1048368B) — no wall in the way, nothing to
+  // defeat." Two statements about one URL, minutes apart, and the stale one
+  // was the louder. noteWall wrote the flag and NOTHING ever cleared it.
+  const app = await boot();
+  const A = app.window.__app;
+
+  A.noteWall('eBird\u2019s bot filter', 'ebird.org/region/US-WA');
+  const seen = A.wallSeen();
+  assert.ok(seen && seen.kind, 'a real block is still recorded');
+  assert.match(seen.url, /region\/US-WA/);
+
+  A.clearWall('ebird.org/region/US-WA');
+  assert.equal(A.wallSeen(), null,
+    'and reaching the page retracts it — the app must not assert a state it '
+    + 'can observe to be false');
+
+  // Clearing when nothing was set is a no-op, not a log line about a wall
+  // that was never there.
+  A.clearWall('ebird.org/region/US-WA');
+  assert.equal(A.wallSeen(), null);
+
+  // ...and both readers of the verdict actually call it.
+  const wf = HTML.slice(HTML.indexOf('function wallFetch()'),
+                        HTML.indexOf('function probeWall()'));
+  assert.match(wf, /wallVerdict\(b\) === 'OPEN'\) clearWall/,
+    'the probe may retract the banner, not only raise it');
+  const wk = HTML.slice(HTML.indexOf('function ebirdWebKey()'),
+                        HTML.indexOf('function ebirdWebKey()') + 1200);
+  assert.match(wk, /clearWall\('ebird\.org\/region\/US-WA'\)/,
+    'and so may an ordinary successful read');
+  app.window.close();
+});
