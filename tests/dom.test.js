@@ -15414,3 +15414,93 @@ test('a hotspot card nested in a species card keeps its own grid', async () => {
   });
   app.window.close();
 });
+
+// --- the board named a bird only a bander could read -----------------------
+// "top100 should show bird species name and code" (+ "it can show last update
+// too in short date"). The newest-tick line printed the four-letter banding
+// code alone - "+ CRPL", "+ PESA" - which is Common Ringed Plover and
+// Pectoral Sandpiper, and it was the one place in the app that showed a bird
+// without naming it.
+//
+// Nothing had to be fetched: lastNewParse already returns the full common
+// name and the date, and both were being spent on a `title` attribute a phone
+// cannot show.
+test('the top 100 board names the newest bird, not just its banding code', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  // The code is a decoration read out of the species index the app already
+  // caches. The KEY is asked for rather than written down.
+  app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
+    JSON.stringify({ t: Date.now(), rows: [
+      { name: 'Common Ringed Plover', code: 'cririn1', alpha: 'CRPL' },
+      { name: 'Pectoral Sandpiper', code: 'pecsan', alpha: 'PESA' },
+    ] }));
+
+  A.renderRankings({
+    me: null,
+    rows: [
+      { rank: 1, name: 'A Birder', species: 341,
+        recent: 'Common Ringed Plover (Aug. 24, 2026)' },
+      { rank: 2, name: 'B Birder', species: 334,
+        recent: 'Pectoral Sandpiper (Aug. 23, 2026)' },
+    ],
+  }, 'US-WA', 'https://ebird.org/top100', 'Washington');
+
+  const last = [].slice.call(doc.querySelectorAll('.rankrow .ranklast'));
+  assert.equal(last.length, 2, 'both rows carry a newest-tick line');
+  const txt = last.map((n) => n.textContent.replace(/\s+/g, ' ').trim());
+  assert.ok(/Common Ringed Plover/.test(txt[0]),
+    `the bird is NAMED on the row, not only in a title attribute: ${txt[0]}`);
+  assert.ok(/Aug 24/.test(txt[0]),
+    'and when it was added, in the app\u2019s short date form. The board says '
+    + '"(Aug. 24, 2026)", so anything reading Aug 23 is a date-only string '
+    + `being parsed as UTC and rendered locally: ${txt[0]}`);
+
+  // The code stays: it is what the rest of the app prints beside a name, and
+  // it is what you quote to another birder.
+  const codes = last.map((n) => (n.querySelector('small') || {}).textContent || '');
+  assert.ok(codes.every((c) => /\(/.test(c)),
+    `the banding code rides along in a small tail: ${codes.join(' | ')}`);
+
+  // F181: a longer label must be allowed to take a second LINE. `nowrap` was
+  // affordable for four letters and is not affordable for a full name plus a
+  // code plus a date - and the failure mode of getting this wrong is one
+  // letter per line, which the overflow audit scores as a PASS.
+  const st = app.window.getComputedStyle(last[0]);
+  assert.notEqual(st.whiteSpace, 'nowrap',
+    'a full common name cannot be held on one line at 320px');
+  assert.equal(st.wordBreak, 'normal',
+    'and it must break at a SPACE, never mid-word');
+  app.window.close();
+});
+
+// The species index is fetched asynchronously with a 24 h TTL, so the first
+// board paint of a fresh session usually runs BEFORE it exists. rankCodeIndex
+// memoised whatever it found - and `{}` is truthy, so a miss froze every row
+// on its bare name for the rest of the session, flatly contradicting the
+// comment above it promising the codes "fill in after". Same rule as F167 and
+// F172: a failure is not an answer and must never be the thing you cache.
+test('a board painted before the species index arrives still gets its codes', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const board = { me: null, rows: [{ rank: 1, name: 'A Birder', species: 341,
+    recent: 'Pectoral Sandpiper (Aug. 23, 2026)' }] };
+
+  // Paint once with NOTHING cached: the name is the answer, and that is fine.
+  A.renderRankings(board, 'US-WA', 'https://ebird.org/top100', 'Washington');
+  const first = doc.querySelector('.rankrow .ranklast').textContent;
+  assert.ok(/Pectoral Sandpiper/.test(first), `the name still renders: ${first}`);
+  assert.ok(!/PESA/.test(first), 'and no code, because none is cached yet');
+
+  // Now the index lands, exactly as it does a few seconds into a real session.
+  app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
+    JSON.stringify({ t: Date.now(), rows: [
+      { name: 'Pectoral Sandpiper', code: 'pecsan', alpha: 'PESA' }] }));
+  A.renderRankings(board, 'US-WA', 'https://ebird.org/top100', 'Washington');
+  const second = doc.querySelector('.rankrow .ranklast').textContent;
+  assert.ok(/PESA/.test(second),
+    `the code must appear on the next paint, not wait for a restart: ${second}`);
+  app.window.close();
+});

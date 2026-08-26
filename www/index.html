@@ -1533,10 +1533,21 @@
                         white-space: nowrap; }
     /* The last bird this birder added. A tap target, so it clears the 40px
        rule by padding rather than by font size — the code itself must stay
-       small or it competes with the name it sits under. */
-    .rankrow .ranklast { display: inline-block; margin-top: 2px;
+       small or it competes with the name it sits under.
+
+       IT WRAPS NOW, and that is deliberate. The line carried one four-letter
+       code and could afford `nowrap`; it now carries a full common name, the
+       code and a date, and "Black-throated Gray Warbler (BTYW) · Aug 24" does
+       not fit 320px at any text scale. `word-break: normal` is the F181 guard:
+       break at a SPACE and take two lines, never one letter per line, which is
+       the collapse that scored a PASS in the overflow audit because crushed
+       text is not clipped text. */
+    .rankrow .ranklast { display: block; margin-top: 2px;
                          font-size: calc(12px * var(--s)); font-weight: 700;
-                         color: var(--muted); white-space: nowrap; }
+                         color: var(--muted); white-space: normal;
+                         overflow-wrap: break-word; word-break: normal; }
+    .rankrow .ranklast small { font-weight: 600; opacity: .8;
+                               white-space: nowrap; }
     .rankrow .ranklast a { color: var(--accent); text-decoration: none;
                            padding: 4px 2px; }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s)); }
@@ -3469,7 +3480,19 @@
         });
       }
       function fmtDate(s) {
-        var d = new Date(String(s).replace(' ', 'T'));
+        // A DATE-ONLY STRING IS A CALENDAR DATE, NOT AN INSTANT.
+        //
+        // `new Date('2026-08-24')` is specified to parse as UTC midnight, and
+        // toLocaleDateString then renders it in local time — so every US
+        // timezone printed "Aug 23" for the 24th. It went unnoticed because
+        // these values are usually only compared against each other, all
+        // shifted the same way; it became visible the moment a date was put on
+        // screen beside the name it belongs to. A timestamp WITH a time is
+        // already local (the space becomes a T), so only the bare form needs
+        // pinning down.
+        var t = String(s == null ? '' : s);
+        var d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(t) ? t + 'T00:00:00'
+                                                       : t.replace(' ', 'T'));
         if (isNaN(d.getTime())) return s || '';
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       }
@@ -13709,20 +13732,42 @@
         if (r && r.name && r.code) out[String(r.name).toLowerCase()] = r.code;
       });
     } catch (e) { /* no index cached yet: names it is */ }
-    _rankCodeIdx = out;
+    // AN EMPTY INDEX IS A MISS, NOT AN ANSWER — the F167/F172 rule again.
+    //
+    // The species index is fetched asynchronously and cached with a 24 h TTL,
+    // so the first board paint of a fresh session very often runs before it
+    // exists. `{}` is truthy, so memoising it froze every row on its name for
+    // the rest of the session — which flatly contradicts the comment above
+    // promising the codes "fill in after". Only a non-empty index is worth
+    // keeping; a miss is retried next paint.
+    if (Object.keys(out).length) _rankCodeIdx = out;
     return out;
   }
   function rankLastNewHTML(r) {
     var p = lastNewParse(r && r.recent);
     if (!p || !p.species) return '';
     var code = rankCodeIndex()[p.species.toLowerCase()] || '';
-    var label = code ? (alphaFor(code) || code) : p.species;
+    // NAME THE BIRD. This line used to print the four-letter banding code and
+    // nothing else - "+ CRPL", "+ PESA" - which is unreadable unless you
+    // already know it means Common Ringed Plover, and it was the one place in
+    // the app that showed a bird without naming it. The full name was in hand
+    // all along: lastNewParse returns it, and it was being spent on a `title`
+    // attribute a phone cannot show.
+    //
+    // The code stays because it is what the rest of the app prints beside a
+    // name (Leader Board Ticks does exactly this), and the date because
+    // "which bird" and "how long ago" are one question on a chase board.
+    // fmtDate, not a third date format - see F165 on one fact kept twice.
+    var alpha = code ? (alphaFor(code) || code) : '';
     var inner = code
       ? '<a class="splink" data-sp="' + esc(code) + '" data-spname="' + esc(p.species)
-        + '">' + esc(label) + '</a>'
-      : esc(label);
+        + '">' + esc(p.species) + '</a>'
+      : esc(p.species);
+    var tail = [alpha ? '(' + alpha + ')' : '', p.date ? fmtDate(p.date) : '']
+      .filter(Boolean).join(' \u00b7 ');
     return '<span class="ranklast" title="' + esc('newest: ' + p.species
-      + (p.date ? ' \u00b7 ' + p.date : '')) + '">+' + inner + '</span>';
+      + (p.date ? ' \u00b7 ' + p.date : '')) + '">+ ' + inner
+      + (tail ? ' <small>' + esc(tail) + '</small>' : '') + '</span>';
   }
   // ONE arrow per row, not three. Three deltas plus a name and a species count
   // do not fit at 320px, and "avoid wrapping" was the explicit requirement — so
@@ -14323,9 +14368,21 @@
         var m = LAST_NEW_RE.exec(String(recent || '').trim());
         if (!m) return null;
         var d = new Date(m[2].replace('.', '') + ' 00:00:00');
+        // LOCAL date parts, not toISOString().
+        //
+        // The board says "(Aug. 24, 2026)". That is parsed as LOCAL midnight,
+        // and toISOString then converts to UTC — which in every US timezone is
+        // still the 23rd. So the whole board, and Leader Board Ticks with it
+        // (e.latest is this value, printed as "newest tick Aug 23"), has been
+        // reporting every tick one day early. Found the moment the date was
+        // put on screen next to the name; it was invisible while the value was
+        // only ever compared against other values shifted the same way.
+        if (isNaN(d.getTime())) return { species: m[1].trim(), date: '' };
+        var mo = d.getMonth() + 1, day = d.getDate();
         return {
           species: m[1].trim(),
-          date: isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+          date: d.getFullYear() + '-' + (mo < 10 ? '0' : '') + mo
+                + '-' + (day < 10 ? '0' : '') + day
         };
       }
 
