@@ -15782,3 +15782,74 @@ test('every block on a stakeout hotspot card is announced and separated', async 
     'species rows render through the shared small species card');
   app.window.close();
 });
+
+// --- three chip pairs on one line: measured, then answered honestly --------
+// "All three toggle pairs on ONE line, no wrapping" + "a bolder formatted
+// header carrying the COUNT and the LAST UPDATE TIME".
+//
+// MEASURED in real Chrome before choosing, because the F180 write-up already
+// records three pairs on one card as the F10 crowding failure:
+//
+//   393px, scale 1     three pairs want 311.9px in 314px  -> one line, 2px spare
+//   320px, Easy read   three pairs want 288px in 233px    -> impossible
+//
+// At 320px with Easy read on this is arithmetic, not styling: six tap targets
+// at the 44px minimum are 264px before any gap, against 233px of panel.
+// Forced onto one line there, every chip collapsed to 44px wide and 125-146px
+// TALL - text shredded one letter per line, the F181 failure the overflow
+// audit scores as a pass.
+//
+// So: ONE row that wraps only when it must, with groups that never shrink -
+// which makes wrapping the failure mode instead of shredding.
+test('the twitch controls are one row that wraps rather than crushes', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const host = doc.createElement('div');
+  doc.body.appendChild(host);
+  host.innerHTML = A.rarityControls('probe');
+
+  const rows = host.querySelectorAll('.raritycontrolrow');
+  assert.equal(rows.length, 1,
+    `all three pairs share one row, not a sort row above a filter row: ${rows.length}`);
+  const groups = host.querySelectorAll('.sortpick');
+  assert.equal(groups.length, 3, 'sort, year list and distance');
+
+  // Never shrink. This is the guard that keeps the 320px/Easy read case
+  // wrapping instead of collapsing to one letter per line.
+  groups.forEach((g) => {
+    const st = app.window.getComputedStyle(g);
+    assert.equal(st.flexShrink, '0',
+      'a chip group that may shrink will be crushed before it is wrapped');
+  });
+  const wrapSt = app.window.getComputedStyle(host.querySelector('.raritycontrols'));
+  assert.equal(wrapSt.flexWrap, 'wrap',
+    'and it must be allowed to wrap, or the narrow case overflows instead');
+
+  // The distance chip still STATES the bar. F180 chose "35 mi" as the label
+  // precisely because it does, and the prose that repeated it has moved.
+  const labels = [].slice.call(host.querySelectorAll('.sortbtn')).map((b) => b.textContent.trim());
+  assert.ok(labels.some((l) => /^\d+ mi$/.test(l)),
+    `the chip carries the number now that the sentence does not: ${labels.join(', ')}`);
+  app.window.close();
+});
+
+// The header the count and time moved into. Asserted as a RANKING, because
+// the point of the change is that these two facts stop being mid-sentence.
+test('the twitch header ranks the count above the prose it replaced', () => {
+  const px = (re) => {
+    const m = re.exec(HTML);
+    assert.ok(m, `expected ${re}`);
+    return Number(m[1]);
+  };
+  const count = px(/\.twitchhead b \{ font-size: calc\((\d+)px/);
+  const unit = px(/\.twitchhead small \{ font-size: calc\((\d+)px/);
+  const why = px(/\.twitchwhy \{[\s\S]{0,120}?font-size: calc\((\d+)px/);
+  assert.ok(count > unit && unit >= why,
+    `the number is the subject, its unit is a caption on it, and the sentence `
+    + `it came out of sits under both: ${count}/${unit}/${why}`);
+  assert.match(HTML, /class="twitchhead"><b>' \+ rows\.length/,
+    'the header carries the row COUNT, which is the fact that was buried');
+  assert.match(HTML, /class="twitchtime">updated '/,
+    'and when the data was read');
+});

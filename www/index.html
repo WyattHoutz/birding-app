@@ -522,13 +522,37 @@
        them separate lets a 402px card breathe, while flex-wrap still protects
        the narrowest large-text layout. All three use the established chip
        shape rather than introducing a third kind of control. */
-    .raritycontrols { display: flex; flex-direction: column; gap: 6px;
-      margin-top: 9px; }
+    .raritycontrols { display: flex; flex-direction: row; flex-wrap: wrap;
+      gap: 6px; align-items: center; margin-top: 9px; }
     .raritycontrolrow { display: flex; gap: 6px; align-items: center;
       flex-wrap: wrap; }
-    .raritycontrolrow .sortpick { margin-left: 0; }
-    .rarityfilterrow .sortpick { flex: 1 1 130px; min-width: 0; }
-    .rarityfilterrow .sortbtn { flex: 1 1 auto; min-width: 0; }
+    /* "all three toggle pairs on one line, no wrapping."
+       MEASURED in real Chrome across the audited combinations:
+         393px, scale 1        three pairs want 311.9px in 314px  -> ONE LINE
+         320px, Easy read      three pairs want 288px in 233px    -> impossible
+       At 320px with Easy read on it is not a styling problem, it is
+       arithmetic: six tap targets at the 44px minimum are 264px before any
+       gap, against 233px of panel. Forced onto one line there, every chip
+       collapses to 44px wide and 125-146px TALL - text shredded one letter
+       per line, which is the F181 failure the overflow audit scores as a
+       pass. So the row is ONE line that wraps only when it must, and the
+       groups never shrink (flex: 0 0 auto), which makes wrapping the failure
+       mode instead of shredding. */
+    .raritycontrolrow .sortpick { margin-left: 0; flex: 0 0 auto; }
+    .rarityfilterrow .sortpick { flex: 0 0 auto; min-width: 0; }
+    .rarityfilterrow .sortbtn { flex: 0 0 auto; min-width: 0; }
+    /* The count and the time it was read are what decide whether to read on,
+       and they were mid-sentence in a run-on that also carried the bar, the
+       far count and the sort order. Header first, prose under it. */
+    .twitchhead { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .twitchhead b { font-size: calc(26px * var(--s)); font-weight: 800;
+                    font-variant-numeric: tabular-nums; color: var(--ink); }
+    .twitchhead small { font-size: calc(14px * var(--s)); font-weight: 700;
+                        color: var(--muted); }
+    .twitchtime { margin-left: auto; font-size: calc(13px * var(--s));
+                  font-weight: 600; color: var(--muted); white-space: nowrap; }
+    .twitchwhy { margin-top: 2px; font-size: calc(13px * var(--s));
+                 color: var(--muted); }
     /* "id like to know quickly if a new rarity has been observed."
        A WORD, not a colour: the row already spends colour on distance and on
        the rarity badge, and a third colour-only signal is one nobody decodes. */
@@ -5793,11 +5817,26 @@
               + (farEligible ? ' · ' + farEligible + ' '
                 + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out available' : '');
           }
-          st.innerHTML = esc(summary
-            + (rows.length
-              ? ' · ' + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
-                + ' · updated ' + dataTime(c)
-              : ''))
+          // A HEADER, then the prose. Asked for as "a bolder formatted header
+          // carrying the COUNT and the LAST UPDATE TIME" - the two facts that
+          // decide whether to read on were buried mid-sentence in a run-on
+          // that also carried the bar, the far count and the sort order.
+          //
+          // The prose is DEMOTED rather than moved into the ⓘ popup as asked:
+          // that popup renders section-docs.json, which describes how a
+          // section is CALCULATED and is authored once and shipped to both
+          // repos byte-identically. Putting a runtime sentence in it would
+          // make one of those two copies dynamic. Recorded rather than done.
+          st.innerHTML = '<div class="twitchhead"><b>' + rows.length + '</b>'
+            + '<small>' + (rows.length === 1 ? 'rarity report' : 'rarity reports')
+            + '</small>'
+            + (rows.length ? '<span class="twitchtime">updated ' + esc(dataTime(c))
+                             + '</span>' : '')
+            + '</div>'
+            + '<div class="twitchwhy">' + esc(summary
+              + (rows.length
+                ? ' \u00b7 ' + (raritySort() === 'distance' ? 'nearest first' : 'newest first')
+                : '')) + '</div>'
             + (fresh.length
                ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
                : '')
@@ -7840,10 +7879,15 @@
           + esc(rightLabel) + '</button></span>';
       }
       function rarityControls(prefix) {
+        // ONE ROW holding all three pairs, rather than a sort row above a
+        // filter row. See the CSS: at real phone widths the three pairs fit a
+        // single line, and at 320px with Easy read on they wrap instead of
+        // being crushed, because six 44px tap targets cannot fit 233px however
+        // they are styled.
         return '<div class="raritycontrols" id="' + prefix + 'Controls">'
-          + '<div class="raritycontrolrow raritysortrow">'
-          + raritySortControl(prefix + 'Sort') + '</div>'
-          + '<div class="raritycontrolrow rarityfilterrow" id="' + prefix + 'Filters">'
+          + '<div class="raritycontrolrow rarityfilterrow raritysortrow" id="'
+            + prefix + 'Filters">'
+          + raritySortControl(prefix + 'Sort')
           + rarityFilterControl(prefix + 'Year', 'year', 'unseen', 'Unseen', 'all', 'All')
           + rarityFilterControl(prefix + 'Distance', 'distance', 'near',
               chaseMaxMi() + ' mi', 'region', rarityRegionName())
