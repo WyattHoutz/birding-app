@@ -15608,3 +15608,67 @@ test('the checklist id on a hotspot sub-line is big enough to hit', async () => 
     + 'it measured 17.5px tall and finished 5.3px from the next card');
   app.window.close();
 });
+
+// --- Leader Board Ticks gets the same two questions the twitch lists get ----
+// "it does say Leader Board Ticks on menu button and report but the toggles
+// are missing." Not a regression - F180 was scoped to the two twitch lists -
+// but the section was already answering half of one of these questions by
+// splitting "Still needed" from "Already on your year list", so the chip pair
+// makes that split a control instead of a layout.
+test('Leader Board Ticks can be filtered to unseen and to chase range', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const W = app.window;
+  W.localStorage.removeItem(A.RARITY_FILTER_KEY);
+
+  // Two birds: one you have (Pectoral Sandpiper is in no seed, so force the
+  // other axis instead) and one far away.
+  const groups = {
+    'Near Bird': { birders: [{ name: 'A', rank: 1, date: '2026-08-24' }], latest: '2026-08-24' },
+    'Far Bird': { birders: [{ name: 'B', rank: 2, date: '2026-08-24' }], latest: '2026-08-24' },
+  };
+  // Home is 47.75 / -122.16 in the harness. ~0 mi and ~180 mi.
+  const byName = {
+    'Near Bird': { code: 'nearb', obs: [{ lat: 47.75, lng: -122.16 }] },
+    'Far Bird': { code: 'farb', obs: [{ lat: 45.5, lng: -122.6 }] },
+  };
+  A.renderLastNew(groups, byName, 'US-WA', {});
+
+  const controls = doc.querySelector('#lastNewControlsHost .raritycontrols');
+  assert.ok(controls, 'the control bar renders');
+  // It must be there from the FIRST paint - the ~46 per-species checklist
+  // feeds take minutes, and the device screenshot was taken mid-load.
+  const chips = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
+    .map((b) => b.textContent.trim());
+  assert.ok(chips.indexOf('Unseen') > -1 && chips.indexOf('All') > -1,
+    `the year-list pair: ${chips.join(', ')}`);
+  assert.ok(chips.some((c) => /mi$/.test(c)),
+    `and the distance pair, whose label states the bar: ${chips.join(', ')}`);
+
+  function names() {
+    return [].slice.call(doc.querySelectorAll('#lastNewResults > li'))
+      .map((li) => li.getAttribute('data-sp')).filter(Boolean);
+  }
+  // Default is `near`, and the far bird is ~180 mi out.
+  assert.deepEqual(names().join('|'), 'Near Bird',
+    'the default chase radius drops a bird nobody is going to drive to');
+
+  // Widen it.
+  const wide = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
+    .find((b) => b.getAttribute('data-filter') === 'distance'
+                 && b.getAttribute('data-value') === 'region');
+  wide.click();
+  assert.equal(names().length, 2,
+    'switching to the wide chip brings the far bird back without a refetch');
+
+  // And it says what it removed - a filter that silently shortens a list is
+  // indistinguishable from a feed that returned less.
+  const narrow = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
+    .find((b) => b.getAttribute('data-filter') === 'distance'
+                 && b.getAttribute('data-value') === 'near');
+  narrow.click();
+  assert.match(doc.getElementById('lastNewResults').textContent, /hidden by the filters/,
+    'the count of what the filter removed is stated');
+  app.window.close();
+});

@@ -1965,6 +1965,7 @@
         <button id="lastNewBtn">Load Leader Board Ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
+      <div id="lastNewControlsHost"></div>
       <ul id="lastNewResults" class="obs big xl"></ul>
     </section>
 
@@ -14647,14 +14648,68 @@
           + '</span><span class="cgwhy">' + why + '</span></li>';
       }
 
+      // "it does say Leader Board Ticks on menu button and report but the
+      // toggles are missing." Not a regression - F180 was scoped to the two
+      // twitch lists - but the same two questions apply here, and the section
+      // was already answering half of one of them by splitting "Still needed"
+      // from "Already on your year list". The chip pair simply makes that
+      // split a control instead of a layout.
+      //
+      // rarityControls / wireRarityControls, NOT a third copy: the same
+      // preference is stored once, so turning "Unseen" on here turns it on in
+      // Twitches too, which is the behaviour a shared setting should have.
+      // rarityFilterRecords itself is NOT reusable - it requires
+      // kind === 'Rarity' on each row and these rows are species groups - so
+      // only the DECISION is duplicated, and it copies that function's rule
+      // that an unknown distance is never a reason to hide a row.
+      var _lastNewState = null;
+      function lastNewNearest(info) {
+        var home = getHome();
+        if (!home || !info) return null;
+        var near = null;
+        (info.obs || []).forEach(function (o) {
+          if (!isFinite(o.lat) || !isFinite(o.lng)) return;
+          var d = haversineMi(home.lat, home.lng, +o.lat, +o.lng);
+          if (near == null || d < near) near = d;
+        });
+        return near;
+      }
+      function lastNewPasses(sp, info, code) {
+        var f = rarityFilters();
+        if (f.year === 'unseen' && isSpeciesSeen(code, sp)) return false;
+        if (f.distance === 'near') {
+          var mi = lastNewNearest(info);
+          // A row whose checklists have not landed yet has no distance, and a
+          // row with no distance cannot claim to be far. It stays until the
+          // feed can answer - the same rule rarityFilterRecords follows.
+          if (mi != null && mi > chaseMaxMi()) return false;
+        }
+        return true;
+      }
       function renderLastNew(groups, byName, region, codeIdx) {
         var out = $('lastNewResults');
         var keys = lastNewOrder(groups);
         codeIdx = codeIdx || {};
-        var needed = [], already = [];
+        _lastNewState = { groups: groups, byName: byName, region: region, codeIdx: codeIdx };
+        // The controls are painted from the FIRST render, which happens as soon
+        // as the board resolves and long before the ~46 per-species checklist
+        // feeds finish. A control that only appears once the slowest source
+        // lands is a control nobody can reach while they are waiting.
+        var chost = $('lastNewControlsHost');
+        if (chost && !chost.firstChild) {
+          chost.innerHTML = rarityControls('lastNew');
+          wireRarityControls('lastNew', function () {
+            if (_lastNewState) {
+              renderLastNew(_lastNewState.groups, _lastNewState.byName,
+                _lastNewState.region, _lastNewState.codeIdx);
+            }
+          });
+        }
+        var needed = [], already = [], hidden = 0;
         keys.forEach(function (sp) {
           var info = (byName || {})[sp] || null;
           var code = (info && info.code) || codeIdx[sp.toLowerCase()] || '';
+          if (!lastNewPasses(sp, info, code)) { hidden++; return; }
           (isSpeciesSeen(code, sp) ? already : needed).push(sp);
         });
         var html = '', order = [];
@@ -14672,6 +14727,13 @@
           'not on your year list — the ones worth chasing');
         block(already, '✅ Already on your year list',
           'what is moving right now, not a new bird');
+        // A filter that silently shortens a list is indistinguishable from a
+        // feed that returned less, so it says what it removed.
+        if (hidden) {
+          html += '<li class="cardgroup"><span class="cgwhy">' + hidden + ' more bird'
+            + (hidden === 1 ? '' : 's') + ' hidden by the filters above</span></li>';
+          order.push(null);
+        }
         out.innerHTML = html;
         // The card markup comes from a shared template, so the species key is
         // stamped on afterwards rather than threaded through the template — the
@@ -14695,6 +14757,14 @@
           if (kids[i].getAttribute('data-sp') === sp) { el = kids[i]; break; }
         }
         if (!el) return;
+        // The distance filter could not judge this row until now — its
+        // checklists are what carry the coordinates. If the answer that just
+        // arrived puts it out of range, the row goes, rather than sitting in a
+        // filtered list contradicting the chip above it.
+        if (!lastNewPasses(sp, info, (info && info.code) || code || '')) {
+          el.parentNode.removeChild(el);
+          return;
+        }
         var tmp = document.createElement('div');
         tmp.innerHTML = lastNewCard(sp, g, info, region, code);
         var fresh = tmp.firstElementChild;
