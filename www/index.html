@@ -3791,6 +3791,83 @@
       var _fgStarts = [];
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [], _fgBgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
+
+      // ── F187: was the app WAITING, or was it not running? ─────────────────
+      //
+      // iOS suspends a backgrounded WKWebView. Timers stop; the wall clock
+      // does not. On resume every in-flight call reports the whole gap as
+      // queue time, so a four-minute nap is indistinguishable from eBird
+      // holding us off. The device log is unambiguous about how big the lie
+      // is: "done 232604ms (232082ms queued + 522ms net)", and a second one
+      // at 103031ms — while the largest REAL queue wait in that same session
+      // was 5305ms. Two orders of magnitude apart, so any threshold between
+      // them separates the two cleanly.
+      //
+      // A timer set for one second that comes back ten seconds late can only
+      // mean the runtime stopped scheduling it: nothing else moves the wall
+      // clock past a pending timer. Browsers also clamp background timers to
+      // roughly one a minute without fully suspending, which this reports the
+      // same way, and correctly — the app was not running normally either way.
+      var HEARTBEAT_MS = 1000;
+      // 10x the interval. Above any main-thread jank this app produces, and
+      // ~10x below the shortest suspension actually observed (103s).
+      var HEARTBEAT_SLEEP_MS = 10000;
+      var _sleptMs = 0, _lastBeat = Date.now(), _beatTimer = null, _wokeAt = 0;
+      function heartbeat() {
+        var now = Date.now(), drift = now - _lastBeat - HEARTBEAT_MS;
+        _lastBeat = now;
+        if (drift < HEARTBEAT_SLEEP_MS) return;
+        _sleptMs += drift;
+        _wokeAt = now;
+        // Said out loud, because a silently subtracted number is a number
+        // nobody can check.
+        dbg('net', 'app was suspended for ' + Math.round(drift / 1000)
+          + 's — that time is not eBird making us wait');
+      }
+      function heartbeatStart() {
+        if (_beatTimer || typeof setInterval !== 'function') return;
+        _lastBeat = Date.now();
+        _beatTimer = setInterval(heartbeat, HEARTBEAT_MS);
+      }
+      // Runs only while a call is in flight, which is the only time a
+      // suspension can distort anything: sleep between calls corrupts no
+      // measurement because there is nothing whose elapsed time it inflates.
+      // It also keeps a 1Hz timer off the battery while the app is idle, and
+      // keeps a permanently-pending timer out of the test runner's event loop.
+      function heartbeatStop() {
+        if (!_beatTimer) return;
+        clearInterval(_beatTimer);
+        _beatTimer = null;
+      }
+      // WHY THE QUEUE IS HELD, as opposed to what we guess it is. Two entirely
+      // different things push _fgNextAt forward: our own pacing (the gap, the
+      // token bucket, the rolling window) and an actual refusal from eBird.
+      // The bar blamed eBird for both. In the 46-call device log there was not
+      // one 429 — every pause in it was self-imposed, and the app would have
+      // told the owner eBird was rate-limiting them.
+      var _fgHoldWhy = 'pace';
+
+      // Split one call's elapsed time into queue, network and NOT-RUNNING.
+      // Without the third the first two absorb it and both become fiction.
+      function fgTiming(stat, t0) {
+        var end = Date.now();
+        var slept0 = stat.slept0 || 0;
+        var atSlot = stat.sleptAtSlot == null ? _sleptMs : stat.sleptAtSlot;
+        var qSlept = Math.max(0, atSlot - slept0);
+        var nSlept = Math.max(0, _sleptMs - atSlot);
+        var qRaw = stat.slotAt == null ? (end - t0) : Math.max(0, stat.slotAt - t0);
+        var nRaw = stat.slotAt == null ? 0 : Math.max(0, end - stat.slotAt);
+        return {
+          total: end - t0,
+          queued: Math.max(0, qRaw - qSlept),
+          net: Math.max(0, nRaw - nSlept),
+          slept: qSlept + nSlept,
+        };
+      }
+      function fgTimingStr(tm) {
+        return tm.total + 'ms (' + tm.queued + 'ms queued + ' + tm.net + 'ms net'
+          + (tm.slept ? ' + ' + tm.slept + 'ms app suspended' : '') + ')';
+      }
       var _fgOk = 0;           // consecutive successes, for easing back off
       var _fgDone = 0;         // completed calls this wave, for the progress bar
 
@@ -3873,10 +3950,18 @@
         // app reads as hung. Say the number: a countdown is visibly progress
         // even while the count of finished calls is not moving. This wins over
         // every other suffix because it is the only one that explains a stall.
+        //
+        // F187: say WHICH hold it is. "eBird rate limit" was printed whether
+        // or not eBird had ever refused, which is asserting a cause the code
+        // could not observe — and in the 46-call device log, where there was
+        // no 429 at all, it would have been wrong every time.
         var waitMs = _fgNextAt - Date.now();
         var slow;
         if (waitMs > 750) {
-          slow = ' · paused ' + Math.ceil(waitMs / 1000) + 's — eBird rate limit';
+          slow = ' · paused ' + Math.ceil(waitMs / 1000) + 's — '
+            + (_fgHoldWhy === 'limit'
+              ? 'eBird asked us to wait'
+              : 'spacing out our own calls');
           // Repaint once a second so the number really counts down; the queue
           // is asleep, so nothing else will call back in to update it.
           if (!_fgPauseTimer) _fgPauseTimer = setInterval(fgProgressSync, 1000);
@@ -4004,6 +4089,9 @@
         at += fgWindowWait(at, bg);
         _fgStarts.push(at);
         _fgNextAt = at + _fgGap;
+        // Our own pacing put the queue here. Only a refusal may claim
+        // otherwise, and it overwrites this on the way past.
+        _fgHoldWhy = 'pace';
         return at;
       }
       function fgSlot(bg) {
@@ -4035,7 +4123,13 @@
         return fgSlot(bg).then(function () {
           // The moment the queue let this call go. Everything before it is
           // waiting for OTHER calls; everything after is this one.
-          if (stat && stat.slotAt == null) stat.slotAt = Date.now();
+          if (stat && stat.slotAt == null) {
+            stat.slotAt = Date.now();
+            // How much of the wait so far was the app not running. Captured
+            // HERE so the queue phase and the network phase can each be
+            // corrected with the sleep that actually fell inside it.
+            stat.sleptAtSlot = _sleptMs;
+          }
           return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
             .then(function (r) { fgRelease(); return r; },
                   function (e) { fgRelease(); throw e; });
@@ -4060,6 +4154,9 @@
               _fgGap = Math.min(FG_GAP_MAX, Math.max(_fgGap * 2, 1000));
               _fgTokens = 0; _fgTokenAt = Date.now();
               _fgNextAt = Math.max(_fgNextAt, Date.now() + Math.max(back, FG_COOLDOWN_MS));
+              // eBird really did refuse. This is the ONLY thing entitled to
+              // tell the user they are being rate-limited.
+              _fgHoldWhy = 'limit';
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
                 return fgAttempt(path, attempt + 1, bg, stat);
@@ -4253,8 +4350,10 @@
         }
         dbg('net', 'GET ' + path);
         costNote(path, false);
-        _fgInFlight++; rlPause();
-        function release() { if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); } }
+        _fgInFlight++; rlPause(); heartbeatStart();
+        function release() {
+          if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); heartbeatStop(); }
+        }
         var t0 = Date.now();
         // ONE NUMBER WAS DOING TWO JOBS, and it sent the same reader hunting
         // the same non-bug three times.
@@ -4269,7 +4368,7 @@
         //
         // A queue stall and a hung request need opposite responses, so they no
         // longer share a number.
-        var stat = {};
+        var stat = { slept0: _sleptMs };
         var p = fgAttempt(path, 0, bg, stat)
           .then(function (v) {
             release(); fgNoteOk();
@@ -4278,10 +4377,8 @@
             // explain a slow load, and neither was in the log before: without
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
-            var total = Date.now() - t0;
-            var queued = stat.slotAt == null ? 0 : Math.max(0, stat.slotAt - t0);
-            dbg('net', 'done ' + total + 'ms (' + queued + 'ms queued + '
-              + (total - queued) + 'ms net) · ' + _fgDone + ' calls'
+            var tm = fgTiming(stat, t0);
+            dbg('net', 'done ' + fgTimingStr(tm) + ' · ' + _fgDone + ' calls'
               + ' · queue ' + _fgWaiters.length + '+' + _fgBgWaiters.length + 'bg/' + _fgActive
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
               + ' · window ' + fgWindowUsed() + '/' + FG_WINDOW_MAX
@@ -4289,10 +4386,8 @@
             return v;
           }, function (e) {
             release(); fgProgressSync();
-            var total = Date.now() - t0;
-            var queued = stat.slotAt == null ? total : Math.max(0, stat.slotAt - t0);
-            dbg('error', 'failed after ' + total + 'ms (' + queued + 'ms queued + '
-              + (total - queued) + 'ms net) · ' + path
+            var tm = fgTiming(stat, t0);
+            dbg('error', 'failed after ' + fgTimingStr(tm) + ' · ' + path
               + ' · ' + ((e && e.message) || e));
             if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
             throw e;
@@ -22415,6 +22510,17 @@
         },
         fgWindowState: function () { return _fgStarts.slice(); },
         fgWindowReset: function () { _fgStarts.length = 0; },
+        // F187. `beat` drives one heartbeat tick against a supplied wall
+        // clock, because a test cannot actually suspend the process; `sleep`
+        // reads the total charged to suspension, and `hold` says which reason
+        // the progress bar is entitled to print.
+        heartbeat: heartbeat,
+        beat: function (lastBeatAt) { _lastBeat = lastBeatAt; heartbeat(); },
+        sleptMs: function () { return _sleptMs; },
+        sleepReset: function () { _sleptMs = 0; _lastBeat = Date.now(); _wokeAt = 0; },
+        holdWhy: function () { return _fgHoldWhy; },
+        setHoldWhy: function (w) { _fgHoldWhy = w; },
+        fgTiming: fgTiming, fgTimingStr: fgTimingStr,
         fgWindowPush: function (t) { _fgStarts.push(t); },
         FG_WINDOW_MS: FG_WINDOW_MS, FG_WINDOW_MAX: FG_WINDOW_MAX,
         FG_WINDOW_RESERVE: FG_WINDOW_RESERVE,

@@ -13,7 +13,7 @@
  * can assert they were triggered and count their requests) but never paint
  * results, which keeps the tests offline and deterministic.
  */
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -74,6 +74,15 @@ function seedSeen(app, codes, names) {
   if (names) rep.names = names.slice();
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
 }
+
+// Every jsdom window this file opens, so none is left holding a live timer.
+// 294 boots against 223 closes meant 71 windows were leaked, which was
+// harmless only while nothing in the app kept a repeating timer running. The
+// F187 heartbeat runs while a call is in flight, and boot() stubs fetch with a
+// promise that never settles — so a call is in flight forever here and the
+// runner would never exit. Close them all when the file is done.
+const _booted = [];
+after(() => { _booted.forEach((w) => { try { w.close(); } catch (e) {} }); });
 
 function boot(opts = {}) {
   const state = { fetches: [], errors: [] };
@@ -145,6 +154,7 @@ function boot(opts = {}) {
   return new Promise((resolve) => {
     dom.window.addEventListener('load', () => setTimeout(() => {
       const window = dom.window;
+      _booted.push(window);
       resolve({
         dom, window,
         document: window.document,
@@ -3061,16 +3071,39 @@ test('the progress bar names the step, the feed, and any pause', async () => {
     'and "Geo50km" is turned into a distance a reader recognises — in the '
     + 'miles the rest of the app uses, not the km the eBird parameter takes');
 
-  // 3. A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
-  //    nothing completes for up to a minute: the count freezes, the bar sits
-  //    still, and the app reads as hung. A countdown is visibly progress even
-  //    while the completed count is not moving.
+  // 3. A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a hold nothing
+  //    completes for up to a minute: the count freezes, the bar sits still,
+  //    and the app reads as hung. A countdown is visibly progress even while
+  //    the completed count is not moving.
+  //
+  //    F187: this guard used to pin the literal "eBird rate limit", which is
+  //    the bug it should have caught — the app printed that whether or not
+  //    eBird had ever refused. In the 46-call device log there was not one
+  //    429, so every hold the owner saw named a cause that had not happened.
+  //    Assert the PROPERTY instead: a hold says how long, and names a cause
+  //    the code actually observed, so the two causes cannot read alike.
+  A.setHoldWhy('limit');
   A.fgSetNextAt(Date.now() + 12000);
   A.fgProgressSync();
-  assert.match(text(), /paused 1[12]s — eBird rate limit/,
-    'a rate-limit hold says how long it is holding for');
-  assert.ok(!/going slowly/.test(text()),
+  const held429 = text();
+  assert.match(held429, /paused 1[12]s — /,
+    'a hold says how long it is holding for');
+  assert.match(held429, /eBird/,
+    'and a hold eBird imposed says eBird imposed it');
+  assert.ok(!/going slowly/.test(held429),
     'and does not also mutter about the gap — the countdown is the message');
+
+  A.setHoldWhy('pace');
+  A.fgSetNextAt(Date.now() + 12000);
+  A.fgProgressSync();
+  const heldPace = text();
+  assert.match(heldPace, /paused 1[12]s — /,
+    'a self-imposed hold also says how long');
+  assert.ok(!/eBird/.test(heldPace),
+    'but must NOT blame eBird for a pause we chose ourselves — that is a '
+    + 'cause the code never observed');
+  assert.notStrictEqual(heldPace, held429,
+    'the two holds are different facts and must not read alike');
 
   A.fgSetNextAt(0);
   A.fgProgressSync();
@@ -16100,4 +16133,69 @@ test('the Mega rarities verdict names every place its rows can be lost', () => {
   const decl = HTML.slice(HTML.lastIndexOf('var _abaUl', i), i);
   assert.match(decl, /\$\('abaResults'\)[\s\S]*querySelector\('ul'\)/,
     '_abaUl must come from the rendered DOM');
+});
+
+// ── F187: not running is not the same as waiting ──────────────────────────
+// iOS suspends a backgrounded WKWebView; timers stop but the wall clock does
+// not, so on resume the whole nap was charged to the eBird queue. The device
+// log showed "232082ms queued" and "102566ms queued" in a session whose
+// largest REAL queue wait was 5305ms, and which contained no 429 at all.
+test('a suspended app is charged to sleep, not to the eBird queue', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.sleepReset();
+  assert.equal(A.sleptMs(), 0, 'starts with nothing charged to sleep');
+
+  // Ordinary jank must NOT read as suspension, or every slow render would
+  // start silently deleting real queue time from the log.
+  A.beat(Date.now() - 3000);
+  assert.equal(A.sleptMs(), 0,
+    `a 3s hiccup is jank, not a suspension — charged ${A.sleptMs()}ms`);
+
+  // A tick set 1s apart that returns 60s later can only mean the runtime
+  // stopped scheduling it.
+  A.beat(Date.now() - 60000);
+  assert.ok(A.sleptMs() > 50000,
+    `a 60s gap must be charged to sleep, got ${A.sleptMs()}ms`);
+  app.window.close();
+});
+
+test('the queued figure has the suspended time taken out of it', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.sleepReset();
+  const t0 = Date.now() - 240000;          // the call was made 4 minutes ago
+  const stat = { slept0: A.sleptMs() };
+  // It waited 200s for a slot, and the app was asleep for 195s of that.
+  stat.slotAt = t0 + 200000;
+  A.beat(Date.now() - 195000);
+  stat.sleptAtSlot = A.sleptMs();
+  const tm = A.fgTiming(stat, t0);
+  assert.ok(tm.slept > 190000, `the sleep must be recorded, got ${tm.slept}ms`);
+  assert.ok(tm.queued < 20000,
+    `the queue waited ~5s, not ${Math.round(tm.queued / 1000)}s — suspended time must come out`);
+  assert.ok(tm.total > 230000, 'the wall-clock total still tells the truth');
+  // And the log must SAY it, because a silently subtracted number cannot be
+  // checked by the person reading the log.
+  assert.match(A.fgTimingStr(tm), /app suspended/,
+    `the suspension must be printed: ${A.fgTimingStr(tm)}`);
+  app.window.close();
+});
+
+test('the pause message only blames eBird when eBird actually refused', () => {
+  const sync = HTML.slice(HTML.indexOf('function fgProgressSync()'),
+                          HTML.indexOf('function fgDead()'));
+  assert.match(sync, /_fgHoldWhy === 'limit'/,
+    'the reason must be read from what actually held the queue');
+  assert.ok(!/paused ' \+ Math\.ceil\(waitMs \/ 1000\) \+ 's — eBird rate limit/.test(sync),
+    'the cause must not be hard-coded — 46 calls in the device log, zero 429s');
+  // Only the refusal path may claim a rate limit; ordinary pacing may not.
+  const sched = HTML.slice(HTML.indexOf('function fgSchedule(now, bg)'),
+                           HTML.indexOf('function fgSchedule(now, bg)') + 600);
+  assert.match(sched, /_fgHoldWhy = 'pace'/,
+    'our own spacing must record itself as pacing');
+  const retry = HTML.slice(HTML.indexOf('_fgTokens = 0; _fgTokenAt = Date.now();'),
+                           HTML.indexOf('_fgTokens = 0; _fgTokenAt = Date.now();') + 500);
+  assert.match(retry, /_fgHoldWhy = 'limit'/,
+    'only a real refusal may record itself as a rate limit');
 });
