@@ -16519,3 +16519,90 @@ test('the place search is wired to the fetch, not only to the ranking', () => {
 });
 
 
+
+
+// ---------------------------------------------------------------------------
+// F185 — "the rate limiter counts calls that have not happened yet".
+//
+// CLOSED BY MEASUREMENT, and this guard is what stops it being filed a fourth
+// time. The same limiter has now been accused four times and all four were
+// about a NUMBER, not the rate: window 21/20 (an unpruned array), window 23/22
+// (calls scheduled ahead of now), a 102s "call" that was ~100s of queue, and
+// this one — "arrLen 22 while the window reads 0".
+//
+// The two numbers never disagreed about the SET. They disagreed about the
+// reference TIME: the limiter asks how full the window of the call it is
+// about to schedule is, the display asks how full it is right now. With a
+// synthetic clock that never advances, those are 60 seconds apart.
+// ---------------------------------------------------------------------------
+
+test('F185: every call the limiter gates on is really in that call\u2019s window', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const T0 = 1000000;
+  A.fgSchedReset(T0);
+  let now = T0;
+  const starts = [];
+  // The pattern the entry drove: a PAIR dispatched together, both complete,
+  // next pair. This is what produced the 31.8s/34.7s waits it filed on.
+  for (let p = 0; p < 30; p++) {
+    const a = A.fgSchedule(now, false);
+    const b = A.fgSchedule(now, false);
+    starts.push(a, b);
+    now = Math.max(a, b) + 300;
+  }
+  const arr = A.fgWindowState();
+  const last = starts[starts.length - 1];
+
+  // THE CLAIM: entries are gated on that "were never in the window".
+  // MEASURED: not one. Every entry the limiter holds lies inside the window of
+  // the call being scheduled, and none is scheduled beyond it.
+  const ahead = arr.filter((t) => t > last).length;
+  assert.equal(ahead, 0,
+    `${ahead} of ${arr.length} entries sit past the newest start — if this is `
+    + 'ever non-zero the limiter really is gating on calls outside the window');
+  const inWin = arr.filter((t) => t > last - 60000 && t <= last).length;
+  assert.equal(inWin, arr.length,
+    `${arr.length - inWin} entries lie outside the window they are gating`);
+
+  // ...and the rate itself is right, which is the thing that actually matters.
+  let worst = 0;
+  for (let i = 0; i < starts.length; i++) {
+    let c = 0;
+    for (let j = 0; j < starts.length; j++) {
+      if (starts[j] > starts[i] - 60000 && starts[j] <= starts[i]) c++;
+    }
+    if (c > worst) worst = c;
+  }
+  assert.equal(worst, A.FG_WINDOW_MAX,
+    `worst 60s window was ${worst}, cap ${A.FG_WINDOW_MAX} — the 31.8s wait `
+    + 'this was filed on is the cap working, not a stall');
+  app.window.close();
+});
+
+test('F185: the limiter and the display share ONE definition of the window', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.fgWindowReset();
+  const t = Date.now();
+  // Three inside the window ending at t, one aged out, one in the future.
+  [t - 90000, t - 30000, t - 20000, t - 10000, t + 30000].forEach((x) => A.fgWindowPush(x));
+  assert.equal(A.fgWindowCount(t), 3,
+    'bounded at BOTH ends: aged out does not count, and neither does a call '
+    + 'that has not run');
+  assert.equal(A.fgWindowUsed(), A.fgWindowCount(Date.now()),
+    'the display is the same count, asked at now — so the two can never drift '
+    + 'apart again, which is all F185 actually asked for');
+  // And the definition is really shared in the SOURCE, not just numerically
+  // equal today.
+  const used = HTML.slice(HTML.indexOf('function fgWindowUsed()'),
+                          HTML.indexOf('function fgWindowUsed()') + 400);
+  assert.match(used, /fgWindowCount\(Date\.now\(\)\)/,
+    'the display must delegate, not keep a second copy of the arithmetic');
+  const wait = HTML.slice(HTML.indexOf('function fgWindowWait('),
+                          HTML.indexOf('function fgWindowCount('));
+  assert.match(wait, /fgWindowCount\(startAt\)/,
+    'and so must the limiter');
+  A.fgWindowReset();
+  app.window.close();
+});

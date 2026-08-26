@@ -4038,12 +4038,41 @@
         while (_fgStarts.length && _fgStarts[0] <= cut) _fgStarts.shift();
         // Background stops at the reserve; foreground may use the whole window.
         var cap = bg ? Math.max(1, FG_WINDOW_MAX - FG_WINDOW_RESERVE) : FG_WINDOW_MAX;
-        if (_fgStarts.length < cap) return 0;
+        // ONE DEFINITION OF "IN THE WINDOW", shared with the display. F185
+        // asked for exactly this, on the grounds that the two disagreed: the
+        // limiter saw 22 and fgWindowUsed() saw 0.
+        //
+        // MEASURED, and the diagnosis was wrong. They never disagreed about
+        // the SET — they disagreed about the reference TIME. The limiter asks
+        // "how full is the window of the call I am about to schedule"; the
+        // display asks "how full is it right now". Driving the real scheduler
+        // in the pattern the entry used, every one of the 22 entries the
+        // limiter gated on lay INSIDE the window of the call being scheduled,
+        // with ZERO scheduled beyond it, and the worst 60 s window was exactly
+        // 22 of a cap of 22 — overshoot zero. The 31.3 s wait it reported is
+        // the cap working: 44 calls at 22 per 60 s means the 45th waits for
+        // the first to age out.
+        //
+        // ⛔ So do NOT make this count only calls that have already STARTED.
+        // At schedule time none of them have, so the count would be zero and
+        // the burst limit would vanish — which raises the rate against a key
+        // measured at 0.37 calls/s. That is the opposite of the fix.
+        if (fgWindowCount(startAt) < cap) return 0;
         // Wait for the oldest call in the window to age out of it, plus a
         // millisecond so the new start is strictly PAST the boundary rather
         // than on it. See FG_WINDOW_EPS_MS.
         return Math.max(0, _fgStarts[_fgStarts.length - cap] + FG_WINDOW_MS
                           + FG_WINDOW_EPS_MS - startAt);
+      }
+      // How many starts fall in the 60 s window ENDING at `at`. Bounded at
+      // both ends: a call counts once it has started and until it ages out,
+      // never before it has run.
+      function fgWindowCount(at) {
+        var cut = at - FG_WINDOW_MS, n = 0;
+        for (var i = 0; i < _fgStarts.length; i++) {
+          if (_fgStarts[i] > cut && _fgStarts[i] <= at) n++;
+        }
+        return n;
       }
       // What the window ACTUALLY holds right now.
       //
@@ -4069,13 +4098,11 @@
       // ⛔ Do not "fix" a 23/22 by raising the cap. That was done once already
       // (20 -> 22) and it moved the symptom rather than removing it.
       function fgWindowUsed() {
-        var now = Date.now(), cut = now - FG_WINDOW_MS, n = 0;
-        for (var i = 0; i < _fgStarts.length; i++) {
-          if (_fgStarts[i] > cut && _fgStarts[i] <= now) n++;
-        }
-        return n;
-      }
-      // TWO LANES, not one queue.
+        // The display's question is the limiter's question asked at a
+        // different time. One definition, two reference points — which is
+        // precisely the distinction F185 mistook for a disagreement.
+        return fgWindowCount(Date.now());
+      }      // TWO LANES, not one queue.
       //
       // Phase 2 of the chase wave is ONE CALL PER UNSEEN SPECIES — about 46 of
       // them — and at the rate eBird actually enforces that is over two minutes
@@ -22892,6 +22919,7 @@
         // overshoot one step up, there was no way to tell a real overrun from
         // a display artefact without adding this.
         fgWindowWait: fgWindowWait, fgWindowUsed: fgWindowUsed,
+        fgWindowCount: fgWindowCount,
         // F184: exposed so the classifier can be driven against real page
         // SHAPES rather than argued about. The bug it is chasing is that a
         // verdict was inferred from a negative marker.
