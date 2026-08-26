@@ -3322,10 +3322,10 @@
       // content. Better still, the ROWS decide — if the species pattern
       // matches, whatever the page calls itself, it is a life list.
       function lifelistIsLogin(text) {
-        var t = String(text || '');
-        var login = /sign in to ebird|cassso|name="password"|id="input-password"|\/cas\/login/i.test(t);
-        var lifeish = /life list|species total|taxonomic order|<title[^>]*>[^<]*life list/i.test(t);
-        return login && !lifeish;
+        // F184: ONE definition, shared with wallVerdict and classifyF8, so a
+        // fourth copy of this fault cannot be written. pageKind is declared
+        // further down the same hoisted scope.
+        return pageKind(text) === 'LOGIN';
       }
       // The page's own <title> is the cheapest positive identifier there is —
       // "Washington Life List - eBird" versus a CAS sign-in title — so it goes
@@ -10155,7 +10155,7 @@
         //
         // If the page says what it IS, believe it. A login URL somewhere in a
         // header is not evidence that this is that page.
-        var reallyLogin = login && !lifeish;
+        var reallyLogin = pageKind(txt) === 'LOGIN';
         var verdict = !r.ok ? 'HTTP ' + r.status
           : csv ? 'CSV \u2705'
           : reallyLogin ? 'LOGIN page \u26d4'
@@ -10182,12 +10182,39 @@
       // is what this measures. Answering it unblocks four features at once.
       var WALL_URL = 'https://ebird.org/region/US-WA';
 
-      function wallVerdict(txt) {
-        var t = String(txt || '');
+      // ── ONE DEFINITION OF "WHAT PAGE IS THIS?" (F184) ────────────────────
+      //
+      // THREE separate functions have now had the IDENTICAL fault, which is
+      // why this exists rather than a fourth local fix:
+      //   wallVerdict        decided LOGIN on a bare /cas/login substring
+      //   classifyF8         tested `login` BEFORE `lifeish`, so a real life
+      //                      list was reported as a login page
+      //   parseLifelistHTML  bailed on /cassso\/login/ and threw away real
+      //                      lists unread, costing a 730-call fallback
+      //
+      // Every eBird page carries account chrome — a sign-in or sign-out link, a
+      // CAS url in a JS config block — so LINKING to CAS says nothing at all.
+      // What identifies a real login page POSITIVELY is that it POSTS to CAS,
+      // or carries a password field, or says so in its own <title>.
+      //
+      // MEASURED on device 2026-08-25/26, which is what these thresholds rest on:
+      //   the Anubis wall            4,130 B
+      //   eBird's real login page  556,681 B
+      //   what the wall probe got  1,048,836 B  <- called a login page; it is
+      //                                            the size of the real region
+      //                                            page, and a CAS page at a
+      //                                            megabyte is not plausible
+      function pageKind(text) {
+        var t = String(text || '');
         if (/anubis_challenge|Making sure you&#39;re not a bot|not a bot!/i.test(t)) return 'ANUBIS';
-        if (/cassso|\/cas\/login/i.test(t)) return 'LOGIN';
-        return 'OPEN';
+        // A real CAS page POSTS to it. A page that merely links to it is
+        // somebody's account menu, which every signed-in page has.
+        var posts = /<form[^>]{0,400}?\/cas(sso)?\/login/i.test(t);
+        var pw = /name="password"|id="input-password"|type="password"/i.test(t);
+        var titled = /<title[^>]*>[^<]*sign in/i.test(t);
+        return (posts || pw || titled) ? 'LOGIN' : 'OPEN';
       }
+      function wallVerdict(txt) { return pageKind(txt); }
       // WHAT WAS ACTUALLY SEEN, not what was concluded from it.
       //
       // The verdict above decides LOGIN on a bare SUBSTRING, and every eBird
@@ -23250,7 +23277,7 @@
         // F184: exposed so the classifier can be driven against real page
         // SHAPES rather than argued about. The bug it is chasing is that a
         // verdict was inferred from a negative marker.
-        wallVerdict: wallVerdict, wallMarkers: wallMarkers, classifyF8: classifyF8,
+        wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind, classifyF8: classifyF8,
         // The whole scheduling decision, exposed so 300 calls can be DRIVEN
         // through it with a synthetic clock instead of argued about.
         fgSchedule: fgSchedule,

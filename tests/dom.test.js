@@ -16949,3 +16949,54 @@ test('F188: the picker sits beside the key it scopes, and says when it acts', ()
   assert.ok(!/<option value="2">Test 2<\/option>/.test(panel),
     'the options are built from the stored names, not hard-coded slot numbers');
 });
+
+// ---------------------------------------------------------------------------
+// F184 — ONE definition of "what page is this?". Three separate functions had
+// the identical fault: wallVerdict decided LOGIN on a bare /cas/login
+// substring, classifyF8 tested `login` before `lifeish`, and
+// parseLifelistHTML bailed on /cassso\/login/ and threw real lists away. Every
+// eBird page carries account chrome, so LINKING to CAS says nothing.
+// ---------------------------------------------------------------------------
+
+test('F184: linking to CAS is not evidence — posting to it is', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // A SIGNED-IN page, carrying the sign-in/out chrome every eBird page has.
+  const signedIn = '<html><head><title>Washington - eBird</title></head><body>'
+    + '<a href="https://secure.birds.cornell.edu/cassso/login?service=x">Sign out</a>'
+    + '<div id="region-content">Species 209</div></body></html>';
+  assert.match(signedIn, /cassso\/login/,
+    'the fixture must carry the trap, or this guard proves nothing');
+  assert.equal(A.pageKind(signedIn), 'OPEN',
+    'an account menu is not a login page');
+
+  // A REAL CAS page posts to it.
+  const posts = '<html><head><title>Sign in</title></head><body>'
+    + '<form method="post" action="https://secure.birds.cornell.edu/cassso/login">'
+    + '<input name="password" type="password"></form></body></html>';
+  assert.equal(A.pageKind(posts), 'LOGIN', 'a form that POSTS to CAS is a login page');
+
+  // The wall is identified before either.
+  assert.equal(A.pageKind('<html><body>Making sure you\u2019re not a bot!</body></html>'),
+    'ANUBIS', 'the bot wall is still recognised');
+  assert.equal(A.pageKind(''), 'OPEN');
+
+  // AND ALL THREE CALLERS SHARE IT, checked in the source so they cannot drift
+  // back to three private copies.
+  const wv = HTML.slice(HTML.indexOf('function wallVerdict('),
+                        HTML.indexOf('function wallVerdict(') + 200);
+  assert.match(wv, /return pageKind\(txt\)/, 'wallVerdict delegates');
+  const ll = HTML.slice(HTML.indexOf('function lifelistIsLogin('),
+                        HTML.indexOf('function lifelistIsLogin(') + 400);
+  assert.match(ll, /pageKind\(text\) === 'LOGIN'/, 'lifelistIsLogin delegates');
+  assert.match(HTML, /var reallyLogin = pageKind\(txt\) === 'LOGIN';/,
+    'classifyF8 delegates');
+
+  // The two behaviours that were shipped wrong must still hold end to end.
+  assert.equal(A.lifelistIsLogin(signedIn), false,
+    'a real page is still read — this is the 730-call regression');
+  assert.equal(A.wallVerdict(signedIn), 'OPEN',
+    'and the wall probe no longer reports failure on a success');
+  app.window.close();
+});
