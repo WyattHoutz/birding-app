@@ -13,7 +13,7 @@
  * can assert they were triggered and count their requests) but never paint
  * results, which keeps the tests offline and deterministic.
  */
-const { test, after } = require('node:test');
+const { test, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -82,6 +82,24 @@ function seedSeen(app, codes, names) {
 // promise that never settles — so a call is in flight forever here and the
 // runner would never exit. Close them all when the file is done.
 const _booted = [];
+// EVERY test, not just the last one. boot() stubs fetch with a promise that
+// never settles, so a call is in flight forever, release() never runs, and any
+// queue-lifetime timer keeps ticking; jsdom's setInterval returns a plain
+// number with no unref (measured), so the app cannot unref it. Counted 294
+// `await boot(` against 223 `window.close()` — 71 windows nobody closed.
+//
+// Draining at the END of the file fixed the hang and caused a WORSE failure:
+// this array is a strong reference, so no window could be collected and the
+// run died at 4 GB with "Ineffective mark-compacts near heap limit" after 134
+// tests. Top-level tests run sequentially within a file, and 8 tests boot more
+// than one window, so afterEach is the right seam: it bounds memory at one
+// test's windows without closing a window a test is still using.
+afterEach(() => {
+  while (_booted.length) {
+    const w = _booted.pop();
+    try { w.close(); } catch (e) { /* already closed by the test itself */ }
+  }
+});
 after(() => { _booted.forEach((w) => { try { w.close(); } catch (e) {} }); });
 
 function boot(opts = {}) {
@@ -13463,8 +13481,13 @@ test('background fill leaves budget for the section you just opened', () => {
   assert.ok(reserve > 0 && reserve < max,
     `reserve ${reserve} must leave room and still be smaller than the cap ${max}`);
 
-  const fn = HTML.slice(HTML.indexOf('function fgWindowWait'),
-    HTML.indexOf('function fgWindowWait') + 800);
+  // THE WHOLE FUNCTION, with comments stripped — not a fixed byte window. A
+  // magic `+ 800` pins the LAYOUT of the file rather than the property: adding
+  // comments above the code pushed the line this checks out of the slice, and
+  // the guard "failed" on a paragraph. Same lesson as `width: calc(84px…)`.
+  const fnRaw = HTML.slice(HTML.indexOf('function fgWindowWait'),
+    HTML.indexOf('function fgWindowCount'));
+  const fn = fnRaw.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   assert.ok(/function fgWindowWait\(startAt, bg\)/.test(fn),
     'the window does not know whether the caller is background');
   assert.ok(/bg \? Math\.max\(1, FG_WINDOW_MAX - FG_WINDOW_RESERVE\) : FG_WINDOW_MAX/.test(fn),

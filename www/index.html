@@ -1034,7 +1034,7 @@
        from Wikipedia arrive at whatever shape the uploader chose. `contain`
        letterboxes those into a 46px slot, which wastes most of an already
        tiny box; `cover` fills it. 50% 35% is the same head-bias the ABA hero
-       has shipped with since v1.0.24 (cards-species.js) — one number, not a
+       has shipped with since 1.0.24 (cards-species.js) — one number, not a
        second one to keep in step. The hero and the fallback keep their own
        more specific rules there. */
     .thumb .birdpic { width: 100%; height: 100%; object-fit: cover;
@@ -2518,7 +2518,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.39.0';
+      var APP_VERSION = '1.40.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7061,7 +7061,7 @@
       // their distance from Yakima. Ranking cannot invent a record that was
       // never fetched.
       //
-      // This does NOT violate "anchors RANK, they never GATHER" (v1.0.19).
+      // This does NOT violate "anchors RANK, they never GATHER" (release 1.0.19).
       // That was measured about adding a PERMANENT second circle to planFeeds:
       // 1.4% more locations for a 43% reshuffle, at double the geo-lane cost on
       // every run. This is on-demand and user-initiated, fires on SUBMIT and
@@ -13908,7 +13908,7 @@
       // county"*. Measured before building: `rankingsUrl` already counts the
       // dashes in a region code and emits `locInfo.regionType=subnational2`, so
       // 'US-WA-033' produces a valid King County top100 URL with no new code,
-      // and the v1.0.13 board-region check validates a county board exactly as
+      // and the 1.0.13 board-region check validates a county board exactly as
       // it validates a state one — eBird names itself in the canonical link
       // whatever the scope.
       //
@@ -13957,7 +13957,7 @@
       // fetches from, so the heading cannot name one board while the rows are
       // another. The change listener is wired here, beside the fill, because a
       // control with no listener is exactly the bug that hid the rankings scope
-      // for a whole release (v1.0.10).
+      // for a whole release (1.0.10).
       function syncRankRegionUI() {
         var sc = getRankScope();
         if ($('rankRegionLabel')) {
