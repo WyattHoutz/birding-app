@@ -471,6 +471,23 @@ def main():
     src = args[0]
     out = args[1]
     limit = int(args[2]) if len(args) > 2 else 0
+    # ---- THE SOURCE IS NOT THE DESTINATION -------------------------------
+    #
+    # F190, measured 2026-08-26. This was once run with src == out, which
+    # squared 1,335 icons IN PLACE and destroyed every original. The damage is
+    # not the lost pixels — it is that `process()` then returns early on
+    # `abs(w - h) <= 1` for every file, so the script became a NO-OP and stayed
+    # one. The v1.41.1 head-protection change was written, reviewed, shipped
+    # and ran on nothing; the owner reported the same cropped loon afterwards
+    # and was right.
+    #
+    # A destructive pass that silently turns into a no-op is worse than one
+    # that fails, because it keeps reporting success. Refuse it.
+    if os.path.abspath(src) == os.path.abspath(out):
+        sys.exit('src and out are the same directory. This squares the icons '
+                 'in place, destroys the originals, and turns every later run '
+                 'into a no-op — which is exactly how F190 shipped a fix that '
+                 'could not run. Give it a separate output directory.')
     os.makedirs(out, exist_ok=True)
     files = sorted(f for f in glob.glob(os.path.join(src, '*'))
                    if f.lower().endswith(('.jpg', '.jpeg', '.png')))

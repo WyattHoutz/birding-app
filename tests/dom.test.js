@@ -15897,6 +15897,32 @@ test('a menu badge actually renders — the key resolves and the repaint runs', 
 // those look the same, which is how the wrong cause survived being written
 // down.
 //
+// --- F190: the icon pipeline must not eat its own source -------------------
+// MEASURED 2026-08-26. square-icons.py was once run with src == out, which
+// squared 1,335 icons IN PLACE and destroyed every original. The lost pixels
+// are not the real damage: `process()` returns early on `abs(w - h) <= 1`, so
+// once every file was square the script became a NO-OP and stayed one. The
+// v1.41.1 head-protection change was written, guarded, shipped — and ran on
+// nothing. The owner reported the same cropped loon afterwards and was right.
+//
+// A destructive pass that silently degrades into a no-op is worse than one
+// that crashes, because it keeps reporting success. Measured once it could
+// actually run: head-end losses fall from 7 of 13 to 4 of 13.
+test('the icon squarer refuses to overwrite its own source', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'square-icons.py'), 'utf8');
+  const body = src.replace(/\r/g, '').replace(/^\s*#.*$/gm, '');
+  assert.match(body, /os\.path\.abspath\(src\) == os\.path\.abspath\(out\)/,
+    'src and out are compared as absolute paths, so ./x and x are the same dir');
+  assert.match(body, /sys\.exit\(/, 'and it exits rather than proceeding');
+
+  // The early return is what turned the destruction into silence. It has to
+  // stay — re-cropping an already-square image really is a no-op — so the
+  // guard belongs on the INPUT, upstream of it.
+  assert.match(body, /abs\(w - h\) <= 1/,
+    'the already-square skip still exists; the fix is upstream of it');
+});
+
 // Asserted on the rendered DOM rather than the source, because the failure IS
 // an order and a regex cannot see an order.
 test('Leader Board Ticks: Newest and Nearest actually reorder the list', async () => {
