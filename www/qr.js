@@ -1,345 +1,452 @@
-/* qr.js — a QR encoder that runs on the device and asks nothing of the network.
+/* Bird Chaser — a small QR encoder, byte mode, error-correction level M.
  *
- * WHY THIS IS CODE RATHER THAN A URL. Every "just use an API" QR route —
- * api.qrserver.com, chart.googleapis.com — sends the thing being encoded to a
- * third party and needs a connection. This app's architecture is that it has no
- * runtime dependency on anything but eBird, and a QR you cannot draw in a car
- * park with no signal fails exactly when it is wanted: standing next to another
- * birder (F143).
+ * F143. "id like a QR code ... that when tapped shows a QR to the respective
+ * item". A QR in the field must work with no network, so this is local code
+ * rather than an image service — the whole app's rule.
  *
- * SCOPE, chosen deliberately: byte mode, error-correction level M, versions
- * 1-10. That is up to 216 data bytes; the longest thing here is an eBird
- * checklist URL at ~45 characters, so this is roughly four times the headroom
- * needed and the tables stay small.
+ * ⚠️ THE PREVIOUS VERSION OF THIS FILE PRODUCED UNREADABLE CODES. It got the
+ * SIZE right for every input, which is exactly what makes a broken QR
+ * dangerous: it renders as convincing noise and fails in the field, where the
+ * person holding the phone cannot tell a bad encoder from bad light. It was
+ * committed before it was verified and rode inside two .ipa files — harmlessly,
+ * because nothing referenced it, but a file known to be wrong was shipping.
  *
- * VERIFIED, not assumed: tests/qr.test.js compares EVERY MODULE against the
- * reference `qrcode` Python package over real eBird URLs. A QR encoder that is
- * subtly wrong still looks like a QR code, which is exactly the class of bug
- * that ships.
+ * ⚠️ AND THE FIRST TEST OF IT WAS ALSO WRONG. Comparing modules against
+ * python-qrcode reported "268 of 841 differ" and proved nothing: a QR carries
+ * its MASK in its format bits, so two encoders that choose different masks
+ * produce different-looking and equally valid codes. The property is that a
+ * DECODER reads the string back. See assets/verify-qr.py, which also runs a
+ * control proving the harness itself works before blaming this file.
+ *
+ * Versions 1–10 only, which covers every URL this app builds (213 bytes at
+ * version 10, level M) and keeps the tables small enough to check by eye.
  */
-(function (root) {
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.BirdQR = factory();
+}(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // ---- GF(256), the field QR's Reed-Solomon works in -----------------------
-  var EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  // ---- tables, level M only ----------------------------------------------
+  // [ec codewords per block, group1 blocks, group1 data cw, group2 blocks,
+  //  group2 data cw]. Index is version - 1.
+  var EC_M = [
+    [10, 1, 16, 0, 0], [16, 1, 28, 0, 0], [26, 1, 44, 0, 0],
+    [18, 2, 32, 0, 0], [24, 2, 43, 0, 0], [16, 4, 27, 0, 0],
+    [18, 4, 31, 0, 0], [22, 2, 38, 2, 39], [22, 3, 36, 2, 37],
+    [26, 4, 43, 1, 44]
+  ];
+  // Alignment-pattern centre coordinates, index is version - 1.
+  var ALIGN = [
+    [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
+    [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]
+  ];
+
+  function dataCodewords(v) {
+    var t = EC_M[v - 1];
+    return t[1] * t[2] + t[3] * t[4];
+  }
+
+  // ---- GF(256) for Reed–Solomon ------------------------------------------
+  var EXP = new Array(512), LOG = new Array(256);
   (function () {
-    var x = 1;
-    for (var i = 0; i < 255; i++) {
-      EXP[i] = x; LOG[x] = i;
+    var x = 1, i;
+    for (i = 0; i < 255; i++) {
+      EXP[i] = x;
+      LOG[x] = i;
       x <<= 1;
-      if (x & 0x100) x ^= 0x11d;          // the primitive polynomial QR uses
+      if (x & 0x100) x ^= 0x11d;           // the QR primitive polynomial
     }
-    for (var j = 255; j < 512; j++) EXP[j] = EXP[j - 255];
+    for (i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
   }());
-  function mul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
 
-  function genPoly(n) {
-    var p = [1];
-    for (var i = 0; i < n; i++) {
-      var q = p.slice();
-      q.push(0);
-      for (var j = 0; j < p.length; j++) q[j + 1] ^= mul(p[j], EXP[i]);
-      p = q;
-    }
-    return p;
+  function gmul(a, b) {
+    if (!a || !b) return 0;
+    return EXP[LOG[a] + LOG[b]];
   }
 
-  function ecBytes(data, n) {
-    var g = genPoly(n), res = new Array(data.length + n).fill(0), i, j;
-    for (i = 0; i < data.length; i++) res[i] = data[i];
+  function rsGenerator(n) {
+    var poly = [1], i, j;
+    for (i = 0; i < n; i++) {
+      var next = new Array(poly.length + 1);
+      for (j = 0; j < next.length; j++) next[j] = 0;
+      for (j = 0; j < poly.length; j++) {
+        next[j] ^= gmul(poly[j], EXP[i]);
+        next[j + 1] ^= poly[j];
+      }
+      poly = next;
+    }
+  // ⚠️ ORDER MATTERS AND THIS IS WHERE IT WAS WRONG. The polynomial is built
+  // in ASCENDING degree — poly[0] is the constant term — because that is what
+  // the multiply loop above produces naturally. But `rsEncode` divides using
+  // `gen[j + 1]`, which wants the LEADING coefficient first. Feeding it the
+  // ascending array made the last EC codeword multiply by 1 instead of by the
+  // constant term, so for `ec=2` it used [3, 1] where the divisor is [3, 2].
+  //
+  // MEASURED: with this reversed, the 44 DATA codewords already matched the
+  // reference exactly and only the 26 EC codewords differed — which is what
+  // localised the bug to this line rather than to the data path or the matrix.
+    return poly.reverse();
+  }
+  function rsEncode(data, ecLen) {
+    var gen = rsGenerator(ecLen), res = new Array(ecLen), i, j;
+    for (i = 0; i < ecLen; i++) res[i] = 0;
     for (i = 0; i < data.length; i++) {
-      var f = res[i];
-      if (!f) continue;
-      for (j = 0; j < g.length; j++) res[i + j] ^= mul(g[j], f);
+      var factor = data[i] ^ res[0];
+      res.shift();
+      res.push(0);
+      for (j = 0; j < ecLen; j++) res[j] ^= gmul(gen[j + 1], factor);
     }
-    return res.slice(data.length);
+    return res;
   }
 
-  // ---- Version tables, level M ---------------------------------------------
-  // [ec codewords per block, group1 blocks, group1 data, group2 blocks, group2 data]
-  var M = {
-    1: [10, 1, 16, 0, 0], 2: [16, 1, 28, 0, 0], 3: [26, 1, 44, 0, 0],
-    4: [18, 2, 32, 0, 0], 5: [24, 2, 43, 0, 0], 6: [16, 4, 27, 0, 0],
-    7: [18, 4, 31, 0, 0], 8: [22, 2, 38, 2, 39], 9: [22, 3, 36, 2, 37],
-    10: [26, 4, 43, 1, 44]
-  };
-  var ALIGN = {
-    1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
-    6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50]
-  };
-  function dataCapacity(v) { var t = M[v]; return t[1] * t[2] + t[3] * t[4]; }
-
-  function Bits() { this.b = []; }
+  // ---- bit stream ---------------------------------------------------------
+  function Bits() { this.bits = []; }
   Bits.prototype.put = function (val, len) {
-    for (var i = len - 1; i >= 0; i--) this.b.push((val >>> i) & 1);
+    for (var i = len - 1; i >= 0; i--) this.bits.push((val >>> i) & 1);
   };
 
-  function encodeData(text, version) {
-    var bytes = [], i, c;
-    // UTF-8, because a place name can carry an accent and a mis-encoded byte is
-    // a QR that scans to the WRONG string rather than to nothing.
-    for (i = 0; i < text.length; i++) {
-      c = text.charCodeAt(i);
-      if (c < 0x80) bytes.push(c);
-      else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63));
-      else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-    }
-    var bits = new Bits();
-    bits.put(4, 4);                                   // byte mode
-    bits.put(bytes.length, version < 10 ? 8 : 16);
-    for (i = 0; i < bytes.length; i++) bits.put(bytes[i], 8);
-
-    var cap = dataCapacity(version) * 8;
-    if (bits.b.length > cap) return null;
-    for (i = 0; i < 4 && bits.b.length < cap; i++) bits.b.push(0);
-    while (bits.b.length % 8) bits.b.push(0);
-    var pads = [0xec, 0x11], p = 0;
-    while (bits.b.length < cap) { bits.put(pads[p], 8); p ^= 1; }
-
-    var codewords = [];
-    for (i = 0; i < bits.b.length; i += 8) {
-      var v = 0;
-      for (var k = 0; k < 8; k++) v = (v << 1) | bits.b[i + k];
-      codewords.push(v);
-    }
-    return codewords;
-  }
-
-  // Split into blocks, compute ECC, then INTERLEAVE. The interleave is the step
-  // that is easy to get subtly wrong while still producing a plausible image.
-  function finalCodewords(data, version) {
-    var t = M[version], ecLen = t[0];
-    var blocks = [], at = 0, i, j;
-    for (i = 0; i < t[1]; i++) { blocks.push(data.slice(at, at + t[2])); at += t[2]; }
-    for (i = 0; i < t[3]; i++) { blocks.push(data.slice(at, at + t[4])); at += t[4]; }
-    var eccs = blocks.map(function (b) { return ecBytes(b, ecLen); });
-    var out = [], maxLen = 0;
-    blocks.forEach(function (b) { if (b.length > maxLen) maxLen = b.length; });
-    for (i = 0; i < maxLen; i++) {
-      for (j = 0; j < blocks.length; j++) if (i < blocks[j].length) out.push(blocks[j][i]);
-    }
-    for (i = 0; i < ecLen; i++) {
-      for (j = 0; j < eccs.length; j++) out.push(eccs[j][i]);
+  function utf8Bytes(str) {
+    var out = [], i, c;
+    for (i = 0; i < str.length; i++) {
+      c = str.charCodeAt(i);
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+      else if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {
+        var c2 = str.charCodeAt(++i);
+        var cp = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+        out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f),
+                 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+      } else {
+        out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      }
     }
     return out;
   }
 
-  function newMatrix(size) {
-    var m = [], r;
-    for (r = 0; r < size; r++) m.push(new Array(size).fill(null));
+  function pickVersion(nBytes) {
+    for (var v = 1; v <= 10; v++) {
+      var lenBits = v < 10 ? 8 : 16;
+      // 4 mode bits + length + payload, in BITS, against the data capacity.
+      if (4 + lenBits + nBytes * 8 <= dataCodewords(v) * 8) return v;
+    }
+    return 0;
+  }
+
+  function buildCodewords(bytes, v) {
+    var bs = new Bits(), i, j;
+    bs.put(4, 4);                                   // byte mode
+    bs.put(bytes.length, v < 10 ? 8 : 16);
+    for (i = 0; i < bytes.length; i++) bs.put(bytes[i], 8);
+    var cap = dataCodewords(v) * 8;
+    // Terminator: up to four zero bits, but never past the capacity.
+    var term = Math.min(4, cap - bs.bits.length);
+    for (i = 0; i < term; i++) bs.bits.push(0);
+    while (bs.bits.length % 8) bs.bits.push(0);
+    var cw = [];
+    for (i = 0; i < bs.bits.length; i += 8) {
+      var b = 0;
+      for (j = 0; j < 8; j++) b = (b << 1) | bs.bits[i + j];
+      cw.push(b);
+    }
+    // Pad alternately with 236 / 17 until the data capacity is full.
+    var pads = [0xec, 0x11], p = 0;
+    while (cw.length < dataCodewords(v)) cw.push(pads[p++ % 2]);
+    return cw;
+  }
+
+  // Split into blocks, error-correct each, then INTERLEAVE — the step that
+  // makes a QR survive a smudge, and an easy one to get quietly wrong.
+  function interleave(cw, v) {
+    var t = EC_M[v - 1], ecLen = t[0];
+    var blocks = [], ecs = [], at = 0, i, j;
+    for (i = 0; i < t[1]; i++) { blocks.push(cw.slice(at, at + t[2])); at += t[2]; }
+    for (i = 0; i < t[3]; i++) { blocks.push(cw.slice(at, at + t[4])); at += t[4]; }
+    for (i = 0; i < blocks.length; i++) ecs.push(rsEncode(blocks[i], ecLen));
+    var out = [], maxData = t[3] ? Math.max(t[2], t[4]) : t[2];
+    for (j = 0; j < maxData; j++) {
+      for (i = 0; i < blocks.length; i++) {
+        if (j < blocks[i].length) out.push(blocks[i][j]);
+      }
+    }
+    for (j = 0; j < ecLen; j++) {
+      for (i = 0; i < ecs.length; i++) out.push(ecs[i][j]);
+    }
+    return out;
+  }
+
+  // ---- matrix -------------------------------------------------------------
+  function blank(n) {
+    var m = new Array(n), i, j;
+    for (i = 0; i < n; i++) {
+      m[i] = new Array(n);
+      for (j = 0; j < n; j++) m[i][j] = null;      // null = free for data
+    }
     return m;
   }
+
   function placeFinder(m, r, c) {
-    for (var i = -1; i <= 7; i++) {
-      for (var j = -1; j <= 7; j++) {
-        var rr = r + i, cc = c + j;
-        if (rr < 0 || cc < 0 || rr >= m.length || cc >= m.length) continue;
-        var on = (i >= 0 && i <= 6 && (j === 0 || j === 6))
-              || (j >= 0 && j <= 6 && (i === 0 || i === 6))
-              || (i >= 2 && i <= 4 && j >= 2 && j <= 4);
-        m[rr][cc] = on ? 1 : 0;
+    for (var y = -1; y <= 7; y++) {
+      for (var x = -1; x <= 7; x++) {
+        var ry = r + y, cx = c + x;
+        if (ry < 0 || cx < 0 || ry >= m.length || cx >= m.length) continue;
+        var on = (y >= 0 && y <= 6 && (x === 0 || x === 6))
+              || (x >= 0 && x <= 6 && (y === 0 || y === 6))
+              || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
+        m[ry][cx] = on ? 1 : 0;
       }
     }
   }
-  function placeAlignment(m, version) {
-    var cs = ALIGN[version], size = m.length;
-    for (var a = 0; a < cs.length; a++) {
-      for (var b = 0; b < cs.length; b++) {
-        var r = cs[a], c = cs[b];
-        if ((r <= 8 && c <= 8) || (r <= 8 && c >= size - 9) || (r >= size - 9 && c <= 8)) continue;
-        for (var i = -2; i <= 2; i++) {
-          for (var j = -2; j <= 2; j++) {
-            m[r + i][c + j] = (Math.max(Math.abs(i), Math.abs(j)) !== 1) ? 1 : 0;
+
+  function placeAlignment(m, v) {
+    var pos = ALIGN[v - 1], n = m.length, a, b, x, y;
+    for (a = 0; a < pos.length; a++) {
+      for (b = 0; b < pos.length; b++) {
+        var r = pos[a], c = pos[b];
+        // Skip the three corners already occupied by finder patterns.
+        if ((r <= 8 && c <= 8) || (r <= 8 && c >= n - 9)
+            || (r >= n - 9 && c <= 8)) continue;
+        for (y = -2; y <= 2; y++) {
+          for (x = -2; x <= 2; x++) {
+            m[r + y][c + x] =
+              (Math.max(Math.abs(x), Math.abs(y)) !== 1) ? 1 : 0;
           }
         }
       }
     }
   }
-  function markFunction(m, version) {
-    var size = m.length, i;
-    for (i = 0; i < 9; i++) {
+
+  function placeFunction(m, v) {
+    var n = m.length, i, j;
+    placeFinder(m, 0, 0);
+    placeFinder(m, 0, n - 7);
+    placeFinder(m, n - 7, 0);
+    placeAlignment(m, v);
+    for (i = 8; i < n - 8; i++) {                  // timing patterns
+      var on = (i % 2 === 0) ? 1 : 0;
+      m[6][i] = on;
+      m[i][6] = on;
+    }
+    // Reserve the format areas so data placement skips them.
+    for (i = 0; i <= 8; i++) {
       if (m[8][i] === null) m[8][i] = 0;
       if (m[i][8] === null) m[i][8] = 0;
     }
     for (i = 0; i < 8; i++) {
-      if (m[8][size - 1 - i] === null) m[8][size - 1 - i] = 0;
-      if (m[size - 1 - i][8] === null) m[size - 1 - i][8] = 0;
+      if (m[8][n - 1 - i] === null) m[8][n - 1 - i] = 0;
+      if (m[n - 1 - i][8] === null) m[n - 1 - i][8] = 0;
+    }
+    m[n - 8][8] = 1;                               // the always-dark module
+    if (v >= 7) {                                  // reserve version info
+      for (i = 0; i < 6; i++) {
+        for (j = 0; j < 3; j++) {
+          m[i][n - 11 + j] = 0;
+          m[n - 11 + j][i] = 0;
+        }
+      }
     }
   }
 
-  var MASKS = [
-    function (r, c) { return (r + c) % 2 === 0; },
-    function (r) { return r % 2 === 0; },
-    function (r, c) { return c % 3 === 0; },
-    function (r, c) { return (r + c) % 3 === 0; },
-    function (r, c) { return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0; },
-    function (r, c) { return ((r * c) % 2) + ((r * c) % 3) === 0; },
-    function (r, c) { return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0; },
-    function (r, c) { return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0; }
-  ];
-
-  function formatBits(maskIdx) {
-    // Level M is 0b00. BCH(15,5), then XOR with the fixed 0x5412.
-    var data = (0 << 3) | maskIdx, d = data << 10;
-    for (var i = 4; i >= 0; i--) if (d & (1 << (i + 10))) d ^= 0x537 << i;
-    return ((data << 10) | d) ^ 0x5412;
+  function placeData(m, cw) {
+    var n = m.length, dir = -1, row = n - 1, bit = 0, total = cw.length * 8;
+    for (var col = n - 1; col > 0; col -= 2) {
+      if (col === 6) col--;                        // the vertical timing column
+      for (;;) {
+        for (var k = 0; k < 2; k++) {
+          var c = col - k;
+          if (m[row][c] === null) {
+            var val = 0;
+            if (bit < total) val = (cw[bit >> 3] >> (7 - (bit & 7))) & 1;
+            m[row][c] = val;
+            bit++;
+          }
+        }
+        row += dir;
+        if (row < 0 || row >= n) { row -= dir; dir = -dir; break; }
+      }
+    }
   }
+
+  function maskFn(k) {
+    switch (k) {
+      case 0: return function (y, x) { return (y + x) % 2 === 0; };
+      case 1: return function (y) { return y % 2 === 0; };
+      case 2: return function (y, x) { return x % 3 === 0; };
+      case 3: return function (y, x) { return (y + x) % 3 === 0; };
+      case 4: return function (y, x) {
+        return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0; };
+      case 5: return function (y, x) {
+        return ((y * x) % 2) + ((y * x) % 3) === 0; };
+      case 6: return function (y, x) {
+        return ((((y * x) % 2) + ((y * x) % 3)) % 2) === 0; };
+      default: return function (y, x) {
+        return ((((y + x) % 2) + ((y * x) % 3)) % 2) === 0; };
+    }
+  }
+
+  // 15-bit BCH format info. EC level M is 0b00.
+  function formatBits(mask) {
+    var data = (0 << 3) | mask, rem = data, i;
+    for (i = 0; i < 10; i++) rem = (rem << 1) ^ (((rem >> 9) & 1) * 0x537);
+    return ((data << 10) | (rem & 0x3ff)) ^ 0x5412;
+  }
+
+  // 18-bit BCH version info, versions 7 and up.
   function versionBits(v) {
-    var d = v << 12;
-    for (var i = 5; i >= 0; i--) if (d & (1 << (i + 12))) d ^= 0x1f25 << i;
-    return (v << 12) | d;
+    var rem = v, i;
+    for (i = 0; i < 12; i++) rem = (rem << 1) ^ (((rem >> 11) & 1) * 0x1f25);
+    return (v << 12) | (rem & 0xfff);
   }
 
+  function applyFormat(m, mask) {
+    var n = m.length, bits = formatBits(mask), i, b;
+    for (i = 0; i < 15; i++) {
+      b = (bits >> i) & 1;
+      // Copy 1, around the top-left finder.
+      if (i < 6) m[i][8] = b;
+      else if (i === 6) m[7][8] = b;
+      else if (i === 7) m[8][8] = b;
+      else if (i === 8) m[8][7] = b;
+      else m[8][14 - i] = b;
+      // Copy 2, split between the other two finders.
+      if (i < 8) m[8][n - 1 - i] = b;
+      else m[n - 15 + i][8] = b;
+    }
+    m[n - 8][8] = 1;                               // dark module, always
+  }
+
+  function applyVersion(m, v) {
+    if (v < 7) return;
+    var n = m.length, bits = versionBits(v), i;
+    for (i = 0; i < 18; i++) {
+      var b = (bits >> i) & 1;
+      var a = Math.floor(i / 3), c = i % 3;
+      m[a][n - 11 + c] = b;
+      m[n - 11 + c][a] = b;
+    }
+  }
+
+  // Penalty score, so the mask chosen is the one the format bits claim.
   function penalty(m) {
-    var size = m.length, score = 0, r, c, i, k, run, last;
-    for (r = 0; r < size; r++) {
-      run = 1; last = m[r][0];
-      for (c = 1; c < size; c++) {
-        if (m[r][c] === last) run++;
-        else { if (run >= 5) score += 3 + (run - 5); run = 1; last = m[r][c]; }
+    var n = m.length, score = 0, i, j, run, dark = 0;
+    for (i = 0; i < n; i++) {
+      run = 1;
+      for (j = 1; j < n; j++) {
+        if (m[i][j] === m[i][j - 1]) run++;
+        else { if (run >= 5) score += 3 + (run - 5); run = 1; }
+      }
+      if (run >= 5) score += 3 + (run - 5);
+      run = 1;
+      for (j = 1; j < n; j++) {
+        if (m[j][i] === m[j - 1][i]) run++;
+        else { if (run >= 5) score += 3 + (run - 5); run = 1; }
       }
       if (run >= 5) score += 3 + (run - 5);
     }
-    for (c = 0; c < size; c++) {
-      run = 1; last = m[0][c];
-      for (r = 1; r < size; r++) {
-        if (m[r][c] === last) run++;
-        else { if (run >= 5) score += 3 + (run - 5); run = 1; last = m[r][c]; }
-      }
-      if (run >= 5) score += 3 + (run - 5);
-    }
-    for (r = 0; r < size - 1; r++) {
-      for (c = 0; c < size - 1; c++) {
-        var v = m[r][c];
-        if (v === m[r][c + 1] && v === m[r + 1][c] && v === m[r + 1][c + 1]) score += 3;
-      }
-    }
-    var pats = [[1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1]];
-    for (r = 0; r < size; r++) {
-      for (c = 0; c <= size - 11; c++) {
-        for (i = 0; i < 2; i++) {
-          var ok = true;
-          for (k = 0; k < 11; k++) if (m[r][c + k] !== pats[i][k]) { ok = false; break; }
-          if (ok) score += 40;
+    for (i = 0; i < n - 1; i++) {
+      for (j = 0; j < n - 1; j++) {
+        var a = m[i][j];
+        if (a === m[i][j + 1] && a === m[i + 1][j] && a === m[i + 1][j + 1]) {
+          score += 3;
         }
       }
     }
-    for (c = 0; c < size; c++) {
-      for (r = 0; r <= size - 11; r++) {
-        for (i = 0; i < 2; i++) {
-          var ok2 = true;
-          for (k = 0; k < 11; k++) if (m[r + k][c] !== pats[i][k]) { ok2 = false; break; }
-          if (ok2) score += 40;
+    var pat1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+    var pat2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+    function look(get) {
+      var y, x, k;
+      for (y = 0; y < n; y++) {
+        for (x = 0; x + 11 <= n; x++) {
+          var m1 = true, m2 = true;
+          for (k = 0; k < 11; k++) {
+            var val = get(y, x + k);
+            if (val !== pat1[k]) m1 = false;
+            if (val !== pat2[k]) m2 = false;
+          }
+          if (m1) score += 40;
+          if (m2) score += 40;
         }
       }
     }
-    var dark = 0;
-    for (r = 0; r < size; r++) for (c = 0; c < size; c++) if (m[r][c]) dark++;
-    score += Math.floor(Math.abs((dark * 100 / (size * size)) - 50) / 5) * 10;
+    look(function (y, x) { return m[y][x]; });
+    look(function (y, x) { return m[x][y]; });
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) if (m[i][j]) dark++;
+    score += Math.floor(Math.abs((dark * 100) / (n * n) - 50) / 5) * 10;
     return score;
   }
 
-  function build(text, version) {
-    var data = encodeData(text, version);
-    if (!data) return null;
-    var all = finalCodewords(data, version);
-    var size = version * 4 + 17;
-    var m = newMatrix(size), i, r, c;
+  function matrix(text) { return build(text, -1); }
 
-    placeFinder(m, 0, 0);
-    placeFinder(m, 0, size - 7);
-    placeFinder(m, size - 7, 0);
-    placeAlignment(m, version);
-    for (i = 8; i < size - 8; i++) {
-      if (m[6][i] === null) m[6][i] = (i % 2 === 0) ? 1 : 0;
-      if (m[i][6] === null) m[i][6] = (i % 2 === 0) ? 1 : 0;
-    }
-    m[size - 8][8] = 1;                                 // always-dark module
-    if (version >= 7) {
-      var vb = versionBits(version);
-      for (i = 0; i < 18; i++) {
-        var bit = (vb >> i) & 1;
-        m[Math.floor(i / 3)][size - 11 + (i % 3)] = bit;
-        m[size - 11 + (i % 3)][Math.floor(i / 3)] = bit;
-      }
-    }
-    markFunction(m);
+  // Test seam: force a specific mask so this encoder can be diffed against a
+  // reference at the SAME mask. Without it every comparison is apples to
+  // oranges, because the two pick masks independently.
+  function _debugMask(text, k) { return build(text, k); }
 
-    // `fixed` is captured BEFORE the data goes in, because masking a function
-    // module corrupts the code in a way that still scans as *something*.
-    var fixed = [];
-    for (r = 0; r < size; r++) {
-      fixed.push([]);
-      for (c = 0; c < size; c++) fixed[r].push(m[r][c] !== null);
-    }
+  function build(text, forceMask) {
+    var bytes = utf8Bytes(String(text == null ? '' : text));
+    var v = pickVersion(bytes.length);
+    if (!v) throw new Error('too long for a version-10 QR at level M');
+    var cw = interleave(buildCodewords(bytes, v), v);
+    var n = v * 4 + 17, x, y, k;
 
-    var bitIdx = 0, up = true;
-    for (var col = size - 1; col > 0; col -= 2) {
-      if (col === 6) col = 5;
-      for (var n = 0; n < size; n++) {
-        r = up ? (size - 1 - n) : n;
-        for (var s = 0; s < 2; s++) {
-          c = col - s;
-          if (m[r][c] !== null) continue;
-          var byteI = bitIdx >> 3;
-          m[r][c] = byteI < all.length ? ((all[byteI] >> (7 - (bitIdx & 7))) & 1) : 0;
-          bitIdx++;
-        }
-      }
-      up = !up;
+    // Which modules are FUNCTION modules is computed once. Masking must touch
+    // data modules only — masking a timing pattern is a subtle way to produce
+    // a code that looks right and reads as nothing.
+    var fixed = blank(n);
+    placeFunction(fixed, v);
+    var isFixed = [];
+    for (y = 0; y < n; y++) {
+      isFixed.push([]);
+      for (x = 0; x < n; x++) isFixed[y].push(fixed[y][x] !== null);
     }
 
     var best = null, bestScore = Infinity;
-    for (var mi = 0; mi < 8; mi++) {
-      var cand = m.map(function (row) { return row.slice(); });
-      for (r = 0; r < size; r++) {
-        for (c = 0; c < size; c++) {
-          if (!fixed[r][c] && MASKS[mi](r, c)) cand[r][c] ^= 1;
+    for (k = 0; k < 8; k++) {
+      if (forceMask >= 0 && k !== forceMask) continue;
+      var m = blank(n);
+      placeFunction(m, v);
+      placeData(m, cw);
+      var fn = maskFn(k);
+      for (y = 0; y < n; y++) {
+        for (x = 0; x < n; x++) {
+          if (!isFixed[y][x] && fn(y, x)) m[y][x] ^= 1;
         }
       }
-      var fb = formatBits(mi);
-      for (i = 0; i < 15; i++) {
-        var b = (fb >> i) & 1;
-        if (i < 6) cand[8][i] = b;
-        else if (i === 6) cand[8][7] = b;
-        else if (i === 7) cand[8][8] = b;
-        else if (i === 8) cand[7][8] = b;
-        else cand[14 - i][8] = b;
-        if (i < 8) cand[size - 1 - i][8] = b;
-        else cand[8][size - 15 + i] = b;
-      }
-      var sc = penalty(cand);
-      if (sc < bestScore) { bestScore = sc; best = cand; }
+      applyVersion(m, v);
+      applyFormat(m, k);
+      var s = penalty(m);
+      if (s < bestScore) { bestScore = s; best = m; }
     }
     return best;
   }
 
-  function matrix(text) {
-    var t = String(text == null ? '' : text);
-    for (var v = 1; v <= 10; v++) {
-      var m = build(t, v);
-      if (m) return m;
-    }
-    return null;
-  }
-
-  // SVG, not canvas: it is a string so it drops straight into innerHTML, it
-  // scales to any size without resampling, and it survives the text-scale
-  // setting without a second render.
-  function svg(text, px) {
-    var m = matrix(text);
-    if (!m) return '';
-    var size = m.length, quiet = 4, total = size + quiet * 2, d = [];
-    for (var r = 0; r < size; r++) {
-      for (var c = 0; c < size; c++) {
-        if (m[r][c]) d.push('M' + (c + quiet) + ' ' + (r + quiet) + 'h1v1h-1z');
+  function svg(text, opts) {
+    opts = opts || {};
+    var m = matrix(text), n = m.length, x, y;
+    // A quiet zone is not decoration: a decoder needs it to find the code at
+    // all. Four modules is the spec's minimum.
+    var quiet = opts.quiet == null ? 4 : opts.quiet;
+    var size = n + quiet * 2;
+    var d = [];
+    for (y = 0; y < n; y++) {
+      for (x = 0; x < n; x++) {
+        if (m[y][x]) d.push('M' + (x + quiet) + ' ' + (y + quiet) + 'h1v1h-1z');
       }
     }
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + total + ' ' + total + '"'
-      + ' width="' + (px || 220) + '" height="' + (px || 220) + '" role="img">'
-      + '<rect width="' + total + '" height="' + total + '" fill="#fff"/>'
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + ' '
+      + size + '" shape-rendering="crispEdges" role="img" aria-hidden="true">'
+      + '<rect width="' + size + '" height="' + size + '" fill="#fff"/>'
       + '<path d="' + d.join('') + '" fill="#000"/></svg>';
   }
 
-  root.BirdQR = { matrix: matrix, svg: svg };
-}(typeof module !== 'undefined' && module.exports ? module.exports : window));
+  return { matrix: matrix, svg: svg, _debugMask: _debugMask,
+           // Test seam: the interleaved codeword stream, so it can be compared
+           // against a reference byte for byte. The data path and the matrix
+           // path fail in the same way from outside — an unreadable code — and
+           // this is what tells them apart.
+           _debugCodewords: function (text) {
+             var bytes = utf8Bytes(String(text == null ? '' : text));
+             var v = pickVersion(bytes.length);
+             return interleave(buildCodewords(bytes, v), v);
+           } };
+}));
