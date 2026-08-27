@@ -21,7 +21,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const WWW = path.join(__dirname, '..', 'www');
 const WIDTH = +(process.argv[2] || 390);
@@ -314,20 +314,145 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', () => {
   const port = server.address().port;
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-audit-'));
-  const args = [
+  const buildArgs = (profile) => [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     '--user-data-dir=' + profile,
     '--window-size=' + (WIDTH + 420) + ',' + (HEIGHT + 120),
     '--force-device-scale-factor=1',
     'http://127.0.0.1:' + port + '/__harness',
   ];
-  const ch = spawn(CHROME, args, { stdio: 'ignore' });
+  let profile = null;
+  let ch = null;
+  let timer = null;
+  let attempt = 0;
+
+  // ---- KILL THE TREE, NOT THE PARENT ------------------------------------
+  //
+  // MEASURED 2026-08-26: `ch.kill()` kills the parent Chrome and nothing else.
+  // Chrome forks a renderer, a GPU process and helpers — **8 live processes
+  // per run** on this box — and they outlive the parent while holding open
+  // file handles inside `--user-data-dir`. So the rmSync below failed, every
+  // time, silently into an empty catch. By the time anyone looked there were
+  // **99 orphaned Chromes and 492 stale `bc-audit-*` profiles** in $TMP.
+  //
+  // THAT is the flake the timeout comment further down has been chasing. The
+  // orphans load the machine, so a LATER width in the six-run chain boots
+  // slowly and trips the budget — which is exactly why the failure point
+  // MOVES (the 5th width on one run, the 3rd on the next) and why the same
+  // width always passes standalone. Raising 120s → 240s treated the symptom.
+  // No clock is large enough to outrun an unbounded leak.
+  // ⚠️ `taskkill /pid … /T` IS NOT ENOUGH, measured: it killed the parent and
+  // left **14 Chromes alive**. Chrome's launcher process exits as soon as it
+  // has spawned the real browser, so by the time we kill, `ch.pid` is already
+  // dead and its children have been re-parented — there is no tree left to
+  // walk. The only durable handle on them is the one thing unique to this run:
+  // its own `--user-data-dir`. Matching on that is precise by construction —
+  // it can never touch the user's own browser, which is why this does not
+  // kill by process NAME.
+  const killTree = () => {
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/pid', String(ch.pid), '/T', '/F'],
+                  { stdio: 'ignore' });
+      } else {
+        process.kill(-ch.pid, 'SIGKILL');
+      }
+    } catch (e) { /* already gone */ }
+    try { ch.kill('SIGKILL'); } catch (e) { /* already gone */ }
+    // ...then anything still carrying THIS run's profile.
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          + "Where-Object { $_.CommandLine -like '*" + path.basename(profile)
+          + "*' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force "
+          + "-ErrorAction Stop } catch {} }"], { stdio: 'ignore' });
+      } else {
+        spawnSync('pkill', ['-9', '-f', path.basename(profile)],
+                  { stdio: 'ignore' });
+      }
+    } catch (e) { /* no shell for it; the retry loop below still reports */ }
+  };
+
+  // Windows releases the handles a moment AFTER the tree dies, so one attempt
+  // is a coin flip. Returns whether the directory is actually gone, because a
+  // cleanup that reports nothing is how 492 of them accumulated unnoticed.
+  const removeProfile = () => {
+    const wait = (ms) => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) { /* deliberate: no async left at exit */ }
+    };
+    for (let i = 0; i < 10; i++) {
+      try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
+      if (!fs.existsSync(profile)) return true;
+      wait(200);
+    }
+    return !fs.existsSync(profile);
+  };
+
+  const teardown = () => {
+    if (!ch) return true;
+    killTree();
+    const gone = removeProfile();
+    if (!gone) {
+      console.error('LEAK: ' + profile + ' survived — a Chrome child is still '
+        + 'holding it. This is what made the six-width chain flaky; it must '
+        + 'not be ignored.');
+    }
+    ch = null;
+    return gone;
+  };
+
+  // ---- A HUNG LAUNCH IS RETRIED, NOT SCORED AS A LAYOUT FAILURE ----------
+  //
+  // MEASURED 2026-08-26, after the leak above was fixed and verified at zero
+  // orphans: the chain STILL failed once in six, and the width that failed
+  // moved between runs. Timed back to back, 402 then 430 each finish in
+  // **23 s** — against a 240 s budget. A 10× blow-up is not slowness, it is an
+  // occasional hung Chrome start, roughly 1 launch in 30.
+  //
+  // The previous response to this was to raise the clock, 120 s → 240 s. That
+  // is the wrong lever twice over: it cannot fix a hang (no clock is long
+  // enough), and it makes a real failure take four minutes to report. What a
+  // hang needs is another attempt.
+  //
+  // So the budget comes DOWN to 120 s — still 5× the measured 23 s — and a
+  // timeout relaunches instead of failing. Only after three hung starts is it
+  // called a failure, which it then genuinely is.
+  const TIMEOUT_MS = +(process.env.AUDIT_TIMEOUT_MS || 120000);
+  const MAX_ATTEMPTS = +(process.env.AUDIT_ATTEMPTS || 3);
+
+  const launch = () => {
+    attempt++;
+    profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-audit-'));
+    ch = spawn(CHROME, buildArgs(profile), {
+      stdio: 'ignore',
+      // POSIX needs its own process GROUP so the whole tree can be signalled.
+      // On Windows the tree is killed by pid, then by profile, below.
+      detached: process.platform !== 'win32',
+    });
+    timer = setTimeout(onTimeout, TIMEOUT_MS);
+  };
+
+  const onTimeout = () => {
+    teardown();
+    if (attempt < MAX_ATTEMPTS) {
+      console.error('audit did not report in ' + Math.round(TIMEOUT_MS / 1000)
+        + 's — Chrome start hung; relaunching (attempt ' + (attempt + 1)
+        + ' of ' + MAX_ATTEMPTS + ')');
+      launch();
+      return;
+    }
+    console.error('audit never reported after ' + MAX_ATTEMPTS
+      + ' attempts (page did not run)');
+    server.close();
+    process.exit(3);
+  };
 
   const done = (report) => {
-    try { ch.kill(); } catch (e) {}
+    clearTimeout(timer);
+    teardown();
     server.close();
-    try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
     console.log('viewport ' + WIDTH + 'px  text scale ' + SCALE + (EASY ? '  EASY READ' : '') + '\n');
@@ -371,17 +496,18 @@ server.listen(0, '127.0.0.1', () => {
   };
 
   onReport = done;
-  // Generous on purpose: the sweep walks ~28 sections with a settle delay
-  // each, and when several widths run back to back the browser boot competes
-  // with the previous run's profile cleanup. A timeout here is scored as a
-  // FAILURE (exit 3), so a tight budget would turn this check flaky, and a
-  // flaky check is worse than no check.
+  // The history of this line is worth keeping, because it is a worked example
+  // of treating a symptom twice. It began at 120s; it was raised to 240s when
+  // F28's section pushed the page from ~4,600 elements to 6,013 and the 430px
+  // run — the LAST of six, so the most contended — reported "audit never
+  // reported". Measured standalone immediately afterwards: 22.4s. The right
+  // conclusion was drawn at the time — *"the budget was never the sweep's
+  // duration, it was the contended browser boot"* — and then the wrong lever
+  // was pulled anyway, because a bigger clock was the only lever on offer.
   //
-  // Raised 120s -> 240s when F28's section pushed the page from ~4,600
-  // elements to 6,013 and the 430px run - the LAST of the six, so the most
-  // contended - reported "audit never reported (page did not run)". Measured
-  // immediately afterwards standalone: the same run finishes in 22.4s. So the
-  // budget was never the sweep's duration, it was the contended browser boot,
-  // and the margin needed to grow with the page rather than with the clock.
-  setTimeout(() => done(null), +(process.env.AUDIT_TIMEOUT_MS || 240000));
+  // There were two real causes, and neither was time. A leaked browser tree
+  // (see killTree) and an occasional hung Chrome start (see onTimeout). With
+  // both addressed the budget could come DOWN to 120s and the check finally
+  // means what it says: a failure here is the page, not the machine.
+  launch();
 });

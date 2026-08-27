@@ -6249,6 +6249,59 @@ test('a panel clips sideways overflow WITHOUT becoming a scroll container', () =
     'the root clip is still there too');
 });
 
+// --- F199: the layout audit leaked the browsers it launched ----------------
+// The six-width chain failed intermittently with "audit never reported (page
+// did not run)", and the failure point MOVED — the 5th width on one run, the
+// 3rd on the next — while every width passed standalone. That pattern is a
+// resource leak, not a layout fault.
+//
+// MEASURED 2026-08-26: `ch.kill()` killed the parent Chrome and nothing else.
+// 99 orphaned Chromes and 492 stale `bc-audit-*` profiles had accumulated in
+// $TMP — 8 live processes per run, each holding the profile directory open, so
+// the rmSync failed silently into an empty catch. The orphans loaded the
+// machine until a later boot blew the 240s budget.
+//
+// `taskkill /T` alone was NOT enough (measured: 14 survivors) because Chrome's
+// launcher exits immediately and its children are re-parented, leaving no tree
+// to walk. The durable handle is the run's own `--user-data-dir`.
+test('the layout audit cleans up the browsers it launches', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  const body = src.replace(/\r/g, '').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+
+  assert.match(body, /--user-data-dir=/,
+    'each run gets its own profile, which is what makes the kill precise');
+  assert.match(body, /path\.basename\(profile\)/,
+    'processes are matched by THIS run\'s profile — never by process name, '
+    + 'which would kill the user\'s own browser');
+  assert.ok(/taskkill/.test(body) && /pkill|process\.kill\(-/.test(body),
+    'both platforms are covered');
+
+  // The leak survived for months because the failure was swallowed. A cleanup
+  // that cannot report failure is indistinguishable from one that works —
+  // the same lesson as F197.
+  assert.match(body, /gone = removeProfile\(\)/,
+    'the result of the cleanup is CAPTURED, not discarded');
+  assert.match(body, /if \(!gone\)[\s\S]{0,120}LEAK:/,
+    'and a surviving profile is reported loudly rather than dropped silently');
+  assert.match(body, /fs\.existsSync\(profile\)/,
+    'removal is VERIFIED rather than assumed — Windows releases the handles a '
+    + 'moment after the tree dies, so one rmSync is a coin flip');
+
+  // With the leak fixed and verified at zero orphans the chain STILL failed
+  // once in six. Timed back to back, 402 and 430 each finish in 23s against a
+  // 240s budget — a 10x blow-up is a hung Chrome start, not slowness. Raising
+  // the clock had already been tried twice and cannot fix a hang.
+  assert.match(body, /attempt < MAX_ATTEMPTS/,
+    'a hung browser start is RETRIED, not scored as a layout failure');
+  assert.ok(/AUDIT_TIMEOUT_MS \|\| 120000/.test(body),
+    'and the budget came back DOWN to 120s (5x the measured 23s), because a '
+    + 'retry makes a long clock unnecessary and a long clock makes a real '
+    + 'failure take four minutes to report');
+  assert.match(body, /process\.exit\(3\)/,
+    'three hung starts is still a failure — the retry must not swallow it');
+});
+
 // The measured cause, guarded at the CSS level because this suite cannot
 // measure: a flexible grid/flex track defaults to `min-width: auto`, so it
 // refuses to shrink below its content's min-content width. Pair that with
