@@ -2361,11 +2361,34 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   // a screenwide bar, but keep it to one row." The region picker then sat
   // beside the birder's name; F195(c) has since collapsed it into the scope
   // control, for the reason asserted below.
-  const first = app.document.querySelector('#menuList li:not(.tocgroup)');
-  assert.ok(first.classList.contains('wide'),
-    'the first tile spans the row rather than sharing a slot');
-  assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
-    /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
+  // F200: NO WIDE TILE, and Happening now sits with the twitches.
+  // "change the happening now button bar to be a regular button in the same
+  // menu as the twitches."
+  //
+  // The old assertion here pinned the first tile as WIDE and as "Happening
+  // now". Both are now wrong on purpose. Widening whichever tile sorts first
+  // is a rule about POSITION, not importance — with that section moved it
+  // would have promoted "Today's patches" by accident.
+  const tilesAll = [].slice.call(app.document.querySelectorAll('#menuList li'))
+    .filter((li) => li.querySelector('.toclink'));
+  assert.ok(tilesAll.length > 20, `the menu is populated (${tilesAll.length})`);
+  assert.equal(tilesAll.filter((li) => li.classList.contains('wide')).length, 0,
+    'no tile spans the row — they are all regular buttons now');
+
+  const surge = app.document.querySelector('#menuList .toclink[data-at="surgeBtn"]');
+  assert.ok(surge, 'Happening now is still in the menu');
+  // It must sit under the SAME heading as the twitches.
+  function headingFor(el) {
+    let li = el.closest('li');
+    for (let p = li.previousElementSibling; p; p = p.previousElementSibling) {
+      if (p.classList.contains('tocgroup')) return p.textContent.trim();
+    }
+    return '';
+  }
+  const twitch = app.document.querySelector('#menuList .toclink[data-at="refreshBtn"]');
+  assert.ok(twitch, 'Twitches today is in the menu');
+  assert.equal(headingFor(surge), headingFor(twitch),
+    'Happening now shares a group heading with the twitches');
   // ...and the region control is behind the SCOPE CONTROL, not in the identity
   // line and not a grid cell of its own.
   //
@@ -11301,8 +11324,13 @@ test('the menu names you, from cache, without spending a call', async () => {
   // belongs reads as a failure rather than as "not looked up".
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
   A.renderMenuIdentity();
-  let txt = D.getElementById('menuIdentity').textContent;
-  assert.match(txt, /Birder Wyatt/, 'the name shows');
+  // F200: the identity block was REMOVED from the top of the menu -- "everything
+  // under the highlights should be removed" -- because the header now carries
+  // the same three facts on every screen. So the assertion moves to the header
+  // rather than being deleted: what it protects is that the name is read from
+  // cache and no rank is invented, and that is still worth protecting.
+  let txt = D.getElementById('hdrId').textContent;
+  assert.match(txt, /Wyatt/, 'the name shows, now in the top bar');
   assert.doesNotMatch(txt, /#/, 'and no rank is invented when none is known');
 
   // With today's board cached for this region, the standing appears.
@@ -11311,7 +11339,7 @@ test('the menu names you, from cache, without spending a call', async () => {
       data: { region: 'US-WA', me: { rank: 42, species: 331, checklists: 120 } } },
   }));
   A.renderMenuIdentity();
-  txt = D.getElementById('menuIdentity').textContent;
+  txt = D.getElementById('hdrId').textContent;
   assert.match(txt, /#42/, 'the cached rank is used');
 
   // A board for ANOTHER region must not be borrowed.
@@ -11320,7 +11348,7 @@ test('the menu names you, from cache, without spending a call', async () => {
       data: { region: 'US-MO', me: { rank: 7 } } },
   }));
   A.renderMenuIdentity();
-  assert.doesNotMatch(D.getElementById('menuIdentity').textContent, /#7/,
+  assert.doesNotMatch(D.getElementById('hdrId').textContent, /#7/,
     'a Missouri standing is not your Washington standing');
 
   // ...and a YESTERDAY board is not today's.
@@ -11329,7 +11357,7 @@ test('the menu names you, from cache, without spending a call', async () => {
       data: { region: 'US-WA', me: { rank: 9 } } },
   }));
   A.renderMenuIdentity();
-  assert.doesNotMatch(D.getElementById('menuIdentity').textContent, /#9/,
+  assert.doesNotMatch(D.getElementById('hdrId').textContent, /#9/,
     'a stale board is not shown as current');
 
   assert.equal(app.state.fetches.length, before, 'and none of that touched the network');
@@ -15931,17 +15959,24 @@ test('the region and county pickers collapse behind a named scope control', asyn
   const doc = app.window.document;
 
   const det = doc.getElementById('menuScope');
-  assert.ok(det, 'the scope control is painted with the Contents identity block');
+  assert.ok(det, 'the scope control is painted with the menu');
   assert.equal(det.tagName.toLowerCase(), 'details',
     'it is a disclosure, so it costs one line when closed');
   assert.equal(det.hasAttribute('open'), false,
     'and it starts CLOSED — freeing the fixed top half is the entire point');
 
+  // F200: "move the existing region selection control from the top of the menu
+  // to the bottom." It sits AFTER the tile list now, not above it.
+  const host = doc.getElementById('menuScopeHost');
+  assert.ok(host && host.contains(det),
+    'it lives in the bottom host, not in the identity block');
+  const list = doc.getElementById('menuList');
+  assert.ok(list.compareDocumentPosition(host)
+            & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'and the host comes AFTER the tile list in the document');
+
   const sum = det.querySelector('summary');
   assert.ok(sum, 'it has a summary to tap');
-  const where = sum.querySelector('.scopewhere');
-  assert.ok(where && where.textContent.trim().length > 2,
-    'which names the current scope in words, not just a triangle');
   assert.match(sum.textContent, /change/i,
     'and carries a visible "Change" affordance — F189 is exactly the bug of a '
     + 'control that is reachable and does not say what it is');
@@ -15951,6 +15986,9 @@ test('the region and county pickers collapse behind a named scope control', asyn
   const sel = det.querySelector('#menuRegion');
   assert.ok(sel, 'the region picker moved WITH its id, so bindRegionPickers still finds it');
   assert.ok(sel.options.length > 1, 'and it is populated, so the binding ran');
+  assert.equal(doc.querySelectorAll('#menuRegion').length, 1,
+    'ONE set of selects, not two — a duplicate id gives the binder a choice, '
+    + 'which is the shape of the bug that hid the rankings scope');
 
   const lab = det.querySelector('label[for="menuRegion"]');
   assert.ok(lab, 'the region select has a label');
@@ -15959,66 +15997,71 @@ test('the region and county pickers collapse behind a named scope control', asyn
   app.window.close();
 });
 
-// --- F195(d): filter the menu instead of hiding it behind a gesture --------
-// "Is there a different kind of navigation for the menu buttons? … maybe they
-// could slide right and left." A filter is the one option that improves as the
-// list grows, where a carousel gets worse — and 32 tiles is already past the
-// point where scanning beats typing.
-//
-// It searches the plain-English MENU_SUB line as well as the label, because
-// the labels are deliberately jargon (F141/F148) and the sub-line is what a
-// reader would actually type. Asserted on the rendered DOM: the failure is
-// which tiles are visible, and a source regex cannot see that.
-test('the menu filter hides non-matching tiles and their empty headings', async () => {
+// --- F200: the top bar carries the scope CODE and opens the pickers --------
+// "in the top menu bar display the short region code like US-WA or US-WA-033
+// for when king county is selected. when its clicked then the drop downs for
+// selecting region and county view can appear."
+test('the top bar shows the scope code and opens the pickers', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
 
-  const box = doc.getElementById('menuFilter');
-  assert.ok(box, 'the filter box is painted with the menu');
+  const chip = doc.getElementById('hdrScope');
+  assert.ok(chip, 'the top bar has a scope chip');
+  assert.equal(chip.tagName.toLowerCase(), 'button',
+    'a real button, because it does something');
 
-  const tiles = () => [].slice.call(doc.querySelectorAll('#menuList > li'))
-    .filter((li) => li.querySelector('.toclink') && !li.hidden);
-  const heads = () => [].slice.call(doc.querySelectorAll('#menuList > li.tocgroup'))
-    .filter((li) => !li.hidden);
+  A.headerScopeRefresh();
+  assert.equal(chip.hidden, false, 'it is shown once a region is known');
+  assert.match(chip.textContent, /^[A-Z]{2}(-[A-Z0-9]+)+$/,
+    `the SHORT CODE, e.g. US-WA — got ${chip.textContent}`);
+  assert.equal(A.scopeCode(), chip.textContent,
+    'and it is the same string the control reports');
 
-  const allTiles = tiles().length;
-  const allHeads = heads().length;
-  assert.ok(allTiles > 20, `the menu is big enough to need this (${allTiles} tiles)`);
+  // A code is an abbreviation; the sentence is on aria-label.
+  const lab = chip.getAttribute('aria-label') || '';
+  assert.match(lab, /scope/i, 'the chip says what it is');
+  assert.match(lab, /tap to change/i, 'and what tapping it does');
 
-  // A word that appears ONLY in a sub-line, never in any tile label.
-  // "patches" was tried first and was a bad probe: it appears in labels too,
-  // so the assertion passed with the sub-line removed from the haystack
-  // entirely — a check that could not fail.
-  assert.ok(![].slice.call(doc.querySelectorAll('#menuList .tilelabel'))
-    .some((n) => /buzz/i.test(n.textContent)),
-    'the probe word must not appear in any tile LABEL, or this proves nothing');
-  box.value = 'buzz';
-  A.applyMenuFilter();
-  const hit = tiles();
-  assert.ok(hit.length > 0 && hit.length < allTiles,
-    `the plain-English sub-line is searched, not just the jargon label `
-    + `(${hit.length} of ${allTiles})`);
-  assert.ok(heads().length < allHeads,
-    'a group heading left with nothing under it is hidden too — a heading '
-    + 'over an empty group reads as a section that failed to load');
+  // Tapping opens the control at the bottom.
+  const det = doc.getElementById('menuScope');
+  assert.equal(det.open, false, 'closed to begin with');
+  chip.click();
+  assert.equal(det.open, true, 'tapping the chip opens the pickers');
+  A.scopeClose();
+  assert.equal(det.open, false, '"after selected it can disappear"');
+  app.window.close();
+});
 
-  const count = doc.getElementById('menuFilterCount');
-  assert.match(count.textContent, /match/i, 'and the result count is announced');
-  assert.equal(count.getAttribute('aria-live'), 'polite',
-    'announced to a screen reader, not only drawn');
+// --- F200: the menu filter is DISABLED one release after it shipped --------
+// "the filter is confusing. search results are below popup keyboard and its
+// not clear what to searcg for. i need a different solution so disable it for
+// now."
+//
+// ⚠️ THE GUARD BELOW USED TO ASSERT THE OPPOSITE, and it passed. Neither the
+// unit suite nor the layout audit could see either fault: jsdom has no
+// keyboard, and the audit never focuses an input, so 591 green tests and a 6/6
+// layout run said nothing about the only thing that mattered — that on a real
+// phone the results render UNDER the keyboard you opened to reach them.
+//
+// The mechanism is left in the source. It was the PLACEMENT that failed, and
+// deleting the code would throw away the part that worked.
+test('the menu filter is not rendered — it failed on the device', async () => {
+  const app = await boot();
+  const doc = app.window.document;
 
-  box.value = 'zzzznotathing';
-  A.applyMenuFilter();
-  assert.equal(tiles().length, 0, 'no match hides everything');
-  assert.match(count.textContent, /no match/i, 'and says so rather than going blank');
+  assert.equal(doc.getElementById('menuFilter'), null,
+    'no filter input is painted, so no keyboard can cover the results');
+  assert.equal(doc.querySelector('.menufilter'), null,
+    'and no empty row is left behind where it used to be');
 
-  box.value = '';
-  A.applyMenuFilter();
-  assert.equal(tiles().length, allTiles, 'clearing restores every tile');
-  assert.equal(heads().length, allHeads, 'and every heading');
-  assert.equal(count.textContent, '',
-    'the count is silent when not filtering — a number that never changes is furniture');
+  // The tiles it used to hide must all be visible again — a disabled feature
+  // that leaves rows hidden is worse than the feature.
+  const tiles = [].slice.call(doc.querySelectorAll('#menuList > li'))
+    .filter((li) => li.querySelector('.toclink'));
+  assert.ok(tiles.length > 20, `every tile is present (${tiles.length})`);
+  assert.equal(tiles.filter((li) => li.hidden).length, 0,
+    'and none is left hidden by a filter that no longer exists');
   app.window.close();
 });
 
@@ -16049,13 +16092,32 @@ test('the header carries name, rank and species without fetching', async () => {
   A.headerIdentityRefresh();
 
   assert.equal(el.hidden, false, 'with a name known, the block is shown');
-  assert.match(el.textContent, /Wyatt/, 'the first name only — it is a header');
-  assert.ok(!/Houtz/.test(el.textContent),
-    'and not the full name, which is what makes it fit beside the brand');
+  assert.match(el.textContent, /Wyatt Houtz/,
+    'the WHOLE name — picking the first word is a guess about which word is '
+    + 'the name, and it is wrong for a display name that leads with a title');
 
   const label = el.getAttribute('aria-label') || '';
   assert.match(label, /Wyatt/,
     'the short form is an abbreviation, so the sentence lives on aria-label');
+
+  // F200: "change the upper right from '#180 - 209' to Rank #180/Total - 209
+  // Birds". A rank with no denominator is not a standing, it is a number.
+  //
+  // Only asserted when a rank IS cached — the harness has no board by default,
+  // and asserting the label unconditionally would fail on the "nothing known"
+  // path, which is a legitimate state rather than a bug.
+  const stat = el.querySelector('.hdrstat');
+  const statTxt = stat ? stat.textContent : '';
+  if (/\d/.test(statTxt) && /Rank|#/.test(statTxt)) {
+    assert.match(statTxt, /Rank #/,
+      'the rank is labelled "Rank #", not a bare "#"');
+    assert.ok(!/^\s*#/.test(statTxt.trim()),
+      'and it no longer leads with a bare hash');
+  }
+  if (/Birds/.test(statTxt)) {
+    assert.match(statTxt, /\d+\s+Birds/,
+      'the species count says what it counts');
+  }
 
   // Nothing known is the other real state, and it must HIDE rather than paint
   // an empty box or a zero — the same rule the menu badges follow.

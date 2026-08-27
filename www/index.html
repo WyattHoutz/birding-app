@@ -485,6 +485,12 @@
       justify-content: space-between;
       gap: 12px;
     }
+    /* F200: the brand takes the space it needs and no more, so the scope chip
+       sits between it and the identity rather than being pushed to the far
+       right. Matches the owner's mock-up. */
+    header > .brand { flex: 0 1 auto; min-width: 0; }
+    header > .hdrscope { margin-left: auto; }
+    header > .hdrid { flex: 0 0 auto; margin-left: auto; }
     /* F195(b). Two short lines, right-aligned, and it MUST be allowed to
        vanish rather than squeeze the brand: at 320px with Easy read on there
        is not room for both, and a crushed label is what F181 was about. The
@@ -497,6 +503,14 @@
       white-space: nowrap; }
     @media (max-width: 359px) { .hdrid { display: none; } }
     html[data-a11y="on"] .hdrid { display: none; }
+    /* F200. The scope CODE in the top bar — US-WA, or US-WA-033 when a county
+       view is on. A real button, 44px, because it opens the pickers. The code
+       is an abbreviation, so the sentence is on aria-label. */
+    .hdrscope { flex: 0 0 auto; min-height: 44px; padding: 4px 10px;
+      font: inherit; font-weight: 800; font-size: calc(12px * var(--s));
+      letter-spacing: .02em; color: var(--accent-ink); cursor: pointer;
+      background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.5);
+      border-radius: 999px; white-space: nowrap; }
     /* Brand lockup. The mark is the SAME kingfisher photograph the home-screen
        icon is cut from (assets/generate.js), so the icon you tap and the header
        you land on are recognisably one object, with zero network. */
@@ -1800,6 +1814,7 @@
         <h1>Bird Chaser</h1>
       </div>
     </div>
+    <button type="button" id="hdrScope" class="hdrscope" hidden></button>
     <div id="hdrId" class="hdrid" hidden></div>
   </header>
 
@@ -2630,7 +2645,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.6';
+      var APP_VERSION = '1.41.7';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14583,8 +14598,21 @@
           .catch(function () { return null; });
         return _webKeyPromise;
       }
-      function ebirderCount(regionCode) {
-        if (!regionCode) return Promise.resolve(null);
+      // F200. The same number, read SYNCHRONOUSLY and never fetched.
+      // `ebirderCount` below is a promise and 403s for every public API key
+      // before falling back to a scrape — so the header, which paints on every
+      // screen, reads only what that call has already cached today. Unknown
+      // yields null and the header simply omits the total, the same rule the
+      // menu badges follow: an unknown value shows nothing, never a zero.
+      function cachedEbirderCount(regionCode) {
+        if (!regionCode) return null;
+        try {
+          var c = JSON.parse(localStorage.getItem(EBIRDERS_CACHE_KEY) || '{}');
+          var hit = c[regionCode];
+          return (hit && hit.date === todayStr() && hit.n != null) ? hit.n : null;
+        } catch (e) { return null; }
+      }
+      function ebirderCount(regionCode) {        if (!regionCode) return Promise.resolve(null);
         var cache = {};
         try { cache = JSON.parse(localStorage.getItem(EBIRDERS_CACHE_KEY) || '{}'); } catch (e) {}
         var hit = cache[regionCode];
@@ -20338,7 +20366,14 @@
       };
 
       var MENU = [
-        { at: 'surgeBtn',      label: '🔔 Happening now', group: 'Right now' },
+        // F200. "i want to change the happening now button bar to be a regular
+        // button in the same menu as the twitches."
+        //
+        // Only the GROUP changes. The array order is the contract
+        // `tests/parity/test_report_toc.py` compares against `report.py`, and
+        // moving the row would break that for a layout reason — so it stays
+        // first in the array, which also makes it first within its new group.
+        { at: 'surgeBtn',      label: '🔔 Happening now', group: 'Rare birds' },
         { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
@@ -21132,23 +21167,33 @@
         menu.innerHTML =
           '<div id="menuIdentity"></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +
-          // F195(d). "instead of wrapping the button groups, maybe they could
-          // slide right and left". A filter is the one option that gets BETTER
-          // as the list grows, where a carousel gets worse — and 32 tiles is
-          // already past the point where scanning beats typing.
+          // ⚠️ F200. THE FILTER BOX IS DISABLED, one release after it shipped.
           //
-          // It searches the tile LABEL and the plain-English MENU_SUB line
-          // underneath, so "patches" finds the tile whose jargon label never
-          // says it. That sub-line exists precisely because the labels are
-          // jargon (F141/F148); making it searchable is the same argument.
-          '<div class="menufilter">' +
-            '<label class="vh" for="menuFilter">Filter the menu</label>' +
-            '<input id="menuFilter" type="search" autocomplete="off" ' +
-                   'placeholder="Filter\u2026 (e.g. rare, patches, tides)">' +
-            '<span id="menuFilterCount" class="menufiltercount" role="status" ' +
-                  'aria-live="polite"></span>' +
-          '</div>' +
-          '<ul id="menuList" class="toc"></ul>';
+          // Owner, from the device: *"the filter is confusing. search results
+          // are below popup keyboard and its not clear what to searcg for. i
+          // need a different solution so disable it for now."*
+          //
+          // Both faults are real and neither is cosmetic:
+          //
+          //   1. On a phone, focusing the input raises the keyboard over the
+          //      bottom half of the screen — and the RESULTS are down there.
+          //      You cannot see what you are filtering while you filter it.
+          //      The jsdom suite cannot see this (no keyboard) and the layout
+          //      audit cannot either (no focus), so 591 green tests and a 6/6
+          //      layout run said nothing about the one thing that mattered.
+          //   2. A blank box with a placeholder does not teach its own
+          //      vocabulary. "Filter… (e.g. rare, patches, tides)" names three
+          //      words out of a vocabulary the reader cannot see, which is the
+          //      same complaint F189 made about an unnamed control.
+          //
+          // Left in the source rather than deleted: the mechanism is sound and
+          // the PLACEMENT is what failed. See F200 for the replacement.
+          '<ul id="menuList" class="toc"></ul>' +
+          // F200: the scope control lives at the BOTTOM now. "move the
+          // existing region selection control from the top of the menu to the
+          // bottom." It is reached from the top bar chip, which is where the
+          // question "where am I?" is actually asked.
+          '<div id="menuScopeHost"></div>';
         main.insertBefore(menu, main.firstChild);
         _sections = [];
         MENU.forEach(function (m) {
@@ -21216,7 +21261,9 @@
       // The last group was called "You". It holds your standing, your year
       // list, the app settings and now its manual: half of it is about you and
       // half is about the app, and "You" named only the first half.
-      var MENU_GROUPS = ['Right now', 'Go birding', 'Rare birds',
+      // F200: 'Right now' is gone — it held exactly one tile, Happening now,
+      // which now sits with the twitches it belongs beside.
+      var MENU_GROUPS = ['Go birding', 'Rare birds',
         'Hotspots & birders', 'Birds you still need', 'Timing',
         'Your list & the app'];
       // Who you are, on the way in. Costs NOTHING.
@@ -21260,31 +21307,82 @@
         var el = $('hdrId');
         if (!el) return;
         var name = String(getDisplayName() || '').trim();
-        var first = name.split(/\s+/)[0] || '';
+        // F200: show the WHOLE name, ellipsised by CSS if it is long.
+        //
+        // It used to show the first word, which is a guess about which word is
+        // the name — and the guess is wrong for the owner's own display name,
+        // whose first word is a title. It rendered as that title alone,
+        // carrying no information, and it shipped that way because a header
+        // showing one plausible word looks deliberate. There is no rule that
+        // picks the right word out of a free-text field, so it does not try.
+        //
+        // ⚠️ The name itself is deliberately NOT quoted here. `no personal
+        // eBird identity is hardcoded in the shipped source` scans comments
+        // too, and it caught this line when the example was spelled out —
+        // correctly, because a comment ships exactly like code does.
+        var shown = name;
         var bits = [], said = [];
         var me = null;
         try { me = cachedRankMe(getRegion()); } catch (e) { me = null; }
         if (me && me.rank != null) {
-          bits.push('#' + rankNum(me.rank));
-          said.push('ranked ' + rankNum(me.rank) + ' in '
-                    + rankRegionName(getRegion()));
+          // F200: "change the upper right from '#180 - 209' to
+          // Rank #180/Total - 209 Birds". The bare "#180" said nothing about
+          // what it was a rank OUT OF, and a rank with no denominator is not a
+          // standing — it is a number. The total is omitted rather than faked
+          // when it is not cached.
+          var of = null;
+          try { of = cachedEbirderCount(getRegion()); } catch (e) { of = null; }
+          bits.push('Rank #' + rankNum(me.rank) + (of ? '/' + rankNum(of) : ''));
+          said.push('ranked ' + rankNum(me.rank)
+                    + (of ? ' of ' + rankNum(of) + ' eBirders' : '')
+                    + ' in ' + rankRegionName(getRegion()));
         }
         var year = 0;
         try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
-        if (year) { bits.push(String(year)); said.push(year + ' species this year'); }
-        if (!first && !bits.length) {
+        if (year) {
+          bits.push(year + ' Birds');
+          said.push(year + ' species this year');
+        }
+        if (!shown && !bits.length) {
           el.hidden = true; el.textContent = ''; el.removeAttribute('aria-label');
           return;
         }
         el.hidden = false;
         el.innerHTML =
-          (first ? '<span class="hdrname">' + esc(first) + '</span>' : '')
+          (shown ? '<span class="hdrname">' + esc(shown) + '</span>' : '')
           + (bits.length
               ? '<span class="hdrstat">' + esc(bits.join(' \u00b7 ')) + '</span>'
               : '');
         // The short form is an abbreviation; the label is the sentence.
         el.setAttribute('aria-label',
-          (first ? first + ', ' : '') + said.join(', '));
+          (shown ? shown + ', ' : '') + said.join(', '));
+      }
+
+      // F200. The scope CODE in the top bar — `US-WA`, or `US-WA-033` when
+      // King County is the view. It is a real <button>, not a styled span,
+      // because it does something; and it names the scope in its aria-label,
+      // because a bare code is an abbreviation and F189 is the standing lesson
+      // that an unnamed control is a confusing one.
+      function headerScopeRefresh() {
+        var el = $('hdrScope');
+        if (!el) return;
+        var code = scopeCode();
+        if (!code || code === 'Region') { el.hidden = true; return; }
+        el.hidden = false;
+        el.textContent = code;
+        var said = rankRegionName(getRegion()) || code;
+        var cv = '';
+        try {
+          var want = getCountyView();
+          if (want) {
+            getCounties().forEach(function (c) {
+              if (c && c.code === want) cv = c.label || '';
+            });
+          }
+        } catch (e) { cv = ''; }
+        el.setAttribute('aria-label',
+          'Scope: ' + said + (cv ? ', ' + cv + ' county' : '')
+          + '. Tap to change the report or county.');
       }
 
       // --- F195(d): filter the menu, don't hide it behind a gesture ---------
@@ -21333,103 +21431,128 @@
         box.addEventListener('search', applyMenuFilter);
       }
 
+      // F200. THE WHOLE IDENTITY BLOCK IS GONE from the top of the menu.
+      //
+      // Owner, marking up a screenshot of it: *"everything under the
+      // highlights should be removed"* — the name, the rank-and-species line,
+      // the scope control and the filter box, i.e. the entire fixed top half
+      // he asked about in the first place.
+      //
+      // Nothing is lost, which is why this is a deletion rather than a
+      // redesign: the header carries the name, rank and species on EVERY
+      // screen (F195b), the top-bar chip carries the scope code, and the
+      // pickers themselves moved to the bottom of the menu. Three facts that
+      // were each shown twice are now shown once.
+      //
+      // The only thing that stays is the non-default-profile warning. It is
+      // not identity, it is a SAFETY notice — F177 keeps four profiles in one
+      // app and a reader who does not know which one they are standing in will
+      // mis-read every list on the screen.
       function menuIdentityHtml() {
-        var name = String(getDisplayName() || '').trim();
-        var bits = [];
-        var me = cachedRankMe(getRegion());
-        if (me && me.rank != null) {
-          bits.push('#' + esc(rankNum(me.rank)) + ' in ' + esc(rankRegionName(getRegion())));
-        }
-        var year = 0;
-        try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
-        if (year) bits.push(esc(year) + ' species this year');
-        // F152: the county VIEW sits on the sub-line, not beside the region.
-        // The region picker changes which REPORT you are reading; this narrows
-        // the one you are already in, which is a smaller act and belongs on the
-        // smaller line. Offered only when the report has more than one county —
-        // a rarity tracker has none, and narrowing a single-county report to
-        // that county is a control that does nothing.
+        if (isDefaultProfile()) return '';
+        return '<div class="menuid">'
+          + '<div class="secscope secprofile menuprofile">👤 '
+          + esc(profileLabel(bcProfile()))
+          + ' — a test profile. Settings → Account profile to switch back.</div>'
+          + '</div>';
+      }
+
+      // F200. The scope control moves to the BOTTOM of the menu, and the top
+      // bar carries only the CODE.
+      //
+      // Owner: *"in the top menu bar display the short region code like US-WA
+      // or US-WA-033 for when king county is selected. when its clicked then
+      // the drop downs for selecting region and county view can appear. after
+      // selected it can disappear. move the existing region selection control
+      // from the top of the menu to the bottom."*
+      //
+      // ONE set of selects, not two. A second `#menuRegion` would be invalid
+      // HTML and would give `bindRegionPickers` two elements to choose
+      // between — the shape of the bug that hid the rankings scope for a
+      // whole release. So the header chip OPENS this control rather than
+      // duplicating it.
+      function menuScopeHtml() {
         var coHtml = '';
         if (getCounties().length > 1) {
-          // F189: A VISIBLE LABEL, not only an accessible one.
-          //
-          // Reported from the device: "so this drop down is confusing. what
-          // does each option mean?" The label was `class="vh"` — clipped to
-          // 1px — so a screen reader heard "County view" and a sighted reader
-          // saw an unnamed box sitting directly under "#180 in Washington ·
-          // 209 species this year", where it read as part of that sentence.
-          // An accessible name is necessary and is NOT sufficient.
-          coHtml = '<span class="countypick"><label for="menuCounty">Show</label>'
+          coHtml = '<span class="countypick"><label for="menuCounty">County view</label>'
             + '<select id="menuCounty"></select></span>';
         }
-        if (!name && !bits.length && !coHtml) return '';
-        // F188: the Contents screen is the one you always pass through, so a
-        // non-default profile is named here too. Silent on Main.
-        var profHtml = isDefaultProfile() ? ''
-          : '<div class="secscope secprofile menuprofile">👤 ' + esc(profileLabel(bcProfile()))
-            + ' — a test profile. Settings → Account profile to switch back.</div>';
-        // F195(c). THE SCOPE MOVES BEHIND ONE CONTROL.
-        //
-        // Owner: *"The region picker and county picker could be moved to the
-        // bottom or to the settings menu. There could be a icon or region id
-        // icon in the top menu that could be tapped to change these settings."*
-        //
-        // Previously the region sat hard right of the name — *"id like the
-        // region drop down to be aligned right of my birder wyatt name"* —
-        // which was the right answer when it was a whole grid row. That
-        // request is superseded by this one: the pickers are now COLLAPSED
-        // into a `<details>` and cost one line instead of two-plus.
-        //
-        // ⚠️ The summary states the scope IN WORDS and carries a "Change"
-        // affordance. F189 is exactly the bug of a control that is reachable
-        // but does not say what it is — *"so this drop down is confusing"* —
-        // and the fix there was that an accessible name is necessary and NOT
-        // sufficient. A disclosure triangle alone would repeat it.
-        //
-        // The selects keep their ids, so `bindRegionPickers()` is unchanged;
-        // moving a control must not quietly unbind it, which is the shape of
-        // the bug that hid the rankings scope for a whole release.
-        var scopeNow = rankRegionName(getRegion()) || 'Region';
-        var coNow = '';
+        return '<details class="scopepick" id="menuScope">'
+          + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeCode())
+          +   '</span><span class="scopechange">Change</span></summary>'
+          + '<div class="scopebody">'
+          +   '<span class="regionpick"><label for="menuRegion">Report</label>'
+          +   '<select id="menuRegion"></select></span>'
+          +   coHtml
+          +   (coHtml
+                ? '<span class="menuidhint">Narrows every list to one county. '
+                  + 'Costs no eBird calls, and never changes what counts as seen — '
+                  + 'your ' + esc(getReport().label) + ' year list still decides that.</span>'
+                : '')
+          + '</div>'
+          + '</details>';
+      }
+
+      // The SHORT CODE, which is what the top bar shows: `US-WA`, or the
+      // county's own code when one is selected — `US-WA-033` for King. eBird's
+      // county codes already carry their parent region, so this is one string,
+      // not two glued together.
+      function scopeCode() {
+        var code = '';
         try {
-          // getCountyView returns a county CODE or '' for "all counties".
-          // There is no countyLabel(); the label lives on the county row.
           var cv = getCountyView();
           if (cv) {
             getCounties().forEach(function (c) {
-              if (c && c.code === cv) coNow = c.label || '';
+              if (c && c.code === cv) code = c.code;
             });
           }
-        } catch (e) { coNow = ''; }
-        return '<div class="menuid">'
-          + '<div class="menuidtop">'
-          + (name ? '<b class="menuidname">' + esc(name) + '</b>' : '')
-          + '</div>'
-          + ((bits.length) ? '<span class="menuidsub">' + bits.join(' · ') + '</span>' : '')
-          + '<details class="scopepick" id="menuScope">'
-          +   '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeNow)
-          +     (coNow ? ' \u00b7 ' + esc(coNow) : '')
-          +     '</span><span class="scopechange">Change</span></summary>'
-          +   '<div class="scopebody">'
-          +     '<span class="regionpick"><label for="menuRegion">Report</label>'
-          +     '<select id="menuRegion"></select></span>'
-          +     coHtml
-          +     (coHtml
-                  ? '<span class="menuidhint">Narrows every list to one county. '
-                    + 'Costs no eBird calls, and never changes what counts as seen — '
-                    + 'your ' + esc(getReport().label) + ' year list still decides that.</span>'
-                  : '')
-          +   '</div>'
-          + '</details>'
-          + profHtml
-          + '</div>';
+        } catch (e) { code = ''; }
+        if (!code) { try { code = getRegion() || ''; } catch (e) { code = ''; } }
+        return code || 'Region';
       }
       function renderMenuIdentity() {
         var el = $('menuIdentity');
         if (el) el.innerHTML = menuIdentityHtml();
+        // F200: the scope control is painted at the BOTTOM, from the same
+        // call, so the two can never disagree about which report is active.
+        var host = $('menuScopeHost');
+        if (host) host.innerHTML = menuScopeHtml();
         // F195(b): the header carries the same three facts, so it repaints on
         // the same trigger. Two copies that update from one call cannot drift.
         headerIdentityRefresh();
+        headerScopeRefresh();
+        bindHeaderScope();
+      }
+
+      // Bound once. The chip is in static markup, so a listener attached on
+      // every menu render would stack up one per repaint.
+      function bindHeaderScope() {
+        var el = $('hdrScope');
+        if (!el || el._bound) return;
+        el._bound = true;
+        el.addEventListener('click', scopeOpen);
+      }
+
+      // F200. The top bar chip: the CODE, and a way in.
+      //
+      // "when its clicked then the drop downs ... can appear. after selected
+      // it can disappear." So it OPENS the one control at the bottom and
+      // brings it into view, rather than being a second copy of it — and the
+      // control closes itself once a choice is made.
+      function scopeOpen() {
+        var det = $('menuScope');
+        if (!det) return;
+        det.open = true;
+        if (det.scrollIntoView) {
+          try { det.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+          catch (e) { det.scrollIntoView(); }
+        }
+        var sel = $('menuRegion');
+        if (sel && sel.focus) { try { sel.focus(); } catch (e) {} }
+      }
+      function scopeClose() {
+        var det = $('menuScope');
+        if (det) det.open = false;
       }
       function renderMenuList() {
         // Rebuilding the list DESTROYS the region <select>, because the cell is
@@ -21447,7 +21570,6 @@
         var shown = _sections.filter(function (sec) {
           return menuApplies({ needs: sec._needs, enabled: sec._enabled });
         });
-        var firstTile = true;
         MENU_GROUPS.forEach(function (group) {
           var members = shown.filter(function (s) { return s._group === group; });
           if (!members.length) return;
@@ -21458,10 +21580,14 @@
           list.appendChild(h);
           members.forEach(function (sec) {
             var li = document.createElement('li');
-            // The first TILE is wide, not the first child — the heading above
-            // it is a child too, and counting children made the wide tile
-            // vanish the moment groups were introduced.
-            if (firstTile) { li.className = 'wide'; firstTile = false; }
+            // F200: NO WIDE TILE. "change the happening now button bar to be a
+            // regular button in the same menu as the twitches."
+            //
+            // The first tile used to span the row, which is what made Happening
+            // now a bar. Widening whichever tile happens to sort first is a
+            // rule about POSITION rather than about importance, so with that
+            // one section moved there is nothing the rule could correctly
+            // apply to — it would simply promote Today's patches by accident.
           var a = document.createElement('button');
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
@@ -22132,7 +22258,7 @@
         ['menuRegion', 'navRegion'].forEach(function (id) {
           var sel = $(id); if (!sel || sel.dataset.bound) return;
           fillRegionSelect(sel);
-          sel.addEventListener('change', function () { setActiveReport(this.value); });
+            sel.addEventListener('change', function () { setActiveReport(this.value); });
           sel.dataset.bound = '1';
         });
         bindCountyPicker();
@@ -22164,6 +22290,9 @@
         sel.addEventListener('change', function () {
           setCountyView(this.value);
           applyCountyView();
+          // F200: "after selected it can disappear."
+          scopeClose();
+          headerScopeRefresh();
         });
         sel.dataset.bound = '1';
       }
@@ -23683,6 +23812,9 @@
         MENU_BADGES: MENU_BADGES,
         // F195(b): exposed so the header block can be driven and asserted.
         headerIdentityRefresh: headerIdentityRefresh,
+        // F200: the scope chip and the control it opens.
+        headerScopeRefresh: headerScopeRefresh, scopeCode: scopeCode,
+        scopeOpen: scopeOpen, scopeClose: scopeClose,
         applyMenuFilter: applyMenuFilter,
         wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind,
         noteWall: noteWall, clearWall: clearWall, wallSeen: wallSeen,
