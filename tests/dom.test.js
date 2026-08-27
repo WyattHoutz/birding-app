@@ -269,22 +269,50 @@ test('Contents menu matches the report section contract (labels + order)', async
   // where it still means something: among the sections of one group.
   // The ARRAY order in index.html is untouched and is what
   // tests/parity/test_report_toc.py compares to the report.
-  const groupOf = {};
-  for (const m of HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']+)'[^\n]*group: '([^']+)'/g)) {
-    groupOf[m[2].replace(/\\u2019/g, '\u2019')] = m[3];
+  // ⚠️ F201: ORDER IS NO LONGER PINNED TO THE REPORT, and that coupling was
+  // cut deliberately rather than satisfied.
+  //
+  // It used to require that tiles appear in report-emission order WITHIN a
+  // group. That was a good rule while the menu's arrangement was inherited:
+  // it caught "Latest ticks sat 3rd in the app while the report emitted it
+  // 30th". It stopped being a good rule the moment the owner authored the
+  // arrangement himself, tile by tile, grouped by what you are trying to do —
+  // news, then places, then tools, then the scoreboard, then your own list.
+  //
+  // Two things make cutting it safe rather than lax:
+  //   * MEMBERSHIP is still pinned EXACTLY, above and in
+  //     tests/parity/test_report_toc.py. That is the half that catches a
+  //     section existing on one side only, which is what the coupling was
+  //     really protecting.
+  //   * The report is sunsetting, and F24 already records that the report's
+  //     own order contradicts the mission. Forcing the app to follow it was
+  //     making the product worse to keep a document consistent.
+  //
+  // What replaces it: the rendered order must equal the AUTHORED order in the
+  // MENU array. That is a real property — it catches a group being dropped,
+  // a tile escaping its group, or the render loop re-sorting — and it is the
+  // order a reader actually sees.
+  const authored = [];
+  for (const m of HTML.matchAll(
+      /\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']+)'[^\n]*group: '([^']+)'/g)) {
+    authored.push({ at: m[1], group: m[3] });
   }
-  const rank = {};
-  contract.forEach((l, i) => { rank[l] = i; });
-  const lastSeen = {};
-  for (const label of rendered) {
-    const g = groupOf[label];
-    if (!g) continue;
-    if (lastSeen[g] != null) {
-      assert.ok(rank[label] > lastSeen[g],
-        '"' + label + '" is out of report order within its group "' + g + '"');
-    }
-    lastSeen[g] = rank[label];
+  const groupsInOrder = [];
+  for (const g of authored.map((a) => a.group)) {
+    if (!groupsInOrder.includes(g)) groupsInOrder.push(g);
   }
+  const expected = [];
+  for (const g of groupsInOrder) {
+    for (const a of authored) if (a.group === g) expected.push(a.at);
+  }
+  const renderedAts = [].slice.call(
+    app.document.querySelectorAll('#menuList .toclink'))
+    .map((a) => a.getAttribute('data-at'));
+  // Tiles a region does not support are filtered out, so compare only what
+  // rendered — the ORDER of it is the claim.
+  const shown = new Set(renderedAts);
+  assert.deepEqual(renderedAts, expected.filter((at) => shown.has(at)),
+    'the menu renders in the authored MENU order, group by group');
   const tiles = app.links();
   assert.ok(tiles.every((a) => a.tagName === 'BUTTON'),
     'Contents entries are real buttons (tiles), not bare anchors');
@@ -465,7 +493,7 @@ test('swiping right on the Contents menu is a no-op', async () => {
  */
 test('Happening now is wired and renders every lane it detects', async () => {
   const app = await boot();
-  app.open(/Happening now/);
+  app.open(/Happening Now/i);
   assert.equal(app.$('surgeResults').closest('section').hidden, false,
     'the section is the one on screen');
 
@@ -520,7 +548,7 @@ test('Happening now is wired and renders every lane it detects', async () => {
  */
 test('a surge with no baseline reads as "new here", never as an infinite ratio', async () => {
   const app = await boot();
-  app.open(/Happening now/);
+  app.open(/Happening Now/i);
   const A = app.window.__app;
   A.renderSurge([{
     code: 'tersan', name: 'Terek Sandpiper', locId: 'L9', loc: 'Stanwood STP',
@@ -9059,8 +9087,17 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // bird" answer the same SHAPE of question — I have chosen this one thing,
   // tell me everything — which is why they belong next to each other and not
   // among the four that answer "where should I go".
-  const GO = ['destBtn', 'excBtn', 'quickBtn', 'targetsBtn', 'spLookupBtn',
-              'stakeHsBtn', 'iconicBtn', 'hotBtn', 'coldBtn'];
+  // F201: the owner re-authored the whole menu. "Stakeout bird" and "Stake out
+  // a hotspot" moved OUT of the places group into Stakeouts, and Favorite
+  // patches moved IN — which is coherent: the first two start from a thing you
+  // have already chosen, the rest answer "where shall I go".
+  //
+  // The group NAME is no longer asserted, because it is the owner's wording
+  // and will move again. What is asserted is the property the entry was
+  // written for: each of these is its own top-level tile rather than a mode
+  // buried inside another section, and they sit together.
+  const GO = ['destBtn', 'excBtn', 'favResults', 'quickBtn', 'targetsBtn',
+              'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
@@ -10771,16 +10808,28 @@ test('unseen place rows carry the media mark, like every other list', async () =
 // The MENU array already listed Go birding first. MENU_GROUPS is the array that
 // actually decides the order, and it disagreed — two orderings for one menu,
 // the same shape as every heading that disagreed with its own rows.
-test('the menu leads with Go birding, not Rare birds', () => {
+// "in main menu, move go birding section above rare birds." — and then,
+// later, the owner authored the whole arrangement tile by tile and put the
+// rare-bird news FIRST, which supersedes it.
+//
+// So the assertion is no longer about WHICH group leads. It is about the
+// property that request actually exposed: MENU_GROUPS and the MENU array must
+// agree, because two orderings for one menu is how the original bug happened.
+test('there is ONE menu ordering, not two', () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const m = /var MENU_GROUPS = \[([^\]]+)\]/.exec(HTML);
   assert.ok(m, 'the group order is a named array');
-  const groups = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
-  const go = groups.indexOf('Go birding'), rare = groups.indexOf('Rare birds');
-  assert.ok(go > -1 && rare > -1, 'both groups exist');
-  assert.ok(go < rare,
-    `Go birding (${go}) comes before Rare birds (${rare}) — "where do I go" is `
-    + 'the question with a deadline; a rarity keeps');
+  const groups = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''))
+    .filter(Boolean);
+
+  const used = [];
+  for (const r of HTML.matchAll(/\{ at: '[A-Za-z0-9_]+',[^\n]*group: '([^']+)'/g)) {
+    if (!used.includes(r[1])) used.push(r[1]);
+  }
+  assert.deepEqual(used, groups,
+    'every group the MENU rows name appears in MENU_GROUPS, in the same order '
+    + '— a group missing here simply does not render, and a different order '
+    + 'means the menu has two minds about itself');
 });
 
 
@@ -11304,7 +11353,7 @@ test('the help section is generated from the notes each section already carries'
   // groups, preserving the original intent exactly: the manual is still
   // the last thing before it.
   const secGroups = groups.filter((g) => !/glossary/i.test(g));
-  assert.equal(secGroups[secGroups.length - 1], 'Your list & the app',
+  assert.equal(secGroups[secGroups.length - 1], 'Settings & Doc',
     'and the group it lives in is the last one');
   app.window.close();
 });

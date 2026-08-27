@@ -2645,7 +2645,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.7';
+      var APP_VERSION = '1.41.8';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -20332,11 +20332,11 @@
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
       var MENU_SUB = {
-        surgeBtn:      'Buzz in the last 24 h',
+        surgeBtn:      'Bird news highlights',
         wxBtn:         'Is today worth it',
         dueBackBtn:    'Migrants due back soon',
         rankBtn:       'Your standing',
-        patchBtn:      'Where experts go',
+        patchBtn:      'Where experts go birding',
         destBtn:       'Top hotspots to visit',
         excBtn:        'Top excursion hotspots',
         quickBtn:      'Local hotspots',
@@ -20355,9 +20355,9 @@
         favResults:    'Saved hotspots',
         allUnseenBtn:  'Every report, nearest first',
         easyBtn:       'Common birds you missed',
-        nvResults:     'Awaiting a reviewer',
+        nvResults:     'Birds considered unseen',
         migBtn:        'Arriving and leaving',
-        bcBody:        'Overnight flight',
+        bcBody:        'Nightly migration',
         todBtn:        'Best hours to look',
         myYearBody:    'Your list this year',
         recordBody:    'Overdue megararities',
@@ -20365,107 +20365,51 @@
         helpBody:      'How each section works'
       };
 
+      // F201. THE ORDER AND THE GROUPS ARE AUTHORED, not inherited.
+      //
+      // The owner supplied this arrangement tile by tile. It is grouped by
+      // WHAT YOU ARE TRYING TO DO -- news, then places, then tools, then the
+      // scoreboard, then your own list -- which is not the order report.py
+      // emits its sections in, and no longer tries to be. See F201 for why
+      // that coupling was cut rather than satisfied.
       var MENU = [
-        // F200. "i want to change the happening now button bar to be a regular
-        // button in the same menu as the twitches."
-        //
-        // Only the GROUP changes. The array order is the contract
-        // `tests/parity/test_report_toc.py` compares against `report.py`, and
-        // moving the row would break that for a layout reason — so it stays
-        // first in the array, which also makes it first within its new group.
-        { at: 'surgeBtn',      label: '🔔 Happening now', group: 'Rare birds' },
-        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Timing' },
-        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Timing' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Your list & the app' },
-        // F28. Immediately after the rankings, because that is where report.py
-        // emits it and the ARRAY order is the contract the Markdown report is
-        // compared against. It is GROUPED elsewhere for the usual reason —
-        // grouping is about what you are trying to do, and this section is not
-        // about you at all. It is about which places a hundred other birders
-        // choose, which is the question Big days and Birder convoys ask too.
-        //
-        // `needs: county` because the table is a HARVEST OF NAMED COUNTIES, not
-        // a live feed. A rarity tracker has none, so the tile could only ever
-        // lead to "not covered here" — and the rule for this menu is that it is
-        // the selected region's table of contents, not a fixed list with dead
-        // entries in it.
-        { at: 'patchBtn',      label: '🧭 Where the top 100 actually bird', needs: 'county', group: 'Hotspots & birders' },
-        // GO BIRDING leads. The report's mission is (1) find unseen birds,
-        // (2) find the best places to go today — and "where do I go" is the
-        // question with a deadline, since a hotspot list is only useful while
-        // there is daylight left to act on it. Rare birds follows.
-        //
-        // Within the group: destinations, then excursions, then a quick
-        // outing, then closest-with-unseen. That is descending by how much of
-        // a day each one asks for, so the list reads as "how much time have
-        // you got".
-        // Within the group: destinations, then excursions, then a quick
-        // outing, then closest-with-unseen. That is descending by how much of
-        // a day each one asks for, so the list reads as "how much time have
-        // you got".
-        { at: 'destBtn',       label: '🥇 Today\u2019s patches', needs: 'geo', group: 'Go birding' },
-        { at: 'excBtn',        label: '🚗 Day-trip patches', needs: 'geo', group: 'Go birding' },
-        { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Go birding' },
-        { at: 'targetsBtn',    label: '📍 Closest unseen birds', needs: 'geo', group: 'Go birding' },
-    // LAST in the group, deliberately. The four above answer "where should I
-    // go today" from the report you are already in, which is the common case;
-    // looking up a place you are not at is the exception, so it reads last.
-    // Same reasoning as the group order itself — the menu leads with what you
-    // do most.
-    //
-    // "Look up a place" rather than "Scout another place": the tile answers
-    // "what is being reported around X right now", and naming the JOB beats
-    // naming the mechanism. It also stops "Scout" colliding with the compass
-    // metaphor Trip planner already uses.
-        // OFF, not deleted. The section still builds and still works; it is
-        // hidden pending a redesign, because it predates the measured travel
-        // model (hop times, day bands, seasonal gates) and plans a route
-        // without any of it. Flipping `enabled` back is the whole revert.
-        // Last in Go birding on purpose: the others answer "where shall I go",
-        // this one answers "I know the bird already - where do I stand and wait".
-        // That is the end of the same thought, not a different one, which is why
-        // it left "Birds you still need".
-        { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Go birding' },
-        // Beside Stakeout bird, not among the four that answer "where should I
-        // go": both of these answer "I have chosen this ONE thing, tell me
-        // everything", which is a different question.
-        { at: 'stakeHsBtn',    label: '🏞 Stake out a hotspot', group: 'Go birding' },
-      // F156. Sits beside Stakeout bird because they are the two halves of one
-      // thought: that one starts from a BIRD and finds the place, this one
-      // starts from where you ARE and finds which birds the places round you
-      // are known for.
-      { at: 'iconicBtn',     label: '⭐ Iconic spots near me', needs: 'geo', group: 'Go birding' },
-        { at: 'hotBtn',        label: '🔥 Producing patches', needs: 'county', group: 'Go birding' },
-        { at: 'coldBtn',       label: '🥶 Under-birded patches', needs: 'county', group: 'Go birding' },
-        { at: 'tripBtn',       label: '🧭 Trip planner', needs: 'geo', group: 'Go birding', enabled: false },
-        { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Rare birds' },
-        { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Rare birds' },
-        { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Rare birds' },
-        { at: 'lastNewBtn',    label: '🔭 Leader Board Ticks', needs: 'geo', group: 'Rare birds' },
-        { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Hotspots & birders' },
-        { at: 'convoyBtn',     label: '👥 Birder convoys', needs: 'county', group: 'Hotspots & birders' },
-        { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Hotspots & birders' },
-        { at: 'allUnseenBtn',  label: '📋 All unseen reports', needs: 'county', group: 'Birds you still need' },
-        { at: 'easyBtn',       label: '🥚 Easy misses', needs: 'county', group: 'Birds you still need',
-          // OFF, not deleted — the section, its loader and its panel are
-          // untouched. It leaves the MENU because it is not a separate
-          // destination: it and All unseen reports carry the same
-          // `data-modes="unseen"` switch, so both tiles land on one control
-          // with a different chip pressed. Every other mode group in the app
-          // (checklists, quick, anchor) has exactly one tile for exactly this
-          // reason. "Being reported" is the first chip and stays the tile;
-          // Easy misses is one tap away from it, where it already was.
-          enabled: false },
-        { at: 'nvResults',     label: '❓ Needs verification', group: 'Birds you still need' },
-        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Timing' },
-        { at: 'bcBody',        label: '🌙 Nightly migration — BirdCast', needs: 'county', group: 'Timing' },
-        { at: 'todBtn',        label: '🌄 Dawn and dusk birds', needs: 'county', group: 'Timing' },
-        { at: 'myYearBody',    label: '📅 My year', group: 'Your list & the app' },
-        { at: 'settingsPanel', label: '⚙️ Settings', group: 'Your list & the app' },
-        // LAST, deliberately: a manual is what you reach for after the thing
-        // you came in for, not before it.
-        { at: 'recordBody',    label: '🏅 Break a record', group: 'Rare birds' },
-        { at: 'helpBody',      label: '📘 How each section works', group: 'Your list & the app' }
+        { at: 'surgeBtn',      label: '🔔 Happening Now', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'destBtn',       label: '🥇 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'excBtn',        label: '🚗 Day-trip patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'targetsBtn',    label: '📍 Closest unseen birds', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'iconicBtn',     label: '⭐ Iconic spots near me', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'hotBtn',        label: '🔥 Producing patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'coldBtn',       label: '🥶 Under-birded patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
+        { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Stakeouts - Birding tools' },
+        { at: 'stakeHsBtn',    label: '🏞 Stake out a hotspot', group: 'Stakeouts - Birding tools' },
+        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Stakeouts - Birding tools' },
+        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Stakeouts - Birding tools' },
+        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'bcBody',        label: '🌙 BirdCast', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'todBtn',        label: '🌄 Dawn and dusk birds', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'recordBody',    label: '🏅 Break a record', group: 'Stakeouts - Birding tools' },
+        // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
+        // in the F201 reorder and both tiles came back — caught by the contract
+        // guard, which lists them in `menuOmittedAts`. Easy misses is not a
+        // separate destination: it and All unseen reports answer the same
+        // question. Trip planner is off pending a redesign.
+        { at: 'easyBtn',      label: '🥚 Easy misses', needs: 'county', group: 'Stakeouts - Birding tools', enabled: false },
+        { at: 'allUnseenBtn', label: '📋 All unseen reports', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'lastNewBtn',    label: '🔭 Leader Board Ticks', needs: 'geo', group: 'Leader Board / Ranking' },
+        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Leader Board / Ranking' },
+        { at: 'patchBtn',      label: '🧭 Top 100’s Patches', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'myYearBody',    label: '📅 My year', group: 'My Bird List' },
+        { at: 'nvResults',     label: '❓ Needs verification', group: 'My Bird List' },
+        { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
+        { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },
       ];
       function menuApplies(m) {
         // A section can be switched OFF without being deleted. `enabled: false`
@@ -21263,9 +21207,15 @@
       // half is about the app, and "You" named only the first half.
       // F200: 'Right now' is gone — it held exactly one tile, Happening now,
       // which now sits with the twitches it belongs beside.
-      var MENU_GROUPS = ['Go birding', 'Rare birds',
-        'Hotspots & birders', 'Birds you still need', 'Timing',
-        'Your list & the app'];
+      // F201: authored by the owner, grouped by task.
+      var MENU_GROUPS = [
+        'Buzz - Celebrity and Rare Bird News',
+        'Patches - Go birding',
+        'Stakeouts - Birding tools',
+        'Leader Board / Ranking',
+        'My Bird List',
+        'Settings & Doc',
+      ];
       // Who you are, on the way in. Costs NOTHING.
       //
       // "on the main menu display the ebird username and current ranking."

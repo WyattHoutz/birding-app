@@ -25,7 +25,7 @@
   "menu": [
     {
       "at": "surgeBtn",
-      "label": "🔔 Happening now",
+      "label": "🔔 Happening Now",
       "report": "## 🔴 Happening now",
       "map": null,
       "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake"
@@ -53,7 +53,7 @@
     },
     {
       "at": "patchBtn",
-      "label": "🧭 Where the top 100 actually bird",
+      "label": "🧭 Top 100’s Patches",
       "report": "## 🧭 Where the top 100 actually bird",
       "map": null,
       "why": "where the hundred busiest birders in these counties choose to spend their effort, ranked by LIFT rather than by checklist count — a raw count just reproduces a population map, so the famous parks win and the reader learns nothing they can act on"
@@ -148,7 +148,7 @@
     },
     {
       "at": "convoyBtn",
-      "label": "👥 Birder convoys",
+      "label": "👥 Convoys",
       "report": "## 👥 Birder convoys",
       "map": null,
       "why": "the report draws one map PER convoy, so the app builds per-convoy containers dynamically rather than one static id"
@@ -181,7 +181,7 @@
     },
     {
       "at": "bcBody",
-      "label": "🌙 Nightly migration — BirdCast",
+      "label": "🌙 BirdCast",
       "report": "## 🌙 Nightly migration — BirdCast",
       "map": null
     },
