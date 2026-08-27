@@ -14678,15 +14678,20 @@ test('a coherent accumulator is left alone', async () => {
   const ls = app.window.localStorage;
 
   const hours = { amecro: [], grhowl: [] }, seen = {}, chk = {};
-  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? 20 : 9);   // ~ baseline
-  for (let i = 0; i < 100; i++) hours.grhowl.push(i < 36 ? 20 : 9);  // a real owl
-  for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 77 ? 20 : 9);   // 7.7% evening
+  // TAGGED values (F202a): the store now carries dawn/day/night alongside the
+  // clock hour, and todCoherence reads the tag. Built through the app's own
+  // encoder so this fixture cannot drift from the encoding it is testing.
+  const N = BL.todEncode(20, BL.TOD_TAG.NIGHT), D = BL.todEncode(9, BL.TOD_TAG.DAY);
+  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? N : D);   // ~ baseline
+  for (let i = 0; i < 100; i++) hours.grhowl.push(i < 36 ? N : D);  // a real owl
+  for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 77 ? N : D);   // 7.7% evening
   ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk,
-    // v2, because a healthy sample must also be a CURRENT-RULE sample. Before
-    // v1.39.0 this fixture had no version and passed - which is precisely the
-    // hole the stamp closes: a coherent-looking state gathered under the old
-    // `cat=species` rule sailed through every check there was.
-    v: 2,
+    // The CURRENT version, read from the app rather than typed. A healthy
+    // sample must also be a current-rule sample: before v1.39.0 this fixture
+    // had no version and passed, which is precisely the hole the stamp closes
+    // — a coherent-looking state gathered under the old `cat=species` rule
+    // sailed through every check there was.
+    v: A.TOD_SAMPLE_V,
     names: { amecro: 'American Crow', grhowl: 'Great Horned Owl' } }));
 
   assert.ok(A.todCoherence({ hours, chk }) <= A.TOD_COHERENCE_MAX, 'healthy sample passes');
@@ -14712,16 +14717,26 @@ test('a checklist hour is recorded even when the species pair is a duplicate', a
   // less missing one checklist from its baseline while already holding that
   // checklist's species pair. Only the ordering fix can record S1's hour.
   const hours = { amecro: [] }, seen = { 'S1|amecro': 1 }, chk = {};
-  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? 20 : 9);
-  for (let i = 0; i < 1000; i++) chk['T' + i] = (i < 77 ? 20 : 9);
-  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {} }));
+  const N = BL.todEncode(20, BL.TOD_TAG.NIGHT), D = BL.todEncode(9, BL.TOD_TAG.DAY);
+  for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? N : D);
+  for (let i = 0; i < 1000; i++) chk['T' + i] = (i < 77 ? N : D);
+  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {},
+    v: A.TOD_SAMPLE_V }));
 
   A.todAccumulate([{ speciesCode: 'amecro', subId: 'S1',
     obsDt: '2026-08-24 20:15', comName: 'American Crow' }]);
 
   const after = JSON.parse(ls.getItem('ebird_tod_wa'));
-  assert.equal(after.chk && after.chk.S1, 20,
+  // DECODED, not compared raw: the stored value now carries the solar tag as
+  // well as the hour. Asserting the literal would pin the ENCODING rather than
+  // the ordering property this test is actually about.
+  assert.ok(after.chk && after.chk.S1 != null,
     'the checklist hour is recorded before the species dedupe return');
+  assert.equal(BL.todClock(after.chk.S1), 20, 'and it is the checklist start hour');
+  // 20:15 on 24 Aug, against a Seattle sunset of ~20:05 — genuinely after dark,
+  // which a fixed 19:00 would also have said but for the wrong reason.
+  assert.equal(BL.todTagOf(after.chk.S1), BL.TOD_TAG.NIGHT,
+    'and it is tagged against that date\'s real sunset');
 });
 
 // F182. Four properties sat OUTSIDE the `button {...}` closing brace from the
@@ -15234,7 +15249,14 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
   // a sample gathered under a superseded rule survives every future release
   // unless something explicitly discards it. That is the F172 unreachable-state
   // shape: the thing that would repair it is the thing being blocked.
-  assert.match(HTML, /var TOD_SAMPLE_V = 2/, 'the sampling rule is versioned');
+  //
+  // PINNED TO THE PROPERTY, NOT THE NUMBER. This used to assert
+  // `TOD_SAMPLE_V = 2` literally, so it failed on the F202a bump for no reason
+  // beyond the digit changing — a guard that cries at correct work teaches you
+  // to edit the guard, which is how a real one gets softened. What matters is
+  // that the version EXISTS, is an integer, and gates the rebuild.
+  const ver = /var TOD_SAMPLE_V = (\d+)/.exec(HTML);
+  assert.ok(ver, 'the sampling rule is versioned');
   const start = HTML.indexOf('function todLoad');
   const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
   assert.match(src, /s\.v !== TOD_SAMPLE_V/,
@@ -15242,6 +15264,19 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
   assert.match(src, /rebuilt: 1/, 'and the rebuild is announced, not silent');
   assert.match(src, /names: s\.names/,
     'names survive the rebuild - a code->label map cannot be wrong');
+
+  // AND THE BUMP IS ENFORCED, which is the half a literal could never do.
+  // F202a stores a TAGGED hour (BL.todEncode) where v2 stored a bare clock
+  // hour. A v2 sample cannot be upgraded in place — it threw the date away —
+  // so shipping the tagging without raising the version would blend two
+  // incompatible samples on every existing device, silently.
+  const acc = HTML.slice(HTML.indexOf('function todAccumulate'),
+    HTML.indexOf('function todPrune'));
+  if (/BL\.todEncode/.test(acc)) {
+    assert.ok(+ver[1] >= 3,
+      'ingest tags hours against the sun, so TOD_SAMPLE_V must be >= 3 — '
+      + 'got ' + ver[1] + ', which would blend tagged and untagged samples');
+  }
 });
 
 // F28 shipped this broken, and the guard I accepted did not cover the click

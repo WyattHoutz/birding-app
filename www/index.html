@@ -2645,7 +2645,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.8';
+      var APP_VERSION = '1.42.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -16505,6 +16505,9 @@
       }
 
       // --- P13: time-of-day specialists (dawn / dusk accumulator) ---
+      // The dawn/dusk thresholds now live in BirdLogic as SOLAR events, not
+      // clock hours — see BL.solarHours / BL.todTag. These two constants remain
+      // only as the legacy fallback they became.
       var TOD_DAWN_END = 7, TOD_DUSK_START = 19, TOD_MIN_OBS = 5, TOD_DAWN_TH = 0.50, TOD_NIGHT_TH = 0.30;
       // How far the pooled species sample may sit from the checklist baseline
       // before the two are treated as different samples rather than a finding.
@@ -16520,17 +16523,29 @@
       // the old rule is rebuilt rather than blended with the new one. v2 drops
       // `cat=species`, which had been collapsing each county-day to one row
       // per species and so building the numerator on a different unit from
-      // the denominator.
-      var TOD_SAMPLE_V = 2;
+      // the denominator. v3 tags every hour against its OWN DAY'S sunset
+      // instead of a fixed 19:00 — a v2 sample cannot be upgraded in place
+      // because it kept only the clock hour and threw the date away.
+      var TOD_SAMPLE_V = 3;
       function todKey() { return 'ebird_tod_' + getReportSlug(); }
+      // Lat/lon + timezone for the ACTIVE REPORT. Taken from the region rather
+      // than the device, because `obsDt` is local time where the BIRD was: a
+      // birder in Seattle reading the Big Island report must get Hawaii's
+      // sunset, and the device clock cannot tell us that.
+      function todSite() {
+        var r = getReport() || {}, h = r.home || {};
+        if (!isFinite(h.lat) || !isFinite(h.lng)) return null;
+        return { lat: h.lat, lon: h.lng, tzStdOffset: r.tzStdOffset,
+                 observesDst: r.tzObservesDst !== false };
+      }
       function todCoherence(s) {
         var hrs = (s && s.hours) || {}, chk = (s && s.chk) || {};
         var late = 0, tot = 0;
         Object.keys(hrs).forEach(function (c) {
-          (hrs[c] || []).forEach(function (h) { tot++; if (h >= TOD_DUSK_START) late++; });
+          (hrs[c] || []).forEach(function (h) { tot++; if (BL.todIsNight(h)) late++; });
         });
         var ck = Object.keys(chk), clate = 0;
-        ck.forEach(function (k) { if (chk[k] >= TOD_DUSK_START) clate++; });
+        ck.forEach(function (k) { if (BL.todIsNight(chk[k])) clate++; });
         if (!tot || !ck.length || !clate) return null;
         return (late / tot) / (clate / ck.length);
       }
@@ -16569,11 +16584,33 @@
       function todAccumulate(obs) {
         if (!obs || !obs.length) return 0;
         var s = todLoad(), added = 0, chkAdded = 0;
+        // ONE site and ONE per-day solar cache for the whole batch. The
+        // sunrise equation is the expensive part of ingest and a feed carries
+        // thousands of rows across a handful of dates.
+        var site = todSite(), solarBy = {};
+        var solarFor = function (day) {
+          if (!site) return null;
+          if (!(day in solarBy)) {
+            var y = +day.slice(0, 4), mo = +day.slice(5, 7), d = +day.slice(8, 10);
+            solarBy[day] = (y && mo && d)
+              ? BL.solarHours(site.lat, site.lon, y, mo, d, site.tzStdOffset, site.observesDst)
+              : null;
+          }
+          return solarBy[day];
+        };
         obs.forEach(function (o) {
           var code = o.speciesCode, sub = o.subId, dt = (o.obsDt || '').toString();
           if (!code || !sub || dt.length < 13) return;
           var hh = parseInt(dt.slice(11, 13), 10);
           if (!(hh >= 0 && hh <= 23)) return;
+          // DUSK IS A FACT ABOUT THE SUN, NOT ABOUT THE CLOCK. Tagged HERE
+          // because this is the last moment the observation's DATE exists —
+          // the store keeps only hours. Minutes are read for the comparison
+          // and only for it: against a sunset of 20.12, truncating 20:55 to
+          // hour 20 would call a bird in the dark a daytime bird.
+          var mi = parseInt(dt.slice(14, 16), 10);
+          var exact = hh + ((mi >= 0 && mi <= 59) ? mi / 60 : 0);
+          var v = site ? BL.todEncode(hh, BL.todTag(exact, solarFor(dt.slice(0, 10)))) : hh;
           // ONE HOUR PER CHECKLIST — the baseline every species is measured
           // against. THIS IS RECORDED BEFORE THE SPECIES DEDUPE RETURN, and
           // that order is the whole fix. It used to sit after it, so on any
@@ -16585,11 +16622,11 @@
           // beside species at 74-93% evening — an impossibility from one
           // sample, and the shape that put American Crow atop a list of owls.
           if (!s.chk) s.chk = {};
-          if (s.chk[sub] == null) { s.chk[sub] = hh; chkAdded++; }
+          if (s.chk[sub] == null) { s.chk[sub] = v; chkAdded++; }
           var key = sub + '|' + code;
           if (s.seen[key]) return;
           s.seen[key] = 1;
-          (s.hours[code] = s.hours[code] || []).push(hh);
+          (s.hours[code] = s.hours[code] || []).push(v);
           // Retention must match on BOTH halves or they drift apart again by
           // a slower route: a per-species ring buffer against an uncapped
           // baseline is still two samples. todPrune caps the checklists too.
@@ -16646,6 +16683,20 @@
                  rebuilt: s.rebuilt ? 1 : 0 };
       }
       function todHourLabel(h) { var hr = ((h + 11) % 12) + 1; return hr + (h < 12 ? 'am' : 'pm'); }
+      // "sunset (8:03 pm)" for the active region TODAY, or the honest fallback
+      // when there is no site to compute one from.
+      function todSunsetLabel() {
+        var site = todSite();
+        if (!site) return BL.CONST.TOD_DUSK_START + ':00';
+        var n = new Date();
+        var s = BL.solarHours(site.lat, site.lon, n.getFullYear(), n.getMonth() + 1,
+                              n.getDate(), site.tzStdOffset, site.observesDst);
+        if (!s) return 'sunset';
+        var hh = Math.floor(s.set), mm = Math.round((s.set - hh) * 60);
+        if (mm === 60) { hh++; mm = 0; }
+        return 'sunset (' + (hh % 12 || 12) + ':' + (mm < 10 ? '0' : '') + mm
+          + (hh < 12 ? ' am' : ' pm') + ')';
+      }
       function renderTimeOfDay() {
         var el = $('todResults'); if (!el) return;
         if ($('todRegionLabel')) $('todRegionLabel').textContent = '· ' + countyLabelStr();
@@ -16703,8 +16754,15 @@
         // a state rather than reporting from it, so the unit is never in
         // doubt here and the fallback wording is gone with the fallback.
         var _unit = 'checklists';
+        // THE VERDICT NAMES THE RULE IT USED. It used to say "after 19:00",
+        // which was both the printed claim and the bug: at this latitude
+        // sunset runs 21.14 in June to 16.30 in December, so a fixed 19:00 is
+        // broad daylight for 7 months of the year. Printing tonight's actual
+        // sunset is what makes the change checkable from the device instead of
+        // having to be taken on trust.
+        var _sun = todSunsetLabel();
         verdict('Dawn and dusk', _b.n + ' ' + _unit + ' across ' + sp.n
-          + ' species \u00b7 BASELINE after ' + BL.CONST.TOD_DUSK_START + ':00 is '
+          + ' species \u00b7 BASELINE after ' + _sun + ' is '
           + Math.round(100 * _b.late) + '% '
           + '\u00b7 bar is ' + BL.CONST.TOD_MIN_LIFT + '\u00d7 that, and \u2265'
           + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% '
@@ -19657,24 +19715,14 @@
                       : 'Weather loads in the installed app (browser preview may block the request).';
       }
       function isSoutherly(dir) { return dir === 'S' || dir === 'SSW' || dir === 'SW' || dir === 'SSE'; }
-      function julianDay(y, m, d) {
-        var a = Math.floor((14 - m) / 12), yy = y + 4800 - a, mm = m + 12 * a - 3;
-        return d + Math.floor((153 * mm + 2) / 5) + 365 * yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) - 32045;
-      }
+      // MOVED INTO BirdLogic (F202a). This file and weather.py each carried a
+      // copy of the sunrise equation and NOTHING COMPARED THEM — an unverified
+      // pair, which is the shape F165 records drifting four times. The app's
+      // copy is now BL.sunriseSunsetUtc, which the parity suite checks against
+      // weather.sunrise_sunset, and the dusk/dawn lane reads the same function.
       function sunriseSunset(lat, lon, y, m, d) {
-        var n = julianDay(y, m, d) - 2451545 + 0.0008;
-        var jStar = n - lon / 360;
-        var M = (357.5291 + 0.98560028 * jStar) % 360, Mr = M * Math.PI / 180;
-        var C = 1.9148 * Math.sin(Mr) + 0.0200 * Math.sin(2 * Mr) + 0.0003 * Math.sin(3 * Mr);
-        var lam = (M + C + 180 + 102.9372) % 360, lamR = lam * Math.PI / 180;
-        var jTransit = 2451545.0 + jStar + 0.0053 * Math.sin(Mr) - 0.0069 * Math.sin(2 * lamR);
-        var delta = Math.asin(Math.sin(lamR) * Math.sin(23.4397 * Math.PI / 180));
-        var latR = lat * Math.PI / 180;
-        var cosOmega = (Math.sin(-0.833 * Math.PI / 180) - Math.sin(latR) * Math.sin(delta)) / (Math.cos(latR) * Math.cos(delta));
-        if (cosOmega > 1 || cosOmega < -1) return null;
-        var omega = Math.acos(cosOmega) * 180 / Math.PI;
-        var toDate = function (j) { return new Date((j - 2440587.5) * 86400000); };
-        return { rise: toDate(jTransit - omega / 360), set: toDate(jTransit + omega / 360) };
+        var u = BL.sunriseSunsetUtc(lat, lon, y, m, d);
+        return u ? { rise: new Date(u.rise), set: new Date(u.set) } : null;
       }
       function moonPhase(y, m, d) {
         var KNOWN = Date.UTC(2000, 0, 6, 18, 14), SYN = 29.530588853;
@@ -23821,6 +23869,11 @@
         todLoad: todLoad, todAccumulate: todAccumulate,
         todSpecialists: todSpecialists, todCoherence: todCoherence,
         TOD_COHERENCE_MAX: TOD_COHERENCE_MAX,
+        // Exported so a test fixture can stamp the CURRENT sampling version
+        // instead of a literal. A test that hard-codes `v: 2` goes red on
+        // every legitimate bump, and a guard that cries at correct work
+        // teaches you to edit the guard.
+        TOD_SAMPLE_V: TOD_SAMPLE_V, todSite: todSite,
         // Exported so the poison rule can be tested against the SHAPE that
         // actually broke Iconic spots — a truthy object with a real total and
         // an empty breakdown — rather than only against null.

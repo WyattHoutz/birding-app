@@ -51,8 +51,33 @@
     TOP_EXC: 10,
     FRESH_24H_MS: 24 * 3600 * 1000,
     // time-of-day (time_of_day.py)
+    // TOD_DAWN_END / TOD_DUSK_START are the LEGACY FALLBACK only — dusk is now
+    // a fact about the sun (see solarHours / todTag). They survive for
+    // untagged samples and polar latitudes where there is no sunset.
     TOD_DAWN_END: 7, TOD_DUSK_START: 19, TOD_MIN_OBS: 5,
     TOD_DAWN_TH: 0.50, TOD_NIGHT_TH: 0.30,
+    // Hours relative to the sun at which dusk and dawn begin. MEASURED, not
+    // guessed — scripts/tod_sweep.py over the 105-day WA pool, 2026-08-27.
+    // `obsDt` is the checklist's START, so a nighthawk flight watch that
+    // begins before the sun is down carries a pre-sunset hour; anchoring on
+    // the INSTANT of sunset dropped Common Nighthawk and Great Horned Owl,
+    // two of the six species the owner named as the point of the section.
+    //
+    //     offset   baseline   list   wanted
+    //      0.00      1.43%      2       2
+    //     -1.00      4.31%      3       3
+    //     -1.50      6.19%      4       4   <- every bird on the list is wanted
+    //     -2.00      8.00%      7       4
+    //     -3.00     11.43%      9       5
+    //
+    // -1.5 dominates -1.0 (same 100% precision, one more wanted species) and
+    // -2.0 (same 4 species, list inflated to 7). No control bird — crow,
+    // robin, song sparrow, chickadee, mallard — leaked at ANY offset.
+    TOD_DUSK_OFFSET_H: -1.5,
+    // DAWN IS SYMMETRY, NOT MEASUREMENT. The sweep found no dawn signal (the
+    // validation species are nocturnal), so dawn takes the same magnitude
+    // rather than a second fitted number. UNVALIDATED until F202(b).
+    TOD_DAWN_OFFSET_H: 1.5,
     // How far above the SAMPLE'S OWN base rate a bird must sit to be called a
     // specialist. 2x, and the number is chosen from the failure it fixes: the
     // section shipped a 30% absolute bar against a measured 27% baseline, so
@@ -1705,8 +1730,25 @@
   // Build {code:[hour,...]} + {code:name} from observation rows, deduped by
   // (subId, speciesCode). Rows are raw eBird objs (speciesCode, subId, obsDt,
   // comName) — same shape the report reads from snapshot feeds.
-  function todBuildHours(rows) {
-    var hours = {}, names = {}, seen = {}, checklists = {};
+  //
+  // `site` is {lat, lon, tzStdOffset, observesDst}. When given, every hour is
+  // TAGGED against its OWN DAY'S sunrise/sunset (see todTag) — the date is
+  // available here and nowhere later, so this is the only place the tag can be
+  // computed. Omitting it keeps the legacy fixed-hour behaviour, which exists
+  // for old fixtures and for polar regions, not as a default worth having.
+  function todBuildHours(rows, site) {
+    var hours = {}, names = {}, seen = {}, checklists = {}, solarBy = {};
+    var solarFor = function (dt) {
+      if (!site || !(site.lat != null) || !(site.lon != null)) return null;
+      var day = dt.slice(0, 10);
+      if (!(day in solarBy)) {
+        var y = +day.slice(0, 4), mo = +day.slice(5, 7), d = +day.slice(8, 10);
+        solarBy[day] = (y && mo && d)
+          ? solarHours(site.lat, site.lon, y, mo, d, site.tzStdOffset, site.observesDst)
+          : null;
+      }
+      return solarBy[day];
+    };
     (rows || []).forEach(function (o) {
       var code = o.speciesCode, sub = o.subId, dt = (o.obsDt || '').toString();
       if (!code || !sub || dt.length < 13) return;
@@ -1714,14 +1756,19 @@
       if (seen[key]) return;
       var hh = parseInt(dt.slice(11, 13), 10);
       if (!(hh >= 0 && hh <= 23)) return;
+      var mi = parseInt(dt.slice(14, 16), 10);
+      // Minutes matter here and only here: the tag compares against a sunset
+      // like 20.12, so truncating 20:55 to hour 20 would call it daylight.
+      var exact = hh + ((mi >= 0 && mi <= 59) ? mi / 60 : 0);
+      var v = site ? todEncode(hh, todTag(exact, solarFor(dt))) : hh;
       seen[key] = 1;
-      (hours[code] = hours[code] || []).push(hh);
+      (hours[code] = hours[code] || []).push(v);
       // ONE HOUR PER CHECKLIST — the baseline a species must be compared
       // against. `obsDt` carries the checklist's START, so every species on a
       // list shares its hour; counting per RECORD instead weights the baseline
       // by how species-rich each checklist was, which is not a fact about when
       // birding happens. See todSpecialists.
-      checklists[sub] = hh;
+      checklists[sub] = v;
       if (names[code] == null && o.comName) names[code] = o.comName;
     });
     var ch = [];
@@ -1729,11 +1776,153 @@
     return { hours: hours, names: names, checklistHours: ch };
   }
 
+  // ---- SOLAR TIME — "dusk" is a fact about the sun, not about the clock ----
+  //
+  // `TOD_DUSK_START = 19` was the bug, and it is measurable rather than
+  // arguable: at Seattle's latitude sunset runs from 21.14 in June to 16.30 in
+  // December, so a fixed 19:00 sits in BROAD DAYLIGHT for 7 of 12 months and
+  // an hour after dark for the other 5. Every checklist between 19:00 and real
+  // sunset was daytime birding counted as evening, which is by itself enough
+  // to seed the dusk list with common daytime birds.
+  //
+  // eBird does NOT expose its own moon icon — verified 2026-08-26, a 22:15 and
+  // a 14:57 checklist return IDENTICAL field sets, so the icon is computed on
+  // their website and cannot be read back. Local sunrise/sunset is closed-form
+  // math instead: ZERO API calls, works offline, and exact enough (~1 min).
+  //
+  // MOVED here from index.html rather than copied. The app had this algorithm
+  // for the weather panel and the report had it in weather.py, an UNVERIFIED
+  // PAIR that no test compared. A third copy is how F165's drift happens, so
+  // the app's copy is now this one and the parity suite compares it to Python.
+  function julianDayNum(y, m, d) {
+    var a = Math.floor((14 - m) / 12), yy = y + 4800 - a, mm = m + 12 * a - 3;
+    return d + Math.floor((153 * mm + 2) / 5) + 365 * yy
+      + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) - 32045;
+  }
+
+  // Sunrise/sunset as UTC epoch ms. Null at polar night / midnight sun, where
+  // the hour angle has no solution — the caller must handle "there is no
+  // sunset today" rather than be handed a fabricated one.
+  function sunriseSunsetUtc(lat, lon, y, m, d) {
+    var n = julianDayNum(y, m, d) - 2451545 + 0.0008;
+    var jStar = n - lon / 360;
+    var M = (357.5291 + 0.98560028 * jStar) % 360, Mr = M * Math.PI / 180;
+    var C = 1.9148 * Math.sin(Mr) + 0.0200 * Math.sin(2 * Mr) + 0.0003 * Math.sin(3 * Mr);
+    var lam = (M + C + 180 + 102.9372) % 360, lamR = lam * Math.PI / 180;
+    var jTransit = 2451545.0 + jStar + 0.0053 * Math.sin(Mr) - 0.0069 * Math.sin(2 * lamR);
+    var delta = Math.asin(Math.sin(lamR) * Math.sin(23.4397 * Math.PI / 180));
+    var latR = lat * Math.PI / 180;
+    var cosOmega = (Math.sin(-0.833 * Math.PI / 180) - Math.sin(latR) * Math.sin(delta))
+      / (Math.cos(latR) * Math.cos(delta));
+    if (!(cosOmega >= -1 && cosOmega <= 1)) return null;
+    var omega = Math.acos(cosOmega) * 180 / Math.PI;
+    var ms = function (j) { return (j - 2440587.5) * 86400000; };
+    return { rise: ms(jTransit - omega / 360), set: ms(jTransit + omega / 360) };
+  }
+
+  // US DST bounds as UTC epoch ms (mirror weather._us_dst_bounds): second
+  // Sunday in March to first Sunday in November, both at 02:00 local.
+  function usDstBounds(year) {
+    var firstSun = function (mon) {
+      var d = new Date(Date.UTC(year, mon, 1));
+      return 1 + ((7 - d.getUTCDay()) % 7);
+    };
+    return {
+      start: Date.UTC(year, 2, firstSun(2) + 7, 10, 0),
+      end: Date.UTC(year, 10, firstSun(10), 9, 0)
+    };
+  }
+
+  // The region's UTC offset in hours at `utcMs`. Taken from the REGION, never
+  // from the device clock: `obsDt` is local time where the BIRD was, and a
+  // shared function that reads the host's timezone cannot be parity-tested.
+  function regionUtcOffset(utcMs, tzStdOffset, observesDst) {
+    var off = tzStdOffset == null ? -8 : tzStdOffset;
+    if (observesDst === false) return off;
+    var b = usDstBounds(new Date(utcMs).getUTCFullYear());
+    return (utcMs >= b.start && utcMs < b.end) ? off + 1 : off;
+  }
+
+  // Sunrise/sunset as LOCAL DECIMAL HOURS on `y-m-d`, which is the unit
+  // `obsDt` is already in. Returns null where the sun does not set.
+  function solarHours(lat, lon, y, m, d, tzStdOffset, observesDst) {
+    var u = sunriseSunsetUtc(lat, lon, y, m, d);
+    if (!u) return null;
+    var toLocal = function (ms) {
+      var off = regionUtcOffset(ms, tzStdOffset, observesDst);
+      var t = new Date(ms + off * 3600000);
+      return t.getUTCHours() + t.getUTCMinutes() / 60 + t.getUTCSeconds() / 3600;
+    };
+    return { rise: toLocal(u.rise), set: toLocal(u.set) };
+  }
+
+  // ---- the tagged hour -----------------------------------------------------
+  //
+  // An observation must be classified WHEN IT IS INGESTED, because that is the
+  // only moment its DATE is still known: the stored sample is a bare list of
+  // clock hours, and the report pools 105 snapshot days (MEASURED 2026-08-27,
+  // 2026-05-13 -> 2026-08-27) across which sunset moves 78 minutes. One
+  // threshold for the whole pool is therefore not good enough, which is what
+  // ruled out the simpler "compute a sunset for the sample" design.
+  //
+  // The tag rides IN the stored number rather than in a parallel array,
+  // because two arrays that must stay the same length are a drift waiting to
+  // happen — todPrune shifts one of them.
+  //
+  // ⚠️ THE +1 IS LOAD-BEARING AND WAS FOUND BY THE CONTROL, not by review.
+  // The first cut encoded v = hh + 24*tag, so a DAY-tagged 19:00 stored as
+  // plain 19 — byte-identical to a legacy untagged 19 — and the legacy
+  // fallback then re-read it with the fixed rule as NIGHT. The fix was inert
+  // for precisely the case it exists to fix, and an A/B over the 105-day WA
+  // sample printed two IDENTICAL lists (measured 2026-08-27: 12,475
+  // checklists, late 7.75% under both rules, 0 species moved). Offsetting by
+  // one keeps every tagged value >= 24, so "tagged" and "day" can never be
+  // confused. A CHECK THAT CANNOT FAIL IS NOT A CHECK, and neither is a fix
+  // that cannot fire.
+  var TOD_TAG_DAY = 0, TOD_TAG_NIGHT = 1, TOD_TAG_DAWN = 2;
+
+  function todEncode(hh, tag) { return hh + 24 * ((tag || 0) + 1); }
+  function todClock(v) { return ((v % 24) + 24) % 24; }
+  function todTagOf(v) { return Math.floor(v / 24) - 1; }
+  // An UNTAGGED value is a legacy sample, not a daytime one. Saying so out
+  // loud matters: silently reading tag 0 would turn every old hour into "day"
+  // and empty the dusk list while looking like it worked.
+  function todIsTagged(v) { return v >= 24; }
+
+  // Where an hour falls relative to that day's sun. `solar` null (polar) falls
+  // back to the fixed clock hours — the only honest answer when there is no
+  // sunset to compare against.
+  function todTag(hourDecimal, solar) {
+    if (!solar) {
+      if (hourDecimal < CONST.TOD_DAWN_END) return TOD_TAG_DAWN;
+      if (hourDecimal >= CONST.TOD_DUSK_START) return TOD_TAG_NIGHT;
+      return TOD_TAG_DAY;
+    }
+    if (hourDecimal >= solar.set + CONST.TOD_DUSK_OFFSET_H) return TOD_TAG_NIGHT;
+    if (hourDecimal < solar.rise + CONST.TOD_DAWN_OFFSET_H) return TOD_TAG_DAWN;
+    return TOD_TAG_DAY;
+  }
+
+  // Read a stored value's classification, tagged or not. ONE function, used by
+  // both todProfile and todBaseline, so the numerator and the denominator can
+  // never be counted by different rules — the exact fault F175 fixed once.
+  function todIsDawn(v) {
+    return todIsTagged(v) ? todTagOf(v) === TOD_TAG_DAWN : v < CONST.TOD_DAWN_END;
+  }
+  function todIsNight(v) {
+    return todIsTagged(v) ? todTagOf(v) === TOD_TAG_NIGHT : v >= CONST.TOD_DUSK_START;
+  }
+
   function todProfile(hs) {
     var n = hs.length;
     if (!n) return { n: 0, early_pct: 0, late_pct: 0, median_hour: null, min_hour: null, max_hour: null };
-    var early = 0, late = 0;
-    for (var i = 0; i < n; i++) { if (hs[i] < CONST.TOD_DAWN_END) early++; if (hs[i] >= CONST.TOD_DUSK_START) late++; }
+    var early = 0, late = 0, clock = [];
+    for (var i = 0; i < n; i++) {
+      if (todIsDawn(hs[i])) early++;
+      if (todIsNight(hs[i])) late++;
+      clock.push(todClock(hs[i]));
+    }
+    hs = clock;
     var srt = hs.slice().sort(function (a, b) { return a - b; });
     var median = (n % 2) ? srt[(n - 1) / 2] : (srt[n / 2 - 1] + srt[n / 2]) / 2;
     return { n: n, early_pct: early / n, late_pct: late / n, median_hour: median, min_hour: srt[0], max_hour: srt[n - 1] };
@@ -1790,8 +1979,8 @@
     }
     var early = 0, late = 0, n = all.length;
     for (var i = 0; i < n; i++) {
-      if (all[i] < CONST.TOD_DAWN_END) early++;
-      if (all[i] >= CONST.TOD_DUSK_START) late++;
+      if (todIsDawn(all[i])) early++;
+      if (todIsNight(all[i])) late++;
     }
     if (!n) return { n: 0, early: 0, late: 0 };
     return { n: n, early: early / n, late: late / n };
@@ -3926,6 +4115,21 @@
     todBuildHours: todBuildHours,
     todProfile: todProfile,
     todSpecialists: todSpecialists,
+    // Solar time. Exported because "dusk" is now a claim about the sun, and a
+    // claim the parity suite has to be able to check against weather.py.
+    julianDayNum: julianDayNum,
+    sunriseSunsetUtc: sunriseSunsetUtc,
+    usDstBounds: usDstBounds,
+    regionUtcOffset: regionUtcOffset,
+    solarHours: solarHours,
+    todTag: todTag,
+    todEncode: todEncode,
+    todClock: todClock,
+    todTagOf: todTagOf,
+    todIsTagged: todIsTagged,
+    todIsDawn: todIsDawn,
+    todIsNight: todIsNight,
+    TOD_TAG: { DAY: TOD_TAG_DAY, NIGHT: TOD_TAG_NIGHT, DAWN: TOD_TAG_DAWN },
     convoyDetect: convoyDetect,
     convoyTitle: convoyTitle,
     mergeHotspotHistory: mergeHotspotHistory,

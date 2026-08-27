@@ -143,6 +143,99 @@ test('todSpecialists: classifies dawn/dusk and exposes the render fields', () =>
   assert.ok(pipit.early_pct >= BL.CONST.TOD_DAWN_TH, 'pipit over dawn threshold');
 });
 
+// --- F202(a): dusk is a fact about the SUN, not about the clock ------------
+//
+// `TOD_DUSK_START = 19` was the bug. At Seattle's latitude sunset runs from
+// 21:11 in June to 16:20 in December, so a fixed 19:00 sits in BROAD DAYLIGHT
+// for 7 of 12 months — every checklist between 19:00 and real sunset was
+// daytime birding counted as evening.
+test('solarHours: sunset is seasonal, and 19:00 in June is DAY', () => {
+  const SEA = [47.76, -122.14, -8, true];
+  const at = (y, m, d) => BL.solarHours(SEA[0], SEA[1], y, m, d, SEA[2], SEA[3]);
+  const jun = at(2026, 6, 21), dec = at(2026, 12, 21);
+  // Real Seattle times: 21:11 and 16:20.
+  assert.ok(jun.set > 21.0 && jun.set < 21.5, 'June sunset ~21:11, got ' + jun.set);
+  assert.ok(dec.set > 16.1 && dec.set < 16.6, 'December sunset ~16:20, got ' + dec.set);
+  assert.ok(jun.set - dec.set > 4.5, 'the seasonal swing is ~4.9h — a fixed hour cannot span it');
+  // THE ASSERTION THE WHOLE FEATURE IS FOR. Both directions: a guard that
+  // only checked June would pass on code that called everything daytime.
+  assert.equal(BL.todTag(19, jun), BL.TOD_TAG.DAY, '19:00 in June is daylight');
+  assert.equal(BL.todTag(19, dec), BL.TOD_TAG.NIGHT, '19:00 in December is after dark');
+  assert.equal(BL.todTag(22, jun), BL.TOD_TAG.NIGHT, '22:00 in June is after dark');
+});
+
+test('solarHours: honours a region that does not observe DST', () => {
+  // Phoenix. Same longitude band as Pacific-with-DST, but no clock shift, so a
+  // hard-coded DST rule shows up as an hour of error here and nowhere else.
+  const jul = BL.solarHours(33.45, -112.07, 2026, 7, 15, -7, false);
+  const dst = BL.solarHours(33.45, -112.07, 2026, 7, 15, -7, true);
+  assert.ok(Math.abs((dst.set - jul.set) - 1) < 1e-9,
+    'observesDst must move sunset by exactly one hour');
+  assert.ok(jul.set > 19.4 && jul.set < 19.8, 'Phoenix mid-July sunset ~19:35, got ' + jul.set);
+});
+
+test('todEncode: a DAY tag must still read as TAGGED', () => {
+  // THE BUG A CONTROL FOUND, not review. The first encoding was hh + 24*tag,
+  // so a DAY-tagged 19:00 stored as plain 19 — byte-identical to a legacy
+  // untagged 19 — and the legacy fallback re-read it as NIGHT. The whole fix
+  // was inert and an A/B over 105 days of real data printed two identical
+  // lists. Nothing else in either suite would have noticed.
+  for (let h = 0; h < 24; h++) {
+    [BL.TOD_TAG.DAY, BL.TOD_TAG.NIGHT, BL.TOD_TAG.DAWN].forEach((tag) => {
+      const v = BL.todEncode(h, tag);
+      assert.ok(BL.todIsTagged(v), 'encode(' + h + ',' + tag + ')=' + v + ' must read as tagged');
+      assert.equal(BL.todClock(v), h, 'clock hour round-trips');
+      assert.equal(BL.todTagOf(v), tag, 'tag round-trips');
+    });
+  }
+  assert.equal(BL.todIsNight(BL.todEncode(19, BL.TOD_TAG.DAY)), false,
+    'a 19:00 tagged DAY must NOT read as night — that is the exact bug');
+  assert.equal(BL.todIsNight(BL.todEncode(14, BL.TOD_TAG.NIGHT)), true,
+    'the tag wins over the clock, in both directions');
+  // The legacy path still has to work or every stored sample silently empties.
+  assert.equal(BL.todIsNight(20), true, 'untagged 20:00 uses the fixed rule');
+  assert.equal(BL.todIsNight(18), false, 'untagged 18:00 uses the fixed rule');
+  assert.equal(BL.todIsTagged(23), false, 'a bare clock hour is not tagged');
+});
+
+test('todBuildHours: tags against each row\'s OWN date, not one threshold', () => {
+  const site = { lat: 47.76, lon: -122.14, tzStdOffset: -8, observesDst: true };
+  const row = (sub, dt) => ({ speciesCode: 'x', subId: sub, obsDt: dt, comName: 'X' });
+  // SAME CLOCK HOUR, six months apart. One threshold for the pool cannot get
+  // both right, which is why the tag is computed per row at ingest.
+  const built = BL.todBuildHours([
+    row('S1', '2026-06-21 19:30'), row('S2', '2026-12-21 19:30')
+  ], site);
+  const tags = built.hours.x.map(BL.todTagOf);
+  assert.deepEqual(tags, [BL.TOD_TAG.DAY, BL.TOD_TAG.NIGHT],
+    'June 19:30 is day, December 19:30 is night');
+  assert.deepEqual(built.hours.x.map(BL.todClock), [19, 19], 'clock hour survives');
+  // Minutes are read for the comparison and only for it: against a sunset of
+  // 20.05, truncating 20:55 to hour 20 would call a bird in the dark daytime.
+  const late = BL.todBuildHours([row('S3', '2026-08-26 20:55')], site);
+  assert.equal(BL.todTagOf(late.hours.x[0]), BL.TOD_TAG.NIGHT,
+    '20:55 on 26 Aug is after the 20:03 sunset');
+  // No site -> legacy hours, and they must be UNTAGGED so the fallback fires.
+  const bare = BL.todBuildHours([row('S4', '2026-06-21 19:30')]);
+  assert.equal(bare.hours.x[0], 19, 'no site -> a bare clock hour');
+  assert.equal(BL.todIsTagged(bare.hours.x[0]), false, 'and it is not tagged');
+});
+
+test('todSpecialists: the baseline is classified by the SAME rule as the species', () => {
+  // F175 in miniature. If the numerator read tags and the denominator read
+  // clock hours they would be two samples again, and the ratio meaningless.
+  const N = BL.TOD_TAG.NIGHT, D = BL.TOD_TAG.DAY;
+  const e = BL.todEncode;
+  const hours = { owl: [e(20, N), e(21, N), e(22, N), e(20, N), e(23, N), e(19, N)] };
+  const chk = [e(9, D), e(10, D), e(11, D), e(12, D), e(20, N)];
+  const sp = BL.todSpecialists(hours, { owl: 'Barred Owl' }, 5, { checklistHours: chk });
+  assert.equal(sp.baseline.late, 0.2, 'baseline reads the tag, not the clock');
+  const owl = sp.night.find((x) => x.code === 'owl');
+  assert.ok(owl, 'owl qualifies');
+  assert.equal(owl.late_pct, 1, 'every owl record is tagged night');
+  assert.equal(owl.median_hour, 20.5, 'median is reported in CLOCK hours');
+});
+
 // --- convoys (mirror section_birder_convoys) -------------------------------
 test('convoyDetect: >=2 birders sharing >=2 stops in a day; excludes own', () => {
   const day = '2026-01-15';
@@ -393,6 +486,14 @@ test('CONST: thresholds the app + report share are present and sane', () => {
   assert.equal(c.TOD_MIN_OBS, 5);
   assert.equal(c.TOD_DAWN_TH, 0.5);
   assert.equal(c.TOD_NIGHT_TH, 0.3);
+  // Solar offsets (F202a). Asserted as SIGNS and bounds rather than exact
+  // literals: the value is measured and may be re-measured, but "dusk starts
+  // before sunset" is the property, and a zero here silently restores the
+  // sunset-instant rule that dropped Common Nighthawk and Great Horned Owl.
+  assert.ok(c.TOD_DUSK_OFFSET_H < 0, 'dusk starts BEFORE sunset');
+  assert.ok(c.TOD_DAWN_OFFSET_H > 0, 'dawn runs PAST sunrise');
+  assert.ok(Math.abs(c.TOD_DUSK_OFFSET_H) <= 3 && c.TOD_DAWN_OFFSET_H <= 3,
+    'an offset over 3h is no longer twilight, it is the afternoon');
   assert.equal(c.CONVOY_LOOKBACK_DAYS, 7);
   assert.equal(c.CONVOY_MIN_STOPS, 2);
   assert.equal(c.CUTOFF_DAYS, 2);
