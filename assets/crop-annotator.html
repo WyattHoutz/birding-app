@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>Bird icon crop annotator</title>
+<style>
+ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:16px;background:#f6f7f5;color:#16211b}
+ h1{font-size:20px;margin:0 0 4px} p.l{color:#5c6b63;margin:0 0 14px;max-width:80ch;line-height:1.45}
+ .row{background:#fff;border:1px solid #e4e8e4;border-radius:10px;padding:12px;margin:0 0 14px}
+ .hd{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+ .code{font-weight:800;font-size:16px} .why{color:#5c6b63;font-size:13px}
+ canvas{border:1px solid #ccc;cursor:crosshair;max-width:100%;touch-action:none}
+ .out{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#0e1512;color:#eaf1ec;
+      padding:8px;border-radius:6px;margin-top:8px;white-space:pre-wrap}
+ button{font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid #0f7a52;
+        background:#0f7a52;color:#fff;cursor:pointer;margin-right:8px}
+ button.sec{background:#fff;color:#0f7a52}
+ #dump{width:100%;height:220px;font-family:ui-monospace,monospace;font-size:12px}
+ .key{font-size:13px;color:#5c6b63;margin-bottom:10px}
+ .sw{display:inline-block;width:12px;height:12px;vertical-align:middle;margin-right:4px;border:1px solid #333}
+</style></head><body>
+<h1>Bird icon crop annotator</h1>
+<p class="l">Drag a <b>square</b> around the bird you want kept &mdash; <b>head to tail</b>. The drag is locked to a square, because the icon is square and any other shape describes a crop that cannot exist. The tool reports two things:
+the <b>slide position</b> today&rsquo;s cropper can actually use (one number, 0&ndash;1), and the <b>full box</b>,
+which only helps if we let the cropper zoom or pad. If your box is not the same size as the sliding
+square, it says so &mdash; that is the evidence for whether a square can hold the bird at all.</p>
+<p class="key"><span class="sw" style="background:#0072B2"></span>square the cropper can choose &nbsp;
+<span class="sw" style="background:#E69F00"></span>your square (drag is locked square) &nbsp; Drag to draw. Press <b>Copy all</b> when done.</p>
+<p class="l"><b>Reviewing a different set?</b> Add <code>?birds=code1,code2,...</code> to the URL. Images must sit beside this page (see <code>docs/ICON-CROPS.md</code>).</p>
+<div id="rows"></div>
+<button onclick="dumpAll()">Copy all</button>
+<button class="sec" onclick="location.reload()">Reset</button>
+<textarea id="dump" placeholder="results appear here"></textarea>
+<script>
+/* The default list is the twelve the owner reported on 2026-08-27. Type any
+   other codes into the box at the top to review a different set - the tool is
+   general, and the birds are only a default. */
+const DEFAULT_BIRDS=[["glwgul","head cut off"],["killde","tail cropped"],["comloo","head still cropped"],
+["brdowl","not centered"],["baleag","tail trimmed (REPEAT)"],["shshaw","head too close to top"],
+["batpig1","head cropped"],["brncre","tail cropped (REPEAT)"],["pelcor","cropped"],
+["redcro","two birds, both cropped"],["rocpig","cropped"],["vauswi","subject too tiny"]];
+const qs=new URLSearchParams(location.search);
+const BIRDS=qs.get("birds")
+  ? qs.get("birds").split(",").map(s=>[s.trim(),"to review"]).filter(b=>b[0])
+  : DEFAULT_BIRDS;const EXT=["jpg","jpeg","png"]; const state={};
+function load(code){return new Promise(res=>{let i=0;const t=()=>{const im=new Image();
+ im.onload=()=>res(im);im.onerror=()=>{i++;i<EXT.length?im.src=code+"."+EXT[i]:res(null)};
+ im.src=code+"."+EXT[i];};t();});}
+BIRDS.forEach(async ([code,why])=>{
+ const d=document.createElement("div");d.className="row";
+ d.innerHTML=`<div class="hd"><span class="code">${code}</span><span class="why">${why}</span></div>`;
+ const cv=document.createElement("canvas");const out=document.createElement("div");out.className="out";
+ d.appendChild(cv);d.appendChild(out);document.getElementById("rows").appendChild(d);
+ const im=await load(code);
+ if(!im){out.textContent="image not found next to this page";return;}
+ const W=im.naturalWidth,H=im.naturalHeight,side=Math.min(W,H);
+ cv.width=W;cv.height=H;const cx=cv.getContext("2d");
+ let box=null,drag=null;
+ function draw(){cx.clearRect(0,0,W,H);cx.drawImage(im,0,0);
+  cx.strokeStyle="#0072B2";cx.lineWidth=3;
+  if(W>H)cx.strokeRect(1,1,side-2,H-2);else cx.strokeRect(1,1,W-2,side-2);
+  if(box){cx.strokeStyle="#E69F00";cx.lineWidth=3;cx.strokeRect(box.x,box.y,box.w,box.h);}}
+ function report(){if(!box){out.textContent="";return;}
+  const x=Math.min(box.x,box.x+box.w),y=Math.min(box.y,box.y+box.h);
+  const size=Math.abs(box.w);            /* square: w and h are equal by construction */
+  let slide,axis;
+  if(W>H){axis="horizontal";const range=W-side;
+   slide=range>0?Math.max(0,Math.min(1,(x+size/2-side/2)/range)):0;}
+  else{axis="vertical";const range=H-side;
+   slide=range>0?Math.max(0,Math.min(1,(y+size/2-side/2)/range)):0;}
+  const ratio=size/side; let note,verdict;
+  if(ratio>1.02){verdict="DOES NOT FIT";
+   note=`your square is ${ratio.toFixed(2)}x the largest square this photo allows -\n`+
+        `  the bird cannot fit: needs PADDING or a better-framed photo`;}
+  else if(ratio<0.98){verdict="ZOOM IN";
+   note=`your square is ${ratio.toFixed(2)}x the source square - a tighter zoom,\n`+
+        `  which today's cropper cannot do (it only slides a fixed-size square)`;}
+  else{verdict="CROPPER CAN DO THIS";
+   note="same size as the sliding square - paste the slide value into OVERRIDES";}
+  state[code]={slide:+slide.toFixed(3),size_ratio:+ratio.toFixed(3),verdict:verdict,
+    box:[+(x/W).toFixed(4),+(y/H).toFixed(4),+((x+size)/W).toFixed(4),+((y+size)/H).toFixed(4)],
+    axis:axis};
+  out.textContent=`source ${W}x${H}  sliding square ${side}px  ${axis}\n`+
+   `your square ${Math.round(size)}px  (${ratio.toFixed(2)}x)   -> ${verdict}\n`+
+   `OVERRIDES slide  -> ${slide.toFixed(3)}\n`+
+   `full box (frac)  -> [${state[code].box.join(", ")}]\n${note}`;} cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();const s=W/r.width;
+  drag={x:(e.clientX-r.left)*s,y:(e.clientY-r.top)*s};cv.setPointerCapture(e.pointerId);});
+ cv.addEventListener("pointermove",e=>{if(!drag)return;const r=cv.getBoundingClientRect();const s=W/r.width;
+  let dx=(e.clientX-r.left)*s-drag.x, dy=(e.clientY-r.top)*s-drag.y;
+  const m=Math.max(Math.abs(dx),Math.abs(dy));           /* FORCED SQUARE: the icon is square,
+     so an arbitrary rectangle would describe a crop that cannot exist. */
+  dx=(dx<0?-m:m); dy=(dy<0?-m:m);
+  box={x:drag.x,y:drag.y,w:dx,h:dy};draw();report();});
+ cv.addEventListener("pointerup",()=>{drag=null;if(box){const x=Math.min(box.x,box.x+box.w),
+  y=Math.min(box.y,box.y+box.h);box={x:x,y:y,w:Math.abs(box.w),h:Math.abs(box.h)};}draw();report();});
+ draw();
+});
+function dumpAll(){const t=document.getElementById("dump");
+ t.value=JSON.stringify({note:"drawn by the owner; slide feeds square-icons.OVERRIDES",cases:state},null,2);
+ t.select();try{document.execCommand("copy")}catch(e){}}
+</script></body></html>
+
+

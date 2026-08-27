@@ -134,7 +134,63 @@ OVERRIDES = {
     # 14%-of-width margin and still carries half the tail, which is the part
     # that makes the bird recognisable.
     'grearg1.jpg': 0.70,
+
+    # ── OWNER-DRAWN, 2026-08-27 ─────────────────────────────────────────────
+    # Twelve icons were reported wrong by eye and the owner drew a square on
+    # each one. Measured against those labels, the automatic answer was off by
+    # 0.40-1.00 of the slide range on EVERY ONE of the seven below - four of
+    # them at the OPPOSITE END of the photo (killde 0.004 vs 1.000 computed,
+    # rocpig 1.000 vs 0.000). That is the head anchor landing on the BACK of a
+    # horizontal bird, not a near miss to be tuned away.
+    #
+    # These are a lookup table on a STATIC set of photos, which is what makes
+    # them safe: OVERRIDE_SRC_SHA pins each one to the image it was drawn
+    # against, so replacing a photo invalidates its override loudly instead of
+    # silently applying the owner's box to a different picture.
+    # head cut off. DRAWN BY THE OWNER 2026-08-27.
+    'glwgul.jpg': 0.733,
+    # tail cropped. DRAWN BY THE OWNER 2026-08-27.
+    'killde.png': 0.004,
+    # head still cropped. DRAWN BY THE OWNER 2026-08-27.
+    'comloo.jpg': 0.047,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'brdowl.jpg': 0.966,
+    # head cropped. DRAWN BY THE OWNER 2026-08-27.
+    'batpig1.jpg': 0.032,
+    # cropped. DRAWN BY THE OWNER 2026-08-27.
+    'pelcor.jpg': 0.046,
+    # cropped. DRAWN BY THE OWNER 2026-08-27.
+    'rocpig.jpg': 1.0,
 }
+
+
+# Fingerprint of the SOURCE each override was drawn against, so a changed photo
+# resets it. An override is a judgement about ONE PICTURE; silently carrying it
+# onto a different picture is how a hand-checked fix becomes a hand-made bug.
+OVERRIDE_SRC_SHA = {
+    'glwgul.jpg': 'ffd4b8a3dff294b2',
+    'killde.png': 'a24d90f536ea6684',
+    'comloo.jpg': '75abf8dba6cc7c5e',
+    'brdowl.jpg': '07fee0c37c791286',
+    'batpig1.jpg': 'd24457ac604b4088',
+    'pelcor.jpg': 'be5dfe88b872e1cb',
+    'rocpig.jpg': '2d44d22ea60c2fce',
+}
+
+
+def stale_overrides(src_dir):
+    """Overrides whose source image no longer matches. Empty is the good case."""
+    import hashlib as _h
+    out = []
+    for name, want in OVERRIDE_SRC_SHA.items():
+        p = os.path.join(src_dir, name)
+        if not os.path.exists(p):
+            out.append((name, 'source missing'))
+            continue
+        got = _h.sha256(open(p, 'rb').read()).hexdigest()[:16]
+        if got != want:
+            out.append((name, f'image changed ({want} -> {got})'))
+    return out
 
 
 def _energy(im):
