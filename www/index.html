@@ -444,7 +444,27 @@
          light-theme green under a dark-theme accent. */
       background: linear-gradient(160deg, var(--accent), var(--accent-deep));
       color: var(--accent-ink);
+      /* F195(b). The header's right side was empty while the Contents screen
+         spent a whole fixed block on the same three facts. Owner: "My name
+         could be placed in the top right header with the rank and species
+         count in short form, since thats empty space." */
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
+    /* F195(b). Two short lines, right-aligned, and it MUST be allowed to
+       vanish rather than squeeze the brand: at 320px with Easy read on there
+       is not room for both, and a crushed label is what F181 was about. The
+       full sentence lives on aria-label, so nothing is lost to a reader who
+       cannot see the short form. */
+    .hdrid { text-align: right; min-width: 0; line-height: 1.2; }
+    .hdrid .hdrname { display: block; font-weight: 700; font-size: .95rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hdrid .hdrstat { display: block; font-size: .8rem; opacity: .9;
+      white-space: nowrap; }
+    @media (max-width: 359px) { .hdrid { display: none; } }
+    html[data-a11y="on"] .hdrid { display: none; }
     /* Brand lockup. The mark is the SAME kingfisher photograph the home-screen
        icon is cut from (assets/generate.js), so the icon you tap and the header
        you land on are recognisably one object, with zero network. */
@@ -806,8 +826,19 @@
        role="presentation" because it is a LABEL for the tiles, not one of
        them — a screen reader stepping through the list should hear five
        destinations, not six with one that does nothing. */
-    .toc li.tocgroup {
-      grid-column: 1 / -1; display: block; margin: 14px 0 -2px;
+    /* F195(d). The filter box. 44px minimum because the Easy-read audit
+       enforces it and a search field is a tap target like any other. It sits
+       ABOVE the list rather than in the header, so it scrolls away with the
+       fixed top half it is there to make unnecessary. */
+    .menufilter { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; }
+    .menufilter input {
+      flex: 1 1 auto; min-width: 0; min-height: 44px;
+      padding: 8px 12px; font: inherit;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: var(--card); color: inherit;
+    }
+    .menufiltercount { flex: 0 0 auto; font-size: .85rem; opacity: .85; }
+    .toc li.tocgroup {      grid-column: 1 / -1; display: block; margin: 14px 0 -2px;
       font-size: calc(13px * var(--s)); font-weight: 800; letter-spacing: .06em;
       text-transform: uppercase; color: var(--muted);
     }
@@ -1737,6 +1768,7 @@
         <h1>Bird Chaser</h1>
       </div>
     </div>
+    <div id="hdrId" class="hdrid" hidden></div>
   </header>
 
   <div id="loadBar" hidden aria-live="polite">
@@ -2566,7 +2598,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.4';
+      var APP_VERSION = '1.41.5';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -21068,6 +21100,22 @@
         menu.innerHTML =
           '<div id="menuIdentity"></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +
+          // F195(d). "instead of wrapping the button groups, maybe they could
+          // slide right and left". A filter is the one option that gets BETTER
+          // as the list grows, where a carousel gets worse — and 32 tiles is
+          // already past the point where scanning beats typing.
+          //
+          // It searches the tile LABEL and the plain-English MENU_SUB line
+          // underneath, so "patches" finds the tile whose jargon label never
+          // says it. That sub-line exists precisely because the labels are
+          // jargon (F141/F148); making it searchable is the same argument.
+          '<div class="menufilter">' +
+            '<label class="vh" for="menuFilter">Filter the menu</label>' +
+            '<input id="menuFilter" type="search" autocomplete="off" ' +
+                   'placeholder="Filter\u2026 (e.g. rare, patches, tides)">' +
+            '<span id="menuFilterCount" class="menufiltercount" role="status" ' +
+                  'aria-live="polite"></span>' +
+          '</div>' +
           '<ul id="menuList" class="toc"></ul>';
         main.insertBefore(menu, main.firstChild);
         _sections = [];
@@ -21162,6 +21210,97 @@
           return best;
         } catch (e) { return null; }
       }
+      // --- F195(b): the same three facts, in the header's empty right side --
+      //
+      // Owner: *"My name could be placed in the top right header with the rank
+      // and species count in short form, since thats empty space."*
+      //
+      // It reads exactly what `menuIdentityHtml` reads and fetches nothing —
+      // `cachedRankMe` is a cache read by name, and `reportYearList` is local.
+      // The header is on every screen and the Contents block is not, so this
+      // has to stay free.
+      //
+      // It HIDES below 360px and under Easy read rather than competing with
+      // the brand for width. A crushed label is worse than an absent one —
+      // F181 — and the full sentence is on `aria-label`, so a reader who
+      // cannot see the short form loses nothing.
+      function headerIdentityRefresh() {
+        var el = $('hdrId');
+        if (!el) return;
+        var name = String(getDisplayName() || '').trim();
+        var first = name.split(/\s+/)[0] || '';
+        var bits = [], said = [];
+        var me = null;
+        try { me = cachedRankMe(getRegion()); } catch (e) { me = null; }
+        if (me && me.rank != null) {
+          bits.push('#' + rankNum(me.rank));
+          said.push('ranked ' + rankNum(me.rank) + ' in '
+                    + rankRegionName(getRegion()));
+        }
+        var year = 0;
+        try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
+        if (year) { bits.push(String(year)); said.push(year + ' species this year'); }
+        if (!first && !bits.length) {
+          el.hidden = true; el.textContent = ''; el.removeAttribute('aria-label');
+          return;
+        }
+        el.hidden = false;
+        el.innerHTML =
+          (first ? '<span class="hdrname">' + esc(first) + '</span>' : '')
+          + (bits.length
+              ? '<span class="hdrstat">' + esc(bits.join(' \u00b7 ')) + '</span>'
+              : '');
+        // The short form is an abbreviation; the label is the sentence.
+        el.setAttribute('aria-label',
+          (first ? first + ', ' : '') + said.join(', '));
+      }
+
+      // --- F195(d): filter the menu, don't hide it behind a gesture ---------
+      //
+      // Hides tiles that do not match, then hides any group heading left with
+      // nothing under it — a heading over an empty group reads as a section
+      // that failed to load.
+      //
+      // Filtering only what is ALREADY rendered, so it cannot fetch and cannot
+      // reorder: a tile keeps its place, which is what makes muscle memory
+      // survive. `data-find` is stamped at build time from the label plus the
+      // MENU_SUB line.
+      function applyMenuFilter() {
+        var box = $('menuFilter'), list = $('menuList');
+        if (!box || !list) return;
+        var q = String(box.value || '').trim().toLowerCase();
+        var kids = list.children, lastHead = null, headHasAny = false, n = 0;
+        for (var i = 0; i < kids.length; i++) {
+          var li = kids[i];
+          if (li.className.indexOf('tocgroup') > -1) {
+            if (lastHead) lastHead.hidden = !headHasAny;
+            lastHead = li; headHasAny = false;
+            continue;
+          }
+          var a = li.querySelector('.toclink');
+          var hay = a ? (a.getAttribute('data-find') || '') : '';
+          var hit = !q || hay.indexOf(q) > -1;
+          li.hidden = !hit;
+          if (hit) { headHasAny = true; n++; }
+        }
+        if (lastHead) lastHead.hidden = !headHasAny;
+        var out = $('menuFilterCount');
+        if (out) {
+          // Silent when not filtering: a count that never changes is furniture,
+          // the same rule the badges follow.
+          out.textContent = !q ? ''
+            : (n ? n + (n === 1 ? ' match' : ' matches') : 'No match');
+        }
+      }
+      function bindMenuFilter() {
+        var box = $('menuFilter');
+        if (!box || box._bound) return;
+        box._bound = true;
+        box.addEventListener('input', applyMenuFilter);
+        // A search input's clear button fires `search`, not `input`, on iOS.
+        box.addEventListener('search', applyMenuFilter);
+      }
+
       function menuIdentityHtml() {
         var name = String(getDisplayName() || '').trim();
         var bits = [];
@@ -21222,6 +21361,9 @@
       function renderMenuIdentity() {
         var el = $('menuIdentity');
         if (el) el.innerHTML = menuIdentityHtml();
+        // F195(b): the header carries the same three facts, so it repaints on
+        // the same trigger. Two copies that update from one call cannot drift.
+        headerIdentityRefresh();
       }
       function renderMenuList() {
         // Rebuilding the list DESTROYS the region <select>, because the cell is
@@ -21261,6 +21403,12 @@
           // F195. The badge engine is keyed by the MENU `at` id, not by
           // `sec.id`, and the two are almost never the same — see menuBadge.
           a.setAttribute('data-at', sec._at || '');
+          // F195(d). What the filter searches: the label AND the plain-English
+          // sub-line, because the labels are deliberately jargon and the
+          // sub-line is the part a reader would actually type.
+          a.setAttribute('data-find',
+            String(sec._label || '').toLowerCase() + ' '
+            + String(MENU_SUB[sec._at] || '').toLowerCase());
           var parts = splitLabel(sec._label);
           if (parts.icon) {
             var ic = document.createElement('span');
@@ -21314,6 +21462,11 @@
         // built the tile. The chase snapshot is unpacked asynchronously, so
         // this is the call that lets a badge arrive at all.
         menuChaseWarm();
+        // F195(d). Rebuilding the list clears every `hidden`, so the filter has
+        // to be re-applied or a rebuild silently un-filters the menu under the
+        // reader's thumb.
+        bindMenuFilter();
+        applyMenuFilter();
       }
       // ---- F134: what changed since you last looked ------------------------
       //
@@ -23462,6 +23615,9 @@
         // those apart; only rendering one can.
         menuBadge: menuBadge, refreshMenuBadges: refreshMenuBadges,
         MENU_BADGES: MENU_BADGES,
+        // F195(b): exposed so the header block can be driven and asserted.
+        headerIdentityRefresh: headerIdentityRefresh,
+        applyMenuFilter: applyMenuFilter,
         wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind,
         noteWall: noteWall, clearWall: clearWall, wallSeen: wallSeen,
         WALL_SEEN_KEY: WALL_SEEN_KEY, classifyF8: classifyF8,

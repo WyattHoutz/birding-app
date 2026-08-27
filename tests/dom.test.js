@@ -15897,6 +15897,114 @@ test('a menu badge actually renders — the key resolves and the repaint runs', 
 // those look the same, which is how the wrong cause survived being written
 // down.
 //
+// --- F195(d): filter the menu instead of hiding it behind a gesture --------
+// "Is there a different kind of navigation for the menu buttons? … maybe they
+// could slide right and left." A filter is the one option that improves as the
+// list grows, where a carousel gets worse — and 32 tiles is already past the
+// point where scanning beats typing.
+//
+// It searches the plain-English MENU_SUB line as well as the label, because
+// the labels are deliberately jargon (F141/F148) and the sub-line is what a
+// reader would actually type. Asserted on the rendered DOM: the failure is
+// which tiles are visible, and a source regex cannot see that.
+test('the menu filter hides non-matching tiles and their empty headings', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  const box = doc.getElementById('menuFilter');
+  assert.ok(box, 'the filter box is painted with the menu');
+
+  const tiles = () => [].slice.call(doc.querySelectorAll('#menuList > li'))
+    .filter((li) => li.querySelector('.toclink') && !li.hidden);
+  const heads = () => [].slice.call(doc.querySelectorAll('#menuList > li.tocgroup'))
+    .filter((li) => !li.hidden);
+
+  const allTiles = tiles().length;
+  const allHeads = heads().length;
+  assert.ok(allTiles > 20, `the menu is big enough to need this (${allTiles} tiles)`);
+
+  // A word that appears ONLY in a sub-line, never in any tile label.
+  // "patches" was tried first and was a bad probe: it appears in labels too,
+  // so the assertion passed with the sub-line removed from the haystack
+  // entirely — a check that could not fail.
+  assert.ok(![].slice.call(doc.querySelectorAll('#menuList .tilelabel'))
+    .some((n) => /buzz/i.test(n.textContent)),
+    'the probe word must not appear in any tile LABEL, or this proves nothing');
+  box.value = 'buzz';
+  A.applyMenuFilter();
+  const hit = tiles();
+  assert.ok(hit.length > 0 && hit.length < allTiles,
+    `the plain-English sub-line is searched, not just the jargon label `
+    + `(${hit.length} of ${allTiles})`);
+  assert.ok(heads().length < allHeads,
+    'a group heading left with nothing under it is hidden too — a heading '
+    + 'over an empty group reads as a section that failed to load');
+
+  const count = doc.getElementById('menuFilterCount');
+  assert.match(count.textContent, /match/i, 'and the result count is announced');
+  assert.equal(count.getAttribute('aria-live'), 'polite',
+    'announced to a screen reader, not only drawn');
+
+  box.value = 'zzzznotathing';
+  A.applyMenuFilter();
+  assert.equal(tiles().length, 0, 'no match hides everything');
+  assert.match(count.textContent, /no match/i, 'and says so rather than going blank');
+
+  box.value = '';
+  A.applyMenuFilter();
+  assert.equal(tiles().length, allTiles, 'clearing restores every tile');
+  assert.equal(heads().length, allHeads, 'and every heading');
+  assert.equal(count.textContent, '',
+    'the count is silent when not filtering — a number that never changes is furniture');
+  app.window.close();
+});
+
+// --- F195(b): the same three facts, in the header's empty right side -------
+// Owner: "My name could be placed in the top right header with the rank and
+// species count in short form, since thats empty space." The Contents screen
+// spends a whole fixed block on name, rank and species while the header's
+// right half is empty on every screen.
+//
+// Asserted on the rendered DOM, and specifically on the aria-label: the
+// visible form is an ABBREVIATION ("#180 · 209") and an abbreviation with no
+// expansion is the F189 bug again — an accessible name is necessary and not
+// sufficient, and here the sighted form is the one that needs the fallback.
+test('the header carries name, rank and species without fetching', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const W = app.window;
+
+  const el = doc.getElementById('hdrId');
+  assert.ok(el, 'the header has a slot on its right');
+
+  // Drive the VISIBLE path deliberately. An early return on "nothing known"
+  // is legitimate behaviour and a terrible thing to let a guard rest on: the
+  // test would pass while asserting nothing, which is the failure mode F197
+  // and F199 were both about.
+  W.localStorage.setItem('ebird_display_name', 'Wyatt Houtz');
+  A.headerIdentityRefresh();
+
+  assert.equal(el.hidden, false, 'with a name known, the block is shown');
+  assert.match(el.textContent, /Wyatt/, 'the first name only — it is a header');
+  assert.ok(!/Houtz/.test(el.textContent),
+    'and not the full name, which is what makes it fit beside the brand');
+
+  const label = el.getAttribute('aria-label') || '';
+  assert.match(label, /Wyatt/,
+    'the short form is an abbreviation, so the sentence lives on aria-label');
+
+  // Nothing known is the other real state, and it must HIDE rather than paint
+  // an empty box or a zero — the same rule the menu badges follow.
+  W.localStorage.removeItem('ebird_display_name');
+  A.headerIdentityRefresh();
+  if (!el.textContent.trim()) {
+    assert.equal(el.hidden, true, 'an unknown identity shows nothing at all');
+  }
+  app.window.close();
+});
+
 // --- F190: the icon pipeline must not eat its own source -------------------
 // MEASURED 2026-08-26. square-icons.py was once run with src == out, which
 // squared 1,335 icons IN PLACE and destroyed every original. The lost pixels
