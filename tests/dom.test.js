@@ -15834,7 +15834,59 @@ test('Leader Board Ticks can be filtered to unseen and to chase range', async ()
   app.window.close();
 });
 
-// --- F193: the sort chips have to reach the sort ---------------------------
+// --- F195: the one badge in the app had never rendered ---------------------
+// MEASURED 2026-08-26. `MENU_BADGES` is keyed by the MENU `at` id — `abaBtn` —
+// and was looked up with `sec.id`, which is a different id: `at` names the
+// section's load BUTTON, while `sec` is `anchor.closest('section')` and a
+// section with no authored id is given `'sec-' + at`. The ABA panel is
+// `<section class="panel">`, so the key was `'sec-abaBtn'` and the table
+// answered undefined on every menu paint since F134 shipped. On top of that,
+// `refreshMenuBadges` was defined and NEVER CALLED, so even a resolving badge
+// could only appear on the paint that built the tile.
+//
+// Both failures are invisible by construction: "no badge" is the DESIGNED
+// state for 11 of the tiles, so nothing ever looked wrong. MENU_SUB was bitten
+// by the same id mismatch and its comment records it — the fix was applied
+// there and not here, because a missing sub-line leaves a visible hole.
+//
+// Asserted by RENDERING one. A source regex cannot distinguish "no badge"
+// from "no news".
+test('a menu badge actually renders — the key resolves and the repaint runs', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const W = app.window;
+
+  const tile = doc.querySelector('#menuList .toclink[data-at="abaBtn"]');
+  assert.ok(tile, 'the ABA tile carries its MENU `at` id, which is what the '
+    + 'badge table is keyed by');
+  assert.notEqual(tile.getAttribute('data-sec'), 'abaBtn',
+    'and data-sec is NOT the same id — this inequality is the whole bug');
+
+  // Two ABA species archived, and a last-seen mark that knows about only one.
+  // newSince() then has exactly one thing to report.
+  const sec = tile.getAttribute('data-sec');
+  W.localStorage.setItem('ebird_aba_archive_v1',
+    JSON.stringify({ 'US-WA': { 'rudtur|S1': 1, 'wesgre|S2': 1 } }));
+  W.localStorage.setItem('bc_seen_v1:' + sec, JSON.stringify({ ids: ['rudtur'] }));
+
+  const b = A.menuBadge('abaBtn', sec);
+  assert.ok(b, 'the badge resolves through the `at` key');
+  assert.equal(b.n, 1, 'one species is new since the mark');
+  assert.equal(b.kind, 'new', 'and it is news, not a standing total');
+
+  A.refreshMenuBadges();
+  const painted = tile.querySelector('.tilebadge');
+  assert.ok(painted, 'the repaint puts it on the tile — refreshMenuBadges had '
+    + 'no caller at all, so nothing could ever arrive late');
+  assert.match(painted.textContent, /1/, 'and it shows the count');
+  // Colour is never the carrier: the owner has red-green colour blindness.
+  assert.ok(painted.className.indexOf('isnew') > -1,
+    'news is marked by a class and a glyph, not by colour alone');
+  app.window.close();
+});
+
+
 // "clicking newest toggle does nothing". This section painted the shared
 // Newest/Nearest pair and then ordered by birders-desc, consulting NEITHER —
 // so both chips re-rendered an identical list, before and after loading.

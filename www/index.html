@@ -2566,7 +2566,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.2';
+      var APP_VERSION = '1.41.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -21258,6 +21258,9 @@
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
           a.setAttribute('data-sec', sec.id);
+          // F195. The badge engine is keyed by the MENU `at` id, not by
+          // `sec.id`, and the two are almost never the same — see menuBadge.
+          a.setAttribute('data-at', sec._at || '');
           var parts = splitLabel(sec._label);
           if (parts.icon) {
             var ic = document.createElement('span');
@@ -21295,7 +21298,7 @@
             a.appendChild(sb);
           }
           // F134: only if the section has something to say. Reads cache only.
-          var bh = menuBadgeHTML(menuBadge(sec.id));
+          var bh = menuBadgeHTML(menuBadge(sec._at, sec.id));
           if (bh) {
             var bw = document.createElement('span');
             bw.innerHTML = bh;
@@ -21305,6 +21308,12 @@
           li.appendChild(a); list.appendChild(li);
           });
         });
+        // F195. The badge engine had a repaint path and NO CALLER — measured:
+        // `refreshMenuBadges` was defined and never invoked, so even a badge
+        // whose key resolved could only ever have appeared on the paint that
+        // built the tile. The chase snapshot is unpacked asynchronously, so
+        // this is the call that lets a badge arrive at all.
+        menuChaseWarm();
       }
       // ---- F134: what changed since you last looked ------------------------
       //
@@ -21377,10 +21386,29 @@
         return prev ? n : 0;
       }
 
-      function menuBadge(id) {
-        var fn = MENU_BADGES[id];
+      // ⚠️ F195, MEASURED 2026-08-26: THIS TABLE HAD NEVER FIRED ONCE.
+      //
+      // It is keyed by the MENU `at` id — `abaBtn` — and it was looked up with
+      // `sec.id`, which is a DIFFERENT id and almost never equal to it. `at`
+      // names the section's load BUTTON; `sec` is `anchor.closest('section')`,
+      // and a section without an authored id is given `'sec-' + at` a few
+      // lines earlier. The ABA panel is `<section class="panel">` with no id,
+      // so `sec.id` is `'sec-abaBtn'` and `MENU_BADGES['sec-abaBtn']` is
+      // undefined. Every menu paint since F134 shipped has returned null.
+      //
+      // MENU_SUB was bitten by exactly this and carries the scar in its own
+      // comment — *"keying on sec.id missed almost everything"* — but the fix
+      // was applied there and not here, because the badge failure is INVISIBLE:
+      // a missing sub-line is a blank space you can see, while "no badge" is
+      // indistinguishable from "no news", which is the designed behaviour for
+      // 11 of the tiles.
+      //
+      // So the lookup now takes BOTH, `at` first. The last-seen mark still
+      // keys on the stable section id.
+      function menuBadge(at, id) {
+        var fn = MENU_BADGES[at] || MENU_BADGES[id];
         if (!fn) return null;
-        try { return fn(id) || null; } catch (e) { return null; }
+        try { return fn(id || at) || null; } catch (e) { return null; }
       }
 
       // LAZY, and never blocking. A badge is a pure read of what is already
@@ -21399,7 +21427,7 @@
           var a = tiles[i], id = a.getAttribute('data-sec');
           if (!id) continue;
           var cur = a.querySelector('.tilebadge');
-          var html = menuBadgeHTML(menuBadge(id));
+          var html = menuBadgeHTML(menuBadge(a.getAttribute('data-at'), id));
           if (!html) { if (cur) cur.parentNode.removeChild(cur); continue; }
           var box = document.createElement('span');
           box.innerHTML = html;
@@ -21408,6 +21436,46 @@
           else a.appendChild(next);
         }
       }
+
+      // --- F195: badges over the birds you still need -----------------------
+      //
+      // The chase wave ALREADY computes them. `saveChaseSnapshot` stores
+      // `codes` — `BL.speciesTargetCodes(compute(null).unseenAll)`, the species
+      // you have not got — so a badge over them costs **zero API calls**, which
+      // is the binding constraint on this whole feature (rule 2 above).
+      //
+      // The snapshot is stored PACKED and unpacking is async, and a badge must
+      // answer synchronously or the menu blocks on it. So it is mirrored into a
+      // plain variable and `refreshMenuBadges()` is called when it lands —
+      // which is the repaint path the engine already has, built for exactly
+      // this case.
+      var _menuChase = null;
+      function menuChaseWarm() {
+        var slug = '';
+        try { slug = (getReport() || {}).slug || ''; } catch (e) { return; }
+        if (!slug) return;
+        loadChaseSnapshot(slug).then(function (snap) {
+          var codes = (snap && snap.codes) || null;
+          // Nothing cached yet is NOT "nothing to chase" — it is "not known",
+          // and an unknown value shows no badge rather than a zero. Same rule
+          // the ABA badge follows, and the reason a cold start is silent.
+          if (!codes || !codes.length) return;
+          _menuChase = { slug: slug, codes: codes.slice() };
+          try { refreshMenuBadges(); } catch (e) {}
+        }).catch(function () { /* a badge never reports its own failure */ });
+      }
+      // Same shape for every tile that answers "what have I not seen": the
+      // count is of birds that were NOT on the list last time you looked, so a
+      // standing total never becomes furniture.
+      function menuChaseBadge(id) {
+        if (!_menuChase || !_menuChase.codes.length) return null;
+        var n = newSince(id, _menuChase.codes);
+        return n ? { n: n, kind: 'new', ids: _menuChase.codes }
+                 : { n: 0, ids: _menuChase.codes };
+      }
+      MENU_BADGES.targetsBtn = menuChaseBadge;
+      MENU_BADGES.allUnseenBtn = menuChaseBadge;
+      MENU_BADGES.easyBtn = menuChaseBadge;
 
       function menuBadgeHTML(b) {
         if (!b || !b.n) return '';
@@ -23387,6 +23455,13 @@
         // F184: exposed so the classifier can be driven against real page
         // SHAPES rather than argued about. The bug it is chasing is that a
         // verdict was inferred from a negative marker.
+        // F195: the badge engine, exposed so it can be DRIVEN. Its one entry
+        // had never fired and its repaint had no caller, and both failures are
+        // invisible by construction — "no badge" is the designed state for 11
+        // of the tiles, so nothing looked wrong. A source regex cannot tell
+        // those apart; only rendering one can.
+        menuBadge: menuBadge, refreshMenuBadges: refreshMenuBadges,
+        MENU_BADGES: MENU_BADGES,
         wallVerdict: wallVerdict, wallMarkers: wallMarkers, pageKind: pageKind,
         noteWall: noteWall, clearWall: clearWall, wallSeen: wallSeen,
         WALL_SEEN_KEY: WALL_SEEN_KEY, classifyF8: classifyF8,
