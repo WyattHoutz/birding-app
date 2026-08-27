@@ -359,6 +359,10 @@
        `who`: the caller owns the glyph and any title on it. */
     if (v.flag) bits.push('<span class="ckflag">' + v.flag + '</span>');
     if (v.map) bits.push('<span class="ckmapwrap">' + v.map + '</span>');
+    // QR is optional and supplied by the app's route builder. It lives beside
+    // the map pin/action in the compact facts line, but is a real 44px button
+    // rather than an icon-shaped dead target.
+    if (v.qr) bits.push('<span class="ckqrwrap">' + v.qr + '</span>');
     // Small rows drop the observer entirely — see the note on SMALL.
     if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
 

@@ -439,7 +439,68 @@
       + '<path d="' + d.join('') + '" fill="#000"/></svg>';
   }
 
-  return { matrix: matrix, svg: svg, _debugMask: _debugMask,
+  // ---- field control + accessibility ------------------------------------
+  //
+  // F143 is deliberately a QR for an EXISTING eBird page, never an encoded
+  // coordinate or a home-derived URL. The same destination is already offered
+  // as a regular link; this adds an offline, phone-to-phone way to pass it on
+  // without widening what a card exposes. `kind` + `id`, not a URL, keeps the
+  // card modules presentation-only and prevents arbitrary strings from
+  // reaching a rendered QR.
+  var QR_KINDS = {
+    species: /^[a-z0-9]+$/,
+    hotspot: /^L[0-9]+$/,
+    checklist: /^S[0-9]+$/
+  };
+  var QR_LABELS = {
+    species: 'Show QR code for eBird species page',
+    hotspot: 'Show QR code for eBird hotspot page',
+    checklist: 'Show QR code for eBird checklist page'
+  };
+  var QR_ICON =
+    '<svg class="qricon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + '<path d="M3 3h7v7H3zM5 5v3h3V5zm9-2h7v7h-7zm2 2v3h3V5zM3 14h7v7H3zm2 2v3h3v-3zm8-2h3v3h-3zm5 0h3v3h-3zm-5 5h3v3h-3zm5 0h3v3h-3z"'
+    + ' fill="currentColor"/></svg>';
+
+  function control(kind, id) {
+    kind = String(kind || '');
+    id = String(id || '');
+    if (!QR_KINDS[kind] || !QR_KINDS[kind].test(id)) return '';
+    return '<button type="button" class="qrbtn qrbtn-' + kind
+      + '" data-qr-kind="' + kind + '" data-qr-id="' + id
+      + '" aria-label="' + QR_LABELS[kind] + '" title="' + QR_LABELS[kind]
+      + '">' + QR_ICON + '</button>';
+  }
+
+  // One style for every QR control, injected by the QR feature rather than
+  // copied into three card modules. The glyph is never the only cue: its
+  // accessible name states the destination and the sheet also provides an
+  // ordinary text link to it.
+  var CONTROL_CSS = [
+    '.qrbtn { box-sizing: border-box; display: inline-flex; align-items: center;',
+    '  justify-content: center; width: calc(44px * var(--s, 1));',
+    '  height: calc(44px * var(--s, 1)); padding: 0; border: 1px solid var(--line);',
+    '  border-radius: 8px; background: var(--card, #fff); color: var(--accent);',
+    '  cursor: pointer; vertical-align: middle; }',
+    '.qrbtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }',
+    '.qricon { display: block; width: calc(22px * var(--s, 1));',
+    '  height: calc(22px * var(--s, 1)); }',
+    '.qrshare { display: grid; justify-items: center; gap: 12px; text-align: center; }',
+    '.qrshare .qrcode { width: min(72vw, 300px); padding: 12px; box-sizing: border-box;',
+    '  background: #fff; border: 1px solid var(--line); border-radius: 10px; }',
+    '.qrshare .qrcode svg { display: block; width: 100%; height: auto; }',
+    '.qrshare p { margin: 0; line-height: 1.4; }'
+  ].join('\n');
+
+  if (typeof document !== 'undefined'
+      && !document.querySelector('style[data-bird-qr]')) {
+    var style = document.createElement('style');
+    style.setAttribute('data-bird-qr', '1');
+    style.textContent = CONTROL_CSS;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  return { matrix: matrix, svg: svg, control: control, _debugMask: _debugMask,
            // Test seam: the interleaved codeword stream, so it can be compared
            // against a reference byte for byte. The data path and the matrix
            // path fail in the same way from outside — an unreadable code — and

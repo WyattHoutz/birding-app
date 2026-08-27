@@ -2497,6 +2497,7 @@
 
   <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
+  <script src="qr.js"></script>
   <!-- The two card families. Pure layout: they receive already-escaped HTML
        and own the markup + CSS for every bird row and every hotspot row. -->
   <script src="cards-species.js"></script>
@@ -2645,7 +2646,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.0';
+      var APP_VERSION = '1.42.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7835,6 +7836,7 @@
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           code: g.code,
+          actions: qrButton('species', g.code),
           tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
           // Same third column as All unseen. The lookup itself is not filtered
           // — you asked about this bird, so every place it has been is the
@@ -8038,6 +8040,7 @@
               // the small card read as cluttered.
               distance: (p.distMi != null && isFinite(p.distMi)) ? p.distMi : null,
               distQ: distQ(p.lat, p.lon != null ? p.lon : p.lng),
+              qr: qrButton('hotspot', p.locId),
               // F183. Hooks for hydrateChecklistEvidence, which selects
               // `[data-ev-sub]`. The row ASKED for icons all along — the
               // recordIcons call below is not new — but the per-species feed
@@ -9415,6 +9418,44 @@
       }
       function ebirdHotspotA(locId, label) {
         return locId ? extA(hotspotUrl(locId), label || 'on eBird', 'ebirdlink') : '';
+      }
+      // QR has exactly three supported destinations. They are EXISTING eBird
+      // pages the app already links to, never coordinates / a home-derived
+      // route: sharing must not widen the information a row exposes, and
+      // eBird's own location suppression remains the authority.
+      function qrUrl(kind, id) {
+        id = String(id || '');
+        if (kind === 'species' && /^[a-z0-9]+$/.test(id)) return speciesUrl(id);
+        if (kind === 'hotspot' && /^L[0-9]+$/.test(id)) return hotspotUrl(id);
+        if (kind === 'checklist' && /^S[0-9]+$/.test(id)) return checklistUrl(id);
+        return '';
+      }
+      function qrButton(kind, id) {
+        return window.BirdQR && typeof window.BirdQR.control === 'function'
+          ? window.BirdQR.control(kind, id) : '';
+      }
+      function showQr(kind, id) {
+        var url = qrUrl(kind, id);
+        if (!url) { dbg('warn', 'QR refused an invalid ' + String(kind || '') + ' id'); return; }
+        var what = { species: 'eBird species page', hotspot: 'eBird hotspot page',
+                     checklist: 'eBird checklist' }[kind] || 'eBird page';
+        var body = '<p><b>Scan this code with another phone.</b></p>'
+          + '<p>It opens this ' + esc(what) + '.</p>';
+        try {
+          if (!window.BirdQR || typeof window.BirdQR.svg !== 'function') {
+            throw new Error('QR encoder is unavailable');
+          }
+          body = '<div class="qrshare"><div class="qrcode">' + window.BirdQR.svg(url)
+            + '</div>' + body + '<a class="extlink" data-href="' + esc(url)
+            + '">Open on eBird ↗</a></div>';
+        } catch (e) {
+          // Do not make a QR failure a dead end. The text-equivalent
+          // destination stays actionable, and the failure is diagnosable.
+          dbg('error', 'QR render: ' + (e && e.message || e));
+          body += '<p>QR code could not be generated.</p><a class="extlink" data-href="'
+            + esc(url) + '">Open on eBird ↗</a>';
+        }
+        showSheet('Share ' + what, 'No account, app install, or network is needed to scan it.', body);
       }
       function speciesLink(name, code) { return stakeSpeciesLink(name, code); }
       function checklistLink(sub, label) { return sub ? extA(checklistUrl(sub), label || 'checklist') : ''; }
@@ -17133,6 +17174,7 @@
           code: o.code,
           alpha: alphaFor(o.code),
           tags: o.tags || '',
+          actions: qrButton('species', o.code),
           distMi: o.distMi,
           distQ: nearest ? distQ(nearest.lat, nearest.lon != null ? nearest.lon : nearest.lng) : '',
           sub: o.sub || '',
@@ -17981,6 +18023,7 @@
             return ChecklistCards.small({
               date: r.obsDt || r.isoObsDate || '',
               href: r.subId ? checklistUrl(r.subId) : '',
+              qr: qrButton('checklist', r.subId),
               who: esc(r.userDisplayName || ''),
               sp: isFinite(r.numSpecies) ? r.numSpecies : ''
             });
@@ -18010,6 +18053,7 @@
 
         var acts = (la != null && ln != null
           ? '<a class="maplink" data-q="' + esc(distQ(la, ln)) + '">\ud83d\uddfa Open in Maps \u2197</a>' : '')
+          + qrButton('hotspot', locId)
           + favLink({ locId: locId, locName: name || locId, lat: la, lng: ln });
 
         box.innerHTML = '<ul class="obs">' + HotspotCards.large({
@@ -23545,6 +23589,15 @@
       })();
       document.addEventListener('click', function (ev) {
         if (!ev.target || !ev.target.closest) return;
+        // The QR button must win before the checklist row's dead-space link:
+        // otherwise tapping its visible button opens the checklist directly
+        // and makes the QR control look like a broken icon.
+        var qr = ev.target.closest('.qrbtn[data-qr-kind][data-qr-id]');
+        if (qr) {
+          ev.preventDefault();
+          showQr(qr.getAttribute('data-qr-kind') || '', qr.getAttribute('data-qr-id') || '');
+          return;
+        }
         // A CHECKLIST ROW is a link. The name inside it is a real <a> and wins
         // — this only fires on the dead space around it, which on a phone is
         // most of a 30px row. Any other link inside the row (the map pin) is
@@ -23994,6 +24047,7 @@
         moreDetails: moreDetails,
         hydrateChecklistEvidence: hydrateChecklistEvidence,
         openEvidence: openEvidence, showSheet: showSheet, hideSheet: hideSheet,
+        qrUrl: qrUrl, qrButton: qrButton, showQr: showQr, renderStakeHs: renderStakeHs,
         dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
         seedArrivals: seedArrivals, warmRegion: warmRegion,
         scoutPlaceRun: scoutPlaceRun, renderScout: renderScout,

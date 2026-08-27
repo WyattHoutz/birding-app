@@ -8699,6 +8699,66 @@ test('a checklist row under a hotspot actually says something', async () => {
     'a checklist card must never be handed the species card\u2019s fields');
   app.window.close();
 });
+
+// F143. A QR is a useful field primitive because it works phone-to-phone
+// without a network, account or install — but QR itself is visual, so the
+// sheet MUST say its destination and retain the ordinary external link.
+// This drives the real delegated event path rather than calling showQr
+// directly: a button that renders but loses to a clickable checklist row is
+// indistinguishable from a broken QR button to the person tapping it.
+test('QR controls open an accessible sheet for only the existing eBird pages', async () => {
+  const app = await boot();
+  const w = app.window, doc = w.document, A = w.__app;
+
+  assert.match(HTML, /<script src="qr\.js"><\/script>/,
+    'the QR component is bundled into the app');
+  assert.ok(HTML.indexOf('<script src="qr.js">') < HTML.indexOf('<script src="cards-species.js">'),
+    'QR loads before cards that render its controls');
+  assert.equal(A.qrUrl('species', 'baleag'), 'https://ebird.org/species/baleag/US-WA');
+  assert.equal(A.qrUrl('hotspot', 'L128530'), 'https://ebird.org/hotspot/L128530');
+  assert.equal(A.qrUrl('checklist', 'S123456789'), 'https://ebird.org/checklist/S123456789');
+  assert.equal(A.qrUrl('checklist', 'S1?home=1'), '',
+    'an arbitrary URL fragment cannot become a QR payload');
+
+  const host = doc.createElement('div');
+  host.innerHTML = A.qrButton('checklist', 'S123456789');
+  doc.body.appendChild(host);
+  const button = host.querySelector('.qrbtn');
+  assert.ok(button, 'a valid typed identifier produces a button');
+  button.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  const sheet = doc.getElementById('appSheet');
+  assert.ok(sheet && !sheet.hidden, 'the delegated click opens the shared sheet');
+  assert.equal(sheet.querySelector('.sheettitle').textContent, 'Share eBird checklist');
+  const body = sheet.querySelector('.sheetbody');
+  assert.ok(body.querySelector('.qrcode svg'), 'the sheet contains the locally generated code');
+  const fallback = body.querySelector('a.extlink[data-href]');
+  assert.ok(fallback, 'a text-equivalent external link remains');
+  assert.equal(fallback.getAttribute('data-href'), 'https://ebird.org/checklist/S123456789');
+  assert.match(body.textContent, /opens this eBird checklist/i,
+    'the non-visual destination is stated in words');
+
+  // Stake out a hotspot has both card types: its top hotspot card and the
+  // recent-checklist rows beneath it. This checks both are wired, and the
+  // separate Stakeout bird screen is covered by the species card below.
+  A.renderStakeHs('L128530', 'Marymoor Park', [{
+    subId: 'S123456789', obsDt: '2026-08-27 20:15', numSpecies: 25,
+    userDisplayName: 'A Birder', loc: { lat: 47.66, lng: -122.12 },
+  }], [{ speciesCode: 'baleag', comName: 'Bald Eagle' }],
+  { lat: 47.66, lng: -122.12, n: 100, nc: 20 }, false);
+  const stakeHs = doc.getElementById('stakeHsResults');
+  assert.ok(stakeHs.querySelector('[data-qr-kind="hotspot"][data-qr-id="L128530"]'),
+    'Stake out a hotspot has its hotspot-page QR beside its map action');
+  assert.ok(stakeHs.querySelector('[data-qr-kind="checklist"][data-qr-id="S123456789"]'),
+    'and each recent checklist has its checklist-page QR');
+  const stakeSpecies = A.speciesPlacesCard({
+    code: 'baleag', name: 'Bald Eagle', places: [],
+  });
+  assert.match(stakeSpecies, /data-qr-kind="species".*data-qr-id="baleag"/,
+    'Stakeout bird’s species card has its species-page QR');
+
+  app.window.close();
+});
 // claims a DIFFERENT family gets the other family's geometry, because
 // cards-species.js scopes some rules as three-class descendants
 // (`.obs.big .name`) which outrank the hotspot card's own two-class
@@ -8855,6 +8915,16 @@ test('the section gallery builds real cards, with no network', async () => {
 test('the card gallery renders every template, with no network', async () => {
   const app = await boot();
   const w = app.window;
+  assert.equal(typeof w.BirdQR.control, 'function',
+    'the gallery’s QR sample uses the same bundled component as the app');
+  assert.ok(GALLERY.indexOf('<script src="qr.js">') < GALLERY.indexOf('<script src="cards-species.js">'),
+    'the gallery loads QR before the card samples that render it');
+  assert.match(GALLERY, /QR\('species', 'tersan'\)/,
+    'the gallery shows the species card QR action');
+  assert.match(GALLERY, /QR\('hotspot', 'L128530'\)/,
+    'the gallery shows the hotspot card QR action');
+  assert.match(GALLERY, /QR\('checklist', 'S123456789'\)/,
+    'the gallery shows the checklist card QR action');
   // Every family the gallery loads must actually be on the page it loads them
   // from, or the gallery is showing a stale copy of the app's shapes.
   for (const [family, sizes] of Object.entries(FAMILIES)) {

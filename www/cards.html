@@ -13,7 +13,7 @@
     impossible for the four that nothing uses. A shape you cannot look at is a
     shape that rots.
 
-    It loads the SAME three modules the app does and makes NO network calls, so
+    It loads the SAME three card modules plus the QR component the app does and makes NO network calls, so
     it behaves offline exactly like the app does. Nothing here is imported by
     index.html; this page is a viewer, not a dependency.
   -->
@@ -129,6 +129,7 @@
 
   <footer id="ver"></footer>
 
+  <script src="qr.js"></script>
   <script src="cards-species.js"></script>
   <script src="cards-hotspot.js"></script>
   <script src="cards-checklist.js"></script>
@@ -143,6 +144,12 @@
       var ADDRESS = '1730 North 122nd Street, Seattle, Washington, US (47.718, -122.335)';
       var A = function (t) { return '<a href="#" onclick="return false">' + t + '</a>'; };
       var PIN = '<a class="ckmap" href="#" onclick="return false" aria-label="Directions">\uD83D\uDDFA</a>';
+      // The gallery has no routing layer, so it receives the same prebuilt,
+      // typed QR control that the real card modules receive from index.html.
+      // It contains no network URL and cannot make a call by itself.
+      var QR = function (kind, id) {
+        return window.BirdQR ? window.BirdQR.control(kind, id) : '';
+      };
 
       // The thumb used to be a grey stub drawn by this file, which meant the
       // gallery could not show the one thing you most want to check: how a card
@@ -189,6 +196,7 @@
                        + ' <span class="dim">\u00d71</span>'
                        + ' <span class="stakeflag">\uD83D\uDCCD Day 3</span>',
                    distMi: 11.4,
+                   actions: QR('species', 'tersan'),
                    sub: '<span class="rarewhere">' + A('Edmonds Public Fishing Pier')
                       + ' <span class="when">' + A('Aug 3 10:25a') + '</span>'
                       + ' <span class="who">Neil Pankey</span></span>' } },
@@ -213,6 +221,7 @@
                    unseen: '<ul class="obs card-sm sppl"><li><div class="name">'
                          + '<span class="ntext">Merlin</span></div></li></ul>',
                    unseenLabel: '1 unseen \uD83D\uDD0D',
+                   qr: QR('hotspot', 'L128530'),
                    actions: '<div class="hsact">' + A('\uD83D\uDDFA Open in Maps \u2197')
                           + A('\u2606 Save') + '</div>' } },
             { size: 'large', used: false, why: 'the "read about ONE place" shape',
@@ -229,7 +238,7 @@
             { size: 'small', used: true,
               why: 'All unseen \u00b7 Easy misses \u00b7 Active rarities \u00b7 Leader Board Ticks — one line per checklist',
               v: { place: LONG_PLACE, href: '#', date: 'Aug 3 10:25 AM', count: 42,
-                   distMi: 4.24, map: PIN } },
+                   distMi: 4.24, map: PIN, qr: QR('checklist', 'S123456789') } },
             { size: 'medium', used: true, why: 'Birdiest checklists, both modes',
               v: { num: 1, place: ADDRESS, href: '#', species: 40,
                    date: 'Aug 3 12:31 PM', distMi: 8.6, who: "Dan McDougall-Treacy" } }

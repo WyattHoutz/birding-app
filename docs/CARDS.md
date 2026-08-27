@@ -10,8 +10,10 @@ shape can be read and changed without hunting through `index.html`:
 | `HotspotCards` | [`www/cards-hotspot.js`](../www/cards-hotspot.js) | a **place** |
 | `ChecklistCards` | [`www/cards-checklist.js`](../www/cards-checklist.js) | a **checklist** |
 
-Each file holds the HTML template **and** the CSS for its family, injected once
-on load into `<style data-cards="…">`. **Do not re-declare a card rule in
+Each card file holds the HTML template **and** the CSS for its family, injected
+once on load into `<style data-cards="…">`. The one exception is the generic
+QR control: `www/qr.js` owns its control and sheet CSS because it is one
+component shared by all three families. **Do not re-declare a card or QR rule in
 `index.html`** — two definitions of one shape is what made six sections drift
 into six lookalikes, which is the whole reason these files exist.
 
@@ -118,3 +120,10 @@ tests and its gallery entry in the same commit, and say why.
    that bug shipped.
 4. **Sizes are a rank of attention**, so a section picks its size from how the
    row is *used*, not from how important the section feels.
+5. **F143 QR controls are typed, not URLs.** `index.html` maps a card's
+   `species`, `hotspot`, or `checklist` identifier to the existing eBird page;
+   the card receives the resulting control as `actions` (SpeciesCards), `qr`
+   (HotspotCards), or `qr` (ChecklistCards). A card must never construct a
+   coordinate, home-derived route, arbitrary URL, observer name, or new
+   location payload. The QR sheet always states the destination and keeps an
+   ordinary **Open on eBird** link: QR is visual, not the only way to act.

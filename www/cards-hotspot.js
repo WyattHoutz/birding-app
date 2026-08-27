@@ -46,6 +46,7 @@
      {{seen}}      HTML list of seen birds    (rendered COLLAPSED)
      {{below}}     anything else, full width
      {{actions}}   overrides the default Open in Maps / Save row
+     {{qr}}        optional QR action, rendered in the card's actions area
 
    Like the species file this is LAYOUT ONLY — it receives HTML the app has
    already escaped and never touches eBird data.
@@ -69,6 +70,7 @@
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
+    '  {{qr}}',
     '</li>'
   ].join('\n');
 
@@ -79,6 +81,7 @@
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
+    '  {{qr}}',
     '</li>'
   ].join('\n');
 
@@ -454,7 +457,13 @@
       unseen: unseenHtml(v),
       seen: seenHtml(v),
       below: v.below || '',
-      actions: v.actions == null ? '' : v.actions
+      // Existing callers own their map + save row and must keep it intact.
+      // QR gets its own optional slot rather than being inserted into that
+      // caller HTML: parsing and splicing a markup string is a fragile,
+      // second action builder. The Stakeout-hotspot caller deliberately puts
+      // its QR directly beside its map action; QR-only cards use this row.
+      actions: v.actions == null ? '' : v.actions,
+      qr: v.qr ? '<div class="hsact">' + v.qr + '</div>' : ''
     });
   }
 

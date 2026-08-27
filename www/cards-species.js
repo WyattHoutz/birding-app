@@ -28,6 +28,7 @@
      {{score}}     a count or rank the section wants beside the name
      {{sub}}       the sub-header / caption line
      {{below}}     anything else the row carries, full width, under the card
+     {{actions}}   optional controls, such as the QR field-share action
 
    These are STRING placeholders holding HTML the app has already escaped.
    This file is about LAYOUT only — it never touches eBird data and never
@@ -42,6 +43,7 @@
   var SMALL = [
     '<li class="{{cls}}">',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
+    '  {{actions}}',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -51,6 +53,7 @@
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
     '  <div class="meta">{{code}}{{sci}}{{when}}{{sub}}</div>',
     '  {{conf}}',
+    '  {{actions}}',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -63,6 +66,7 @@
     '    {{sci}}',
     '    <div class="bcmeta">{{code}}{{dist}}{{when}}{{conf}}</div>',
     '    <div class="bcsub">{{sub}}</div>',
+    '    {{actions}}',
     '    {{below}}',
     '  </div>',
     '</li>'
@@ -143,6 +147,11 @@
     '  min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));',
     '  font-size: calc(22px * var(--s)); line-height: 1; font-weight: 700;',
     '  color: var(--accent); text-decoration: none; }',
+    /* Controls sit on their own action row: squeezing an icon beside an
+       unknown-length species name is how a 44px target steals the title's
+       last readable word. `actions` is empty in ordinary scan lists. */
+    '.spact { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;',
+    '  align-items: center; }',
     /* The small card's optional SECOND line: what the row is (the name) stays
        on top, and what backs it up (count, time, checklist) drops below at
        caption weight. The icon box is 46px, which two lines of this size fit
@@ -697,6 +706,7 @@
       // row — anything nested in the text block sits after the words, not at
       // the edge. Used by the ABA list, where each row opens a sub-page.
       right: v.right || '',
+      actions: v.actions ? '<div class="spact">' + v.actions + '</div>' : '',
       below: v.below || ''
     });
   }
