@@ -644,7 +644,17 @@
       // receives already-escaped HTML from index.html. The lead is a short
       // machine-made label ("now", "2", "wks"), so it is whitelisted the same
       // way alphaText() whitelists a banding code rather than trusted raw.
-      var lead = String(v.lead).replace(/[^A-Za-z0-9 +\u2013-]/g, '');
+      // \u26a0\ufe0f THE WHITELIST DELETED A GLYPH AND SAID NOTHING. It was written
+      // for leads like 'now', '2' and 'wks', so when Mega rarities later
+      // passed a chevron to mean "this row opens" it was stripped to an
+      // empty string and the affordance disappeared - reported as "the
+      // arrow on the mega rarites for more info is now missing". Nothing
+      // failed; a `<span class="spdist"></span>` rendered instead.
+      //
+      // The DISCLOSURE GLYPHS are added rather than the filter loosened:
+      // this stays a whitelist because the file has no escaper by design,
+      // and a caller must still not be able to inject markup here.
+      var lead = String(v.lead).replace(/[^A-Za-z0-9 +\u2013\u203a\u2192\u00b7-]/g, '');
       var unit = String(v.leadUnit == null ? '' : v.leadUnit).replace(/[^A-Za-z0-9 /]/g, '');
       return '<span class="spdist">' + lead
         + (unit ? '<small>' + unit + '</small>' : '') + '</span>';

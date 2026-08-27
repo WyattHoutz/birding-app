@@ -480,6 +480,43 @@ test('toRenderDest: maps cluster fields (lon->lng) and Infinity dist -> null', (
   assert.equal(BL.toRenderDest({ distMi: Infinity, species: [] }).dist, null, 'Infinity -> null');
 });
 
+
+// "the arrow on the mega rarites for more info is now missing" - reported
+// 2026-08-27, and it was a SILENT DELETION rather than a rendering fault.
+//
+// Mega rarities passes `lead: '\u203A'` to mean "this row opens". distHtml
+// sanitises the lead through a WHITELIST written for 'now' / '2' / 'wks', so
+// the chevron matched nothing in it and was stripped to an empty string: the
+// card rendered <span class="spdist"></span> and no error anywhere. A
+// whitelist that silently deletes is indistinguishable from a caller that
+// forgot to pass anything.
+test('a disclosure glyph survives the lead whitelist, and markup still cannot', () => {
+  const SpeciesCards = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const slot = (html) => {
+    const m = html.match(/<span class="spdist">[\s\S]*?<\/span>/);
+    return m ? m[0].replace(/^<span class="spdist">/, '').replace(/<\/span>$/, '') : '';
+  };
+
+  // THE REPORTED BUG.
+  assert.equal(slot(SpeciesCards.medium({ name: 'x', code: 'x', lead: '\u203A' })), '\u203A',
+    'the chevron Mega rarities passes must reach the card');
+
+  // The leads the whitelist was written for are untouched.
+  ['now', '2', 'wks'].forEach((v) => {
+    assert.equal(slot(SpeciesCards.medium({ name: 'x', code: 'x', lead: v })), v,
+      'an ordinary lead is unchanged: ' + v);
+  });
+
+  // ...and it is still a WHITELIST. This file has no escaper by design, so the
+  // property is that nothing a caller passes can form markup - asserted on the
+  // CHARACTERS, not on a word like "onerror", which survives harmlessly as
+  // letters and made a first version of this check pass while proving nothing.
+  const evil = slot(SpeciesCards.medium({
+    name: 'x', code: 'x', lead: '<img src=x onerror=alert(1)>' }));
+  assert.ok(!/[<>"\'=()\/]/.test(evil),
+    'no character that could form markup survives: ' + JSON.stringify(evil));
+});
+
 // --- constants -------------------------------------------------------------
 test('CONST: thresholds the app + report share are present and sane', () => {
   const c = BL.CONST;
