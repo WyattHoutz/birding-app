@@ -2358,17 +2358,31 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   //
   // Briefly this row was a PAIR — region control beside the tile — and the
   // guard moved with it. It came back: "the happening now can go back to being
-  // a screenwide bar, but keep it to one row." The region picker now sits
-  // beside the birder's name in the identity block instead, which is where the
-  // spare width already was.
+  // a screenwide bar, but keep it to one row." The region picker then sat
+  // beside the birder's name; F195(c) has since collapsed it into the scope
+  // control, for the reason asserted below.
   const first = app.document.querySelector('#menuList li:not(.tocgroup)');
   assert.ok(first.classList.contains('wide'),
     'the first tile spans the row rather than sharing a slot');
   assert.match(first.querySelector('.toclink').getAttribute('aria-label'),
     /Happening now/, 'and it is the report\'s first section, not whatever sorts first');
-  // ...and the region control is in the identity block, not a grid cell.
-  assert.ok(app.document.querySelector('.menuidtop #menuRegion'),
-    'the region picker is not beside the name, so it costs a row of its own');
+  // ...and the region control is behind the SCOPE CONTROL, not in the identity
+  // line and not a grid cell of its own.
+  //
+  // This assertion has now moved twice, and the history is the point. It was
+  // once a grid PAIR (region beside the tile); then "the happening now can go
+  // back to being a screenwide bar, but keep it to one row" moved the picker
+  // beside the birder's name, where the spare width already was. F195(c)
+  // supersedes that: "The region picker and county picker could be moved to
+  // the bottom or to the settings menu." The top half of the Contents screen
+  // was fixed content, and one line of disclosure buys back two.
+  //
+  // The earlier placement was not wrong when it was made — it was right for a
+  // screen with fewer fixed rows above it.
+  assert.ok(!app.document.querySelector('.menuidtop #menuRegion'),
+    'the region picker no longer sits on the identity line');
+  assert.ok(app.document.querySelector('#menuScope #menuRegion'),
+    'it is inside the collapsed scope control, which costs one line instead of two');
   // The headings are labels for the tiles, not tiles: a screen reader
   // stepping through Contents must not find one that does nothing.
   const heads = [...app.document.querySelectorAll('#menuList li.tocgroup')];
@@ -15897,6 +15911,54 @@ test('a menu badge actually renders — the key resolves and the repaint runs', 
 // those look the same, which is how the wrong cause survived being written
 // down.
 //
+// --- F195(c): the scope collapses to one line, and says what it is ---------
+// "The region picker and county picker could be moved to the bottom or to the
+// settings menu. There could be a icon or region id icon in the top menu that
+// could be tapped to change these settings."
+//
+// The pickers now live inside a collapsed <details>, so the fixed top half
+// costs one line instead of two-plus. The summary states the scope IN WORDS
+// and carries a "Change" affordance, because F189 was precisely a control that
+// was reachable and did not say what it was — "so this drop down is confusing"
+// — and the lesson there was that an accessible name is necessary and NOT
+// sufficient.
+//
+// Moving a control must not quietly unbind it: that is the shape of the bug
+// that hid the rankings scope for a whole release, so the selects keep their
+// ids and the binding is asserted, not assumed.
+test('the region and county pickers collapse behind a named scope control', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+
+  const det = doc.getElementById('menuScope');
+  assert.ok(det, 'the scope control is painted with the Contents identity block');
+  assert.equal(det.tagName.toLowerCase(), 'details',
+    'it is a disclosure, so it costs one line when closed');
+  assert.equal(det.hasAttribute('open'), false,
+    'and it starts CLOSED — freeing the fixed top half is the entire point');
+
+  const sum = det.querySelector('summary');
+  assert.ok(sum, 'it has a summary to tap');
+  const where = sum.querySelector('.scopewhere');
+  assert.ok(where && where.textContent.trim().length > 2,
+    'which names the current scope in words, not just a triangle');
+  assert.match(sum.textContent, /change/i,
+    'and carries a visible "Change" affordance — F189 is exactly the bug of a '
+    + 'control that is reachable and does not say what it is');
+
+  // The select must still be THERE and still be the same element the binder
+  // looks for, or this becomes the rankings-scope bug again.
+  const sel = det.querySelector('#menuRegion');
+  assert.ok(sel, 'the region picker moved WITH its id, so bindRegionPickers still finds it');
+  assert.ok(sel.options.length > 1, 'and it is populated, so the binding ran');
+
+  const lab = det.querySelector('label[for="menuRegion"]');
+  assert.ok(lab, 'the region select has a label');
+  assert.ok(!/(^|\s)vh(\s|$)/.test(lab.className),
+    'and it is VISIBLE, not screen-reader only — that was F189');
+  app.window.close();
+});
+
 // --- F195(d): filter the menu instead of hiding it behind a gesture --------
 // "Is there a different kind of navigation for the menu buttons? … maybe they
 // could slide right and left." A filter is the one option that improves as the

@@ -329,6 +329,38 @@
                         letter-spacing: .04em; margin-right: 6px; }
     .menuidhint { display: block; font-size: calc(12px * var(--s));
                   line-height: 1.35; color: var(--muted); margin-top: 4px; }
+    /* F195(c). The scope collapses to ONE line. The summary states where you
+       are IN WORDS and carries a "Change" affordance, because F189 is exactly
+       the bug of a control that is reachable and does not say what it is — a
+       bare disclosure triangle would repeat it. 44px minimum: it is a tap
+       target, and the Easy-read audit enforces that. */
+    .scopepick { margin: 8px 0 2px; border: 1px solid var(--line);
+                 border-radius: 10px; background: var(--card);
+                 box-sizing: border-box; max-width: 100%; }
+    .scopepick > summary { display: flex; align-items: center; gap: 8px;
+                 justify-content: space-between; min-height: 44px;
+                 padding: 6px 12px; cursor: pointer; list-style: none;
+                 font-size: calc(13px * var(--s));
+                 box-sizing: border-box; max-width: 100%; }
+    .scopepick > summary::-webkit-details-marker { display: none; }
+    .scopewhere { font-weight: 700; min-width: 0; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+    /* The word, not a glyph alone — and underlined so it reads as the control
+       even with no colour perception at all. */
+    .scopechange { flex: 0 0 auto; font-weight: 800; text-decoration: underline;
+                   font-size: calc(12px * var(--s)); }
+    .scopepick[open] > summary { border-bottom: 1px solid var(--line); }
+    .scopebody { padding: 4px 12px 10px; box-sizing: border-box; max-width: 100%; }
+    .scopebody .regionpick { margin: 6px 0 2px; }
+    /* MEASURED: +8.5px over at 320px with Easy read on. A flex item defaults to
+       `min-width: auto`, so a <select> with `flex: 1` refuses to shrink below
+       its longest OPTION — the same escape hatch the checklist rows needed, and
+       the reason `the flexible tracks that carry text can actually shrink`
+       exists as a guard. The picker must be allowed to be narrow. */
+    .scopebody .regionpick select,
+    .scopebody .countypick select { min-width: 0; }
+    .scopebody .countypick { display: flex; align-items: center; gap: 8px;
+                             max-width: 100%; }
     .secscope { font-size: calc(13px * var(--s)); line-height: 1.35;                margin: 0 0 10px; padding: 0.45em 0.6em; border-radius: 8px;
                 border: 1px solid var(--line); background: var(--card);
                 color: var(--fg); }
@@ -2598,7 +2630,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.41.5';
+      var APP_VERSION = '1.41.6';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -21336,25 +21368,59 @@
         var profHtml = isDefaultProfile() ? ''
           : '<div class="secscope secprofile menuprofile">👤 ' + esc(profileLabel(bcProfile()))
             + ' — a test profile. Settings → Account profile to switch back.</div>';
-        // THE REGION SITS BESIDE THE NAME, hard right. "id like the region drop
-        // down to be aligned right of my birder wyatt name in the same cell,
-        // aligned to the right side of the screen." It was briefly a grid cell
-        // of its own, which cost a whole row for one control; the identity line
-        // already has empty space to its right, so the picker goes there.
+        // F195(c). THE SCOPE MOVES BEHIND ONE CONTROL.
+        //
+        // Owner: *"The region picker and county picker could be moved to the
+        // bottom or to the settings menu. There could be a icon or region id
+        // icon in the top menu that could be tapped to change these settings."*
+        //
+        // Previously the region sat hard right of the name — *"id like the
+        // region drop down to be aligned right of my birder wyatt name"* —
+        // which was the right answer when it was a whole grid row. That
+        // request is superseded by this one: the pickers are now COLLAPSED
+        // into a `<details>` and cost one line instead of two-plus.
+        //
+        // ⚠️ The summary states the scope IN WORDS and carries a "Change"
+        // affordance. F189 is exactly the bug of a control that is reachable
+        // but does not say what it is — *"so this drop down is confusing"* —
+        // and the fix there was that an accessible name is necessary and NOT
+        // sufficient. A disclosure triangle alone would repeat it.
+        //
+        // The selects keep their ids, so `bindRegionPickers()` is unchanged;
+        // moving a control must not quietly unbind it, which is the shape of
+        // the bug that hid the rankings scope for a whole release.
+        var scopeNow = rankRegionName(getRegion()) || 'Region';
+        var coNow = '';
+        try {
+          // getCountyView returns a county CODE or '' for "all counties".
+          // There is no countyLabel(); the label lives on the county row.
+          var cv = getCountyView();
+          if (cv) {
+            getCounties().forEach(function (c) {
+              if (c && c.code === cv) coNow = c.label || '';
+            });
+          }
+        } catch (e) { coNow = ''; }
         return '<div class="menuid">'
           + '<div class="menuidtop">'
           + (name ? '<b class="menuidname">' + esc(name) + '</b>' : '')
-          + '<span class="regionpick"><label class="vh" for="menuRegion">Region</label>'
-          + '<select id="menuRegion"></select></span>'
           + '</div>'
-          + ((bits.length || coHtml)
-              ? '<span class="menuidsub">' + bits.join(' · ') + coHtml + '</span>'
-              : '')
-          + (coHtml
-              ? '<span class="menuidhint">Narrows every list to one county. '
-                + 'Costs no eBird calls, and never changes what counts as seen — '
-                + 'your ' + esc(getReport().label) + ' year list still decides that.</span>'
-              : '')
+          + ((bits.length) ? '<span class="menuidsub">' + bits.join(' · ') + '</span>' : '')
+          + '<details class="scopepick" id="menuScope">'
+          +   '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeNow)
+          +     (coNow ? ' \u00b7 ' + esc(coNow) : '')
+          +     '</span><span class="scopechange">Change</span></summary>'
+          +   '<div class="scopebody">'
+          +     '<span class="regionpick"><label for="menuRegion">Report</label>'
+          +     '<select id="menuRegion"></select></span>'
+          +     coHtml
+          +     (coHtml
+                  ? '<span class="menuidhint">Narrows every list to one county. '
+                    + 'Costs no eBird calls, and never changes what counts as seen — '
+                    + 'your ' + esc(getReport().label) + ' year list still decides that.</span>'
+                  : '')
+          +   '</div>'
+          + '</details>'
           + profHtml
           + '</div>';
       }
