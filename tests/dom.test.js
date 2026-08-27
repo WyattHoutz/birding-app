@@ -14880,6 +14880,50 @@ test('the Contents grid cannot crush a tile label', () => {
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
 
+
+// The top bar shows a CODE (US-WA / US-WA-033) and the dropdowns that set it
+// showed only a NAME, so nothing connected the two: "id like to say the code
+// too as a reference, so Washington US-WA and King US-WA-033 so its clear what
+// the value at the top of the menu means."
+test('the region and county pickers show the code the top bar displays', async () => {
+  const app = await boot();
+  const doc = app.window.document, A = app.window.__app;
+
+  A.scopeOpen();          // builds and binds the pickers
+  const opts = [...doc.getElementById('menuRegion').options].map((o) => o.textContent);
+  const wa = opts.find((t) => t.startsWith('Washington'));
+  assert.ok(/^Washington\s+US-WA\b/.test(wa), 'the report names its code: ' + wa);
+
+  // ...AND ONLY WHEN IT IS A REAL CODE. `stateCode` carries 'lower48' and
+  // 'aba' for the two rarity trackers - slugs, not eBird codes - so an
+  // unguarded print rendered "Lower 48  lower48", which is a field dump
+  // wearing the costume of a reference. Caught before shipping.
+  const l48 = opts.find((t) => t.startsWith('Lower 48'));
+  assert.ok(l48 && !/lower48/.test(l48), 'a slug is never shown as a code: ' + l48);
+  const aba = opts.find((t) => t.startsWith('ABA Area'));
+  assert.ok(aba && !/\baba\b/.test(aba), 'the ABA slug is not shown either: ' + aba);
+
+  // The county the chip actually reflects.
+  const cs = [...doc.getElementById('menuCounty').options].map((o) => o.textContent);
+  // Both facts on one option: it NARROWS (F189's property) and it names the
+  // code the chip will show.
+  assert.ok(cs.some((t) => /^King\b.*\bonly\b.*US-WA-033$/.test(t)),
+    'the county says it narrows AND names its code: ' + JSON.stringify(cs));
+  assert.ok(cs.some((t) => /All counties/.test(t)), 'the unfiltered default survives');
+
+  // THE CHIP AND THE PICKER MUST AGREE, which is the whole point of
+  // printing the code: with a county view set, the top bar shows that
+  // county's code, not the state's.
+  A.setCountyView('US-WA-033');
+  assert.equal(A.scopeCode(), 'US-WA-033',
+    'with King selected the chip reads the COUNTY code');
+  A.setCountyView('');
+  assert.equal(A.scopeCode(), 'US-WA',
+    'with no county view it falls back to the region code');
+
+  app.window.close();
+});
+
 // F183. Reported for the third time as "font is too large" (26 -> 21 -> 19).
 // Shrinking the name alone kept failing because the name was not the only
 // thing wrong: the DISTANCE beside it was set at 24px/800 against a 19px name,
@@ -17614,9 +17658,14 @@ test('F189: the county picker says what it is, on screen', async () => {
   const opts = [...sel.options].map((o) => o.textContent);
   assert.equal(opts[0], 'All counties',
     `the default must answer "am I filtering?", got ${JSON.stringify(opts[0])}`);
-  assert.ok(opts.slice(1).every((o) => / only$/.test(o)),
+  // THE PROPERTY IS "it says it narrows", not "it ends with the word
+  // only". Pinning the end of the string made this fail when the option
+  // also gained its eBird code, which is additional information rather
+  // than a loss - so the guard now asserts the word is present and that
+  // the code rides alongside it.
+  assert.ok(opts.slice(1).every((o) => /\bonly\b/.test(o)),
     `every other option must say it NARROWS: ${JSON.stringify(opts)}`);
-  assert.deepEqual(opts.slice(1), ['King only', 'Snohomish only']);
+  assert.deepEqual(opts.slice(1), ['King only  US-WA-033', 'Snohomish only  US-WA-061']);
   assert.equal(sel.options[0].value, '', 'and the default is the no-filter value');
 
   // ...and a line saying what it does AND what it never touches, because the

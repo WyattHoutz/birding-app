@@ -2646,7 +2646,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.2';
+      var APP_VERSION = '1.42.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -22281,6 +22281,9 @@
       // and in the section navbar is the same setting as Settings → "Default
       // report", so switching from anywhere sticks and is what the app opens
       // on next launch.
+      // An eBird region code: US-WA, US-WA-033, CA-BC. Deliberately strict,
+      // because its whole job is to tell a real code from a slug.
+      var EBIRD_REGION_RE = /^[A-Z]{2}(-[A-Z0-9]+)+$/;
       function fillRegionSelect(sel) {
         if (!sel) return;
         // Rebuilt rather than filled-once: adding or deleting a region has to
@@ -22290,7 +22293,22 @@
         (allReportsList() || []).forEach(function (r) {
           var o = document.createElement('option');
           o.value = r.slug;
-          o.textContent = r.label + (r.kind === 'trip' ? ' (trip)' : '') + (r.isRarityTracker ? ' — rarities' : '');
+          // THE CODE IS SHOWN BESIDE THE NAME, because the top bar displays
+          // the CODE (US-WA / US-WA-033) and nothing connected the two: a
+          // reader had to already know that Washington is US-WA to tell what
+          // the chip meant. "id like to say the code too as a reference, so
+          // Washington US-WA ... so its clear what the value at the top of
+          // the menu means."
+          //
+          // ⚠️ ONLY A REAL eBIRD REGION CODE. `stateCode` is NOT always one:
+          // the two rarity trackers carry 'lower48' and 'aba', which are
+          // SLUGS, so printing it unguarded rendered "Lower 48  lower48" -
+          // noise dressed as a reference. The shape test is what makes this
+          // a cross-reference rather than a field dump, and it is why the
+          // trackers show a name alone: they span many regions and have no
+          // single code the chip could ever display.
+          o.textContent = r.label + (EBIRD_REGION_RE.test(r.stateCode || '') ? '  ' + r.stateCode : '')
+            + (r.kind === 'trip' ? ' (trip)' : '') + (r.isRarityTracker ? ' — rarities' : '');
           sel.appendChild(o);
         });
         if (cur) sel.value = cur;
@@ -22325,7 +22343,14 @@
         getCounties().forEach(function (c) {
           if (!c || !c.code) return;
           var o = document.createElement('option');
-          o.value = c.code; o.textContent = c.label + ' only';
+          // Same reason as the region option above: the chip reads US-WA-033,
+          // so the county that sets it says which code it is.
+          //
+          // ⚠️ "only" IS KEPT, and that is F189's property rather than a
+          // word I liked: an option has to say it NARROWS. Dropping it for
+          // the code broke that guard, which was correct to fail - the two
+          // facts are not in competition, so the option carries both.
+          o.value = c.code; o.textContent = c.label + ' only  ' + c.code;
           sel.appendChild(o);
         });
         sel.value = getCountyView();
