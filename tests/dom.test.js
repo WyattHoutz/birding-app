@@ -6803,15 +6803,21 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   const controls = doc.getElementById('todayControls');
   const controlRows = controls.querySelectorAll('.raritycontrolrow');
   assert.equal(controlRows.length, 1,
-    'all three chip pairs share ONE row now. MEASURED in real Chrome: they '
-    + 'want 311.9px in 314px at 393px/scale 1 (one line), and 288px in 233px '
-    + 'at 320px/Easy read, where they wrap rather than crush');
+    'all four chip pairs share ONE row now. MEASURED in real Chrome: three '
+    + 'pairs wanted 311.9px in 314px at 393px/scale 1 (one line), and 288px '
+    + 'in 233px at 320px/Easy read, where they wrap rather than crush. '
+    + '⚠️ F215 added a FOURTH pair, so the row now wraps at every width — '
+    + 'that is the accepted cost of the notes toggle, and the layout audit '
+    + 'is what proves wrapping never becomes overflow');
   assert.deepEqual(
     [...controlRows[0].querySelectorAll('button')].map((b) => b.textContent.trim()),
-    ['Newest', 'Nearest', 'Unseen', 'All', `${R} mi`, 'Statewide'],
-    'the one row holds all three pairs in reading order — how it is sorted, '
+    ['Newest', 'Nearest', 'Unseen', 'All', `${R} mi`, 'Statewide',
+      'No notes', '💬 Notes'],
+    'the one row holds all four pairs in reading order — how it is sorted, '
     + 'then the two things that decide what is in it, including the live '
-    + 'radius and the region-derived label');
+    + 'radius and the region-derived label, then how much of each row shows. '
+    + 'BOTH notes options are labelled: a lone "Notes" would say what the '
+    + 'control is rather than what it will do, which is the F189 mistake');
   assert.equal(doc.querySelector('#todayYear [data-value="unseen"]').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
   assert.equal(doc.querySelector('#todayDistance [data-value="near"]').getAttribute('aria-pressed'),
@@ -8133,6 +8139,200 @@ test('a rarity checklist marks its media instantly, spending nothing', async () 
     .filter((s) => s.textContent.trim()).length, 20,
     'a row the fetch could not improve keeps the mark it already had');
   app.window.close();
+});
+
+// ── F215 (F192 item 4): "option to see detailed comments" ─────────────────
+// Reported twice in one pass — on Twitches ("toggle to show details including
+// comments") and on the stakeout bird. The notes were already reachable, one
+// tap per row; the request is to stop tapping.
+//
+// Exercised through the REAL hydration path rather than by calling a renderer,
+// because the thing that could break is the interaction between the stored
+// preference and the pass that paints the marks.
+test('with notes on, the observer note is painted instead of hidden behind a tap', async () => {
+  const NOTE = 'On the far side of the helipad, viewable from the car park.';
+  const mk = () => boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        return { obs: [{ speciesCode: 'larspa', comments: NOTE }] };
+      }
+      return null;
+    },
+  });
+  const recs = [{ subId: 'S1', loc: 'Park', lat: 47.6, lng: -122.3,
+                  dateStr: '2026-08-01 08:00', observer: 'B' },
+                { subId: 'S2', loc: 'Park', lat: 47.6, lng: -122.3,
+                  dateStr: '2026-08-02 08:00', observer: 'C' }];
+
+  async function render(app) {
+    const A = app.window.__app, doc = app.window.document;
+    const host = doc.createElement('div');
+    host.innerHTML = A.rarityChecklistDetails({ code: 'larspa', recs });
+    doc.body.appendChild(host);
+    const det = host.querySelector('details.ckall');
+    det.open = true;
+    await A.hydrateChecklistEvidence(det);
+    await new Promise((r) => setTimeout(r, 900));
+    return host;
+  }
+
+  // OFF is the default, and it must stay the default: painting every note by
+  // default would undo the collapse these lists exist to provide.
+  const off = await mk();
+  assert.equal(off.window.__app.rarityNotes(), false, 'notes are off unless asked for');
+  const hostOff = await render(off);
+  assert.equal(hostOff.querySelectorAll('.evnoterow').length, 0,
+    'no notes are painted while the toggle is off');
+  // ⚠️ NOT asserting a mark here, and that is the behaviour rather than a gap:
+  // `noteRequired` deliberately suppresses a bare note badge on these lists,
+  // because eBird makes a comment compulsory on a flagged species so the badge
+  // would appear on every row and mean nothing on any of them. A plain note
+  // therefore has NO affordance at all when the toggle is off — which is
+  // precisely why the toggle was asked for.
+  off.window.close();
+
+  const on = await mk();
+  on.window.__app.setRarityNotes(true);
+  const hostOn = await render(on);
+  const notes = [...hostOn.querySelectorAll('.evnoterow')];
+  assert.ok(notes.length > 0, 'with the toggle on, the note is painted inline');
+  assert.equal(notes[0].textContent, NOTE, 'and it is the observer\u2019s own words');
+  on.window.close();
+});
+
+// The painted note must not COST the mark. A note carrying a waypoint still
+// earns its badge — that badge is the only thing that makes the coordinates
+// tappable — so the two have to coexist rather than one replacing the other.
+test('a painted note does not swallow the waypoint mark', async () => {
+  const WP = '47.65798\u00b0 N, 122.29830\u00b0 W by the helipad';
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        return { obs: [{ speciesCode: 'larspa', comments: WP }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  A.setRarityNotes(true);
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityChecklistDetails({ code: 'larspa', recs: [
+    { subId: 'S1', loc: 'Park', lat: 47.6, lng: -122.3,
+      dateStr: '2026-08-01 08:00', observer: 'B' },
+    { subId: 'S2', loc: 'Park', lat: 47.6, lng: -122.3,
+      dateStr: '2026-08-02 08:00', observer: 'C' }] });
+  doc.body.appendChild(host);
+  const det = host.querySelector('details.ckall');
+  det.open = true;
+  await A.hydrateChecklistEvidence(det);
+  await new Promise((r) => setTimeout(r, 900));
+
+  assert.ok(host.querySelector('.evnoterow'), 'the note is painted');
+  assert.ok(host.querySelector('.evidbtn'),
+    'and the mark survives, because it is what makes the waypoint tappable — '
+    + 'a coordinate you cannot tap is a fact you have to retype');
+  app.window.close();
+});
+
+// The note is the one genuinely user-authored string these lists render, and
+// cards-checklist.js has no escaper by design. So it must reach the DOM as
+// TEXT — this is the check that would fail if someone "simplified" it to
+// innerHTML.
+test('an observer note is inserted as text, never as markup', async () => {
+  const EVIL = '<img src=x onerror="window.__pwned=1">after';
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        return { obs: [{ speciesCode: 'larspa', comments: EVIL }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  A.setRarityNotes(true);
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityChecklistDetails({ code: 'larspa', recs: [
+    { subId: 'S1', loc: 'Park', lat: 47.6, lng: -122.3,
+      dateStr: '2026-08-01 08:00', observer: 'B' },
+    { subId: 'S2', loc: 'Park', lat: 47.6, lng: -122.3,
+      dateStr: '2026-08-02 08:00', observer: 'C' }] });
+  doc.body.appendChild(host);
+  const det = host.querySelector('details.ckall');
+  det.open = true;
+  await A.hydrateChecklistEvidence(det);
+  await new Promise((r) => setTimeout(r, 900));
+
+  const note = host.querySelector('.evnoterow');
+  assert.ok(note, 'the note rendered');
+  // Assert on the CHARACTERS that could form markup, not on the word
+  // "onerror" — letters survive escaping harmlessly and a check for them
+  // passes on a payload it has not actually made safe. That mistake was made
+  // once already, in F208.
+  assert.equal(note.querySelectorAll('*').length, 0,
+    'the note produced no elements — it is a text node, not parsed markup');
+  assert.equal(note.textContent, EVIL, 'and reads back exactly as typed');
+  assert.equal(app.window.__pwned, undefined, 'nothing executed');
+  app.window.close();
+});
+
+// The row is a WRAPPING FLEX line, so a note without a full basis would fight
+// the facts for width instead of taking a line of its own — and at 320px with
+// Easy read on that is the difference between a readable paragraph and a
+// two-character column. Asserted as the property, not the pixel.
+// ⚠️ A CONTROL THAT DOES NOTHING LOOKS EXACTLY LIKE A CONTROL THAT WORKS, and
+// this project has shipped that bug before — F193, "clicking newest toggle does
+// nothing", where the chips re-rendered an identical list. Mutation testing
+// caught the same gap here: the other F215 guards set the preference directly,
+// so the BUTTON could have been wired to nothing and stayed green.
+//
+// So this one clicks the real button and checks both halves: the preference
+// moved, and the section was asked to repaint.
+test('the notes button is actually wired, and is not stored as a filter', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityControls('probe');
+  doc.body.appendChild(host);
+
+  let reloads = 0;
+  A.wireRarityControls('probe', () => { reloads++; });
+
+  const before = JSON.stringify(A.rarityFilters());
+  assert.equal(A.rarityNotes(), false, 'starts off');
+
+  const on = [...host.querySelectorAll('.raritynotesbtn')]
+    .find((b) => b.getAttribute('data-notes') === 'on');
+  assert.ok(on, 'the notes control rendered a button to press');
+  on.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+
+  assert.equal(A.rarityNotes(), true, 'pressing it turns notes on');
+  assert.equal(reloads, 1, 'and asks the section to repaint, or nothing changes on screen');
+
+  // A DISPLAY choice must not land in the object that decides WHICH ROWS
+  // survive. If it fell through to setRarityFilter it would write a bogus
+  // filter key, and a display toggle would be able to empty a list — the same
+  // conflation F209 had to unpick when one flag meant both scope and layout.
+  assert.equal(JSON.stringify(A.rarityFilters()), before,
+    'the row filters are untouched by a display preference');
+
+  const off = [...host.querySelectorAll('.raritynotesbtn')]
+    .find((b) => b.getAttribute('data-notes') === 'off');
+  off.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(A.rarityNotes(), false, 'and it turns back off — a one-way toggle is a trap');
+  assert.equal(reloads, 2, 'repainting both ways');
+  app.window.close();
+});
+
+test('a painted note takes a line of its own', () => {
+  const rule = /\.cklcards-sm > \.cklcard-sm > \.evnoterow \{([\s\S]*?)\}/.exec(CARDS_CHECKLIST);
+  assert.ok(rule, 'the note needs a rule of its own');
+  assert.match(rule[1], /flex: 0 0 100%/,
+    'a full basis is what gives it a line; `auto` would make it compete with '
+    + 'the date, count and distance for the same row');
+  assert.match(rule[1], /white-space: normal/,
+    'and it must be allowed to wrap — the row itself is nowrap, which would '
+    + 'run a sentence off the side of the screen');
+  assert.match(rule[1], /var\(--s\)/, 'it scales with the text-size setting');
 });
 
 test('a rarity checklist surfaces the waypoint, and only the waypoint', async () => {
@@ -16802,9 +17002,12 @@ test('the twitch controls are one row that wraps rather than crushes', async () 
 
   const rows = host.querySelectorAll('.raritycontrolrow');
   assert.equal(rows.length, 1,
-    `all three pairs share one row, not a sort row above a filter row: ${rows.length}`);
+    `all four pairs share one row, not a sort row above a filter row: ${rows.length}`);
   const groups = host.querySelectorAll('.sortpick');
-  assert.equal(groups.length, 3, 'sort, year list and distance');
+  // FOUR since F215 added the notes toggle. The count is asserted so a pair
+  // cannot go missing unnoticed; the properties below are what actually keep
+  // the narrow case readable, and they apply to every group whatever the count.
+  assert.equal(groups.length, 4, 'sort, year list, distance and notes');
 
   // Never shrink. This is the guard that keeps the 320px/Easy read case
   // wrapping instead of collapsing to one letter per line.

@@ -158,8 +158,17 @@
     '.cklcards-sm > .cklcard-sm::before {',
     '  content: "\\2022"; flex: 0 0 auto; color: var(--line);',
     '  font-size: calc(11px * var(--s)); line-height: 1; }',
-    '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
-    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
+    /* F215. The observer's note, painted under its row when notes are switched
+       on. `flex-basis: 100%` is the whole trick: the small card is a wrapping
+       flex row, so a full-basis child takes a line of its own instead of
+       fighting the facts for width — no change to the row's own layout, and it
+       simply is not there when notes are off. */
+    '.cklcards-sm > .cklcard-sm > .evnoterow {',
+    '  flex: 0 0 100%; min-width: 0; margin: 2px 0 4px;',
+    '  padding-left: 10px; border-left: 3px solid var(--line);',
+    '  font-size: calc(13px * var(--s)); line-height: 1.4;',
+    '  color: var(--ink); white-space: normal; overflow-wrap: anywhere; }',
+    '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
 
     /* MEDIUM: laid out exactly like the medium hotspot card — rank | headline |
        the one number that ranks it, over a full-width facts line. Same shape,

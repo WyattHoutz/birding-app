@@ -2681,7 +2681,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.7';
+      var APP_VERSION = '1.42.8';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8494,6 +8494,32 @@
       function setRaritySort(v) {
         localStorage.setItem(RARITY_SORT_KEY, v === 'distance' ? 'distance' : 'date');
       }
+      // ── F215 (F192 item 4): the observer's note, without a tap per row ────
+      //
+      // "todays twitches does not have toggle to show details including
+      // comments", and on the stakeout bird "also needs option to see detailed
+      // comments".
+      //
+      // A DISPLAY preference, so it is stored beside `raritySort` rather than
+      // inside `rarityFilters`. The distinction is load-bearing: everything in
+      // `rarityFilters` decides WHICH ROWS survive, and this decides how much
+      // of a surviving row is shown. Folding it in would make a display choice
+      // able to empty a list — which is the same conflation F209 had to unpick
+      // when `grouped` was doing scope and layout at once.
+      //
+      // ⚠️ COSTS NOTHING EXTRA. The notes ride along in the checklist reads
+      // `hydrateChecklistEvidence` already makes when a list is opened, and
+      // that pass is already capped at CKL_EVID_MAX calls. This changes where
+      // an already-fetched note is PAINTED, not how much is bought — which
+      // matters, because product/checklist/view is 66% of all eBird traffic.
+      var RARITY_NOTES_KEY = 'ebird_rarity_notes_v1';
+      function rarityNotes() {
+        try { return localStorage.getItem(RARITY_NOTES_KEY) === 'on'; }
+        catch (e) { return false; }
+      }
+      function setRarityNotes(on) {
+        try { localStorage.setItem(RARITY_NOTES_KEY, on ? 'on' : 'off'); } catch (e) {}
+      }
       // F180. These are preferences about the rarity lists, not about one
       // time window, so Today's and Last 7-Days read one stored object. The
       // localStorage shim above makes it per profile without a second key
@@ -8574,6 +8600,17 @@
           + rarityFilterControl(prefix + 'Year', 'year', 'unseen', 'Unseen', 'all', 'All')
           + rarityFilterControl(prefix + 'Distance', 'distance', 'near',
               chaseMaxMi() + ' mi', 'region', rarityRegionName())
+          // F215. A fourth pair, and it wraps like the other three rather than
+          // being crushed — the row is already built for that, because six
+          // 44px targets cannot fit 233px however they are styled.
+          // Both options are LABELLED: "Notes" alone next to a pressed state
+          // says what it is, not what it will do, which is the F189 mistake.
+          + '<span class="sortpick raritypick" id="' + prefix + 'Notes"'
+          + ' role="group" aria-label="Show or hide observer notes">'
+          + '<button type="button" class="sortbtn raritynotesbtn" data-notes="off"'
+          + ' aria-pressed="' + (!rarityNotes()) + '">No notes</button>'
+          + '<button type="button" class="sortbtn raritynotesbtn" data-notes="on"'
+          + ' aria-pressed="' + rarityNotes() + '">\uD83D\uDCAC Notes</button></span>'
           + '</div></div>';
       }
       function wireRarityControls(prefix, reload) {
@@ -8581,7 +8618,18 @@
         var host = document.getElementById(prefix + 'Filters');
         if (!host) return;
         host.addEventListener('click', function (ev) {
-          var b = ev.target.closest ? ev.target.closest('.rarityfilterbtn') : null;
+          var t = ev.target.closest ? ev.target : null;
+          if (!t) return;
+          // F215 first: a notes button is not a filter, and letting it fall
+          // through to setRarityFilter would write a display choice into the
+          // object that decides which rows survive.
+          var n = t.closest('.raritynotesbtn');
+          if (n) {
+            setRarityNotes(n.getAttribute('data-notes') === 'on');
+            reload();
+            return;
+          }
+          var b = t.closest('.rarityfilterbtn');
           if (!b) return;
           setRarityFilter(b.getAttribute('data-filter'), b.getAttribute('data-value'));
           // Filtering is local work over the cached rows, just like sorting.
@@ -13300,6 +13348,32 @@
             if (!ob) return;
             var near = (isFinite(la) && isFinite(ln)) ? { lat: la, lng: ln } : null;
             var det = BirdLogic.checklistDetail(ob, near);
+            // F215. THE NOTE IS PAINTED BEFORE THE MARK IS EVEN CONSIDERED,
+            // and that order is the whole fix. `noteRequired` deliberately
+            // suppresses a bare note BADGE on these lists — eBird makes a
+            // comment compulsory on a flagged species, so the badge would
+            // appear on every row and mean nothing on any of them — and that
+            // suppression returns early. A first cut put the painting after
+            // it, so exactly the notes the reader asked to see (the ordinary
+            // ones, with no waypoint and no photo) were the ones that never
+            // rendered. *A badge nobody should see and a note somebody asked
+            // for are different questions about the same field.*
+            //
+            // Appended to the ROW, not into `.ckevid`: that span sits inline
+            // beside the place name, and a paragraph inside it would fight the
+            // one-line layout the small card is built around.
+            if (rarityNotes() && det && det.c) {
+              var prev = el.querySelector('.evnoterow');
+              if (prev) prev.parentNode.removeChild(prev);
+              var note = document.createElement('div');
+              note.className = 'evnoterow';
+              // The observer wrote this, so it is TEXT, never markup — set
+              // through textContent rather than innerHTML. cards-checklist.js
+              // has no escaper by design and this is the one field these rows
+              // render that is genuinely user-authored.
+              note.textContent = det.c;
+              el.appendChild(note);
+            }
             // noteRequired: these lists hang under ONE species, and the ones
             // that matter most are rarities, where eBird makes the note
             // compulsory. See the note on checklistIcons.
@@ -24338,6 +24412,9 @@
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistView: checklistView, pruneChecklistCache: pruneChecklistCache,
         checklistLink: checklistLink, checklistUrl: checklistUrl,
+        rarityNotes: rarityNotes, setRarityNotes: setRarityNotes,
+        rarityControls: rarityControls, wireRarityControls: wireRarityControls,
+        rarityFilters: rarityFilters,
         CKL_NS: CKL_NS,
         checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
         CKL_EVID_MAX: CKL_EVID_MAX, cklCached: cklCached,
