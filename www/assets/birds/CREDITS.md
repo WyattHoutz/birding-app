@@ -1,8 +1,12 @@
 # Bird icon credits
 
-1288 icons, 240px, from Wikimedia Commons and the English Wikipedia.
+1281 icons, 240px, from Wikimedia Commons and the English Wikipedia, except where a row names a different source.
+
+⚠️ The table has **1289 rows for 1281 files**. Eight rows name a `.jpeg` that is not shipped (`asspet`, `dusthr2`, `feapet2`, `herpet2`, `marswi`, `rotbec`, `topwhy1`, `whfpar1`), and the app cannot reach them regardless: tier 1 resolves `<code>.jpg|.png` only, so a `.jpeg` is invisible to the lookup even when present. They are left in place because an extra credit harms nobody, while a missing one is a licence breach — the direction that matters is checked, and **every shipped file has a row**. The heading counted rows rather than files until 2026-08-28, which is why it read 1288 while 1280 icons shipped.
 
 Each image below is reproduced under the licence named in its row; copyright remains with the photographer. Icons are cached copies of Wikimedia-hosted thumbnails -- follow a **File** link for the original, its full licence text, and the author's own terms.
+
+Two rows carry an em dash instead of a **File** link: `thagul` and `y00478` are the project owner's own photograph of a Thayer's Gull, contributed directly rather than fetched, so there is no upstream file to link and no third-party licence to honour. They are the same picture because Thayer's Gull is a form of Iceland Gull -- `thagul` reports as `y00478` in the eBird taxonomy -- and the icon lookup resolves a raw species code with no `reportAs` walk, so a row reported as Thayer's would otherwise miss the bundle entirely and fall back to the network.
 
 `fallback.svg`, shown for species with no cached photo, is not from Wikimedia: it was drawn for this project and carries no attribution requirement.
 
@@ -1112,6 +1116,7 @@ Each image below is reproduced under the licence named in its row; copyright rem
 | <img src="temsti.jpg" width="28" height="28" alt=""> | `temsti` | Temminck's stint | Charles J. Sharp | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3ATemminck%27s_stint_%28Calidris_temminckii%29_Oppdal.jpg) |
 | <img src="tenwar.jpg" width="28" height="28" alt=""> | `tenwar` | Tennessee warbler | Cephas | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3ALeiothlypis_peregrina_Malus_sp_JRVdH_01.jpg) |
 | <img src="tersan.jpg" width="28" height="28" alt=""> | `tersan` | Terek sandpiper | Birds of Gilgit-Baltistan | CC BY-SA 2.0 | [Commons](https://commons.wikimedia.org/wiki/File%3ATerek_Sandpiper_%28Xenus_cinereus%29_%2853969645800%29.jpg) |
+| <img src="thagul.jpg" width="28" height="28" alt=""> | `thagul` | Iceland gull (Thayer's) | Wyatt Houtz | Own photograph, © all rights reserved | — |
 | <img src="thbkin.jpg" width="28" height="28" alt=""> | `thbkin` | Thick-billed kingbird | ALAN SCHMIERER from southeast AZ, USA | CC0 | [Commons](https://commons.wikimedia.org/wiki/File%3A605_-_THICK-BILLED_KINGBIRD_%285-22-2018%29_tubac%2C_santa_cruz_co%2C_az_-05_%2842239690802%29.jpg) |
 | <img src="thbmur.jpg" width="28" height="28" alt=""> | `thbmur` | Thick-billed murre | AWeith | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AA_Br%C3%BCnnich%27s_guillemot_%28Uria_lomvia%29_with_prey.jpg) |
 | <img src="thbpar.jpg" width="28" height="28" alt=""> | `thbpar` | Thick-billed parrot | JavAlvarezS | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AThick-billed_parrots_in_a_U.S._zoo.jpg) |
@@ -1258,7 +1263,7 @@ Each image below is reproduced under the licence named in its row; copyright rem
 | <img src="xanmur1.jpg" width="28" height="28" alt=""> | `xanmur1` | Guadalupe murrelet | (c) Adam J. Searcy, some rights reserved (CC BY) | CC BY 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AGuadalupe_Murrelet_imported_from_iNaturalist_photo_51328215_on_28_November_2025.jpg) |
 | <img src="xanmur2.jpg" width="28" height="28" alt=""> | `xanmur2` | Scripps's murrelet | Unknown | Public domain | [Commons](https://commons.wikimedia.org/wiki/File%3AXantus_adult.gif) |
 | <img src="y00475.jpg" width="28" height="28" alt=""> | `y00475` | American coot | Rhododendrites | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AAmerican_coot_in_Prospect_Park_%2806152%29.jpg) |
-| <img src="y00478.jpg" width="28" height="28" alt=""> | `y00478` | Iceland gull | Seabamirum on Flickr | CC BY 2.0 | [Commons](https://commons.wikimedia.org/wiki/File%3ALarus_glaucoides_IthacaNY.jpg) |
+| <img src="y00478.jpg" width="28" height="28" alt=""> | `y00478` | Iceland gull | Wyatt Houtz | Own photograph, © all rights reserved | — |
 | <img src="y00678.jpg" width="28" height="28" alt=""> | `y00678` | Crested caracara | Andreas Trepte | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3ASchopfkarakara.jpg) |
 | <img src="ycnher.png" width="28" height="28" alt=""> | `ycnher` | Yellow-crowned night heron | Chuck Homler (FocusOnWildlife.Me) | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AYellow-crowned_Night_Heron_%28Nyctanassa_violacea%29_perched_on_a_cedar_-_Cape_May_County%2C_New_Jersey%2C_USA.png) |
 | <img src="yebcar.jpg" width="28" height="28" alt=""> | `yebcar` | Yellow-billed cardinal | Charles J. Sharp | CC BY-SA 4.0 | [Commons](https://commons.wikimedia.org/wiki/File%3AYellow-billed_cardinal_%28Paroaria_capitata%29.JPG) |
