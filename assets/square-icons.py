@@ -206,6 +206,41 @@ OVERRIDES = {
     'margod.jpg': 0.566,
     # head cropped at top. DRAWN BY THE OWNER 2026-08-27.
     'yehbla.jpg': 0.009,
+
+    # ---- F219, DRAWN BY THE OWNER 2026-08-28 -------------------------
+    # A 4-tuple is the DRAWN BOX, not a slide: these carry the zoom the
+    # slide form cannot express. See square_box() for why vauswi proves
+    # it was needed.
+    'chispa.jpg': (0.2341, -0.0093, 0.9048, 0.9947),
+    'marmur.jpg': (0.2063, 0.0037, 0.6706, 0.9958),
+    'baisan.jpg': (0.1905, 0.0026, 0.8413, 0.9827),
+    'casvir.jpg': (0.1071, 0.0204, 0.754, 0.9887),
+    'solsan.jpg': (0.1667, 0.008, 0.873, 1.0001),
+    'wantat1.jpg': (0.1944, 0.0204, 0.8413, 0.9887),
+    'grycat.jpg': (0.119, 0.0023, 0.8611, 0.9944),
+    'yebcha.jpg': (0.0119, 0.0029, 0.619, 1.0014),
+    'blkswi.jpg': (0.3413, 0.0029, 0.9286, 0.9817),
+    'olsfly.jpg': (0.0476, 0.183, 0.877, 0.8057),
+    'lazbun.jpg': (0.0238, 0.0085, 0.6865, 1.0006),
+    'bkhgro.jpg': (0.2619, 0.0917, 0.8095, 0.9115),
+    'swathr.jpg': (0.1984, 0.0129, 0.9325, 0.9944),
+    'cliswa.jpg': (0.004, 0.0023, 0.746, 0.9944),
+    'vauswi.jpg': (0.377, 0.3056, 0.6032, 0.6442),
+    'westan.jpg': (0.0119, 0.0523, 0.9802, 0.8281),
+    'buwtea.jpg': (0.25, 0.0204, 0.8968, 0.9887),
+    'sancra.jpg': (0.123, 0.1175, 0.996, 0.7729),
+    'towwar.jpg': (0.0833, -0.0095, 0.7381, 0.9947),
+    'redcro.jpg': (0.0198, 0.0739, 0.5159, 0.8164),
+    'rufhum.jpg': (0.1667, 0.0806, 0.7857, 0.8951),
+    'sora.jpg': (0.2302, -0.0033, 0.8929, 0.9887),
+    'thagul.jpg': (0.2448, 0.1828, 0.9978, 0.7475),
+    'lobdow.jpg': (0.0357, 0.0171, 0.8135, 0.9893),
+    'cintea.jpg': (0.2143, 0.0207, 0.8532, 0.9887),
+    'bklkit.jpg': (0.1944, 0.0085, 0.8532, 0.9947),
+    'bkbplo.png': (0.0952, 0.0026, 0.75, 0.9828),
+    'brnowl.jpg': (0.1746, 0.0145, 0.8333, 1.0006),
+    'norshr4.jpg': (0.1786, 0.0086, 0.8373, 1.0007),
+    'norhar2.jpg': (0.0198, 0.0566, 0.996, 0.7056),
 }
 
 
@@ -213,6 +248,17 @@ OVERRIDES = {
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    # ---- pinned 2026-08-28, retrospectively ---------------------------
+    # ⚠️ These four carried an override and NO fingerprint, which is the
+    # very hazard this table exists to stop: the override would have
+    # ridden silently onto a replaced photo. Pinned to the image present
+    # on 2026-08-28. That records what they were validated against from
+    # here on; it cannot prove they were drawn against this image, and
+    # saying so is cheaper than implying a check that never happened.
+    'grearg1.jpg': '08b4ad8ccec3518c',
+    'topwhy1.jpeg': 'f27a3595ff5ac6b2',
+    'yebpin1.jpg': 'a602f9f4a06bd2cb',
+    'yegvir.jpg': '4d73c40a7ed73950',
     'glwgul.jpg': 'ffd4b8a3dff294b2',
     'killde.png': 'a24d90f536ea6684',
     'comloo.jpg': '75abf8dba6cc7c5e',
@@ -236,6 +282,37 @@ OVERRIDE_SRC_SHA = {
     'refboo.jpg': '4eec7e41aaa0080e',
     'margod.jpg': 'ddbb04ee31833d30',
     'yehbla.jpg': '140efbb012989015',
+    # F219, drawn 2026-08-28.
+    'chispa.jpg': '5a60de6dad0587d4',
+    'marmur.jpg': '0040e245ddb6d0b4',
+    'baisan.jpg': 'd600f3ec94e8a6ae',
+    'casvir.jpg': '6806937860cbd91b',
+    'solsan.jpg': '85e76106e97283dc',
+    'wantat1.jpg': '3322e00f6343e0ba',
+    'grycat.jpg': '1d4101f4c8d11151',
+    'yebcha.jpg': 'b4e6822007895e53',
+    'blkswi.jpg': '8b64a81daeaa6fe9',
+    'olsfly.jpg': '9d3cd8818d1b0764',
+    'lazbun.jpg': 'a49e1fdbee7c3abc',
+    'bkhgro.jpg': '17cb08112f198a6f',
+    'swathr.jpg': 'f9eb396c4f25592e',
+    'cliswa.jpg': '33c8e847b9c4a2b0',
+    'vauswi.jpg': 'ef7fee458808ef21',
+    'westan.jpg': 'a1ff3b4ea74a4021',
+    'buwtea.jpg': 'f31104e9c8108e12',
+    'sancra.jpg': '6a0e24fe28d0e4b5',
+    'towwar.jpg': '8bc6dd304cc37786',
+    'redcro.jpg': '6bdce170a05b2f8a',
+    'rufhum.jpg': 'afdc8f45d156a8ab',
+    'sora.jpg': '78251e4801fdf0f1',
+    'thagul.jpg': '4d4fbb590f6ab900',
+    'lobdow.jpg': '652ff3d5b3f763af',
+    'cintea.jpg': '57df45a719e18f4b',
+    'bklkit.jpg': '90965a6a0e0c7da8',
+    'bkbplo.png': 'fa80d6c9c0564f43',
+    'brnowl.jpg': 'ee2a08775fe2bf9c',
+    'norshr4.jpg': '11cadfa73bd10231',
+    'norhar2.jpg': '8da9999a680a8d25',
 }
 
 
@@ -445,6 +522,38 @@ def square_box(w, h, a, name=None):
 
     if name is not None and name in OVERRIDES:
         f = OVERRIDES[name]
+        # ---- A DRAWN BOX, not a slide -----------------------------------
+        #
+        # F219, measured 2026-08-28. The slide form can only move a min(w,h)
+        # square along the long axis, so the subject's SIZE in the icon is
+        # whatever the photo happens to give — it cannot zoom. That is fine
+        # for a mis-centred bird and useless for a distant one, and 7 of the
+        # 30 boxes in the second batch were drawn smaller than the square:
+        #
+        #   vauswi 0.339   redcro 0.743   thagul 0.753   rufhum 0.815
+        #   bkhgro 0.820   olsfly 0.829   sancra 0.873
+        #
+        # ⚠️ vauswi is the proof this mattered. Its reported defect was
+        # "subject too tiny" — a ZOOM request by definition — so a slide
+        # override would have shipped, reported success, and left the icon
+        # exactly as tiny as it was. The square is 2.9x wider than drawn:
+        # the bird would occupy 11.5% of the area the owner asked for. A fix
+        # that cannot fix is the F190 shape, and it is caught here rather
+        # than in a device report a week later.
+        #
+        # A float stays a slide, so every F216 entry keeps its meaning.
+        if isinstance(f, (tuple, list)):
+            left, top = f[0] * w, f[1] * h
+            side_px = min(f[2] * w - left, f[3] * h - top)
+            # The annotator draws squares, but a box dragged past an edge
+            # comes back with a coordinate outside the image (measured: six
+            # of thirty, worst 0.95% over). Clamp, then re-square, so the
+            # result is inside the photo and still exactly square.
+            left = max(0.0, min(left, w - side_px))
+            top = max(0.0, min(top, h - side_px))
+            side_px = int(round(min(side_px, w - left, h - top)))
+            left, top = int(round(left)), int(round(top))
+            return (left, top, left + side_px, top + side_px)
         if w >= h:
             left = int(round(f * (w - side)))
             return (left, 0, left + side, side)

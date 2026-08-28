@@ -24,6 +24,8 @@ import sys
 from PIL import Image
 
 SRC = r"C:\Users\wyhoutz\source\repos\birding\assets\birds-src"
+# The batch file is an ARGUMENT with the F216 batch as the default, so a second
+# round of drawings does not require editing the script that validates it.
 DRAWN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "f216-drawn.json")
 
 REASON = {
@@ -54,7 +56,8 @@ def find(code):
 
 
 def main() -> int:
-    data = json.load(open(DRAWN, encoding="utf-8"))["cases"]
+    path_arg = sys.argv[1] if len(sys.argv) > 1 else DRAWN
+    data = json.load(open(path_arg, encoding="utf-8"))["cases"]
     ok, bad = [], []
     print(f"{'bird':10s} {'file':16s} {'axis':10s} {'slide':>6s} {'ratio':>6s}  "
           f"{'contains drawn box?':22s} verdict")
