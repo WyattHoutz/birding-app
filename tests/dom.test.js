@@ -5674,6 +5674,34 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
   assert.ok(acts, 'every hotspot card offers Open in Maps / Save');
   assert.match(acts.textContent, /Open in Maps/, 'Open in Maps');
   assert.match(acts.textContent, /Save|Saved/, 'and Save, exactly like the quick outing');
+  // ── F219(c): the eBird link is an ACTION, like the ones beside it ───────
+  //
+  // It read "on eBird" — a bare preposition with no icon, no verb and no
+  // external-link arrow — sitting between "🗺 Open in Maps ↗" and "★ Saved".
+  // Reported from the device: "This should say Open in eBird with a link
+  // icon, and should match the formatting of the Open in Maps."
+  //
+  // ⚠️ PINNED TO THE PROPERTY THAT THE SIBLINGS AGREE, not to the literal
+  // string. A guard asserting "🔗 Open in eBird ↗" would pass while some
+  // FUTURE third link in the same row went back to being a fragment, which is
+  // exactly how this one survived: nothing compared it to what sat next to it.
+  const eb = acts.querySelector('.ebirdlink');
+  assert.ok(eb, 'the row offers the eBird page');
+  assert.ok(!/^\s*on eBird\s*$/.test(eb.textContent),
+    'and it is not a bare preposition — "on eBird" reads as a caption for '
+    + 'whatever is beside it, not as something you can press');
+  const mapA = [...acts.querySelectorAll('a')]
+    .find((a) => /Open in Maps/.test(a.textContent));
+  // Every ACTION in this row carries the same three parts: an icon, a verb
+  // phrase, and the ↗ that means "this leaves the app".
+  for (const [name, a] of [['Open in Maps', mapA], ['eBird', eb]]) {
+    assert.match(a.textContent, /\u2197/,
+      `${name} must carry the external-link arrow its neighbour has`);
+    assert.match(a.textContent, /^\s*\p{Extended_Pictographic}/u,
+      `${name} must lead with an icon, like its neighbour`);
+    assert.match(a.textContent, /\bOpen in\b/,
+      `${name} must say what pressing it DOES, in the same words as its neighbour`);
+  }
   assert.ok(li.querySelector('.hsseen').compareDocumentPosition(acts)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'actions sit below the lists');
   app.window.close();
@@ -5978,10 +6006,26 @@ test('Last 7-Days rarities can expand the full checklist list', () => {
   const cdBody = cd.slice(0, cd.indexOf('\n      function ', 1));
   assert.match(cdBody, /<details class="ckall"/,
     'and that helper really is the <details> wrapper');
-  assert.match(src, /' — show every report'/, 'with a summary that states the total');
-  // A <details> holding one row is a control that does nothing.
-  assert.match(src, /< 2|<= 1|length < 2/,
-    'a single checklist needs no expander — that is a control that does nothing');
+  assert.match(src, /show every report/,
+    'with a summary that states the total');
+  // ⚠️ WAS: `assert.match(src, /< 2|<= 1|length < 2/)` — "a single checklist
+  // needs no expander — that is a control that does nothing."
+  //
+  // That reasoning was right about the LIST and wrong about everything else
+  // riding on the same element. The <details> is also the only thing that
+  // emits the `ev-*` hooks, so suppressing it for a lone report suppressed
+  // the observer's NOTE too, permanently and whatever the toggle said.
+  // F219, measured on the live WA notable feed: 9 of 24 species (38%) have
+  // exactly one checklist, and a one-off sighting is exactly where the note
+  // is the only locating detail that exists.
+  //
+  // So the rule is now about the NOUN AGREEING WITH THE COUNT rather than
+  // about suppressing the control: a lone report gets a carrier, and the
+  // summary must not promise to expand one thing into one thing.
+  assert.match(src, /one: 'checklist \\u2014 show the report'/,
+    'a lone report still gets a carrier, and reads in the singular');
+  assert.match(src, /many: 'checklists \\u2014 show every report'/,
+    'and the plural case is unchanged');
 });
 
 // Wikipedia REST stub: "Ruff" is a disambiguation page (the real behaviour that
@@ -8263,7 +8307,139 @@ test('a rarity checklist marks its media instantly, spending nothing', async () 
   app.window.close();
 });
 
-// ── F215 (F192 item 4): "option to see detailed comments" ─────────────────
+// ── F219(a): Twitches today never reached the fetch at all ────────────────
+//
+// "Twitches today still does not show notes in 1.43.1", and the device log is
+// unambiguous: ZERO product/checklist/view calls in 43 live calls.
+//
+// ⚠️ THIS GUARD EXISTS BECAUSE THE F215 ONE ABOVE COULD NOT FAIL FOR IT. That
+// test opens the <details> itself and calls hydrateChecklistEvidence itself,
+// so it proves the note PAINTS and can say nothing about whether anything ever
+// REACHES the paint. Two shipped releases passed it while the section showed
+// nothing: v1.42.8 painted only inside an already-open disclosure, and
+// v1.43.0's fix (`hydrateOpenNotes`) was defined and called from NOWHERE.
+//
+// So this asserts the reach, from the section's own render, and it is pinned
+// to the PROPERTY that the row carries the hook the hydration selects on —
+// not to a function name that can be deleted while the guard stays green.
+test('F219: a Twitches today row carries the note hook, because the row IS the checklist', async () => {
+  // Driven through the SECTION's own render, not by calling a card builder.
+  // The capability existing is not the same claim as the section using it,
+  // and it was exactly that gap — a card that could have carried a hook and a
+  // section that never passed one — that shipped twice.
+  const rows = [{ speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    obsDt: todayFixtureDate() + ' 07:15', locName: 'Skiff Point', locId: 'L1',
+    lat: 47.7, lng: -122.5, subId: 'S900001', userDisplayName: 'B Waggoner',
+    howMany: 1, obsValid: true }];
+  let views = 0;
+  const app = await boot({
+    storage: { ebird_rarity_notes_v1: 'on' },
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        views++;
+        return { obs: [{ speciesCode: 'lcspet', comments: 'Viewed through Kowa 88 at 65x.' }] };
+      }
+      if (/data\/obs\//.test(url)) return rows;
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  assert.equal(A.rarityNotes(), true, 'the fixture has notes switched on');
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 1800));
+
+  const out = doc.getElementById('results');
+  const hooked = out.querySelectorAll('[data-ev-sub]');
+  assert.ok(hooked.length > 0,
+    'every Twitches today row must carry an ev-* hook — hydrateChecklistEvidence '
+    + 'selects [data-ev-sub], so a section with none is invisible to it and no '
+    + 'note can ever be fetched (the v1.43.1 device log: 0 checklist views)');
+  assert.equal(hooked[0].getAttribute('data-ev-code'), 'lcspet',
+    'the species code travels with it, or the right observation cannot be picked');
+
+  // ⚠️ THE REACH, which is the thing two shipped guards could not see.
+  await new Promise((r) => setTimeout(r, 1200));
+  assert.ok(views > 0,
+    'with notes ON the section must actually FETCH — painting is not reaching');
+  app.window.close();
+});
+
+test('F219: with notes OFF, Twitches today spends nothing', async () => {
+  const rows = [{ speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    obsDt: todayFixtureDate() + ' 07:15', locName: 'Skiff Point', locId: 'L1',
+    lat: 47.7, lng: -122.5, subId: 'S900001', userDisplayName: 'B',
+    howMany: 1, obsValid: true }];
+  let views = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) { views++; return { obs: [] }; }
+      if (/data\/obs\//.test(url)) return rows;
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(A.rarityNotes(), false, 'off is the default');
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 2200));
+  // The note costs one call per row here because the notable feed does not
+  // carry `comments` (measured: 0 of 84 live rows). That price is only
+  // acceptable if it is opt-in, so the default must stay free.
+  assert.equal(views, 0,
+    'the default view must not buy notes — one call per row is opt-in only');
+  app.window.close();
+});
+
+test('F219: the species card encodes a hook value instead of trusting it', async () => {
+  const app = await boot();
+  const html = app.window.SpeciesCards.medium({
+    name: 'x',
+    data: { 'ev-sub': 'S1', 'ev-place': 'Chuck\u0027s "east" lot <b>x</b>' },
+  });
+  // cards-species.js has NO html escaper by design and guards its dynamic
+  // values with character whitelists. A whitelist here would have silently
+  // eaten an apostrophe out of an ordinary place name — the same failure that
+  // deleted a chevron and made a disclosure affordance vanish.
+  assert.ok(!/<b>/.test(html), 'markup in a hook value must not survive');
+  assert.match(html, /Chuck&#39;s/, 'and the apostrophe is ENCODED, not deleted');
+  assert.match(html, /east/, 'nothing is dropped — encoding is lossless');
+  app.window.close();
+});
+
+// ── F219(b): a lone report could never carry a note ───────────────────────
+//
+// rarityChecklistDetails returned '' at `items.length < 2`, so a species with
+// one checklist had no <details>, no ev-* hooks and therefore no possible
+// note. Measured on the live WA notable feed: 9 of 24 species (38%) have
+// exactly one checklist, and those are the one-off sightings where the
+// observer's words are the only locating detail there is.
+test('F219: a rarity reported on ONE checklist still gets a note carrier', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const one = A.rarityChecklistDetails({
+    code: 'lcspet',
+    recs: [{ subId: 'S900001', loc: 'Skiff Point', lat: 47.7, lng: -122.5,
+             dateStr: '2026-08-28 07:15', observer: 'B' }],
+  });
+  assert.ok(one, 'a single-report rarity must still render a carrier');
+  assert.match(one, /data-ev-sub="S900001"/,
+    'and it must carry the hook, or the note can never be fetched for it');
+  // The summary must not promise to expand one thing into one thing.
+  assert.ok(!/1 checklists/.test(one), 'the noun agrees with the count');
+  assert.match(one, /1 checklist \u2014 show the report/,
+    'a lone report reads as one report, not as "show every report"');
+
+  const many = A.rarityChecklistDetails({
+    code: 'lcspet',
+    recs: [{ subId: 'S1', loc: 'A', lat: 47.7, lng: -122.5, dateStr: '2026-08-28 07:15' },
+           { subId: 'S2', loc: 'B', lat: 47.7, lng: -122.5, dateStr: '2026-08-27 07:15' }],
+  });
+  assert.match(many, /2 checklists \u2014 show every report/,
+    'and the plural case is unchanged');
+  app.window.close();
+});
+
+
 // Reported twice in one pass — on Twitches ("toggle to show details including
 // comments") and on the stakeout bird. The notes were already reachable, one
 // tap per row; the request is to stop tapping.

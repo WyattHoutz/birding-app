@@ -41,14 +41,14 @@
   /* ---------------------------------------------------------------- markup */
 
   var SMALL = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{attrs}}>',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
 
   var MEDIUM = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{attrs}}>',
     '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}</span>{{dist}}</div>',
     '  <div class="meta">{{code}}{{sci}}{{when}}{{sub}}</div>',
     '  {{conf}}',
@@ -57,7 +57,7 @@
   ].join('');
 
   var LARGE = [
-    '<li class="{{cls}}">',
+    '<li class="{{cls}}"{{attrs}}>',
     '  {{icon}}',
     '  <div class="bcbody">',
     '    <div class="bcname">{{name}}{{tags}}{{actions}}{{count}}</div>',
@@ -435,10 +435,48 @@
     }).replace(/ class=""/g, '');
   }
 
+  /* `data` lets a SECTION hang its own hooks on the row without this file
+     learning what they mean. The evidence hydration needs to know which
+     checklist, which bird, and where the bird was — three facts the caller has
+     and the template must never interpret. Keys are restricted to data-* names
+     and values are encoded, so a section cannot inject an attribute here.
+
+     Copied in shape from cards-checklist.js on purpose: two card families with
+     two different rules for the same hook is how "rare" came to mean two
+     things. Values arrive RAW, exactly as they do there — index.html passes
+     `x.loc` and `fmtDateTime(...)` unescaped and lets the card file handle it,
+     so double-encoding here would corrupt what getAttribute() reads back.
+
+     ⚠️ ENCODED, NOT WHITELISTED, and the difference is load-bearing in this
+     file. It has no HTML escaper by design and guards its few dynamic values
+     with character whitelists instead — and one of those whitelists silently
+     DELETED a chevron, so a disclosure affordance vanished with nothing
+     failing. A place name is not a machine label: "Chuck's Pond" and
+     "Marymoor — east lot" are ordinary, and a whitelist would quietly eat
+     them. Attribute encoding is lossless, so nothing disappears, and an
+     attribute is a different context from text: the only thing that must not
+     survive is a character that can break OUT of the quotes. */
+  function attrEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function attrsHtml(v) {
+    var d = v && v.data;
+    if (!d) return '';
+    var out = '';
+    Object.keys(d).forEach(function (k) {
+      if (!/^[a-z][a-z0-9-]*$/.test(k)) return;
+      var val = d[k];
+      if (val == null || val === '') return;
+      out += ' data-' + k + '="' + attrEsc(val) + '"';
+    });
+    return out;
+  }
+
   // A caption line is only rendered when there is something to say, so an
   // absent field leaves no empty row behind.
-  function subHtml(v, wrap) {
-    var bits = [v.sub, v.distance, v.score].filter(function (x) {
+  function subHtml(v, wrap) {    var bits = [v.sub, v.distance, v.score].filter(function (x) {
       return x != null && x !== '' && String(x).indexOf('undefined') < 0
         && String(x).indexOf('NaN') < 0;
     });
@@ -719,6 +757,23 @@
       // choice - a block-level child of <span class="ntext"> is invalid and
       // the browser would break the line whatever the CSS said.
       actions: v.actions ? '<span class="spact">' + v.actions + '</span>' : '',
+      // `data` lets a SECTION hang its own hooks on the ROW without this file
+      // learning what they mean — the same contract cards-checklist.js already
+      // offers, and deliberately identical so the two card families do not
+      // grow two different answers to one question.
+      //
+      // F219. Twitches today needs it because each of its rows IS one
+      // checklist: `obsDedupKey` is `subId:speciesCode`, so the row already
+      // knows which report it is, and the note can hang on the row itself
+      // rather than inside a disclosure that exists to ask "which of these
+      // checklists?" — a question that section does not have.
+      //
+      // ⚠️ On ALL THREE sizes, not just the one with a caller today. `fill()`
+      // drops an unknown placeholder silently, so a `data:` passed to a card
+      // whose template lacked `{{attrs}}` would vanish without a word — and a
+      // hook that is quietly discarded is exactly the kind of no-op this
+      // codebase keeps paying to rediscover.
+      attrs: attrsHtml(v),
       below: v.below || ''
     });
   }

@@ -2685,7 +2685,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.44.0';
+      var APP_VERSION = '1.45.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6518,7 +6518,45 @@
                 alert: countyAlertLink(r),
                 when: r.subId ? checklistLink(r.subId, when) : esc(when),
                 observer: r.observer || ''
-              })
+              }),
+              // F219(a). THE ROW IS THE CHECKLIST, so the note hangs here.
+              //
+              // `notableRecent` dedupes on `obsDedupKey`, which is
+              // `subId + ':' + speciesCode` — one row is exactly one
+              // observation on one checklist. So this section never has the
+              // question a `<details>` list exists to answer ("which of these
+              // reports?"), and the shipped attempt to give it one was the
+              // wrong shape as well as never wired: `hydrateOpenNotes` was
+              // defined and called from nowhere, and NO row here carried an
+              // `ev-*` hook, so `hydrateChecklistEvidence` matched nothing.
+              // The device log for the report is unambiguous — ZERO
+              // product/checklist/view calls in 43 live calls.
+              //
+              // ⚠️ THIS COSTS ONE CALL PER ROW, and that is stated rather than
+              // hidden. The comment introducing the toggle claims it "COSTS
+              // NOTHING EXTRA … the notes ride along in the checklist reads
+              // hydrateChecklistEvidence already makes when a list is opened".
+              // That is TRUE for Twitches this week and FALSE here, because
+              // this section opens no list. Measured against the live feed:
+              // `comments` is absent from the notable feed entirely (0 of 84
+              // rows), so there is nothing to ride along on.
+              //
+              // ⚠️ AND `hasComments` CANNOT BE USED TO AVOID THE CALL, which
+              // was the first design tried: it is `false` on 188 of 188 live
+              // notable rows while the note is actually present on 14 of 14
+              // checklists fetched — a field that exists and never carries the
+              // truth. Gating on it would have hidden every note.
+              //
+              // The saving grace is that nothing is wasted: eBird makes a
+              // comment effectively compulsory on a flagged species, measured
+              // 14/14, so a fetch that happens returns something ~always.
+              // Gated on rarityNotes() so the default view still costs zero.
+              data: r.subId ? {
+                'ev-sub': r.subId, 'ev-code': r.code || '',
+                'ev-lat': r.lat, 'ev-lng': r.lon != null ? r.lon : r.lng,
+                'ev-place': r.loc || r.locName || '',
+                'ev-when': when
+              } : null
             });
           }
           var html = rows.length ? rows.map(card).join('') : '';
@@ -6539,6 +6577,18 @@
           }
           out.innerHTML = html;
           hydratePhotos(out);
+          // F219(a). The notes, only when asked for.
+          //
+          // ⚠️ GATED, and the gate is the whole cost control: with the toggle
+          // off this is a no-op and the section keeps costing exactly what it
+          // did. With it on it is one product/checklist/view per row — ~19s
+          // for a 7-row screen at the safe 0.37 calls/s — which is the honest
+          // price of a note this feed does not carry.
+          //
+          // hydrateChecklistEvidence caps itself at CKL_EVID_MAX live calls
+          // and treats a cached row as free, so re-opening the section after
+          // the first pass costs nothing.
+          if (rarityNotes()) hydrateChecklistEvidence(out);
           // Marked only now that they are on screen. Everything in the list,
           // not just the near half, or the far ones would read as new forever.
           markRaritySeen(all.map(rarityRowId));
@@ -9564,11 +9614,28 @@
           + esc(name || locId) + '">' + esc(name || locId) + '</a>';
       }
       // The eBird page, still one tap away and now SAID rather than implied.
+      //
+      // ⚠️ THE DEFAULT LABEL WAS A FRAGMENT, NOT AN ACTION. It read "on eBird"
+      // — no icon, no verb, no external-link arrow — sitting in the same
+      // action row as "🗺 Open in Maps ↗" and "★ Saved". Reported from the
+      // device: *"This should say Open in eBird with a link icon, and should
+      // match the formatting of the Open in Maps."*
+      //
+      // It reads as a caption for whatever is beside it rather than as
+      // something you can press, which is the F189 lesson again: a control
+      // that is reachable and does not say what it is. "SAID rather than
+      // implied" was the right intent and a bare preposition did not achieve
+      // it — the phrase only completes a sentence the row never starts.
+      //
+      // Fixed HERE, in the one helper both links share, rather than at the
+      // call sites: the owner's report notes it "appears in multiple places",
+      // and it does because every caller inherits this default.
+      var EBIRD_LINK_LABEL = '\uD83D\uDD17 Open in eBird \u2197';
       function ebirdSpeciesA(code, label) {
-        return code ? extA(speciesUrl(code), label || 'on eBird', 'ebirdlink') : '';
+        return code ? extA(speciesUrl(code), label || EBIRD_LINK_LABEL, 'ebirdlink') : '';
       }
       function ebirdHotspotA(locId, label) {
-        return locId ? extA(hotspotUrl(locId), label || 'on eBird', 'ebirdlink') : '';
+        return locId ? extA(hotspotUrl(locId), label || EBIRD_LINK_LABEL, 'ebirdlink') : '';
       }
       // QR has exactly three supported destinations. They are EXISTING eBird
       // pages the app already links to, never coordinates / a home-derived
@@ -9598,13 +9665,13 @@
           }
           body = '<div class="qrshare"><div class="qrcode">' + window.BirdQR.svg(url)
             + '</div>' + body + '<a class="extlink" data-href="' + esc(url)
-            + '">Open on eBird ↗</a></div>';
+            + '">' + esc(EBIRD_LINK_LABEL) + '</a></div>';
         } catch (e) {
           // Do not make a QR failure a dead end. The text-equivalent
           // destination stays actionable, and the failure is diagnosable.
           dbg('error', 'QR render: ' + (e && e.message || e));
           body += '<p>QR code could not be generated.</p><a class="extlink" data-href="'
-            + esc(url) + '">Open on eBird ↗</a>';
+            + esc(url) + '">' + esc(EBIRD_LINK_LABEL) + '</a>';
         }
         showSheet('Share ' + what, 'No account, app install, or network is needed to scan it.', body);
       }
@@ -13577,7 +13644,28 @@
           seen[sub] = 1;
           items.push(x);
         });
-        if (items.length < 2) return '';
+        if (items.length < 1) return '';
+        // F219(b). WAS `< 2`, which suppressed the note on the rarities most
+        // likely to need it.
+        //
+        // The threshold was right for a LIST and wrong for a NOTE, and the
+        // two rode on one element. A species reported on a single checklist
+        // got no `<details>`, so no `ev-*` hooks, so no observer note could
+        // ever appear here however the toggle was set. Measured against the
+        // live WA notable feed (back=7, both counties, 188 rows): 9 of 24
+        // species — 38% — had exactly one checklist.
+        //
+        // ⚠️ These are the ones where the note matters MOST. A single report
+        // is often a one-off sighting, and the observer's words are the only
+        // locating detail that exists: *"by the helipad"*, *"Pale head, black
+        // slightly downturned beak. Hanging on log with gulls"*. The birds
+        // structurally denied a note were the hardest ones to find.
+        //
+        // The summary is reworded rather than left to read "1 checklist —
+        // show every report", which promises to expand one thing into one
+        // thing. `checklistDetails` already takes a { one, many } label pair
+        // for exactly this: the plural belongs to the noun, not to the end of
+        // the sentence.
         // The shared checklist card: one line per report carrying place, date,
         // count, a map pin and the checklist id. This used to be a bespoke
         // three-column grid with the observer tucked into a nested span.
@@ -13610,8 +13698,10 @@
             }
           });
         });
-        return checklistDetails(rows, items.length, 'checklist',
-          ' — show every report');
+        return checklistDetails(rows, items.length, {
+          one: 'checklist \u2014 show the report',
+          many: 'checklists \u2014 show every report'
+        });
       }
 
       // Last 7-Days rarity reports for the rare-bird-tracker reports: the public ABA alert,
