@@ -42,18 +42,16 @@
 
   var SMALL = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
-    '  {{actions}}',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');
 
   var MEDIUM = [
     '<li class="{{cls}}">',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}</span>{{dist}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}</span>{{dist}}</div>',
     '  <div class="meta">{{code}}{{sci}}{{when}}{{sub}}</div>',
     '  {{conf}}',
-    '  {{actions}}',
     '  {{below}}',
     '</li>'
   ].join('');
@@ -62,11 +60,10 @@
     '<li class="{{cls}}">',
     '  {{icon}}',
     '  <div class="bcbody">',
-    '    <div class="bcname">{{name}}{{tags}}{{count}}</div>',
+    '    <div class="bcname">{{name}}{{tags}}{{actions}}{{count}}</div>',
     '    {{sci}}',
     '    <div class="bcmeta">{{code}}{{dist}}{{when}}{{conf}}</div>',
     '    <div class="bcsub">{{sub}}</div>',
-    '    {{actions}}',
     '    {{below}}',
     '  </div>',
     '</li>'
@@ -716,7 +713,12 @@
       // row — anything nested in the text block sits after the words, not at
       // the edge. Used by the ABA list, where each row opens a sub-page.
       right: v.right || '',
-      actions: v.actions ? '<div class="spact">' + v.actions + '</div>' : '',
+      // ⚠️ WAS A <div>, which is why the QR control took a line of its
+      // own and rendered at button size beside a pill-sized magnifier. It now
+      // rides the name row next to {{tags}}, so an inline box is not a style
+      // choice - a block-level child of <span class="ntext"> is invalid and
+      // the browser would break the line whatever the CSS said.
+      actions: v.actions ? '<span class="spact">' + v.actions + '</span>' : '',
       below: v.below || ''
     });
   }

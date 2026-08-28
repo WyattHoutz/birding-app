@@ -918,9 +918,15 @@ test('a capped ABA alert is stated, and measured before the state filter', () =>
   // The load order is the whole guard: the flag has to be taken off `list`
   // (unscoped) and it has to happen before `rows` narrows it.
   const iFlag = load.indexOf('_abaTruncated =');
-  const iScope = load.indexOf('var rows = scoped');
+  // `stateRows` is the narrowing step (F209 split the state slice from the
+  // ABA-wide view, so `rows` is now the CHOSEN list and no longer the
+  // filtered one). What this guard pins is unchanged: the cap has to be
+  // read off the raw feed before anything narrows it.
+  const iScope = load.indexOf('var stateRows = scoped');
   assert.ok(iFlag > -1, 'the app must detect truncation at all');
   assert.ok(iScope > -1, 'the state filter must still exist');
+  assert.match(load, /var rows = wide \? list : stateRows/,
+    'and the ABA-wide view must be the UNFILTERED list, not a second fetch');
   assert.ok(iFlag < iScope,
     'truncation is measured on the raw feed — filtering first is exactly what hid it');
   assert.match(load, /_abaTruncated = list\.length >= ABA_ALERT_MAX_ROWS/,
@@ -9525,8 +9531,15 @@ test('the ABA section hydrates its photos', () => {
   const open = HTML.slice(HTML.indexOf('function abaOpenBird('),
     HTML.indexOf('function abaCloseBird('));
   assert.match(open, /hydratePhotos\(card\)/, 'the profile photo is filled when opened');
-  const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
-    HTML.indexOf('function renderAbaAlert(') + 5000);
+  // ⚠️ WAS `+ 5000`, and adding comments to the function pushed
+  // `hydratePhotos(el)` out of the window - the guard failed while the call it
+  // audits was still there and still correct. That is F197 exactly: a guard
+  // pinned to a POSITION is broken by a change nowhere near it. A byte count
+  // is not a property of the thing being checked, so slice to the END of the
+  // function instead, which is.
+  const _r0 = HTML.indexOf('function renderAbaAlert(');
+  const _r1 = HTML.indexOf('\n      function ', _r0 + 1);
+  const render = HTML.slice(_r0, _r1 > _r0 ? _r1 : HTML.length);
   assert.match(render, /hydratePhotos\(el\)/, 'and the list icons when the list is built');
 });
 
@@ -16783,8 +16796,13 @@ test('the Mega rarities verdict names every place its rows can be lost', () => {
     'the verdict must say how many rows the scrape returned');
   assert.match(call, /_abaTruncated/,
     'and whether the continent-wide alert hit its 500-row cap');
-  assert.match(call, /rows\.length \+ ' cleared the '/,
+  assert.match(call, /stateRows\.length \+ ' cleared the '/,
     'and how many survived the region filter');
+  // F209: the ABA-wide view turns the filter OFF, so the verdict has to say
+  // which view it is describing. "6 species" means two different things at the
+  // two scopes, and a verdict that cannot be told apart is not evidence.
+  assert.match(call, /ABA-WIDE view/,
+    'and it must name the scope, because the row count means different things at each');
   // Not rows.length again: that would restate a number already printed and
   // would still read "6 rendered" while the list was empty.
   assert.match(call, /_abaUl \? _abaUl\.children\.length : 0/,

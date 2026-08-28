@@ -483,6 +483,27 @@
     '  border-radius: 8px; background: var(--card, #fff); color: var(--accent);',
     '  cursor: pointer; vertical-align: middle; }',
     '.qrbtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }',
+    // IN A NAME ROW THE BUTTON IS A BADGE, NOT A BUTTON. Reported 2026-08-27:
+    // "similar size to magnifying glass and next to the species name ... i
+    // think all the icons should be next to each other". A 44px box beside a
+    // pill-sized tag reads as a separate control, which is what put it on its
+    // own line even before the block-level wrapper was fixed.
+    //
+    // The 44px tap target is NOT given up - it is preserved as an invisible
+    // ::after that overflows the smaller visible box, which is the standard
+    // way to keep a small glyph tappable. Shrinking the hit area instead would
+    // have traded an accessibility floor for a layout preference, and this
+    // project already has a CSS-wide guard against fixed boxes with scaling
+    // text for exactly that reason.
+    '.spact { display: inline-flex; align-items: center; vertical-align: middle;',
+    '  margin-left: 6px; }',
+    '.spact .qrbtn { position: relative; width: calc(30px * var(--s, 1));',
+    '  height: calc(30px * var(--s, 1)); border-radius: 999px; }',
+    '.spact .qrbtn::after { content: ""; position: absolute;',
+    '  left: 50%; top: 50%; transform: translate(-50%, -50%);',
+    '  width: calc(44px * var(--s, 1)); height: calc(44px * var(--s, 1)); }',
+    '.spact .qricon { width: calc(17px * var(--s, 1));',
+    '  height: calc(17px * var(--s, 1)); }',
     '.qricon { display: block; width: calc(22px * var(--s, 1));',
     '  height: calc(22px * var(--s, 1)); }',
     '.qrshare { display: grid; justify-items: center; gap: 12px; text-align: center; }',
