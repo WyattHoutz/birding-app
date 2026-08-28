@@ -110,11 +110,74 @@ Empty is the good case.
 ## Known limits, stated rather than hidden
 
 - **Nobody knows how many icons are wrong.** 13 were reviewed in F190 and 12
-  more after it — **25 of 1,290 (~2%)**. Of the 12, **11 were wrong**. That rate
-  cannot be extrapolated (they were reported *because* they looked wrong), but
-  it is not evidence of health either.
+  more after it, then **15 more in F216 — 40 of 1,288 (~3%)**. Of the 12,
+  **11 were wrong**; of the 15, **14 moved**. That rate cannot be extrapolated
+  (they were reported *because* they looked wrong), but it is not evidence of
+  health either.
 - **No signal predicts which icons need review.** Tested and rejected above. The
   only known method is looking.
 - **`ZOOM IN` and `DOES NOT FIT` have no fix yet.** The cropper slides a
   fixed-size square; it cannot zoom, and it cannot pad. Four of the twelve need
   zoom and one needs padding.
+
+## Rejected: a species- or class-aware crop margin
+
+**Proposed 2026-08-27 by the owner** — *"look up each bird's description to see
+how long its beak is, to estimate cropping distance from its eye; many birds
+have head to beak ratios"*, then refined to *"look up based on class of birds
+like sandpipers and hawks and ducks"*.
+
+It is a good idea and it targets a real thing: `HEAD_PAD` is one constant for
+every bird, and a godwit plainly needs more clearance than a chickadee. The
+class form is better than the species form — eBird's taxonomy supplies family
+for free, so it is ~200 buckets rather than 1,290 lookups, and it maps onto the
+root cause F190 named (the head anchor is *"the energy centroid of the top
+band, right for an upright perching bird and wrong for a horizontal one"*).
+
+**It was rejected on measurement, not on taste.** F216 produced the first
+ground truth this project has ever had — **26 owner-drawn slides** — so the
+question could finally be asked properly: is the residual error a MARGIN error,
+which a table could fix, or a DIRECTION error, which it cannot?
+`assets/f216_score.py` turns the overrides off, re-runs the automatic placement,
+and compares:
+
+| error vs the drawn slide | count | a smarter margin? |
+|---|---|---|
+| **> 0.50** — more than half the slide range, i.e. the wrong part of the bird | **15 (58%)** | no |
+| 0.15 – 0.50 | 9 (35%) | unlikely |
+| ≤ 0.15 | **2 (8%)** | plausibly |
+
+Median error **0.563**, mean **0.555**, and **six sit at ~1.000 — the literal
+opposite end of the photo**. *The margin is not what is wrong; the anchor is
+landing in the wrong place, and a better allowance around a wrong point is
+still a wrong point.*
+
+**Then the class form was tested directly, with within-class controls**, since
+that is the version worth taking seriously:
+
+| class | spread of error |
+|---|---|
+| ducks (Anatidae) | **0.05 → 1.00** — `norpin` 0.05 against `yebpin1` 1.00, **both pintails** |
+| gulls (Laridae) | 0.18 → 0.73 |
+| shorebirds (Scolopacidae) | 0.31 → 0.56 |
+| pigeons (Columbidae) | 0.97 → 1.00 — consistently bad |
+
+**Two pintails, same genus and same posture, land at opposite extremes.** So the
+error is determined by *the photograph* — which way the bird faces, what the
+background does — and not by the species or its family. **A class table cannot
+fix what varies that much inside a class.** Pigeons are the one bucket where a
+class rule would genuinely help, and one bucket in four is not a system.
+
+⚠️ **The sample is the failure set, by construction.** These 26 are the icons
+that were *reported as wrong*, so 58% is the shape of the failures we know
+about, **not** the error rate across 1,288 icons. Quoting it as the latter would
+be wrong.
+
+**What this leaves.** The bottleneck is not the detector's precision — it is
+that only ~3% of icons have ever been looked at. A drawn box takes about a
+minute and is ground truth; a cleverer detector produces unverified output on
+1,250 unreviewed images, and F190 already measured a **fixed** crop tying the
+best rule 9/13. If the detector is ever revisited, the target is **direction**
+(which end is the head), not margin — and it should be scored against these 26
+before anything is shipped.
+
