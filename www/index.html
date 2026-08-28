@@ -2685,7 +2685,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.43.0';
+      var APP_VERSION = '1.43.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6611,6 +6611,21 @@
             (targets.length > shown.length ? ' (showing ' + shown.length + ')' : '') +
             ' at ' + places.length + ' spot' + (places.length === 1 ? '' : 's') +
             fromHere() +
+            // ⚠️ THE COVERAGE NOTE BELONGS HERE TOO, and its absence is the
+            // whole of the reported bug. `coverageNote` already exists and
+            // already says the honest thing — "nearest is 99 mi, this report
+            // covers King + Snohomish, so nothing closer was fetched" — but
+            // only Top patches called it. This section re-ranked the SAME
+            // home-scoped candidates from Yakima and then said nothing, so a
+            // 99 mi row sat under a heading about nearby birds with no
+            // explanation, and the card read as broken rather than as honest.
+            //
+            // The anchor moves; the DATA cannot follow it. Re-ranking is not
+            // re-fetching, and a section that re-ranks without saying so is
+            // claiming a search it never ran.
+            coverageNote(shown.map(function (t) {
+              return { dist: (t.distMi != null ? t.distMi : t.dist) };
+            })) +
             ' · updated ' + nowTime();
           // The report maps this section, so the app must too. Rows are one per
           // species but several can share a spot, so pin the distinct locations.

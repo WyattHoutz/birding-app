@@ -1961,6 +1961,46 @@ test('a single odd late record is not nocturnality', async () => {
 // the other sampling-rule guards, not here — see "a sample gathered under the
 // old rule is rebuilt, not blended", which pins the property rather than the
 // digit and now also enforces the v4 floor.
+test('a re-ranked section says its data did not move with the anchor', async () => {
+  // "home pin is on yakima but hotspots are far away. known bug still not
+  // fixed." The card showed a 31 mi heading over 99 mi and 103 mi rows,
+  // because the anchor moved to Yakima and the CANDIDATES did not — they are
+  // still this report's counties plus a circle around home. Re-ranking is not
+  // re-fetching.
+  //
+  // `coverageNote` already said exactly that, and only Top patches called it.
+  const app = await boot();
+  const A = app.window.__app;
+
+  const far = A.coverageNote([{ dist: 99 }, { dist: 103 }]);
+  assert.ok(far, 'a list whose nearest row is 99 mi owes the reader a sentence');
+  assert.match(far, /99/, 'and it names the actual nearest distance');
+  assert.match(far, /nothing closer was fetched|actually around there/,
+    'stating that the DATA did not move, which is the fact that resolves the '
+    + 'contradiction between a short radius and a long row');
+
+  assert.equal(A.coverageNote([{ dist: 3 }, { dist: 8 }]), '',
+    'a genuinely nearby list needs no apology');
+  assert.equal(A.coverageNote([]), '', 'and an empty list is not a coverage problem');
+  app.window.close();
+});
+
+// A second copy of that sentence is how the two sections would drift, and a
+// section quietly omitting it is exactly how this bug happened.
+test('both anchor-ranked sections call the SAME coverage helper', () => {
+  const targets = HTML.slice(HTML.indexOf('function loadTargets('),
+    HTML.indexOf('function locNameKey('));
+  const dests = HTML.slice(HTML.indexOf('function loadDestinations('),
+    HTML.indexOf('function loadExcursions('));
+  for (const [name, src] of [['loadTargets', targets], ['loadDestinations', dests]]) {
+    assert.ok(src.length > 200, name + ' is still findable');
+    assert.match(src, /coverageNote\(/,
+      name + ' re-ranks from the anchor without saying its data did not move — '
+      + 'that is the bug this guard exists for, and it shipped once already');
+    assert.match(src, /fromHere\(\)/, name + ' must also name the anchor it used');
+  }
+});
+
 test('the rate limiter is sized for the key it actually has to itself', () => {
   const m = HTML.match(/var FG_GAP_MAX = \d+, FG_BUCKET = (\d+), FG_REFILL_PER_S = ([\d.]+)/);
   assert.ok(m, 'the limiter constants are still readable');
