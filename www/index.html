@@ -1362,6 +1362,10 @@
        its natural width instead of every chip being 1/6 of the screen. */
     .modeswitch { gap: 0; margin-bottom: 10px; border: 1px solid var(--line);
                   border-radius: 12px; overflow: hidden; flex-wrap: wrap; }
+    /* F209 follow-up. The ABA scope pair sits in the chip row, not the
+       segmented bar — but it is the only thing on its row, so it needs the
+       bottom margin the bar was providing. */
+    .abascoperow { margin-bottom: 10px; }
     .modeswitch .modebtn { flex: 1 1 auto; min-width: 0; border-radius: var(--btn-radius-flat); border: 0;
                            display: inline-flex; align-items: center; justify-content: center;
                            gap: 5px;
@@ -2681,7 +2685,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.9';
+      var APP_VERSION = '1.43.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13044,10 +13048,39 @@
         var text = (label && typeof label === 'object')
           ? (n === 1 ? label.one : label.many)
           : ((label || 'checklist') + (n === 1 ? '' : 's'));
-        return '<details class="ckall"><summary>' + n + ' '
+        // ⚠️ OPEN WHEN NOTES ARE ON, and this is the bug the feature shipped
+        // with. Reported from the device: "clicking notes does nothing".
+        //
+        // It was doing something — but only INSIDE a disclosure the reader had
+        // to open first, and the device log for that session shows ZERO
+        // product/checklist/view calls, because nothing was ever expanded. A
+        // control whose effect is hidden behind a second, unrelated
+        // interaction is indistinguishable from a control that is not wired up
+        // at all. That is F193 again, and my guard missed it for the same
+        // reason the F193 one did: it called hydrateChecklistEvidence on an
+        // element it had already opened itself, so it tested the painting and
+        // never the reaching.
+        //
+        // "toggle to show details including comments" — so with notes on, the
+        // details are shown. The disclosure stays, because with notes off it
+        // is still the right affordance for a list nobody has asked to read.
+        var open = rarityNotes() ? ' open' : '';
+        return '<details class="ckall"' + open + '><summary>' + n + ' '
           + text + (suffix || '')
           + '</summary>' + ChecklistCards.list('small', rows)
           + (inside || '') + '</details>';
+      }
+      // Hydrate any list that rendered ALREADY OPEN. The delegated handler
+      // hangs off the summary CLICK, so a disclosure that starts open never
+      // fires it — which is exactly how the notes toggle came to paint
+      // nothing. Called after the sections that can carry notes render.
+      function hydrateOpenNotes(root) {
+        if (!root || !rarityNotes()) return Promise.resolve();
+        var open = [].slice.call(root.querySelectorAll('details.ckall[open]'));
+        if (!open.length) return Promise.resolve();
+        return Promise.all(open.map(function (d) {
+          return hydrateChecklistEvidence(d).catch(function () {});
+        }));
       }
 
       // --- 🎯 chasing details from the observer's own note -------------------
@@ -16561,6 +16594,22 @@
         return out.slice(0, 2).join(' · ') + ' +' + (out.length - 2) + ' more';
       }
       function renderAbaAlert(list, url, grouped, wide) {
+        // ⚠️ THE SCOPE IS DERIVED HERE, NOT TRUSTED FROM THE CALLER.
+        //
+        // Reported from the device: tapping "ABA area" showed all 53 species
+        // and then reverted to the 3-species Washington list while the pill
+        // still read ABA area. The device log shows both renders and the WIDE
+        // one last, so the revert came from a repaint that reached this
+        // function WITHOUT the flag — and an omitted argument is `undefined`,
+        // which is falsy, which silently means "state".
+        //
+        // A parameter every caller must remember is a parameter someone will
+        // forget, and the failure is invisible: the view simply looks like it
+        // was never switched. The stored preference is the single source of
+        // truth, so a caller can no longer contradict it by omission. An
+        // explicit `false` is still honoured, because the archive and snapshot
+        // paths legitimately need the state view whatever the reader picked.
+        if (wide == null) wide = grouped && abaScope() === 'aba';
         setAbaWarn(abaAlertWarning((list || []).length));
         var el = $('abaResults'); el.innerHTML = '';
         el.className = grouped ? 'cards' : 'obs';
@@ -16620,7 +16669,16 @@
           // theirs, because it changes what the list IS rather than merely how
           // it is ordered - and a scope control you find after scrolling a
           // continent is a scope control nobody finds.
-          el.innerHTML = (grouped ? '<div class="modeswitch">' + abaScopeControl('abaScopePick') + '</div>' : '')
+          // ⚠️ NOT `.modeswitch`, which was the first choice and was wrong.
+          // That class is a full-width segmented BAR with its own border, so
+          // the pair stretched edge to edge and read as a page-wide banner
+          // rather than a chip — reported from the device as "toggle shouldnt
+          // stretch across the screen". `.raritycontrolrow` is the row the
+          // twitch chips already sit in, so this pair is now sized exactly
+          // like every other scope control in the app instead of being a
+          // second opinion about how a chip should look.
+          el.innerHTML = (grouped ? '<div class="raritycontrolrow abascoperow">'
+              + abaScopeControl('abaScopePick') + '</div>' : '')
             + '<ul class="obs big xl">'
             + groups.map(function (g) {
               return SpeciesCards.medium({
@@ -16862,7 +16920,10 @@
       // the denominator. v3 tags every hour against its OWN DAY'S sunset
       // instead of a fixed 19:00 — a v2 sample cannot be upgraded in place
       // because it kept only the clock hour and threw the date away.
-      var TOD_SAMPLE_V = 3;
+      // v4 stores the SPAN of each species-day — its first and last sighting —
+      // rather than one hour. A v3 sample kept only the last sighting, so it
+      // cannot be upgraded in place: the other end was never fetched.
+      var TOD_SAMPLE_V = 4;
       function todKey() { return 'ebird_tod_' + getReportSlug(); }
       // Lat/lon + timezone for the ACTIVE REPORT. Taken from the region rather
       // than the device, because `obsDt` is local time where the BIRD was: a
@@ -16912,14 +16973,14 @@
         var coh = todCoherence(s);
         if (s.v !== TOD_SAMPLE_V || (nh && !ch) || (coh != null && coh > TOD_COHERENCE_MAX)) {
           return { seen: {}, hours: {}, names: s.names, chk: {}, days: {},
-                   rebuilt: 1, v: TOD_SAMPLE_V };
+                   nd: {}, spanSeen: {}, rebuilt: 1, v: TOD_SAMPLE_V };
         }
         return s;
       }
       function todSave(s) { try { localStorage.setItem(todKey(), JSON.stringify(s)); } catch (e) {} }
       function todAccumulate(obs) {
         if (!obs || !obs.length) return 0;
-        var s = todLoad(), added = 0, chkAdded = 0;
+        var s = todLoad(), added = 0, chkAdded = 0, spanAdded = 0;
         // ONE site and ONE per-day solar cache for the whole batch. The
         // sunrise equation is the expensive part of ingest and a feed carries
         // thousands of rows across a handful of dates.
@@ -16947,6 +17008,37 @@
           var mi = parseInt(dt.slice(14, 16), 10);
           var exact = hh + ((mi >= 0 && mi <= 59) ? mi / 60 : 0);
           var v = site ? BL.todEncode(hh, BL.todTag(exact, solarFor(dt.slice(0, 10)))) : hh;
+          // ── F210: was this bird seen in DAYLIGHT at all, that day? ───────
+          //
+          // Counted HERE because this is the only place both ends of a
+          // species-day exist together: the store keeps bare hours, so nothing
+          // downstream can tell which two belong to one day. Same reason the
+          // solar tag is applied at ingest rather than derived later.
+          //
+          // A day is counted once per (species, county-day). `seen` already
+          // dedupes sub|code, but the day counter must not be driven off that:
+          // a species on three checklists that day is still ONE day, and
+          // counting it three times would make a common bird look persistent.
+          if (o.firstDt) {
+            var dayKey = code + '|' + dt.slice(0, 10);
+            if (!s.spanSeen) s.spanSeen = {};
+            if (!s.spanSeen[dayKey]) {
+              s.spanSeen[dayKey] = 1;
+              var fh = parseInt(String(o.firstDt).slice(11, 13), 10);
+              var fmi = parseInt(String(o.firstDt).slice(14, 16), 10);
+              if (fh >= 0 && fh <= 23) {
+                var fexact = fh + ((fmi >= 0 && fmi <= 59) ? fmi / 60 : 0);
+                var fv = site
+                  ? BL.todEncode(fh, BL.todTag(fexact, solarFor(String(o.firstDt).slice(0, 10))))
+                  : fh;
+                if (!s.nd) s.nd = {};
+                var e = s.nd[code] || (s.nd[code] = { n: 0, d: 0 });
+                e.d++;
+                if (BL.todSpanIsNight(fv, v)) e.n++;
+                spanAdded++;
+              }
+            }
+          }
           // ONE HOUR PER CHECKLIST — the baseline every species is measured
           // against. THIS IS RECORDED BEFORE THE SPECIES DEDUPE RETURN, and
           // that order is the whole fix. It used to sit after it, so on any
@@ -16975,7 +17067,7 @@
         // are all already counted still carries checklist hours the baseline
         // has never seen, and discarding them is exactly how the denominator
         // fell behind the numerator in the first place.
-        if (added || chkAdded) { todPrune(s); todSave(s); }
+        if (added || chkAdded || spanAdded) { todPrune(s); todSave(s); }
         return added;
       }
       // Keep both halves bounded, and bound them TOGETHER. A per-species ring
@@ -17009,12 +17101,21 @@
         // section says so and asks for a sample instead of guessing.
         var ch = todChecklistHours(s);
         if (!ch.length) {
-          return { dawn: [], night: [], baseline: null, n: 0, chk: 0,
+          return { dawn: [], night: [], nightOnly: [], spanDays: 0,
+                   baseline: null, n: 0, chk: 0,
                    needSample: 1, rebuilt: s.rebuilt ? 1 : 0 };
         }
         var r = BL.todSpecialists(s.hours || {}, s.names || {}, BL.CONST.TOD_MIN_OBS,
           { checklistHours: ch });
         return { dawn: r.dawn, night: r.night, baseline: r.baseline,
+                 // F210. The dusk list no longer comes from the lift. It is
+                 // the count of days this bird was NEVER seen in daylight,
+                 // which is a fact about the bird rather than about when
+                 // people stopped birding. `r.night` is kept only so the
+                 // verdict line can still report what the old rule would have
+                 // said — a claim and its predecessor, side by side.
+                 nightOnly: BL.todNightOnly(s.nd || {}, s.names || {}),
+                 spanDays: Object.keys(s.spanSeen || {}).length,
                  n: Object.keys(s.hours || {}).length, chk: ch.length,
                  rebuilt: s.rebuilt ? 1 : 0 };
       }
@@ -17067,7 +17168,39 @@
           });
           return h + '</ul>';
         }
-        var html = section('🌅 Dawn specialists', sp.dawn, 'dawn') + section('🌘 Dusk / night specialists', sp.night, 'night');
+        var html = section('🌅 Dawn specialists', sp.dawn, 'dawn');
+        // ── F210: the dusk list is a COUNT OF DAYS, not a share of hours ───
+        //
+        // Reported after the solar-tagging fix (F202a): "dusk birds still
+        // doesnt emphasis nocturnal
+        // birds like owls", with American Crow at 5.7x above a crow-free list
+        // of owls. The old rule asked what SHARE of a bird's sightings were
+        // late — and because the feed represents each species by its LAST
+        // sighting of the day, that share measured when birding stops rather
+        // than when the bird is active. A crow still around at dusk scored
+        // like an owl by construction.
+        //
+        // This asks the owner's question instead: on how many days was this
+        // bird NEVER SEEN IN DAYLIGHT? A crow cannot answer "many"; an owl
+        // routinely does. No baseline, no lift, no threshold fitted to its own
+        // output — just an evidence count, with the bar set where the fluke
+        // tail stops (measured: 90% of species have zero such days, and all
+        // but two of the rest have exactly one).
+        if (sp.nightOnly && sp.nightOnly.length) {
+          html += '<div class="rankhead"><b>🌘 Dusk / night specialists</b>'
+            + '<span class="rankwhy">days this bird was never seen in daylight</span></div>'
+            + '<ul class="obs dest">';
+          sp.nightOnly.slice(0, 15).forEach(function (e) {
+            html += '<li><div class="name">' + photoSlot(e.name, e.code)
+              + speciesLink(e.name, e.code) + needTag(e.code, e.name)
+              + '</div><div class="sp"><b>' + e.nights + '</b> night'
+              + (e.nights === 1 ? '' : 's') + ' of ' + e.days + ' day'
+              + (e.days === 1 ? '' : 's') + ' sampled'
+              + ' \u00b7 ' + Math.round(e.share * 100) + '% never in daylight'
+              + '</div></li>';
+          });
+          html += '</ul>';
+        }
         // BOTH numbers, and now on the SAME UNIT. This section shipped crows and
         // Mallards as "dusk specialists" at 84-93% after 7pm, and the ratio was
         // arithmetically right — what was wrong was the comparison. A species is
@@ -17102,7 +17235,16 @@
           + Math.round(100 * _b.late) + '% '
           + '\u00b7 bar is ' + BL.CONST.TOD_MIN_LIFT + '\u00d7 that, and \u2265'
           + Math.round(BL.CONST.TOD_NIGHT_TH * 100) + '% '
-          + '\u00b7 ' + sp.dawn.length + ' dawn, ' + sp.night.length + ' dusk');
+          // F210. Both numbers, on purpose. The old lift is printed beside the
+          // new count so a device log shows what the previous rule WOULD have
+          // listed — the fix is checkable from the phone instead of having to
+          // be taken on trust, which is the control F202(a) had to learn to
+          // run after reporting a result the old rule reproduced exactly.
+          + '\u00b7 ' + sp.dawn.length + ' dawn, ' + (sp.night || []).length
+          + ' dusk by the OLD lift rule \u00b7 '
+          + (sp.nightOnly || []).length + ' dusk by night-only days (\u2265'
+          + BL.CONST.TOD_NIGHT_MIN_DAYS + ' of ' + (sp.spanDays || 0)
+          + ' species-days with both ends known)');
         if (!html) html = '<div class="status">' + sp.n + ' species sampled, but none meet the dawn/dusk thresholds yet — sample again over a few days to enrich it.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
@@ -17155,7 +17297,24 @@
         return dates.reduce(function (p, dt, idx) {
           return p.then(function (acc) {
             if (onProg) onProg(idx + 1, dates.length);
-            var path = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&maxResults=' + TOD_DAY_MAX;
+            var base = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&maxResults=' + TOD_DAY_MAX;
+            // ── F210: BOTH ENDS OF THE DAY, not just the last sighting ─────
+            //
+            // MEASURED 2026-08-27 against the live feed: this endpoint is a
+            // DAY LIST by construction — 131 rows for 131 species — and `cat`
+            // does not change that, which is why the F202a fix was inert.
+            // `rank` is the parameter that was doing the damage: it defaults
+            // to `mrec`, so every species is represented by its LAST sighting.
+            // The same day and the same 131 species flip from a 19:00 peak to
+            // an 07:00 peak on that one parameter.
+            //
+            // So the second call is not extra data, it is the OTHER HALF of a
+            // measurement that was only ever taking one side. One more call
+            // per county-day, in the background lane, and it is what lets the
+            // section ask "was this bird seen in daylight at all?" instead of
+            // "what share of its sightings were late", which measured when
+            // birding stops rather than when the bird is active.
+            var path = base;
             // Background lane: same 1.2s spacing + backoff as the report's
             // ebird.py, so a 21-day × N-county sample can't exhaust the key.
             // The limiter supplies the spacing, so no extra sleep here.
@@ -17169,7 +17328,31 @@
                     dbg('net', 'time-of-day: ' + region + ' ' + dt.toISOString().slice(0, 10)
                       + ' hit the ' + TOD_DAY_MAX + '-row cap — that day is truncated');
                   }
-                  acc.push.apply(acc, r);
+                  // The FIRST sighting of each species that day. Paired here,
+                  // where both ends exist together — the stored sample keeps
+                  // only hours, so nothing downstream could ever work out
+                  // which two belong to one day.
+                  return ebirdBg(base + '&rank=create')
+                    .then(function (fr) {
+                      var first = {};
+                      (Array.isArray(fr) ? fr : []).forEach(function (o) {
+                        if (o && o.speciesCode && !first[o.speciesCode]) {
+                          first[o.speciesCode] = o.obsDt;
+                        }
+                      });
+                      r.forEach(function (o) {
+                        // `firstDt` rides ON the row rather than in a parallel
+                        // map, for the same reason the solar tag rides in the
+                        // stored number: two structures that must stay aligned
+                        // are a drift waiting to happen.
+                        if (o && o.speciesCode && first[o.speciesCode]) {
+                          o.firstDt = first[o.speciesCode];
+                        }
+                      });
+                      acc.push.apply(acc, r);
+                      return acc;
+                    })
+                    .catch(function () { acc.push.apply(acc, r); return acc; });
                 }
                 return acc;
               })
@@ -23936,6 +24119,28 @@
       }
       document.addEventListener('click', function (ev) {
         var a = ev.target.closest && ev.target.closest('a.abajump');
+        // THE CHEVRON IS PART OF THE ROW, and it was the one part of it that
+        // did nothing. Reported from the device: "clicking the arrow doesnt
+        // jump to detailed view but clicking the bird icon or name does".
+        //
+        // The `›` is passed as the card's `lead` slot and rendered inside
+        // `.spdist`, so it cannot simply be wrapped in the anchor — `distHtml`
+        // sanitises that slot through a whitelist and would strip any markup,
+        // which is the whole of F208. So the ROW resolves to its own anchor
+        // instead: a click anywhere on a mega card that is not already some
+        // other link opens the bird.
+        //
+        // That also fixes the dead space the report did not mention. A row
+        // whose glyph says "this opens" and whose body does not is teaching
+        // the reader something untrue about every other card in the app.
+        if (!a && ev.target.closest) {
+          var row = ev.target.closest('#abaResults li');
+          // Never steal a tap meant for something else — the QR button, a map
+          // pin, an external eBird link — all of which live on these cards.
+          if (row && !ev.target.closest('a, button')) {
+            a = row.querySelector('a.abajump');
+          }
+        }
         if (!a) return;
         // Handled here, not by the browser: a bare `#hash` would ask for a
         // navigation this app does not do — navigation is showSection(), and a

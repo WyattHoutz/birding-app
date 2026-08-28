@@ -1885,7 +1885,82 @@ test('a checklist is bought once a day, not once a launch', async () => {
   b.window.close();
 });
 
-// The pacing was budgeting for a competitor that no longer exists.
+// ── F210: the dusk list must rank owls, not crows ─────────────────────────
+// "dusk birds still doesnt emphasis nocturnal birds like owls" — reported
+// AFTER v1.42.0 supposedly fixed this, with American Crow 5.7x heading a list
+// meant to be owls.
+//
+// The cause was measured, not guessed: the county historic endpoint is a DAY
+// LIST and `rank` defaults to `mrec`, so every species was represented by its
+// LAST sighting of the day. The old share therefore measured when BIRDING
+// STOPS, not when the bird is active — a crow still around at dusk scored like
+// an owl by construction.
+//
+// This exercises the real ingest path with the shape the feed actually
+// returns, so it would fail if the second call were dropped or the pairing
+// broken.
+test('a bird seen in daylight is not a dusk specialist, however late it also is', async () => {
+  const app = await boot();
+  const A = app.window.__app, BL = app.window.BirdLogic;
+
+  // Rows as todAccumulate receives them: obsDt is the LAST sighting (rank
+  // mrec) and firstDt the first (rank create), paired at fetch.
+  const rows = [];
+  for (let d = 10; d <= 16; d++) {
+    const day = `2026-08-${d}`;
+    // A crow: first seen at dawn, last seen after sunset. Late every single
+    // day — which is exactly what fooled the old rule.
+    rows.push({ speciesCode: 'amecro', comName: 'American Crow', subId: 'C' + d,
+                obsDt: `${day} 20:30`, firstDt: `${day} 06:20` });
+    // An owl: both ends after dark, never seen in daylight.
+    rows.push({ speciesCode: 'grhowl', comName: 'Great Horned Owl', subId: 'O' + d,
+                obsDt: `${day} 22:10`, firstDt: `${day} 21:40` });
+  }
+  A.todAccumulate(rows);
+  const sp = A.todSpecialists();
+  const names = (sp.nightOnly || []).map((r) => r.name);
+
+  assert.ok(names.includes('Great Horned Owl'),
+    'a bird never seen in daylight on 7 days is exactly what this section is for');
+  assert.ok(!names.includes('American Crow'),
+    'a crow is late every evening and in daylight every morning — the whole '
+    + 'point is that being late is not the same as being nocturnal');
+
+  const owl = sp.nightOnly.find((r) => r.code === 'grhowl');
+  assert.equal(owl.nights, 7, 'every sampled day counted once');
+  assert.equal(owl.days, 7, 'and the denominator is days, not sightings');
+  app.window.close();
+});
+
+// The bar is a COUNT because the base rate is tiny: 90% of species have zero
+// night-only days and all but two of the rest have exactly one. A ratio gate
+// would admit a 1-in-16 fluke at 4x a 1.5% baseline — House Sparrow.
+test('a single odd late record is not nocturnality', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [];
+  for (let d = 10; d <= 25; d++) {
+    const day = `2026-08-${d}`;
+    // House Sparrow: ordinary daytime bird on 15 days...
+    rows.push({ speciesCode: 'houspa', comName: 'House Sparrow', subId: 'H' + d,
+                obsDt: `${day} 17:00`, firstDt: `${day} 07:10` });
+  }
+  // ...and exactly ONE freak after-dark record.
+  rows.push({ speciesCode: 'houspa', comName: 'House Sparrow', subId: 'HX',
+              obsDt: '2026-08-26 22:00', firstDt: '2026-08-26 21:30' });
+  A.todAccumulate(rows);
+  const names = (A.todSpecialists().nightOnly || []).map((r) => r.name);
+  assert.ok(!names.includes('House Sparrow'),
+    'one night-only day out of sixteen is a record, not a habit — and a lift '
+    + 'gate would have let it through at 4x a 1.5% baseline');
+  app.window.close();
+});
+
+// A v3 sample kept only the LAST sighting, so the other end was never fetched
+// and cannot be recovered. The version bump that discards it is asserted with
+// the other sampling-rule guards, not here — see "a sample gathered under the
+// old rule is rebuilt, not blended", which pins the property rather than the
+// digit and now also enforces the v4 floor.
 test('the rate limiter is sized for the key it actually has to itself', () => {
   const m = HTML.match(/var FG_GAP_MAX = \d+, FG_BUCKET = (\d+), FG_REFILL_PER_S = ([\d.]+)/);
   assert.ok(m, 'the limiter constants are still readable');
@@ -5854,7 +5929,14 @@ test('Last 7-Days rarities can expand the full checklist list', () => {
   assert.match(src, /checklistDetails\(/,
     'the full list is behind an expander — the SHARED one, so this section '
     + 'cannot drift from the three others that show the same thing');
-  assert.match(HTML, /function checklistDetails\([\s\S]{0,900}<details class="ckall">/,
+  // ⚠️ SLICED TO THE END OF THE FUNCTION, not to a byte window. This guard has
+  // now been broken TWICE by comments added near the code it audits — first at
+  // `{0,900}`, then at `{0,1400}` — which is F197 exactly: a guard pinned to a
+  // POSITION fails while the code it checks is still correct, and each time the
+  // temptation is to widen the number rather than stop counting bytes.
+  const cd = HTML.slice(HTML.indexOf('function checklistDetails('));
+  const cdBody = cd.slice(0, cd.indexOf('\n      function ', 1));
+  assert.match(cdBody, /<details class="ckall"/,
     'and that helper really is the <details> wrapper');
   assert.match(src, /' — show every report'/, 'with a summary that states the total');
   // A <details> holding one row is a control that does nothing.
@@ -15852,6 +15934,17 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
     assert.ok(+ver[1] >= 3,
       'ingest tags hours against the sun, so TOD_SAMPLE_V must be >= 3 — '
       + 'got ' + ver[1] + ', which would blend tagged and untagged samples');
+  }
+  // ...and the same rule again for F210. A v3 sample stored only the LAST
+  // sighting of each species-day, because the first was never fetched — so a
+  // span statistic cannot be reconstructed from it at all, and carrying one
+  // forward would count every historic day as "seen in daylight" purely
+  // because the other end is missing.
+  if (/todSpanIsNight/.test(acc)) {
+    assert.ok(+ver[1] >= 4,
+      'ingest now counts night-only DAYS from both ends of a species-day, so '
+      + 'TOD_SAMPLE_V must be >= 4 — got ' + ver[1] + ', which would let a v3 '
+      + 'sample (last sighting only) masquerade as a span');
   }
 });
 

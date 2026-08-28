@@ -87,6 +87,16 @@
     // itself happens after dark", which a bird active at all hours cannot
     // reach: its lift is 1.0 by construction, whatever its raw share.
     TOD_MIN_LIFT: 2.0,
+    // F210. How many NIGHT-ONLY days a species needs before it is called a
+    // dusk specialist. Measured, not chosen: across 163 species with >= 3
+    // sampled days, 90% had zero such days and 15 of the remaining 17 had
+    // exactly one (Gadwall, Pine Siskin, House Sparrow - single late records).
+    // Only Great Horned Owl reached three, so three is where the fluke tail
+    // stops on this sample.
+    // ⚠️ Derived from 16 county-days in AUGUST, when owls are least
+    // detectable, and three of the owner's validation owls did not appear at
+    // all. Re-derive on a winter sample before treating it as settled.
+    TOD_NIGHT_MIN_DAYS: 3,
     // convoys (report.py CONVOY_*)
     CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200,
     // A FIELD TRIP IS A CONVOY THAT NEVER DRIVES ANYWHERE.
@@ -2016,6 +2026,69 @@
     dawn.sort(function (a, b) { return (b.early_lift - a.early_lift) || (b.n - a.n); });
     night.sort(function (a, b) { return (b.late_lift - a.late_lift) || (b.n - a.n); });
     return { dawn: dawn, night: night, baseline: base };
+  }
+
+  // ── F210 / F202(b): a bird that was NEVER SEEN IN DAYLIGHT that day ──────
+  //
+  // The owner's rule, and the reason it needs no threshold fitting: "look for
+  // nocturnal checklists ... that start after last light and complete before
+  // sunrise". A crow cannot be absent from daylight; an owl routinely is. So
+  // nocturnality stops being something INFERRED from a share of hours and
+  // becomes something OBSERVED about a day.
+  //
+  // ⚠️ WHY THE OLD STATISTIC COULD NOT WORK, measured 2026-08-27 against the
+  // live feed. The county `historic` endpoint is a DAY LIST by construction -
+  // one row per species, 131 rows for 131 species - and `cat` does not change
+  // that. `rank` does, and it defaults to `mrec`, so every species was
+  // represented by its LAST sighting of the day. The same day and the same 131
+  // species flip from a 19:00 peak to an 07:00 peak on that one parameter.
+  // The old lift therefore measured WHEN BIRDING STOPS, not when the bird is
+  // active, which is exactly why a crow still around at dusk outranked an owl.
+  //
+  // Taking BOTH ends (rank=mrec and rank=create) costs one extra call per
+  // county-day and answers the question directly: was this bird seen in
+  // daylight at all?
+  //
+  // ⚠️ THE BAR IS A COUNT, NOT A RATIO, AND THAT IS MEASURED. Across 163
+  // species with >= 3 sampled days, 146 (90%) had ZERO night-only days, and 15
+  // of the remaining 17 had exactly ONE - Gadwall, Pine Siskin, House Sparrow,
+  // single late records rather than nocturnality. With a base rate that low a
+  // lift gate is useless: a 1-in-16 fluke is still 4x a 1.5% baseline. Only
+  // Great Horned Owl reached three. So the discriminating variable is
+  // EVIDENCE, and the gate is "how many such days", not "what share".
+  //
+  // ⚠️ DAWN DELIBERATELY DOES NOT REUSE THIS. 42% of species had a dawn-only
+  // day - led by Common Loon 83%, Common Murre 64%, Surf Scoter 47%, which are
+  // seawatch birds recorded on early-morning counts. That is a birding-effort
+  // artifact, not dawn specialisation, so a count bar there would be wrong.
+  // Dawn keeps the lift statistic and stays labelled unvalidated (F202a).
+  function todSpanIsNight(first, last) {
+    return todIsNight(first) && todIsNight(last);
+  }
+  function todSpanIsDawn(first, last) {
+    return todIsDawn(first) && todIsDawn(last);
+  }
+  // `nd` is {code: {n: nightOnlyDays, d: daysSeen}} - accumulated at INGEST,
+  // because that is the only moment a species-day's two ends are known
+  // together. A flat list of hours cannot say which two belong to one day,
+  // which is the whole reason this is counted rather than derived later.
+  function todNightOnly(nd, names, minDays) {
+    minDays = minDays == null ? CONST.TOD_NIGHT_MIN_DAYS : minDays;
+    names = names || {};
+    var out = [];
+    Object.keys(nd || {}).forEach(function (code) {
+      var e = nd[code] || {}, n = e.n || 0, d = e.d || 0;
+      if (n < minDays) return;
+      out.push({ code: code, name: (names[code] != null ? names[code] : code),
+                 nights: n, days: d, share: d ? n / d : 0 });
+    });
+    // Most nights first; the share breaks ties, so a bird seen nocturnally on
+    // 5 of 5 days leads one seen nocturnally on 5 of 40.
+    out.sort(function (a, b) {
+      return (b.nights - a.nights) || (b.share - a.share)
+        || (a.code < b.code ? -1 : 1);
+    });
+    return out;
   }
 
   // ---- rolling hotspot history (mirror report.update_hotspot_history) ------
@@ -4115,6 +4188,9 @@
     todBuildHours: todBuildHours,
     todProfile: todProfile,
     todSpecialists: todSpecialists,
+    todSpanIsNight: todSpanIsNight,
+    todSpanIsDawn: todSpanIsDawn,
+    todNightOnly: todNightOnly,
     // Solar time. Exported because "dusk" is now a claim about the sun, and a
     // claim the parity suite has to be able to check against weather.py.
     julianDayNum: julianDayNum,

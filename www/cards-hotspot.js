@@ -66,22 +66,20 @@
   var MEDIUM = [
     '<li class="{{cls}}"{{data}}>',
     '  <div class="name">{{marker}}<span class="ntext">{{name}}</span>{{dist}}</div>',
-    '  <div class="meta">{{sub}}</div>',
+    '  <div class="meta">{{sub}}{{qr}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
-    '  {{qr}}',
     '</li>'
   ].join('\n');
 
   var LARGE = [
     '<li class="{{cls}}"{{data}}>',
     '  <div class="hscardhead">{{marker}}<span class="ntext">{{name}}</span></div>',
-    '  <div class="meta">{{sub}}</div>',
+    '  <div class="meta">{{sub}}{{qr}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
     '  {{actions}}',
-    '  {{qr}}',
     '</li>'
   ].join('\n');
 
@@ -328,6 +326,13 @@
     '.hsact { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 18px;',
     '         min-width: 0; overflow-wrap: anywhere;',
     '         font-size: calc(15px * var(--s)); }',
+    /* The QR variant rides the facts line instead of claiming one. `flex` on
+       the base class is what put it on its own row even as a <span>, so the
+       inline form resets both the display and the top margin — changing the
+       element without changing the CSS would have fixed nothing, which is the
+       half the first attempt at this missed. */
+    '.hsact.hsactinline { display: inline-flex; margin-top: 0; margin-left: 8px;',
+    '                     vertical-align: middle; gap: 0; }',
     ''
   ].join('\n');
 
@@ -463,7 +468,18 @@
       // second action builder. The Stakeout-hotspot caller deliberately puts
       // its QR directly beside its map action; QR-only cards use this row.
       actions: v.actions == null ? '' : v.actions,
-      qr: v.qr ? '<div class="hsact">' + v.qr + '</div>' : ''
+      // ⚠️ A SPAN, NOT A DIV, AND THAT IS THE WHOLE BUG. Reported twice —
+      // "QR icon wrapping issue is not fixed on stakeout bird ... i already
+      // repoeted this bug". The first fix moved the actions inline in
+      // cards-species.js and I never checked whether the HOTSPOT card had the
+      // same shape. It did: a block-level child takes a line of its own
+      // whatever the CSS says, so the QR sat under every place row as a big
+      // square instead of beside the facts it belongs to.
+      //
+      // It now rides the `.meta` line with the date, count and checklist id —
+      // which is where the report asked for it: "on same line as the checklist
+      // id or next to magnifying glass".
+      qr: v.qr ? '<span class="hsact hsactinline">' + v.qr + '</span>' : ''
     });
   }
 
