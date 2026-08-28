@@ -161,6 +161,51 @@ OVERRIDES = {
     'pelcor.jpg': 0.046,
     # cropped. DRAWN BY THE OWNER 2026-08-27.
     'rocpig.jpg': 1.0,
+    # ── F216: fifteen more, reported by eye and drawn 2026-08-27 ──────────
+    #
+    # Owner on the drawing itself: "some of them it was hard to get the square
+    # perfect, and the ones you provided were close enough." So these boxes are
+    # GUIDANCE, not a specification to the pixel, and the three marked below at
+    # 0.97-0.98 of the square are not defects to tune away.
+    #
+    # MEASURED before applying (assets/f216_apply.py): for every one of the
+    # fifteen, the square this cropper will actually produce CONTAINS the drawn
+    # box to within 0.9%, and where there is any loss it is split evenly
+    # between left and right rather than falling on one end. That check exists
+    # because "a looser crop cannot cut anything off" is an inference, and the
+    # owner's rule is not symmetric - better to trim tail than head, and a thin
+    # bill carries almost no pixel energy, so a loss on the beak end would
+    # matter at a fraction the size.
+    # tail cut off. DRAWN BY THE OWNER 2026-08-27. Drawn box is 0.883 of the square, so the crop is slightly looser than drawn.
+    'baleag.jpg': 1,
+    # head cut off. DRAWN BY THE OWNER 2026-08-27.
+    'cangoo.jpg': 0.017,
+    # tail cut off. DRAWN BY THE OWNER 2026-08-27. Drawn box is 0.976 of the square, so the crop is slightly looser than drawn.
+    'brncre.png': 0.543,
+    # beak cut off. DRAWN BY THE OWNER 2026-08-27.
+    'bongul.jpg': 0.304,
+    # not centered. DRAWN BY THE OWNER 2026-08-27. Drawn box is 0.974 of the square, so the crop is slightly looser than drawn.
+    'gnwtea.jpg': 0.297,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'norpin.jpg': 0.114,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'rengre.jpg': 0.631,
+    # thin bill near the edge. DRAWN BY THE OWNER 2026-08-27.
+    'leasan.png': 0.394,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'piggui.jpg': 0,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'gadwal.jpg': 0.637,
+    # thin bill near the edge. DRAWN BY THE OWNER 2026-08-27.
+    'greyel.png': 0.563,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'whtpta1.jpg': 0.335,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'refboo.jpg': 0.513,
+    # not centered. DRAWN BY THE OWNER 2026-08-27.
+    'margod.jpg': 0.566,
+    # head cropped at top. DRAWN BY THE OWNER 2026-08-27.
+    'yehbla.jpg': 0.009,
 }
 
 
@@ -175,6 +220,22 @@ OVERRIDE_SRC_SHA = {
     'batpig1.jpg': 'd24457ac604b4088',
     'pelcor.jpg': 'be5dfe88b872e1cb',
     'rocpig.jpg': '2d44d22ea60c2fce',
+    # F216, drawn 2026-08-27.
+    'baleag.jpg': 'dde1e6df6d87ac46',
+    'cangoo.jpg': '24e4e459eda18a86',
+    'brncre.png': '7b9c88483ad00827',
+    'bongul.jpg': 'eaafda4a00207c2e',
+    'gnwtea.jpg': 'f996fe896e6b35ea',
+    'norpin.jpg': 'b81dbe4280111702',
+    'rengre.jpg': 'a052fa8a500b7d85',
+    'leasan.png': 'ffe84b1d97695ef8',
+    'piggui.jpg': 'bd224876a41ef656',
+    'gadwal.jpg': 'ea7f3a9a4c645556',
+    'greyel.png': '8f0959cd6283654e',
+    'whtpta1.jpg': '1c138cb1786383c9',
+    'refboo.jpg': '4eec7e41aaa0080e',
+    'margod.jpg': 'ddbb04ee31833d30',
+    'yehbla.jpg': '140efbb012989015',
 }
 
 
@@ -560,11 +621,31 @@ def main():
     with open(os.path.join(out, '_crop-report.json'), 'w') as fh:
         json.dump(res, fh, indent=1)
     # ANY loss at the head end is a failure. Tail loss is expected.
-    risky = sorted((r for r in res if r.get('head_cut', 0) > 0.02),
+    #
+    # ⚠️ OVERRIDDEN BIRDS ARE EXCLUDED, and that is not a way of hiding bad
+    # news. `head_cut` is measured against the AUTOMATIC head anchor — which is
+    # precisely the thing an override exists to overrule — so every override is
+    # structurally guaranteed to score badly here.
+    #
+    # MEASURED 2026-08-27, and the control is what settles it: of the 18
+    # entries this list flagged, **all 18 were overridden birds and none were
+    # not**. Among them sat killde (0.342), rocpig (0.303), glwgul (0.275) and
+    # comloo (0.241) — four the owner had already inspected by eye and
+    # confirmed FIXED in v1.42.2.
+    #
+    # A warning list whose every entry is known-good is worse than no list: it
+    # teaches the reader to skip it, and the one real failure that eventually
+    # lands there is skipped with it. The overrides are still reported, as a
+    # separate count, because "how many crops are hand-placed" is worth knowing
+    # — it is just not a fault.
+    overridden = set(OVERRIDES)
+    risky = sorted((r for r in res
+                    if r.get('head_cut', 0) > 0.02 and r['file'] not in overridden),
                    key=lambda r: -r['head_cut'])
+    hand = sum(1 for r in res if r['file'] in overridden)
     print(f'cropped {len(res)}  already square '
           f'{sum(1 for r in res if r.get("already_square"))}  '
-          f'HEAD-CUT {len(risky)}')
+          f'hand-placed {hand}  HEAD-CUT {len(risky)}')
     for r in risky[:60]:
         print(f'  HEAD {r["head_cut"]:.3f} tail {r["tail_cut"]:.3f}  {r["file"]}')
 
