@@ -2418,6 +2418,27 @@
   var VIDEO_ICON = '\ud83c\udfa5';     // movie camera — V
   var AUDIO_ICON = '\ud83d\udd0a';     // speaker — A
   var COMMENT_ICON = '\ud83e\uddfe';   // receipt — a written note
+  // 📋 THE CHECKLIST'S OWN NOTE, which is a different fact from the one above.
+  //
+  // "I would like checklist items to show a checklist icon too when the
+  //  checklist has a comment with the list of media icons"
+  //
+  // eBird stores two kinds of comment and they answer different questions:
+  //
+  //   observation-level  about the BIRD     "by the helipad", "heard only"
+  //   checklist-level    about the OUTING   "windy, very slow", "60 degrees
+  //                                          and sunny; no wind"
+  //
+  // MEASURED 2026-08-28 over 22 distinct live notable checklists: the
+  // observation note is on 22 of 22 (100%), the checklist note on 5 (23%).
+  // That gap is the whole reason this earns its own glyph AND its own rule —
+  // see checklistIcons, where it is deliberately NOT suppressed alongside the
+  // observation note.
+  //
+  // A clipboard rather than a second receipt: at row size the reader has to
+  // tell them apart by SHAPE, and two documents differing only in colour or
+  // fine detail is precisely the distinction this project must never rely on.
+  var CHECKLIST_NOTE_ICON = '\ud83d\udccb';
   var WAYPOINT_ICON = '\ud83c\udfaf';  // target  — a note carrying COORDINATES
 
   // A note that carries coordinates is a different object from a note.
@@ -2562,7 +2583,7 @@
   //
   // `near` is the observation's own coordinate when the caller has it, and is
   // what makes a parsed waypoint trustworthy rather than merely well-formed.
-  function checklistDetail(ob, near) {
+  function checklistDetail(ob, near, cklNote) {
     var out = {};
     if (!ob) return out;
     var counts = ob.mediaCounts || {};
@@ -2574,6 +2595,12 @@
     if (hasNote(c)) out.c = c;
     var w = c ? waypointFrom(c, near) : null;
     if (w) out.w = w;
+    // F222. The CHECKLIST's own note, kept separate from the observation's.
+    // Folding them into one field would lose the distinction the icon exists
+    // to draw, and `hasNote` is applied to both so a whitespace-only or
+    // placeholder comment does not earn a mark.
+    var k = String(cklNote || '').trim();
+    if (hasNote(k)) out.k = k;
     return out;
   }
 
@@ -2603,6 +2630,19 @@
     if (m.indexOf('P') >= 0) out += MEDIA_ICON;
     if (m.indexOf('V') >= 0) out += VIDEO_ICON;
     if (m.indexOf('A') >= 0) out += AUDIO_ICON;
+    // ⚠️ THE CHECKLIST NOTE IS NOT SUPPRESSED BY `noteRequired`, and that is a
+    // measurement rather than an oversight. That option exists because eBird
+    // COMPELS a comment on a flagged species, so on a rarity list the
+    // observation badge appears on every row and marks nothing. The compulsion
+    // applies to the observation, not to the checklist: measured over 22 live
+    // notable checklists, the observation note was on 22 (100%) and the
+    // checklist note on 5 (23%). A mark present on a quarter of rows is doing
+    // exactly the job the other one had stopped doing.
+    //
+    // Placed before the observation marks' branch so the order stays fixed:
+    // media, then the outing, then the bird. A column of rows only stays
+    // scannable if a given glyph is always in the same place.
+    if (detail.k) out += CHECKLIST_NOTE_ICON;
     if (detail.w) out += WAYPOINT_ICON;
     else if (detail.c && !(opts && opts.noteRequired)) out += COMMENT_ICON;
     return out;
@@ -4228,6 +4268,7 @@
     VIDEO_ICON: VIDEO_ICON,
     AUDIO_ICON: AUDIO_ICON,
     COMMENT_ICON: COMMENT_ICON,
+    CHECKLIST_NOTE_ICON: CHECKLIST_NOTE_ICON,
     WAYPOINT_ICON: WAYPOINT_ICON,
     parseWaypoint: parseWaypoint,
     waypointFrom: waypointFrom,

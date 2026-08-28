@@ -11634,6 +11634,26 @@
               name: href ? checklistLink(x.subId, x.comName)
                          : speciesLink(x.comName, x.code),
               tags: tags,
+              // F225. THE CODE IS THE LEGEND, not decoration.
+              //
+              // "its important that the unseen birds have the code in their
+              //  details so the user can understand what code in the checklist
+              //  items mean"
+              //
+              // The checklist rows abbreviate each bird to its banding code, so
+              // without the same code beside the full name somewhere on the
+              // card, WESO is a string the reader has no way to resolve. The
+              // two have to appear together at least once, and this list is
+              // where the reader is already looking up what the place holds.
+              //
+              // ⚠️ THIS REVERSES AN EARLIER EXPLICIT CALL — "I dont want it on
+              // the small lists to save space" — which is why it is written
+              // down rather than quietly applied. The reason changed: back
+              // then the code was a second identifier competing with the name,
+              // and nothing else on screen used it. Now it is the key to a
+              // notation the card itself introduces.
+              code: x.code,
+              alpha: x.code ? alphaFor(x.code) : '',
               count: x.count,
               when: fmtWhenShort(x.dateStr),
               sub: x.sub || ''
@@ -11910,7 +11930,29 @@
       // exists to answer — arrived after the checklists that are only its
       // evidence. A test that counts feeds in an 80 ms window caught it; a
       // person would have seen a card that filled in backwards.
-      var HOTSPOT_CKL_SHOWN = 5;
+      // How many checklists a hotspot card lists before the rest go behind an
+      // expander.
+      //
+      // ⚠️ WAS 5, WHICH SPLIT SIX INTO FIVE-PLUS-ONE. Reported from the device
+      // at Juanita Bay Park: a heading of "6 recent checklists", five rows, and
+      // then a SECOND disclosure holding the single remaining one. The owner:
+      // *"This is awkward, and it would be better to show all the checklists as
+      // long as its less than a large number like 25. Also, if there's one
+      // more, like 26, then just add it to the list."*
+      //
+      // A split is only worth its cost when it saves the reader something. At
+      // n=6 it saved one row and charged a whole extra control, a second
+      // heading and the question "why are these two lists different?" — the
+      // answer being nothing but an arbitrary boundary. The cap belongs where
+      // a list genuinely stops being scannable, not at the first opportunity
+      // to hide something.
+      //
+      // 25 is the owner's number and the slack is deliberate: SLACK means a
+      // remainder of 1 or 2 is absorbed rather than promoted to its own
+      // disclosure, so the pathological "…and 1 more" cannot recur just above
+      // the new boundary the way it did at the old one.
+      var HOTSPOT_CKL_SHOWN = 25;
+      var HOTSPOT_CKL_SLACK = 3;
       function hotspotChecklistIndex() {
         return recentLists().then(function (lists) {
           var by = {};
@@ -11976,7 +12018,7 @@
               .split(',').filter(Boolean);
             var nUnseen = el.getAttribute('data-unseen-n');
             if (nUnseen === '0') return;
-            var all = got.length, kept = false;
+            var kept = false, rest = [];
             if (want.length) {
               var hit = got.filter(function (chk) {
                 return want.indexOf(chk.subId || chk.subID || '') >= 0;
@@ -11993,28 +12035,56 @@
               // neutral label. The card cannot prove these checklists hold a
               // bird you need, so it stops claiming they do rather than
               // deleting the only evidence it has.
-              if (hit.length) { got = hit; kept = true; }
+              if (hit.length) {
+                // F223. KEPT, not just counted. The remainder used to be a
+                // number in a sentence; it is now the rows themselves, behind
+                // a disclosure, so "5 more" is something a reader can open.
+                rest = got.filter(function (chk) {
+                  return want.indexOf(chk.subId || chk.subID || '') < 0;
+                });
+                got = hit; kept = true;
+              }
             }
             // The slot is created empty at build time so this never has to
             // guess where in the card the list belongs.
             var slot = el.querySelector('.hsckl');
             if (!slot || slot.getAttribute('data-done')) return;
             slot.setAttribute('data-done', '1');
-            var rows = got.slice(0, HOTSPOT_CKL_SHOWN).map(mkCkl);
+            // SLACK: a remainder small enough to absorb never earns a control
+            // of its own. Splitting 26 into 25-plus-1 is the same defect as
+            // splitting 6 into 5-plus-1, just further along the list.
+            var shown = (got.length <= HOTSPOT_CKL_SHOWN + HOTSPOT_CKL_SLACK)
+              ? got.length : HOTSPOT_CKL_SHOWN;
+            var rows = got.slice(0, shown).map(mkCkl);
             // The label says WHAT was kept, or a reader who knows the place
             // had twelve lists today reads a count of three as a bug.
             var label = kept
               ? { one: 'checklist with a bird you need',
                   many: 'checklists with a bird you need' }
               : 'recent checklist';
+            var CKL_NOUN = { one: 'checklist', many: 'checklists' };
             slot.innerHTML = checklistDetails(rows, got.length, label, '',
-              moreDetails(got.length - HOTSPOT_CKL_SHOWN, 'checklists', function () {
-                return ChecklistCards.list('small',
-                  got.slice(HOTSPOT_CKL_SHOWN).map(mkCkl));
+              moreDetails(got.length - shown, CKL_NOUN, function () {
+                return ChecklistCards.list('small', got.slice(shown).map(mkCkl));
               })
-              + (kept && all > got.length
-                 ? '<div class="dim">' + (all - got.length) + ' more here today '
-                   + 'without a bird you need</div>' : ''));
+              // ⚠️ WAS DEAD TEXT: '<div class="dim">5 more here today without a
+              // bird you need</div>'. The owner: *"I dont like the text ... This
+              // isnt helpful because its not clickable and its big text."*
+              //
+              // It named evidence and then withheld it, which is worse than
+              // silence — a count with no way to reach what it counts is the
+              // same complaint F143 made about "…and X more" being dead text
+              // stating a number the reader already knew. Now it is the same
+              // disclosure as its neighbour, so one control shape means one
+              // thing everywhere on the card.
+              + (kept && rest.length
+                 ? moreDetails(rest.length, {
+                     one: 'checklist without a bird you need',
+                     many: 'checklists without a bird you need'
+                   }, function () {
+                     return ChecklistCards.list('small', rest.map(mkCkl));
+                   })
+                 : ''));
             // Media only once somebody opens the list, and only for the rows
             // they can see. INSIDE the loop: `slot` belongs to this card, and
             // reading it after the loop closed threw "Can't find variable:
@@ -12701,7 +12771,14 @@
         var codesBySlot = [], allCodes = {};
         return pool(slots, CONVOY_FETCH_CONC, function (slot) {
           var sub = slot.getAttribute('data-sub');
-          return checklistView(sub)
+              // F224. BACKGROUND LANE. This is a hydration pass filling slots the
+              // reader can already SEE, so it must not compete for rate-limiter
+              // tokens with the feeds that decide WHAT is on screen. `bg` is the
+              // limiter's existing second queue - already used by the note and
+              // hotspot-media passes, and simply missed here. Same ordering
+              // lesson as the county reads that beat the location read and made
+              // a hotspot card fill in backwards.
+          return checklistView(sub, true)
             .then(function (d) {
               var seenHere = {}, list = [];
               ((d && d.obs) || []).forEach(function (o) {
@@ -13072,8 +13149,16 @@
             .forEach(function (k) { delete _moreFills[k]; });
         }
         _moreFills[id] = fill;
+        // The noun agrees with the count. It used to be a bare string, so a
+        // remainder of one rendered "…and 1 more checklists" — visible in the
+        // owner's screenshot of Juanita Bay Park. Same { one, many } contract
+        // checklistDetails already uses, for the same reason: the plural
+        // belongs to the NOUN, not to the end of the sentence.
+        var word = (noun && typeof noun === 'object')
+          ? (n === 1 ? noun.one : noun.many)
+          : (noun || '');
         return '<details class="ckmore" data-more="' + id + '"><summary>…and '
-          + n + ' more' + (noun ? ' ' + esc(noun) : '')
+          + n + ' more' + (word ? ' ' + esc(word) : '')
           + '</summary><div class="ckmorebody"></div></details>';
       }
       // `toggle` does not bubble, so the delegation hangs off the summary click
@@ -13203,7 +13288,15 @@
       // Only the three fields anything reads are stored. The full response is
       // several KB of protocol and effort metadata that nothing here touches,
       // and localStorage is a few MB in total.
-      var CKL_NS = 'bc_ckl:';
+      // ⚠️ BUMPED bc_ckl: -> bc_ckl2: FOR F222, and the bump is the fix rather
+      // than housekeeping. Entries written before this release have no
+      // `comments` field, and a settled checklist is trusted for up to a
+      // MONTH — so on any device that had already opened checklists, the new
+      // 📋 mark would simply never appear, for weeks, with nothing failing.
+      // That is the shape of F167/F172: a cache holding an answer that was
+      // true when stored and is now merely incomplete. A namespace bump
+      // retires them at once instead of asking every reader to wait out a TTL.
+      var CKL_NS = 'bc_ckl2:';
       // 250, not 900. A checklist entry is a species list — one to two KB —
       // and iOS gives an origin about five megabytes for EVERYTHING: the
       // bundled seed, the photo caches, the latest-ticks cache and the chase
@@ -13318,6 +13411,27 @@
       // Boot-time prune. This USED to delete every entry not written today,
       // which is what made the cache die at each restart — the store was
       // durable, the policy was not.
+      //
+      // ⚠️ A RETIRED NAMESPACE IS NOT PRUNED BY THE LOOP BELOW, because that
+      // loop only matches the CURRENT prefix. Bumping CKL_NS therefore orphans
+      // every old entry permanently — and on an origin that has already thrown
+      // QuotaExceededError, a few hundred KB nothing can ever reclaim is a real
+      // cost, not a tidiness point. Retired prefixes are swept explicitly.
+      var CKL_NS_RETIRED = ['bc_ckl:'];
+      function sweepRetiredChecklistCaches() {
+        try {
+          var drop = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (!k) continue;
+            for (var j = 0; j < CKL_NS_RETIRED.length; j++) {
+              if (k.indexOf(CKL_NS_RETIRED[j]) === 0) { drop.push(k); break; }
+            }
+          }
+          drop.forEach(function (k) { localStorage.removeItem(k); });
+          if (drop.length) dbg('info', 'retired checklist cache: ' + drop.length + ' entries freed');
+        } catch (e) { /* a full or disabled store is not worth reporting */ }
+      }
       function pruneChecklistCache() {
         try {
           var today = todayStr(), drop = [], keep = [];
@@ -13340,6 +13454,7 @@
           drop.forEach(function (k) { localStorage.removeItem(k); });
         } catch (e) { /* a full or disabled store is not worth reporting */ }
       }
+      try { sweepRetiredChecklistCaches(); } catch (e) { /* never blocks boot */ }
       try { pruneChecklistCache(); } catch (e) { /* never blocks boot */ }
 
       function cklCached(sub) {
@@ -13360,6 +13475,13 @@
           .then(function (d) {
             var v = {
               userDisplayName: (d && d.userDisplayName) || '',
+              // F222. THE CHECKLIST'S OWN COMMENT, which this projection used
+              // to drop on the floor. `checklistObs` has always read
+              // `d.comments` — but `d` here is this projection, not the raw
+              // response, so the read returned '' on a cache hit AND on a
+              // cache miss. A field nothing kept, read by something that
+              // wanted it: the note existed at both ends and never travelled.
+              comments: (d && d.comments) || '',
               obs: ((d && d.obs) || []).map(function (x) {
                 var r = { speciesCode: x.speciesCode };
                 if (x.mediaCounts) r.mediaCounts = x.mediaCounts;
@@ -13462,7 +13584,10 @@
             // nothing is the honest answer.
             if (!ob) return;
             var near = (isFinite(la) && isFinite(ln)) ? { lat: la, lng: ln } : null;
-            var det = BirdLogic.checklistDetail(ob, near);
+            // F222. `got.note` is the CHECKLIST's own comment. It has been
+            // read here since F215 and was always '' because the cache
+            // projection dropped the field; it now survives the round trip.
+            var det = BirdLogic.checklistDetail(ob, near, got.note);
             // F215. THE NOTE IS PAINTED BEFORE THE MARK IS EVEN CONSIDERED,
             // and that order is the whole fix. `noteRequired` deliberately
             // suppresses a bare note BADGE on these lists — eBird makes a
@@ -16369,7 +16494,7 @@
             };
             ck = checklistDetails(uniq.slice(0, nShow).map(mkRow),
               uniq.length, 'recent checklist', '',
-              moreDetails(uniq.length - nShow, 'checklists', function () {
+              moreDetails(uniq.length - nShow, { one: 'checklist', many: 'checklists' }, function () {
                 return ChecklistCards.list('small', uniq.slice(nShow).map(mkRow));
               }));
           }
@@ -16650,7 +16775,14 @@
         if (!slots.length) return Promise.resolve();
         return pool(slots, CONVOY_FETCH_CONC, function (slot) {
           var sub = slot.getAttribute('data-sub');
-          return checklistView(sub)
+              // F224. BACKGROUND LANE. This is a hydration pass filling slots the
+              // reader can already SEE, so it must not compete for rate-limiter
+              // tokens with the feeds that decide WHAT is on screen. `bg` is the
+              // limiter's existing second queue - already used by the note and
+              // hotspot-media passes, and simply missed here. Same ordering
+              // lesson as the county reads that beat the location read and made
+              // a hotspot card fill in backwards.
+          return checklistView(sub, true)
             .then(function (d) {
               // The call was already being made for the name. mediaCounts and
               // comments come back in the SAME response, so the evidence marks
@@ -16660,15 +16792,23 @@
                 var ob = ((d && d.obs) || []).filter(function (o) {
                   return o && o.speciesCode === code;
                 })[0];
-                var marks = BirdLogic.checklistIcons(BirdLogic.checklistDetail(ob));
+                // F222. The checklist's own note rides in the same response,
+                // so the 📋 mark costs nothing extra here either — the same
+                // condition the media marks had to meet.
+                var det = BirdLogic.checklistDetail(ob, null, d && d.comments);
+                var marks = BirdLogic.checklistIcons(det);
                 if (marks) {
                   var span = document.createElement('span');
                   span.className = 'evid';
                   span.textContent = ' ' + marks;
                   // The note itself, for a long-press/hover, because on a rare
-                  // bird the note IS the evidence.
-                  var det = BirdLogic.checklistDetail(ob);
-                  if (det.c) span.title = det.c;
+                  // bird the note IS the evidence. Both notes are offered when
+                  // both exist, LABELLED — an unlabelled concatenation would
+                  // read as one person saying two unrelated things.
+                  var tip = [];
+                  if (det.c) tip.push(det.c);
+                  if (det.k) tip.push('Checklist: ' + det.k);
+                  if (tip.length) span.title = tip.join('\n\n');
                   slot.parentNode.insertBefore(span, slot.nextSibling);
                 }
               }
@@ -16849,7 +16989,7 @@
               return String(b.obsDt).localeCompare(String(a.obsDt));
             });
             var lines = sorted.slice(0, ABA_CARD_REPORTS).map(abaRow).join('');
-            var more = moreDetails(g.rs.length - ABA_CARD_REPORTS, 'reports', function () {
+            var more = moreDetails(g.rs.length - ABA_CARD_REPORTS, { one: 'report', many: 'reports' }, function () {
               return '<ul class="abareports">'
                 + sorted.slice(ABA_CARD_REPORTS).map(abaRow).join('') + '</ul>';
             });
@@ -19312,6 +19452,12 @@
       function loadConvoySpecies(subs, box) {
         box.innerHTML = '<span class="dim">Loading species…</span>';
         var list = (subs || '').split(',').filter(Boolean), codes = {};        return pool(list, CONVOY_FETCH_CONC, function (sub) {
+          // ⚠️ FOREGROUND, DELIBERATELY, and the distinction is the rule: the
+          // two passes above fill slots beside content the reader already has,
+          // so they yield. This one runs because somebody TAPPED, and the box
+          // is showing "Loading species…" while they wait. Demoting a read
+          // somebody is watching is how a lane meant to protect the screen
+          // ends up making it feel broken.
           return checklistView(sub)
             .then(function (d) { ((d && d.obs) || []).forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; }); })
             .catch(function () {});
@@ -19791,7 +19937,7 @@
         var SHOW = 5;
         return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
           'recent checklist', '',
-          moreDetails(rows.length - SHOW, 'checklists', function () {
+          moreDetails(rows.length - SHOW, { one: 'checklist', many: 'checklists' }, function () {
             return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
           }));
       }
@@ -19822,7 +19968,7 @@
         var SHOW = 5;
         return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
           'recent report', '',
-          moreDetails(rows.length - SHOW, 'reports', function () {
+          moreDetails(rows.length - SHOW, { one: 'report', many: 'reports' }, function () {
             return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
           }));
       }

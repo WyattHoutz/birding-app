@@ -8086,12 +8086,137 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   // park had a dozen lists today reads "1 checklist" as a bug in the fetch.
   assert.match(det.querySelector('summary').textContent, /bird you need/,
     'the summary states the filter it applied rather than implying a total');
-  // ...and the dropped ones are COUNTED, not silently deleted. "3 checklists
+  // ...and the dropped ones are REACHABLE, not silently deleted. "3 checklists
   // here today, 1 of them useful to you" is a different fact from "1 checklist
   // here today", and only the first tells you the place is alive.
-  assert.match(det.textContent, /2 more here today without a bird you need/,
-    'the filtered-out lists survive as a count');
+  //
+  // ⚠️ WAS a plain `<div class="dim">2 more here today without a bird you
+  // need</div>`. Reported from the device: *"I dont like the text ... This
+  // isnt helpful because its not clickable and its big text."* A count that
+  // names evidence and gives no way to reach it is worse than silence — the
+  // same complaint F143 made about "…and X more" being dead text stating a
+  // number the reader already had. It is now the SAME disclosure control as
+  // the one beside it, so one shape means one thing on the card.
+  const restD = [...det.querySelectorAll('details.ckmore')]
+    .find((d) => /without a bird you need/.test(d.querySelector('summary').textContent));
+  assert.ok(restD, 'the filtered-out lists survive as an OPENABLE disclosure');
+  assert.match(restD.querySelector('summary').textContent,
+    /…and 2 more checklists without a bird you need/,
+    'it states the count and the reason, in the shared "…and N more" form');
+  // And it really holds them — a control that opens onto nothing is the
+  // F193 shape, and this one is filled lazily on first click.
+  restD.querySelector('summary').click();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(restD.querySelectorAll('.cklcard-sm').length, 2,
+    'opening it yields the two checklists it counted, not an empty box');
   app.window.close();
+});
+
+// ── F223: one list, not five-plus-one ─────────────────────────────────────
+//
+// Reported at Juanita Bay Park: a heading of "6 recent checklists", five rows,
+// and then a SECOND disclosure holding the one remaining. "This is awkward,
+// and it would be better to show all the checklists as long as its less than a
+// large number like 25. Also, if there's one more, like 26, then just add it
+// to the list."
+//
+// A split only earns its cost when it saves the reader something. At n=6 it
+// saved one row and charged an extra control, a second heading, and the
+// question of why the two lists differ.
+test('F223: six checklists are one list, not five plus one', async () => {
+  const n = 6;
+  const lists = Array.from({ length: n }, (_, i) => ({
+    subId: 'S' + i, numSpecies: 20 + i,
+    isoObsDate: '2026-08-0' + (7 - (i % 7)) + ' 0' + (1 + i) + ':00',
+    userDisplayName: 'Birder ' + i,
+    loc: { locId: 'L1', locName: 'Big Park', latitude: 47.7, longitude: -122.2 },
+  }));
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        // A bird you need, reported on a checklist the INDEX has never heard
+        // of. That is the documented fallback: the card cannot rule any list
+        // out, so it keeps the FULL set under the neutral label — the
+        // unfiltered path, which is where the owner saw the split.
+        return [{ speciesCode: 'sp0', comName: 'Needed Bird',
+                  obsDt: '2026-08-07 08:00', subId: 'SX' }];
+      }
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  A.renderHot({
+    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            fresh: 2, checklists: n, share: 5, latest: '2026-08-07',
+            birds: [{ name: 'Needed Bird', code: 'sp0', unseen: true }] }],
+  });
+  await new Promise((r) => setTimeout(r, 900));
+
+  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const det = card.querySelector('.hsckl details.ckall');
+  assert.ok(det, 'the checklists render');
+  assert.equal(det.querySelectorAll('.cklcard-sm').length, n,
+    `all ${n} checklists sit in ONE list — a remainder of one does not earn a `
+    + 'second control');
+  assert.equal(det.querySelectorAll('details.ckmore').length, 0,
+    'and there is no "…and 1 more" disclosure beside it');
+  app.window.close();
+});
+
+test('F223: the noun agrees with the count in an "…and N more" summary', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  // The bug was visible in the owner's screenshot as "…and 1 more checklists".
+  // Pinned to the PROPERTY that one is singular and two is plural, so a future
+  // caller passing a bare string is caught rather than a specific noun.
+  const one = A.moreDetails(1, { one: 'checklist', many: 'checklists' }, () => '');
+  const two = A.moreDetails(2, { one: 'checklist', many: 'checklists' }, () => '');
+  assert.match(one, /…and 1 more checklist</, 'one is singular');
+  assert.match(two, /…and 2 more checklists</, 'two is plural');
+  app.window.close();
+});
+
+
+//
+// "I would like checklist items to show a checklist icon too when the
+//  checklist has a comment with the list of media icons"
+//
+// eBird stores two comments and they answer different questions: the
+// observation note is about the BIRD ("by the helipad"), the checklist note is
+// about the OUTING ("windy, very slow"). Measured over 22 live notable
+// checklists: observation 22/22 (100%), checklist 5/22 (23%).
+test('F222: a checklist note gets its own mark, distinct from the species note', () => {
+  const B = require('../www/logic.js');
+  const ckl = B.checklistDetail({ speciesCode: 'x' }, null, 'Windy, very slow');
+  assert.equal(ckl.k, 'Windy, very slow', 'the checklist note is captured');
+  assert.ok(!ckl.c, 'and it is NOT confused with the species note');
+  assert.match(B.checklistIcons(ckl), new RegExp(B.CHECKLIST_NOTE_ICON),
+    'a checklist with a note is marked');
+
+  const sp = B.checklistDetail({ speciesCode: 'x', comments: 'by the helipad' }, null, '');
+  assert.ok(!B.checklistIcons(sp).includes(B.CHECKLIST_NOTE_ICON),
+    'a species note alone must NOT raise the checklist mark');
+  // Shape, not colour: the owner cannot rely on hue to tell two glyphs apart.
+  assert.notEqual(B.CHECKLIST_NOTE_ICON, B.COMMENT_ICON,
+    'the two note marks are different glyphs');
+
+  // ⚠️ NOT suppressed by noteRequired, and that is measured rather than
+  // assumed. That option exists because eBird COMPELS a comment on a flagged
+  // species, so the observation badge is on every row of a rarity list and
+  // marks nothing. The compulsion does not reach the checklist note: 23% vs
+  // 100%. A mark on a quarter of rows is doing the job the other one stopped.
+  const both = B.checklistDetail(
+    { speciesCode: 'x', comments: 'by the helipad' }, null, 'Windy, very slow');
+  const rare = B.checklistIcons(both, { noteRequired: true });
+  assert.ok(rare.includes(B.CHECKLIST_NOTE_ICON),
+    'the checklist mark survives on a rarity list — it is not the compulsory one');
+  assert.ok(!rare.includes(B.COMMENT_ICON),
+    'while the compulsory species badge is still dropped there');
+
+  // Whitespace is not a note.
+  assert.ok(!B.checklistDetail({ speciesCode: 'x' }, null, '   ').k,
+    'a blank comment earns no mark');
 });
 
 // The same pass, at a hotspot where you need NOTHING. This is the case the
