@@ -44,6 +44,15 @@ MUTATIONS = [
      ".megafresh { font-size: calc(12px * var(--s)); font-weight: 800;\n                 color: #fff; background: var(--safe-blue);",
      ".megafresh { font-size: calc(12px * var(--s)); font-weight: 800;\n                 color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);",
      "just-found badge"),
+    # F211 lives in the same lane and fails the same way: silently.
+    ("an empty Celebrity lane goes back to rendering nothing at all",
+     "html += '<div class=\"status\">Nothing qualifies right now. A bird '",
+     "html += '' + ('",
+     "empty Celebrity lane"),
+    ("the empty lane stops naming the gate it applied",
+     "+ 'reported from a <b>public place</b> within <b>'\n            + chaseMaxMi() + ' mi</b>, and corroborated by more than a single '",
+     "+ 'reported somewhere within <b>'\n            + '' + '</b>, and corroborated by more than a single '",
+     "empty Celebrity lane"),
 ]
 
 

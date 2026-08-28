@@ -5128,6 +5128,43 @@ test('the GBIF lookup needs a scientific name and asks for no eBird quota', asyn
   assert.doesNotMatch(html, /ebird\(/, 'and spends no eBird API call doing it');
 });
 
+// ── F211: "cekebrity birds is missing from happening now" ─────────────────
+// It was not missing, it was EMPTY — and an empty lane emitted no heading, no
+// note and no markup, so "nothing qualified today" and "this feature is gone"
+// were byte-identical on screen. This app refuses that ambiguity everywhere
+// else (a filter says what it removed; the mega lane states its snapshot age),
+// and the one place it was not applied is the lane that got reported.
+test('an empty Celebrity lane says so instead of vanishing', async () => {
+  const app = await boot();
+  const A = app.window.__app, d = app.window.document;
+
+  // One other lane firing, so the section renders and the all-lanes-empty
+  // copy — which explains every lane at once — is NOT what we are reading.
+  A.renderSurge([], [], [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }], []);
+  const txt = d.getElementById('surgeResults').textContent;
+  assert.match(txt, /Celebrity Birds/,
+    'the lane disappeared entirely — indistinguishable from a deleted feature');
+  assert.match(txt, /Nothing qualifies right now/,
+    'and it must say it found nothing, not merely exist');
+  // Naming the gate is what makes an empty lane checkable rather than
+  // worrying: a reader who knows the bar can tell working from broken.
+  assert.match(txt, /unseen/i, 'the note names the unseen gate');
+  assert.match(txt, /notable/i, 'and the notable gate');
+  assert.match(txt, /\d+ mi/, 'and the chase radius it used');
+
+  // ...and it must not crowd out a lane that DID find something.
+  const withRows = A.renderSurge([], [], [], [
+    { code: 'tuf', name: 'Tufted Puffin', reports: 3, nPlaces: 2, distMi: 4,
+      locName: 'Marina Beach', subId: 'S1', whenStr: '2026-08-27 08:00',
+      lat: 47, lon: -122 },
+  ]);
+  const full = d.getElementById('surgeResults').textContent;
+  assert.match(full, /Tufted Puffin/, 'a populated lane still renders its birds');
+  assert.doesNotMatch(full, /Nothing qualifies right now/,
+    'the empty note must not appear beside actual results');
+  app.window.close();
+});
+
 test('Happening now titles all three lanes so the last is not a footnote', async () => {
   const app = await boot();
   const A = app.window.__app, d = app.window.document;
@@ -5140,8 +5177,16 @@ test('Happening now titles all three lanes so the last is not a footnote', async
         lat: 48, lng: -122, subId: 'S9' }] }],
     [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }]);
   const heads = [].map.call(d.querySelectorAll('#surgeResults .lanehead'), e => e.textContent);
-  assert.equal(heads.length, 3, 'every lane gets its own heading');
-  assert.ok(heads[2].includes('hotspot'), 'including the hotspot lane that was buried');
+  // FOUR, not three: since F211 the Celebrity lane announces itself even when
+  // it is empty, because a lane that renders nothing at all is indistinguishable
+  // from a lane that has been deleted — which is exactly what was reported.
+  assert.equal(heads.length, 4, 'every lane gets its own heading');
+  assert.ok(heads.some(h => h.includes('Celebrity')),
+    'the celebrity lane must be named even with nothing in it');
+  // Pinned to the PROPERTY — the hotspot lane comes LAST — rather than to an
+  // index, which is what broke this guard when a lane was added in front of it.
+  assert.ok(heads[heads.length - 1].includes('hotspot'),
+    'including the hotspot lane that was buried');
   const box = d.getElementById('surgeResults').innerHTML;
   // A leaderboard row on its own says a bird is gettable but never where. That
   // used to be a labelled "Where it is being reported" block under the row;

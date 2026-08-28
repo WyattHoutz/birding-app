@@ -2681,7 +2681,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.6';
+      var APP_VERSION = '1.42.7';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -19634,6 +19634,36 @@
               below: speciesChecklists(merged, e.code)
             });
           }).join('') + '</ul>';
+        } else {
+          // ── F211: A LANE THAT RENDERS NOTHING HAS BEEN DELETED, as far as a
+          // reader can tell ────────────────────────────────────────────────
+          //
+          // "cekebrity birds is missing from happening now." It was not
+          // missing — it was EMPTY, and an empty lane emitted no heading, no
+          // note and no markup at all, so "nothing qualified today" and "this
+          // feature is gone" were byte-identical on screen.
+          //
+          // This app already refuses that ambiguity everywhere else: a filter
+          // that shortens a list says what it removed, the mega lane states
+          // the age of its snapshot rather than letting stale look like empty,
+          // and the whole-section empty state exists for the same reason. The
+          // one place it was not applied is the lane that was reported.
+          //
+          // The heading therefore always appears once the section renders, and
+          // the note names the GATE rather than apologising — a reader who
+          // knows the bar is "unseen, notable, corroborated and inside the
+          // chase radius" can tell an empty lane is working.
+          //
+          // ⚠️ Only when the section is rendering AT ALL. The all-lanes-empty
+          // case already has its own copy, which explains every lane at once,
+          // and printing both would be the same fact twice.
+          html += '<h3 class="lanehead">🎯 Celebrity Birds' + laneHelpBtn('celebrity') + '</h3>';
+          html += '<div class="status">Nothing qualifies right now. A bird '
+            + 'reaches this lane by being <b>unseen</b>, flagged <b>notable</b>, '
+            + 'reported from a <b>public place</b> within <b>'
+            + chaseMaxMi() + ' mi</b>, and corroborated by more than a single '
+            + 'sighting in the last ' + BL.FRESH_HOURS + ' hours — so an empty '
+            + 'lane here is the section working, not the section missing.</div>';
         }
         if (events.length) {
           html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd' + laneHelpBtn('crowd') + '</h3>';
