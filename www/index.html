@@ -1038,6 +1038,14 @@
     /* The photo is a link now, but it must not gain link chrome or spacing. */
     .abaphoto { display: contents; color: inherit; text-decoration: none; }
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
+    /* A checklist id is the one thing on its line you can actually open, and
+       it was set at the size of the metadata around it. Raised to the tag
+       scale and given the 📋 that marks it — see checklistLink(), which is the
+       single place the id is turned into a link.
+       NOT nowrap: at 320px with Easy read on, `📋 S387245442` is wider than
+       the column it sits in, and a row that overflows is worse than one that
+       wraps. The layout audit measures exactly that case. */
+    .extlink.cklid { font-size: calc(15px * var(--s)); font-variant-numeric: tabular-nums; }
     .thumb { float: left; width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 2px 10px 4px 0; border-radius: 8px; background: #eceff3; overflow: hidden; }
     .thumb.nopic { display: none; }
     /* The icon is a link in Today's rarities (it opens the checklist), so it
@@ -1595,6 +1603,20 @@
     .stakeflag { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--accent);
                  background: color-mix(in srgb, var(--accent) 14%, transparent);
                  border-radius: 999px; padding: 2px 7px; margin-left: 4px; white-space: nowrap; }
+    /* F212. A mega FOUND THIS WEEK is different news from one that has been on
+       the same jetty for a month, and the lane rendered them identically.
+       This is the one badge in the app with a SOLID fill: every other pill is
+       a 12-14% tint, so "alert" is carried by weight and fill rather than by
+       yet another hue nobody has a reference for. The hue is Okabe-Ito
+       `--safe-blue` (#0072B2), measured at 5.2:1 in the Q29 audit and readable
+       with no red-green perception at all — and it is the THIRD channel here,
+       behind the 🆕 glyph and the words "found today", either of which carries
+       the whole meaning on its own. */
+    .megafresh { font-size: calc(12px * var(--s)); font-weight: 800;
+                 color: #fff; background: var(--safe-blue);
+                 border-radius: 999px; padding: 2px 8px; margin-left: 4px;
+                 white-space: nowrap; display: inline-block;
+                 text-transform: uppercase; letter-spacing: .03em; }
     /* Review status. NEVER colour alone: each pill carries a distinct GLYPH
        shape (check vs triangle) AND the word itself, so the meaning survives
        with no colour perception at all — the colour is the third channel, not
@@ -2659,7 +2681,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.42.5';
+      var APP_VERSION = '1.42.6';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6151,7 +6173,8 @@
           return { code: c, name: r.comName, obsDt: r.obsDt, locName: r.locName,
                    locId: r.locId, subId: r.subId, lat: r.lat, lng: r.lng,
                    reports: e.n, mi: na ? na.dist : null,
-                   anchor: na ? na.name : null };
+                   anchor: na ? na.name : null,
+                   found: megaFound(s.region, c) };
         });
         // Closest first, but a mega with no coordinates is NOT dropped and not
         // sunk — every other lane requires a report inside the chase radius,
@@ -6166,6 +6189,54 @@
           return a.mi - b.mi;
         });
         return { at: s.at, rows: out };
+      }
+      // ── F212: a bird that JUST TURNED UP is not a bird that has been here ──
+      //
+      // "nazca booby is big birder local news so good we show it in hapoening
+      // now, but it beeds some kinda special alert or formating to emohasize it
+      // was just discovered this week."
+      //
+      // A first-of-its-kind arrival and a mega that has been sitting on the
+      // same jetty for three weeks are categorically different news, and the
+      // lane rendered them identically — the row said "ABA Code 3+ · 6 reports"
+      // for both, so the one fact that makes it news was the one fact missing.
+      //
+      // ⚠️ THE HONEST SIGNAL IS NOT "THE OLDEST RECORD I HOLD". That is the
+      // "all-time" lesson this file already paid for: an archive that started on
+      // Tuesday makes every bird look discovered on Tuesday. `firstReport`
+      // already draws the distinction correctly — it is `found` ONLY when the
+      // first report sits strictly INSIDE the covered window, so there are
+      // covered days carrying no report of this bird and we genuinely watched
+      // it arrive. Reused rather than re-derived, so the lane and the Rare
+      // birds card can never disagree about what "found" means.
+      //
+      // COSTS NOTHING. The archive is localStorage and coverageStart is
+      // arithmetic, so this lane still fetches nothing at all (F160), which is
+      // the property that lets Happening now paint instantly.
+      //
+      // Seven days, because that is the window the owner named ("this week")
+      // and because a mega is news for about as long as people are still
+      // driving to it. Not a measurement, and labelled as such.
+      var MEGA_FRESH_DAYS = 7;
+      function megaFound(region, code) {
+        if (!region || !code) return null;
+        var f = firstReport(abaArchiveFor(region, code), coverageStart(region));
+        // No archive slice, or the bird was already here when we started
+        // looking: both mean "cannot claim it is new", and they are the same
+        // answer for the reader even though they are different situations.
+        if (!f || !f.found) return null;
+        var day = String(f.r.obsDt || '').slice(0, 10);
+        var t = Date.parse(day + 'T00:00:00');
+        if (!isFinite(t)) return null;
+        var days = Math.floor((Date.now() - t) / 86400000);
+        if (!(days >= 0 && days <= MEGA_FRESH_DAYS)) return null;
+        return { day: day, days: days, since: coverageStart(region) };
+      }
+      function megaFoundLabel(f) {
+        if (!f) return '';
+        if (f.days <= 0) return 'found today';
+        if (f.days === 1) return 'found yesterday';
+        return 'found ' + f.days + ' days ago';
       }
       function abaArchiveAdd(region, records) {
         if (!region || !(records || []).length) return;
@@ -9471,7 +9542,27 @@
         showSheet('Share ' + what, 'No account, app install, or network is needed to scan it.', body);
       }
       function speciesLink(name, code) { return stakeSpeciesLink(name, code); }
-      function checklistLink(sub, label) { return sub ? extA(checklistUrl(sub), label || 'checklist') : ''; }
+      function checklistLink(sub, label) {
+        if (!sub) return '';
+        // THE ID IS A DESTINATION, SO IT IS SIZED LIKE ONE. Reported from the
+        // device: "the line with the checklist id needs bigger font ... add a
+        // checklist icon to checklist id". `S387245442` was rendered at
+        // `.extlink`'s 13px, the same size as the metadata around it, so the
+        // one tappable thing on the line looked like a caption.
+        //
+        // Done HERE rather than at the call sites, because EIGHT of them pass
+        // the submission id as its own label and a fix applied eight times is
+        // eight things that can drift apart — the choke-point rule this file
+        // already follows for stakeHotspotLink.
+        //
+        // The 📋 is redundant with the id beside it ON PURPOSE: it marks the
+        // row without carrying meaning of its own, so nothing is lost if the
+        // glyph does not render or is not perceived.
+        if (label == null || label === sub) {
+          return extA(checklistUrl(sub), '\uD83D\uDCCB ' + sub, 'extlink cklid');
+        }
+        return extA(checklistUrl(sub), label);
+      }
       function mapA(lat, lng, text) {
         return (isFinite(+lat) && isFinite(+lng))
           ? '<a class="maplink" data-q="' + esc(lat + ',' + lng) + '">' + esc(text) + '</a>' : esc(text);
@@ -16016,7 +16107,15 @@
           obs.forEach(function (o) { if (o.subId && subs[o.subId]) return; if (o.subId) subs[o.subId] = 1; uniq.push(o); });
           var ck;
           if (pending) {
-            ck = '<div class="sp dim">finding recent checklists…</div>';
+            // IT HAS TO LOOK LIKE WORK IN PROGRESS. Reported from the device:
+            // this read exactly like a finished result that had found nothing,
+            // because it was set in the same dim body type as "no checklists in
+            // the last N days" one branch below. Three signals, none of them
+            // colour: the wording says it is working, the ellipsis animates,
+            // and the label is italic so it is distinguishable from a settled
+            // answer at a glance and with the animation switched off.
+            ck = '<div class="sp dim ckwait"><i>finding recent checklists</i>'
+              + '<span class="loadingdots" aria-hidden="true">\u2026</span></div>';
           } else if (!code) {
             ck = '<div class="sp">no recent reports in ' + esc(region) + '</div>';
           } else if (!uniq.length) {
@@ -19435,6 +19534,17 @@
             var below = '<ul class="cklrows">'
               + (where ? '<li class="lblrow"><span class="lbl">Where</span>'
                        + '<span class="where">' + where + '</span></li>' : '')
+              // F212. The row that makes it news, and it leads the evidence
+              // rather than trailing it. It states BOTH halves of the claim:
+              // when the bird was found, and how long we had been watching
+              // without seeing it — because the second is what makes the first
+              // mean anything, and without it this is just a date.
+              + (m.found
+                  ? '<li class="lblrow"><span class="lbl">First found</span>'
+                    + '<span class="where">' + esc(fmtDate(m.found.day))
+                    + ' — nothing reported here since we began watching on '
+                    + esc(fmtDate(m.found.since)) + '</span></li>'
+                  : '')
               + '<li class="lblrow"><span class="lbl">Latest</span>'
               + '<span class="when">' + esc(fmtDateTime(m.obsDt)) + '</span></li>'
               // A mega outside the chase radius is SHOWN, and says so. Every
@@ -19457,6 +19567,15 @@
               name: speciesLink(m.name, m.code),
               code: m.code,
               alpha: alphaFor(m.code),
+              // F212. The badge is the "special alert" the report asked for,
+              // and it carries its meaning in WORDS ("found today") as well as
+              // in the glyph and the fill — so it survives a reader who cannot
+              // separate it from the accent colour, which is the standing rule
+              // for every status marker in this app.
+              tags: (m.found
+                ? '<span class="megafresh">\uD83C\uDD95 '
+                  + esc(megaFoundLabel(m.found)) + '</span>'
+                : ''),
               // `sub` and `distMi` are real MEDIUM slots. `count`/`unit` are
               // NOT — the MEDIUM template declares no {{count}}, so passing one
               // renders nothing and says so nowhere. That is the same silent
@@ -24188,6 +24307,7 @@
         hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistView: checklistView, pruneChecklistCache: pruneChecklistCache,
+        checklistLink: checklistLink, checklistUrl: checklistUrl,
         CKL_NS: CKL_NS,
         checklistDetails: checklistDetails, HOTSPOT_CKL_SHOWN: HOTSPOT_CKL_SHOWN,
         CKL_EVID_MAX: CKL_EVID_MAX, cklCached: cklCached,

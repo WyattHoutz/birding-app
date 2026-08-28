@@ -2058,6 +2058,88 @@ test('a checklist link is labelled by its subId, never the word "checklist"', ()
     'every call site passes the id: "checklist" names nothing you can look up');
 });
 
+// "the line with the checklist id needs bigger font ... add a checklist icon
+// to checklist id" — the id was set at `.extlink`'s 13px, the same size as the
+// metadata either side of it, so the one thing on the line you can open looked
+// like a caption.
+//
+// REPRODUCED THROUGH THE FUNCTION, not regexed out of the source. Eight call
+// sites pass the submission id as its own label, so the behaviour lives at the
+// choke point and that is what this exercises.
+test('a checklist id is rendered as a destination, not as metadata', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  const asId = A.checklistLink('S387245442');
+  assert.match(asId, /S387245442/, 'the id is still the text you can read');
+  assert.match(asId, /\uD83D\uDCCB/,
+    'and carries the 📋 that marks it as a checklist');
+  assert.match(asId, /class="[^"]*\bcklid\b/,
+    'through a class of its own, so the size can differ from a plain ext link');
+  // The glyph must be REDUNDANT, never the only carrier: a reader who does not
+  // get the emoji still has the id.
+  assert.match(asId.replace(/\uD83D\uDCCB/g, ''), /S387245442/,
+    'strip the icon and the destination is still named');
+
+  // A caller that supplies its own label is untouched — the date-as-link rows
+  // in Today's rarities must not sprout a clipboard.
+  const asDate = A.checklistLink('S387245442', 'Aug 3 5:14 AM');
+  assert.doesNotMatch(asDate, /\uD83D\uDCCB/,
+    'a labelled link is a different thing and keeps its own text');
+  assert.match(asDate, /Aug 3 5:14 AM/, 'and still says what it said');
+
+  assert.equal(A.checklistLink(''), '', 'no id, no link — never a dead anchor');
+  app.window.close();
+});
+
+// The SIZE is the report, so the size is what is asserted — and it is compared
+// against the rule it has to beat rather than pinned to a number, so a later
+// change to the base link size cannot leave this passing while the id is once
+// again the same size as everything around it.
+test('the checklist id is really bigger than a plain external link', () => {
+  const base = /\.maplink, \.extlink[^{]*\{[^}]*font-size: calc\((\d+)px \* var\(--s\)\)/.exec(HTML);
+  const id = /\.extlink\.cklid \{[^}]*font-size: calc\((\d+)px \* var\(--s\)\)/.exec(HTML);
+  assert.ok(base, 'the base external-link size is still readable');
+  assert.ok(id, 'the checklist id must have a size rule of its own');
+  assert.ok(+id[1] > +base[1],
+    `the id (${id[1]}px) must be larger than a plain ext link (${base[1]}px) — `
+    + 'that it has a class is not the fix, the size is');
+  // It scales with the text-size setting like everything else, or Easy read
+  // would shrink it back down relative to the row.
+  assert.match(HTML, /\.extlink\.cklid \{[^}]*var\(--s\)/,
+    'and it scales with --s, like every other px in this stylesheet');
+});
+
+// "finding recent checklists" read exactly like a finished result that had
+// found nothing, because it was set in the same dim body type as the "no
+// checklists in the last N days" branch immediately below it.
+//
+// Pinned to the PROPERTY — the waiting state must differ from the settled ones
+// by something other than its wording — rather than to the markup, because a
+// guard that names one class breaks the moment the spinner is restyled.
+test('a section still fetching does not look like a section that found nothing', () => {
+  const card = HTML.slice(HTML.indexOf('function lastNewCard('),
+    HTML.indexOf('\n      // F209.'));
+  assert.ok(card.length > 400, 'lastNewCard is still findable');
+
+  const waiting = /if \(pending\) \{([\s\S]*?)\} else if \(!code\)/.exec(card);
+  assert.ok(waiting, 'the pending branch is still there');
+  const settled = card.slice(card.indexOf('} else if (!code)'));
+
+  assert.match(waiting[1], /<i>/,
+    'the waiting label is italic — a signal that survives with animation off');
+  assert.match(waiting[1], /loadingdots/,
+    'and the ellipsis animates, so the row reads as work in progress');
+  assert.doesNotMatch(settled, /loadingdots/,
+    'a settled answer must NOT animate, or the distinction says nothing');
+  assert.doesNotMatch(settled, /<i>/,
+    'nor share the italic — these two states have to look different');
+  assert.match(HTML, /@keyframes bcdots/,
+    'the animation it names really exists');
+  assert.match(HTML, /prefers-reduced-motion[\s\S]{0,400}animation: none/,
+    'and motion is not the only cue for a reader who has switched it off');
+});
+
 test('the three species sections use the large icon + title treatment', () => {
   // targetResults (Closest spots) is NOT in this list any more: its rows are
   // HOTSPOTS, and a hotspot list carrying the species container classes is
@@ -14351,6 +14433,128 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
   // The lane says how stale it is. Without this, "no megas" and "not refreshed
   // since Tuesday" look identical.
   assert.match(txt, /3h ago/, 'the lane does not state the age of its snapshot');
+});
+
+// ── F212: "it was just discovered this week" ──────────────────────────────
+// "nazca booby is big birder local news so good we show it in hapoening now,
+// but it beeds some kinda special alert or formating to emohasize it was just
+// discovered this week."
+//
+// The trap this guards is NOT "does a badge render". It is that the badge must
+// mean something: an archive that started on Tuesday makes EVERY bird look
+// discovered on Tuesday, which is the v1.0.23 "all-time" mistake wearing a new
+// hat. So the two cases are exercised against the SAME bird, with the only
+// difference being whether the archive has covered days that carry no report
+// of it.
+test('a mega found this week is marked; one that was already here is not', async () => {
+  const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+
+  const snap = JSON.stringify({
+    at: Date.now(), region: 'US-WA',
+    rows: [{ speciesCode: 'nazboo', comName: 'Nazca Booby', obsDt: day(1) + ' 08:00',
+             locName: 'The Jetty', locId: 'L9', subId: 'S9', lat: 47.76, lng: -122.17 }],
+  });
+  // WATCHED IT ARRIVE: the archive holds this species only from two days ago,
+  // and coverage reaches back 30 days, so there are ~28 covered days with no
+  // report of it. That is the evidence, and it is what `found` means.
+  const watched = JSON.stringify({
+    'US-WA': {
+      'amecro|S1': { speciesCode: 'amecro', obsDt: day(29) + ' 08:00' },
+      'nazboo|S9': { speciesCode: 'nazboo', obsDt: day(2) + ' 08:00' },
+    },
+  });
+
+  const a = await boot({ storage: { ebird_mega_snapshot_v1: snap,
+                                    ebird_aba_archive_v1: watched } });
+  const found = a.window.__app.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
+  assert.ok(found.rows[0].found, 'a bird we watched arrive is not marked as found');
+  assert.equal(found.rows[0].found.day, day(2), 'and it is dated by its FIRST report');
+
+  a.window.__app.renderSurge([], [], [], []);
+  const txt = a.window.document.getElementById('surgeResults').textContent;
+  // The PHRASING is asserted, not the arithmetic: `toISOString()` is UTC while
+  // the code counts from LOCAL midnight, so a fixed "2 days ago" here fails on
+  // any evening west of Greenwich — which is exactly where this app is used.
+  // The exact date is pinned above, on `found.day`, where it is unambiguous.
+  assert.match(txt, /found (today|yesterday|\d+ days ago)/i,
+    'the badge must say WHEN in words — the glyph and the fill are the second '
+    + 'and third channels, never the only ones');
+  assert.match(txt, /since we began watching/i,
+    'and must state how long we watched without seeing it, or the date is just a date');
+  a.window.close();
+
+  // ALREADY HERE — WE DID WATCH IT ARRIVE, BUT MONTHS AGO. Coverage reaches
+  // back 200 days and the bird first appeared at 60, so `found` is genuinely
+  // true and only the freshness window stands between it and a "just
+  // discovered" badge.
+  const longAgo = JSON.stringify({
+    'US-WA': {
+      'amecro|S1': { speciesCode: 'amecro', obsDt: day(200) + ' 08:00' },
+      'nazboo|S9': { speciesCode: 'nazboo', obsDt: day(60) + ' 08:00' },
+    },
+  });
+  const d = await boot({ storage: { ebird_mega_snapshot_v1: snap,
+                                    ebird_aba_archive_v1: longAgo } });
+  assert.equal(d.window.__app.megaLane([]).rows[0].found, null,
+    'a mega we watched arrive TWO MONTHS ago is not this week\u2019s news — '
+    + '"just discovered" has to expire or it stops meaning anything');
+  d.window.__app.renderSurge([], [], [], []);
+  assert.doesNotMatch(
+    d.window.document.getElementById('surgeResults').textContent,
+    /found (today|yesterday|\d+ days ago)/i,
+    'the badge rendered for a bird that arrived two months ago');
+  d.window.close();
+
+  // ...and an empty archive is the same answer: no evidence is not evidence.
+  const c = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  assert.equal(c.window.__app.megaLane([]).rows[0].found, null,
+    'with no archive at all there is nothing to claim');
+  c.window.close();
+});
+
+// ⚠️ THE CLAIM MUST NOT OUTRUN THE EVIDENCE THAT SUPPORTS IT, and this guard
+// exists because mutation testing proved the `found` test currently cannot
+// fire. `coverageStart` is the EARLIER of the API's 30-day ceiling and the
+// oldest record in the archive, so for any bird whose first report is inside a
+// 7-day window `found` is true by construction — the freshness window was
+// doing all the work and deleting the `found` test changed nothing.
+//
+// That is fine, and it is fine for exactly one reason: the badge window is
+// shorter than the API coverage behind it, so "nothing was reported before
+// this" is always a statement about days we can actually see. Raise
+// MEGA_FRESH_DAYS past ABA_HIST_BACK and the badge starts claiming absence
+// across days nobody ever looked at — the "all-time" mistake again, arrived at
+// by arithmetic rather than by wording.
+//
+// So the RELATIONSHIP is what is pinned, not either number.
+test('the just-found window never claims more days than the feed can see', () => {
+  const fresh = /var MEGA_FRESH_DAYS = (\d+)/.exec(HTML);
+  const back = /var ABA_HIST_BACK = (\d+)/.exec(HTML);
+  assert.ok(fresh, 'the badge window must be a named constant');
+  assert.ok(back, 'the feed window must be a named constant');
+  assert.ok(+fresh[1] < +back[1],
+    `the badge window (${fresh[1]}d) must stay inside the feed's coverage `
+    + `(${back[1]}d) — beyond it, "nothing reported before this" is a claim `
+    + 'about days that were never fetched');
+  // And the check that becomes load-bearing the moment that stops being true
+  // has to still be there, or raising the window would silently start lying.
+  assert.match(HTML, /if \(!f \|\| !f\.found\) return null;/,
+    'megaFound must still refuse a bird that was already present when we '
+    + 'started looking — it is redundant today and is the only thing standing '
+    + 'between a longer window and an unsupported claim');
+});
+
+test('the just-found badge is legible without seeing its colour', () => {
+  const css = /\.megafresh \{([^}]*)\}/.exec(HTML);
+  assert.ok(css, 'the badge must have a rule of its own');
+  // Solid, where every other pill is a tint — so "alert" is carried by fill
+  // and weight, not by a hue the reader may not separate.
+  assert.match(css[1], /background: var\(--safe-blue\)/,
+    'the fill is the Okabe-Ito blue measured at 5.2:1, not a new unaudited hue');
+  assert.match(css[1], /color: #fff/, 'on a solid fill, for contrast');
+  assert.doesNotMatch(css[1], /color-mix/,
+    'a tint would make it one more pill among pills');
+  assert.match(css[1], /var\(--s\)/, 'and it scales with the text-size setting');
 });
 
 // ── F161: the Vancouver-WA preference was DEAD CODE ───────────────────────
