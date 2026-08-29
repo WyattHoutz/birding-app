@@ -2101,16 +2101,21 @@ test('the rate limiter is sized for the key it actually has to itself', () => {
     + 'queued call for a 20s cooldown');
 });
 
-test('all four Go birding sections offer the same anchor, and rank from it', async () => {
+test('the Go birding anchor now covers six sections, and rank from it', async () => {
   const app = await boot();
   const doc = app.window.document, A = app.window.__app;
 
   // Quick outing NAVIGATES between anchors (it is the destination); the other
-  // three RE-RANK in place. Different verbs, same three options in the same
-  // order — that is what makes it one template rather than four menus.
+  // five RE-RANK in place. Different verbs, same three options in the same
+  // order — that is what makes it one template rather than six menus.
+  //
+  // F241. Grew from three to five: 📋 Near misses and 🥚 Nemesis birds gained
+  // the switch on "add the control for find/here/home to the near misses and
+  // common misses" — six sections in all now offer Here / Home / Find…
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
-  assert.equal(rows.length, 3,
-    'Top destinations, Top excursions and Targets near you each carry the switch');
+  assert.equal(rows.length, 5,
+    'Today\u2019s patches, Day-trip patches, Closest unseen birds, Near misses '
+    + 'and Nemesis birds each carry the switch');
   for (const r of rows) {
     const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
     assert.deepEqual(chips, ['here', 'home', 'find'],
@@ -2119,11 +2124,16 @@ test('all four Go birding sections offer the same anchor, and rank from it', asy
   const quick = [...doc.querySelectorAll('.modeswitch[data-modes="quick"] .modebtn')]
     .map((b) => (b.getAttribute('data-goto') || '').replace('quick:', ''));
   assert.deepEqual(quick, ['here', 'home', 'find'],
-    'and Quick outing still offers exactly those, so the four agree');
+    'and Quick outing still offers exactly those, so the six agree');
 
-  // The single choke point. Every section's ranking already flowed through
-  // getAnchors(), which is what let four sections share an anchor without
-  // four separate changes — and is what makes this assertion worth making.
+  // The single choke point for the THREE sections that re-rank an already
+  // fetched CANDIDATE SET (Today's patches, Day-trip patches, Closest unseen
+  // birds). Near misses and Nemesis birds are NOT claimed here: Near misses
+  // deliberately stays home-anchored (its list mirrors report.py's Closest
+  // spots and is parity-tested; re-ranking it is a separate, larger change),
+  // and Nemesis birds flows through the narrower `anchorPoint()` instead
+  // (asserted below) because it ranks ONE point's distance, not a set of
+  // candidate anchors.
   const src = HTML.slice(HTML.indexOf('function getAnchors('),
     HTML.indexOf('function getAnchors(') + 700);
   assert.match(src, /quickAnchor\(quickOrigin\)/,
@@ -2131,8 +2141,40 @@ test('all four Go birding sections offer the same anchor, and rank from it', asy
   assert.match(src, /getHome\(\)/,
     'and falls back to home, so an untouched section still matches the report, '
     + 'which ranks from a fixed anchor and cannot ask where you are standing');
+
+  // F241: Nemesis birds' own spot distances now follow the same chosen point,
+  // not always the house — the one piece of these two sections' OWN ranking
+  // (as opposed to the Find-triggered scout box) that this feature touches.
+  const em = HTML.slice(HTML.indexOf('function computeEasyMisses('),
+    HTML.indexOf('function computeEasyMisses(') + 1400);
+  assert.match(em, /anchorPoint\(\)/,
+    'computeEasyMisses reads the chosen anchor, so Here/Home genuinely '
+    + 'change something rather than the switch being decorative');
+  assert.ok(!/var home = getHome\(\)/.test(em),
+    'and no longer reads getHome() directly for that same purpose');
   app.window.close();
 });
+
+test('Nemesis birds ranks against the chosen anchor, with the default matching home', async () => {
+  // A real call, not only a source scan: proves anchorPoint() actually wires
+  // in and produces the SAME distances as before in the untouched default
+  // state, so this is a behaviour-preserving change for every reader who
+  // never touches the new switch.
+  const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
+  const A = app.window.__app;
+  const obs = [
+    { speciesCode: 'zzztst1', comName: 'Testable Sparrow', obsDt: '2026-08-20 08:00',
+      locId: 'L1', locName: 'Near Home', lat: '47.76', lng: '-122.15' },
+  ];
+  const rows = A.computeEasyMisses(obs, 7, {});
+  assert.equal(rows.length, 1, 'the sample bird is unseen and reported once');
+  const spot = rows[0].spots[0];
+  const wantMi = app.window.BirdLogic.haversineMi(47.75, -122.16, 47.76, -122.15);
+  assert.ok(Math.abs(spot.mi - wantMi) < 0.05,
+    `distance should still be from home by default: got ${spot.mi}, want ${wantMi}`);
+  app.window.close();
+});
+
 
 test('rare means the same thing on a hotspot card and in the 7-day list', () => {
   const idx = HTML.slice(HTML.indexOf('function locSpeciesIndex('),
@@ -18817,6 +18859,70 @@ test('searching a place FETCHES that place, it does not just re-sort home', asyn
   A.clearInlineScout();
   assert.ok(!app.window.document.querySelector('.scoutinline'),
     'a new search must not inherit its predecessor\u2019s rows');
+  app.window.close();
+});
+
+test('F241: the scout answers with hotspots only inside a Patches section, and with birds elsewhere', async () => {
+  // "remove the bird list from todays patches … the menu is for hotspots" /
+  // "it also needs to be disabled from the day trip patches" / "must be
+  // linked to the find control". The bird list is the RESULT of a Find, so it
+  // must render only where the Find control is meant to answer with birds.
+  //
+  // Two real live scouts of the SAME place, differing only in which section
+  // was open when the Find control fired — driving the actual renderer, not a
+  // source scan, because a group-derived rule is exactly the kind of thing a
+  // regex cannot tell was wired to the wrong field.
+  const scoutRow = { speciesCode: 'zzztst3', comName: 'Testable Warbler',
+    lat: 46.6021, lng: -120.5059, locId: 'L9', locName: 'Test Spot',
+    obsDt: '2026-08-25 08:00' };
+  const scoutHotspot = { locId: 'L9', locName: 'Test Spot', lat: 46.6021, lng: -120.5059,
+    numSpeciesAllTime: 120, latestObsDt: '2026-08-25' };
+  const place = { lat: 46.6021, lng: -120.5059, label: 'Yakima', state: 'Washington' };
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/geo\/recent\/notable/.test(url)) return [];
+      if (/data\/obs\/geo\/recent/.test(url)) return [scoutRow];
+      if (/ref\/hotspot\/geo/.test(url)) return [scoutHotspot];
+      return null;   // everything else (favourites, BirdCast) stays quiet
+    },
+  });
+  const A = app.window.__app;
+
+  // 1. FAVORITE PATCHES — Patches-group, and its own auto-load is silent with
+  //    zero saved favourites, so it cannot starve the scout behind a queue the
+  //    way Today's patches' ~47-call wave would (measured in the test above).
+  app.open(/Favorite patches/);
+  await new Promise((r) => setTimeout(r, 40));
+  await A.autoScoutForAnchor(place);
+  let box = app.window.document.querySelector('.scoutinline');
+  assert.ok(box, 'the scout box still renders in a Patches section');
+  assert.ok(!/bird.*you need/i.test(box.textContent),
+    'but names no birds: "' + box.textContent.replace(/\s+/g, ' ').slice(0, 120) + '"');
+  assert.ok(!box.querySelector('.sppl'),
+    'and renders no species-card list at all');
+  let details = box.querySelector('details.farplaces');
+  assert.ok(details && details.hasAttribute('open'),
+    'the hotspot list is OPEN by default here — collapsing it would answer a '
+    + 'place search with nothing visible at all');
+  assert.match(box.textContent, /Test Spot/, 'the hotspot itself is still there');
+  A.clearInlineScout();
+
+  // 2. BIRDCAST — not a Patches section, so the SAME scouted place answers
+  //    with birds, exactly as the hidden Look-up-a-place panel always has.
+  app.open(/Nightly migration/);
+  await new Promise((r) => setTimeout(r, 40));
+  await A.autoScoutForAnchor(place);
+  box = app.window.document.querySelector('.scoutinline');
+  assert.ok(box, 'the scout box renders in a non-Patches section');
+  assert.match(box.textContent, /bird.*you need/i,
+    'and here it DOES name the birds');
+  assert.ok(box.querySelector('.sppl'), 'with the actual species-card list');
+  assert.match(box.textContent, /Testable Warbler/, 'naming the one it fetched');
+  details = box.querySelector('details.farplaces');
+  assert.ok(details && !details.hasAttribute('open'),
+    'and the hotspot list goes back to collapsed, since the birds are the '
+    + 'decision here and the hotspots are reference');
+  A.clearInlineScout();
   app.window.close();
 });
 

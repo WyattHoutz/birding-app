@@ -1904,6 +1904,13 @@
     <section class="panel">
       <h2>📋 Near misses <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-allUnseenBtn"></div>
+      <!-- F241. Owner: "add the control for find/here/home to the near
+           misses and common misses." Same switch, same three chips, as
+           Today's patches / Day-trip patches / Closest unseen birds — Find
+           is what links this section to the scouted-place bird list
+           (renderScout), which now renders HERE rather than wherever the
+           reader happened to have open. -->
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="allUnseenBtn">List every report</button>
       </div>
@@ -2221,6 +2228,8 @@
     <section class="panel">
       <h2>🥚 Nemesis birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-easyBtn"></div>
+      <!-- F241, same reasoning as Near misses above. -->
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="easyBtn">Find nemesis birds</button>
       </div>
@@ -2704,7 +2713,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.51.1';
+      var APP_VERSION = '1.52.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7468,7 +7477,19 @@
         });
         hs.sort(function (a, b) { return a._d - b._d; });
 
+        // F241. A PATCHES SECTION ANSWERS WITH PATCHES. Owner, over several
+        // messages: "remove the bird list from todays patches … the menu is
+        // for hotspots", "the bird list only appears in local patches after
+        // doing a find", "it also needs to be disabled from the day trip
+        // patches", and, settling the shape, "must be linked to the find
+        // control" — the bird list is the RESULT of a Find, so it belongs
+        // wherever the Find control is meant to answer with birds: Near
+        // misses and Nemesis birds. `hosts.birds` names that, defaulting to
+        // true so the hidden Look-up-a-place panel (which has always shown
+        // both halves) is unchanged.
+        var wantBirds = hosts.birds !== false;
         var h = '';
+        if (wantBirds) {
         h += '<h3 class="lanehead">🔍 ' + needs.length + ' bird'
           + (needs.length === 1 ? '' : 's') + ' you need around ' + esc(data.label) + '</h3>';
         if (!needs.length) {
@@ -7499,15 +7520,18 @@
             });
           }), 'sppl');
         }
+        }
 
-        // The hotspot list is the thing that was actually asked for, and it is
-        // one call however many come back — 246 around Yakima. Collapsed
-        // because it is a reference list, not a decision: the birds above are
-        // the decision.
+        // The hotspot list is one call however many come back — 246 around
+        // Yakima. Collapsed when the birds are ALSO on screen, because then it
+        // is a reference list and they are the decision; OPEN when this scout
+        // is patches-only (wantBirds === false), where a collapsed list would
+        // answer a place search with nothing visible at all.
         h += '<h3 class="lanehead">📍 ' + hs.length + ' hotspot'
           + (hs.length === 1 ? '' : 's') + ' within '
           + Math.round(SCOUT_DIST_KM * 0.621371) + ' mi</h3>';
-        h += '<details class="farplaces"><summary>Show the ' + hs.length
+        h += '<details class="farplaces"' + (wantBirds ? '' : ' open')
+          + '><summary>Show the ' + hs.length
           + ' hotspots, nearest first</summary><ul class="obs card-sm">'
           + hs.slice(0, 100).map(function (x) {
             return '<li><div class="name"><span class="ntext">'
@@ -7522,7 +7546,10 @@
         host.innerHTML = h;
         hydratePhotos(host);
         if (st) st.textContent = data.label + ' · ' + groups.length + ' species · '
-          + needs.length + ' you need · ' + hs.length + ' hotspots · '
+          + (wantBirds
+             ? needs.length + ' you need · '
+             : needs.length + ' you need (see Near misses / Nemesis birds) · ')
+          + hs.length + ' hotspots · '
           + (partial ? 'loading…' : 'fetched ' + fmtDateTime(new Date(data.at)));
       }
 
@@ -7658,7 +7685,17 @@
         box.hidden = false;
         box.querySelector('.scoutinplace').textContent = place.label || 'there';
         var hosts = { host: box.querySelector('.scoutinbody'),
-                      st: box.querySelector('.scoutinstatus') };
+                      st: box.querySelector('.scoutinstatus'),
+                      // F241. A PATCHES-GROUP SECTION ANSWERS WITH PATCHES.
+                      // `_group` names the ERRAND ("Patches - Go birding" vs
+                      // "Stakeouts - Birding tools"), and every section in the
+                      // Patches errand really is a hotspot ranking — including
+                      // Closest unseen birds, whose own NAME is being corrected
+                      // for the same reason (F242: "it is a list of hotspots").
+                      // So this needs no per-section exception list: derive it
+                      // from the group, and a future patches section inherits
+                      // the rule instead of a maintainer having to remember it.
+                      birds: !/^Patches/.test(open._group || '') };
         hosts.host.innerHTML = '';
         var run = ++_scoutRun;
         return scoutAtPlace(place, run, hosts).catch(function (e) {
@@ -18157,7 +18194,14 @@
             if ((o.obsDt || '') > s.when) { s.when = o.obsDt || ''; s.sub = o.subId || ''; }
           }
         });
-        var home = getHome(), rows = [];
+        // F241. THE CHOSEN ANCHOR, not always the house. Nemesis birds gained
+        // the Here / Home / Find… switch, so "near you" has to mean the point
+        // the reader picked, exactly the "ranking, not gathering" pattern
+        // every other anchor section already follows: the checklists are
+        // still fetched by COUNTY (unchanged), only the DISTANCE each spot is
+        // ranked by moves. `anchorPoint()` already falls back to home, so the
+        // untouched default is bit-for-bit what this was before.
+        var home = anchorPoint(), rows = [];
         Object.keys(per).forEach(function (code) {
           var d = per[code];
           if (isSpeciesSeen(code, d.name, parentOf)) return;
