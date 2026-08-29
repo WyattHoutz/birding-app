@@ -25,7 +25,23 @@
   var CONST = {
     FETCH_BACK: 7,          // fetch_ebird.py --back default
     CUTOFF_DAYS: 2,         // analyze.CUTOFF_DAYS (daily-section recency)
-    GEO_DIST_KM: 50,        // regions.py geo_dist_km
+    GEO_DIST_KM: 50,        // regions.py geo_dist_km — the value a profile ASKS
+                            // for. What it GETS is geoRecentDistKm /
+                            // geoNotableDistKm, which clamp per endpoint.
+    KM_PER_MI: 1.60934,     // regions.KM_PER_MI
+    // eBird's `dist=` ceilings, MEASURED to the exact boundary 2026-08-28 from
+    // (47.76, -122.14) — mirror of regions.GEO_*_CAP_KM:
+    //
+    //     data/obs/geo/recent            50 km    51 -> HTTP 400
+    //     data/obs/geo/recent/notable   250 km   251 -> HTTP 400
+    //     ref/hotspot/geo               500 km   501 -> HTTP 400
+    //
+    // One number, 50, used to be clamped onto all three. It is right for
+    // exactly one of them, and being wrong on the notable feed is F179: the
+    // 31-to-35 mile ring of the chase radius was fetched by nothing.
+    GEO_RECENT_CAP_KM: 50,
+    GEO_NOTABLE_CAP_KM: 250,
+    HOTSPOT_GEO_CAP_KM: 500,
     DAILY_DRIVE_MI: 12,     // regions.py _WA daily_drive_mi
     // How far you will actually drive for one bird. report.chase_max_mi().
     // Written down once for Closest spots, then every other chase section
@@ -317,6 +333,34 @@
   // which is also the merge order load_snapshot relies on.
   function round4(x) { return Math.round(x * 1e4) / 1e4; }
 
+  // ---- geo feed distances, DERIVED rather than configured -------------------
+  // Mirrors regions.Region.geo_recent_dist_km / .geo_notable_dist_km. The two
+  // geo endpoints have different ceilings and only one of them can cover the
+  // chase radius, so a single `dist` was always going to be wrong somewhere.
+  //
+  // THE RULE: the feed may never reach less far than the radius we claim to
+  // chase. Where the endpoint allows it that is a floor, so moving the radius
+  // moves the feed and the two cannot drift.
+  //
+  // These are pure functions of the profile, which is what keeps the static
+  // feed-plan golden meaningful: the app widens the feed by handing in a
+  // profile whose chaseMaxMi is the reader's setting, not by reaching into
+  // storage from in here.
+  function geoRecentDistKm(profile) {
+    // No chase-radius floor. This endpoint really is capped at 50 km, so a
+    // floor it cannot honour would be a promise rather than a setting.
+    return Math.min(Math.max((profile && profile.geoDistKm) || 0, 0),
+                    CONST.GEO_RECENT_CAP_KM);
+  }
+
+  function geoNotableDistKm(profile) {
+    var mi = profile && profile.chaseMaxMi;
+    if (!(isFinite(mi) && mi > 0)) mi = CONST.CHASE_MAX_MI;
+    var floor = Math.ceil(mi * CONST.KM_PER_MI);
+    return Math.min(Math.max((profile && profile.geoDistKm) || 0, floor),
+                    CONST.GEO_NOTABLE_CAP_KM);
+  }
+
   function planFeeds(profile, back) {
     back = back == null ? CONST.FETCH_BACK : back;
     var jobs = [];
@@ -334,16 +378,16 @@
     });
     if (profile.geoFeed !== false && profile.home && profile.home.lat && profile.home.lng) {
       var lat = round4(profile.home.lat), lng = round4(profile.home.lng);
-      var dist = Math.min(Math.max(profile.geoDistKm, 0), 50);
+      var rec = geoRecentDistKm(profile), not = geoNotableDistKm(profile);
       jobs.push({
-        file: 'geo-recent.json', kind: 'recent', src: 'Geo' + dist + 'km',
+        file: 'geo-recent.json', kind: 'recent', src: 'Geo' + rec + 'km',
         path: 'data/obs/geo/recent',
-        params: { lat: lat, lng: lng, dist: dist, back: back, detail: 'full', includeProvisional: 'true' }
+        params: { lat: lat, lng: lng, dist: rec, back: back, detail: 'full', includeProvisional: 'true' }
       });
       jobs.push({
-        file: 'geo-notable.json', kind: 'notable', src: 'Geo' + dist + 'km',
+        file: 'geo-notable.json', kind: 'notable', src: 'Geo' + not + 'km',
         path: 'data/obs/geo/recent/notable',
-        params: { lat: lat, lng: lng, dist: dist, back: back, detail: 'full' }
+        params: { lat: lat, lng: lng, dist: not, back: back, detail: 'full' }
       });
     }
     return jobs;
@@ -429,9 +473,12 @@
       notables.push({ file: c.slug + '-notable.json', kind: 'notable', src: c.label });
     });
     if (profile.geoFeed !== false && profile.home && profile.home.lat && profile.home.lng) {
-      var dist = Math.min(Math.max(profile.geoDistKm, 0), 50);
-      recents.push({ file: 'geo-recent.json', kind: 'recent', src: 'Geo' + dist + 'km' });
-      notables.push({ file: 'geo-notable.json', kind: 'notable', src: 'Geo' + dist + 'km' });
+      // Must derive exactly as planFeeds does: `src` is compared against the
+      // report's analyze._SOURCES labels, so a mismatch here is a parity break
+      // rather than a cosmetic one.
+      var rec = geoRecentDistKm(profile), not = geoNotableDistKm(profile);
+      recents.push({ file: 'geo-recent.json', kind: 'recent', src: 'Geo' + rec + 'km' });
+      notables.push({ file: 'geo-notable.json', kind: 'notable', src: 'Geo' + not + 'km' });
     }
     return recents.concat(notables).concat(speciesMergePlan(speciesCodes));
   }
@@ -4111,6 +4158,8 @@
     computeChaseViews: computeChaseViews,
     toRenderDest: toRenderDest,
     planFeeds: planFeeds,
+    geoRecentDistKm: geoRecentDistKm,
+    geoNotableDistKm: geoNotableDistKm,
     planSpeciesFeeds: planSpeciesFeeds,
     speciesTargetCodes: speciesTargetCodes,
     speciesFeedRegion: speciesFeedRegion,

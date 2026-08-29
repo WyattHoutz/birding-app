@@ -11532,9 +11532,19 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
     `one wave's worth of alert feeds, not two: ${waves}`);
 
   // ...and the guard is the in-flight promise, kept rather than deleted.
+  //
+  // ⚠️ SLICED BY NAMED BOUNDARY, not by a byte count. This read
+  // `indexOf('function getChase(') + 2200` and broke when F179 added a comment
+  // ABOVE the line it checks — the assertion was still true, the window had
+  // just stopped containing it. That is "a guard can be broken by a change
+  // nowhere near it": the failure names the wrong culprit and costs a bisect.
+  // Both landmarks below are unique in index.html.
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-  const gc = HTML.slice(HTML.indexOf('function getChase('),
-    HTML.indexOf('function getChase(') + 2200);
+  const from = HTML.indexOf('function getChaseAll(force)');
+  const to = HTML.indexOf('function fetchAll(list, step, bg)');
+  assert.ok(from > 0 && to > from,
+    'getChaseAll and its inner fetchAll still bound the window this reads');
+  const gc = HTML.slice(from, to);
   assert.match(gc, /if \(_chaseInflight\[slug\]\) return _chaseInflight\[slug\];/,
     'a force joins the running wave');
   assert.ok(!/delete _chaseInflight\[slug\];/.test(gc),
@@ -11902,6 +11912,103 @@ test('the rarity feeds are fetched first, and paint without waiting for the rest
   assert.deepEqual(Array.from(order).slice(0, 3), ['notable', 'notable', 'notable'],
     'rarity feeds lead, because they answer a whole section on their own');
   app.window.close();
+});
+
+// --- F179: the rarity feed reaches as far as the radius claims to -----------
+// The chase radius was 35 mi and the geo feeds were clamped to 50 km = 31.1 mi,
+// so the 31-to-35 mile ring was fetched by nothing outside the target counties.
+// Reported from the device as "only two rare birds are showing up in todays
+// twitches" — and the two shown were correct, which is what made it hard to see.
+//
+// The clamp was a configured default read as a ceiling. Measured to the
+// boundary 2026-08-28: data/obs/geo/recent really does stop at 50 (51 -> 400),
+// but data/obs/geo/recent/notable accepts 250. One number had been copied onto
+// both.
+test('the rarity feed is derived from the chase radius, not pinned to 50 km', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const p = (km, mi) => ({ geoDistKm: km, chaseMaxMi: mi });
+
+  // Derived, and compared against a distance computed here from the radius —
+  // never against a literal 57, or raising the radius would silently outrun it.
+  const need = (mi) => Math.ceil(mi * 1.60934);
+  assert.equal(BL.geoNotableDistKm(p(50, 35)), need(35),
+    'at the default radius the rarity feed reaches the whole 35 mi');
+  assert.ok(BL.geoNotableDistKm(p(50, 35)) > 50,
+    'which is strictly further than the 50 km it used to send — the bug itself');
+  assert.equal(BL.geoNotableDistKm(p(50, 75)), need(75),
+    'and a reader who widens the radius genuinely widens the fetch');
+
+  // A profile asking for LESS than its radius needs still gets the radius. This
+  // is the case no golden covers: WA asks for exactly 50, Fort Casey asks 40.
+  assert.equal(BL.geoNotableDistKm(p(40, 35)), need(35),
+    'the radius is a floor, so asking for less than it cannot uncover the ring');
+  assert.equal(BL.geoRecentDistKm(p(40, 35)), 40,
+    '...but the COMMON feed keeps the region\'s own smaller ask, because a '
+    + 'floor it cannot honour would be a promise rather than a setting');
+
+  // The ceilings are real and different. Past them every call 400s, and an
+  // empty section reads as "no rare birds" rather than as a bug.
+  assert.equal(BL.geoNotableDistKm(p(50, 2000)), 250,
+    'the continent-wide tracker clamps to the notable feed\'s measured ceiling');
+  assert.equal(BL.geoRecentDistKm(p(120, 35)), 50,
+    'and the common feed clamps to its own, which is genuinely eBird\'s');
+  assert.ok(BL.geoRecentDistKm(p(50, 35)) < need(35),
+    'the two feeds must NOT converge: pretending the common feed covers the '
+    + 'radius is the false belief this whole entry exists to kill');
+});
+
+test('planFeeds sends the two geo feeds different distances', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const feeds = BL.planFeeds({
+    slug: 'wa', counties: [], geoDistKm: 50, chaseMaxMi: 35,
+    home: { lat: 47.75, lng: -122.16 },
+  });
+  const rec = feeds.find((f) => f.file === 'geo-recent.json');
+  const not = feeds.find((f) => f.file === 'geo-notable.json');
+  assert.equal(rec.params.dist, 50, 'the common feed at eBird\'s real cap');
+  assert.equal(not.params.dist, Math.ceil(35 * 1.60934),
+    'the rarity feed at the chase radius');
+  assert.notEqual(rec.params.dist, not.params.dist,
+    'one `dist` for both is exactly what shipped, and what was wrong');
+
+  // The merge labels carry the distance, and they are matched against the
+  // report's analyze._SOURCES strings — so mergePlan must derive them the same
+  // way planFeeds does, or the two repos disagree about what a row's source is.
+  const merge = BL.mergePlan({
+    slug: 'wa', counties: [], geoDistKm: 50, chaseMaxMi: 35,
+    home: { lat: 47.75, lng: -122.16 },
+  }, []);
+  const mrec = merge.find((f) => f.file === 'geo-recent.json');
+  const mnot = merge.find((f) => f.file === 'geo-notable.json');
+  assert.equal(mrec.src, 'Geo' + rec.params.dist + 'km',
+    'the recent label states the distance actually requested');
+  assert.equal(mnot.src, 'Geo' + not.params.dist + 'km',
+    'and so does the notable one — these used to be one hard-coded Geo50km');
+});
+
+// The radius used to be described as filtering only. Now it also gathers, so a
+// cached wave taken at a smaller distance cannot answer a wider question — and
+// serving it would put "within 75 mi" over rows never looked for past 35.
+test('widening the radius invalidates a narrower cached wave', () => {
+  const src = HTML.slice(HTML.indexOf('function getChaseAll(force)'),
+                         HTML.indexOf('function fetchAll(list, step, bg)'));
+  assert.match(src, /var profile = chaseProfile\(\)/,
+    'the wave is planned from the reader\'s radius, not the profile default');
+  assert.match(src, /c\.geoNotableKm < wantKm/,
+    'a cached wave taken at a SMALLER distance is dropped');
+  assert.ok(!/c\.geoNotableKm > wantKm/.test(src),
+    'and narrowing is not, because that is still pure filtering of rows in '
+    + 'hand — dropping the cache for it would spend ~47 calls to show less');
+  assert.match(src, /geoNotableKm: BL\.geoNotableDistKm\(profile\)/,
+    'and the distance is recorded on the result, or there is nothing to compare');
+
+  // chaseProfile must COPY. getReport() hands back the shared profile object,
+  // so writing the radius onto it would leak into every other reader.
+  const cp = HTML.slice(HTML.indexOf('function chaseProfile()'),
+                        HTML.indexOf('var CHASE_MAX_MI = CHASE_DEFAULT_MI;'));
+  assert.match(cp, /out\.chaseMaxMi = mi;/, 'the copy carries the reader\'s radius');
+  assert.ok(!/\bp\.chaseMaxMi\s*=/.test(cp),
+    'and the shared profile is never mutated');
 });
 
 // planFeeds is a cross-repo contract — the golden pins `feeds` and `mergeOrder`

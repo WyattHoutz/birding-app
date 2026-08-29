@@ -2685,7 +2685,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.47.0';
+      var APP_VERSION = '1.48.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -2695,13 +2695,21 @@
       var CHASE_DEFAULT_MI = (BL && BL.CONST && BL.CONST.CHASE_MAX_MI) || 30;
       var CHASE_MI_KEY = 'ebird_chase_mi';
       // ...and now it is a SETTING, because 30 miles is a claim about the
-      // reader, not about the data. It FILTERS and never GATHERS — the same
-      // rule the work anchor follows. Raising it cannot widen a feed: eBird
-      // caps `dist` on the geo feeds at 50 km (31 mi), and the fetch plan is a
-      // static golden both repos are proven equal against, so a radius that
-      // changed what is fetched would change that plan from under the parity
-      // suite. Past 31 miles the extra reach comes from the COUNTY feeds, and
-      // the hint says so rather than implying a circle that is not there.
+      // reader, not about the data.
+      //
+      // IT FILTERS, AND SINCE F179 IT ALSO GATHERS — for rarities. The old
+      // comment here said "raising it cannot widen a feed: eBird caps `dist` on
+      // the geo feeds at 50 km (31 mi)". Measured 2026-08-28, that is true of
+      // `data/obs/geo/recent` (51 is rejected) and FALSE of
+      // `data/obs/geo/recent/notable`, which accepts 250. So the rarity feed's
+      // distance is now DERIVED from this radius and moves with it, while the
+      // common-bird feed still stops at 31 mi and the extra reach past that
+      // really does come from the COUNTY feeds. The hint says which is which.
+      //
+      // The static feed-plan golden survives because planFeeds stayed a pure
+      // function of its profile: the app widens the feed by handing in a
+      // profile carrying the reader's radius (chaseProfile), not by reaching
+      // into storage from inside the shared layer.
       //
       // PER REPORT (F1 step 3), for the same reason the home coordinate is:
       // regions.py has carried `chase_max_mi` on each Region since it existed,
@@ -2721,14 +2729,32 @@
         var v = parseFloat(localStorage.getItem(chaseMiKey()));
         return (isFinite(v) && v > 0) ? v : chaseDefaultMi();
       }
+      // The profile the fetch plan is built from: the report's profile with the
+      // reader's radius substituted in. A copy, never a mutation — getReport()
+      // hands back the shared profile object, and writing to it would make the
+      // radius leak into every other reader of the same report.
+      function chaseProfile() {
+        var p = getReport();
+        var mi = chaseMaxMi();
+        if (!p || !isFinite(mi) || mi <= 0 || mi === p.chaseMaxMi) return p;
+        var out = {};
+        for (var k in p) {
+          if (Object.prototype.hasOwnProperty.call(p, k)) out[k] = p[k];
+        }
+        out.chaseMaxMi = mi;
+        return out;
+      }
       // Kept as a name because the debug panel and the seam still read it; it
       // is the DEFAULT, not the live value. Anything deciding what to show must
       // call chaseMaxMi().
       var CHASE_MAX_MI = CHASE_DEFAULT_MI;
-      // eBird's geo feeds cap `dist` at 50 km. Past that the extra reach comes
-      // from the whole-county feeds, and whether those cover a 100-mile circle
+      // How far the COMMON-bird geo feed reaches: 50 km, which really is
+      // eBird's cap on that endpoint (measured — 51 returns
+      // `error.data.dist_out_of_range`). Past this the extra reach comes from
+      // the whole-county feeds, and whether those cover a 100-mile circle
       // depends on how big your counties are — so the hint states the mechanism
-      // instead of implying a circle the app does not draw.
+      // instead of implying a circle the app does not draw. Rarities are NOT
+      // limited this way any more; see chaseProfile / BirdLogic.geoNotableDistKm.
       var CHASE_GEO_MI = 31;
       function syncChaseMi() {
         var sel = $('chaseMi'), hint = $('chaseMiHint');
@@ -2748,9 +2774,11 @@
           var bits = ['Today\u2019s rarities, Last 7-Days rarities and the unseen '
             + 'lists hide anything further than this. Applies immediately.'];
           if (mi > CHASE_GEO_MI) {
-            bits.push('Beyond ' + CHASE_GEO_MI + ' mi eBird\u2019s around-me feed stops, '
-              + 'so the extra range comes from your report\u2019s counties \u2014 it '
-              + 'reaches as far as they do, not evenly in every direction.');
+            bits.push('Beyond ' + CHASE_GEO_MI + ' mi eBird\u2019s around-me feed for '
+              + 'common birds stops, so their extra range comes from your '
+              + 'report\u2019s counties \u2014 it reaches as far as they do, not '
+              + 'evenly in every direction. Rare birds are fetched to the full '
+              + mi + ' mi.');
           }
           if (mi !== chaseDefaultMi()) {
             bits.push('The Markdown report keeps this report\u2019s own '
@@ -8956,8 +8984,21 @@
         return getChaseAll(force).then(countyView);
       }
       function getChaseAll(force) {
-        var profile = getReport(), slug = profile.slug;
+        var profile = chaseProfile(), slug = profile.slug;
         var c = _chase[slug];
+        // SINCE F179 THE RADIUS DECIDES WHAT IS FETCHED, not only what is
+        // shown. A cached wave gathered at 57 km cannot answer a question asked
+        // at 121 km, and serving it would put "within 75 mi" over a list that
+        // was never looked for past 35. Only a WIDENING invalidates: narrowing
+        // is still pure filtering of rows already in hand, so dropping the
+        // cache for it would spend ~47 calls to show strictly less.
+        var wantKm = BL.geoNotableDistKm(profile);
+        if (c && c.geoNotableKm != null && c.geoNotableKm < wantKm) {
+          delete _chase[slug];
+          try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
+          ebClearObsCache();
+          c = null;
+        }
         // FORCE is what makes Refresh mean something. The comment below has
         // always said "Refresh is there for the times it isn't" — but Refresh
         // called straight through to this cache, so within the 30-minute window
@@ -9034,6 +9075,7 @@
           var seenCodes = {}; cv.merged.forEach(function (r) { if (r.code) seenCodes[r.code] = 1; });
           saveSnapCodes(slug, Object.keys(seenCodes));
           var res = { t: Date.now(), profile: profile, cv: cv, rarity: false,
+                      geoNotableKm: BL.geoNotableDistKm(profile),
                       speciesCodes: codes || null, stale: !!stale };
           _chase[slug] = res;
           return res;
@@ -24039,11 +24081,14 @@
           }
         }
       }
-      // The radius only ever FILTERS what is already fetched, so nothing has to
-      // be re-fetched — but the rendered lists were built against the old
-      // number, so they are cleared and the visible one reloads. Leaving them
-      // up would show "within 30 mi" over a list the setting no longer
-      // describes, which is the bug this control would otherwise introduce.
+      // The radius FILTERS what is already fetched and, since F179, also
+      // decides how far the RARITY feed reached — so a widening may need a real
+      // refetch. getChaseAll does that check itself, by comparing the cached
+      // wave's distance against the one this radius now derives, so the two
+      // cannot disagree about when a refetch is owed. What has to happen here
+      // is the repaint: the rendered lists were built against the old number,
+      // and leaving them up would show "within 30 mi" over a list the setting
+      // no longer describes.
       if ($('chaseMi')) $('chaseMi').addEventListener('change', function () {
         localStorage.setItem(chaseMiKey(), String(parseFloat(this.value) || chaseDefaultMi()));
         syncChaseMi();
