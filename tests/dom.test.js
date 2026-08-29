@@ -4031,6 +4031,53 @@ test('grouped sections offer each other as modes of one report', async () => {
   app.window.close();
 });
 
+test('no menu tile is named the same thing as another tile, label or sub-line', async () => {
+  const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
+  const doc = app.document;
+  // F233 follow-up, reported: "closest unseen bird should not have changed."
+  // It had not — `targetsBtn` is still `📍 Closest unseen birds`. What changed
+  // was Near misses' SUB-LINE, which I set to that same phrase while renaming
+  // the tile above it. Nothing broke and every other guard passed, because a
+  // duplicate NAME is not a duplicate ID: the menu simply had two entries
+  // reading "Closest unseen birds", in a feature whose whole point was making
+  // one of them findable.
+  //
+  // Asserted as the property rather than as a banned string: any future rename
+  // that lands on a name already in use fails here, whatever the words are.
+  //
+  // A sub-line may not repeat ANY tile's name — including its OWN. The tile is
+  // rendered as label-over-sub-line, so a sub-line echoing its own label prints
+  // the same words twice in one tile and translates nothing, which is exactly
+  // what MENU_SUB's authoring rules forbid. That caught `helpBody`, whose
+  // sub-line was a verbatim copy of "How each section works".
+  const norm = (s) => String(s || '')
+    .replace(/[\u2190-\u2BFF\u2600-\u27BF\uFE0F\u{1F000}-\u{1FAFF}]/gu, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  const tiles = [...doc.querySelectorAll('#menuList .toclink')].map((a) => ({
+    label: norm(a.querySelector('.tilelabel') && a.querySelector('.tilelabel').textContent),
+    sub: norm(a.querySelector('.tilesub') && a.querySelector('.tilesub').textContent),
+  })).filter((t) => t.label);
+  assert.ok(tiles.length > 10, 'the menu rendered (got ' + tiles.length + ' tiles)');
+
+  // Every violation at once. Stopping at the first hides the rest, and the
+  // first run of this guard did exactly that: it reported the Near misses
+  // collision and said nothing about helpBody until that one was fixed.
+  const names = new Set();
+  const bad = [];
+  for (const t of tiles) {
+    if (names.has(t.label)) bad.push('two tiles are both called "' + t.label + '"');
+    names.add(t.label);
+  }
+  for (const t of tiles) {
+    if (t.sub && names.has(t.sub)) {
+      bad.push('the sub-line "' + t.sub + '" is a tile NAME — a reader '
+        + 'scanning the menu sees the same words twice');
+    }
+  }
+  assert.deepStrictEqual(bad, [], bad.join('\n  '));
+  app.window.close();
+});
+
 test('Near misses and Easy misses are two tiles AND two modes of one switch', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
