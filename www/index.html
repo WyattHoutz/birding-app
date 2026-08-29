@@ -6583,8 +6583,18 @@
                 'ev-sub': r.subId, 'ev-code': r.code || '',
                 'ev-lat': r.lat, 'ev-lng': r.lon != null ? r.lon : r.lng,
                 'ev-place': r.loc || r.locName || '',
+                // F229. The notable feed's own evidence letters, carried so
+                // the comment can show what was photographed. They cannot come
+                // from the checklist fetch: measured on S387785046, an obs
+                // entry there holds only speciesCode/howMany*/comments/present
+                // /obsId — no mediaCounts and no asset id at all.
+                'ev-media': r.evidence || '',
                 'ev-when': when
-              } : null
+              } : null,
+              // F230. LAST, after the comments — and emitted by the card rather
+              // than by the comment hydration, so it is present with notes
+              // switched off and on a checklist that has nothing to say.
+              below: openChecklistLink(r.subId)
             });
           }
           var html = rows.length ? rows.map(card).join('') : '';
@@ -8722,12 +8732,23 @@
           // object that decides which rows survive.
           var n = t.closest('.raritynotesbtn');
           if (n) {
-            setRarityNotes(n.getAttribute('data-notes') === 'on');
+            var want = n.getAttribute('data-notes') === 'on';
+            // F228. Names the control, the section that OWNS it, and the
+            // section actually on screen. If those two ever differ, a stale
+            // listener from a previous render is driving a section the reader
+            // left — which is the shape a "it jumped somewhere else" report
+            // takes, and nothing in the log could distinguish it before.
+            dbg('info', 'notes toggle \u00b7 owner ' + prefix + ' \u00b7 on '
+              + visibleSectionId() + ' \u2192 ' + (want ? 'on' : 'off'));
+            setRarityNotes(want);
             reload();
             return;
           }
           var b = t.closest('.rarityfilterbtn');
           if (!b) return;
+          dbg('info', 'rarity filter \u00b7 owner ' + prefix + ' \u00b7 on '
+            + visibleSectionId() + ' \u2192 ' + b.getAttribute('data-filter')
+            + '=' + b.getAttribute('data-value'));
           setRarityFilter(b.getAttribute('data-filter'), b.getAttribute('data-value'));
           // Filtering is local work over the cached rows, just like sorting.
           reload();
@@ -8969,11 +8990,19 @@
       // 2 bought it nothing and cost it 216 seconds.
       function onRarityEarly(slug) {
         if (!slug || slug !== getReport().slug) return;
+        var _painted = [];
         ['refreshBtn', 'activeBtn', 'surgeBtn'].forEach(function (id) {
           if (!_autoLoaded[id]) return;         // never opened; nothing to repaint
           var spec = LOADERS[id];
-          if (spec && spec.fn) { try { spec.fn(); } catch (e) {} }
+          if (spec && spec.fn) { _painted.push(id); try { spec.fn(); } catch (e) {} }
         });
+        // F228. This fan-out re-runs OTHER sections' loaders. It is supposed to
+        // repaint them in place and never to surface them, so naming who it
+        // ran is what separates "the reader navigated" from "a background
+        // repaint dragged them somewhere".
+        if (_painted.length) {
+          try { dbg('info', 'rarity repaint \u00b7 ' + _painted.join(', ') + ' \u00b7 on ' + visibleSectionId()); } catch (e) {}
+        }
       }
       function getChase(force) {
         // F152: the county view is applied HERE, at the single point every
@@ -9672,6 +9701,10 @@
       // Fixed HERE, in the one helper both links share, rather than at the
       // call sites: the owner's report notes it "appears in multiple places",
       // and it does because every caller inherits this default.
+      // 🔗, deliberately NOT the 📋 used for checklists. This link goes to a
+      // HOTSPOT page, and reusing the checklist glyph here would make one mark
+      // mean two destinations — the one-glyph-two-meanings defect the ⭐ badge
+      // and the menu icons both had to unpick.
       var EBIRD_LINK_LABEL = '\uD83D\uDD17 Open in eBird \u2197';
       function ebirdSpeciesA(code, label) {
         return code ? extA(speciesUrl(code), label || EBIRD_LINK_LABEL, 'ebirdlink') : '';
@@ -9738,6 +9771,28 @@
           return extA(checklistUrl(sub), '\uD83D\uDCCB ' + sub, 'extlink cklid');
         }
         return extA(checklistUrl(sub), label);
+      }
+      // F230. A link that says what it opens, AND which checklist it opens.
+      // `checklistLink` renders either the submission id or, at eight call
+      // sites, some other text — a date, a place — so a reader looking for
+      // "the checklist" has to already know that the date is one. Named
+      // through EBIRD_LINK_LABEL's convention (verb, destination, ↗) for the
+      // reason F221 gave: the siblings on this line are actions, and a caption
+      // among them reads as broken.
+      //
+      // It is emitted by the CARD, not by the comment hydration, so it survives
+      // with notes switched off, on a checklist that has nothing to say, and
+      // while the fetch is still in flight. Owner: with comments off "it should
+      // look like #4" — the row keeps its link and prints no comment block.
+      var CKL_OPEN_ICON = '\uD83D\uDCCB';
+      function openChecklistLink(sub) {
+        if (!sub) return '';
+        // The ID is IN the label rather than beside it: two links on one line,
+        // one naming the action and one naming the id, is the split F221 had to
+        // undo. One target, one sentence.
+        var label = CKL_OPEN_ICON + ' Open checklist ' + sub + ' in eBird \u2197';
+        return '<div class="cklopenrow">'
+          + extA(checklistUrl(sub), label, 'extlink cklopen') + '</div>';
       }
       function mapA(lat, lng, text) {
         return (isFinite(+lat) && isFinite(+lng))
@@ -9943,6 +9998,12 @@
         if (o.when) bits.push('<span class="when">' + o.when + '</span>');
         if (o.loc) bits.push('<span class="rareloc">' + o.loc + '</span>');
         if (o.alert) bits.push('<span class="rarealert">' + o.alert + '</span>');
+        // F230. The row's date has linked to the checklist since F183, but a
+        // date that happens to be a link is not a LINK — it names a time and
+        // gives no reason to press it. This is the same complaint F221 fixed
+        // for "on eBird": a caption sitting where an action belongs. Placed
+        // after the RBA link so the two external destinations read as a pair.
+        if (o.checklist) bits.push('<span class="rarechecklist">' + o.checklist + '</span>');
         if (o.span) bits.push('<span class="rarespan">' + o.span + '</span>');
         var counts = [];
         if (o.reports > 1) counts.push(o.reports + ' reports');
@@ -13123,6 +13184,7 @@
               // The checklists stay collapsed: the summary is the decision and
               // the list is the evidence for it.
               below: rarityChecklistDetails(r)
+                + openChecklistLink(r.closest && r.closest.subId)
             });
           };
           var stillNeeded = rows.filter(function (r) {
@@ -13590,6 +13652,113 @@
       // the newest reports, which are the ones you would actually drive to, and
       // not worth it for the twentieth report from last Tuesday.
       var CKL_EVID_MAX = 8;
+      // --- F229: the observer's comment, shaped like a quotation -------------
+      // Reported from the device once the notes finally arrived (F220): they
+      // landed as a bare paragraph under the row, so a birder's words read as
+      // the app's own prose. *"Id like a header before the text that says
+      // 'Species comment' and then the comment can be in a block quote."*
+      //
+      // And a note bought one call at a time needs to say it is coming. Without
+      // a placeholder, "no comment on this checklist" and "the comment has not
+      // arrived yet" look identical — and on a device log the fetch takes tens
+      // of seconds behind the token bucket, so the reader sees the wrong one
+      // for most of the time they are looking.
+      var NOTE_LABEL = 'Species comment';
+      var CKL_NOTE_LABEL = 'Checklist comment';
+      function noteRowFor(el) {
+        var prev = el.querySelector('.evnoterow');
+        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+        var row = document.createElement('div');
+        row.className = 'evnoterow';
+        return row;
+      }
+      function noteHead(text) {
+        var hd = document.createElement('div');
+        hd.className = 'evnotehd';
+        hd.textContent = text;
+        return hd;
+      }
+      function noteQuote(text) {
+        var bq = document.createElement('blockquote');
+        bq.className = 'evnotebq';
+        // The observer wrote this, so it is TEXT, never markup — set through
+        // textContent rather than innerHTML. cards-checklist.js has no escaper
+        // by design and this is the one field these rows render that is
+        // genuinely user-authored.
+        bq.textContent = text;
+        return bq;
+      }
+      function setNoteLoading(el) {
+        var row = noteRowFor(el);
+        row.className = 'evnoterow evnoteloading';
+        // ONE loader for both comments, not one per label. The two arrive in
+        // the same call, so a per-label placeholder would promise a checklist
+        // comment that is absent 77% of the time and then quietly withdraw it.
+        row.appendChild(noteHead('Comments loading\u2026'));
+        el.appendChild(row);
+      }
+      // Two comments, two labels, and the checklist one is OMITTED when absent
+      // rather than shown empty. That asymmetry is measured, not cosmetic: over
+      // 22 live notable checklists the observation note was on 22 (100%) and
+      // the checklist note on 5 (23%), because eBird COMPELS a comment on a
+      // flagged species and the compulsion does not reach the checklist. A
+      // permanent empty "Checklist comment" heading on three rows in four is a
+      // label that teaches the reader to skip the section.
+      function setNoteText(el, det) {
+        var sp = det && det.c, ck = det && det.k;
+        if (!sp && !ck) { settleNote(el); return; }
+        var row = noteRowFor(el);
+        if (sp) {
+          row.appendChild(noteHead(NOTE_LABEL));
+          var bq = noteQuote(sp);
+          // F229. The evidence marks ride ALONG WITH the words, because the
+          // comment is what tells you the photo is worth opening ("one still in
+          // breeding plumage") and the mark is what tells you there is one.
+          //
+          // It links to the CHECKLIST, not to the photo. Measured on
+          // S387785046: product/checklist/view returns no mediaCounts and no
+          // asset id for an observation, so this app cannot address a Macaulay
+          // asset at all — and a link built from a guessed id would be a dead
+          // one. The checklist page carries the photo, so it is the honest
+          // destination rather than a near-miss.
+          var marks = mediaMarksFor(el, det);
+          if (marks) {
+            var a = document.createElement('a');
+            a.className = 'ebirdlink evnotemedia';
+            a.setAttribute('data-href', checklistUrl(el.getAttribute('data-ev-sub') || ''));
+            a.setAttribute('title', 'Open the checklist in eBird to see what was recorded');
+            a.setAttribute('aria-label', 'Media on this checklist — open it in eBird');
+            a.textContent = marks;
+            bq.appendChild(document.createTextNode(' '));
+            bq.appendChild(a);
+          }
+          row.appendChild(bq);
+        }
+        if (ck) {
+          row.appendChild(noteHead(CKL_NOTE_LABEL));
+          row.appendChild(noteQuote(ck));
+        }
+        el.appendChild(row);
+      }
+      // The letters the row already knows about. `det.m` comes from the
+      // checklist fetch and is EMPTY in practice — the endpoint carries no
+      // media — so the feed's own `evidence`, captured on the row as
+      // `data-ev-media`, is what actually answers this.
+      function mediaMarksFor(el, det) {
+        var ev = (el && el.getAttribute('data-ev-media')) || '';
+        var marks = BirdLogic.recordIcons({ evidence: ev }) || '';
+        if (marks) return marks;
+        return (det && det.m) ? BirdLogic.recordIcons({ evidence: det.m }) || '' : '';
+      }
+      // Whatever happened — a note, no note, a species the feed named
+      // differently, or a call that failed — the row must not be left saying
+      // "loading". Run on EVERY exit rather than at each early return, because
+      // there are four of those and the one that gets forgotten is the one a
+      // reader ends up staring at. Same rule as "a failure is not an answer".
+      function settleNote(el) {
+        var row = el && el.querySelector('.evnoterow.evnoteloading');
+        if (row && row.parentNode) row.parentNode.removeChild(row);
+      }
       function hydrateChecklistEvidence(root) {
         if (!root || !getKey()) return Promise.resolve();
         var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
@@ -13613,6 +13782,11 @@
         // they are not updating" - which is exactly right, and the rows that
         // stayed blank were the ones the budget had skipped.
         rows.forEach(function (el) { el.setAttribute('data-ev-done', '1'); });
+        // F229. Announce the wait, but ONLY on rows this pass will actually
+        // resolve — `rows` is already filtered to the CKL_EVID_MAX budget, so a
+        // row that will never be fetched cannot be left saying "loading"
+        // forever. A placeholder that never settles is worse than none.
+        if (rarityNotes()) rows.forEach(setNoteLoading);
         return pool(rows, CKL_EVID_CONC, function (el) {
           var sub = el.getAttribute('data-ev-sub');
           var code = el.getAttribute('data-ev-code') || '';
@@ -13644,18 +13818,7 @@
             // Appended to the ROW, not into `.ckevid`: that span sits inline
             // beside the place name, and a paragraph inside it would fight the
             // one-line layout the small card is built around.
-            if (rarityNotes() && det && det.c) {
-              var prev = el.querySelector('.evnoterow');
-              if (prev) prev.parentNode.removeChild(prev);
-              var note = document.createElement('div');
-              note.className = 'evnoterow';
-              // The observer wrote this, so it is TEXT, never markup — set
-              // through textContent rather than innerHTML. cards-checklist.js
-              // has no escaper by design and this is the one field these rows
-              // render that is genuinely user-authored.
-              note.textContent = det.c;
-              el.appendChild(note);
-            }
+            if (rarityNotes() && det) setNoteText(el, det);
             // noteRequired: these lists hang under ONE species, and the ones
             // that matter most are rarities, where eBird makes the note
             // compulsory. See the note on checklistIcons.
@@ -13676,7 +13839,10 @@
             slot.innerHTML = '<button type="button" class="evidbtn" data-evid="'
               + esc(sub + '|' + code) + '" aria-label="Show the observer\u2019s notes">'
               + marks + '</button>';
-          });
+          }).catch(function () {
+            // A failed call is not "no comment". Swallowed so one bad checklist
+            // cannot fail the whole pool, but the placeholder still has to go.
+          }).then(function () { settleNote(el); });
         });
       }
       var _evidStore = {};
@@ -13861,6 +14027,7 @@
               'ev-sub': x.subId || '', 'ev-code': r.code || '',
               'ev-lat': x.lat, 'ev-lng': lng,
               'ev-place': x.loc || x.locName || '',
+              'ev-media': x.evidence || '',
               'ev-when': fmtDateTime(x.dateStr)
             }
           });
@@ -21404,13 +21571,20 @@
         if (!slug || slug !== getReport().slug) return;
         if (_partialDone[slug]) return;      // once per wave, never a cascade
         _partialDone[slug] = true;
+        var _painted = [];
         Object.keys(_autoLoaded).forEach(function (id) {
           var spec = LOADERS[id];
           if (!spec || !spec.fn || !spec.fromChase) return;
+          _painted.push(id);
           try { spec.fn(); } catch (e) {
             try { dbg('error', 'repaint ' + id + ': ' + (e && e.message || e)); } catch (_) {}
           }
         });
+        // F228, same reason as onRarityEarly: this runs other sections' loaders
+        // and must leave the reader where they were.
+        if (_painted.length) {
+          try { dbg('info', 'chase repaint \u00b7 ' + _painted.join(', ') + ' \u00b7 on ' + visibleSectionId()); } catch (e) {}
+        }
       }
       function autoLoad(sec) {
         if (!sec || _autoLoaded[sec.id]) return;
@@ -21421,9 +21595,48 @@
           if (spec.needsHome && !getHome()) return;
         } catch (e) { return; }
         _autoLoaded[sec.id] = true;
+        // F228. A section loading for the FIRST time is what makes its calls
+        // live rather than cached, so this is the line that explains a cost
+        // bucket appearing for a section the reader never chose.
+        try { dbg('info', 'autoload ' + sec.id + ' \u00b7 on ' + visibleSectionId() + navWhy()); } catch (e) {}
         try { spec.fn(); } catch (e) { try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {} }
       }
       var _sections = [];
+      // --- F228 instrumentation: what moved the reader, and what asked it to --
+      // A device report says the notes toggle "switches to the twitches this
+      // week" on its FIRST press and behaves on the second. A jsdom repro that
+      // drives the real control inside the real section does NOT reproduce it,
+      // so the honest thing to ship is not a guess but the one line that would
+      // settle it on the next device log.
+      //
+      // The existing log records TRAFFIC. It can already show that Twitches
+      // this week ran 18 live calls — and it cannot show what opened it. That
+      // is the same gap `verdict()` was added to close for conclusions, one
+      // level up: a log that says the screen moved and never what moved it.
+      function visibleSectionId() {
+        try {
+          var s = _sections.filter(function (x) { return !x.hidden; })[0];
+          return (s && s.id) || '(menu)';
+        } catch (e) { return '?'; }
+      }
+      // The call stack, trimmed to frames that name a caller. A section change
+      // is rare and always deliberate, so this costs one string on an event a
+      // person triggered — and it is the whole difference between "it switched"
+      // and "loadActiveRarities switched it".
+      function navWhy() {
+        try {
+          var lines = String((new Error()).stack || '').split('\n');
+          var out = [];
+          for (var i = 0; i < lines.length && out.length < 4; i++) {
+            var m = /at\s+([A-Za-z0-9_$.<>]+)\s/.exec(lines[i]);
+            if (!m) continue;
+            var fn = m[1];
+            if (fn === 'navWhy' || fn === 'showSection' || fn === 'Object.<anonymous>') continue;
+            out.push(fn);
+          }
+          return out.length ? ' · via ' + out.join(' < ') : ' · via (no named frame)';
+        } catch (e) { return ''; }
+      }
       // --- "How is this calculated?" ------------------------------------------
       // A section that looks thin ("why is Easy misses two rows?") or surprising
       // ("why is the nearest spot a private yard?") is usually correct and just
@@ -22696,6 +22909,12 @@
       }
 
       function showSection(id) {
+        // F228. Logged BEFORE anything else here, because everything below can
+        // throw and the transition is the fact worth keeping.
+        try {
+          var _from = visibleSectionId();
+          if (_from !== id) dbg('info', 'nav ' + _from + ' \u2192 ' + id + navWhy());
+        } catch (e) {}
         // Leaving the section closes any sub-page it had open, or coming back
         // later lands you on a bird's profile with no memory of choosing it.
         if (_abaOpen) abaCloseBird();

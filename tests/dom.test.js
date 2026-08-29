@@ -8635,7 +8635,12 @@ test('with notes on, the observer note is painted instead of hidden behind a tap
   const hostOn = await render(on);
   const notes = [...hostOn.querySelectorAll('.evnoterow')];
   assert.ok(notes.length > 0, 'with the toggle on, the note is painted inline');
-  assert.equal(notes[0].textContent, NOTE, 'and it is the observer\u2019s own words');
+  // F229: the row now carries a LABEL as well as the words, so the words live
+  // in the blockquote. Reading the row's whole textContent would fold the
+  // caption into the quotation and pass on a note that had been mangled.
+  const bq = notes[0].querySelector('.evnotebq');
+  assert.ok(bq, 'the words are a quotation, under a label');
+  assert.equal(bq.textContent.trim(), NOTE, 'and it is the observer\u2019s own words');
   on.window.close();
 });
 
@@ -8707,9 +8712,16 @@ test('an observer note is inserted as text, never as markup', async () => {
   // "onerror" — letters survive escaping harmlessly and a check for them
   // passes on a payload it has not actually made safe. That mistake was made
   // once already, in F208.
-  assert.equal(note.querySelectorAll('*').length, 0,
+  //
+  // F229: scoped to the BLOCKQUOTE, because the row legitimately holds a label
+  // element now. Counting the row's descendants would have counted our own
+  // caption as injected markup — a guard that fails on the fix rather than on
+  // the bug.
+  const bq = note.querySelector('.evnotebq');
+  assert.ok(bq, 'the words are in a quotation');
+  assert.equal(bq.querySelectorAll('*').length, 0,
     'the note produced no elements — it is a text node, not parsed markup');
-  assert.equal(note.textContent, EVIL, 'and reads back exactly as typed');
+  assert.equal(bq.textContent, EVIL, 'and reads back exactly as typed');
   assert.equal(app.window.__pwned, undefined, 'nothing executed');
   app.window.close();
 });
@@ -8761,6 +8773,243 @@ test('the notes button is actually wired, and is not stored as a filter', async 
   assert.equal(reloads, 2, 'repainting both ways');
   app.window.close();
 });
+
+// --- F228: the notes toggle navigated away from the section it belongs to ---
+// Device report, v1.47.0: "the first time i click the notes toggle it switches
+// to the twitches this week, but then it appears to work if i go back to
+// twitches today and click the toggle again."
+//
+// ⚠️ THE EXISTING F215 GUARD COULD NOT SEE THIS. It builds the controls into a
+// DETACHED div (`rarityControls('probe')`) and passes its own counter as the
+// reload, so it proves the button writes the preference and calls something —
+// and nothing about what happens on the real screen. Testing the painting and
+// never the reaching, which is F193 for the fourth time.
+//
+// This one presses the REAL button inside the REAL section and asks the only
+// question the reader cares about: am I still where I was?
+test('the notes toggle leaves you in the section you pressed it in', async () => {
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/data\/obs\//.test(u)) {
+        return [{
+          speciesCode: 'redkno', comName: 'Red Knot', sciName: 'Calidris canutus',
+          locId: 'L1', locName: 'Tulalip Bay', subId: 'S1', obsId: 'OBS1',
+          lat: 47.9, lng: -122.3, obsDt: new Date().toISOString().slice(0, 10) + ' 14:23',
+          howMany: 3, userDisplayName: 'Marcus Roening',
+          obsValid: false, obsReviewed: false,
+        }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+
+  A.showSection('sec-refreshBtn');
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled, 'Twitches today to load');
+  assert.equal(doc.getElementById('sec-refreshBtn').hidden, false,
+    'we are on Twitches today before pressing anything');
+
+  const on = doc.querySelector('#todayFilters .raritynotesbtn[data-notes="on"]');
+  assert.ok(on, 'the notes control is rendered inside the real section');
+  on.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+
+  assert.equal(A.rarityNotes(), true, 'the preference moved');
+  // THE BUG. Pressing a control inside a section must never move the reader to
+  // a different one — and it did, on the FIRST press only, which is what made
+  // it read as "it works the second time".
+  assert.equal(doc.getElementById('sec-refreshBtn').hidden, false,
+    'and we are STILL on Twitches today');
+  const active = doc.getElementById('sec-activeBtn');
+  if (active) {
+    assert.equal(active.hidden, true,
+      'Twitches this week was never asked for and must not have opened');
+  }
+  app.window.close();
+});
+
+
+// F228: the log has to name what moved the reader ---------------------------
+// The device report ("the notes toggle switches to twitches this week") could
+// not be diagnosed from the log, and a jsdom repro driving the real control
+// does not reproduce it. The log already proved Twitches this week ran 18 live
+// calls; what it could not say is what OPENED it.
+//
+// So this guards the instrumentation rather than a fix. It is the same gap
+// `verdict()` closed for conclusions, one level up: a log that records that
+// the screen moved and never what moved it.
+test('the log names what moved the reader between sections', async () => {
+  const lines = [];
+  const app = await boot({ fetch() { return null; } });
+  const A = app.window.__app;
+  app.window.__dbg = { push: (lvl, a) => lines.push(String(a && a[0])) };
+
+  A.showSection('sec-refreshBtn');
+  A.showSection('sec-activeBtn');
+
+  const nav = lines.filter((l) => /^nav /.test(l));
+  assert.ok(nav.length, `no navigation was logged: ${lines.slice(0, 8).join(' | ')}`);
+  const last = nav[nav.length - 1];
+  assert.match(last, /sec-refreshBtn \u2192 sec-activeBtn/,
+    'the line states BOTH ends of the move, or "it jumped" is all you learn: ' + last);
+  // The caller is the whole point. Without it the log says a section changed
+  // and leaves you guessing which of ~30 callers did it.
+  assert.match(last, /· via /, 'and it names the caller: ' + last);
+  assert.ok(!/via \(no named frame\)/.test(last),
+    'the trace must actually resolve a frame, not silently degrade to nothing: ' + last);
+
+  // Re-showing the SAME section is not a move and must not be logged, or the
+  // line becomes noise and stops being read — the failure mode the F216
+  // warning list records.
+  const before = lines.filter((l) => /^nav /.test(l)).length;
+  A.showSection('sec-activeBtn');
+  assert.equal(lines.filter((l) => /^nav /.test(l)).length, before,
+    'staying put is not a navigation');
+  app.window.close();
+});
+
+test('the log names which section owns a control that was pressed', async () => {
+  const lines = [];
+  const app = await boot({ fetch() { return null; } });
+  const A = app.window.__app, doc = app.window.document;
+  const host = doc.createElement('div');
+  host.innerHTML = A.rarityControls('today');
+  doc.body.appendChild(host);
+  A.wireRarityControls('today', () => {});
+  app.window.__dbg = { push: (lvl, a) => lines.push(String(a && a[0])) };
+
+  host.querySelector('.raritynotesbtn[data-notes="on"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+
+  const t = lines.filter((l) => /^notes toggle/.test(l));
+  assert.ok(t.length, `the toggle logged nothing: ${lines.join(' | ')}`);
+  // OWNER vs ON SCREEN. If a stale listener from an earlier render is driving
+  // a section the reader has left, these two differ — and that is the only
+  // shape of this bug the current log could not have shown.
+  assert.match(t[0], /owner today/, 'the control names the section it belongs to: ' + t[0]);
+  assert.match(t[0], /· on /, 'and the section actually on screen: ' + t[0]);
+  app.window.close();
+});
+
+
+// F229: the comment is a quotation with a label, not a bare paragraph --------
+// Reported once the notes finally arrived (F220): they landed as plain text
+// under the row, so a birder's words read as the app's own prose.
+//
+// The asymmetry between the two labels is MEASURED, not taste: over 22 live
+// notable checklists the observation note was on 22 (100%) and the checklist
+// note on 5 (23%), because eBird compels a comment on a flagged species and
+// the compulsion does not reach the checklist. A permanent empty "Checklist
+// comment" heading on three rows in four is a label that teaches the reader to
+// skip the section — the F216 warning-list failure.
+test('a comment is labelled and quoted, and an absent one prints nothing', () => {
+  const src = HTML.slice(HTML.indexOf('var NOTE_LABEL'),
+                         HTML.indexOf('function hydrateChecklistEvidence'));
+  assert.ok(src.length, 'the note painter still bounds this window');
+  assert.match(src, /var NOTE_LABEL = 'Species comment'/, 'the species label');
+  assert.match(src, /var CKL_NOTE_LABEL = 'Checklist comment'/, 'the checklist label');
+  assert.match(src, /createElement\('blockquote'\)/,
+    'the words themselves are a QUOTATION — that is what marks them as somebody else\u2019s');
+  // The checklist comment is conditional and the species one is too. Asserting
+  // BOTH guards prevents an empty labelled block, which is the specific thing
+  // asked for: "Do not show the Checklist comment if there is none."
+  assert.match(src, /if \(ck\) \{[\s\S]{0,120}CKL_NOTE_LABEL/,
+    'the checklist label is painted only when there is a checklist comment');
+  assert.match(src, /if \(!sp && !ck\) \{ settleNote\(el\); return; \}/,
+    'and with neither comment the row prints nothing at all');
+  // NEVER innerHTML. This is the one field on these rows that is genuinely
+  // user-authored, and cards-checklist.js has no escaper by design.
+  assert.match(src, /bq\.textContent = text;/, 'the comment is set as text, never markup');
+  assert.ok(!/innerHTML\s*=/.test(src),
+    'nothing in the note painter builds markup from an observer\u2019s words');
+});
+
+// A placeholder that never settles is worse than no placeholder: it turns
+// "this checklist has no comment" into a permanent lie.
+test('the comments placeholder always settles', () => {
+  const hyd = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence'),
+                         HTML.indexOf('var _evidStore = {}'));
+  assert.match(hyd, /if \(rarityNotes\(\)\) rows\.forEach\(setNoteLoading\)/,
+    'the wait is announced');
+  // ...but only on rows the budget will actually fetch. `rows` is filtered to
+  // CKL_EVID_MAX first, so a skipped row cannot sit at "loading" forever —
+  // which is the bug F220 records as "these can lazy load but they are not
+  // updating".
+  assert.ok(hyd.indexOf('rows = rows.filter(') < hyd.indexOf('rows.forEach(setNoteLoading)'),
+    'and only on rows this pass will really resolve');
+  // ONE settle point, not one per early return. There are four exits in the
+  // resolver and the one that gets forgotten is the one a reader stares at.
+  assert.match(hyd, /\.catch\(function \(\) \{[\s\S]*?\}\)\.then\(function \(\) \{ settleNote\(el\); \}\)/,
+    'and it is cleared on EVERY exit, including a call that failed');
+  const combined = HTML.slice(HTML.indexOf('function setNoteLoading'),
+                              HTML.indexOf('function setNoteText'));
+  assert.match(combined, /'Comments loading\\u2026'/,
+    'one loader covers both comments — they arrive in the same call, so a '
+    + 'per-label placeholder would promise a checklist comment that is usually absent');
+});
+
+
+// F230: the checklist gets a link that says what it opens --------------------
+// The row's date has linked to the checklist since F183, but a date that
+// happens to be a link is not a LINK — it names a time and offers no reason to
+// press it. Same complaint F221 fixed for "on eBird": a caption sitting where
+// an action belongs, beside siblings that are actions.
+test('the row carries a named link to the checklist', () => {
+  const src = HTML.slice(HTML.indexOf('var CKL_OPEN_ICON'),
+                         HTML.indexOf('var CKL_OPEN_ICON') + 900);
+  assert.match(src, /Open checklist ' \+ sub \+ ' in eBird/,
+    'it says what it opens AND which checklist');
+  assert.match(src, /\\u2197/, 'and marks itself as leaving the app, like its siblings');
+  // LAST, after the comments — and emitted by the CARD, not by the comment
+  // hydration, so it survives with notes off and on a silent checklist. The
+  // owner drew that case: "If the comments are toggled off, then it should
+  // look like #4."
+  assert.match(src, /class="cklopenrow"/, 'it takes a line of its own');
+  assert.equal((HTML.match(/checklist: openChecklistLink\(/g) || []).length, 0,
+    'it no longer rides the meta line, where it sat BEFORE the comments');
+  assert.equal((HTML.match(/openChecklistLink\(/g) || []).length, 3,
+    'both rarity sections emit it below their card, or one keeps the bare date');
+  // A hotspot link must NOT borrow the checklist glyph. Owner: "the link goes
+  // to a hotspot, so dont use a checklist icon, keep the link."
+  assert.match(HTML, /var EBIRD_LINK_LABEL = '\\uD83D\\uDD17/,
+    'the hotspot link keeps its own glyph — one mark must not mean two places');
+});
+
+// Two actions on one line must look like two of the same thing. Reported on
+// the patch cards: the maps link looked raised and larger. Neither was styled
+// for that row — `.hsact` is 15px while the global `.maplink, .extlink` rule
+// is 13px with `margin-top: 8px`, so the eBird link was LOWERED and shrunk.
+test('sibling actions on a patch card share one size and baseline', () => {
+  const rule = /\.hsact \.maplink[^{]*\{([\s\S]*?)\}/.exec(CARDS_HOTSPOT);
+  assert.ok(rule, 'the row equalises its actions');
+  assert.match(rule[1], /font-size: inherit/,
+    'the SIZE is inherited, not restated — two numbers cannot drift if there '
+    + 'is only one');
+  assert.match(rule[1], /margin-top: 0/, 'and neither action is pushed down');
+});
+
+// The media mark rides with the comment, and links to the checklist rather
+// than to a photo — because the photo is not addressable from here.
+test('media marks come from the feed, not from the checklist fetch', () => {
+  const src = HTML.slice(HTML.indexOf('function mediaMarksFor'),
+                         HTML.indexOf('function mediaMarksFor') + 500);
+  assert.match(src, /getAttribute\('data-ev-media'\)/,
+    'the letters come from the FEED, carried on the row');
+  // MEASURED on S387785046: an obs entry from product/checklist/view holds
+  // only speciesCode / howMany* / comments / present / obsId. No mediaCounts,
+  // no asset id. So `det.m` is empty in practice and cannot be the source.
+  assert.equal((HTML.match(/'ev-media': /g) || []).length, 2,
+    'every row that can show a note carries the evidence to mark it');
+  const paint = HTML.slice(HTML.indexOf('function setNoteText'),
+                           HTML.indexOf('function mediaMarksFor'));
+  assert.match(paint, /checklistUrl\(el\.getAttribute\('data-ev-sub'\)/,
+    'and the mark opens the CHECKLIST, which is the page that actually holds '
+    + 'the photo — a link built from a guessed Macaulay id would be a dead one');
+  assert.match(paint, /aria-label/,
+    'the glyph is not the only carrier of its meaning');
+});
+
 
 test('a painted note takes a line of its own', () => {
   const rule = /\.cklcards-sm > \.cklcard-sm > \.evnoterow \{([\s\S]*?)\}/.exec(CARDS_CHECKLIST);
@@ -10380,8 +10629,15 @@ test('the debug log reports what each section cost', async () => {
   assert.match(eb, /costNote\(path, true\)/, 'a cache hit is recorded as a saving');
   assert.match(eb, /costNote\(path, false\)/, 'and a live call as a cost');
   // ...and showSection must name the section, or every call lands on 'startup'.
-  const show = HTML.slice(HTML.indexOf('function showSection(id)'),
-    HTML.indexOf('function showSection(id)') + 700);
+  // ⚠️ SLICED BY NAMED BOUNDARY, not by a byte count. This read
+  // `indexOf('function showSection(id)') + 700` and broke when F228 added a
+  // navigation-trace comment ABOVE the line it checks — the assertion was
+  // still true, the window had just stopped containing it. Third time in one
+  // session; `dom.test.js` still has ~37 more slices pinned this way.
+  const showFrom = HTML.indexOf('function showSection(id)');
+  const showTo = HTML.indexOf('_sections.forEach(function (s) { s.hidden');
+  assert.ok(showFrom > 0 && showTo > showFrom, 'showSection still bounds this window');
+  const show = HTML.slice(showFrom, showTo);
   assert.match(show, /costEnter\(/, 'opening a section makes it the one being charged');
   // It has to reach the log the user actually copies, or it is a metric
   // nobody will ever see.

@@ -333,6 +333,19 @@
        half the first attempt at this missed. */
     '.hsact.hsactinline { display: inline-flex; margin-top: 0; margin-left: 8px;',
     '                     vertical-align: middle; gap: 0; }',
+    /* Two actions on one line must LOOK like two of the same thing. Reported
+       from the device on the patch cards: "the Open in Maps link is raised up,
+       with a larger font thats not the same weight" than Open in eBird.
+       Neither link was styled for this row — `.hsact` sets 15px, while the
+       global `.maplink, .extlink` rule sets 13px AND `margin-top: 8px`, so an
+       `.extlink` inside `.hsact` came out smaller and pushed DOWN while its
+       neighbour sat at the row's own size. The maps link was never raised; the
+       eBird link was lowered.
+       Inherit instead of restating a number, so the row's size stays the one
+       fact and the two cannot drift again. Same fix `.cklrows` already needed. */
+    '.hsact .maplink, .hsact .extlink, .hsact .favlink, .hsact .mylink {',
+    '  margin-top: 0; font-size: inherit; font-weight: 700;',
+    '  vertical-align: baseline; }',
     ''
   ].join('\n');
 

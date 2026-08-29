@@ -167,10 +167,35 @@
        than a full-basis flex item. `text-indent: 0` cancels the row's hanging
        indent, which would otherwise pull the note's first line back under the
        bullet. */
+    /* F229: the quote bar moved to the blockquote INSIDE this row, because the
+       row now holds a label as well and a label sitting inside a quote mark
+       reads as part of the quotation. */
     '  display: block; text-indent: 0; min-width: 0; margin: 2px 0 4px;',
-    '  padding-left: 10px; border-left: 3px solid var(--line);',
     '  font-size: calc(13px * var(--s)); line-height: 1.4;',
     '  color: var(--ink); white-space: normal; overflow-wrap: anywhere; }',
+    /* F229. "Species comment" / "Checklist comment". The label is what makes a
+       birder's words legible AS a birder's words — reported from the device,
+       where the note landed as a bare paragraph and read as the app's own
+       prose. Dimmed and small: it is a caption, not a heading competing with
+       the species name. */
+    '.evnotehd { display: block; text-indent: 0; margin: 3px 0 1px;',
+    '  font-size: calc(11px * var(--s)); font-weight: 700; letter-spacing: .02em;',
+    '  color: var(--dim); white-space: normal; }',
+    '.evnotebq { display: block; text-indent: 0; margin: 0; padding-left: 10px;',
+    '  border-left: 3px solid var(--line); white-space: normal;',
+    '  overflow-wrap: anywhere; color: var(--ink); font-style: normal; }',
+    /* The waiting state carries the SAME label so the row does not reflow into
+       a different shape when the note lands. */
+    '.evnoteloading .evnotehd { font-weight: 600; opacity: .85; }',
+    /* F230. The checklist link is its OWN line, last, after the comments.
+       `.extlink`'s global rule sets `margin-top: 8px`, which inside a block
+       row reads as a gap that belongs to nothing — the same mismatch reported
+       on the patch cards, where an 8px top margin made one of two sibling
+       actions look lowered. The spacing belongs to the row. */
+    '.cklopenrow { display: block; text-indent: 0; margin: 6px 0 0;',
+    '  font-size: calc(13px * var(--s)); white-space: normal;',
+    '  overflow-wrap: anywhere; }',
+    '.cklopenrow .extlink { margin-top: 0; font-size: inherit; }',
     '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
 
     /* MEDIUM: laid out exactly like the medium hotspot card — rank | headline |
