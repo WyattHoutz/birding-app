@@ -2704,7 +2704,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.51.0';
+      var APP_VERSION = '1.51.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -22244,8 +22244,22 @@
         });
         if (!row) return;
         var buttons = row.querySelectorAll('button');
-        if (buttons.length !== 1) return;
-        var load = buttons[0];
+        // ⚠️ COUNT THE BUTTONS THAT ARE ACTUALLY OFFERED. Requiring exactly one
+        // element meant 📆 Due back soon never got a ↻ and never had its row
+        // hidden — reported as "due back soon is broken" — because its row
+        // carries a SECOND button, `dueBackStop`, which ships `hidden` and only
+        // appears mid-sweep. A hidden Stop is not a competing verb, so it must
+        // not veto the swap.
+        //
+        // Quick outing is still excluded, which is what the rule was written
+        // for: its extra buttons are anchors, visible, and genuinely not a
+        // reload.
+        var offered = [];
+        Array.prototype.forEach.call(buttons, function (b) {
+          if (!b.hidden && !b.classList.contains('secondary')) offered.push(b);
+        });
+        if (offered.length !== 1) return;
+        var load = offered[0];
         var btn = document.createElement('button');
         btn.type = 'button'; btn.className = 'refreshbtn'; btn.textContent = '\u21BB';
         // F238. DERIVED from the section's tile label, never from the load

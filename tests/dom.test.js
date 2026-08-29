@@ -10752,10 +10752,23 @@ test('no section shows a bare Load button — every loader is the refresh icon',
   const app = await boot();
   const doc = app.document;
   const win = app.window;
-  const LOADERS = ['refreshBtn', 'targetsBtn', 'allUnseenBtn', 'spLookupBtn', 'destBtn',
-    'excBtn', 'tripBtn', 'cklBtn', 'quickBtn', 'surgeBtn', 'wxBtn', 'rankBtn',
-    'activeBtn', 'abaBtn', 'lastNewBtn', 'hotBtn', 'coldBtn', 'convoyBtn',
-    'easyBtn', 'migBtn', 'todBtn'];
+  // ⚠️ THIS LIST USED TO BE TYPED BY HAND, AND THAT IS WHY THE GUARD MISSED A
+  // SECTION. `dueBackBtn` was never in it, so 📆 Due back soon kept a bare
+  // "Check arrivals" button and no ↻ — reported from the device as "due back
+  // soon is broken" — while this test passed on the twenty-one sections
+  // someone remembered to type. Enumerating by hand is the same failure F238
+  // and F239 are both about.
+  //
+  // DERIVED from the contract now: every section it names that carries a load
+  // button is checked, so a new section is covered on the day it is added
+  // rather than on the day someone notices.
+  const LOADERS = CONTRACT.menu.map((m) => m.at)
+    .filter((at) => new RegExp('<button[^>]*\\bid="' + at + '"').test(HTML));
+  assert.ok(LOADERS.length >= 20,
+    `only ${LOADERS.length} load buttons were derived — the scan has stopped `
+    + 'matching the file it reads and is passing by never looking (F197)');
+  assert.ok(LOADERS.indexOf('dueBackBtn') >= 0,
+    'dueBackBtn is derived now — it is the section the hand-kept list forgot');
   const visible = [], noIcon = [];
   for (const id of LOADERS) {
     const b = doc.getElementById(id);
@@ -10764,8 +10777,15 @@ test('no section shows a bare Load button — every loader is the refresh icon',
     // Species lookup is driven by TYPING, not by a load button — its row is
     // the search box and must stay visible. The one exception, named rather
     // than silently tolerated.
-    if (id === 'spLookupBtn') {
-      assert.equal(row.hidden, false, 'the species search box stays on screen');
+    //
+    // ⚠️ MAKE THAT TWO, and the second was invisible until this list stopped
+    // being typed by hand: 🏞 Stake out a hotspot is the same shape — an
+    // <input type="search"> with a Search button beside it — and was simply
+    // absent from the old array, so nothing had ever asked about it.
+    if (id === 'spLookupBtn' || id === 'stakeHsBtn') {
+      assert.ok(sec.querySelector('input[type="search"]'),
+        id + ' claims to be a typed search, so it must actually carry a search box');
+      assert.equal(row.hidden, false, 'the ' + id + ' search box stays on screen');
       continue;
     }
     // Computed display rather than the `hidden` property. This test used to
