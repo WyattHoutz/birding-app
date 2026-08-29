@@ -4031,6 +4031,41 @@ test('grouped sections offer each other as modes of one report', async () => {
   app.window.close();
 });
 
+test('Near misses and Easy misses are two tiles AND two modes of one switch', async () => {
+  const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
+  const doc = app.document;
+  // F233. "id like to split all unseen reports back into two separate menu
+  // buttons... they can remain in the same report with the Being reported /
+  // Easy misses toggle. Rename Being reported to Near misses."
+  //
+  // Easy misses had been taken OFF the menu on the reasoning that it and All
+  // unseen reports answer the same question. True of the data, false of the
+  // errand — and a chip only offers the second question to someone who already
+  // went looking for the first. Both are tiles again.
+  const labels = [...doc.querySelectorAll('#menuList .toclink')]
+    .map((b) => b.getAttribute('aria-label') || '');
+  assert.ok(labels.some((l) => /Near misses/.test(l)),
+    'Near misses has a tile of its own');
+  assert.ok(labels.some((l) => /Easy misses/.test(l)),
+    'Easy misses has a tile of its own — it was hidden behind enabled:false');
+  assert.ok(!labels.some((l) => /Being reported/.test(l)),
+    'and nothing is still called "Being reported"');
+
+  // The two tiles must NOT become two copies of the section. Both still carry
+  // the same switch, so either one reaches the other in one tap.
+  for (const id of ['sec-allUnseenBtn', 'sec-easyBtn']) {
+    const row = doc.querySelector('#' + id + ' .modeswitch[data-modes="unseen"]');
+    assert.ok(row, id + ' still carries the unseen mode switch');
+    const chips = [...row.querySelectorAll('.modebtn')].map((b) => b.textContent.trim());
+    assert.equal(chips.length, 2, id + ' offers both modes');
+    assert.ok(chips.some((c) => /Near misses/.test(c)),
+      'the chip is renamed too, so the tile and the chip agree: ' + chips.join(' | '));
+    assert.ok(!chips.some((c) => /Being reported/.test(c)),
+      'the old chip wording is gone: ' + chips.join(' | '));
+  }
+  app.window.close();
+});
+
 test('choosing "Find a place" opens the search box and searches from there', async () => {
   const app = await boot({
     fetch(url) {
@@ -7496,6 +7531,24 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
   assert.match(panel, /✅/, 'and marks it with the same tick the other sections use');
   assert.ok(doc2.querySelectorAll('#spLookupResults li').length > 0,
     'and the places it was seen are listed');
+  // F234. "id like a header that says the selected bird name and then a
+  // detailed description of the bird like the megararity detailed view."
+  // The header is the SAME renderer the ABA profile uses, so this asserts the
+  // card is really a `.bcard` rather than a lookalike built here — if the two
+  // ever diverge, this is the guard that says so.
+  const hero = doc2.querySelector('#spLookupHero .bcard');
+  assert.ok(hero, 'the looked-up bird gets the mega-rarity profile card as a header');
+  assert.match(hero.querySelector('.bcname').textContent, /Testable Kingbird/,
+    'the header names the bird that was selected');
+  assert.ok(hero.querySelector('.bcextract'),
+    'and carries the description slot, which is what makes it a profile '
+    + 'rather than a second copy of the row below it');
+  assert.ok(hero.querySelector('.bcstats'),
+    'with the counts the status line states in prose');
+  // The places list is NOT duplicated into the header: that appendix has grown
+  // back twice in this section already.
+  assert.equal(hero.querySelectorAll('.cklrows').length, 0,
+    'the header does not repeat the places list below it');
   app2.window.close();
 });
 
@@ -10211,7 +10264,6 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
     'Trip planner is switched off, so it has no tile');
   assert.ok(!labels.some((l) => l && l.includes('Look up a place')),
     'Look up a place is a duplicate of the place box inside Find local patches');
-
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
   const kids = [...doc.querySelectorAll('#menuList > li')];

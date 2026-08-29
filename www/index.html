@@ -1344,12 +1344,30 @@
        report, followed by when, how many, how far. This used to be two lines
        per place plus a card per checklist, so the ordinary place-with-one-
        report printed its date twice, stacked — which is what read as a
-       duplicate row for every checklist. Everything below is the shared
-       checklist card; this only sets the rule between rows, so several reports
-       from one hotspot still read as separate, openable reports. */
+       duplicate row for every checklist.
+       ⚠️ F232. There used to be two more rules here — `padding: 6px 0` and a
+       `border-top` between rows — and BOTH were stale the moment F226 turned
+       the small checklist card into a bulleted sentence. They are deleted
+       rather than adjusted, because the shared card already says everything
+       they were saying.
+       The padding one was a DEFECT, and a silent one. `.cklcards.uplaces >
+       .cklcard` is three classes; the card's own `.cklcards-sm > .cklcard-sm`
+       is two, so the override won the PADDING while the card kept its
+       `text-indent: -1.15em`. A hanging indent with no left padding to hang
+       off pulls its first line clean outside the row — measured in real
+       Chrome at 402px: first line at 26.31px against a clip edge at 33px, so
+       6.69px of the first glyph and the whole "•" bullet fell outside
+       `.obs li { overflow: hidden }`. Reported from the device as "Discovery
+       Park" rendering as "iscovery Park", on 36 elements at that width.
+       ⚠️ The overflow sweep reported 0.0px through all of it, correctly: the
+       text is CLIPPED, not overflowing, so the document stays exactly the
+       viewport width. Left-clipping is now measured in its own right — see
+       `clipped` in assets/audit-overflow.js.
+       The border one simply re-drew the lines F226 was asked to remove
+       ("Id rather have a sentence of text that can wrap with a reverse indent
+       rather than show a table"), so this one list still read as a table
+       while every other list had become prose. */
     .cklcards.uplaces { margin: 8px 0 0; }
-    .cklcards.uplaces > .cklcard { padding: 6px 0; }
-    .cklcards.uplaces > .cklcard + .cklcard { border-top: 1px solid var(--line); }
     /* A paired section reads as one report with two modes. The switch is the
        first thing in the panel because it says WHICH question you are looking
        at before you read the answer. `aria-pressed` carries the state, so the
@@ -1884,7 +1902,7 @@
     </section>
 
     <section class="panel">
-      <h2>📋 All unseen reports <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <h2>📋 Near misses <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-allUnseenBtn"></div>
       <div class="row">
         <button id="allUnseenBtn">List every report</button>
@@ -1942,6 +1960,7 @@
         <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
       </div>
+      <div id="spLookupHero"></div>
       <ul id="spLookupResults" class="obs big xl"></ul>
       <div id="spLookupBest"></div>
       <div id="spLookupUnwatched"></div>
@@ -2685,7 +2704,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.48.0';
+      var APP_VERSION = '1.49.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7098,6 +7117,7 @@
         var found = $('spLookupFound'), out = $('spLookupResults'), inp = $('spLookup');
         if (found) found.innerHTML = '';
         if (out) out.innerHTML = '';
+        if ($('spLookupHero')) $('spLookupHero').innerHTML = '';
         if ($('spLookupBest')) $('spLookupBest').innerHTML = '';
         if (inp) inp.value = '';
         _spLookupGroup = null;
@@ -8010,8 +8030,60 @@
         }).catch(function () { host.innerHTML = ''; });
       }
 
-      function renderSpeciesLookup() {
-        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
+      // F234. The header card for a looked-up bird — the mega-rarity profile
+      // renderer, given what THIS section knows.
+      //
+      // The stats are counted from the group the lookup already holds, so the
+      // header costs no extra network call: the two figures the status line
+      // states in prose become the two numbers you can read at a glance, plus
+      // the nearest distance, which is the one thing that decides whether you
+      // go. `.bcextract` and the GBIF history slot hydrate lazily exactly as
+      // they do on a rarity profile.
+      //
+      // ⚠️ It goes in its OWN div, not into #spLookupResults. That list is
+      // `.obs big xl`, whose `> li` is a three-column grid with 12px vertical
+      // padding and a rule on top — a `.bcard` dropped into it would be laid
+      // out by the list instead of by itself.
+      function renderSpeciesHero(g, seenIt) {
+        var host = $('spLookupHero');
+        if (!host) return;
+        host.innerHTML = '';
+        if (!g || !g.code) return;
+        var sci = sciNameFor(g.code) || sciFor(g.code) || '';
+        var stateName = BL.stateNameFor(getReport()) || '';
+        var stats = [
+          { n: g.nPlaces, label: 'place' + (g.nPlaces === 1 ? '' : 's') },
+          { n: g.nReports, label: 'report' + (g.nReports === 1 ? '' : 's') }
+        ];
+        if (g.distMi != null && isFinite(g.distMi)) {
+          stats.push({ n: g.distMi.toFixed(1) + ' mi', label: 'nearest' });
+        }
+        var card = birdCard({
+          code: g.code,
+          name: g.name,
+          badges: (seenIt ? ' \u2705' : needTag(g.code, g.name))
+            + (g.anyUnconfirmed ? ' \u26A0\uFE0F' : ''),
+          // The scientific name is the SUB line here, where a rarity profile
+          // puts its ABA code: this section is reached by searching a common
+          // name, and the scientific name is what every other source you are
+          // about to open indexes on.
+          sub: esc(sci),
+          stats: stats,
+          hist: '<div class="bcnow bchist" data-code="' + esc(g.code)
+            + '" data-state="' + esc(stateName) + '"></div>'
+        });
+        host.appendChild(card);
+        var slot = card.querySelector('.bchist');
+        if (slot) {
+          if (sci && stateName) { slot.setAttribute('data-sci', sci); }
+          else { slot.style.display = 'none'; }
+        }
+        hydratePhotos(host);
+        hydrateCards(host);
+        hydrateHistory(host);
+      }
+
+      function renderSpeciesLookup() {        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
         var iconicMode = _spLookupSort === 'iconic';
         sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
@@ -8022,7 +8094,17 @@
           + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
           + ' · ' + (iconicMode ? 'iconic places'
                      : _spLookupSort === 'dist' ? 'by distance' : 'by date')
-          + ' · ' + nowTime();        out.innerHTML = SpeciesCards.medium({
+          + ' · ' + nowTime();
+        // F234. THE BIRD GETS A HEADER, not just a row.
+        // "in the stakeout species, id like a header that says the selected
+        //  bird name and then a detailed description of the bird like the
+        //  megararity detailed view."
+        // The SAME renderer, not a lookalike: birdCard is what the ABA Code 3+
+        // profile uses, and it already answers the three questions asked of a
+        // bird you are about to go and find — what does it look like, how much
+        // of it is there, and what IS it.
+        renderSpeciesHero(g, seenIt);
+        out.innerHTML = SpeciesCards.medium({
           sci: sciFor(g && g.code),
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
@@ -21433,8 +21515,8 @@
         cklBtn:        'Biggest day lists',
         convoyBtn:     'Groups birding together',
         favResults:    'Saved hotspots',
-        allUnseenBtn:  'Every report, nearest first',
-        easyBtn:       'Common birds you missed',
+        allUnseenBtn:  'Closest unseen birds',
+        easyBtn:       'Common unseen birds',
         nvResults:     'Birds considered unseen',
         migBtn:        'Arriving and leaving',
         bcBody:        'Nightly migration',
@@ -21476,11 +21558,20 @@
         { at: 'recordBody',    label: '🏅 Break a record', group: 'Stakeouts - Birding tools' },
         // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
         // in the F201 reorder and both tiles came back — caught by the contract
-        // guard, which lists them in `menuOmittedAts`. Easy misses is not a
-        // separate destination: it and All unseen reports answer the same
-        // question. Trip planner is off pending a redesign.
-        { at: 'easyBtn',      label: '🥚 Easy misses', needs: 'county', group: 'Stakeouts - Birding tools', enabled: false },
-        { at: 'allUnseenBtn', label: '📋 All unseen reports', needs: 'county', group: 'Stakeouts - Birding tools' },
+        // guard, which lists them in `menuOmittedAts`. Trip planner is off
+        // pending a redesign.
+        //
+        // F233. Easy misses is BACK, by owner request, and the reasoning that
+        // took it away was sound but wrong about the reader: "it and All unseen
+        // reports answer the same question" is true of the DATA and false of
+        // the errand. One is "what is being reported near me right now", the
+        // other is "what does everyone else have that I don't". A chip only
+        // offers the second question to someone who already went looking for
+        // the first.
+        // Both tiles open the SAME section pair and the SAME switch — nothing
+        // is duplicated, and the chip still moves between them.
+        { at: 'easyBtn',      label: '🥚 Easy misses', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'allUnseenBtn', label: '📋 Near misses', needs: 'county', group: 'Stakeouts - Birding tools' },
         { at: 'lastNewBtn',    label: '🔭 Leader Board Ticks', needs: 'geo', group: 'Leader Board / Ranking' },
         { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Leader Board / Ranking' },
         { at: 'patchBtn',      label: '🧭 Top 100’s Patches', needs: 'county', group: 'Leader Board / Ranking' },
@@ -24175,7 +24266,7 @@
           { id: 'cklModeNew',  icon: '\uD83D\uDD52', label: 'Newest',   full: 'The most recently submitted checklists' }
         ],
         unseen: [
-          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Being reported', full: 'Every unseen bird being reported now' },
+          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Near misses', full: 'Closest unseen birds being reported now' },
           { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Easy misses',    full: 'Common birds you should already have' }
         ]
       };

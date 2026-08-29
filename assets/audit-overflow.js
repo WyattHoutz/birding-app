@@ -231,10 +231,66 @@ const AUDIT = `<script>
                        w: +cel.getBoundingClientRect().width.toFixed(1) });
       }
     }
+    // F232. Text CLIPPED on the left, which no overflow check can see by
+    // construction: the glyphs fall outside an overflow:hidden ancestor, so
+    // the document never gets wider and the sweep above reports 0.0px while
+    // the phone shows "iscovery Park". Measured for real: a hanging indent
+    // (a negative text-indent plus matching left padding) whose padding is won
+    // by a more specific rule pulls its first line clean out of the row.
+    // Only elements that OWN a negative indent or a negative left margin are
+    // measured — text-indent inherits, so every inline descendant would
+    // otherwise report the same cut three times — and only block boxes, since
+    // a line box belongs to its block container.
+    var clipped = [];
+    var cands = document.querySelectorAll('section.panel:not([hidden]) *');
+    for (var k = 0; k < cands.length; k++) {
+      var ke = cands[k];
+      var kcs = getComputedStyle(ke);
+      if (/^inline(?!-block|-flex|-grid)/.test(kcs.display) || kcs.display === 'none') continue;
+      if (!(parseFloat(kcs.textIndent || '0') < -0.5
+            || parseFloat(kcs.marginLeft || '0') < -0.5)) continue;
+      var kr = ke.getBoundingClientRect();
+      if (!kr.width || !kr.height) continue;
+      var kfl = null;
+      try {
+        var krg = document.createRange();
+        krg.selectNodeContents(ke);
+        var krects = krg.getClientRects();
+        for (var kj = 0; kj < krects.length; kj++) {
+          if (!krects[kj].width && !krects[kj].height) continue;
+          if (kfl == null || krects[kj].top <= krects[0].top + 1) {
+            kfl = (kfl == null) ? krects[kj].left : Math.min(kfl, krects[kj].left);
+          }
+        }
+      } catch (e) { kfl = null; }
+      if (kfl == null) continue;
+      // The nearest ancestor that actually clips, and the edge it clips at —
+      // overflow clips at the PADDING box, so the border width is added on.
+      var kclip = null, kn = ke;
+      while (kn && kn !== document.documentElement) {
+        var ncs = getComputedStyle(kn);
+        if (ncs.overflowX && ncs.overflowX !== 'visible') {
+          var nr = kn.getBoundingClientRect();
+          kclip = { el: kn, left: nr.left + parseFloat(ncs.borderLeftWidth || 0) };
+          break;
+        }
+        kn = kn.parentElement;
+      }
+      if (!kclip) continue;
+      var kcut = kclip.left - kfl;
+      if (kcut > 0.5) {
+        clipped.push({ sel: chain(ke), cut: +kcut.toFixed(1),
+                       ti: kcs.textIndent, pad: kcs.paddingLeft,
+                       by: sel(kclip.el),
+                       saw: (ke.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 34) });
+      }
+    }
+
     var vis = document.querySelector('section.panel:not([hidden])');
     return {
       label: label, vw: vw, n: all.length,
       crushed: crushed.slice(0, 8),
+      clipped: clipped.slice(0, 8),
       maxRight: +maxRight.toFixed(1),
       text: vis ? (vis.textContent || '').replace(/\\s+/g, ' ').trim().length : -1,
       docScrollW: document.documentElement.scrollWidth,
@@ -473,6 +529,15 @@ server.listen(0, '127.0.0.1', () => {
         squashed.forEach(function (it) {
           console.log('   CRUSHED LABEL  ' + it.lines + ' lines for ' + it.words
             + ' words  w=' + it.w + '  "' + it.saw + '"  ' + it.sel);
+        });
+      }
+      var cut = r.clipped || [];
+      if (cut.length) {
+        bad++;
+        cut.forEach(function (it) {
+          console.log('   LEFT-CLIPPED TEXT  ' + it.cut + 'px lost  text-indent '
+            + it.ti + '  padding-left ' + it.pad + '  clipped by ' + it.by
+            + '  "' + it.saw + '"  ' + it.sel);
         });
       }
       var tiny = r.small || [];

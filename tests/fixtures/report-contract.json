@@ -161,10 +161,17 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "📋 All unseen reports",
+      "label": "📋 Near misses",
       "report": "## 📋 All unseen reports in",
       "map": null,
-      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot"
+      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233: the TILE is named for the errand (\"Near misses\", closest unseen birds) while the REPORT heading keeps the name the Markdown has always used, so the two are allowed to differ here"
+    },
+    {
+      "at": "easyBtn",
+      "label": "🥚 Easy misses",
+      "report": "## 🥚 Easy misses",
+      "map": null,
+      "why": "F233: a tile of its own again, by owner request. It shares a data-modes=\"unseen\" switch with Near misses and the two render through the same card, but they are different ERRANDS - \"what is being reported near me now\" versus \"what does everyone else have that I don't\" - and a chip only offers the second to someone who already went looking for the first"
     },
     {
       "at": "nvResults",
@@ -227,11 +234,9 @@
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
     "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
-    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it",
-    "## 🥚 Easy misses": "no TILE of its own: it and All unseen reports are the two modes of one data-modes=\"unseen\" switch, so the menu carries one tile and the chip is how you reach the other - every other mode group in the app (checklists, quick, anchor) has exactly one tile for the same reason. The section, its panel and its loader are intact, and the report still emits it."
+    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
   },
   "menuOmittedAts": [
-    "easyBtn",
     "tripBtn",
     "scoutBtn"
   ],
