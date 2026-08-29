@@ -96,40 +96,39 @@
        Each cell keeps `white-space: nowrap`, so a date or a count never
        splits down the middle; only whole facts can move. */
     '.cklcards-sm > .cklcard-sm {',
-    '  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;',
-    '  min-width: 0; overflow: hidden; white-space: nowrap;',
-    '  padding: 3px 0; font-size: calc(14px * var(--s)); line-height: 1.35;',
+    /* F226. A SENTENCE, NOT A TABLE.
+       "Remove the lines seperating each item. Id rather have a sentence of
+        text that can wrap with a reverse indent rather than show a table."
+       The row was a wrapping FLEX line whose cells were divided by drawn "·"
+       separators, which is what made it read as a table: every field became a
+       cell, cells aligned down the list, and a long observer name pushed the
+       facts around rather than simply flowing on. As block text the facts read
+       in order and wrap where they run out of room.
+       The reverse (hanging) indent is what keeps it a LIST while it is prose:
+       the bullet sits out at the margin and every continuation line clears it,
+       so a two-line row still reads as one item rather than as two. */
+    '  display: block; white-space: normal; overflow-wrap: anywhere;',
+    '  min-width: 0; padding: 3px 0 3px 1.15em; text-indent: -1.15em;',
+    '  font-size: calc(14px * var(--s)); line-height: 1.4;',
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',
     '.cklcards-sm > .cklcard-sm[data-href]:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }',
+    /* Every field is now an inline run separated by a space. `nowrap` per
+       field is kept for the same reason it always was: a date or a count may
+       move to the next line whole, but must never split down the middle.
+       The distance is a bare <a>, not a span — it has to be named or it is
+       the one fact that can break in half. */
+    '.cklcards-sm > .cklcard-sm > span,',
+    '.cklcards-sm > .cklcard-sm > a.ckdist {',
+    '  display: inline; white-space: nowrap; }',
     '.cklcards-sm > .cklcard-sm > .cklead {',
-    '  flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
-    '  font-weight: 600; }',
-    /* `flex-basis: 0` on the lead, NOT `auto`, and that one word is the whole
-       fix. With `auto` the lead claims its content width first and only then
-       shrinks in proportion to it, so a long hotspot name kept ~47px of the
-       row it should have surrendered and pushed the distance 30px off a 320px
-       screen — measured by the layout sweep, exactly there.
-       With `0` the lead asks for nothing and takes only what is left after the
-       short facts, so the NAME is always what gives way. The facts stay
-       shrinkable as a second line of defence. */
-    '.cklcards-sm > .cklcard-sm > span:not(.cklead) {',
-    '  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
-    /* The ellipsis has to be applied to the LINK, not only to its wrapper.
-       `text-overflow` acts on the box that overflows, and an inline <a> inside
-       a clipping span is simply painted-then-clipped: it still measures its
-       full width, so the layout sweep saw a.ckgo 162px past a 320px screen
-       even though the span looked right on screen. As a block with
-       max-width:100% inside a min-width:0 flex item, the anchor is bounded by
-       the row and truncates itself. */
+    '  font-weight: 600; white-space: normal; }',
+    /* The lead is inline now, so it wraps with the sentence instead of
+       claiming a flex track. `display: block` on the anchor was there to make
+       `text-overflow: ellipsis` work inside a flex item; nothing is truncated
+       any more, so the anchor is simply part of the text. */
     '.cklcards-sm > .cklcard-sm > .cklead > .ckgo {',
-    '  display: block; max-width: 100%; min-width: 0; overflow: hidden;',
-    '  text-overflow: ellipsis; white-space: nowrap; }',
-    '.cklcards-sm > .cklcard-sm > span:not(.cklead) { flex: 0 0 auto; }',
-    /* Separators are DRAWN, not typed, so a field the caller left out cannot
-       strand a "·" behind it. */
-    '.cklcards-sm > .cklcard-sm > span + span::before {',
-    '  content: "\\00b7"; margin-right: 8px; color: var(--line); }',
+    '  display: inline; white-space: normal; }',
     /* Tabular figures so dates, counts and distances line up down the list. */
     '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
@@ -156,15 +155,19 @@
        fact: it never shrinks, never wraps, and is not part of the flex
        content. */
     '.cklcards-sm > .cklcard-sm::before {',
-    '  content: "\\2022"; flex: 0 0 auto; color: var(--line);',
-    '  font-size: calc(11px * var(--s)); line-height: 1; }',
+    '  content: "\\2022"; color: var(--line); margin-right: 0.45em;',
+    '  font-size: calc(11px * var(--s)); }',
     /* F215. The observer's note, painted under its row when notes are switched
        on. `flex-basis: 100%` is the whole trick: the small card is a wrapping
        flex row, so a full-basis child takes a line of its own instead of
        fighting the facts for width — no change to the row's own layout, and it
        simply is not there when notes are off. */
     '.cklcards-sm > .cklcard-sm > .evnoterow {',
-    '  flex: 0 0 100%; min-width: 0; margin: 2px 0 4px;',
+    /* F226: the row is block text now, so the note is a block child rather
+       than a full-basis flex item. `text-indent: 0` cancels the row's hanging
+       indent, which would otherwise pull the note's first line back under the
+       bullet. */
+    '  display: block; text-indent: 0; min-width: 0; margin: 2px 0 4px;',
     '  padding-left: 10px; border-left: 3px solid var(--line);',
     '  font-size: calc(13px * var(--s)); line-height: 1.4;',
     '  color: var(--ink); white-space: normal; overflow-wrap: anywhere; }',
@@ -383,7 +386,7 @@
         + esc(v.href) + '">' + head + '</a>';
     }
     return tpl
-      .replace('{{row}}', bits.join(''))
+      .replace('{{row}}', bits.join('\n'))
       // THE WHOLE ROW IS THE LINK. On a phone the name is a ~10px-tall target
       // in a 30px-tall row, and the rest of the row was dead space that looked
       // tappable. `data-href` rather than wrapping the row in an <a>, because

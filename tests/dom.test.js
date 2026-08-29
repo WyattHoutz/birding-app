@@ -2838,42 +2838,58 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
 
 // Reported from the device with a screenshot: the checklist list under a place
 // showed the same name over and over and wrapped onto three lines per row.
-test('a checklist row is ONE line that truncates, and never overflows', async () => {
+test('F226: a checklist row is flowing text with a hanging indent, and never overflows', async () => {
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
-  // The LEAD is the only part allowed to shrink, so a long hotspot name loses
-  // its tail instead of pushing the facts off the screen.
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*white-space: nowrap/,
+  // ⚠️ THIS TEST REPLACES ONE THAT ASSERTED THE OPPOSITE DESIGN, and the
+  // replacement is deliberate rather than a guard bent to fit new code.
+  //
+  // The old row was ONE line that truncated: `white-space: nowrap`, `overflow:
+  // hidden`, a `flex: 1 1 0` lead with an ellipsis. That was the right answer
+  // to the bug it was written for — a list under a place repeating the place
+  // name and wrapping to three lines per row — and the CAUSE of that bug is
+  // fixed elsewhere and still guarded: the caller omits the place when its
+  // heading already names it, and a name carrying a sub-area is condensed.
+  // Those assertions live in the test above and are untouched.
+  //
+  // What changed is the format the owner wants: "Remove the lines seperating
+  // each item. Id rather have a sentence of text that can wrap with a reverse
+  // indent rather than show a table." Truncation and drawn separators are
+  // exactly what made it a table, so they go.
+  //
+  // ⚠️ THE REAL OVERFLOW CHECK IS `npm run test:layout`, NOT THIS FILE.
+  // jsdom has no layout engine, so nothing here can measure a pixel; these are
+  // assertions about the RULES that produce the behaviour. The geometry is
+  // proved by the 6-viewport audit, which reports 0.0px over at 320px/1.75x
+  // with easy-read on — the width where the old design had to truncate.
+
+  // A field may move to the next line whole; it must never split in half.
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > span,[\s\S]{0,120}white-space: nowrap/,
     'no individual fact ever splits down the middle');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*overflow: hidden/,
-    'and the row CLIPS as a backstop — nowrap without overflow control hides '
-    + 'the overflow off the screen edge instead of preventing it (+196px once)');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*flex: 1 1 0/,
-    'flex-BASIS 0 on the lead: with `auto` the name claimed its content width '
-    + 'first and shoved the facts onto a second line, which is the reported bug');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > span:not\(\.cklead\) \{[^}]*flex: 0 1 auto/,
-    'the facts take their natural width and shrink only if they must');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*flex-wrap: wrap/,
-    'wrapping survives ONLY as the last resort: at 1.75x on a 320px screen '
-    + 'the facts alone are wider than the screen, so there is no one-line '
-    + 'answer left and clipping would delete the distance silently');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*text-overflow: ellipsis/,
-    'the lead is the part that truncates');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead \{[^}]*min-width: 0/,
-    'and min-width:0 is what lets a flex item shrink below its content at all');
-  // The ellipsis must be on the LINK, not only its wrapper: text-overflow acts
-  // on the box that overflows, and an inline <a> inside a clipping span still
-  // measures its full width. The sweep caught exactly that, at +162px.
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead > \.ckgo \{[^}]*display: block/,
-    'the link itself is a block, so it is bounded by the row');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > \.cklead > \.ckgo \{[^}]*text-overflow: ellipsis/,
-    'and truncates itself rather than being painted and clipped');
-  // Separators are DRAWN, so an omitted field cannot strand a "·".
-  assert.match(CK.css, /span \+ span::before \{\s*\n?\s*content: "\\00b7"/,
-    'the separators are CSS, not characters in the string');
+  assert.match(CK.css, /a\.ckdist \{[^}]*white-space: nowrap/,
+    'including the distance, which is a bare <a> and not a span — name it or '
+    + 'it is the one fact that can break in half');
+
+  // The row itself WRAPS rather than clipping. Clipping is what deletes a fact
+  // silently; at 320px/1.75x the facts alone are wider than the screen, so
+  // there is no one-line answer to give.
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*white-space: normal/,
+    'the row is prose, so it wraps');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*text-indent: -/,
+    'with a REVERSE indent, which is what keeps a wrapped row reading as ONE '
+    + 'list item instead of two');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*padding: [^;]*em/,
+    'and a matching left padding, or the hanging indent pulls the first line '
+    + 'off the left edge of the card');
+
+  // The separators are gone: they are what made the row read as cells.
+  assert.ok(!/\.cklcards-sm > \.cklcard-sm > span \+ span::before/.test(CK.css),
+    'the small row draws no "·" between fields — that is the table it stopped '
+    + 'being. (The MEDIUM card keeps its own separators and is untouched.)');
   const sparse = CK.small({ href: 'https://x/1', date: 'Aug 2 9:29 AM' });
   assert.ok(!/\u00b7/.test(sparse),
-    'a row with only a date types no separator characters of its own');
+    'and a row with only a date types no separator characters of its own');
+
   // Every field is optional, because the CALLER's context decides what is
   // redundant — that is the whole fix for the duplicate-name screenshot.
   assert.ok(!/class="ckplace"|class="ckcount"|class="ckdist"/.test(sparse),
@@ -8749,12 +8765,19 @@ test('the notes button is actually wired, and is not stored as a filter', async 
 test('a painted note takes a line of its own', () => {
   const rule = /\.cklcards-sm > \.cklcard-sm > \.evnoterow \{([\s\S]*?)\}/.exec(CARDS_CHECKLIST);
   assert.ok(rule, 'the note needs a rule of its own');
-  assert.match(rule[1], /flex: 0 0 100%/,
-    'a full basis is what gives it a line; `auto` would make it compete with '
-    + 'the date, count and distance for the same row');
+  // ⚠️ WAS `assert.match(rule[1], /flex: 0 0 100%/)`. That pinned the
+  // MECHANISM — a full flex basis — at a time when the row was a flex line.
+  // F226 made the row block text, so the mechanism changed while the PROPERTY
+  // did not: the note still has to take a line of its own rather than compete
+  // with the date, count and distance for the same one.
+  assert.match(rule[1], /display: block|flex: 0 0 100%/,
+    'the note takes a full line, by whichever mechanism the row layout uses');
+  assert.match(rule[1], /text-indent: 0/,
+    'and it cancels the row\u2019s hanging indent, which would otherwise pull the '
+    + 'note\u2019s first line back underneath the bullet');
   assert.match(rule[1], /white-space: normal/,
-    'and it must be allowed to wrap — the row itself is nowrap, which would '
-    + 'run a sentence off the side of the screen');
+    'and it must be allowed to wrap — a per-field nowrap would run a sentence '
+    + 'off the side of the screen');
   assert.match(rule[1], /var\(--s\)/, 'it scales with the text-size setting');
 });
 
