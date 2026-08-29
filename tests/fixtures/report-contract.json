@@ -25,205 +25,236 @@
   "menu": [
     {
       "at": "surgeBtn",
-      "label": "🔔 Happening Now",
-      "report": "## 🔴 Happening now",
+      "label": "🔔 Bird gen",
+      "report": "## 🔔 Bird gen — The news birders are talking about",
       "map": null,
-      "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake"
+      "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake",
+      "sub": "The news birders are talking about"
     },
     {
       "at": "wxBtn",
-      "label": "🌤 Conditions for chasing",
-      "report": "## 🌤 Conditions for chasing",
+      "label": "🌤 Twitch weather",
+      "report": "## 🌤 Twitch weather — Is today worth chasing",
       "map": null,
-      "why": "heading is rendered by weather.py, not report.py"
+      "why": "heading is rendered by weather.py, not report.py",
+      "sub": "Is today worth chasing"
     },
     {
       "at": "dueBackBtn",
       "label": "📆 Due back soon",
       "report": null,
       "map": null,
-      "why": "app-only (F11 part 2): the arrival dates come from sweeping GBIF for every species in the region - hundreds of calls, resumable, cached on the device. The report is built once from a fixed snapshot and committed; a section whose whole value is 'what changes between now and three weeks from now' is a live question, and printing a static answer to it in a document dated today would be worse than not printing it. Owner decision 2026-08-12: the app may carry sections the report does not, as long as the delta is written down."
+      "why": "app-only (F11 part 2): the arrival dates come from sweeping GBIF for every species in the region - hundreds of calls, resumable, cached on the device. The report is built once from a fixed snapshot and committed; a section whose whole value is 'what changes between now and three weeks from now' is a live question, and printing a static answer to it in a document dated today would be worse than not printing it. Owner decision 2026-08-12: the app may carry sections the report does not, as long as the delta is written down.",
+      "sub": "Migrants due back soon"
     },
     {
       "at": "rankBtn",
-      "label": "🏆 eBird Rankings & Top 100",
-      "report": "## 🏆 eBird Rankings",
+      "label": "🏆 Top 100",
+      "report": "## 🏆 Top 100 — Your eBird standing",
       "map": null,
-      "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve"
+      "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve",
+      "sub": "Your eBird standing"
     },
     {
       "at": "patchBtn",
-      "label": "🧭 Top 100’s Patches",
-      "report": "## 🧭 Where the top 100 actually bird",
+      "label": "🧭 Pro patches",
+      "report": "## 🧭 Pro patches — Where the top 100 actually bird",
       "map": null,
-      "why": "where the hundred busiest birders in these counties choose to spend their effort, ranked by LIFT rather than by checklist count — a raw count just reproduces a population map, so the famous parks win and the reader learns nothing they can act on"
+      "why": "where the hundred busiest birders in these counties choose to spend their effort, ranked by LIFT rather than by checklist count — a raw count just reproduces a population map, so the famous parks win and the reader learns nothing they can act on",
+      "sub": "Where the top 100 actually bird"
     },
     {
       "at": "destBtn",
       "label": "🥇 Today’s patches",
-      "report": "## 🥇 Top destinations",
-      "map": "destMap"
+      "report": "## 🥇 Today’s patches — Top hotspots to visit",
+      "map": "destMap",
+      "sub": "Top hotspots to visit"
     },
     {
       "at": "excBtn",
       "label": "🚗 Day-trip patches",
-      "report": "## 🚗 Top excursions",
-      "map": "excMap"
+      "report": "## 🚗 Day-trip patches — Top excursion hotspots",
+      "map": "excMap",
+      "sub": "Top excursion hotspots"
     },
     {
       "at": "quickBtn",
       "label": "🚶 Find local patches",
-      "report": "## 🚶 Quick outing",
-      "map": "quickMap"
+      "report": "## 🚶 Find local patches — Local hotspots",
+      "map": "quickMap",
+      "sub": "Local hotspots"
     },
     {
       "at": "targetsBtn",
       "label": "📍 Closest unseen birds",
-      "report": "## 📍 Closest spots with unseen birds",
-      "map": "closeMap"
+      "report": "## 📍 Closest unseen birds — Nearest to a bird you need",
+      "map": "closeMap",
+      "sub": "Nearest to a bird you need"
     },
     {
       "at": "spLookupBtn",
       "label": "🔎 Stakeout bird",
       "report": null,
       "map": "spLookupMap",
-      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book."
+      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book.",
+      "sub": "Where to wait for it"
     },
     {
       "at": "stakeHsBtn",
       "label": "🏞 Stake out a hotspot",
       "report": null,
       "map": null,
-      "why": "app-only, and for the same reason as Stakeout bird above: a Markdown report cannot take a query. It is the INVERSE of every place-finding section - those answer 'which place should I go to', this one starts from 'I have chosen this place, tell me everything'. It leads with the PATTERN (how often the place is birded, what a visit is usually worth, who the regulars are) rather than with today rows, because eBird embargoes checklists for an hour and people submit hours later - measured 2026-08-22, three target species returned ZERO reports from that day statewide at 10:10."
+      "why": "app-only, and for the same reason as Stakeout bird above: a Markdown report cannot take a query. It is the INVERSE of every place-finding section - those answer 'which place should I go to', this one starts from 'I have chosen this place, tell me everything'. It leads with the PATTERN (how often the place is birded, what a visit is usually worth, who the regulars are) rather than with today rows, because eBird embargoes checklists for an hour and people submit hours later - measured 2026-08-22, three target species returned ZERO reports from that day statewide at 10:10.",
+      "sub": "Everything about one place"
     },
     {
       "at": "iconicBtn",
       "label": "⭐ Iconic spots near me",
       "report": null,
       "map": null,
-      "why": "F156. APP-ONLY, and deliberately so: the numbers come from GBIF's keyless occurrence facets measured against the reader's own home and chase radius, which a Markdown report generated hours earlier cannot ask for. Ranks how much a place stands out for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags."
+      "why": "F156. APP-ONLY, and deliberately so: the numbers come from GBIF's keyless occurrence facets measured against the reader's own home and chase radius, which a Markdown report generated hours earlier cannot ask for. Ranks how much a place stands out for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags.",
+      "sub": "Hotspot specialities"
     },
     {
       "at": "hotBtn",
-      "label": "🔥 Producing patches",
-      "report": "## 🔥 Hot hotspots — recent surges",
-      "map": "hotMap"
+      "label": "🔥 Hot patches",
+      "report": "## 🔥 Hot patches — Hotspots with recent surges",
+      "map": "hotMap",
+      "sub": "Hotspots with recent surges"
     },
     {
       "at": "coldBtn",
-      "label": "🥶 Under-birded patches",
-      "report": "## 🥶 Cold hotspots — overlooked gems",
-      "map": "coldMap"
+      "label": "🥶 Cold patches",
+      "report": "## 🥶 Cold patches — Overlooked gems nobody watches",
+      "map": "coldMap",
+      "sub": "Overlooked gems nobody watches"
     },
     {
       "at": "refreshBtn",
       "label": "🌅 Twitches today",
-      "report": "## 🌅 Today's rarity reports",
-      "map": null
+      "report": "## 🌅 Twitches today — Rarities today",
+      "map": null,
+      "sub": "Rarities today"
     },
     {
       "at": "activeBtn",
       "label": "🚨 Twitches this week",
-      "report": "## 🚨 Last 7-Days rarity reports",
-      "map": null
+      "report": "## 🚨 Twitches this week — Rarities this week",
+      "map": null,
+      "sub": "Rarities this week"
     },
     {
       "at": "abaBtn",
       "label": "🦅 Mega rarities",
-      "report": "## 🦅 ABA Code 3+ rarities in",
-      "map": null
+      "report": "## 🦅 Mega rarities — ABA Code 3+ alert",
+      "map": null,
+      "sub": "ABA Code 3+ alert"
     },
     {
       "at": "lastNewBtn",
-      "label": "🔭 Leader Board Ticks",
-      "report": "## 🔭 Leader Board Ticks",
+      "label": "🔭 Fresh ticks",
+      "report": "## 🔭 Fresh ticks — Newest on the board",
       "map": null,
-      "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them"
+      "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them",
+      "sub": "Newest on the board"
     },
     {
       "at": "cklBtn",
       "label": "🦜 Big days",
-      "report": "## 🦜 Birdiest recent checklists",
-      "map": "cklMap"
+      "report": "## 🦜 Big days — Biggest day lists",
+      "map": "cklMap",
+      "sub": "Biggest day lists"
     },
     {
       "at": "convoyBtn",
       "label": "👥 Convoys",
-      "report": "## 👥 Birder convoys",
+      "report": "## 👥 Convoys — Groups birding together",
       "map": null,
-      "why": "the report draws one map PER convoy, so the app builds per-convoy containers dynamically rather than one static id"
+      "why": "the report draws one map PER convoy, so the app builds per-convoy containers dynamically rather than one static id",
+      "sub": "Groups birding together"
     },
     {
       "at": "favResults",
       "label": "🔖 Favorite patches",
-      "report": "## 📍 Favorite hotspots",
-      "map": null
+      "report": "## 🔖 Favorite patches — Saved hotspots",
+      "map": null,
+      "sub": "Saved hotspots"
     },
     {
       "at": "allUnseenBtn",
       "label": "📋 Near misses",
-      "report": "## 📋 All unseen reports in",
+      "report": "## 📋 Near misses — Nearest unseen birds",
       "map": null,
-      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233: the TILE is named for the errand (\"Near misses\", closest unseen birds) while the REPORT heading keeps the name the Markdown has always used, so the two are allowed to differ here"
+      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233: the TILE is named for the errand (\"Near misses\", closest unseen birds) while the REPORT heading keeps the name the Markdown has always used, so the two are allowed to differ here",
+      "sub": "Nearest unseen birds"
     },
     {
       "at": "easyBtn",
-      "label": "🥚 Easy misses",
-      "report": "## 🥚 Easy misses",
+      "label": "🥚 Nemesis birds",
+      "report": "## 🥚 Nemesis birds — Common birds you still need",
       "map": null,
-      "why": "F233: a tile of its own again, by owner request. It shares a data-modes=\"unseen\" switch with Near misses and the two render through the same card, but they are different ERRANDS - \"what is being reported near me now\" versus \"what does everyone else have that I don't\" - and a chip only offers the second to someone who already went looking for the first"
+      "why": "F233: a tile of its own again, by owner request. It shares a data-modes=\"unseen\" switch with Near misses and the two render through the same card, but they are different ERRANDS - \"what is being reported near me now\" versus \"what does everyone else have that I don't\" - and a chip only offers the second to someone who already went looking for the first",
+      "sub": "Common birds you still need"
     },
     {
       "at": "nvResults",
-      "label": "❓ Needs verification",
-      "report": "## 🔍 Watchlist",
+      "label": "❓ Needs proof",
+      "report": "## ❓ Needs proof — Birds considered unseen",
       "map": null,
-      "why": "the report renders the watchlist as a chase list; the app also MANAGES it (search to add, reorder, remove) because the authored file lives in the private pipeline repo the app cannot write to"
+      "why": "the report renders the watchlist as a chase list; the app also MANAGES it (search to add, reorder, remove) because the authored file lives in the private pipeline repo the app cannot write to",
+      "sub": "Birds considered unseen"
     },
     {
       "at": "migBtn",
-      "label": "🛬 Migration outlook",
-      "report": "## 🛬 Migration outlook",
-      "map": null
+      "label": "🛬 On passage",
+      "report": "## 🛬 On passage — What’s arriving and leaving",
+      "map": null,
+      "sub": "What’s arriving and leaving"
     },
     {
       "at": "bcBody",
       "label": "🌙 BirdCast",
-      "report": "## 🌙 Nightly migration — BirdCast",
-      "map": null
+      "report": "## 🌙 BirdCast — Nightly migration",
+      "map": null,
+      "sub": "Nightly migration"
     },
     {
       "at": "todBtn",
-      "label": "🌄 Dawn and dusk birds",
-      "report": "## ⏰ Time-of-day specialists",
-      "map": null
+      "label": "🌄 Dawn and dusk",
+      "report": "## 🌄 Dawn and dusk — Time-of-day specialists",
+      "map": null,
+      "sub": "Time-of-day specialists"
     },
     {
       "at": "myYearBody",
       "label": "📅 My year",
-      "report": "## 🐦 * Year List",
-      "map": null
+      "report": "## 📅 My year — Your list this year",
+      "map": null,
+      "sub": "Your list this year"
     },
     {
       "at": "settingsPanel",
       "label": "⚙️ Settings",
       "report": null,
       "map": null,
-      "why": "app-only: API key / home / report picker"
+      "why": "app-only: API key / home / report picker",
+      "sub": "Region, text size, data"
     },
     {
       "at": "recordBody",
       "label": "🏅 Break a record",
       "report": null,
       "map": null,
-      "why": "app-only (F137): the model needs GBIF and decades of history, so it is computed OFFLINE and shipped as a bundled asset - scripts/pack_state_records.py, 222 KB for six regions. The report could carry the same list, and may later, but it would have to be regenerated to change and this list only moves once a year. Ranked by THIS MONTH rather than by rarity, which is the one thing every other section already sorts on."
+      "why": "app-only (F137): the model needs GBIF and decades of history, so it is computed OFFLINE and shipped as a bundled asset - scripts/pack_state_records.py, 222 KB for six regions. The report could carry the same list, and may later, but it would have to be regenerated to change and this list only moves once a year. Ranked by THIS MONTH rather than by rarity, which is the one thing every other section already sorts on.",
+      "sub": "Overdue megararities"
     },
     {
       "at": "helpBody",
       "label": "📘 How each section works",
       "report": null,
       "map": null,
-      "why": "app-only: the Markdown report explains each section inline, in the section itself, because a reader scrolling a document is already there. On a phone the sections are separate screens, so the explanations need one place you can reach without opening twenty-four of them. Generated from section-docs.json, so it cannot say anything the per-section info button does not."
+      "why": "app-only: the Markdown report explains each section inline, in the section itself, because a reader scrolling a document is already there. On a phone the sections are separate screens, so the explanations need one place you can reach without opening twenty-four of them. Generated from section-docs.json, so it cannot say anything the per-section info button does not.",
+      "sub": "What every button does"
     }
   ],
   "reportSectionsAppOmits": {

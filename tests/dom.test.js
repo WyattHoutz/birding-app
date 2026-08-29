@@ -390,11 +390,11 @@ test('opening a section auto-loads its content (no button tap)', async () => {
 
 test('hot and cold hotspots render from ONE shared scan', async () => {
   const app = await boot();
-  app.open(/Producing patches/);
+  app.open(/Hot patches/);
   const afterHot = app.state.fetches.length;
   assert.ok(afterHot > 0, 'opening Producing patches starts a scan');
 
-  app.open(/Under-birded patches/);
+  app.open(/Cold patches/);
   assert.equal(app.state.fetches.length, afterHot,
     'opening Under-birded patches must reuse the in-flight scan, not refetch');
   assert.match(app.$('coldStatus').textContent, /Scanning|overlooked/,
@@ -493,7 +493,7 @@ test('swiping right on the Contents menu is a no-op', async () => {
  */
 test('Happening now is wired and renders every lane it detects', async () => {
   const app = await boot();
-  app.open(/Happening Now/i);
+  app.open(/Bird gen/i);
   assert.equal(app.$('surgeResults').closest('section').hidden, false,
     'the section is the one on screen');
 
@@ -548,7 +548,7 @@ test('Happening now is wired and renders every lane it detects', async () => {
  */
 test('a surge with no baseline reads as "new here", never as an infinite ratio', async () => {
   const app = await boot();
-  app.open(/Happening Now/i);
+  app.open(/Bird gen/i);
   const A = app.window.__app;
   A.renderSurge([{
     code: 'tersan', name: 'Terek Sandpiper', locId: 'L9', loc: 'Stanwood STP',
@@ -565,7 +565,7 @@ test('a surge with no baseline reads as "new here", never as an infinite ratio',
 
 test('Leader Board Ticks section is wired and auto-loads from the leaderboard', async () => {
   const app = await boot();
-  app.open(/Leader Board Ticks/);
+  app.open(/Fresh ticks/);
   assert.equal(app.$('lastNewResults').closest('section').hidden, false,
     'the section is the one on screen');
   assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,
@@ -1245,7 +1245,7 @@ test('rankings: the board is scoped to the active report and includes the Top 10
   // control entirely — rankings and the board are one section scoped to the
   // region you picked — so the guard is now "the board follows the report".
   const app = await boot();
-  app.open(/eBird Rankings/);
+  app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 40));
   const top100 = app.state.fetches.filter((u) => /top100/.test(u));
   assert.ok(top100.length, 'opening the section loads a leaderboard');
@@ -1275,7 +1275,7 @@ test('rankings: the board is scoped to the active report and includes the Top 10
 
 test('rankings follow the region: a Lower 48 report loads the Lower 48 board', async () => {
   const app = await boot({ report: 'lower48' });
-  app.open(/eBird Rankings/);
+  app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 40));
   const top100 = app.state.fetches.filter((u) => /top100/.test(u));
   assert.ok(top100.length, 'the rarity tracker still has a leaderboard');
@@ -1304,9 +1304,9 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   assert.ok(app.links().length < waLinks,
     'a rarity tracker has no counties and no home: its report emits fewer sections, ' +
     'so the menu must shrink instead of listing dead ends');
-  assert.ok(!app.links().some((a) => /Birder convoys|BirdCast|Migration outlook/.test(a.textContent)),
+  assert.ok(!app.links().some((a) => /Convoys|BirdCast|On passage/.test(a.textContent)),
     'county-only sections disappear for a report that has no counties');
-  assert.ok(app.links().some((a) => /eBird Rankings/.test(a.textContent)),
+  assert.ok(app.links().some((a) => /Top 100/.test(a.textContent)),
     'sections the rarity report does emit stay');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors while switching region');
   app.window.close();
@@ -1420,7 +1420,7 @@ test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () 
   assert.match(src, /rankPrimaryRegion\(\)/,
     'it follows the same one-report-one-board rule as the rankings section');
 
-  app.open(/Leader Board Ticks/);
+  app.open(/Fresh ticks/);
   await new Promise((r) => setTimeout(r, 120));
   const boards = app.state.fetches.filter((u) => /top100/.test(u));
   assert.equal(boards.length, 1, 'exactly one leaderboard is fetched');
@@ -1442,7 +1442,7 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
     storage: { ebird_display_name: 'Birder Wyatt' },
     fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null),
   });
-  app.open(/eBird Rankings/);
+  app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(app.document.querySelectorAll('.rankcard').length, 1,
     'exactly one standing card - your rank is not printed twice');
@@ -1479,7 +1479,7 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
     storage: { ebird_display_name: 'Birder Wyatt' },
     fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null),
   });
-  app.open(/eBird Rankings/);
+  app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 150));
   const raw = app.window.localStorage.getItem('ebird_rankhist:US-WA');
   assert.ok(raw, 'reading the board writes a history entry for the region');
@@ -4031,6 +4031,78 @@ test('grouped sections offer each other as modes of one report', async () => {
   app.window.close();
 });
 
+// --- THE NAMING CONTRACT (F236) ---------------------------------------------
+// One fact in one place, for the thing that had been written in three: a
+// section's TITLE and its SUBTITLE. They used to live in `MENU` and `MENU_SUB`
+// inside index.html, and again as a hand-typed `## ` heading literal in
+// report.py — and measured on 2026-08-29, only 5 of 24 sections agreed with
+// their own report heading. Two sections emitted DIFFERENT headings from two
+// call sites in the same file.
+//
+// The rule, asked for by the owner: "report heading should be tile title -
+// tile subtitle." So the heading is DERIVED, never typed:
+//
+//     report heading  ==  "## " + tile title + " — " + tile subtitle
+//
+// report-contract.json is the authored source, because it is already the file
+// both repos read: this suite checks the app against it, and the parity suite's
+// test_report_toc.py checks report.py against it. Adding a THIRD file to hold
+// the names would recreate the drift this replaces.
+//
+// The chain is: contract -> app tiles (here) -> report headings (parity).
+// Break any link and one of the two guards fails.
+test('every tile title and subtitle comes from the contract, and the report heading is derived from them', () => {
+  const subOf = {};
+  const block = HTML.slice(HTML.indexOf('var MENU_SUB'));
+  const stop = block.indexOf('};');
+  const re = /(\w+):\s*'([^']*)'/g;
+  let m;
+  while ((m = re.exec(block.slice(0, stop)))) subOf[m[1]] = m[2];
+  assert.ok(Object.keys(subOf).length > 20,
+    'MENU_SUB parsed (got ' + Object.keys(subOf).length + ')');
+
+  const labelOf = {};
+  const lre = /\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']*)'/g;
+  while ((m = lre.exec(HTML))) labelOf[m[1]] = m[2];
+  assert.ok(Object.keys(labelOf).length > 20,
+    'MENU parsed (got ' + Object.keys(labelOf).length + ')');
+
+  for (const entry of CONTRACT.menu) {
+    const at = entry.at;
+    assert.ok(entry.sub, at + ' declares a subtitle in the contract');
+    assert.equal(labelOf[at], entry.label,
+      at + ': the tile title in index.html and the contract disagree');
+    assert.equal(subOf[at], entry.sub,
+      at + ': the tile subtitle in index.html and the contract disagree');
+    // Sections the report does not carry have no heading to derive.
+    if (!entry.report) continue;
+    assert.equal(entry.report, '## ' + entry.label + ' — ' + entry.sub,
+      at + ': the report heading is not "title — subtitle". It is DERIVED, '
+      + 'not typed — change the title or the subtitle, never the heading.');
+  }
+});
+
+// A subtitle is published in the REPORT now, not only rendered under a tile, so
+// it has to read as prose. These are the two ways it stops being prose.
+test('a subtitle reads as a sentence fragment, not as a UI hint', () => {
+  for (const entry of CONTRACT.menu) {
+    // Only sections the REPORT carries: the rule exists because the subtitle is
+    // published as a Markdown heading, and an app-only tile has no heading to
+    // be prose in. `helpBody`'s "What every button does" is a fine thing to say
+    // under a tile and a nonsense thing to say in a document.
+    if (!entry.report) continue;
+    const s = entry.sub || '';
+    assert.ok(!/^[a-z]/.test(s) || /^[a-z]+Btn/.test(s) === false,
+      entry.at + ': subtitle should start with a capital, got "' + s + '"');
+    assert.ok(!/\b(tap|click|press|button|scroll)\b/i.test(s),
+      entry.at + ': "' + s + '" tells the reader how to use a screen, but this '
+      + 'string is also a heading in the Markdown report, where there is no screen');
+    assert.ok(s.length >= 6 && s.length <= 48,
+      entry.at + ': subtitle is ' + s.length + ' chars — it has to fit under a '
+      + 'tile AND read as a heading (6..48)');
+  }
+});
+
 test('no menu tile is named the same thing as another tile, label or sub-line', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
@@ -4093,8 +4165,8 @@ test('Near misses and Easy misses are two tiles AND two modes of one switch', as
     .map((b) => b.getAttribute('aria-label') || '');
   assert.ok(labels.some((l) => /Near misses/.test(l)),
     'Near misses has a tile of its own');
-  assert.ok(labels.some((l) => /Easy misses/.test(l)),
-    'Easy misses has a tile of its own — it was hidden behind enabled:false');
+  assert.ok(labels.some((l) => /Nemesis birds/.test(l)),
+    'Nemesis birds (was Easy misses) has a tile of its own — it was hidden behind enabled:false');
   assert.ok(!labels.some((l) => /Being reported/.test(l)),
     'and nothing is still called "Being reported"');
 
@@ -4945,7 +5017,7 @@ test('the Needs-verification section renders the tracked list with controls', as
       { code: '', name: 'Unresolvable Bird' },
     ]) },
   });
-  app.open(/Needs verification/);
+  app.open(/Needs proof/);
   const rows = [...app.$('nvResults').querySelectorAll('li:not(.nvdropped)')];
   assert.equal(rows.length, 3, 'every tracked species gets a row, resolved or not');
   // A name that resolves to no eBird code still ships, because silently
@@ -10303,7 +10375,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   for (const want of ['Today', 'Day-trip patches', 'Find local patches',
                       'Closest unseen birds', 'Stakeout bird', 'Stake out a hotspot',
                       'Iconic spots near me',
-                      'Producing patches', 'Under-birded patches']) {
+                      'Hot patches', 'Cold patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
@@ -18257,7 +18329,7 @@ test('the pause message only blames eBird when eBird actually refused', () => {
 test('F152: a county board is a different board, not a different region', async () => {
   const app = await boot();
   const A = app.window.__app;
-  app.open(/eBird Rankings/);
+  app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 60));
 
   const sel = app.$('rankScope');

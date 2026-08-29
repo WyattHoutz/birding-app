@@ -21,7 +21,7 @@
   ],
   "docs": {
     "surgeBtn": {
-      "report": "## 🔴 Happening now",
+      "report": "## 🔔 Bird gen — The news birders are talking about",
       "summary": "Detects a crowd forming right now, rather than a bird merely being present.",
       "inputs": [
         "county recent + notable feeds",
@@ -48,7 +48,7 @@
       ]
     },
     "wxBtn": {
-      "report": "## 🌤 Conditions for chasing",
+      "report": "## 🌤 Twitch weather — Is today worth chasing",
       "summary": "Whether today's weather and tide favour going out, for the region's home coordinate.",
       "inputs": [
         "NOAA forecast (US only)",
@@ -116,7 +116,7 @@
       ]
     },
     "rankBtn": {
-      "report": "## 🏆 eBird Rankings",
+      "report": "## 🏆 Top 100 — Your eBird standing",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",
       "inputs": [
         "ebird.org/top100 for the region (public HTML, no API key)"
@@ -133,7 +133,7 @@
       ]
     },
     "patchBtn": {
-      "report": "## 🧭 Where the top 100 actually bird",
+      "report": "## 🧭 Pro patches — Where the top 100 actually bird",
       "summary": "Where the hundred busiest local birders actually go, ranked by how disproportionately they choose a place rather than by how many checklists it holds.",
       "inputs": [
         "data/wa/choice-patches.json, built from 730 harvested county-days (product/lists/{region}/{y}/{m}/{d})",
@@ -153,7 +153,7 @@
       ]
     },
     "refreshBtn": {
-      "report": "## 🌅 Today's rarity reports",
+      "report": "## 🌅 Twitches today — Rarities today",
       "summary": "Every rare-bird checklist filed TODAY in the report's counties, one row per report.",
       "inputs": [
         "/data/obs/{county}/recent/notable for each county",
@@ -172,7 +172,7 @@
       ]
     },
     "activeBtn": {
-      "report": "## 🚨 Last 7-Days rarity reports",
+      "report": "## 🚨 Twitches this week — Rarities this week",
       "summary": "Every notable report in the last 7 days, not just today's.",
       "inputs": [
         "the same county + geo notable feeds, over the full 7-day window"
@@ -186,7 +186,7 @@
       ]
     },
     "abaBtn": {
-      "report": "## 🦅 ABA Code 3+ rarities in",
+      "report": "## 🦅 Mega rarities — ABA Code 3+ alert",
       "summary": "ABA Code 3+ birds — continental-scale rarities, normally 0-3 of them.",
       "inputs": [
         "the ABA Rarities needs alert (SN10489)",
@@ -203,7 +203,7 @@
       ]
     },
     "lastNewBtn": {
-      "report": "## 🔭 Leader Board Ticks",
+      "report": "## 🔭 Fresh ticks — Newest on the board",
       "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
       "inputs": [
         "the region's Top 100 board (each row prints that birder's most recent year tick)"
@@ -234,7 +234,7 @@
       ]
     },
     "destBtn": {
-      "report": "## 🥇 Top destinations",
+      "report": "## 🥇 Today’s patches — Top hotspots to visit",
       "summary": "The places holding the most unseen birds, ranked by how many you would gain.",
       "inputs": [
         "county recent + notable feeds",
@@ -249,7 +249,7 @@
       ]
     },
     "targetsBtn": {
-      "report": "## 📍 Closest spots with unseen birds",
+      "report": "## 📍 Closest unseen birds — Nearest to a bird you need",
       "summary": "The nearest place holding a bird you still need.",
       "inputs": [
         "/data/obs/{county}/recent for each county in the report",
@@ -272,7 +272,7 @@
       ]
     },
     "quickBtn": {
-      "report": "## 🚶 Quick outing",
+      "report": "## 🚶 Find local patches — Local hotspots",
       "summary": "An impulse detour: the richest hotspots a few minutes from where you are.",
       "inputs": [
         "ref/hotspot/geo around the chosen anchor"
@@ -290,7 +290,7 @@
       ]
     },
     "excBtn": {
-      "report": "## 🚗 Top excursions",
+      "report": "## 🚗 Day-trip patches — Top excursion hotspots",
       "summary": "Longer drives that are worth it — the best unseen-bird haul per mile.",
       "inputs": [
         "the same clustered unseen reports as Top destinations"
@@ -303,7 +303,7 @@
       ]
     },
     "hotBtn": {
-      "report": "## 🔥 Hot hotspots — recent surges",
+      "report": "## 🔥 Hot patches — Hotspots with recent surges",
       "summary": "Hotspots getting unusually busy in the last 30 days.",
       "inputs": [
         "a bulk 30-day observation feed for the region"
@@ -318,7 +318,7 @@
       ]
     },
     "coldBtn": {
-      "report": "## 🥶 Cold hotspots — overlooked gems",
+      "report": "## 🥶 Cold patches — Overlooked gems nobody watches",
       "summary": "Good hotspots nobody is watching — where a find is yours to make.",
       "inputs": [
         "hotspot reference data",
@@ -335,7 +335,7 @@
       ]
     },
     "cklBtn": {
-      "report": "## 🦜 Birdiest recent checklists",
+      "report": "## 🦜 Big days — Biggest day lists",
       "summary": "Recent checklists in your counties - ranked by species count (Birdiest), or newest first.",
       "inputs": [
         "checklist feeds for public hotspots in the region"
@@ -350,7 +350,7 @@
       ]
     },
     "convoyBtn": {
-      "report": "## 👥 Birder convoys",
+      "report": "## 👥 Convoys — Groups birding together",
       "summary": "Groups of birders who moved between the same places together — a route you can copy.",
       "inputs": [
         "checklists from the region's feeds, plus the taxonomy for species resolution"
@@ -366,7 +366,7 @@
       ]
     },
     "favResults": {
-      "report": "## 📍 Favorite hotspots",
+      "report": "## 🔖 Favorite patches — Saved hotspots",
       "summary": "Your own pinned hotspots, in your own order, each showing what is worth driving for right now.",
       "inputs": [
         "the region's hotspot reference list, cached on device for a day",
@@ -388,7 +388,7 @@
       ]
     },
     "allUnseenBtn": {
-      "report": "## 📋 All unseen reports in",
+      "report": "## 📋 Near misses — Nearest unseen birds",
       "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"
@@ -450,7 +450,7 @@
       ]
     },
     "easyBtn": {
-      "report": "## 🥚 Easy misses",
+      "report": "## 🥚 Nemesis birds — Common birds you still need",
       "summary": "Common birds you should already have — the highest hit-rate chase list.",
       "inputs": [
         "the accumulated history of daily report snapshots for this region"
@@ -469,7 +469,7 @@
       ]
     },
     "nvResults": {
-      "report": "## 🔍 Watchlist",
+      "report": "## ❓ Needs proof — Birds considered unseen",
       "summary": "Tentative IDs you still owe a confirmation sighting - and the one list that changes what counts as \"seen\".",
       "inputs": [
         "birdlist-needsverification.md - a hand-maintained numbered list of common names",
@@ -487,7 +487,7 @@
       ]
     },
     "migBtn": {
-      "report": "## 🛬 Migration outlook",
+      "report": "## 🛬 On passage — What’s arriving and leaving",
       "summary": "What is arriving or leaving now, from multi-year history for these counties.",
       "inputs": [
         "about two years of weekly historic observations, built up in the background"
@@ -500,7 +500,7 @@
       ]
     },
     "bcBody": {
-      "report": "## 🌙 Nightly migration — BirdCast",
+      "report": "## 🌙 BirdCast — Nightly migration",
       "summary": "Tonight's predicted migration intensity from BirdCast.",
       "inputs": [
         "BirdCast forecast maps, per county"
@@ -513,7 +513,7 @@
       ]
     },
     "todBtn": {
-      "report": "## ⏰ Time-of-day specialists",
+      "report": "## 🌄 Dawn and dusk — Time-of-day specialists",
       "summary": "Birds most likely at the hour you are actually going out.",
       "inputs": [
         "timestamps on the region's recent observations"
@@ -526,7 +526,7 @@
       ]
     },
     "myYearBody": {
-      "report": "## 🐦 * Year List",
+      "report": "## 📅 My year — Your list this year",
       "summary": "Your year list for the region, exactly as the report prints it.",
       "inputs": [
         "your eBird year-list export for this region"

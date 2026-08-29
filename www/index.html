@@ -2078,7 +2078,7 @@
     </section>
 
     <section class="panel">
-      <h2>❓ Needs verification <span class="dim" id="nvRegionLabel"></span></h2>
+      <h2>❓ Needs proof <span class="dim" id="nvRegionLabel"></span></h2>
       <div class="row">
         <input id="nvSearch" type="search" placeholder="Find a species by name…" autocomplete="off" />
         <button id="nvSearchBtn" class="secondary">Search</button>
@@ -2210,7 +2210,7 @@
     </section>
 
     <section class="panel">
-      <h2>🌄 Dawn and dusk birds <span class="dim" id="todRegionLabel"></span></h2>
+      <h2>🌄 Dawn and dusk <span class="dim" id="todRegionLabel"></span></h2>
       <div class="row">
         <button id="todBtn">Sample recent checklists</button>
       </div>
@@ -2219,7 +2219,7 @@
     </section>
 
     <section class="panel">
-      <h2>🥚 Easy misses <span class="dim" id="easyRegionLabel"></span></h2>
+      <h2>🥚 Nemesis birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-easyBtn"></div>
       <div class="row">
         <button id="easyBtn">Find easy misses</button>
@@ -2242,7 +2242,7 @@
     </section>
 
     <section class="panel" id="hotPanel">
-      <h2>🔥 Producing patches <span class="dim" id="hotRegionLabel"></span></h2>
+      <h2>🔥 Hot patches <span class="dim" id="hotRegionLabel"></span></h2>
       <div class="row">
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
@@ -2252,7 +2252,7 @@
     </section>
 
     <section class="panel" id="coldPanel">
-      <h2>🥶 Under-birded patches <span class="dim" id="coldRegionLabel"></span></h2>
+      <h2>🥶 Cold patches <span class="dim" id="coldRegionLabel"></span></h2>
       <div class="row">
         <button id="coldBtn">Scan hotspots near home</button>
       </div>
@@ -2271,7 +2271,7 @@
     </section>
 
     <section class="panel">
-      <h2>🛬 Migration outlook <span class="dim" id="migRegionLabel"></span></h2>
+      <h2>🛬 On passage <span class="dim" id="migRegionLabel"></span></h2>
       <div class="row">
         <button id="migBtn">Build migration history</button>
       </div>
@@ -2704,7 +2704,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.49.1';
+      var APP_VERSION = '1.50.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -11282,7 +11282,7 @@
         }).catch(function (e) { st.textContent = netErr(e); });
       }
 
-      // --- Needs verification (the report's watchlist) ------------------------
+      // --- Needs proof (the report's watchlist) -------------------------------
       // report.py::section_watchlist plus the rule that gives the list teeth:
       // analyze computes `seen = (birdlist ∪ seen_codes) − _unverified_codes`,
       // so a bird awaiting confirmation is deliberately NOT counted as seen and
@@ -21494,11 +21494,11 @@
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
       var MENU_SUB = {
-        surgeBtn:      'Bird news highlights',
-        wxBtn:         'Is today worth it',
+        surgeBtn:      'The news birders are talking about',
+        wxBtn:         'Is today worth chasing',
         dueBackBtn:    'Migrants due back soon',
-        rankBtn:       'Your standing',
-        patchBtn:      'Where experts go birding',
+        rankBtn:       'Your eBird standing',
+        patchBtn:      'Where the top 100 actually bird',
         destBtn:       'Top hotspots to visit',
         excBtn:        'Top excursion hotspots',
         quickBtn:      'Local hotspots',
@@ -21510,17 +21510,17 @@
         activeBtn:     'Rarities this week',
         abaBtn:        'ABA Code 3+ alert',
         lastNewBtn:    'Newest on the board',
-        hotBtn:        'Hotspots above normal',
-        coldBtn:       'Unwatched hotspots',
+        hotBtn:        'Hotspots with recent surges',
+        coldBtn:       'Overlooked gems nobody watches',
         cklBtn:        'Biggest day lists',
         convoyBtn:     'Groups birding together',
         favResults:    'Saved hotspots',
-        allUnseenBtn:  'Every report, nearest first',
-        easyBtn:       'Common unseen birds',
+        allUnseenBtn:  'Nearest unseen birds',
+        easyBtn:       'Common birds you still need',
         nvResults:     'Birds considered unseen',
-        migBtn:        'Arriving and leaving',
+        migBtn:        'What’s arriving and leaving',
         bcBody:        'Nightly migration',
-        todBtn:        'Best hours to look',
+        todBtn:        'Time-of-day specialists',
         myYearBody:    'Your list this year',
         recordBody:    'Overdue megararities',
         settingsPanel: 'Region, text size, data',
@@ -21535,7 +21535,7 @@
       // emits its sections in, and no longer tries to be. See F201 for why
       // that coupling was cut rather than satisfied.
       var MENU = [
-        { at: 'surgeBtn',      label: '🔔 Happening Now', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'surgeBtn',      label: '🔔 Bird gen', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
@@ -21545,16 +21545,16 @@
         { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'targetsBtn',    label: '📍 Closest unseen birds', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'iconicBtn',     label: '⭐ Iconic spots near me', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'hotBtn',        label: '🔥 Producing patches', needs: 'county', group: 'Patches - Go birding' },
-        { at: 'coldBtn',       label: '🥶 Under-birded patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Stakeouts - Birding tools' },
         { at: 'stakeHsBtn',    label: '🏞 Stake out a hotspot', group: 'Stakeouts - Birding tools' },
-        { at: 'wxBtn',         label: '🌤 Conditions for chasing', needs: 'geo', group: 'Stakeouts - Birding tools' },
+        { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Stakeouts - Birding tools' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Stakeouts - Birding tools' },
-        { at: 'migBtn',        label: '🛬 Migration outlook', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'migBtn',        label: '🛬 On passage', needs: 'county', group: 'Stakeouts - Birding tools' },
         { at: 'bcBody',        label: '🌙 BirdCast', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'todBtn',        label: '🌄 Dawn and dusk birds', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Stakeouts - Birding tools' },
         { at: 'recordBody',    label: '🏅 Break a record', group: 'Stakeouts - Birding tools' },
         // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
         // in the F201 reorder and both tiles came back — caught by the contract
@@ -21570,15 +21570,15 @@
         // the first.
         // Both tiles open the SAME section pair and the SAME switch — nothing
         // is duplicated, and the chip still moves between them.
-        { at: 'easyBtn',      label: '🥚 Easy misses', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'easyBtn',      label: '🥚 Nemesis birds', needs: 'county', group: 'Stakeouts - Birding tools' },
         { at: 'allUnseenBtn', label: '📋 Near misses', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'lastNewBtn',    label: '🔭 Leader Board Ticks', needs: 'geo', group: 'Leader Board / Ranking' },
-        { at: 'rankBtn',       label: '🏆 eBird Rankings & Top 100', group: 'Leader Board / Ranking' },
-        { at: 'patchBtn',      label: '🧭 Top 100’s Patches', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'lastNewBtn',    label: '🔭 Fresh ticks', needs: 'geo', group: 'Leader Board / Ranking' },
+        { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
+        { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'myYearBody',    label: '📅 My year', group: 'My Bird List' },
-        { at: 'nvResults',     label: '❓ Needs verification', group: 'My Bird List' },
+        { at: 'nvResults',     label: '❓ Needs proof', group: 'My Bird List' },
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },
       ];
