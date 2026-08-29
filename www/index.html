@@ -1891,7 +1891,7 @@
     </section>
 
     <section class="panel">
-      <h2>🎯 Targets near you <span class="dim" id="targetRegionLabel"></span></h2>
+      <h2>📍 Closest unseen birds <span class="dim" id="targetRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="targetsBtn">Load targets</button>
@@ -2001,7 +2001,7 @@
     </section>
 
     <section class="panel">
-      <h2>🥇 Top patches <span class="dim" id="destRegionLabel"></span></h2>
+      <h2>🥇 Today’s patches <span class="dim" id="destRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
@@ -2066,7 +2066,7 @@
     </section>
 
     <section class="panel">
-      <h2>⭐ Favorite hotspots</h2>
+      <h2>🔖 Favorite patches</h2>
       <div class="row">
         <input id="favSearch" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="favSearchBtn" class="secondary">Search</button>
@@ -2094,7 +2094,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔔 Happening now <span class="dim" id="surgeRegionLabel"></span></h2>
+      <h2>🔔 Bird gen <span class="dim" id="surgeRegionLabel"></span></h2>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
       </div>
@@ -2103,7 +2103,7 @@
     </section>
 
     <section class="panel">
-      <h2>🌤 Conditions for chasing</h2>
+      <h2>🌤 Twitch weather</h2>
       <div class="row">
         <button id="wxBtn">Load conditions</button>
       </div>
@@ -2114,7 +2114,7 @@
     </section>
 
     <section class="panel">
-      <h2>🌙 Nightly migration <span class="dim" id="bcRegionLabel"></span></h2>
+      <h2>🌙 BirdCast <span class="dim" id="bcRegionLabel"></span></h2>
       <div id="bcBody"></div>
     </section>
 
@@ -2134,7 +2134,7 @@
     </section>
 
     <section class="panel">
-      <h2>🏅 My eBird rankings <span class="dim" id="rankRegionLabel"></span></h2>
+      <h2>🏆 Top 100 <span class="dim" id="rankRegionLabel"></span></h2>
       <div class="row">
         <button id="rankBtn">Load rankings</button>
         <label class="vh" for="rankScope">Which leaderboard</label>
@@ -2156,7 +2156,7 @@
          nearly different populations — only a fifth of this hundred sit on that
          board at all. That fact is printed, not implied. -->
     <section class="panel">
-      <h2>🧭 Where the top 100 actually bird</h2>
+      <h2>🧭 Pro patches</h2>
       <div class="row">
         <button id="patchBtn">Load choice patches</button>
       </div>
@@ -2179,9 +2179,9 @@
     </section>
 
     <section class="panel">
-      <h2>🔭 Leader Board Ticks</h2>
+      <h2>🔭 Fresh ticks</h2>
       <div class="row">
-        <button id="lastNewBtn">Load Leader Board Ticks</button>
+        <button id="lastNewBtn">Load fresh ticks</button>
       </div>
       <div id="lastNewStatus" class="status">The newest species each top-100 birder added this year, grouped by bird — several birders sharing one tick means it is reliably gettable right now.</div>
       <div id="lastNewControlsHost"></div>
@@ -2222,7 +2222,7 @@
       <h2>🥚 Nemesis birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-easyBtn"></div>
       <div class="row">
-        <button id="easyBtn">Find easy misses</button>
+        <button id="easyBtn">Find nemesis birds</button>
       </div>
       <div id="easyStatus" class="status"></div>
       <div id="easyResults"></div>
@@ -2262,7 +2262,7 @@
     </section>
 
     <section class="panel">
-      <h2>👥 Birder convoys <span class="dim" id="convoyRegionLabel"></span></h2>
+      <h2>👥 Convoys <span class="dim" id="convoyRegionLabel"></span></h2>
       <div class="row">
         <button id="convoyBtn">Find group routes</button>
       </div>
@@ -2704,7 +2704,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.50.0';
+      var APP_VERSION = '1.51.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7478,22 +7478,26 @@
           h += '<div class="status">Within ' + Math.round(SCOUT_DIST_KM * 0.621371)
             + ' mi of ' + esc(data.label) + ', last ' + SCOUT_BACK_D + ' days. '
             + 'Distances are from there, not from home.</div>';
-          h += '<ul class="obs big xl lanes">' + needs.slice(0, 40).map(function (g) {
-            return '<li><div class="name">' + photoSlot(g.name, g.code)
-              + '<span class="ntext">' + speciesLink(g.name, g.code)
-              + ' <span class="needflag">🔍</span>' + (g.rare ? ' ⭐' : '') + '</span>'
-              + (g.distMi == null ? ''
-                 : '<a class="spdist maplink" data-q="' + esc(distQ(g.lat, g.lng))
-                   + '">' + g.distMi.toFixed(1) + '<small>mi</small></a>')
-              + '</div>'
-              + '<div class="meta"><span class="spcode">' + esc(g.code) + '</span>'
-              + '<span class="spcodesep"> · </span>'
-              + g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
-              + ' · ' + g.reports + ' report' + (g.reports === 1 ? '' : 's') + '</div>'
-              + '<ul class="cklrows"><li><span class="when">Nearest</span>'
-              + '<span class="howmany"></span><span class="where">'
-              + locLink(g.locName || g.locId, g.lat, g.lng, g.locId) + '</span></li></ul></li>';
-          }).join('') + '</ul>';
+          h += SpeciesCards.list('small', needs.slice(0, 40).map(function (g) {
+            return SpeciesCards.small({
+              icon: photoSlot(g.name, g.code),
+              name: speciesLink(g.name, g.code),
+              tags: ' <span class="needflag">🔍</span>' + (g.rare ? ' ⭐' : ''),
+              // The distance is the number you scan down the edge of the list,
+              // so it keeps the right-hand slot. `dist` is deliberately ignored
+              // on a small card (distHtml returns '' for SMALL), so passing it
+              // there would vanish silently — `right` is the small row's edge.
+              right: (g.distMi == null ? ''
+                : '<a class="spdist maplink" data-q="' + esc(distQ(g.lat, g.lng))
+                  + '">' + g.distMi.toFixed(1) + '<small>mi</small></a>'),
+              // The species code is left off on purpose: small is the SCANNING
+              // size and cards-species.js already states the rule — "I dont
+              // want it on the small lists to save space".
+              sub: g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
+                + ' · ' + g.reports + ' report' + (g.reports === 1 ? '' : 's')
+                + ' · nearest ' + locLink(g.locName || g.locId, g.lat, g.lng, g.locId)
+            });
+          }), 'sppl');
         }
 
         // The hotspot list is the thing that was actually asked for, and it is
@@ -10098,7 +10102,17 @@
       }
       // 🔍 = not on the active report's year list; ★ = eBird-flagged rarity.
       // Both trail the species name so the photo icon and name stay adjacent.
-      function needTag(code, name, parentOf) { return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>'; }
+      // The 🔍 marker means "you can still go and get this one", so a taxon
+      // that can never be ticked never earns it — a spuh, a slash or a hybrid
+      // is not unseen, it is unfinished. One rule, BL.countableTaxon, shared
+      // with computeUnseen, scoutGroups and renderChecklistSplit.
+      function needTag(code, name, parentOf) {
+        // Only suppress when there IS a name and it proves non-countable. A
+        // missing name is not evidence of a spuh, and defaulting to "no
+        // marker" there would silently un-flag genuine targets.
+        if (name && !BL.countableTaxon(name)) return '';
+        return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>';
+      }
       // The RARE badge — a rounded square with an R.
       //
       // Deliberately NOT eBird's mark. Theirs is a solid goldenrod tile; this
@@ -13011,6 +13025,17 @@
         var isSeen = seenResolver(), unseen = [], seen = [];
         (codes || []).forEach(function (c) {
           var nm = tax.nameByCode[c] || c;
+          // A SPUH IS NEITHER SEEN NOR UNSEEN — it is not a species, so it is
+          // dropped from BOTH lists rather than filed under one of them.
+          // Owner, 2026-08-29: "spuhs should not be in any unseen lists in the
+          // app", reported against this very block: "new world flycatcher sp."
+          // and "Short-billed/Long-billed Dowitcher" rendered as targets on a
+          // Big days checklist.
+          //
+          // Not pushed into the SEEN list instead, which would be the cheaper
+          // edit: that list is captioned "N more species already seen", and a
+          // slash is neither a species nor something you have seen.
+          if (!BL.countableTaxon(nm)) return;
           // The report set is the authority, but a subspecies has to be able
           // to find its parent or "Dark-eyed Junco (Oregon)" reads as a bird
           // you have never recorded.
@@ -22223,8 +22248,23 @@
         var load = buttons[0];
         var btn = document.createElement('button');
         btn.type = 'button'; btn.className = 'refreshbtn'; btn.textContent = '\u21BB';
+        // F238. DERIVED from the section's tile label, never from the load
+        // button's words. The load button is hidden a few lines below, so its
+        // text has exactly one remaining job: it WAS the accessible name of
+        // this ↻ control. That made it a copy of the section's name that
+        // nothing could see and nothing checked, and it rotted — a screen
+        // reader on 🔭 Fresh ticks announced "Reload Leader Board Ticks",
+        // a section that no longer exists under that name.
+        //
+        // The glyph is dropped: a tile's emoji is navigational for a sighted
+        // reader and noise in an announced name.
+        //
+        // The old text is kept as the fallback for a section that has no tile
+        // (nothing reaches here without one today, but a bare "Reload" would
+        // be a worse announcement than a stale one).
         btn.setAttribute('aria-label',
-          (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
+          sec._label ? 'Reload ' + splitLabel(sec._label).text
+                     : (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
         btn.addEventListener('click', function () { _forceReload = true; load.click(); });
         h2.appendChild(btn);
         row.hidden = true;
@@ -24267,7 +24307,7 @@
         ],
         unseen: [
           { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Near misses', full: 'Every unseen bird being reported now' },
-          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Easy misses',    full: 'Common birds you should already have' }
+          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Nemesis birds', full: 'Common birds you still need' }
         ]
       };
       // The accessible name carries the FULL wording, because splitting a
@@ -25032,6 +25072,12 @@
         // a display artefact without adding this.
         fgWindowWait: fgWindowWait, fgWindowUsed: fgWindowUsed,
         fgWindowCount: fgWindowCount,
+        // F239: the 🔍 marker and the checklist split, exposed so the "a spuh
+        // is never a target" rule can be DRIVEN on every path that decides it
+        // rather than checked on the one that was reported. The first fix for
+        // this landed in computeUnseen alone and three other paths kept
+        // flagging spuhs for five days.
+        needTag: needTag, renderChecklistSplit: renderChecklistSplit,
         // F184: exposed so the classifier can be driven against real page
         // SHAPES rather than argued about. The bug it is chasing is that a
         // verdict was inferred from a negative marker.

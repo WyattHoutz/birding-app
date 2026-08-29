@@ -323,6 +323,93 @@ test('Contents menu matches the report section contract (labels + order)', async
   app.window.close();
 });
 
+test('every section HEADING is the same name as its tile (F238)', async () => {
+  // ⚠️ READ THIS BEFORE "SIMPLIFYING" THIS GUARD TO USE THE DOM. The first
+  // version did, and it COULD NOT FAIL.
+  //
+  // F236 made the report heading derive from the tile. Looking for the same
+  // drift in the app, 10 of 31 `<h2>` literals in index.html disagreed with
+  // their tile and THREE carried a different glyph — 🏆 Top 100 was headed
+  // 🏅 My eBird rankings, 📍 Closest unseen birds was 🎯 Targets near you.
+  //
+  // ⚠️ That was NOT a shipped defect, and the first write-up of it was wrong.
+  // buildNav() calls _setH2(sec, m.label) for every MENU entry at boot, so the
+  // app has always PAINTED the tile's name over whatever the file said. A
+  // guard that read the rendered <h2> was therefore comparing MENU to the
+  // contract by a longer route — something the 'Contents menu matches the
+  // report section contract' test above already does. Mutation testing is the
+  // only reason that was caught: the file heading was reverted to
+  // "Leader Board Ticks", the suite stayed green, and a check that cannot
+  // fail is not a check.
+  //
+  // So this guard pins the SOURCE literal, which is the half that can really
+  // differ. It matters for two reasons that survive _setH2:
+  //   * buildNav() early-returns when there is no <main>, and then the file's
+  //     own text is what renders.
+  //   * dead text is read as true. A maintainer opening index.html on a
+  //     section headed "My eBird rankings" is reading a name the product no
+  //     longer has, and www/sections.html shows what copying it leads to.
+  const strip = (t) => t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const unescape16 = (s) => s.replace(/\\u([0-9a-fA-F]{4})/g,
+    (_, h) => String.fromCharCode(parseInt(h, 16)));
+  const bySectionLabel = new Map(CONTRACT.menu.map((m) => [m.at, m.label]));
+  const bySection = new Map();
+  for (const block of HTML.split(/<section\b/).slice(1)) {
+    const h2 = /<h2[^>]*>([\s\S]*?)<\/h2>/.exec(block);
+    if (!h2) continue;
+    for (const m of block.matchAll(/\bid="([A-Za-z0-9_]+)"/g)) {
+      if (!bySection.has(m[1])) bySection.set(m[1], strip(h2[1]));
+    }
+  }
+  const drift = [];
+  for (const m of CONTRACT.menu) {
+    const heading = bySection.get(m.at);
+    assert.ok(heading !== undefined,
+      `no <section> with an <h2> holds the element "${m.at}" the contract names`);
+    if (heading !== strip(m.label)) {
+      drift.push(`${m.at}: tile "${m.label}" vs <h2> "${heading}"`);
+    }
+  }
+  assert.deepEqual(drift, [],
+    'a section is named one thing on its tile and another in its own <h2>. The '
+    + 'tile label in report-contract.json is the ONE name — retype the <h2> to '
+    + 'match it rather than leaving a second spelling in the file:\n  '
+    + drift.join('\n  '));
+
+  // ...and the MODE-SWITCH CHIPS, which are a fifth place a section is named.
+  // ⚠️ FOUND BY THE OWNER, NOT BY THE FIRST VERSION OF THIS GUARD, which
+  // checked the <h2> and www/sections.html and stopped there. The chip that
+  // jumps from Near misses to 🥚 Nemesis birds still read "Easy misses" — the
+  // name retired in v1.50.0 — and it is a LABEL A READER TAPS, so it was
+  // wrong on screen rather than merely wrong in the file.
+  //
+  // The lesson is the one this whole feature is about: enumerate the places a
+  // fact is written, do not fix the two you happened to look at.
+  const chipDrift = [];
+  let chips = 0;
+  for (const m of HTML.matchAll(
+      /to:\s*'sec-([A-Za-z0-9_]+)',\s*icon:\s*'([^']*)',\s*label:\s*'([^']*)'/g)) {
+    const label = bySectionLabel.get(m[1]);
+    if (label === undefined) continue;      // chips may point at app-only ids
+    chips++;
+    const want = strip(label).replace(/^\S+\s+/, '');
+    const got = unescape16(m[3]);
+    const icon = unescape16(m[2]);
+    if (got !== want) chipDrift.push(`${m[1]}: tile "${want}" vs chip "${got}"`);
+    // The glyph too: a colour-blind reader navigates by it, so a chip wearing
+    // a different one is a different signpost to the same room.
+    if (icon !== [...strip(label)][0]) {
+      chipDrift.push(`${m[1]}: tile glyph "${[...strip(label)][0]}" vs chip glyph "${icon}"`);
+    }
+  }
+  assert.ok(chips >= 2,
+    `the chip scan matched only ${chips} section chips — it has stopped `
+    + 'matching the file it reads (F197)');
+  assert.deepEqual(chipDrift, [],
+    'a mode-switch chip names a section differently from its tile:\n  '
+    + chipDrift.join('\n  '));
+});
+
 test('every section the report maps has a map container, wired to a renderer', async () => {
   const app = await boot();
   // Containers are drawn either by renderMap() directly or by a helper that
@@ -10112,6 +10199,74 @@ test('the section gallery builds real cards, with no network', async () => {
     'every sketched section has stub data (' + sketches + ' sketches, ' + stubs + ' stubs)');
 });
 
+test('the section gallery names each section the same as its tile (F238)', () => {
+  // The gallery is a FOURTH place every section is named, after the tile, the
+  // report heading and index.html's own <h2>. Measured 2026-08-29, the day
+  // after F236 shipped: only 3 of 26 entries agreed with their tile. It still
+  // said "Happening now", "Easy misses", "ABA Code 3+ rarities" — and one
+  // entry used 🔍 for Needs proof, the glyph the icon guard above reserves for
+  // the unseen marker, which is a real hazard for a reader navigating by
+  // shape rather than colour.
+  //
+  // Nothing renamed the gallery because nothing pointed at it. That is F165
+  // exactly: a copy nobody checks is a copy that rots.
+  const SECTIONS = fs.readFileSync(path.join(WWW, 'sections.html'), 'utf8');
+  const byAt = new Map(CONTRACT.menu.map((m) => [m.at, m.label]));
+  const unesc = (s) => s.replace(/\\u([0-9a-fA-F]{4})/g,
+    (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\'/g, "'");
+  const drift = [];
+  let checked = 0;
+  for (const m of SECTIONS.matchAll(
+      /\{\s*at:\s*'([A-Za-z0-9_]+)',\s*label:\s*'((?:[^'\\]|\\.)*)'/g)) {
+    // Gallery-only entries (the trip planner has no menu tile) are its own
+    // business; this guard is about the sections BOTH files name.
+    if (!byAt.has(m[1])) continue;
+    checked++;
+    const label = unesc(m[2]);
+    if (label !== byAt.get(m[1])) {
+      drift.push(`${m[1]}: tile "${byAt.get(m[1])}" vs gallery "${label}"`);
+    }
+  }
+  assert.ok(checked >= 20,
+    `the label scan found only ${checked} gallery entries — it has stopped `
+    + 'matching the file it reads, so it is passing by never looking (F197)');
+  assert.deepEqual(drift, [],
+    'www/sections.html names a section differently from its tile. Re-run the '
+    + 'rename from the contract rather than retyping labels:\n  ' + drift.join('\n  '));
+});
+
+test('the ↻ reload control announces the section it reloads (F238)', async () => {
+  // The load button is hidden, so its text's only surviving job was being the
+  // accessible name of this ↻ — a copy of the section's name that no sighted
+  // reader could see and no test read. Measured 2026-08-29: 🔭 Fresh ticks
+  // announced "Reload Leader Board Ticks" and 🥚 Nemesis birds announced
+  // "Reload easy misses", both names retired in v1.50.0.
+  //
+  // Found by the LAYOUT audit, which prints accessible names as it walks —
+  // not by any of the 642 unit tests, none of which read this attribute.
+  const app = await boot();
+  const strip = (l) => l.replace(/^\S+\s+/, '');
+  const wrong = [];
+  let checked = 0;
+  for (const m of CONTRACT.menu) {
+    const el = app.document.getElementById(m.at);
+    const sec = el && el.closest('section');
+    const btn = sec && sec.querySelector('.refreshbtn');
+    if (!btn) continue;                 // not every section has a loader
+    checked++;
+    const want = 'Reload ' + strip(m.label);
+    const got = btn.getAttribute('aria-label');
+    if (got !== want) wrong.push(`${m.at}: want "${want}", got "${got}"`);
+  }
+  assert.ok(checked >= 15,
+    `only ${checked} sections had a ↻ to check — this guard has stopped `
+    + 'finding them and is passing by never looking (F197)');
+  assert.deepEqual(wrong, [],
+    'the ↻ control is announced with a name that is not its section’s. It is '
+    + 'DERIVED from the tile label — do not type it:\n  ' + wrong.join('\n  '));
+  app.window.close();
+});
+
 test('the card gallery renders every template, with no network', async () => {
   const app = await boot();
   const w = app.window;
@@ -13288,6 +13443,83 @@ test('a scout ranks what you need first, measured from THERE', () => {
   assert.strictEqual(out[0].locName, 'Near', 'the row carries its NEAREST place');
   assert.ok(out[0].distMi < 1, 'distance is measured from the scouted point, not from home');
   assert.strictEqual(out[2].need, false, 'a bird on your list is not marked as needed');
+});
+
+test('a spuh is never a target, on any of the four unseen paths (F239)', async () => {
+  // Owner, 2026-08-29: "spuhs should not be in any unseen lists in the app",
+  // reported against Big days — "new world flycatcher sp.", "peep sp." and
+  // "Short-billed/Long-billed Dowitcher" all rendered with the 🔍 marker.
+  //
+  // ⚠️ THE SECOND TIME THIS WAS ASKED FOR. The rule was already written on
+  // 2026-08-24 ("i dont think spuh should be highlighted as unseen") and the
+  // fix went into computeUnseen ONLY — whose own comment says "Nine call
+  // sites, one rule". It was one rule for the nine sites that went through it
+  // and no rule for the three that decide `need` themselves. That is why this
+  // test walks EVERY path rather than the one that was reported.
+  //
+  // A spuh can never be ticked, so it is not unseen — it is unfinished.
+  const app = await boot();
+  const w = app.window;
+  const NOT_SPECIES = ['peep sp.', 'new world flycatcher sp.',
+    'Short-billed/Long-billed Dowitcher', 'Western x Glaucous-winged Gull (hybrid)'];
+  const REAL = 'Sharp-shinned Hawk';
+
+  // 1. the rule itself
+  for (const n of NOT_SPECIES) {
+    assert.equal(BL.countableTaxon(n), false, `"${n}" is not a countable species`);
+  }
+  assert.equal(BL.countableTaxon(REAL), true, 'and a real species still is');
+
+  // 2. computeUnseen — the path that already had the rule
+  const recs = NOT_SPECIES.map((n, i) => ({ code: 'x' + i, name: n }))
+    .concat([{ code: 'real', name: REAL }]);
+  assert.deepEqual(BL.computeUnseen(recs, {}).map((r) => r.name), [REAL],
+    'computeUnseen still drops every non-species');
+
+  // 3. scoutGroups — decides `need` itself
+  const rows = NOT_SPECIES.map((n, i) => ({
+    speciesCode: 's' + i, comName: n, lat: 46.6, lng: -120.5, locId: 'L' + i, locName: 'P',
+  })).concat([{ speciesCode: 'real', comName: REAL, lat: 46.6, lng: -120.5, locId: 'LR', locName: 'P' }]);
+  const groups = BL.scoutGroups(rows, { seen: {}, at: { lat: 46.6, lng: -120.5 } });
+  assert.deepEqual(groups.filter((g) => g.need).map((g) => g.name), [REAL],
+    'a scouted place offers only birds that can actually be ticked');
+  assert.equal(groups.length, rows.length,
+    'and they are still COUNTED in the place’s species total, just not chased');
+
+  // 4. needTag — the 🔍 marker every card uses
+  const needTag = w.__app && w.__app.needTag;
+  assert.equal(typeof needTag, 'function', 'needTag is reachable to be tested');
+  for (const n of NOT_SPECIES) {
+    assert.equal(needTag('zz' + n.length, n), '',
+      `"${n}" must not be flagged 🔍 — it can never be ticked`);
+  }
+  assert.match(needTag('nevrsn', REAL), /needflag/,
+    'and a genuinely unseen species still IS flagged, or this guard proves nothing');
+
+  // 5. renderChecklistSplit — THE PATH THAT WAS ACTUALLY REPORTED (Big days).
+  // A non-species is dropped from BOTH lists: the seen list is captioned
+  // "N more species already seen", and a slash is neither.
+  const slot = w.document.createElement('div');
+  slot.className = 'cklneed';
+  const codes = ['flycat1', 'calidr', 'dowitc', 'shshaw'];
+  const tax = {
+    nameByCode: {
+      flycat1: 'new world flycatcher sp.', calidr: 'peep sp.',
+      dowitc: 'Short-billed/Long-billed Dowitcher', shshaw: REAL,
+    },
+    parentOf: {},
+  };
+  w.__app.renderChecklistSplit(slot, codes, tax);
+  const text = slot.textContent;
+  for (const n of ['flycatcher sp.', 'peep sp.', 'Long-billed Dowitcher']) {
+    assert.ok(!text.includes(n),
+      `"${n}" is still on a Big days checklist split — it is neither seen nor unseen`);
+  }
+  assert.ok(text.includes(REAL),
+    'the real unseen species is still listed, or the filter has eaten the section');
+  assert.match(text, /1 unseen bird on this list/,
+    'and the COUNT matches the rows: it said "3 unseen birds" over one real target');
+  app.window.close();
 });
 
 test('a dead geocoder tells you the way round it', async () => {

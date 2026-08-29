@@ -4054,7 +4054,17 @@
         ? dist(at.lat, at.lng, lat, lng) : null;
       if (!byCode[code]) {
         byCode[code] = {
-          code: code, name: name, need: !isSeen(code, seen),
+          // A SPUH IS NOT A BIRD YOU CAN GO AND GET. Same rule as
+          // computeUnseen, and it has to be repeated here because this
+          // function decides `need` for itself rather than going through it.
+          // Owner, 2026-08-29: "spuhs should not be in any unseen lists in the
+          // app" — the second time this has been asked for, because the first
+          // fix (2026-08-24) landed in computeUnseen only.
+          //
+          // The row is still COUNTED in the place's species total; it is only
+          // barred from being a target. "peep sp." was really reported there.
+          code: code, name: name,
+          need: !isSeen(code, seen) && countableTaxon(name),
           rare: false, reports: 0, nPlaces: 0, places: {},
           distMi: null, locId: '', locName: '', subId: '', lat: null, lng: null,
           latest: ''
