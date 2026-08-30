@@ -292,6 +292,24 @@ const AUDIT = `<script>
                        liw: cel.closest && cel.closest('li')
                          ? +cel.closest('li').getBoundingClientRect().width.toFixed(1) : -1,
                        lines: rows.length,
+                       // F251. What ELSE is inside the button, and how much of
+                       // the 151px it takes. If the glyph plus padding leaves
+                       // ~63px the label really is constrained; if it does not,
+                       // the audit is measuring a layout the reader never sees.
+                       sibs: (function () {
+                         var out = [], pp = cel.parentElement;
+                         if (!pp) return 'none';
+                         for (var k = 0; k < pp.children.length; k++) {
+                           var ch = pp.children[k];
+                           out.push((ch.className || ch.tagName) + '='
+                             + ch.getBoundingClientRect().width.toFixed(1));
+                         }
+                         var cs2 = getComputedStyle(pp);
+                         out.push('pad=' + cs2.paddingLeft + '/' + cs2.paddingRight);
+                         out.push('disp=' + cs2.display);
+                         out.push('gap=' + (cs2.gap || cs2.columnGap || '-'));
+                         return out.join(' ');
+                       })(),
                        ww: getComputedStyle(cel).wordBreak + '/'
                          + getComputedStyle(cel).overflowWrap });
       }
@@ -624,6 +642,7 @@ server.listen(0, '127.0.0.1', () => {
           + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px'
           + '\n        label ' + it.w + 'px  parent ' + it.pw + 'px  li ' + it.liw
           + 'px  font ' + it.fs + 'px  lines ' + it.lines + '  ' + it.ww
+          + '\n        inside: ' + it.sibs
           + '\n        at ' + it.sel);
       });
       var tiny = r.small || [];
