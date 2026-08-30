@@ -9007,6 +9007,34 @@ test('a painted note does not swallow the waypoint mark', async () => {
 // cards-checklist.js has no escaper by design. So it must reach the DOM as
 // TEXT — this is the check that would fail if someone "simplified" it to
 // innerHTML.
+test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
+  // Owner, 2026-08-29: "very few hotspots are showing up... I frequently get
+  // hotspots to the north and south and west, but not much to the east."
+  //
+  // MEASURED over all 1,312 King + Snohomish hotspots (probe_radius.py): the
+  // 35-45 mi ring adds 15 hotspots, 11 east of the foothills, 7 montane, and
+  // ZERO to the west — the counties' western edge is Puget Sound, so beyond
+  // 35 mi within this scope is nearly all mountains. Active eastern hotspots
+  // go 1 -> 3, and it costs no eBird call because the ceiling is applied
+  // AFTER the fetch.
+  //
+  // Pinned as a FLOOR, not an equality: raising it further is a judgement the
+  // measurement does not forbid (45-55 mi adds 3 hotspots, none active), but
+  // dropping back below 45 would re-hide Big Four Ice Caves and Veazie marsh,
+  // which is the reported defect returning.
+  const m = /var HOT_MIN_FRESH = (\d+), HOTSPOT_MAX_DIST_MI = (\d+)/.exec(HTML);
+  assert.ok(m, 'the hotspot constants are still findable');
+  assert.ok(Number(m[2]) >= 45,
+    'the ceiling reaches at least 45 mi, got ' + m[2]
+      + ' — below this the montane hotspots are cut and the east goes back to one');
+  // The activity bar is the OTHER lever and must not be quietly relaxed to
+  // fake the same result: measured, dropping it from 5 to 1 takes the west
+  // from 20 to 59 active hotspots and drowns the east further.
+  assert.equal(Number(m[1]), 5,
+    'the activity bar is unchanged — widening the radius is the measured fix, '
+      + 'lowering the bar globally makes the imbalance worse');
+});
+
 test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
   // Owner, 2026-08-29: "in the top 100, increase the font size by 50% and show
   // the bird icon for the recently added birds just for the rows, not

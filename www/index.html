@@ -18836,7 +18836,30 @@
       }
 
       // --- P14: hot & cold hotspots (2 API calls, ranked from home) ---
-      var HOT_MIN_FRESH = 5, HOTSPOT_MAX_DIST_MI = 35, COLD_MIN_ALLTIME = 100, COLD_SILENT_CAP_DAYS = 30;
+      // ⚠️ 45, NOT 35, and the 10 miles are measured rather than felt.
+      //
+      // Owner, 2026-08-29: *"I am relatively close to the cascade mountains to
+      // the east of my home… yet very few hotspots are showing up… I
+      // frequently get hotspots to the north and south and west, but not much
+      // to the east."* Measured over all 1,312 King + Snohomish hotspots
+      // (`scripts/probe_radius.py`), the 35–45 mi ring adds **15 hotspots, 11
+      // of them east of the foothills, 7 genuinely montane — and ZERO to the
+      // west.** That asymmetry is structural, not luck: the counties' western
+      // edge is Puget Sound, so beyond 35 mi within this scope is nearly all
+      // mountains. Active eastern hotspots go 1 → 3.
+      //
+      // ⚠️ It costs NOTHING. This ceiling is applied AFTER the fetch, over
+      // county feeds already paid for, so no extra eBird call is made — which
+      // matters when the rate limiter is the bottleneck (F247).
+      //
+      // ⛔ Do not raise it further. 45–55 mi adds 3 hotspots and 55–65 adds 2,
+      // of which **none are active**. Past 45 a bigger number buys drive time
+      // and nothing else.
+      //
+      // ⚠️ AND THIS IS NOT THE WHOLE FIX. The east is ~9% of observations and
+      // the ranking is global, so 3 eastern spots still compete against 20
+      // western ones on one score — see F252.
+      var HOT_MIN_FRESH = 5, HOTSPOT_MAX_DIST_MI = 45, COLD_MIN_ALLTIME = 100, COLD_SILENT_CAP_DAYS = 30;
       var COLD_SKIP_RE = /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
       function hotspotFeeds(codes) {
         // Per-county recent-at-hotspots + hotspot metadata, merged — matches the
