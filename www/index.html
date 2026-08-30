@@ -1771,6 +1771,22 @@
     .rankrow .wholine { display: block; overflow: hidden; text-overflow: ellipsis;
                         font-size: calc(15px * var(--s) * var(--rf));
                         white-space: nowrap; }
+    /* ⚠️ F246. THE NAME IS AN `<a class="extlink">`, AND `.extlink` SETS ITS
+       OWN font-size (line ~1040, `calc(13px * var(--s))`) — so scaling
+       `.wholine` alone left the birder's name at 13px while the row around it
+       grew. Reported from the generated mockup: *"The birder name in the top
+       100 has not increased in the mock up, mabye another style is overriding
+       it."* Exactly so.
+       ⚠️ My PROBE said the name scaled, and the probe was wrong: it built the
+       row with a plain `<a class="splink">` while `renderRankings` emits
+       `extA()`, which carries `.extlink`. A fixture that does not use the
+       real markup measures a page that does not exist — the same class of
+       error as measuring the static file when the rendered DOM was what
+       mattered (F238). The MOCKUP caught it because it renders the real
+       renderer.
+       `margin-top: 8px` from that same rule is also cancelled: inside a
+       block name line it opens a gap that belongs to nothing. */
+    .rankrow .wholine a.extlink { font-size: inherit; margin-top: 0; }
     /* The last bird this birder added. A tap target, so it clears the 40px
        rule by padding rather than by font size — the code itself must stay
        small or it competes with the name it sits under.
@@ -1783,7 +1799,13 @@
        the collapse that scored a PASS in the overflow audit because crushed
        text is not clipped text. */
     .rankrow .ranklast { display: block; margin-top: 2px;
-                         font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700;
+                         /* ⚠️ Scales with --rfc (the column factor), NOT --rf.
+                            The owner asked to enlarge THE ROWS; this badge is a
+                            caption under the name, and at 1.5x it wrapped onto two
+                            lines and drove the row to 140px tall — spending the
+                            vertical budget on the secondary fact while the name it
+                            sits under was the thing being asked for. */
+                         font-size: calc(12px * var(--s) * var(--rfc)); font-weight: 700;
                          color: var(--muted); white-space: normal;
                          overflow-wrap: break-word; word-break: normal; }
     .rankrow .ranklast small { font-weight: 600; opacity: .8;
@@ -2750,7 +2772,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.53.2';
+      var APP_VERSION = '1.54.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7387,6 +7409,20 @@
           if (!recs.length) {
             st.textContent = 'No reports of ' + name + ' in ' + region + ' in the last '
               + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+            // ⚠️ F255. CLEAR THE MAP, or the previous search's pins stay on screen.
+            //
+            // Reported from the device: *"costa hummingbird is not found but there
+            // are three map dots shown."* Exactly so — this branch wrote "no
+            // reports" and returned without touching `spLookupMap`, so the pins
+            // from whatever was searched before survived underneath a message
+            // saying there was nothing. **The one state that must not show stale
+            // data is the state that says there is none**, because a reader has no
+            // way to tell the pins are not the answer.
+            //
+            // `clearMap` is used rather than `renderMap(el, [], home)`: renderMap
+            // keeps the home marker when a home exists, which would leave a lone
+            // pin implying a location for a bird that has none.
+            clearMap($('spLookupMap'));
             // ...and it is exactly when the historical list is worth most. An
             // empty feed used to end the conversation here, which had it
             // backwards: nobody reporting a bird is the situation where knowing
@@ -9588,6 +9624,26 @@
         var z = Math.round(24 * getUiScale());
         var style = /^#[0-9a-fA-F]{6}$/.test(String(tone || '')) ? ' style="--pin:' + tone + '"' : '';
         return L.divIcon({ className: 'leaflet-div-icon', html: '<div class="pinbubble' + (home ? ' home' : '') + '"' + style + '>' + label + '</div>', iconSize: [z, z], iconAnchor: [z / 2, z / 2] });
+      }
+      // F255. Empty a map container completely — no pins, no home marker, and
+      // no live Leaflet instance left holding the element. `renderMap` cannot
+      // do this: given a home it draws the home marker, which on a "not being
+      // seen" result would leave one pin implying a location.
+      function clearMap(el) {
+        if (!el) return;
+        // ⚠️ WRAPPED, because this runs on the "nothing found" path and
+        // `hydrateUnwatched` runs AFTER it. A throw here would abort the
+        // historical list — the one thing that branch exists to offer — so a
+        // cosmetic cleanup would have destroyed the substantive answer.
+        // Caught once already: this broke *"iconic-but-unwatched finds places
+        // the recent feed cannot"* on its first run.
+        try {
+          if (el.id && typeof _leafletMaps === 'object' && _leafletMaps && _leafletMaps[el.id]) {
+            try { _leafletMaps[el.id].remove(); } catch (e) {}
+            delete _leafletMaps[el.id];
+          }
+          el.innerHTML = '';
+        } catch (e) { /* the map is decoration; the list is the answer */ }
       }
       function renderMap(el, points, home, connect, tone) {
         if (!el) return;

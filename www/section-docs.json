@@ -388,7 +388,7 @@
       ]
     },
     "allUnseenBtn": {
-      "report": "## 📋 Near misses — Nearest unseen birds",
+      "report": "## 🎯 Open targets — Unseen birds reported nearby",
       "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"

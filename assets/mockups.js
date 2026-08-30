@@ -96,10 +96,30 @@ const BOOTSTRAP = `
     localStorage.clear();
     localStorage.setItem('ebird_report', 'wa');
     localStorage.setItem('ebird_api_key', 'mockupmockup');
-    localStorage.setItem('ebird_home_lat', '47.75458');
-    localStorage.setItem('ebird_home_lng', '-122.15889');
+    // ⚠️ BLURRED TO 2 dp ON PURPOSE. This repo is PUBLIC, and the home-privacy
+    // guard rejects any 4+ dp coordinate within 2 km of the real anchor — it
+    // caught this file. A mockup needs a plausible home, not a real one.
+    localStorage.setItem('ebird_home_lat', '47.75');
+    localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_display_name', 'Sample Birder');
     localStorage.setItem('ebird_ui_scale', '__SCALE__');
+    // THE BIRD ICON NEEDS THE SPECIES INDEX. rankLastNewHTML resolves a
+    // species NAME to a CODE through the cached region index, and renders no
+    // photo slot when it cannot — correct behaviour that makes the icon
+    // silently absent in an offline mockup. Seeded so the shot shows what the
+    // device shows; found by the owner reading the first render.
+    localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+      t: Date.now(),
+      rows: [{ name: 'Common Ringed Plover', code: 'coripl' },
+             { name: 'Sharp-tailed Sandpiper', code: 'shtsan' },
+             { name: 'Ruff', code: 'ruff' },
+             { name: 'Marbled Godwit', code: 'margod' },
+             { name: 'American Golden-Plover', code: 'amgplo' }]
+    }));
+    // The year list drives the header's "209sp" — absent offline, which read
+    // as a missing feature rather than a missing fixture.
+    localStorage.setItem('ebird_year_names:wa',
+      JSON.stringify(Array.from({ length: 209 }, function (_, i) { return 'bird ' + i; })));
   } catch (e) {}
   // Never settles: loaders start, spinners paint, nothing arrives and nothing
   // errors. Same stub the DOM suite boots against.

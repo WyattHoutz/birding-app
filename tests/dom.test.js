@@ -9007,6 +9007,45 @@ test('a painted note does not swallow the waypoint mark', async () => {
 // cards-checklist.js has no escaper by design. So it must reach the DOM as
 // TEXT — this is the check that would fail if someone "simplified" it to
 // innerHTML.
+test('a "not being seen" lookup clears the map (F255)', async () => {
+  // Device report: "costa hummingbird is not found but there are three map
+  // dots shown." The no-results branch wrote its message and returned without
+  // touching the map, so the PREVIOUS species' pins survived underneath a
+  // sentence saying there was nothing to see.
+  //
+  // ⚠️ The one state that must not show stale data is the state that says
+  // there is none — a reader has no way to tell the pins are not the answer.
+  const app = await boot({
+    storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+    fetch(url) {
+      // First species has reports; the second has none.
+      if (/recent\/annhum/.test(url)) {
+        return [{ speciesCode: 'annhum', comName: "Anna's Hummingbird",
+                  locId: 'L1', locName: 'Park', lat: 47.6, lng: -122.3,
+                  obsDt: '2026-08-28 08:00', subId: 'S1', howMany: 1 }];
+      }
+      if (/recent\/coshum/.test(url)) return [];
+      return [];
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  const map = doc.getElementById('spLookupMap');
+  assert.ok(map, 'the lookup map exists');
+
+  await A.lookupSpecies('annhum', "Anna's Hummingbird");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(map.innerHTML.length > 0,
+    'the first lookup drew something — otherwise this guard proves nothing');
+
+  await A.lookupSpecies('coshum', "Costa's Hummingbird");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.match(doc.getElementById('spLookupStatus').textContent, /No reports/,
+    'the second lookup reports nothing found');
+  assert.equal(map.innerHTML, '',
+    'and the map is EMPTY — no pins survive from the previous species');
+  app.window.close();
+});
+
 test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
   // Owner, 2026-08-29: "very few hotspots are showing up... I frequently get
   // hotspots to the north and south and west, but not much to the east."
@@ -14932,8 +14971,34 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
 
   // The empty feed is the case this matters MOST in, and it used to end the
   // conversation.
-  assert.ok(/it is not being seen right now[\s\S]{0,400}?hydrateUnwatched/.test(HTML),
+  //
+  // ⚠️ WAS `[\s\S]{0,400}?` — a MAGIC CHARACTER DISTANCE, and it broke the
+  // moment a comment was added between the message and the call, with no
+  // behaviour change at all. That is the identical failure this test's own
+  // header warns about ("a magic length silently stops covering the code it
+  // was written to cover the moment the function grows") — written about the
+  // slice above and then repeated ten lines below it.
+  //
+  // Pinned to the BRANCH instead: take the text from the message to the
+  // statement that begins the non-empty path, and require the calls inside.
+  //
+  // ⚠️ THE FIRST VERSION OF THIS FIX COULD NOT FAIL, and only mutation
+  // testing found it. Bounding with `indexOf('\n    }')` ran far past the
+  // branch and swept in the DEFINITIONS of `clearMap` and `hydrateUnwatched`
+  // elsewhere in the file, so deleting either CALL still left the name
+  // present and both mutations passed. A guard bounded by a brace it cannot
+  // match is a guard bounded by nothing.
+  const emptyAt = HTML.indexOf('it is not being seen right now');
+  assert.ok(emptyAt > 0, 'the empty-feed message is still there to anchor on');
+  const endAt = HTML.indexOf('var g = buildAllUnseen', emptyAt);
+  assert.ok(endAt > emptyAt, 'the non-empty path still follows, to bound the branch');
+  const branch = HTML.slice(emptyAt, endAt);
+  assert.match(branch, /hydrateUnwatched\(/,
     'a species with no recent reports still gets no historical list');
+  // And the map must be emptied in that same branch — a "not being seen"
+  // answer showing the previous species' pins is F255.
+  assert.match(branch, /clearMap\(/,
+    'the empty-feed branch leaves the previous search\u2019s pins on the map');
 
   // It must never read as a sighting.
   assert.ok(/historical odds, not sightings/.test(HTML),
