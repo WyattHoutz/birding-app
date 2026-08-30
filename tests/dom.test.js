@@ -10314,6 +10314,92 @@ test('the ↻ reload control announces the section it reloads (F238)', async () 
   app.window.close();
 });
 
+test('Due back soon renders the birds the bundled table says are due (F244)', async () => {
+  // ⚠️ THIS EXISTS BECAUSE A PREVIOUS REPRO OF MINE WAS WRONG. Chasing "due
+  // back soon is broken", I drove the section with a stubbed species index of
+  // TWO species, watched it report "660 species checked" with zero rows, and
+  // came close to calling that a defect. It was my stub: dueBackRows joins the
+  // arrival store to the region species index BY SCIENTIFIC NAME, so an index
+  // holding two birds can only ever produce rows for those two.
+  //
+  // The property that actually matters, and that nothing asserted: when the
+  // bundled table says something is due and the species index contains it, the
+  // section must produce a row. Measured against the SHIPPED bundle — on
+  // 2026-08-29 Washington has 21 species inside the -14..+30 day window,
+  // including White-throated Sparrow (20,627 GBIF records) and Cackling Goose
+  // (103,938). A section that shows nothing then is wrong.
+  const app = await boot();
+  const A = app.window.__app;
+  const bundle = app.window.__ARRIVALS__;
+  assert.ok(bundle && bundle.states && bundle.states.Washington,
+    'the arrivals bundle ships and carries Washington');
+
+  const store = A.seedArrivals({ at: 0, done: {} }, 'Washington');
+  const dated = Object.keys(store.done).filter((k) => store.done[k] && store.done[k].day);
+  assert.ok(dated.length > 200,
+    `the bundle seeded ${dated.length} dated species; it should be ~295`);
+
+  // A species index built FROM the bundle, which is what the real region index
+  // looks like: every dated species present, with its scientific name.
+  const rows = dated.map((sci) => ({
+    code: bundle.states.Washington.a[sci].c, name: sci, sci: sci,
+  }));
+
+  // Late August, the date the device report was filed on.
+  const augList = A.dueBackRows(store, rows, {}, new Date(2026, 7, 29));
+  assert.ok(augList.length > 0,
+    'the bundle holds birds due back in late August, so the section must not '
+    + 'answer with an empty list — this is the device report, and if it fails '
+    + 'here the report was right');
+  // Named, not just counted: a count can be produced by a row shape that
+  // renders as nothing.
+  const names = augList.map((r) => r.sci);
+  assert.ok(names.includes('Zonotrichia albicollis'),
+    'White-throated Sparrow (20,627 records, due 09-08) is missing: '
+    + names.slice(0, 8).join(', '));
+
+  // CONTROL — the window must be capable of EXCLUDING, or this guard proves
+  // only that the list is never empty.
+  //
+  // ⚠️ TWO earlier versions of this control were wrong, and both failures are
+  // worth keeping. The first compared August against March assuming March is
+  // quieter; it is not (34 rows against 31), so the control failed while the
+  // thing under test worked. The second asserted the row `days` all sat inside
+  // `A.DUEBACK_AHEAD_D` — but that READS THE CONSTANT IT IS CHECKING, so
+  // widening the window to 400 days moved the goalposts with it and the
+  // mutation passed. A guard must not be scored against a number the mutation
+  // can edit.
+  //
+  // Pinned instead to a property with meaning of its own: a six-week window
+  // over a year's worth of arrival dates must select a small MINORITY of the
+  // table. MEASURED against the shipped bundle on 2026-08-29, rather than
+  // guessed — widening DUEBACK_AHEAD_D moves it like this:
+  //
+  //     30d (shipped)  31 rows  10.5%      90d   59 rows  20.0%
+  //     45d            39 rows  13.2%     120d   92 rows  31.2%
+  //     60d            46 rows  15.6%     400d  119 rows  40.3%
+  //
+  // A bar at 15% therefore catches an accidental DOUBLING of the window and
+  // everything past it, while leaving 4.5 points of headroom for the table
+  // itself to drift when it is re-harvested. ⚠️ It does NOT catch a change
+  // smaller than 2× — that is the stated sensitivity of this control, not an
+  // oversight.
+  const kept = augList.length / dated.length;
+  assert.ok(kept < 0.15,
+    `the window kept ${augList.length} of ${dated.length} dated species `
+    + `(${Math.round(100 * kept)}%) — a six-week window over a year of `
+    + 'arrivals cannot legitimately select that many');
+
+  // Every row carries what the card needs to render, so "rows exist" cannot be
+  // true while the section still shows blanks.
+  augList.forEach((r) => {
+    assert.ok(r.code, 'a row without a species code cannot render a card');
+    assert.ok(r.day, 'a row without an arrival day has nothing to say');
+    assert.equal(typeof r.days, 'number', 'and needs a countdown');
+  });
+  app.window.close();
+});
+
 test('the card gallery renders every template, with no network', async () => {
   const app = await boot();
   const w = app.window;
