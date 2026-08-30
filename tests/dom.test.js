@@ -9046,6 +9046,59 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
   app.window.close();
 });
 
+test('the compressed cache round-trips, and small values stay raw (F247)', async () => {
+  // The gzip interface replaced three hand-wired callers, one of which stored
+  // the string "[object Promise]" and read it back through a Promise — so
+  // Hot/Cold patches had NEVER ONCE served from cache. Nothing guarded it.
+  const app = await boot({ storage: { ebird_report: 'wa' } });
+  const A = app.window.__app, LS = app.window.localStorage;
+
+  // 1. ROUND TRIP. The value that comes back must equal the value put in —
+  //    the failure above was a write and a read that were each broken, and
+  //    cancelled into silence.
+  const big = { rows: Array.from({ length: 80 }, (_, i) => (
+    ['spec' + i, 'Common Name ' + i, 'L' + i, 'Some Park ' + i, 47.6, -122.3])) };
+  const key = 'bc_test:round';
+  assert.equal(await A.zcPut(key, big), true, 'the write reported success');
+  assert.deepEqual(await A.zcGet(key), big, 'and the value round-trips intact');
+
+  // 2. THE STORED FORM IS TAGGED, so a build without compression can read a
+  //    value written by one with it and vice versa.
+  //    ⚠️ NOT asserting `z:` here: jsdom has **no `CompressionStream`**
+  //    (measured), so `packJson` takes its documented fallback and stores raw.
+  //    Demanding `z:` would fail for a working app — a guard that fails on
+  //    the environment rather than the code. The tag must be one of the two
+  //    known forms, and the ROUND TRIP above is the property that matters.
+  assert.match(LS.getItem(key), /^[zj]:/,
+    'the payload carries a format tag, so an older build can still read it');
+
+  // 3. ⚠️ SMALL VALUES STAY RAW, AND THE FLOOR IS MEASURED. gzip's header plus
+  //    base64's extra third makes an 86-byte payload 128 bytes (0.67x);
+  //    break-even is ~170 bytes, so 256 has margin. Compressing a settings
+  //    flag would COST space. Pinned in source because the environment cannot
+  //    demonstrate it.
+  assert.match(HTML, /var ZC_MIN_BYTES = 256;/,
+    'the small-value floor is still declared');
+  assert.match(HTML, /if \(json\.length < ZC_MIN_BYTES\) return Promise\.resolve\(PACK_RAW \+ json\);/,
+    'and packJson still short-circuits below it — without this a tiny value '
+      + 'is stored LARGER than it started');
+  const small = { on: true };
+  await A.zcPut('bc_test:small', small);
+  assert.match(LS.getItem('bc_test:small'), /^j:/,
+    'a tiny value is stored RAW — compressing it would make it bigger');
+  assert.deepEqual(await A.zcGet('bc_test:small'), small,
+    'and a raw-stored value reads back too');
+
+  // 4. ⚠️ A FALSY RESULT IS NOT CACHED AS AN ANSWER. F36: caching one null
+  //    disabled a whole section for 30 days. A poisoned entry must read as a
+  //    miss so the store heals rather than staying broken.
+  LS.setItem('bc_test:poison', 'j:null');
+  assert.equal(await A.zcGet('bc_test:poison'), null, 'a stored null reads as a miss');
+  assert.equal(LS.getItem('bc_test:poison'), null,
+    'and is REMOVED, so the next write can heal it');
+  app.window.close();
+});
+
 test('Nemesis birds sorts by date and distance without refetching (F246)', async () => {
   // Owner: "after the data loads, it needs the toggle for sorting by date or
   // distance used in other reports."

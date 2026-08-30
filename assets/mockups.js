@@ -253,7 +253,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 2500));
 
   const shots = ONLY.length ? SHOTS.filter((s) => ONLY.includes(s.id)) : SHOTS;
-  const made = [];
+  const made = [], blank = [];
   for (const shot of shots) {
     // Everything runs INSIDE the iframe, which is the box with the real width.
     // ⚠️ Do NOT declare a local named `document` here: `var` hoists, so the
@@ -290,6 +290,40 @@ async function main() {
       captureBeyondViewport: true,
     }, sessionId);
     const name = shot.id + '-' + WIDTH + 'px.png';
+    // ⚠️ F248. A GENERATOR THAT SILENTLY EMITS A BLANK PAGE IS WORSE THAN
+    // NONE — it is the F197 failure in picture form: a check that reports
+    // success by never looking. A shot can go blank without any error at all
+    // (a prep that no longer matches the DOM, a section that renders empty
+    // offline), and a folder of white rectangles would be trusted exactly as
+    // much as a folder of real ones.
+    //
+    // Measured on the surface, not on the file: PNG size is a poor proxy —
+    // an all-white 393x1400 image compresses to a few KB, but so does a
+    // legitimately sparse screen. What distinguishes them is CONTENT, so the
+    // page is asked how much it actually painted.
+    const probe = await c.send('Runtime.evaluate', {
+      expression: `(function () {
+        var d = document.getElementById('f').contentDocument;
+        if (!d || !d.body) return JSON.stringify({ text: 0, nodes: 0 });
+        return JSON.stringify({
+          text: (d.body.innerText || '').replace(/\\s+/g, ' ').trim().length,
+          nodes: d.body.querySelectorAll('*').length
+        });
+      })()`, returnByValue: true }, sessionId);
+    const seen = JSON.parse(probe.result.value || '{}');
+    // 200 characters and 100 elements is far below any real surface here (the
+    // menu paints ~1,800 characters) and far above an empty page, so it
+    // separates the two without pinning either.
+    if ((seen.text || 0) < 200 || (seen.nodes || 0) < 100) {
+      console.error('  !! ' + shot.id + ': BLANK — only ' + (seen.text || 0)
+        + ' chars and ' + (seen.nodes || 0) + ' elements painted. The shot was '
+        + 'NOT written; fix the prep rather than shipping a white rectangle.'
+        + ' (A previous good PNG is left in place — the run exits non-zero and'
+        + ' says so, because destroying good output to record a failure would'
+        + ' lose both.)');
+      blank.push(shot.id);
+      continue;
+    }
     fs.writeFileSync(path.join(OUT, name), Buffer.from(png.data, 'base64'));
     made.push({ name, title: shot.title, h });
     console.log('  ' + name.padEnd(28) + WIDTH + 'x' + h);
@@ -310,6 +344,10 @@ async function main() {
 
   c.close(); kill(); server.close();
   console.log(made.length + ' mockup(s) -> ' + OUT);
+  if (blank.length) {
+    console.error('BLANK SHOTS: ' + blank.join(', ')
+      + ' — a mockup folder you cannot trust is worse than none.');
+  }
   process.exit(made.length === shots.length ? 0 : 1);
 }
 
