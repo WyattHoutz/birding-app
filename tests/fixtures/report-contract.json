@@ -182,11 +182,11 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "📋 Near misses",
-      "report": "## 📋 Near misses — Nearest unseen birds",
+      "label": "🎯 Open targets",
+      "report": "## 🎯 Open targets — Unseen birds reported nearby",
       "map": null,
-      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233: the TILE is named for the errand (\"Near misses\", closest unseen birds) while the REPORT heading keeps the name the Markdown has always used, so the two are allowed to differ here",
-      "sub": "Nearest unseen birds"
+      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233 let the TILE and the REPORT heading differ here; F236 then made the heading derived (label + sub), so they no longer do. Renamed from \"Near misses\" at the owner's request 2026-08-29 - a near miss is a bird you ALMOST got, and these are birds being reported that you have not gone for at all",
+      "sub": "Unseen birds reported nearby"
     },
     {
       "at": "easyBtn",

@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test --test-timeout=1800000 tests/*.test.js",
+    "mockups": "node assets/mockups.js",
     "test:layout": "node assets/audit-overflow.js 320 1.75 easyread && node assets/audit-overflow.js 320 1.75 && node assets/audit-overflow.js 375 1.75 && node assets/audit-overflow.js 393 1 && node assets/audit-overflow.js 402 1 && node assets/audit-overflow.js 430 1"
   },
   "keywords": [],
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "ws": "^8.21.3"
   }
 }

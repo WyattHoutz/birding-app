@@ -201,14 +201,47 @@ jobs:
           } >> .release-notes
           echo "Title: $(cat .release-title)"
 
+      - name: Generate the UI mockups
+        if: steps.check.outputs.exists == 'false'
+        # F248, owner: "can we generate them as part of the release? It would be
+        # helpful to have recently generated mockups to iterate ui bugs faster."
+        #
+        # Attached to the RELEASE, not committed. Measured: one run is 0.81 MB
+        # and git keeps every version forever, so a release a day is ~294 MB/yr
+        # against the 1 GB soft limit — the identical trap backlog item 1
+        # documents, where committed map images reached 330 MB and retention
+        # could only tidy the checkout, never the history. A release asset is
+        # viewable on github.com and costs the repo nothing, which is already
+        # why the .ipa is delivered this way.
+        #
+        # ⚠️ NEVER FAILS THE RELEASE. A screenshot is documentation; a build
+        # that ships a working .ipa must not be blocked because Chrome did not
+        # start on a runner. It reports loudly and carries on.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          npm ci --no-audit --no-fund
+          if node assets/mockups.js --width 393; then
+            zip -r BirdChaser-mockups.zip mockups
+            echo "MOCKUPS=1" >> "$GITHUB_ENV"
+            ls -lh BirdChaser-mockups.zip
+          else
+            echo "::warning::mockup generation failed - the release continues without it"
+          fi
+
       - name: Create the Release
         if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The mockups ride along only if they were produced. `gh release
+          # create` fails on a missing file, and a documentation asset must
+          # never be able to fail a release that has a working .ipa.
+          EXTRA=""
+          [ "${MOCKUPS:-}" = "1" ] && EXTRA="BirdChaser-mockups.zip"
           gh release create "${{ steps.ver.outputs.tag }}" \
-            BirdChaser-unsigned.ipa \
+            BirdChaser-unsigned.ipa $EXTRA \
             --target "$GITHUB_SHA" \
             --title "$(cat .release-title)" \
             --notes-file .release-notes

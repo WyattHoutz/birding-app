@@ -4284,7 +4284,7 @@ test('no menu tile is named the same thing as another tile, label or sub-line', 
   app.window.close();
 });
 
-test('Near misses and Easy misses are two tiles AND two modes of one switch', async () => {
+test('Nemesis birds and Open targets are two tiles AND two modes of one switch', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
   // F233. "id like to split all unseen reports back into two separate menu
@@ -4295,12 +4295,21 @@ test('Near misses and Easy misses are two tiles AND two modes of one switch', as
   // unseen reports answer the same question. True of the data, false of the
   // errand — and a chip only offers the second question to someone who already
   // went looking for the first. Both are tiles again.
+  //
+  // The names are read from the CONTRACT, not typed here. This test was
+  // repointed by hand once already (Near misses -> Open targets) and that is
+  // exactly the enumeration failure F238/F242 keep recording: a name written
+  // in a second place drifts. Deriving it means the next rename touches the
+  // contract only.
+  const want = Object.fromEntries(CONTRACT.menu
+    .filter((m) => m.at === 'allUnseenBtn' || m.at === 'easyBtn')
+    .map((m) => [m.at, m.label.replace(/^\S+\s+/, '')]));
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label') || '');
-  assert.ok(labels.some((l) => /Near misses/.test(l)),
-    'Near misses has a tile of its own');
-  assert.ok(labels.some((l) => /Nemesis birds/.test(l)),
-    'Nemesis birds (was Easy misses) has a tile of its own — it was hidden behind enabled:false');
+  for (const [at, name] of Object.entries(want)) {
+    assert.ok(labels.some((l) => l.includes(name)),
+      at + ' has a tile of its own, named "' + name + '"');
+  }
   assert.ok(!labels.some((l) => /Being reported/.test(l)),
     'and nothing is still called "Being reported"');
 
@@ -4311,10 +4320,20 @@ test('Near misses and Easy misses are two tiles AND two modes of one switch', as
     assert.ok(row, id + ' still carries the unseen mode switch');
     const chips = [...row.querySelectorAll('.modebtn')].map((b) => b.textContent.trim());
     assert.equal(chips.length, 2, id + ' offers both modes');
-    assert.ok(chips.some((c) => /Near misses/.test(c)),
-      'the chip is renamed too, so the tile and the chip agree: ' + chips.join(' | '));
+    for (const name of Object.values(want)) {
+      assert.ok(chips.some((c) => c.includes(name)),
+        'the chip agrees with the tile, so a rename cannot land in only one: '
+        + chips.join(' | '));
+    }
     assert.ok(!chips.some((c) => /Being reported/.test(c)),
       'the old chip wording is gone: ' + chips.join(' | '));
+    // Owner, 2026-08-29: "id like to switch the toggle ordwr so nemesis bird
+    // os first and near miss is second." Order is the ask, so order is what
+    // is guarded — a set comparison above would pass either way round.
+    assert.ok(chips[0].includes(want.easyBtn),
+      'Nemesis birds is the FIRST chip: ' + chips.join(' | '));
+    assert.ok(chips[1].includes(want.allUnseenBtn),
+      'Open targets is the SECOND chip: ' + chips.join(' | '));
   }
   app.window.close();
 });
@@ -8988,6 +9007,135 @@ test('a painted note does not swallow the waypoint mark', async () => {
 // cards-checklist.js has no escaper by design. So it must reach the DOM as
 // TEXT — this is the check that would fail if someone "simplified" it to
 // innerHTML.
+test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
+  // Owner, 2026-08-29: "in the top 100, increase the font size by 50% and show
+  // the bird icon for the recently added birds just for the rows, not
+  // everythings."
+  const app = await boot({ storage: { ebird_report: 'wa' } });
+  const A = app.window.__app, doc = app.window.document;
+  // ⚠️ The icon only exists when the species NAME resolves to a CODE, and the
+  // code comes from the cached region species index. Without seeding it,
+  // `rankLastNewHTML` renders the name unlinked and with no photo slot — which
+  // is correct behaviour, and would make this guard pass while asserting
+  // nothing. Found by rendering the section: the first mockup showed no icons
+  // for exactly this reason.
+  const key = A.speciesCacheKey ? A.speciesCacheKey(A.getObsRegion())
+    : 'bc_spidx:US-WA';
+  app.window.localStorage.setItem(key, JSON.stringify({
+    t: Date.now(),
+    rows: [{ name: 'Common Ringed Plover', code: 'coripl' },
+           { name: 'American Golden-Plover', code: 'amgplo' }],
+  }));
+  if (A.resetRankCodeIndex) A.resetRankCodeIndex();
+  A.renderRankings({
+    rows: [{ rank: 1, name: 'sally frandsen', species: 1204, checklists: 980,
+             recent: 'Common Ringed Plover (Aug. 28, 2026)' },
+           { rank: 182, name: 'Birder Wyatt', species: 209, checklists: 331,
+             recent: 'American Golden-Plover (Aug. 29, 2026)' }],
+    me: { rank: 182, name: 'Birder Wyatt', species: 209, checklists: 331 },
+  }, 'US-WA', 'https://ebird.org/top100', 'Birder Wyatt');
+
+  const rows = [...doc.querySelectorAll('#rankResults .rankrow:not(.rankhdr)')];
+  assert.ok(rows.length >= 2, 'the board rendered');
+
+  // 1. THE ICON WIRING. A photoSlot with no hydrator is not a slow image, it
+  //    is no image — the trip planner and "Break a record" both shipped a
+  //    screen of grey boxes exactly that way. Asserted against the SOURCE
+  //    because the slot only renders once a species NAME resolves to a CODE
+  //    via the cached region index, and a DOM assertion that silently goes
+  //    vacuous when the index is absent is the "check that cannot fail" this
+  //    project keeps recording. Both halves must be present: the slot, and the
+  //    hydrator that fills it.
+  assert.match(HTML, /var pic = code \? photoSlot\(p\.species, code\)/,
+    'the newest tick builds a bird icon slot from the resolved code');
+  assert.match(HTML, /out\.appendChild\(tbl\);\s*(?:\/\/[^\n]*\n\s*)*hydratePhotos\(tbl\);/,
+    'renderRankings hydrates the board — an unqueued slot renders grey forever');
+
+  // 2. THE SCALE. ⚠️ NOT via getComputedStyle: jsdom has no layout engine and
+  //    resolves `calc(15px * var(--s) * var(--rf))` to NaN, so a computed-style
+  //    assertion here silently compares NaN and can never fail. The real
+  //    geometry is measured by the CDP probe at 393px; what this pins is the
+  //    RULE — the rows carry a scale, the header resets it, and the scale
+  //    reaches the name itself.
+  assert.match(HTML, /\.ranktable \{ --rf: 1\.5; --rfc: [\d.]+; \}/,
+    'the rows declare a scale');
+  assert.match(HTML, /\.rankrow\.rankhdr \{ --rf: 1; --rfc: 1; \}/,
+    'the header resets it — the ask was "just for the rows, not everythings"');
+  // ⚠️ `.wholine` is a GLOBAL class shared with two other sections, fixed at
+  //    14px, and it overrode the scaled `.who` so the birder's NAME — the one
+  //    thing the row is about — stayed 14px while everything around it grew.
+  //    Measured at 393px before the fix: .who 22.5px, .wholine 14px.
+  const wholine = /\.rankrow \.wholine \{[^}]*\}/.exec(HTML);
+  assert.ok(wholine, 'the row name has a scoped rule');
+  assert.match(wholine[0], /font-size:[^;]*var\(--rf\)/,
+    'the NAME scales too, not only the cell around it');
+  for (const cls of ['.rk', '.who', '.n', '.mv']) {
+    const rule = new RegExp('\\.rankrow \\' + cls + ' \\{[^}]*\\}').exec(HTML);
+    assert.ok(rule && /var\(--rf\)/.test(rule[0]),
+      cls + ' scales with the row');
+  }
+  app.window.close();
+});
+
+test('the comments come BEFORE the Open checklist link (F246)', async () => {
+  // Owner, from the device: "the comments are showing! ... move the open
+  // checklist link after the comments."
+  //
+  // ⚠️ cards-checklist.js has CLAIMED this since F230 — "the checklist link is
+  // its OWN line, last, after the comments" — and it was false, because the
+  // link is built by the card while the comments are appended by the hydration
+  // afterwards. A stylesheet comment cannot decide an order that JavaScript
+  // append order settles somewhere else. This asserts the RENDERED order.
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        return { obs: [{ speciesCode: 'larspa', comments: 'one still in breeding plumage' }],
+                 comments: 'Lighthouse area, partly cloudy' };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  A.setRarityNotes(true);
+  // Built through the app's OWN card template and its OWN link builder, so
+  // this cannot pass against markup the test invented. This is the shape
+  // Twitches today renders: a species card carrying the ev-* hooks, with the
+  // checklist link in its `below` slot.
+  const host = doc.createElement('ul');
+  host.innerHTML = app.window.SpeciesCards.medium({
+    name: 'Lark Sparrow',
+    data: { 'ev-sub': 'S1', 'ev-code': 'larspa', 'ev-place': 'Park', 'ev-when': 'Aug 1 8:00 AM' },
+    below: A.openChecklistLink('S1'),
+  });
+  doc.body.appendChild(host);
+  await A.hydrateChecklistEvidence(host);
+  await new Promise((r) => setTimeout(r, 900));
+
+  const row = host.querySelector('[data-ev-sub]');
+  assert.ok(row, 'a card rendered');
+  const note = row.querySelector('.evnoterow');
+  const link = row.querySelector('.cklopenrow');
+  assert.ok(note, 'the comments rendered');
+  assert.ok(link, 'the Open checklist link rendered');
+  // DOCUMENT_POSITION_FOLLOWING = the link comes after the note.
+  assert.ok(note.compareDocumentPosition(link) & 4,
+    'the Open checklist link follows the comments, it does not head them');
+  assert.ok(note.querySelectorAll('.evnotehd').length >= 2,
+    'both comments are labelled — species and checklist');
+
+  // And each label is separated from what is above it. The ask was "add a
+  // newline before species comment and before checklist comment", so the
+  // property is a real gap — pinned as "clearly more than the 3px it used to
+  // be", not to a spelling of 14px that a later tweak would break.
+  const rule = /\.evnotehd \{([\s\S]*?)\}/.exec(CARDS_CHECKLIST);
+  assert.ok(rule, 'the label rule is still findable');
+  const top = /margin:\s*(\d+)px/.exec(rule[1]);
+  assert.ok(top, 'the label declares a top margin');
+  assert.ok(Number(top[1]) >= 10,
+    'the label is separated from what precedes it by about a line, not ' + top[1] + 'px');
+  app.window.close();
+});
+
 test('an observer note is inserted as text, never as markup', async () => {
   const EVIL = '<img src=x onerror="window.__pwned=1">after';
   const app = await boot({

@@ -177,8 +177,14 @@
        birder's words legible AS a birder's words — reported from the device,
        where the note landed as a bare paragraph and read as the app's own
        prose. Dimmed and small: it is a caption, not a heading competing with
-       the species name. */
-    '.evnotehd { display: block; text-indent: 0; margin: 3px 0 1px;',
+       the species name.
+       F246: the top margin was 3px, so a label sat flush against whatever was
+       above it — the link, or the previous quotation — and the two comments
+       read as one run of text. Owner: *"add a newline before species comment
+       and before checklist comment"*. 14px is a line of this 13px/1.4 row
+       (18.2px) less the 4px the row already carries beneath it, so it reads as
+       one blank line rather than one and a bit. */
+    '.evnotehd { display: block; text-indent: 0; margin: 14px 0 1px;',
     '  font-size: calc(11px * var(--s)); font-weight: 700; letter-spacing: .02em;',
     '  color: var(--dim); white-space: normal; }',
     '.evnotebq { display: block; text-indent: 0; margin: 0; padding-left: 10px;',

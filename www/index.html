@@ -1737,13 +1737,39 @@
     .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
     .rankcap { font-size: calc(13px * var(--s)); font-weight: 700; margin: 18px 0 2px; }
     .ranktable { font-variant-numeric: tabular-nums; }
-    .rankrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 46px 52px; gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
-    .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s)); font-weight: 700; text-align: right; }
-    .rankrow .who { font-size: calc(15px * var(--s)); min-width: 0; }
+    /* F246, owner 2026-08-29: "in the top 100, increase the font size by 50%
+       ... just for the rows, not everythings". ONE multiplier drives the row,
+       because a +50% on the type alone would have overflowed the three FIXED
+       columns that hold the numbers — 30px cannot hold "100" at 18px. The
+       column widths scale with it. The header row resets it to 1: it is a
+       caption for the columns, not one of the rows the ask names. */
+    .ranktable { --rf: 1.5; --rfc: 1.15; }
+    .rankrow.rankhdr { --rf: 1; --rfc: 1; }
+    /* ⚠️ THE COLUMNS SCALE LESS THAN THE TYPE, and that is measured.
+       Scaling both by 1.5 gave the three number columns 216px of a 393px
+       screen and left the name 131px — at 22.5px EVERY birder's name
+       ellipsed, including a twelve-character one. The numbers do not need the same
+       headroom the type does: they are tabular digits and the old widths
+       carried slack for a text setting, not for this. At 1.15 the fixed
+       columns take 165px and the name gets 182px, which is the difference
+       between a leaderboard and a column of "…". */
+    .rankrow { display: grid;
+               grid-template-columns: calc(30px * var(--rfc)) minmax(0, 1fr) calc(46px * var(--rfc)) calc(52px * var(--rfc));
+               gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
+    .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700; text-align: right; }
+    .rankrow .who { font-size: calc(15px * var(--s) * var(--rf)); min-width: 0; }
     /* The NAME keeps the single clipped line it always had; the newest-bird
        badge gets its own line beneath it. Putting the badge inside the same
-       nowrap/ellipsis cell simply hid it behind the "…". */
+       nowrap/ellipsis cell simply hid it behind the "…".
+       ⚠️ F246: the font-size is re-declared HERE and must be. `.wholine` is a
+       GLOBAL class (line ~585, `calc(14px * var(--s))`) shared with the "Who
+       added it" rows in two other sections, so it overrode the scaled `.who`
+       and the birder's NAME — the one thing this row is about — stayed 14px
+       while everything around it grew. Measured at 393px: `.who` computed
+       22.5px and `.wholine` 14px. Scoped to `.rankrow` so the two features
+       that share the class are untouched. */
     .rankrow .wholine { display: block; overflow: hidden; text-overflow: ellipsis;
+                        font-size: calc(15px * var(--s) * var(--rf));
                         white-space: nowrap; }
     /* The last bird this birder added. A tap target, so it clears the 40px
        rule by padding rather than by font size — the code itself must stay
@@ -1757,21 +1783,32 @@
        the collapse that scored a PASS in the overflow audit because crushed
        text is not clipped text. */
     .rankrow .ranklast { display: block; margin-top: 2px;
-                         font-size: calc(12px * var(--s)); font-weight: 700;
+                         font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700;
                          color: var(--muted); white-space: normal;
                          overflow-wrap: break-word; word-break: normal; }
     .rankrow .ranklast small { font-weight: 600; opacity: .8;
                                white-space: nowrap; }
     .rankrow .ranklast a { color: var(--accent); text-decoration: none;
                            padding: 4px 2px; }
-    .rankrow .n { text-align: right; font-size: calc(14px * var(--s)); }
+    /* F246. The bird icon on the newest tick. `.thumb` is `float: left` at
+       46px by default, which inside this inline badge would drop the name to
+       a second line and dwarf it — so it is re-declared inline-block at a
+       size derived from the SAME --rf the row's type uses, and it keeps
+       scaling with --s so it cannot clip at a large text setting (the fixed-
+       box rule the CSS-wide guard enforces). */
+    .rankrow .ranklast .thumb { float: none; display: inline-block;
+                                vertical-align: -0.28em; margin: 0 6px 0 0;
+                                width: calc(20px * var(--s) * var(--rf));
+                                height: calc(20px * var(--s) * var(--rf));
+                                border-radius: 5px; }
+    .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
        the number. NOT red/green — the arrow already carries direction, and
        that pair is the one this reader cannot separate, so Okabe-Ito blue and
        vermillion. The period rides as a <small> so "▲5 7d" reads as one token
        rather than two columns. */
-    .rankrow .mv { font-size: calc(12px * var(--s)); font-weight: 700; text-align: right;
+    .rankrow .mv { font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700; text-align: right;
                    white-space: nowrap; color: var(--muted); }
     /* F128. The county RBA tag is an <a> with data-href and no href, so it
        matched no link pseudo-class and rendered as body text - reported as
@@ -1902,7 +1939,7 @@
     </section>
 
     <section class="panel">
-      <h2>📋 Near misses <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <h2>🎯 Open targets <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-allUnseenBtn"></div>
       <!-- F241. Owner: "add the control for find/here/home to the near
            misses and common misses." Same switch, same three chips, as
@@ -2228,7 +2265,7 @@
     <section class="panel">
       <h2>🥚 Nemesis birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="unseen" data-current="sec-easyBtn"></div>
-      <!-- F241, same reasoning as Near misses above. -->
+      <!-- F241, same reasoning as Open targets above. -->
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="easyBtn">Find nemesis birds</button>
@@ -4930,7 +4967,26 @@
           });
       }
       // Queue an eBird call on the rate-limited background lane.
+      //
+      // ⚠️ F247. THE COST REPORT WAS BLIND TO THIS WHOLE LANE, and it is the
+      // expensive one.
+      //
+      // `costNote()` is called by the foreground `ebird()` and was never called
+      // here, so every background call was invisible to the per-section budget.
+      // Measured from the device log of 2026-08-29: Nemesis birds issued ~60
+      // `GET (rl)` historic day-feeds and the report printed
+      // "1 live · 0 cached  🥚 Nemesis birds". The single most expensive
+      // section in the app appeared to be its cheapest.
+      //
+      // That is why the 30-second pauses went undiagnosed for so long: the
+      // instrument built to name the expensive section was reading one lane of
+      // two, and the missing lane was the one saturating the window. The
+      // section is attributed at ENQUEUE time, because by the time the pump
+      // runs the user has usually navigated somewhere else and the cost would
+      // be billed to whatever they opened next.
       function ebirdBg(path) {
+        var section = _costSection;
+        costNote(path, false, section);
         return new Promise(function (resolve, reject) {
           _rlQueue.push({ path: path, resolve: resolve, reject: reject });
           rlPump();
@@ -7548,7 +7604,7 @@
         if (st) st.textContent = data.label + ' · ' + groups.length + ' species · '
           + (wantBirds
              ? needs.length + ' you need · '
-             : needs.length + ' you need (see Near misses / Nemesis birds) · ')
+             : needs.length + ' you need (see Nemesis birds / Open targets) · ')
           + hs.length + ' hotspots · '
           + (partial ? 'loading…' : 'fetched ' + fmtDateTime(new Date(data.at)));
       }
@@ -8534,6 +8590,14 @@
       function packJson(obj) {
         var json;
         try { json = JSON.stringify(obj); } catch (e) { return Promise.reject(e); }
+        // ⚠️ Below the crossover, compressing COSTS space. MEASURED
+        // 2026-08-29 on this row shape: an 86-byte payload becomes 128 bytes
+        // (0.67x) because gzip's header and base64's extra third both have to
+        // be paid before any redundancy can be found; break-even is ~170
+        // bytes and 2 rows is already 1.10x. 256 is a floor with margin.
+        // This lives HERE rather than in the caller so "gzip everything" is
+        // true of the one interface rather than of each site that remembers.
+        if (json.length < ZC_MIN_BYTES) return Promise.resolve(PACK_RAW + json);
         // Response.body rather than Blob.stream(): one fewer API to be present,
         // and it is the formulation that works identically in the webview and
         // under test.
@@ -13614,6 +13678,311 @@
           .map(function (n) { return n + ' ' + Math.round(by[n] / 1024) + 'KB'; })
           .join(', ');
       }
+
+      // --- What is in the cache, in full, for analysis -----------------------
+      //
+      // Owner, 2026-08-29: *"Can you log the contents of the cache so we can do
+      // an analysis of whats in it?"*
+      //
+      // ⚠️ `storeComposition()` above already existed and was NOT ENOUGH, in
+      // two ways worth naming rather than quietly replacing. It reports only
+      // the top SIX namespaces, rounded to whole KB with no entry counts — and
+      // it was wired into exactly ONE of the forty write paths, the chase
+      // snapshot. The device report that prompted this work failed in the
+      // CHECKLIST path, so the log said "QuotaExceededError" and nothing else.
+      // A diagnostic that fires for one caller is one that will not fire when
+      // you need it.
+      //
+      // This reports EVERY namespace with the four numbers an analysis needs:
+      // how many entries, how much space, how big the mean entry is, and
+      // whether the payloads are compressed — because "3 MB of checklists" and
+      // "3 MB of checklists NONE of which are gzipped" are different problems
+      // with different fixes.
+      //
+      // ⚠️ The budget figure is a STATED ASSUMPTION, not a measurement: WebKit
+      // does not expose the origin quota, and `navigator.storage.estimate()`
+      // reports the whole origin (including IndexedDB, where the bird icons
+      // live) rather than the localStorage slice. 5 MB is the documented
+      // WKWebView default. It is labelled as an assumption on the line itself
+      // so nobody later quotes it as something we measured.
+      var STORE_BUDGET_KB = 5 * 1024;
+      function storeReport() {
+        var by = {}, total = 0, lines = [];
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i) || '';
+            var v = localStorage.getItem(k) || '';
+            var n = k.length + v.length;
+            total += n;
+            var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
+            var name = m ? m[1] : '(singles)';
+            var e = by[name] || (by[name] = { n: 0, b: 0, z: 0, raw: 0, max: 0, maxk: '' });
+            e.n++; e.b += n;
+            // The format tag packJson writes. Counting them is how "we added
+            // compression" stops being a claim and becomes a number.
+            if (v.slice(0, 2) === 'z:') e.z++;
+            else e.raw++;
+            if (n > e.max) { e.max = n; e.maxk = k; }
+          }
+        } catch (err) { return ['cache: unreadable']; }
+        var names = Object.keys(by).sort(function (a, b) { return by[b].b - by[a].b; });
+        lines.push('cache: ' + Math.round(total / 1024) + ' KB across '
+          + names.length + ' namespaces, '
+          + Math.round(total / 1024 / STORE_BUDGET_KB * 100)
+          + '% of an ASSUMED ' + Math.round(STORE_BUDGET_KB / 1024) + ' MB budget'
+          + ' (WKWebView default; the quota is not readable)');
+        lines.push('  entries      KB   mean  gzip  namespace');
+        names.forEach(function (nm) {
+          var e = by[nm];
+          lines.push('  ' + String(e.n).padStart(7)
+            + String(Math.round(e.b / 1024)).padStart(8)
+            + String(Math.round(e.b / e.n / 1024 * 10) / 10).padStart(7)
+            + (' ' + e.z + '/' + e.n).padStart(6)
+            + '  ' + nm);
+        });
+        var big = names.length ? by[names[0]] : null;
+        if (big && big.maxk) {
+          lines.push('  biggest single entry: ' + big.maxk + ' ('
+            + Math.round(big.max / 1024) + ' KB)');
+        }
+        return lines;
+      }
+
+      // --- zcache activity, so the interface can be judged on numbers -------
+      //
+      // Per namespace: reads served, reads missed, writes, and the bytes the
+      // compression actually saved. A ratio quoted from a probe is an
+      // estimate; this is what the device really stored.
+      var _zcStats = Object.create(null);
+      function zcStat(key) {
+        var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(key);
+        var ns = m ? m[1] : '(singles)';
+        return _zcStats[ns] || (_zcStats[ns] = { ns: ns, hit: 0, miss: 0, put: 0, raw: 0, out: 0, fail: 0 });
+      }
+      // ⚠️ EVERY hit and miss is logged, one compact line each.
+      //
+      // Owner, 2026-08-29: *"it may be helpful to log when a cache hit and
+      // miss happens in general though, so we can track down cache leaks"*,
+      // and then the requirement that shapes the format: *"id like the logging
+      // to be done in a way that when i paste the log here, you will be able to
+      // determine whether its working and debug it."*
+      //
+      // So the log has to be SELF-DIAGNOSING, not merely verbose. A cache LEAK
+      // here is a key that varies when it should not — a slug, a county label
+      // or a date rolled into a key that changes shape — so entries pile up
+      // and are never read again. The decisive evidence is a MISS against a
+      // namespace that already HOLDS entries, and it is only decisive if both
+      // spellings appear together. So the first such miss per namespace prints
+      // the key that missed AND an example of one already stored, on adjacent
+      // lines, where the difference is readable at a glance.
+      //
+      // Logged on the 'net' channel deliberately, so a hit sits inline with
+      // the request it REPLACED. A cache line and the call it avoided belong
+      // in one column; splitting them is how you end up comparing timestamps
+      // by hand.
+      var _zcShownNear = Object.create(null);
+      // ⚠️ THE PER-EVENT LOG IS SWITCHABLE; THE SNAPSHOT IS NOT.
+      //
+      // Owner, 2026-08-29: *"If logging slows performance or uses storage,
+      // then we may want the ability to turn it off for release builds later
+      // once it goes into the app store."* That is the right split, and the
+      // two halves have genuinely different costs:
+      //
+      //   per-event  — a dbg() push per cache read. Cheap, but it runs in a
+      //                loop (60 day-feeds is 60 pushes) and it is the half
+      //                with a running cost. TOGGLEABLE.
+      //   snapshot   — storeReport()/zcActivityReport(), computed only when
+      //                the Dump button is pressed. Costs nothing until then,
+      //                so it always stays on.
+      //
+      // The buffer is in-memory and capped; it is never persisted, so this
+      // costs no storage — which matters, since spending cache space to
+      // diagnose cache space would be its own joke.
+      var CACHE_LOG_KEY = 'bc_cache_log';
+      // Flip this one constant for an App Store build. Left ON while the app
+      // is sideloaded, because every diagnosis this project has made came from
+      // a pasted device log.
+      var CACHE_LOG_DEFAULT = true;
+      var _cacheLogOn = null;
+      function cacheLogOn() {
+        if (_cacheLogOn === null) {
+          var v = null;
+          try { v = localStorage.getItem(CACHE_LOG_KEY); } catch (e) { v = null; }
+          _cacheLogOn = (v === null) ? CACHE_LOG_DEFAULT : (v === 'on');
+        }
+        return _cacheLogOn;
+      }
+      function setCacheLog(on) {
+        _cacheLogOn = !!on;
+        try { localStorage.setItem(CACHE_LOG_KEY, on ? 'on' : 'off'); } catch (e) {}
+      }
+      function zcSampleKey(ns, notThisOne) {
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i) || '';
+            if (k !== notThisOne && k.indexOf(ns) === 0) return k;
+          }
+        } catch (e) {}
+        return '';
+      }
+      function zcLog(what, key, bytes) {
+        if (!cacheLogOn()) return;
+        dbg('net', 'cache ' + what + ' ' + key
+          + (bytes ? ' \u00b7 ' + Math.round(bytes / 1024 * 10) / 10 + ' KB' : ''));
+        if (what !== 'MISS') return;
+        var st = zcStat(key), ns = st.ns;
+        if (_zcShownNear[ns]) return;
+        var near = zcSampleKey(ns, key);
+        if (!near) return;                 // nothing stored: an honest cold miss
+        _zcShownNear[ns] = 1;
+        // The two lines a paste needs: what was asked for, and what is there.
+        dbg('warn', 'cache MISS but ' + ns + ' is NOT empty — compare the keys:');
+        dbg('warn', '    asked: ' + key);
+        dbg('warn', '    holds: ' + near);
+      }
+      function zcActivityReport() {
+        var ks = Object.keys(_zcStats);
+        if (!ks.length) return [];
+        // How many entries each namespace actually holds, so a namespace that
+        // is WRITTEN and never READ can name itself. That is the leak
+        // signature: entries accumulating against reads that never land.
+        var held = {};
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i) || '';
+            var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
+            var ns = m ? m[1] : '(singles)';
+            held[ns] = (held[ns] || 0) + 1;
+          }
+        } catch (e) {}
+        var lines = ['cache activity this session:'];
+        ks.sort(function (a, b) { return _zcStats[b].raw - _zcStats[a].raw; })
+          .forEach(function (k) {
+            var s = _zcStats[k];
+            var ratio = s.out ? (s.raw / s.out) : 0;
+            // ⚠️ A leak, stated rather than left to be spotted: entries are
+            // being stored and nothing is reading them back. Either the key
+            // varies between write and read, or the section never asks.
+            var leak = (s.put >= 3 && s.hit === 0) ? '   <-- WROTE ' + s.put
+              + ', READ 0 — key may vary between write and read' : '';
+            lines.push('  ' + String(s.hit).padStart(4) + ' hit '
+              + String(s.miss).padStart(4) + ' miss '
+              + String(s.put).padStart(4) + ' put'
+              + (s.fail ? (' ' + s.fail + ' FAILED') : '')
+              + (s.out ? ('  ' + Math.round(s.raw / 1024) + '->'
+                  + Math.round(s.out / 1024) + ' KB  ' + ratio.toFixed(1) + 'x') : '')
+              + '  ' + s.ns
+              + (held[s.ns] ? ' (' + held[s.ns] + ' held)' : '')
+              + leak);
+          });
+        return lines;
+      }
+
+      // --- zcache: ONE compressed interface for every cache worth it --------
+      //
+      // Owner, 2026-08-29: *"can we add an interface to our cache that gzips
+      // everything stored in the cache? the performance bottle neck is the api
+      // rate limiter, so compression would be marginal time compared to a
+      // cache miss"* — which is the right trade, and the numbers say so: a
+      // gunzip of a 14 KB payload is sub-millisecond, while the miss it avoids
+      // is a throttled eBird call the device log measures at 0.6–3.0 s, and
+      // sometimes far worse (one day feed took 175 s behind the bucket).
+      //
+      // ⚠️ WHY THIS EXISTS WHEN packJson ALREADY DID. `packJson`/`unpackJson`
+      // have been here since F171 and only THREE caches ever called them, each
+      // re-implementing its own quota handling — and one of the three got the
+      // async wiring wrong in both directions and never cached anything at
+      // all (see hotCacheSave). One interface, so a caller cannot get it
+      // wrong and so the next cache is compressed by default.
+      //
+      // MEASURED 2026-08-29 on the real payloads:
+      //   chase snapshot   1242 KB -> 73 KB   17.0x
+      //   Nemesis day feed   14 KB -> 4.6 KB   3.0x   (already field-stripped)
+      //   whole Nemesis cache 0.82 MB -> 0.27 MB
+      //
+      // ⚠️ SMALL VALUES ARE STORED RAW, and that is measured, not cautious:
+      // gzip's header plus base64's third makes an 86-byte payload 128 bytes.
+      // The crossover is ~170 bytes, so 256 is a safe floor. Compressing a
+      // settings flag would cost space, not save it.
+      var ZC_MIN_BYTES = 256;
+      // Values already decoded this session. A second read costs nothing, and
+      // it is what lets a synchronous caller be served after one async read.
+      var _zcMem = Object.create(null);
+
+      function zcPeek(key) { return _zcMem[key]; }
+      function zcForget(key) { delete _zcMem[key]; }
+
+      function zcGet(key) {
+        var st = zcStat(key);
+        if (key in _zcMem) { st.hit++; zcLog('HIT*', key); return Promise.resolve(_zcMem[key]); }
+        var raw = null;
+        try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
+        if (raw == null) { st.miss++; zcLog('MISS', key); return Promise.resolve(null); }
+        return unpackJson(raw).then(function (v) {
+          // ⚠️ A FALSY RESULT IS NOT CACHED AS AN ANSWER. F36: caching one
+          // null disabled a whole section for 30 days. A value that would not
+          // survive the round trip is treated as a miss so the store heals.
+          if (v == null) {
+            st.miss++;
+            zcLog('MISS(bad)', key, raw.length);
+            try { localStorage.removeItem(key); } catch (e) {}
+            return null;
+          }
+          st.hit++;
+          // The stored size, not the decoded one: what the read actually cost
+          // the store is the number an analysis needs.
+          zcLog(raw.slice(0, 2) === 'z:' ? 'HIT' : 'HIT(raw)', key, raw.length);
+          _zcMem[key] = v;
+          return v;
+        }).catch(function () { st.miss++; zcLog('MISS(err)', key); return null; });
+      }
+
+      // Resolves true when the value is durable, false when it is only in
+      // memory for this session. A caller that needs to know can ask; one that
+      // does not is not forced to handle it, because a full store has never
+      // been a reason to lose a result that is already in hand.
+      var _zcSaidComposition = false;
+      function zcPut(key, val) {
+        _zcMem[key] = val;
+        var st = zcStat(key);
+        st.put++;
+        try { st.raw += JSON.stringify(val).length; } catch (e) {}
+        return packJson(val).then(function (payload) {
+          st.out += payload.length;
+          zcLog(payload.slice(0, 2) === 'z:' ? 'PUT' : 'PUT(raw)', key, payload.length);
+          try { localStorage.setItem(key, payload); return true; }
+          catch (e) {
+            // One retry after making room, which is what every ad-hoc caller
+            // was doing by hand — and what two of them forgot.
+            if (!freeCacheSpace(60)) { st.fail++; return false; }
+            try { localStorage.setItem(key, payload); return true; }
+            catch (e2) {
+              st.fail++;
+              // ⚠️ F247. NAME THE CULPRIT, from ANY failing write.
+              //
+              // `storeComposition()` exists precisely to answer "what is
+              // filling the store", and it was wired into exactly ONE of the
+              // forty write paths — the chase snapshot. The device report
+              // that prompted this work failed in the CHECKLIST path, so the
+              // log said "QuotaExceededError" and nothing else, and the cause
+              // stayed a matter of inference for a whole session. A
+              // diagnostic that only fires for one caller is a diagnostic
+              // that will not fire when you need it.
+              //
+              // Once per session: the composition is the same answer every
+              // time within a run, and repeating it would bury the writes
+              // that failed.
+              dbg('warn', 'cache not stored (' + key.split(':')[0] + ', '
+                + Math.round(payload.length / 1024) + ' KB): '
+                + (e2 && e2.name || 'QuotaExceededError')
+                + (_zcSaidComposition ? '' : ' · store holds ' + storeComposition()));
+              _zcSaidComposition = true;
+              return false;
+            }
+          }
+        }).catch(function () { return false; });
+      }
+
       // Make room by dropping the cheapest thing there is. Returns how many
       // entries went, so a caller can tell whether retrying is worth it.
       function freeCacheSpace(want) {
@@ -13759,11 +14128,32 @@
               // and the chase snapshot was what failed first.
               if ((++_cklWrites % 40) === 0) pruneChecklistCache();
             } catch (e) {
-              // A full quota is not a failure worth surfacing: the app works,
-              // it just pays again next launch. Make room first, though —
-              // this cache is the cheapest thing in the store.
-              freeCacheSpace(60);
-              try { dbg('warn', 'checklist not cached: ' + (e && e.name)); } catch (_) {}
+              // ⚠️ F247. IT FREED SPACE AND THEN DID NOT USE IT.
+              //
+              // This made room for 60 entries and never retried the write, so the
+              // checklist that triggered the eviction was still lost — it simply
+              // donated its room to whatever wrote next. That is the worst of both:
+              // the cost of the eviction, none of the benefit, and a log line
+              // saying only "not cached". On the device log of 2026-08-29 this
+              // fired as "freed 19 cached items to make room" immediately followed
+              // by "checklist not cached: QuotaExceededError".
+              //
+              // A checklist is settled historic data. Re-buying it costs a call
+              // against a 22-per-60s window, which is the budget the 429 backoff
+              // is made of — so a write worth attempting once is worth attempting
+              // twice.
+              var freed = freeCacheSpace(60);
+              try {
+                localStorage.setItem(CKL_NS + sub, JSON.stringify({
+                  d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
+                  m: hasMedia ? 1 : 0, v: v
+                }));
+              } catch (e2) {
+                try {
+                  dbg('warn', 'checklist not cached after freeing ' + freed + ': '
+                    + (e2 && e2.name) + ' · store holds ' + storeComposition());
+                } catch (_) {}
+              }
             }
             return v;
           })
@@ -13818,6 +14208,28 @@
         row.className = 'evnoterow';
         return row;
       }
+      // ⚠️ F246. The note row goes BEFORE the checklist link, not after it.
+      //
+      // `cards-checklist.js` has said since F230 that "the checklist link is
+      // its OWN line, LAST, after the comments" — and it was not, because the
+      // link is built by the CARD while the comments are appended later by the
+      // hydration, so append order put the link first however the stylesheet
+      // described it. A comment asserting an order that the code decides
+      // somewhere else is not a design, it is a wish. Owner, from the device:
+      // *"move the open checklist link after the comments"*.
+      //
+      // Falls back to appending when a row carries no link, so a note is never
+      // dropped by a card that renders without one.
+      function appendNoteRow(el, row) {
+        var link = el.querySelector('.cklopenrow');
+        // Insert into the LINK'S OWN parent, not into `el`. The three species
+        // templates put `{{below}}` in different places — a direct child of
+        // the <li> for small and medium, inside `.bcbody` for large — so a
+        // check for `parentNode === el` would silently do nothing on the large
+        // card and leave the link heading the comments there only.
+        if (link && link.parentNode) link.parentNode.insertBefore(row, link);
+        else el.appendChild(row);
+      }
       function noteHead(text) {
         var hd = document.createElement('div');
         hd.className = 'evnotehd';
@@ -13841,7 +14253,7 @@
         // the same call, so a per-label placeholder would promise a checklist
         // comment that is absent 77% of the time and then quietly withdraw it.
         row.appendChild(noteHead('Comments loading\u2026'));
-        el.appendChild(row);
+        appendNoteRow(el, row);
       }
       // Two comments, two labels, and the checklist one is OMITTED when absent
       // rather than shown empty. That asymmetry is measured, not cosmetic: over
@@ -13884,7 +14296,7 @@
           row.appendChild(noteHead(CKL_NOTE_LABEL));
           row.appendChild(noteQuote(ck));
         }
-        el.appendChild(row);
+        appendNoteRow(el, row);
       }
       // The letters the row already knows about. `det.m` comes from the
       // checklist fetch and is EMPTY in practice — the endpoint carries no
@@ -15615,6 +16027,14 @@
     // "which bird" and "how long ago" are one question on a chase board.
     // fmtDate, not a third date format - see F165 on one fact kept twice.
     var alpha = code ? (alphaFor(code) || code) : '';
+    // F246, owner 2026-08-29: "show the bird icon for the recently added birds
+    // just for the rows". `photoSlot` is the same three-tier resolver every
+    // other species row uses — bundled seed first, so a board of 100 birders
+    // costs NO network for any species already in the seed. It needs the CODE,
+    // which is exactly what this line already resolved to build its link, so
+    // the icon appears only where the name is linkable and never as a grey box
+    // beside a bird the app could not identify.
+    var pic = code ? photoSlot(p.species, code) : '';
     var inner = code
       ? '<a class="splink" data-sp="' + esc(code) + '" data-spname="' + esc(p.species)
         + '">' + esc(p.species) + '</a>'
@@ -15622,7 +16042,7 @@
     var tail = [alpha ? '(' + alpha + ')' : '', p.date ? fmtDate(p.date) : '']
       .filter(Boolean).join(' \u00b7 ');
     return '<span class="ranklast" title="' + esc('newest: ' + p.species
-      + (p.date ? ' \u00b7 ' + p.date : '')) + '">+ ' + inner
+      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + pic + '+ ' + inner
       + (tail ? ' <small>' + esc(tail) + '</small>' : '') + '</span>';
   }
   // ONE arrow per row, not three. Three deltas plus a name and a species count
@@ -15875,6 +16295,11 @@
         });
         tbl.innerHTML = h;
         out.appendChild(tbl);
+        // F246. The icons are inert without this, and that failure mode is
+        // already on the record: the trip planner shipped a whole section of
+        // grey squares because it was the one list that never hydrated. A
+        // photoSlot with no hydrator is not a slow image, it is no image.
+        hydratePhotos(tbl);
         var foot = document.createElement('div');
         foot.className = 'hint';
         // F125 follow-up: an empty movement column reads as broken, and it is
@@ -18068,28 +18493,43 @@
         return jobs.reduce(function (p, j) {
           return p.then(function () {
             var c = j[0], d = j[1], key = easyCacheKey(c, d);
-            var hit = null;
-            try { hit = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { hit = null; }
-            if (Array.isArray(hit)) {
-              acc.push.apply(acc, easyExpand(hit));
-              if (onProg) onProg(++done, jobs.length);
-              return;
-            }
-            // detail=full carries locName/lat/lng/subId, which the section needs
-            // to offer nearby spots; cat=species drops sp./slash/hybrid/domestic
-            // server-side, which is what report._non_countable_codes strips.
-            var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
-            return ebirdBg(path)
-              .then(function (r) {
-                if (!Array.isArray(r)) return;
-                var small = easyCompact(r);
-                acc.push.apply(acc, easyExpand(small));
-                // A full cache is not a failure: the section still works, it
-                // just re-fetches next time.
-                try { localStorage.setItem(key, JSON.stringify(small)); } catch (e) {}
-              })
-              .catch(function () {})
-              .then(function () { if (onProg) onProg(++done, jobs.length); });
+            // ⚠️ F247. COMPRESSED, and read through the shared interface.
+            // MEASURED 2026-08-29 against the live feed: a day-county entry is
+            // 14.0 KB plain and 4.6 KB gzipped+base64 (3.0x), so the whole
+            // 60-entry cache is 0.82 MB -> 0.27 MB. 3x rather than the chase
+            // snapshot's 17x because `easyCompact` has already stripped the
+            // repeated field names — the cheap win was taken, this is the
+            // next one.
+            //
+            // ⚠️ The cache was NOT too big to fit: 0.82 MB against a 5 MB
+            // budget. It failed because the store was already full of
+            // UNCOMPRESSED everything-else, and this write swallowed its own
+            // QuotaExceededError — so the section re-fetched all 60 days on
+            // every open, which is what the device log shows it doing twice
+            // in two minutes.
+            return zcGet(key).then(function (hit) {
+              if (Array.isArray(hit)) {
+                acc.push.apply(acc, easyExpand(hit));
+                if (onProg) onProg(++done, jobs.length);
+                return;
+              }
+              // detail=full carries locName/lat/lng/subId, which the section needs
+              // to offer nearby spots; cat=species drops sp./slash/hybrid/domestic
+              // server-side, which is what report._non_countable_codes strips.
+              var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
+              return ebirdBg(path)
+                .then(function (r) {
+                  if (!Array.isArray(r)) return;
+                  var small = easyCompact(r);
+                  acc.push.apply(acc, easyExpand(small));
+                  // A past day's checklists never change, so a stored day is
+                  // permanently valid. Not awaited: the write must not pace
+                  // the sweep.
+                  zcPut(key, small);
+                })
+                .catch(function () {})
+                .then(function () { if (onProg) onProg(++done, jobs.length); });
+            });
           });
         }, Promise.resolve()).then(function () { return acc; });
       }
@@ -18349,14 +18789,24 @@
         if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         if ($('easyRegionLabel')) $('easyRegionLabel').textContent = '· ' + countyLabelStr();
         var btn = $('easyBtn'), st = $('easyStatus');
-        $('easyResults').innerHTML = '';
         if (!hasCounties()) {
           $('easyResults').innerHTML = '<div class="status">Easy misses is built from county checklist history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
         }
+        // ⚠️ F247. The results are NOT cleared here any more.
+        //
+        // Owner, from the device: *"upon refresh the existing data clears"* —
+        // photographed mid-sweep, showing an empty panel under "Sampling
+        // recent days… 3/60". This line wiped the answer before ~60 throttled
+        // calls had even started, so a refresh cost a minute of blank screen
+        // to redraw what was already on it. The rows are replaced when the
+        // new ones are ready; until then the old ones are the best answer
+        // available, exactly as Hot patches treats its own last scan.
         var dates = todDates(EASY_MISS_DAYS);
         btn.disabled = true;
-        st.textContent = 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
+        var had = !!$('easyResults').querySelector('li');
+        st.textContent = (had ? 'Refreshing — ' : '')
+          + 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
         easyFetch(countyCodes(), dates, function (i, n) {
           st.textContent = 'Sampling recent days… ' + i + '/' + n;
         }).then(function (all) {
@@ -18518,18 +18968,37 @@
       function hotCacheKey() {
         return HOTCACHE_KEY + ':' + getReportSlug() + ':' + countyLabelStr();
       }
+      // ⚠️ F247. BOTH HALVES OF THIS WERE BROKEN, INDEPENDENTLY, AND THE CACHE
+      // HAD NEVER ONCE HIT.
+      //
+      // `packJson` and `unpackJson` are ASYNC — they wrap CompressionStream —
+      // and this pair used them as if they were not. The write stored the
+      // string "[object Promise]"; the read then took `unpackJson(...)`, which
+      // is a Promise, and asked it for `.hot`, which a Promise does not have,
+      // so `(v && v.hot)` was falsy on every path. Two mistakes that cancel
+      // into silence: no error, no warning, just a full hotspot scan on every
+      // open of Hot patches and Cold patches, for the entire life of the
+      // feature that exists to avoid exactly that.
+      //
+      // This is why zcPut/zcGet exist rather than another pair of hand-wired
+      // callers. Nothing here awaits its own write, because a cache write is
+      // not something the scan should wait on.
       function hotCacheSave(r) {
         if (!r) return;
-        try {
-          localStorage.setItem(hotCacheKey(),
-            packJson({ t: Date.now(), hot: r.hot || [], cold: r.cold || [] }));
-        } catch (e) { /* a full store is not a reason to lose the scan */ }
+        zcPut(hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [] });
       }
+      // Synchronous, because its callers paint with it. `zcPeek` answers from
+      // the values this session has already decoded; `hotCacheWarm` below is
+      // what puts today's entry there, once, at the point the section opens.
       function hotCacheLoad() {
-        try {
-          var v = unpackJson(localStorage.getItem(hotCacheKey()));
-          return (v && v.hot) ? v : null;
-        } catch (e) { return null; }
+        var v = zcPeek(hotCacheKey());
+        return (v && v.hot) ? v : null;
+      }
+      // Decode the stored entry into memory, then resolve. A caller that can
+      // wait gets yesterday's ranking to read while today's is fetched, which
+      // is the whole point of the cache.
+      function hotCacheWarm() {
+        return zcGet(hotCacheKey()).then(function (v) { return (v && v.hot) ? v : null; });
       }
       function hotCacheAge(t) {
         var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
@@ -18625,24 +19094,30 @@
         // between two taps of a button; it stays in the durable reference
         // cache, which is what keeps this a few calls instead of hundreds.
         if (opts.force) ebClearMatching(FORCE_OBS_RE);
+        // ⚠️ Set BEFORE the cache warm-up starts. Decoding is async now, so a
+        // slow decode could otherwise land after the live scan and paint
+        // yesterday's ranking over today's — a cache that makes the answer
+        // WORSE. Whoever answers first wins, and the live scan always wins.
+        var painted = false;
         if (!(_hotspotCache && !opts.force)) {
-          // Paint the last scan FIRST, then say it is being refreshed. A ranking of
-          // parks does not go stale in an hour, so an empty card with a spinner is
-          // strictly worse than yesterday's answer plus a note — especially when
-          // the scan is pacing against the eBird rate limit and the wait is
-          // measured in tens of seconds.
-          var cached = hotCacheLoad();
-          if (cached) {
+          var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
+          if (hotSt) hotSt.textContent = scanMsg;
+          if (coldSt) coldSt.textContent = scanMsg;
+          // Paint the last scan as soon as it decodes, then say it is being
+          // refreshed. A ranking of parks does not go stale in an hour, so an
+          // empty card with a spinner is strictly worse than yesterday's
+          // answer plus a note — especially when the scan is pacing against
+          // the eBird rate limit and the wait is measured in tens of seconds.
+          hotCacheWarm().then(function (cached) {
+            if (!cached || painted) return;
             renderHot(cached); renderCold(cached);
-            var age = 'as of ' + hotCacheAge(cached.t) + ' · refreshing…';
+            var age = 'as of ' + hotCacheAge(cached.t) + ' \u00b7 refreshing\u2026';
             if (hotSt) hotSt.textContent = age;
             if (coldSt) coldSt.textContent = age;
-          } else {
-            var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
-            if (hotSt) hotSt.textContent = scanMsg; if (coldSt) coldSt.textContent = scanMsg;
-          }
+          });
         }
         scanHotspots(opts.force).then(function (r) {
+          painted = true;
           hotCacheSave(r);
           renderHot(r); renderCold(r);
           if (hotSt) hotSt.textContent = r.hot.length + ' running hot within ' + HOTSPOT_MAX_DIST_MI + ' mi · ' + nowTime();
@@ -21586,7 +22061,7 @@
         cklBtn:        'Biggest day lists',
         convoyBtn:     'Groups birding together',
         favResults:    'Saved hotspots',
-        allUnseenBtn:  'Nearest unseen birds',
+        allUnseenBtn:  'Unseen birds reported nearby',
         easyBtn:       'Common birds you still need',
         nvResults:     'Birds considered unseen',
         migBtn:        'What’s arriving and leaving',
@@ -21642,7 +22117,7 @@
         // Both tiles open the SAME section pair and the SAME switch — nothing
         // is duplicated, and the chip still moves between them.
         { at: 'easyBtn',      label: '🥚 Nemesis birds', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'allUnseenBtn', label: '📋 Near misses', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'allUnseenBtn', label: '🎯 Open targets', needs: 'county', group: 'Stakeouts - Birding tools' },
         { at: 'lastNewBtn',    label: '🔭 Fresh ticks', needs: 'geo', group: 'Leader Board / Ranking' },
         { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
         { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
@@ -22599,7 +23074,14 @@
           // when it is not cached.
           var of = null;
           try { of = cachedEbirderCount(getRegion()); } catch (e) { of = null; }
-          bits.push('Rank #' + rankNum(me.rank) + (of ? '/' + rankNum(of) : ''));
+          // F246, owner 2026-08-29: "the headee is getting crowded and
+          // wrapping weird. try: #186/14,716 206sp". The word "Rank" is
+          // carried by the # sign, and "Birds" by "sp" — both were spending
+          // width on the two-line wrap he photographed, in the one element
+          // that has to share a row with the app name and the region pill.
+          // ⚠️ The ABBREVIATION is the display; the aria-label below still
+          // says the whole sentence, because "206sp" read aloud is noise.
+          bits.push('#' + rankNum(me.rank) + (of ? '/' + rankNum(of) : ''));
           said.push('ranked ' + rankNum(me.rank)
                     + (of ? ' of ' + rankNum(of) + ' eBirders' : '')
                     + ' in ' + rankRegionName(getRegion()));
@@ -22607,7 +23089,7 @@
         var year = 0;
         try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
         if (year) {
-          bits.push(year + ' Birds');
+          bits.push(year + 'sp');
           said.push(year + ' species this year');
         }
         if (!shown && !bits.length) {
@@ -22618,7 +23100,7 @@
         el.innerHTML =
           (shown ? '<span class="hdrname">' + esc(shown) + '</span>' : '')
           + (bits.length
-              ? '<span class="hdrstat">' + esc(bits.join(' \u00b7 ')) + '</span>'
+              ? '<span class="hdrstat">' + esc(bits.join(' ')) + '</span>'
               : '');
         // The short form is an abbreviation; the label is the sentence.
         el.setAttribute('aria-label',
@@ -24017,6 +24499,15 @@
               + ' never queued' + (_orphan ? '  <-- a section forgot hydratePhotos()' : ''));
           }
         } catch (e) {}
+        // WHAT IS IN THE CACHE, AND WHETHER IT IS WORKING. Owner: *"id like
+        // the logging to be done in a way that when i paste the log here, you
+        // will be able to determine whether its working and debug it."* So
+        // both halves are here unconditionally — the composition (what is
+        // stored, how much, how much of it is compressed) and the activity
+        // (what was read, what missed, what a write actually saved). Computed
+        // only when Dump is pressed, so it costs nothing until it is wanted.
+        try { storeReport().forEach(add); } catch (e) {}
+        try { zcActivityReport().forEach(add); } catch (e) {}
         // What the visible section concluded, right at the top where it is
         // read, rather than only in the buffer.
         try {
@@ -24366,8 +24857,8 @@
           { id: 'cklModeNew',  icon: '\uD83D\uDD52', label: 'Newest',   full: 'The most recently submitted checklists' }
         ],
         unseen: [
-          { to: 'sec-allUnseenBtn', icon: '\uD83D\uDCCB', label: 'Near misses', full: 'Every unseen bird being reported now' },
-          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Nemesis birds', full: 'Common birds you still need' }
+          { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Nemesis birds', full: 'Common birds you still need' },
+          { to: 'sec-allUnseenBtn', icon: '\uD83C\uDFAF', label: 'Open targets', full: 'Every unseen bird being reported now' }
         ]
       };
       // The accessible name carries the FULL wording, because splitting a
@@ -25356,6 +25847,7 @@
         saveArrivalStore: saveArrivalStore, dueBackKey: dueBackKey,
         DUEBACK_AHEAD_D: DUEBACK_AHEAD_D, DUEBACK_BACK_D: DUEBACK_BACK_D,
         rarityChecklistDetails: rarityChecklistDetails,
+        openChecklistLink: openChecklistLink,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
         setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,

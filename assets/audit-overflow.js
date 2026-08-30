@@ -596,8 +596,18 @@ server.listen(0, '127.0.0.1', () => {
       (r.midword || []).forEach(function (it) {
         var known = MIDWORD_KNOWN.indexOf(it.text) >= 0;
         if (!known) bad++;
+        // ⚠️ THE SELECTOR IS PART OF THE REPORT, not an optional extra.
+        //
+        // Without it this line says a label broke and at what width, and NOT
+        // WHERE — so when a 393px render of the main menu showed the same five
+        // labels wrapping cleanly at ~155px, there was no way to tell whether
+        // the audit was wrong or was measuring a label in a different, narrower
+        // place. Two measurements of "the same" label disagreed and neither
+        // could be checked against the other. A finding you cannot locate is a
+        // finding you cannot act on.
         console.log('   ' + (known ? 'mid-word (known)  ' : 'MID-WORD BREAK    ')
-          + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px');
+          + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px'
+          + '\n        at ' + it.sel);
       });
       var tiny = r.small || [];
       if (tiny.length) {
