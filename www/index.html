@@ -2293,6 +2293,19 @@
         <button id="easyBtn">Find nemesis birds</button>
       </div>
       <div id="easyStatus" class="status"></div>
+      <!-- F246. "after the data loads, it needs the toggle for sorting by
+           date or distance used in other reports." Same `sortbtn` shape as
+           the Stakeout bird row above, so the control a reader has already
+           learned works the same way here.
+           ⚠️ HIDDEN until there are rows. A sort control above an empty
+           list offers to reorder nothing, and this section takes ~60
+           throttled calls to fill on a cold cache — so it would sit there
+           inert for a minute promising something it cannot do. -->
+      <div class="row" id="easySortRow" hidden>
+        <button id="easyByFreq" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by how often it is reported">📊 Commonest</button>
+        <button id="easyByDate" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by most recently seen">📅 Date</button>
+        <button id="easyByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
+      </div>
       <div id="easyResults"></div>
     </section>
 
@@ -18802,8 +18815,71 @@
         });
         return out;
       }
+      // F246. "after the data loads, it needs the toggle for sorting by date or
+      // distance used in other reports."
+      //
+      // ⚠️ SORTING IS A VIEW, NOT A REBUILD — the same rule Stakeout bird
+      // already states. These rows cost ~60 throttled calls to assemble; a
+      // sort that refetched would spend a minute of the rate-limit budget to
+      // reorder a list already in memory, which is the opposite of what a
+      // toggle is for.
+      var _easySort = 'freq';
+      var _easyRows = null, _easyDays = 0;
+      function easySortRows(rows) {
+        var out = rows.slice();
+        if (_easySort === 'dist') {
+          // Nearest first, by the closest spot the bird was reported at. A row
+          // with no located spot sorts last rather than to zero — an unknown
+          // distance is not a near one.
+          out.sort(function (a, b) {
+            var da = easyNearestMi(a), db = easyNearestMi(b);
+            return (da == null ? Infinity : da) - (db == null ? Infinity : db);
+          });
+        } else if (_easySort === 'date') {
+          out.sort(function (a, b) {
+            return String(b.latest || '').localeCompare(String(a.latest || ''));
+          });
+        } else {
+          // Commonest first — the section's own reason for existing, and so
+          // the default. `freq` is the share of sampled days it was reported.
+          out.sort(function (a, b) { return (b.freq || 0) - (a.freq || 0); });
+        }
+        out.minFreq = rows.minFreq;
+        return out;
+      }
+      function easyNearestMi(r) {
+        // Measured from the CHOSEN anchor, not the house — F241 moved this
+        // section's ranking origin to `anchorPoint()` so Here / Home / Find…
+        // all re-rank it. A distance sort that used getHome() would disagree
+        // with the distance printed on the row beside it.
+        var a = null;
+        try { a = anchorPoint(); } catch (e) { a = null; }
+        if (!a || !isFinite(a.lat) || !isFinite(a.lng)) return null;
+        var best = null;
+        (r.spots || []).forEach(function (s) {
+          if (!s || !isFinite(s.lat) || !isFinite(s.lng)) return;
+          var d = haversineMi(a.lat, a.lng, s.lat, s.lng);
+          if (isFinite(d) && (best == null || d < best)) best = d;
+        });
+        return best;
+      }
+      function setEasySort(mode) {
+        _easySort = mode === 'dist' ? 'dist' : mode === 'date' ? 'date' : 'freq';
+        ['easyByFreq', 'easyByDate', 'easyByDist'].forEach(function (id) {
+          var b = $(id);
+          if (!b) return;
+          var mine = id === 'easyByDist' ? 'dist' : id === 'easyByDate' ? 'date' : 'freq';
+          b.setAttribute('aria-pressed', String(mine === _easySort));
+        });
+        if (_easyRows) renderEasyMisses(_easyRows, _easyDays);
+      }
       function renderEasyMisses(rows, totalDays) {
         var box = $('easyResults');
+        // Remembered so a sort tap re-renders from data already in hand.
+        _easyRows = rows; _easyDays = totalDays;
+        var sortRow = $('easySortRow');
+        if (sortRow) sortRow.hidden = !(rows && rows.length);
+        if (rows && rows.length) rows = easySortRows(rows);
         if (!rows || !rows.length) {
           box.innerHTML = '<div class="status">Nothing common is missing — every bird reported on at least '
             + Math.round(EASY_MISS_WIDEN_FREQ[EASY_MISS_WIDEN_FREQ.length - 1] * 100) + '% of the last ' + totalDays
@@ -25192,6 +25268,12 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
+      ['easyByFreq', 'easyByDate', 'easyByDist'].forEach(function (id) {
+        var b = $(id);
+        if (b) b.addEventListener('click', function () {
+          setEasySort(id === 'easyByDist' ? 'dist' : id === 'easyByDate' ? 'date' : 'freq');
+        });
+      });
       $('iconicBtn').addEventListener('click', loadIconicSpots);      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
       if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
@@ -25955,6 +26037,7 @@
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
+        setEasySort: setEasySort, easySortRows: easySortRows, renderEasyMisses: renderEasyMisses,
         hotspotFeeds: hotspotFeeds, hotspotCachedDays: hotspotCachedDays,
         easyCacheKey: easyCacheKey, easyCompact: easyCompact, zcPut: zcPut, zcGet: zcGet,
         renderHot: renderHot, renderCold: renderCold, showSection: showSection,

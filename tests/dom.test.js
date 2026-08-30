@@ -9046,6 +9046,51 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
   app.window.close();
 });
 
+test('Nemesis birds sorts by date and distance without refetching (F246)', async () => {
+  // Owner: "after the data loads, it needs the toggle for sorting by date or
+  // distance used in other reports."
+  //
+  // ⚠️ These rows cost ~60 throttled calls to assemble, so the property that
+  // matters as much as the order is that a sort makes NO call — a toggle that
+  // refetched would spend a minute of rate-limit budget to reorder a list
+  // already in memory.
+  let calls = 0;
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+    fetch(url) { if (/api\.ebird\.org/.test(url)) calls++; return []; },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  const rows = [
+    { code: 'a', name: 'Alpha', freq: 0.9, days: 27, totalDays: 30, locs: 3,
+      latest: '2026-08-10 08:00', spots: [{ lat: 48.6, lng: -122.9 }] },
+    { code: 'b', name: 'Bravo', freq: 0.5, days: 15, totalDays: 30, locs: 2,
+      latest: '2026-08-28 08:00', spots: [{ lat: 47.76, lng: -122.17 }] },
+  ];
+  rows.minFreq = 0.4;
+
+  A.renderEasyMisses(rows, 30);
+  const sortRow = doc.getElementById('easySortRow');
+  assert.ok(sortRow && !sortRow.hidden, 'the sort row appears once there are rows');
+
+  const order = () => [...doc.querySelectorAll('#easyResults li')]
+    .map((li) => li.textContent).join('|');
+  assert.match(order(), /Alpha[\s\S]*Bravo/, 'commonest first by default');
+
+  const before = calls;
+  A.setEasySort('date');
+  assert.match(order(), /Bravo[\s\S]*Alpha/, 'by date puts the freshest first');
+  A.setEasySort('dist');
+  assert.match(order(), /Bravo[\s\S]*Alpha/, 'by distance puts the nearest first');
+  assert.equal(calls, before,
+    'sorting made an eBird call — it is a VIEW over data already in hand');
+
+  // The pressed state must follow, or a colour-blind reader has no way to tell
+  // which mode is active: aria-pressed is the non-colour channel here.
+  assert.equal(doc.getElementById('easyByDist').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.getElementById('easyByFreq').getAttribute('aria-pressed'), 'false');
+  app.window.close();
+});
+
 test('the hotspot scan reuses cached day lists and pays nothing (F253)', async () => {
   // The county `recent` feed keeps ONE observation per species, so a site full
   // of common birds vanishes however often it is birded — Stillwater Unit has
