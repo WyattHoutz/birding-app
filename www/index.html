@@ -2785,7 +2785,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.55.1';
+      var APP_VERSION = '1.56.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -14090,6 +14090,49 @@
       }
       var _cklView = {};
       var _cklWrites = 0;
+      // ⚠️ F247. THE PAYLOAD IS PACKED; THE ENVELOPE IS NOT — and the write
+      // stays SYNCHRONOUS, which is what decides the design.
+      //
+      // A checklist entry measures **4.0 KB plain / 1.1 KB gzipped (3.5×)**,
+      // so 200 cached is 0.78 MB → 0.22 MB and 400 is 1.55 → 0.45 against a
+      // ~5 MB budget. Worth compressing.
+      //
+      // But `cklCached()` reads freshness synchronously to gate the fetch
+      // budget, and both callers below rely on `catch` seeing the quota error
+      // to trigger `freeCacheSpace` and retry. An async `zcPut` would put that
+      // throw inside a promise where neither `try` block can see it — the
+      // eviction would stop working and nothing would say so.
+      //
+      // So this uses the **synchronous** half of the same scheme: the envelope
+      // (`d`/`o`/`m`) is plain JSON and `v` is a raw-tagged string today,
+      // upgraded to gzip only where a synchronous compressor exists. The
+      // read side accepts either, so a device that wrote objects yesterday and
+      // strings today reads both.
+      //
+      // `checklistCacheFresh` tests `!e.v`, and a non-empty string is truthy,
+      // so its contract is unchanged and `logic.js` — parity-tested against
+      // Python — is not touched at all.
+      function cklWrite(sub, d, hasMedia, v) {
+        localStorage.setItem(CKL_NS + sub, JSON.stringify({
+          d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
+          m: hasMedia ? 1 : 0, v: PACK_RAW + JSON.stringify(v)
+        }));
+        // Opportunistic upgrade: once the gzip lands, rewrite the same key
+        // with the smaller payload. Failure is silent and harmless — the raw
+        // entry above is already valid and already readable.
+        packJson(v).then(function (packed) {
+          if (packed.slice(0, 2) !== PACK_Z) return;
+          try {
+            var cur = cklEntry(CKL_NS + sub);
+            // Only if OUR entry is still the one there, so a newer write is
+            // never clobbered by a slower compression of an older value.
+            if (!cur || typeof cur.v !== 'string'
+                || cur.v.slice(2) !== JSON.stringify(v)) return;
+            cur.v = packed;
+            localStorage.setItem(CKL_NS + sub, JSON.stringify(cur));
+          } catch (e) { /* the raw entry stands */ }
+        }).catch(function () {});
+      }
       function cklEntry(k) {
         try {
           var raw = localStorage.getItem(k);
@@ -14156,7 +14199,30 @@
         if (_cklView[sub]) return _cklView[sub];
         var o = cklEntry(CKL_NS + sub);
         if (BirdLogic.checklistCacheFresh(o, todayStr())) {
-          _cklView[sub] = Promise.resolve(o.v);
+          // ⚠️ F247. THE PAYLOAD IS PACKED; THE ENVELOPE IS NOT.
+          //
+          // A checklist entry measures **4.0 KB plain / 1.1 KB gzipped (3.5×)**
+          // against a ~5 MB budget, so 200 cached checklists is 0.78 MB → 0.22 MB
+          // and 400 is 1.55 → 0.45. Worth compressing.
+          //
+          // But `cklCached()` reads freshness **synchronously** to gate the fetch
+          // budget, and gzip is a stream API — so the envelope (`d`/`o`/`m`) stays
+          // plain JSON and only `v` is packed. `checklistCacheFresh` tests `!e.v`,
+          // and a non-empty packed **string** is truthy, so its contract is
+          // unchanged and `logic.js` — which is parity-tested against Python — is
+          // not touched at all.
+          //
+          // This is also the only consumer of `v` in the file, and it already
+          // assigned into a Promise, so the async unpack costs nothing structural.
+          // An older entry holding a plain object still reads: `unpackJson` is only
+          // applied to a string.
+          _cklView[sub] = (typeof o.v === 'string')
+            ? unpackJson(o.v).then(function (v) {
+                // A payload that will not decode is a MISS, not an answer (F36).
+                if (v == null) { try { localStorage.removeItem(CKL_NS + sub); } catch (e) {} }
+                return v;
+              })
+            : Promise.resolve(o.v);
           return _cklView[sub];
         }
         _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), !!bg)
@@ -14188,10 +14254,9 @@
                 for (var kk in mc) { if (mc[kk]) return true; }
                 return false;
               });
-              localStorage.setItem(CKL_NS + sub, JSON.stringify({
-                d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
-                m: hasMedia ? 1 : 0, v: v
-              }));
+              // ⚠️ PACKED PAYLOAD, PLAIN ENVELOPE (F247). One helper, so the
+              // retry below cannot drift from the first attempt.
+              cklWrite(sub, d, hasMedia, v);
               // Counted as it grows, and trimmed IN SESSION. The prune used to
               // run only at boot, so a long session accumulated without limit
               // and the chase snapshot was what failed first.
@@ -14213,10 +14278,7 @@
               // twice.
               var freed = freeCacheSpace(60);
               try {
-                localStorage.setItem(CKL_NS + sub, JSON.stringify({
-                  d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
-                  m: hasMedia ? 1 : 0, v: v
-                }));
+                cklWrite(sub, d, hasMedia, v);
               } catch (e2) {
                 try {
                   dbg('warn', 'checklist not cached after freeing ' + freed + ': '

@@ -9046,6 +9046,53 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
   app.window.close();
 });
 
+test('the checklist cache packs its payload but keeps the envelope sync (F247)', async () => {
+  // A checklist entry measures 4.0 KB plain / 1.1 KB gzipped (3.5x), so 200
+  // cached is 0.78 MB -> 0.22 MB against a ~5 MB budget.
+  //
+  // ⚠️ The property that constrains the DESIGN is not the saving: cklCached()
+  // reads freshness synchronously to gate the fetch budget, and both write
+  // sites rely on `catch` seeing the quota error to free space and retry. An
+  // async write would put that throw inside a promise where neither try block
+  // could see it — the eviction would stop working and nothing would say so.
+  const app = await boot({
+    storage: { ebird_report: 'wa' },
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) {
+        return { userDisplayName: 'Someone', comments: 'a note',
+                 obs: [{ speciesCode: 'larspa', comments: 'in the hedge' }] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, LS = app.window.localStorage;
+
+  const first = await A.checklistView('S1');
+  assert.ok(first, 'the checklist loaded');
+  assert.equal(first.comments, 'a note', 'and carries the checklist comment');
+
+  // 1. THE ENVELOPE IS PLAIN AND READABLE WITHOUT DECOMPRESSING.
+  const key = Object.keys(LS).find((k) => /ckl/i.test(k) && /S1/.test(k));
+  assert.ok(key, 'the entry was stored');
+  const env = JSON.parse(LS.getItem(key));
+  assert.ok(env.d, 'the envelope keeps its date, readable synchronously');
+  assert.equal(typeof env.v, 'string',
+    'the PAYLOAD is a packed string, not an object graph');
+  assert.match(env.v, /^[zj]:/, 'and carries a format tag');
+
+  // 2. ⚠️ `checklistCacheFresh` tests `!e.v`. A non-empty packed string must
+  //    stay truthy, or every cached checklist silently reads as stale and the
+  //    cache does nothing while appearing to work.
+  assert.equal(app.window.BirdLogic.checklistCacheFresh(env, A.todayStr()), true,
+    'a packed entry still reads as FRESH — logic.js is untouched');
+
+  // 3. ROUND TRIP through the real read path, from cache only.
+  A.resetChecklistMemo && A.resetChecklistMemo();
+  const again = await A.checklistView('S1');
+  assert.deepEqual(again, first, 'the packed payload reads back identically');
+  app.window.close();
+});
+
 test('the compressed cache round-trips, and small values stay raw (F247)', async () => {
   // The gzip interface replaced three hand-wired callers, one of which stored
   // the string "[object Promise]" and read it back through a Promise — so
