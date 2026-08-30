@@ -9046,6 +9046,64 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
   app.window.close();
 });
 
+test('the hotspot scan reuses cached day lists and pays nothing (F253)', async () => {
+  // The county `recent` feed keeps ONE observation per species, so a site full
+  // of common birds vanishes however often it is birded — Stillwater Unit has
+  // 192 all-time species, is birded regularly, and contributes ZERO rows.
+  //
+  // MEASURED: one 30-day collapsed feed yields 55 distinct locations; seven
+  // daily historic lists yield 214. Nemesis birds already fetches and caches
+  // thirty of those, so reading them here costs no eBird call.
+  let calls = 0;
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+    fetch(url) {
+      if (/api\.ebird\.org/.test(url)) calls++;
+      // The collapsed feed knows ONE hotspot...
+      if (/\/recent\?back=30.*hotspot=true/.test(url)) {
+        return [{ locId: 'LBUSY', speciesCode: 'sp1', comName: 'A',
+                  lat: 47.7, lng: -122.2, obsDt: '2026-08-28 08:00' }];
+      }
+      if (/ref\/hotspot\/US-WA-\d+/.test(url)) {
+        return [{ locId: 'LBUSY', locName: 'Busy Park', lat: 47.7, lng: -122.2,
+                  numSpeciesAllTime: 150, latestObsDt: '2026-08-28 08:00' },
+                { locId: 'LQUIET', locName: 'Stillwater-like Unit',
+                  lat: 47.72, lng: -122.18, numSpeciesAllTime: 192,
+                  latestObsDt: '2026-08-28 08:00' }];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+
+  // ...and the CACHED day list knows the one the collapse erased.
+  // ⚠️ YESTERDAY, not today: 	odDates walks back from the previous day, so a
+  // key built for today is one the scan never asks for and the guard would
+  // have proved nothing.
+  const key = A.easyCacheKey('US-WA-033', new Date(Date.now() - 86400000));
+  await A.zcPut(key, A.easyCompact([
+    { speciesCode: 'sp2', comName: 'B', locId: 'LQUIET',
+      locName: 'Stillwater-like Unit', lat: 47.72, lng: -122.18,
+      obsDt: '2026-08-28 07:00', subId: 'S9' },
+  ]));
+
+  const before = calls;
+  const cached = await A.hotspotCachedDays(['US-WA-033']);
+  assert.equal(calls, before,
+    'reading the day-list cache made an eBird call — this path must be free');
+  assert.ok(cached.some((r) => r.locId === 'LQUIET'),
+    'the cached day list yielded the location the collapsed feed cannot see');
+
+  // And the merge reaches the scan: LQUIET must survive into the feed pair.
+  const [recent] = await A.hotspotFeeds(['US-WA-033']);
+  const ids = new Set(recent.map((r) => r.locId));
+  assert.ok(ids.has('LBUSY'), 'the collapsed feed is still merged in, not replaced');
+  assert.ok(ids.has('LQUIET'),
+    'the cached day list is merged into the hotspot scan — without it a site '
+      + 'of common birds stays invisible however often it is birded');
+  app.window.close();
+});
+
 test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
   // Owner, 2026-08-29: "very few hotspots are showing up... I frequently get
   // hotspots to the north and south and west, but not much to the east."

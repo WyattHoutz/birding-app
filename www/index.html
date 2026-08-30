@@ -18917,6 +18917,67 @@
       // western ones on one score — see F252.
       var HOT_MIN_FRESH = 5, HOTSPOT_MAX_DIST_MI = 45, COLD_MIN_ALLTIME = 100, COLD_SILENT_CAP_DAYS = 30;
       var COLD_SKIP_RE = /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
+      // ⚠️ F253. THE COLLAPSED FEED CANNOT SEE A SITE FULL OF COMMON BIRDS.
+      //
+      // `data/obs/{county}/recent` returns ONE observation per species — the
+      // most recent county-wide (F9). A hotspot is therefore visible here only
+      // if it holds the freshest report of *something*, so a rich site whose
+      // birds are all also reported somewhere busier **vanishes entirely,
+      // however often it is birded**.
+      //
+      // Proved, not inferred: Snoqualmie Wildlife Area–Stillwater Unit has
+      // **192 all-time species** and a `latestObsDt` days old, the owner birds
+      // it regularly (*"i frequently go to stillwater"*), and it contributes
+      // **zero rows** to this feed.
+      //
+      // MEASURED on US-WA-033: one 30-day collapsed feed yields **55 distinct
+      // locations**; **seven** daily historic lists yield **214** — 3.9×,
+      // because the collapse is applied PER DAY there instead of once over the
+      // whole window, so a site gets 30 chances to hold the freshest report of
+      // something instead of one.
+      //
+      // ⚠️ AND THE DAY LISTS ARE ALREADY IN THE CACHE. Nemesis birds fetches
+      // thirty of them per county and stores them under `easymiss_v1:`
+      // (gzipped to 0.27 MB by F247). Reading them here costs **no eBird
+      // call**, which is the only kind of improvement worth having while the
+      // rate limiter is the bottleneck (F247).
+      //
+      // ⚠️ MERGED, NOT SUBSTITUTED, and that is deliberate. With a full
+      // 30-day cache the day lists ought to be a superset — but "ought to" is
+      // not a measurement, and a 7-day sample showed **19 locations the
+      // collapsed feed had and the sample did not** (simply older). Dropping
+      // the two calls would trade a proven gain for an unproven equivalence.
+      // The merge is strictly additive: same calls, ~4× the locations, and
+      // nothing can be lost. Deleting the calls is a later change that the
+      // app can measure for itself once this has run.
+      //
+      // Duplicates are free: `computeHotspots` accumulates
+      // `freshPerLoc[locId][speciesCode]` as a SET.
+      function hotspotCachedDays(codes) {
+        var dates = todDates(EASY_MISS_DAYS);
+        var jobs = [];
+        codes.forEach(function (c) {
+          dates.forEach(function (d) { jobs.push(easyCacheKey(c, d)); });
+        });
+        // ⚠️ zcGet ONLY — never a fetch. This path must stay free; a cache
+        // miss here means Nemesis birds has not been opened yet, and the
+        // collapsed feed below still answers.
+        return Promise.all(jobs.map(function (k) {
+          return zcGet(k).catch(function () { return null; });
+        })).then(function (hits) {
+          var out = [], days = 0;
+          hits.forEach(function (h) {
+            if (!Array.isArray(h) || !h.length) return;
+            days++;
+            out.push.apply(out, easyExpand(h));
+          });
+          if (days) {
+            dbg('net', 'hotspot scan: ' + days + ' cached day-lists reused ('
+              + out.length + ' rows, 0 calls)');
+          }
+          return out;
+        }).catch(function () { return []; });
+      }
       function hotspotFeeds(codes) {
         // Per-county recent-at-hotspots + hotspot metadata, merged — matches the
         // report's county scope (report._load_county_hotspots per county). locIds
@@ -18932,7 +18993,13 @@
             if (Array.isArray(pair[0])) recent.push.apply(recent, pair[0]);
             if (Array.isArray(pair[1])) meta.push.apply(meta, pair[1]);
           });
-          return [recent, meta];
+          return hotspotCachedDays(codes).then(function (extra) {
+            // The day lists carry personal locations as well as hotspots;
+            // those simply never match `meta` and drop out, so no filter is
+            // needed here.
+            if (extra.length) recent = recent.concat(extra);
+            return [recent, meta];
+          });
         });
       }
       function computeHotspots(recent, meta, home, anchors) {
@@ -25888,6 +25955,8 @@
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
+        hotspotFeeds: hotspotFeeds, hotspotCachedDays: hotspotCachedDays,
+        easyCacheKey: easyCacheKey, easyCompact: easyCompact, zcPut: zcPut, zcGet: zcGet,
         renderHot: renderHot, renderCold: renderCold, showSection: showSection,
         auditOverflow: auditOverflow,
         dragSnapshot: dragSnapshot, dragExtremes: dragExtremes,
