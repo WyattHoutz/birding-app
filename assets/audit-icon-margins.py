@@ -54,16 +54,58 @@ REPORTED = {
 TIGHT = S.EDGE_MARGIN
 
 
+def _choose(n, k):
+    """Binomial coefficient, so the control can score its own power without
+    pulling in a dependency this repo does not otherwise need."""
+    if k < 0 or k > n:
+        return 0
+    out = 1
+    for i in range(k):
+        out = out * (n - i) // (i + 1)
+    return out
+
+
 def measure(path):
     with Image.open(path) as im:
         im = im.convert("RGB")
         w, h = im.size
         a = S.analyse(im)
     x0, y0, x1, y1 = a["box"]
+    left, top, right, bottom = x0, y0, 1.0 - x1, 1.0 - y1
+    # ⚠️ F250. THE HEAD END, not the minimum of four edges.
+    #
+    # `min(L,T,R,B)` flagged **1,208 of 1,289 icons (93.7%)** — and then
+    # reported "flags 6 of 6 known-bad" as if that were validation. It is not:
+    # at a 93.7% flag rate the chance of catching 6 of 6 **by accident is
+    # 0.677**. The control was 68% likely to look perfect on a check with no
+    # power at all, which is F244's lesson in a new place.
+    #
+    # The reason it flagged everything is that it contradicts the crop's own
+    # design. F190 states plainly that `baleag`, `brncre` and `killde` sit at
+    # 0.000 *"but all three were reported as TAIL cuts, which this rule
+    # deliberately permits"* — the owner's rule being **"better trim tail than
+    # head"**. So the audit was measuring the tail end and calling a deliberate
+    # decision a defect.
+    #
+    # MEASURED across all 1,289: scoring the HEAD end instead flags **492
+    # (38.2%)** and still catches **5 of 6**, for which the by-chance
+    # probability is **0.033**. Weak evidence, but real evidence — against
+    # none at all.
+    #
+    # The head end is the frame side the head ANCHOR is nearest to, which is
+    # exactly the direction F190's HEAD_PAD protects.
+    hx, hy = a["head"]
+    head_side, head_clear = min(
+        (("left", left), hx),
+        (("right", right), 1.0 - hx),
+        (("top", top), hy),
+        (("bottom", bottom), 1.0 - hy),
+        key=lambda t: t[1])[0]
     return {
         "w": w, "h": h,
-        "left": x0, "top": y0,
-        "right": 1.0 - x1, "bottom": 1.0 - y1,
+        "left": left, "top": top,
+        "right": right, "bottom": bottom,
+        "head_side": head_side, "head_clear": head_clear,
         "rival": a.get("rival", 0.0),
     }
 
@@ -84,10 +126,10 @@ def main(argv):
         except Exception as e:  # noqa: BLE001
             errs.append((code, str(e)[:60]))
             continue
-        worst = min(m["left"], m["top"], m["right"], m["bottom"])
-        which = min(("left", m["left"]), ("top", m["top"]),
-                    ("right", m["right"]), ("bottom", m["bottom"]),
-                    key=lambda t: t[1])[0]
+        # Scored on the HEAD END. min of four edges scored the tail too,
+        # which the crop deliberately trims (F190), so it flagged 93.7%.
+        worst = m["head_clear"]
+        which = m["head_side"]
         rows.append((code, worst, which, m))
 
     rows.sort(key=lambda r: r[1])
@@ -111,6 +153,24 @@ def main(argv):
             hit += 1
         print(f"  {code:8} {mark}  worst {r[1]:.3f} at {r[2]:<6}  ({why})")
     print(f"  -> the audit flags {hit} of {len(REPORTED)} known-bad icons")
+    # ⚠️ AND HOW LIKELY THAT IS BY ACCIDENT. A control that reports only its
+    # hit count cannot tell you whether it has any power: the previous version
+    # of this audit flagged **93.7% of all 1,289 icons** and caught 6 of 6,
+    # which sounds like vindication and has a **0.677** probability of
+    # happening at random. It was measuring nothing and saying so confidently.
+    #
+    # Printing the by-chance probability makes that impossible to miss, and it
+    # is the same rule as F244's: a control must be scored against a property
+    # the thing under test cannot trivially satisfy.
+    rate = len(flagged) / max(1, len(rows))
+    n_rep = sum(1 for c in REPORTED if any(x[0] == c for x in rows))
+    p = sum(_choose(n_rep, i) * rate ** i * (1 - rate) ** (n_rep - i)
+            for i in range(hit, n_rep + 1))
+    verdict = ("NO POWER - it would look this good by accident" if p > 0.25
+               else "weak but real evidence" if p > 0.01
+               else "strong evidence")
+    print(f"  -> at a {100.0*rate:.1f}% flag rate that happens by chance with "
+          f"p = {p:.3f}  ({verdict})")
     print()
 
     print("WORST 40 BY CLEARANCE:")
