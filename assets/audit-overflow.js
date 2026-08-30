@@ -32,6 +32,35 @@ const SCALE = process.argv[3] || '1';
 // in the sweep from the first commit rather than after something clips.
 const EASY = String(process.argv[4] || '') === 'easyread';
 
+// F245. LABELS WHOSE MID-WORD BREAK IS ACCEPTED, AND WHY.
+//
+// ⚠️ This is a DEBT LIST, not a permission slip. Every entry is a tile label
+// that splits in the middle of a word at 393px — iPhone 14/15 Pro width, and
+// one of the six this sweep already walks. They are accepted because the owner
+// deferred the only real fix: "dont change button wrapping now. or sizes"
+// (F237). Detection is not a wrapping change, so it ships; the cure does not.
+//
+// MEASURED 2026-08-29 at 393px / scale 1, where the label column is 62.8px —
+// NOT the 67.3px figure this project has been quoting, which is the 402px
+// column. That mistake is why these five went unnoticed: candidates were being
+// measured against a column 4.5px wider than the binding one.
+//
+//     Twitches today / this week   "Twitches" 64.7px   short by 1.9px
+//     Stakeout bird                "Stakeout" 66.3px   short by 3.5px
+//     Nemesis birds                "Nemesis"  64.1px   short by 1.3px
+//     Convoys                      "Convoys"  64.1px   short by 1.3px
+//
+// ANY OTHER label that splits mid-word FAILS the sweep. The point is to stop
+// the set growing while the fix is deferred — and this list should SHRINK to
+// empty when F237 is taken up, not be added to.
+const MIDWORD_KNOWN = [
+  'Twitches today',
+  'Twitches this week',
+  'Stakeout bird',
+  'Nemesis birds',
+  'Convoys',
+];
+
 // Windows dev box and Linux CI runner both have to find a browser. CHROME_BIN
 // wins so a runner can point at whatever it actually installed.
 const CHROME = [
@@ -204,6 +233,7 @@ const AUDIT = `<script>
     // line boxes: a break is mid-word when a line ends on a non-space and the
     // next begins on one.
     var crushed = [];
+    var midword = [];
     var tl = document.querySelectorAll('.tilelabel');
     for (var c = 0; c < tl.length; c++) {
       var cel = tl[c];
@@ -228,6 +258,26 @@ const AUDIT = `<script>
       if (rows.length > words + 1) {
         crushed.push({ sel: chain(cel), lines: rows.length, words: words,
                        saw: rows.slice(0, 4).map(function (x) { return x.s; }).join('|'),
+                       w: +cel.getBoundingClientRect().width.toFixed(1) });
+      }
+      // F245. A SINGLE mid-word break, which \`crushed\` above cannot see BY
+      // CONSTRUCTION: one word split once is two lines for two words, which is
+      // under its words+1 bar. That blind spot is why F232, F235 and F237 were
+      // all reported from the device rather than caught here.
+      //
+      // Same line boxes, one extra test: a break is mid-word when a line ends
+      // on a non-space AND the next begins on one. A hyphen is NOT counted —
+      // "Under-birded" breaking at its hyphen is correct typography.
+      var splitAt = null;
+      for (var r2 = 0; r2 + 1 < rows.length; r2++) {
+        if (/[^\\s-]$/.test(rows[r2].s) && /^\\S/.test(rows[r2 + 1].s)) {
+          splitAt = rows[r2].s.trim() + ' | ' + rows[r2 + 1].s.trim();
+          break;
+        }
+      }
+      if (splitAt) {
+        midword.push({ sel: chain(cel), broke: splitAt,
+                       text: (cel.textContent || '').replace(/\\s+/g, ' ').trim(),
                        w: +cel.getBoundingClientRect().width.toFixed(1) });
       }
     }
@@ -290,6 +340,7 @@ const AUDIT = `<script>
     return {
       label: label, vw: vw, n: all.length,
       crushed: crushed.slice(0, 8),
+      midword: midword.slice(0, 12),
       clipped: clipped.slice(0, 8),
       maxRight: +maxRight.toFixed(1),
       text: vis ? (vis.textContent || '').replace(/\\s+/g, ' ').trim().length : -1,
@@ -540,6 +591,14 @@ server.listen(0, '127.0.0.1', () => {
             + '  "' + it.saw + '"  ' + it.sel);
         });
       }
+      // F245. A label split in the middle of a word. Reported ALWAYS, but only
+      // FATAL for a label that is not on the accepted list — see MIDWORD_KNOWN.
+      (r.midword || []).forEach(function (it) {
+        var known = MIDWORD_KNOWN.indexOf(it.text) >= 0;
+        if (!known) bad++;
+        console.log('   ' + (known ? 'mid-word (known)  ' : 'MID-WORD BREAK    ')
+          + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px');
+      });
       var tiny = r.small || [];
       if (tiny.length) {
         bad++;
