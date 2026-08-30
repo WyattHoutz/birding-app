@@ -2114,7 +2114,7 @@ test('the Go birding anchor now covers six sections, and rank from it', async ()
   // common misses" — six sections in all now offer Here / Home / Find…
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
   assert.equal(rows.length, 5,
-    'Today\u2019s patches, Day-trip patches, Closest unseen birds, Near misses '
+    'Today\u2019s patches, Day-trip patches, Closest patches, Near misses '
     + 'and Nemesis birds each carry the switch');
   for (const r of rows) {
     const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
@@ -4236,12 +4236,17 @@ test('no menu tile is named the same thing as another tile, label or sub-line', 
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
   // F233 follow-up, reported: "closest unseen bird should not have changed."
-  // It had not — `targetsBtn` is still `📍 Closest unseen birds`. What changed
-  // was Near misses' SUB-LINE, which I set to that same phrase while renaming
-  // the tile above it. Nothing broke and every other guard passed, because a
-  // duplicate NAME is not a duplicate ID: the menu simply had two entries
-  // reading "Closest unseen birds", in a feature whose whole point was making
-  // one of them findable.
+  // It had not — `targetsBtn` was still `📍 Closest unseen birds` at the time.
+  // What changed was Near misses' SUB-LINE, which I set to that same phrase
+  // while renaming the tile above it. Nothing broke and every other guard
+  // passed, because a duplicate NAME is not a duplicate ID: the menu simply
+  // had two entries reading "Closest unseen birds", in a feature whose whole
+  // point was making one of them findable.
+  //
+  // ⚠️ That tile is called `📍 Closest patches` now (F243, because it answers
+  // with PLACES and its old name promised birds). The history above is left as
+  // it was written: it records the collision that prompted this guard, and
+  // rewriting it to the new name would make the reported quote unfindable.
   //
   // Asserted as the property rather than as a banned string: any future rename
   // that lands on a name already in use fails here, whatever the words are.
@@ -10570,7 +10575,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Today', 'Day-trip patches', 'Find local patches',
-                      'Closest unseen birds', 'Stakeout bird', 'Stake out a hotspot',
+                      'Closest patches', 'Stakeout bird', 'Stake out a hotspot',
                       'Iconic spots near me',
                       'Hot patches', 'Cold patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
@@ -18770,7 +18775,7 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
   const A = app.window.__app;
   A.setCountyView('US-WA-033');
 
-  app.open(/Closest unseen birds/);
+  app.open(/Closest patches/);
   await new Promise((r) => setTimeout(r, 40));
   const chip = app.window.document.querySelector('#sec-targetsBtn .secscope, .secscope');
   assert.ok(chip, 'a section that reads the chase cache carries the chip');
@@ -18792,7 +18797,7 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
   // Clearing it takes the chip away again - a notice that outlives its cause
   // is worse than none.
   A.setCountyView('');
-  app.open(/Closest unseen birds/);
+  app.open(/Closest patches/);
   await new Promise((r) => setTimeout(r, 40));
   assert.ok(!app.window.document.querySelector('.secscope'),
     'no county view, no chip');

@@ -1891,7 +1891,7 @@
     </section>
 
     <section class="panel">
-      <h2>📍 Closest unseen birds <span class="dim" id="targetRegionLabel"></span></h2>
+      <h2>📍 Closest patches <span class="dim" id="targetRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="targetsBtn">Load targets</button>
@@ -1906,7 +1906,7 @@
       <div class="row modeswitch" data-modes="unseen" data-current="sec-allUnseenBtn"></div>
       <!-- F241. Owner: "add the control for find/here/home to the near
            misses and common misses." Same switch, same three chips, as
-           Today's patches / Day-trip patches / Closest unseen birds — Find
+           Today's patches / Day-trip patches / Closest patches — Find
            is what links this section to the scouted-place bird list
            (renderScout), which now renders HERE rather than wherever the
            reader happened to have open. -->
@@ -2713,7 +2713,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.52.0';
+      var APP_VERSION = '1.53.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -7690,11 +7690,13 @@
                       // `_group` names the ERRAND ("Patches - Go birding" vs
                       // "Stakeouts - Birding tools"), and every section in the
                       // Patches errand really is a hotspot ranking — including
-                      // Closest unseen birds, whose own NAME is being corrected
-                      // for the same reason (F242: "it is a list of hotspots").
-                      // So this needs no per-section exception list: derive it
-                      // from the group, and a future patches section inherits
-                      // the rule instead of a maintainer having to remember it.
+                      // 📍 Closest patches, which was called "Closest unseen
+                      // birds" until F243 corrected it for exactly this reason
+                      // ("it is a list of hotspots"). That rename is what
+                      // removed the one exception this rule would have needed.
+                      // So no per-section exception list: derive it from the
+                      // group, and a future patches section inherits the rule
+                      // instead of a maintainer having to remember it.
                       birds: !/^Patches/.test(open._group || '') };
         hosts.host.innerHTML = '';
         var run = ++_scoutRun;
@@ -21571,7 +21573,7 @@
         destBtn:       'Top hotspots to visit',
         excBtn:        'Top excursion hotspots',
         quickBtn:      'Local hotspots',
-        targetsBtn:    'Nearest to a bird you need',
+        targetsBtn:    'Nearest place with a bird you need',
         spLookupBtn:   'Where to wait for it',
         iconicBtn:     'Hotspot specialities',
         stakeHsBtn:    'Everything about one place',
@@ -21612,7 +21614,7 @@
         { at: 'excBtn',        label: '🚗 Day-trip patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'targetsBtn',    label: '📍 Closest unseen birds', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'targetsBtn',    label: '📍 Closest patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'iconicBtn',     label: '⭐ Iconic spots near me', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },

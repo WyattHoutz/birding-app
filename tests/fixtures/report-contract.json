@@ -86,10 +86,10 @@
     },
     {
       "at": "targetsBtn",
-      "label": "📍 Closest unseen birds",
-      "report": "## 📍 Closest unseen birds — Nearest to a bird you need",
+      "label": "📍 Closest patches",
+      "report": "## 📍 Closest patches — Nearest place with a bird you need",
       "map": "closeMap",
-      "sub": "Nearest to a bird you need"
+      "sub": "Nearest place with a bird you need"
     },
     {
       "at": "spLookupBtn",

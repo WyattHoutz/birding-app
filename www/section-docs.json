@@ -249,7 +249,7 @@
       ]
     },
     "targetsBtn": {
-      "report": "## 📍 Closest unseen birds — Nearest to a bird you need",
+      "report": "## 📍 Closest patches — Nearest place with a bird you need",
       "summary": "The nearest place holding a bird you still need.",
       "inputs": [
         "/data/obs/{county}/recent for each county in the report",
