@@ -501,6 +501,19 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hdrid .hdrstat { display: block; font-size: .8rem; opacity: .9;
       white-space: nowrap; }
+    /* F256. The rank is a control, so it must be TAPPABLE — and the layout
+       audit enforces 44px on every tap target. The button is visually the
+       same size as the text beside it and gets its 44px from an invisible
+       `::after` overlay, so the header does not grow to accommodate a hit
+       box. Underlined, not merely coloured: on a green bar a colour shift is
+       the one signal this reader cannot use. */
+    .hdrid .hdrrank { -webkit-appearance: none; appearance: none; background: none;
+      border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
+      text-decoration: underline; text-underline-offset: 2px;
+      cursor: pointer; position: relative; }
+    .hdrid .hdrrank::after { content: ''; position: absolute; left: 50%; top: 50%;
+             transform: translate(-50%, -50%);
+             min-width: 44px; min-height: 44px; }
     @media (max-width: 359px) { .hdrid { display: none; } }
     html[data-a11y="on"] .hdrid { display: none; }
     /* F200. The scope CODE in the top bar — US-WA, or US-WA-033 when a county
@@ -2785,7 +2798,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.56.0';
+      var APP_VERSION = '1.57.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -11649,14 +11662,29 @@
             return Promise.resolve(c.rows);
           }
         } catch (e) {}
-        return ebird('product/spplist/' + encodeURIComponent(region)).then(function (codes) {
+        // ⚠️ F256. THE BACKGROUND LANE, because this is REFERENCE data and it was
+  // outranking the content the reader is waiting for.
+  //
+  // Measured from the device log of 2026-08-30: opening Bird gen issued
+  // `product/spplist/US-WA` and then **six** `ref/taxonomy` batches (~600
+  // species). Those drained the token bucket, and the FIRST content feed of
+  // the wave then reported `done 52094ms (51942ms queued + 152ms net)` —
+  // **52 seconds of queueing for 152 ms of network**. Phase 2 took 188 s.
+  // Owner: *"the bird buzz needs to display data as soon as its available"*.
+  //
+  // Nothing here is a sighting: a region's species list moves with taxonomy,
+  // once a year, and it is already cached for a WEEK under `bc_ref:`. So it
+  // belongs on the lane that yields to anything the reader is actually
+  // waiting for. **A cache-warming call must never outrank a content call**
+  // — the same reasoning `ebirdBg` exists for.
+  return ebird('product/spplist/' + encodeURIComponent(region), true).then(function (codes) {
           var all = (codes || []).filter(Boolean);
           if (!all.length) return [];
           var chunks = [];
           for (var i = 0; i < all.length; i += SPECIES_CHUNK) chunks.push(all.slice(i, i + SPECIES_CHUNK));
           var rows = [];
           return pool(chunks, 3, function (ch) {
-            return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')))
+            return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')), true)
               .then(function (list) {
                 (list || []).forEach(function (t) {
                   // bandingCodes/comNameCodes were being thrown away. eBird sends
@@ -15837,6 +15865,22 @@
             }
             data.url = urls[i];
             rankCachePut(ck, data);
+            // ⚠️ F256. REPAINT THE HEADER, or the rank never appears today.
+            //
+            // Reported from the device: *"my regional rank is gone from the
+            // main menu"* — and it was, structurally, on the FIRST run of any
+            // day. `cachedRankMe()` only accepts an entry whose `date` is
+            // **today**, so at boot it returns null and the header renders
+            // "<your name> / 209sp" with no rank. `renderMenuIdentity()` then
+            // had exactly ONE caller and this was not it, so when the rank did
+            // arrive nothing repainted — the header stayed rankless for the
+            // whole session however many times you opened Top 100.
+            //
+            // ⚠️ NOT a regression from F246's header compaction, which is what
+            // it looked like: that change only shortened the words. The cause
+            // is a per-day cache read once at boot, and it has been there since
+            // the header was given these three facts (F195b).
+            try { renderMenuIdentity(); } catch (e) { /* the board still renders */ }
             return data;
           }).catch(function (e) {
             lastErr = e;
@@ -23359,13 +23403,25 @@
           var of = null;
           try { of = cachedEbirderCount(getRegion()); } catch (e) { of = null; }
           // F246, owner 2026-08-29: "the headee is getting crowded and
-          // wrapping weird. try: #186/14,716 206sp". The word "Rank" is
-          // carried by the # sign, and "Birds" by "sp" — both were spending
-          // width on the two-line wrap he photographed, in the one element
-          // that has to share a row with the app name and the region pill.
-          // ⚠️ The ABBREVIATION is the display; the aria-label below still
-          // says the whole sentence, because "206sp" read aloud is noise.
-          bits.push('#' + rankNum(me.rank) + (of ? '/' + rankNum(of) : ''));
+          // wrapping weird. try: #186/14,716 206sp".
+          //
+          // ⚠️ F256, owner 2026-08-30: *"it can just say #179 213sp to save
+          // space"* — the denominator goes too.
+          //
+          // ⚠️ THIS REVERSES F200, DELIBERATELY AND BY THE OWNER. That entry
+          // changed "#180 - 209" INTO "Rank #180/Total - 209 Birds" on the
+          // reasoning that *"a rank with no denominator is not a standing — it
+          // is a number"*. That argument is sound and it lost to a different
+          // one: the header is a **glance**, it shares a row with the app name
+          // and the region pill, and it was wrapping. Do not "fix" this back
+          // to the F200 form without asking — it is not drift, it is a
+          // decision, and the reasoning on both sides is recorded here.
+          //
+          // ⚠️ The DENOMINATOR IS NOT LOST, only unprinted: the aria-label
+          // below still says "ranked 179 of 14,716 eBirders in Washington",
+          // which costs no width at all. A screen-reader user gets the
+          // standing; a sighted user gets the glance.
+          bits.push('#' + rankNum(me.rank));
           said.push('ranked ' + rankNum(me.rank)
                     + (of ? ' of ' + rankNum(of) + ' eBirders' : '')
                     + ' in ' + rankRegionName(getRegion()));
@@ -23381,14 +23437,42 @@
           return;
         }
         el.hidden = false;
+        // ⚠️ F256. THE RANK IS A REAL BUTTON, not a styled span.
+        //
+        // Owner: *"clicking on rank at upper right can jump to the top 100
+        // menu."* It is a control, so it is a `<button>` — the same reasoning
+        // F200 applied to the scope chip beside it: an unnamed or unfocusable
+        // control is a confusing one (F189), and a `<span>` with a click
+        // handler is reachable by neither keyboard nor screen reader.
+        //
+        // ⚠️ ONLY the rank is tappable, not the whole block. The name and the
+        // species count are FACTS, and wrapping them in a button would promise
+        // that tapping your own name does something. The species count sits
+        // outside it deliberately.
+        var rankBit = (me && me.rank != null) ? '#' + rankNum(me.rank) : '';
+        var rest = bits.filter(function (b) { return b !== rankBit; });
         el.innerHTML =
           (shown ? '<span class="hdrname">' + esc(shown) + '</span>' : '')
           + (bits.length
-              ? '<span class="hdrstat">' + esc(bits.join(' ')) + '</span>'
+              ? '<span class="hdrstat">'
+                + (rankBit
+                    ? '<button type="button" id="hdrRankJump" class="hdrrank"'
+                      + ' aria-label="' + esc(said[0] || 'your rank')
+                      + ' — open Top 100">' + esc(rankBit) + '</button>'
+                      + (rest.length ? ' ' : '')
+                    : '')
+                + esc(rest.join(' ')) + '</span>'
               : '');
         // The short form is an abbreviation; the label is the sentence.
         el.setAttribute('aria-label',
           (shown ? shown + ', ' : '') + said.join(', '));
+        var jump = $('hdrRankJump');
+        if (jump) {
+          jump.addEventListener('click', function (ev) {
+            ev.preventDefault(); ev.stopPropagation();
+            try { showSection('sec-rankBtn'); } catch (e) {}
+          });
+        }
       }
 
       // F200. The scope CODE in the top bar — `US-WA`, or `US-WA-033` when

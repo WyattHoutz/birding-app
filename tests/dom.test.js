@@ -9046,6 +9046,47 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
   app.window.close();
 });
 
+test('the header rank repaints when the rank arrives, and jumps to Top 100 (F256)', async () => {
+  // Device report: "my regional rank is gone from the main menu."
+  //
+  // ⚠️ It was, STRUCTURALLY, on the first run of any day. `cachedRankMe()`
+  // only accepts an entry dated TODAY, so at boot it returns null and the
+  // header renders without a rank — and `renderMenuIdentity()` had exactly one
+  // caller, which was not the rank fetch. So when the rank did arrive nothing
+  // repainted and the header stayed rankless for the whole session.
+  //
+  // ⚠️ NOT a regression from F246's header compaction, which only shortened
+  // the words. Asserted on the SOURCE because the repaint is a wiring fact:
+  // the fetch must call the renderer.
+  // ⚠️ Pinned to the CALL STATEMENT, not the name. A first version used
+  // `rankCachePut[\s\S]{0,900}?renderMenuIdentity\(\)` and COULD NOT FAIL:
+  // deleting the call still left the name in the comment above it, well
+  // inside a 900-character window. That is the third character-distance trap
+  // this session — a guard bounded by a distance is bounded by nothing.
+  assert.match(HTML, /rankCachePut\(ck, data\);/, 'the rank is still cached');
+  assert.match(HTML, /try \{ renderMenuIdentity\(\); \} catch/,
+    'a fetched rank does not repaint the header — it will not appear until the '
+      + 'next boot, which is the whole defect');
+
+  // The rank is a CONTROL, so it must be a real button: a <span> with a click
+  // handler is reachable by neither keyboard nor screen reader (F189).
+  assert.match(HTML, /id="hdrRankJump" class="hdrrank"/,
+    'the rank is a real <button>, not a styled span');
+  assert.match(HTML, /hdrRankJump[\s\S]{0,400}?showSection\('sec-rankBtn'\)/,
+    'tapping the rank opens Top 100');
+  // ⚠️ 44px tap target, which the layout audit enforces — taken from an
+  // invisible ::after overlay so the header does not grow to fit a hit box.
+  const rule = /\.hdrid \.hdrrank::after \{[^}]*\}/.exec(HTML);
+  assert.ok(rule, 'the rank button declares a tap-target overlay');
+  assert.match(rule[0], /min-width: 44px/, 'and it is at least 44px wide');
+  assert.match(rule[0], /min-height: 44px/, 'and at least 44px tall');
+  // Underlined, not merely coloured: on a green bar a colour shift alone is
+  // the one signal this reader cannot use.
+  const btn = /\.hdrid \.hdrrank \{[^}]*\}/.exec(HTML);
+  assert.ok(btn && /text-decoration: underline/.test(btn[0]),
+    'the control is marked by more than colour');
+});
+
 test('the checklist cache packs its payload but keeps the envelope sync (F247)', async () => {
   // A checklist entry measures 4.0 KB plain / 1.1 KB gzipped (3.5x), so 200
   // cached is 0.78 MB -> 0.22 MB against a ~5 MB budget.
