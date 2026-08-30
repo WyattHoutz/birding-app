@@ -278,7 +278,22 @@ const AUDIT = `<script>
       if (splitAt) {
         midword.push({ sel: chain(cel), broke: splitAt,
                        text: (cel.textContent || '').replace(/\\s+/g, ' ').trim(),
-                       w: +cel.getBoundingClientRect().width.toFixed(1) });
+                       w: +cel.getBoundingClientRect().width.toFixed(1),
+                       // F251. The audit says these break mid-word; a 393px
+                       // render of the same menu and the owner's device photo
+                       // both show clean wrapping. Three numbers settle which
+                       // page each is looking at: the label's own box, its
+                       // parent's box, and the computed font size. If they
+                       // disagree with the render, the audit is measuring a
+                       // state no reader ever sees.
+                       fs: +parseFloat(getComputedStyle(cel).fontSize).toFixed(1),
+                       pw: cel.parentElement
+                         ? +cel.parentElement.getBoundingClientRect().width.toFixed(1) : -1,
+                       liw: cel.closest && cel.closest('li')
+                         ? +cel.closest('li').getBoundingClientRect().width.toFixed(1) : -1,
+                       lines: rows.length,
+                       ww: getComputedStyle(cel).wordBreak + '/'
+                         + getComputedStyle(cel).overflowWrap });
       }
     }
     // F232. Text CLIPPED on the left, which no overflow check can see by
@@ -607,6 +622,8 @@ server.listen(0, '127.0.0.1', () => {
         // finding you cannot act on.
         console.log('   ' + (known ? 'mid-word (known)  ' : 'MID-WORD BREAK    ')
           + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px'
+          + '\n        label ' + it.w + 'px  parent ' + it.pw + 'px  li ' + it.liw
+          + 'px  font ' + it.fs + 'px  lines ' + it.lines + '  ' + it.ww
           + '\n        at ' + it.sel);
       });
       var tiny = r.small || [];
