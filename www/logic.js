@@ -59,6 +59,19 @@
     // would have dropped it. eBird's own dist= is a straight-line radius too.
     CHASE_MAX_MI: 35,
     CLUSTER_RADIUS_M: 250,  // report._cluster_by_proximity radius_m
+    // F257. analyze.NV_WEIGHT. A needs-verification bird is one you have very
+    // likely already seen but have not formally confirmed, so it is subtracted
+    // from `seen` and resurfaces as a target — but it must count for LESS than
+    // a genuine need in every "go here" ranking, or one unconfirmed bird can
+    // anchor a long drive on its own (the Stanwood over-anchoring bug).
+    //
+    // ⚠️ The app carried NO weight at all until v1.59.0, so it ranked a bird
+    // you half-saw exactly like one you have never seen, while the Markdown
+    // report ranked it at a quarter. The comment on scoreCluster explained the
+    // omission with *"app has no watchlist"* — TRUE WHEN WRITTEN, and false
+    // from v1.0.23 onward, when the watchlist and its editor shipped. The
+    // reason expired and the comment preserved it as settled.
+    NV_WEIGHT: 0.25,
     STAKEOUT_MIN_CHECKLISTS: 3,  // report.STAKEOUT_MIN_CHECKLISTS
     STAKEOUT_CLUSTER_M: 300,     // report.STAKEOUT_CLUSTER_M
     EXCURSION_DECAY_MI: 30, // report effective = score/(1+extra/30)
@@ -766,8 +779,15 @@
 
   // ---- scoring (mirror analyze.score) --------------------------------------
   // One vote per species per cluster (prefer the Rarity record). Total =
-  // sum(3 if Rarity else 1). (species_weight/NV omitted — app has no watchlist.)
-  function scoreCluster(records) {
+  // sum((3 if Rarity else 1) * speciesWeight), mirroring analyze.score.
+  //
+  // F257: `watch` is the needs-verification code map. Absent, every weight is
+  // 1.0 and this is exactly the pre-v1.59.0 behaviour — which is why the
+  // golden fixtures, none of which carry a watchlist, are unmoved.
+  function speciesWeight(code, watch) {
+    return (watch && watch[code]) ? CONST.NV_WEIGHT : 1;
+  }
+  function scoreCluster(records, watch) {
     var byCode = {}, order = [];
     (records || []).forEach(function (r) {
       if (!r.code) return;
@@ -775,17 +795,19 @@
       else if (r.kind === 'Rarity') byCode[r.code] = r;
     });
     var sp = order.map(function (c) { return byCode[c]; });
-    var total = sp.reduce(function (a, r) { return a + (r.kind === 'Rarity' ? 3 : 1); }, 0);
+    var total = sp.reduce(function (a, r) {
+      return a + (r.kind === 'Rarity' ? 3 : 1) * speciesWeight(r.code, watch);
+    }, 0);
     return { total: total, species: sp };
   }
 
   // ---- destinations / excursions (mirror report sections) ------------------
   // Returns scored clusters sorted (−score, min distMi). Each:
   //   { score, loc, lat, lon, locId, distMi(min), rareCount, species:[...], records:[...] }
-  function scoreDestinationClusters(nearRecent) {
+  function scoreDestinationClusters(nearRecent, watch) {
     var clusters = clusterByProximity(nearRecent, CONST.CLUSTER_RADIUS_M);
     var scored = clusters.map(function (rs) {
-      var sc = scoreCluster(rs);
+      var sc = scoreCluster(rs, watch);
       var rep = pickCanonicalLoc(rs);
       var minDist = rs.reduce(function (m, r) {
         var d = (r.distMi == null ? Infinity : r.distMi); return d < m ? d : m;
@@ -872,7 +894,7 @@
     opts = opts || {};
     var base = opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi;
     var top = opts.top == null ? CONST.TOP_DEST : opts.top;
-    var scored = scoreDestinationClusters(nearRecent);
+    var scored = scoreDestinationClusters(nearRecent, opts.watch);
     var threshold = opts.radiusMi == null
       ? destinationRadius(scored, base, opts.chaseMaxMi, opts.minRows)
       : opts.radiusMi;
@@ -897,7 +919,7 @@
     // those warrant a dedicated outing regardless of distance, so a ferry
     // pelagic just off Edmonds still lands here rather than vanishing (mirror
     // report.section_excursions's far filter).
-    var scored = scoreDestinationClusters(excursionRecent).filter(function (c) {
+    var scored = scoreDestinationClusters(excursionRecent, opts.watch).filter(function (c) {
       return c.distMi > threshold ||
              c.records.some(function (r) { return isSpecialTrip(r); });
     }).map(function (c) {
@@ -2346,6 +2368,10 @@
   function computeChaseViews(profile, opts) {
     opts = opts || {};
     var seen = opts.seen || {};
+    // F257. The needs-verification codes, so a bird you half-saw cannot anchor
+    // a long drive the way a genuine need can. Absent — as in every golden
+    // fixture — every weight is 1.0 and scoring is unchanged.
+    var watch = opts.watch || null;
     var ownName = opts.ownName || '';
     var home = opts.home !== undefined ? opts.home : (profile.home || null);
     var dailyDriveMi = opts.dailyDriveMi == null ? profile.dailyDriveMi : opts.dailyDriveMi;
@@ -2388,11 +2414,13 @@
     var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
 
     var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi,
-                                            chaseMaxMi: profile.chaseMaxMi });
+                                            chaseMaxMi: profile.chaseMaxMi,
+                                            watch: watch });
     // The boundary destinations settled on, so excursions start exactly where
     // patches stop and no place can appear in both.
     var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi,
-                                              radiusMi: dest.radiusMi });
+                                              radiusMi: dest.radiusMi,
+                                              watch: watch });
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
@@ -4230,6 +4258,9 @@
     isPersonalLocName: isPersonalLocName,
     pickCanonicalLoc: pickCanonicalLoc,
     scoreCluster: scoreCluster,
+    // F257: exposed so the weight can be driven from both languages against
+    // one fixture, which is the only thing that can prove they agree.
+    speciesWeight: speciesWeight,
     isSpecialTrip: isSpecialTrip,
     isReachable: isReachable,
     isChaseable: isChaseable,

@@ -20359,3 +20359,63 @@ test('F260: a moved home still abandons the running wave', async () => {
     `only the harvester and setWatchlist keep a running wave, got ${callers.length}`);
   app.window.close();
 });
+
+
+// ---------------------------------------------------------------------------
+// F257. THE WEIGHT EXISTING IS NOT THE WEIGHT BEING APPLIED.
+//
+// tests/parity/test_nv_weight.py proves logic.js and analyze.py agree on what a
+// needs-verification bird is worth. It cannot prove index.html ever HANDS the
+// watchlist over — and an un-called correct function is this project's most
+// repeated bug (v1.0.14: BirdLogic.notableToday was an exact port, covered by
+// the cross-repo golden, and refresh() simply never called it).
+//
+// So this asserts the WIRING, at the one place every section reads through.
+test('F257: the chase computation is handed the watchlist', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  // ⚠️ Bounded by NAMED landmarks, not a byte count - a window sized in
+  // characters is bounded by nothing and has broken three times here.
+  const from = HTML.indexOf('function compute(codes)');
+  const to = HTML.indexOf('function finish(codes, stale)', from);
+  assert.ok(from > 0 && to > from, 'compute() and finish() still bound this window');
+  assert.match(HTML.slice(from, to), /watch: watchCodes\(\)/,
+    'computeChaseViews is called without the watchlist, so the weight in '
+    + 'logic.js can never fire however correct it is');
+
+  // ...and the value it hands over is the right SHAPE: a code map, not the
+  // {code,name} array getWatchlist returns.
+  //
+  // ⚠️ Unconditional. This was written as `if (codes) {…}`, which would have
+  // skipped silently the day watchCodes stopped being exposed — a check that
+  // cannot fail, guarded by the very thing it is checking.
+  assert.equal(typeof A.watchCodes, 'function', 'watchCodes is exposed');
+  const codes = A.watchCodes();
+  assert.equal(typeof codes, 'object', 'watchCodes returns a lookup map');
+  assert.ok(!Array.isArray(codes), 'a map, not the {code,name} array');
+
+  // The weight itself must be the report's number, read from the shared
+  // constant rather than restated here - restating is how two copies drift.
+  const BL2 = app.window.BirdLogic;
+  assert.equal(BL2.CONST.NV_WEIGHT, 0.25,
+    'the app must weight an unconfirmed bird the way analyze.py does');
+  assert.equal(BL2.speciesWeight('x', { x: 1 }), BL2.CONST.NV_WEIGHT,
+    'a watchlist bird is down-weighted');
+  assert.equal(BL2.speciesWeight('y', { x: 1 }), 1,
+    'a genuine need is not');
+
+  // Behaviour, end to end: one cluster, one watchlist bird, a lower score.
+  const recs = [
+    { code: 'a', kind: 'Need' }, { code: 'b', kind: 'Need' },
+    { code: 'c', kind: 'Rarity' },
+  ];
+  const plain = BL2.scoreCluster(recs).total;
+  const weighted = BL2.scoreCluster(recs, { b: 1 }).total;
+  assert.equal(plain, 5, 'unweighted: 1 + 1 + 3');
+  assert.equal(weighted, 4.25, 'weighted: 1 + 0.25 + 3');
+  assert.ok(weighted < plain,
+    'a bird you half-saw must not anchor a drive like one you have never seen');
+  app.window.close();
+});
