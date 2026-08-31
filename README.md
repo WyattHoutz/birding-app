@@ -1,6 +1,6 @@
 # UI mockups — 393px
 
-Generated 2026-08-30 22:30 UTC by `node assets/mockups.js`.
+Generated 2026-08-31 00:14 UTC by `node assets/mockups.js`.
 
 ⚠️ Laid out inside an iframe of an exact CSS width. Chrome's
 `--window-size` does **not** set the layout viewport on Windows — it
