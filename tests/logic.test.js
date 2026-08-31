@@ -657,7 +657,7 @@ test('surgeEvents: reports whether you still need the bird, without filtering on
   assert.equal(ev[0].seen, true, 'but it says so, so the caller can rank it down');
 });
 
-test('tickCascades: three of the top 100 adding the same bird in days is a mega', () => {
+test('tickCascades: two of the top 100 adding the same bird in days is a mega', () => {
   const parse = (s) => {
     const m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s).trim());
     if (!m) return null;
@@ -669,15 +669,35 @@ test('tickCascades: three of the top 100 adding the same bird in days is a mega'
     { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
     { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
     { name: 'Calvin Bobek', rank: 10, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    // Two birders, so below the threshold.
+    // ⚠️ F264 lowered the bar from 3 birders to 2, at the owner's request:
+    // *"dont show birds here unless they are newly added by multiple people.
+    // like two leaderboard top 100 added the same bird"*. So this pair, which
+    // used to be BELOW the threshold, is now a cascade in its own right.
     { name: 'Greg Harrington', rank: 6, recent: 'American Three-toed Woodpecker (Jul 27, 2026)' },
     { name: 'Peter Erickson', rank: 93, recent: 'American Three-toed Woodpecker (Jul 26, 2026)' },
   ];
-  const out = BL.tickCascades(rows, parse);
-  assert.equal(out.length, 1, 'only the four-birder species is a cascade');
-  assert.equal(out[0].species, 'Terek Sandpiper');
+  // ⚠️ THE CLOCK IS PINNED. F264 also made the rule time-dependent — a cascade
+  // must be RECENT, not merely tight — so a fixture with fixed July dates and
+  // a live clock is a test that rots: green today, red next week, for a reason
+  // with nothing to do with the code.
+  // ⚠️ Jul 26 is chosen, not arbitrary: Terek's newest tick is Jul 19 (exactly
+  // 7 days, the boundary) and the woodpecker's is Jul 27. There is no date at
+  // which BOTH are old, so the boundary is the only place both are news — and
+  // testing exactly on a boundary is where an off-by-one lives. It is the same
+  // reference date tests/parity/test_surge.py uses, so the two languages are
+  // compared at the same instant.
+  const NOW = { nowMs: Date.parse('2026-07-26T12:00:00') };
+  const out = BL.tickCascades(rows, parse, NOW);
+  assert.equal(out.length, 2, 'both multi-birder bursts are cascades');
+  assert.equal(out[0].species, 'Terek Sandpiper', 'the bigger burst leads');
   assert.equal(out[0].birders.length, 4);
   assert.equal(out[0].birders[0].rank, 3, 'birders are listed best-ranked first');
+
+  // ⚠️ THE CONTROL. Without it the age gate could be deleted and every line
+  // above would still pass — the fixture would simply never be old enough to
+  // notice. Owner: *"its like a alert so nothing should be stale."*
+  assert.deepEqual(BL.tickCascades(rows, parse, { nowMs: Date.parse('2026-08-20T12:00:00') }), [],
+    'a tight cluster three weeks old is not an alert');
 });
 
 test('tickCascades: the same bird added months apart is not a cascade', () => {

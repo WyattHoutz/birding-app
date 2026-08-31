@@ -1770,7 +1770,7 @@
                grid-template-columns: calc(30px * var(--rfc)) minmax(0, 1fr) calc(46px * var(--rfc)) calc(52px * var(--rfc));
                gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
     .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700; text-align: right; }
-    .rankrow .who { font-size: calc(15px * var(--s) * var(--rf)); min-width: 0; }
+    .rankrow .who { font-size: calc(17px * var(--s)); min-width: 0; }
     /* The NAME keeps the single clipped line it always had; the newest-bird
        badge gets its own line beneath it. Putting the badge inside the same
        nowrap/ellipsis cell simply hid it behind the "…".
@@ -1781,8 +1781,29 @@
        while everything around it grew. Measured at 393px: `.who` computed
        22.5px and `.wholine` 14px. Scoped to `.rankrow` so the two features
        that share the class are untouched. */
+    /* ⚠️ F262. THE NAME LEAVES `--rf` AND MATCHES EVERY OTHER NAME LIST.
+       Owner, 2026-08-30, from the device: *"names are getting cut off. they
+       should be same font size as other menus that lists a name."*
+
+       ⚠️ THIS REVERSES PART OF F246, DELIBERATELY AND BY THE OWNER — the same
+       shape as F256 reversing F200 on the rank denominator. F246 scaled the
+       whole leaderboard +50% (`--rf: 1.5`), which put the birder's name at
+       **22.5px**: the LARGEST name anywhere in the app, against `.obs.card-sm
+       .name` at 17px for a species. The mitigation then was to shrink the
+       COLUMNS (`--rfc: 1.15`) so the name had room — treating the symptom,
+       because the type was the thing that had outgrown its row.
+
+       17px, and taken from the same number `.obs.card-sm .name` uses, because
+       a leaderboard row IS a compact list row. The numbers keep `--rf`: they
+       are what F246 was actually about, and they are not what clipped.
+
+       ⚠️ Part of the reported clipping is NOT this rule. The same screenshot
+       shows F261's wrong-width layout, which shrinks the name column by a
+       further ~25%. Fixing the type is right on its own terms; do not read
+       the remaining clipping as evidence this number is still wrong until it
+       has been seen on a correctly laid-out page. */
     .rankrow .wholine { display: block; overflow: hidden; text-overflow: ellipsis;
-                        font-size: calc(15px * var(--s) * var(--rf));
+                        font-size: calc(17px * var(--s));
                         white-space: nowrap; }
     /* ⚠️ F246. THE NAME IS AN `<a class="extlink">`, AND `.extlink` SETS ITS
        OWN font-size (line ~1040, `calc(13px * var(--s))`) — so scaling
@@ -1812,12 +1833,27 @@
        the collapse that scored a PASS in the overflow audit because crushed
        text is not clipped text. */
     .rankrow .ranklast { display: block; margin-top: 2px;
-                         /* ⚠️ Scales with --rfc (the column factor), NOT --rf.
-                            The owner asked to enlarge THE ROWS; this badge is a
-                            caption under the name, and at 1.5x it wrapped onto two
-                            lines and drove the row to 140px tall — spending the
-                            vertical budget on the secondary fact while the name it
-                            sits under was the thing being asked for. */
+                         /* ⚠️ F262. HANGING INDENT, so the wrap point stops
+                            looking arbitrary. Owner, from the device: *"the
+                            bird name and details are wrapping at a midpoint
+                            that doesnt make sense."*
+
+                            It was not a midpoint — it was the THUMB. The icon
+                            is `inline-block` in a block of text, so the first
+                            line is short by the icon's width and every line
+                            after it runs the full width, starting UNDER the
+                            icon. "+ American / Golden-Plover" breaks after one
+                            word while the line below has room to spare, which
+                            is exactly what an unexplained break looks like.
+
+                            padding-left + a matching negative text-indent is
+                            the standard fix: line one still begins at the icon,
+                            and continuation lines align with the NAME. Derived
+                            from the same expression the thumb is sized by, so
+                            the two cannot drift — a second copy of that number
+                            is how F259's namespaces came apart. */
+                         padding-left: calc((20px * var(--s) * var(--rf)) + 6px);
+                         text-indent: calc(-1 * ((20px * var(--s) * var(--rf)) + 6px));
                          font-size: calc(12px * var(--s) * var(--rfc)); font-weight: 700;
                          color: var(--muted); white-space: normal;
                          overflow-wrap: break-word; word-break: normal; }
@@ -1861,6 +1897,20 @@
                          font-size: calc(10px * var(--s)); }
     .rankhdr { border-top: 0; font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
     .rankhdr .who, .rankhdr .n { font-size: calc(11px * var(--s)); }
+    /* F262. The 🆕 mark on a tick added in the last week, and the filter that
+       shows only those rows. ⚠️ The glyph is a REDUNDANT channel: the row still
+       prints the date in words and the mark carries an aria-label, so nothing
+       here depends on seeing — or telling apart — an emoji. */
+    .rankrow .ranknew { font-size: calc(13px * var(--s)); }
+    .ranknewbtn { -webkit-appearance: none; appearance: none; cursor: pointer;
+      font: inherit; font-size: calc(13px * var(--s)); font-weight: 700;
+      padding: 8px 12px; min-height: 40px; border-radius: var(--btn-radius-pill);
+      border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+    /* ⚠️ The pressed state is NOT colour alone — the border thickens AND the
+       label text changes. On a green accent a colour shift is the one signal
+       this reader cannot use. */
+    .ranknewbtn[aria-pressed="true"] { border-color: var(--accent); border-width: 2px;
+      background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .rankme { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 700; }
     .rankme .rk, .rankme .n { color: var(--ink); }
     .rankme .star { font-size: calc(10px * var(--s)); font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -2403,7 +2453,7 @@
         <option value="on">Show</option>
         <option value="off">Hide</option>
       </select>
-      <p class="hint">Adds the Latin name to the bigger bird cards, in italics \u2014 <em>Setophaga nigrescens</em> under Black-throated Gray Warbler. The compact lists stay as they are.</p>
+      <p class="hint">Adds the Latin name to the bigger bird cards, in italics — <em>Setophaga nigrescens</em> under Black-throated Gray Warbler. The compact lists stay as they are.</p>
 
       <label for="themeMode">Theme</label>
       <select id="themeMode">
@@ -2804,7 +2854,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.59.0';
+      var APP_VERSION = '1.60.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6322,6 +6372,74 @@
           }));
         } catch (e) { dbg('warn', 'mega snapshot not stored: ' + (e && e.message)); }
       }
+      // ⚠️ F263. ONE DEFINITION OF "WHICH ROWS ARE THIS STATE'S".
+      //
+      // The scope rule is used by the section AND by the lazy refresh below.
+      // Two copies of it is precisely how F259's namespace list came apart
+      // from the namespaces it described, so there is one.
+      function abaStateRows(list) {
+        var region = getRegion();
+        var scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);
+        return {
+          region: region, scoped: scoped,
+          rows: scoped
+            ? (list || []).filter(function (o) { return o.subnational1Code === region; })
+            : (list || [])
+        };
+      }
+      function megaSnapshotAgeH() {
+        try {
+          var s = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null');
+          if (!s || s.region !== getRegion() || !s.at) return Infinity;
+          return (Date.now() - s.at) / 3600000;
+        } catch (e) { return Infinity; }
+      }
+      // ⚠️ F263. THE LANE REFRESHES ITS OWN SNAPSHOT — REVERSING F160, AND THE
+      // REASON F160 GAVE IS STILL RESPECTED.
+      //
+      // Owner, from the device, looking at "from the ABA alert, 2 days ago —
+      // reopen Rare birds to refresh": *"so it shouldnt need the user to go to
+      // the mega rareities. it can lazy refresh"*.
+      //
+      // He is right, and the message was an admission: **a cache with no owner
+      // but this reader**. Bird gen consumed a snapshot that ONLY Mega rarities
+      // wrote, so a section you had not opened decided whether this one had
+      // data. That is the same shape as F253's hotspot merge reading
+      // `easymiss_v1:` keys that only Nemesis birds writes — measured in the
+      // device log as **60 reads, 0 writes**, the leak signature the cache
+      // logging was built to show.
+      //
+      // ⚠️ F160 said "hand the lane a snapshot, and NEVER let the lane fetch",
+      // on real evidence: *"i opened the app and went to happening now and it
+      // immediately was on the 30 second 429 timeout"*. That reason holds — for
+      // the FOREGROUND. This runs after the paint, once per session, only when
+      // the snapshot is genuinely old, and it is ONE scraped page rather than a
+      // feed. The rows already on screen stay on screen while it goes.
+      var MEGA_LAZY_MAX_H = 6;
+      var _megaLazyDone = false;
+      function lazyRefreshMegaSnapshot(onDone) {
+        if (_megaLazyDone) return;
+        var age = megaSnapshotAgeH();
+        if (age < MEGA_LAZY_MAX_H) return;
+        _megaLazyDone = true;      // one attempt per session, success or not
+        dbg('net', 'mega snapshot is ' + (isFinite(age) ? Math.round(age) + 'h old' : 'missing')
+          + ' — refreshing it here rather than asking you to open another section');
+        var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(getAbaSid())
+          + '&sortBy=obsDt&o=desc';
+        fetchPublicHTML(url).then(function (html) {
+          var list = parseAlertHTML(html);
+          if (!list.length && !/class="Observation"/.test(html)) return;
+          var s = abaStateRows(list);
+          saveMegaSnapshot(s.rows, s.scoped);
+          dbg('net', 'mega snapshot refreshed · ' + s.rows.length + ' rows');
+          if (typeof onDone === 'function') onDone();
+        }).catch(function (e) {
+          // ⚠️ Silent to the READER, loud in the log. The lane still has its
+          // old rows and still says how old they are, so a failed refresh
+          // degrades to exactly the previous behaviour rather than an error.
+          dbg('warn', 'mega snapshot refresh failed: ' + ((e && e.message) || e));
+        });
+      }
       // Newest report per species, because the lane wants ONE line per bird —
       // the full profile with hero photo, state history and rarity evidence is
       // what the Rare birds section is for, and it survives precisely so this
@@ -6332,6 +6450,31 @@
         catch (e) { s = null; }
         if (!s || !Array.isArray(s.rows) || s.region !== getRegion()) return null;
         var by = {};
+        // F256. Reports at ONE hotspot, which is a different claim from reports
+        // in total. The owner, choosing between candidate qualifiers: *"maybe an
+        // unseen bird with multiple reports at the same hotspot"* — and that is
+        // the strongest of the four, because multiple reports SCATTERED say a
+        // bird is around, while multiple reports at one spot say WHERE TO STAND.
+        // The first is news; the second is a plan, and this app exists to answer
+        // "where do I go?".
+        var byLoc = {};
+        s.rows.forEach(function (r) {
+          if (!r.speciesCode) return;
+          var lk = r.locId || r.locName || '';
+          if (!lk) return;
+          var k = r.speciesCode + '\u0000' + lk;
+          var le = byLoc[k] || (byLoc[k] = { n: 0, locId: r.locId || '', locName: r.locName || '' });
+          le.n++;
+        });
+        function topSpot(code) {
+          var best = null;
+          Object.keys(byLoc).forEach(function (k) {
+            if (k.slice(0, k.indexOf('\u0000')) !== code) return;
+            var e = byLoc[k];
+            if (!best || e.n > best.n) best = e;
+          });
+          return best;
+        }
         s.rows.forEach(function (r) {
           if (!r.speciesCode) return;
           var cur = by[r.speciesCode];
@@ -6344,25 +6487,111 @@
           // The NEAREST anchor, home or work — the same rule Closest spots
           // follows, so "12 mi" means the same thing in both places.
           if (r.lat != null && r.lng != null) na = BL.nearestAnchor(anchors, r.lat, r.lng);
+          var spot = topSpot(c);
+          var unseen = true;
+          try { unseen = !isSpeciesSeen(c, r.comName); } catch (e2) { unseen = true; }
           return { code: c, name: r.comName, obsDt: r.obsDt, locName: r.locName,
                    locId: r.locId, subId: r.subId, lat: r.lat, lng: r.lng,
                    reports: e.n, mi: na ? na.dist : null,
                    anchor: na ? na.name : null,
+                   spotReports: spot ? spot.n : 0,
+                   spotName: spot ? spot.locName : '',
+                   spotId: spot ? spot.locId : '',
+                   unseen: unseen,
                    found: megaFound(s.region, c) };
         });
         // Closest first, but a mega with no coordinates is NOT dropped and not
-        // sunk — every other lane requires a report inside the chase radius,
-        // and this is the one lane where that rule is wrong. A continent-level
-        // rarity is worth a drive by definition, so distance orders the lane
-        // and never gates it; a row outside the radius says where it actually
-        // is rather than implying it is local.
+        // sunk. Distance ORDERS this lane and never gates it — a far mega that
+        // is NEW still leads, which is exactly the owner's rule: *"they should
+        // only show up in bird gen when they are new"*.
+        //
+        // ⚠️ F256 NARROWS F160, and the older reasoning is worth keeping because
+        // it is sound. F160 said a continent-level rarity *"is worth a drive by
+        // definition"*, so this lane alone ignored the chase radius. True of the
+        // bird; false of the NEWS — a mega that has sat on the same jetty for
+        // three weeks is not news, and it was crowding out the close bird you
+        // could act on while 🦅 Mega rarities already carried it. So rarity
+        // stopped being sufficient; it did not stop mattering.
         out.sort(function (a, b) {
           if (a.mi == null && b.mi == null) return String(b.obsDt).localeCompare(String(a.obsDt));
           if (a.mi == null) return 1;
           if (b.mi == null) return -1;
           return a.mi - b.mi;
         });
-        return { at: s.at, rows: out };
+        // F256. The gate, applied HERE rather than in the renderer, because the
+        // section's signal COUNT reads this too — filtering in one place and
+        // counting in the other is how a header comes to promise rows that are
+        // not there.
+        out.forEach(function (m) { m.news = megaNews(m, { chaseMaxMi: chaseMaxMi() }); });
+        // ⚠️ F264. BIRD GEN IS AN ALERT, SO NOTHING IN IT MAY BE STALE.
+        //
+        // Owner: *"bird gen needs fresh bird buzz and news. its like a alert so
+        // nothing should be stwle"*. A mega whose most recent report is a week
+        // old is not news however rare it is — 🦅 Mega rarities is the section
+        // whose job is completeness, and it still lists it.
+        var freshMs = MEGA_NEWS_MAX_AGE_DAYS * 86400000;
+        var news = out.filter(function (m) {
+          if (!m.news.length) return false;
+          var t = Date.parse(String(m.obsDt || '').replace(' ', 'T'));
+          return !isFinite(t) || (Date.now() - t) <= freshMs;
+        });
+        return { at: s.at, rows: news, all: out, held: out.length - news.length };
+      }
+      // ── F256: RARITY IS THE ENTRY TICKET, NOT THE RANKING ─────────────────
+      //
+      // Owner, 2026-08-30, and this restatement is the canonical form:
+      //
+      //   "so celebrity birds are rare birds with multiple reports, and new aba
+      //    birds, and aba birds in my day trip / chase area"
+      //
+      // ...and, choosing between further candidates:
+      //
+      //   "maybe an unseen bird with multiple reports at the same hotspot"
+      //
+      // So it is ONE FILTER AND A FOUR-WAY OR. Being an ABA Code 3+ bird makes
+      // a species a CANDIDATE; one of the four qualifiers decides whether it is
+      // news. ⚠️ Until now the code alone was sufficient, which is why the same
+      // far-away bird occupied both this lane and 🦅 Mega rarities for days
+      // after it stopped being news, crowding out the close bird you could act
+      // on. He named the case exactly: *"the ruff and wagtail are too far for
+      // bird gen, and are already in the mega rarities. they should only show
+      // up in bird gen when they are new"*.
+      //
+      // ⚠️ THE ABA PATH IS GATED, NOT DELETED. 🦅 Mega rarities still lists
+      // every one of them; it is the only section whose job is completeness.
+      // Removing the path would lose the far mega entirely, which is a
+      // different and worse bug than showing it too often.
+      //
+      // Two reports is "multiple". Not tuned — it is the literal reading of the
+      // word, and the corroboration floor every other lane here uses (F122:
+      // count independent parties, and eBird files one checklist per member).
+      var MEGA_MULTI_REPORTS = 2;
+      // F264. How old a mega's newest report may be and still be NEWS.
+      var MEGA_NEWS_MAX_AGE_DAYS = 7;
+      function megaNews(m, opts) {
+        opts = opts || {};
+        var out = [];
+        if (!m) return out;
+        // Strongest first, because the label shows the leading reason and this
+        // is the order the owner put them in when he weighed them.
+        if (m.unseen && (m.spotReports || 0) >= MEGA_MULTI_REPORTS) out.push('spot');
+        if (m.mi != null && opts.chaseMaxMi != null && m.mi <= opts.chaseMaxMi) out.push('near');
+        if (m.found) out.push('new');
+        if ((m.reports || 0) >= MEGA_MULTI_REPORTS) out.push('multi');
+        return out;
+      }
+      // ⚠️ Said in WORDS, never by colour or position alone. Each row states
+      // which qualifier earned it a place, so "why is this here?" is answered
+      // on the row rather than inferred from the section it sits in.
+      function megaNewsLabel(tag, m) {
+        if (tag === 'spot') {
+          return m.spotReports + ' reports at ' + (m.spotName || 'one spot')
+               + ' \u2014 a bird you need, and somewhere to stand';
+        }
+        if (tag === 'near') return 'within your chase area';
+        if (tag === 'new') return megaFoundLabel(m.found);
+        if (tag === 'multi') return m.reports + ' reports today';
+        return '';
       }
       // ── F212: a bird that JUST TURNED UP is not a bird that has been here ──
       //
@@ -16296,9 +16525,42 @@
       : esc(p.species);
     var tail = [alpha ? '(' + alpha + ')' : '', p.date ? fmtDate(p.date) : '']
       .filter(Boolean).join(' \u00b7 ');
-    return '<span class="ranklast" title="' + esc('newest: ' + p.species
-      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + pic + '+ ' + inner
+    // F262. 🆕 WHEN THE TICK IS FROM THIS WEEK.
+    //
+    // Owner: *"add a new icon button for any updates in the last week."* The
+    // date was already printed and already parsed — what it was missing was a
+    // mark you can SCAN for, because "Aug 30" and "Aug 11" only differ if you
+    // are reading every row and know today's date.
+    //
+    // ⚠️ The glyph is never the only carrier: the row keeps the date in words,
+    // and the mark has an aria-label. A reader who cannot see the emoji and a
+    // reader who cannot tell it apart from the icon beside it both still have
+    // the fact (F142, and the owner's colour-blindness rule — never one
+    // channel).
+    var fresh = p.date && rankTickIsFresh(p.date);
+    var mark = fresh
+      ? '<span class="ranknew" role="img" aria-label="added in the last '
+        + RANK_FRESH_DAYS + ' days">\uD83C\uDD95</span> '
+      : '';
+    return '<span class="ranklast' + (fresh ? ' isnew' : '')
+      + '" title="' + esc('newest: ' + p.species
+      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + mark + pic + '+ ' + inner
       + (tail ? ' <small>' + esc(tail) + '</small>' : '') + '</span>';
+  }
+  // F262. "the last week", one definition, used by the mark and the filter —
+  // two copies of a threshold is how F259's namespaces drifted.
+  var RANK_FRESH_DAYS = 7;
+  // F262. The filter's state. Session-only on purpose: it is a lens on today's
+  // board, not a preference, and a persisted filter that silently hides 90 of
+  // 100 rows tomorrow is the "feature looks broken" shape F211 documents.
+  var _rankNewOnly = false;
+  function rankTickIsFresh(day, nowMs) {
+    var t = Date.parse(String(day || '') + 'T00:00:00');
+    if (!isFinite(t)) return false;
+    var n = new Date(nowMs || Date.now());
+    var today = Date.UTC(n.getFullYear(), n.getMonth(), n.getDate());
+    var age = (today - t) / 86400000;
+    return age >= 0 && age <= RANK_FRESH_DAYS;
   }
   // ONE arrow per row, not three. Three deltas plus a name and a species count
   // do not fit at 320px, and "avoid wrapping" was the explicit requirement — so
@@ -16529,6 +16791,32 @@
           out.appendChild(scopeNote);
         }
         var tbl = document.createElement('div'); tbl.className = 'ranktable';
+        // F262. THE FILTER, above the table it filters.
+        //
+        // Owner: *"add a new icon button for any updates in the last week."*
+        // It is a real <button> with aria-pressed, not a styled span — F189's
+        // rule, and the same reasoning F256 applied to the header rank.
+        //
+        // ⚠️ It COUNTS before it offers. A filter that can only ever produce an
+        // empty list is worse than no filter, and this app already refuses that
+        // shape elsewhere (the mega lane says what it held back rather than
+        // silently shrinking). If nothing is fresh, the control says so and is
+        // disabled rather than inviting a tap that empties the screen.
+        var freshN = 0;
+        rows.slice(0, TOP_BOARD_N).forEach(function (r) {
+          var p = lastNewParse(r && r.recent);
+          if (p && p.date && rankTickIsFresh(p.date)) freshN++;
+        });
+        var bar = document.createElement('div');
+        bar.className = 'hint';
+        bar.style.margin = '0 0 8px';
+        bar.innerHTML = freshN
+          ? '<button type="button" id="rankNewOnly" class="ranknewbtn" '
+            + 'aria-pressed="' + (_rankNewOnly ? 'true' : 'false') + '">'
+            + '\uD83C\uDD95 ' + (_rankNewOnly ? 'Showing only' : 'Show only') + ' the '
+            + freshN + ' added in the last ' + RANK_FRESH_DAYS + ' days</button>'
+          : 'No new ticks on the board in the last ' + RANK_FRESH_DAYS + ' days.';
+        out.appendChild(bar);
         var h = '<div class="rankrow rankhdr"><span class="rk">#</span>' +
             '<span class="who">Birder</span><span class="mv"></span>' +
             '<span class="n">Species</span></div>';
@@ -16536,6 +16824,11 @@
           var bhist = boardHistRecord(region, rows);
           var bnow = Date.now();
         rows.slice(0, TOP_BOARD_N).forEach(function (r) {
+          // F262: when the filter is on, a row with no fresh tick is not drawn.
+          if (_rankNewOnly) {
+            var pf = lastNewParse(r && r.recent);
+            if (!(pf && pf.date && rankTickIsFresh(pf.date))) return;
+          }
           // The report deep-links each birder to their own row on the board
           // (their <h5> id is the display name), so the app does too.
           var who = board ? extA(board + '#' + encodeURIComponent(r.name), r.name) : esc(r.name);
@@ -16555,6 +16848,20 @@
         // grey squares because it was the one list that never hydrated. A
         // photoSlot with no hydrator is not a slow image, it is no image.
         hydratePhotos(tbl);
+        // F262. BIND THE FILTER, or it is a button that does nothing — the
+        // same failure as an icon with no hydrator two lines above. The whole
+        // section re-renders, which is how every other control here works.
+        var nb = $('rankNewOnly');
+        if (nb) nb.addEventListener('click', function () {
+          _rankNewOnly = !_rankNewOnly;
+          dbg('info', 'Top 100 filter · new in last ' + RANK_FRESH_DAYS
+            + ' days → ' + (_rankNewOnly ? 'on' : 'off'));
+          // ⚠️ ALL FOUR arguments. renderRankings(data, region, url, name) —
+          // re-calling it with only `data` would silently drop the region, the
+          // eBird link and the name the "you" row is matched by, which is the
+          // shape of bug that renders a plausible-looking wrong page.
+          renderRankings(data, region, url, name);
+        });
         var foot = document.createElement('div');
         foot.className = 'hint';
         // F125 follow-up: an empty movement column reads as broken, and it is
@@ -17620,8 +17927,7 @@
             // report.py::section_state_aba_rarities filters the continent-wide
             // alert to the active report's state and groups by species. Rarity
             // trackers (lower48/aba) have no state, so they keep the full feed.
-            var region = getRegion(), scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);
-            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
+            var region = getRegion(), scoped = !getReport().isRarityTracker && /^US-[A-Z]{2}$/.test(region);            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
             // feature looked impossible: showing the continent meant losing
             // the species cards and falling back to the rarity-tracker's flat
             // feed. They answer different questions - "which rows" vs "which
@@ -17634,8 +17940,7 @@
             // full, and the report's own snapshots stored 497 (a capped 500
             // minus 3 filtered territories) and read as healthy.
             _abaTruncated = list.length >= ABA_ALERT_MAX_ROWS;
-            var stateRows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;
-            var rows = wide ? list : stateRows;
+            var stateRows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;            var rows = wide ? list : stateRows;
             // First paint carries the STATE evidence only. The unscoped alert
             // used to double as a free "N ABA-wide across M states" yardstick,
             // and that was wrong: the alert is capped at 500 observations
@@ -21231,7 +21536,7 @@
         if (!(h >= 0)) return 'from the ABA alert';
         if (h < 1) return 'from the ABA alert, minutes ago';
         if (h < 48) return 'from the ABA alert, ' + Math.round(h) + 'h ago';
-        return 'from the ABA alert, ' + Math.round(h / 24) + ' days ago — reopen Rare birds to refresh';
+        return 'from the ABA alert, ' + Math.round(h / 24) + ' days ago — refreshing in the background';
       }
       function renderSurge(events, cascades, convergence, needs, merged) {
         var box = $('surgeResults');
@@ -21275,7 +21580,16 @@
             + (megaRows.length === 1 ? 'mega' : 'megas') + ' in '
             + esc(getReport().label || 'this region') + laneHelpBtn('mega') + '</h3>';
           html += '<div class="lanesub">' + megaAge(mega.at)
-            + ' · one line each — open <b>Rare birds</b> for photos, state history and evidence</div>';
+            + ' · one line each — open <b>Rare birds</b> for photos, state history and evidence'
+            // F256. ⚠️ Say what was held back and where it went. A filtered
+            // lane that does not name its own filter is indistinguishable from
+            // a lane that lost data, and the far mega is still one tap away.
+            + (mega.held
+                ? ' · ' + mega.held + ' more ' + (mega.held === 1 ? 'mega is' : 'megas are')
+                  + ' not news today (too far, already seen, one report) — '
+                  + 'all of them are in <b>Mega rarities</b>'
+                : '')
+            + '</div>';
           html += '<ul class="obs big xl lanes">' + megaRows.map(function (m) {
             var far = m.mi != null && m.mi > chaseMaxMi();
             var where = m.locName ? (m.locId ? locLink(m.locName, m.locId) : esc(m.locName)) : '';
@@ -21285,6 +21599,18 @@
             // dropped in silence. `.cklrows > li.lblrow` is the shape the CSS
             // above already defines for exactly this "Where / Latest" case.
             var below = '<ul class="cklrows">'
+              // F256. WHY THIS ROW IS HERE, stated on the row. Rarity is only
+              // the entry ticket now, so the qualifier that earned it a place
+              // is a fact the reader cannot otherwise recover — and it is the
+              // difference between "a bird is around" and "here is where to
+              // stand". Words, never a colour or a position.
+              + (m.news && m.news.length
+                  ? '<li class="lblrow"><span class="lbl">Why it is news</span>'
+                    + '<span class="where">'
+                    + esc(m.news.map(function (t) { return megaNewsLabel(t, m); })
+                           .filter(function (s2) { return s2; }).join(' · '))
+                    + '</span></li>'
+                  : '')
               + (where ? '<li class="lblrow"><span class="lbl">Where</span>'
                        + '<span class="where">' + where + '</span></li>' : '')
               // F212. The row that makes it news, and it leads the evidence
@@ -21388,35 +21714,29 @@
             });
           }).join('') + '</ul>';
         } else {
-          // ── F211: A LANE THAT RENDERS NOTHING HAS BEEN DELETED, as far as a
-          // reader can tell ────────────────────────────────────────────────
+          // ── F264: AN ALERT WITH NOTHING TO SAY SAYS NOTHING ──────────────
           //
-          // "cekebrity birds is missing from happening now." It was not
-          // missing — it was EMPTY, and an empty lane emitted no heading, no
-          // note and no markup at all, so "nothing qualified today" and "this
-          // feature is gone" were byte-identical on screen.
+          // Owner: *"if theres no birds, dont show anything."* and the
+          // principle behind it — *"bird gen needs fresh bird buzz and news.
+          // its like a alert so nothing should be stale."*
           //
-          // This app already refuses that ambiguity everywhere else: a filter
-          // that shortens a list says what it removed, the mega lane states
-          // the age of its snapshot rather than letting stale look like empty,
-          // and the whole-section empty state exists for the same reason. The
-          // one place it was not applied is the lane that was reported.
+          // ⚠️ THIS REVERSES F211, WHICH WAS ALSO A DEVICE REPORT, and the two
+          // are worth reading together. F211 was *"cekebrity birds is missing
+          // from happening now"*: an empty lane emitted no heading and no
+          // markup, so "nothing qualified today" and "this feature is gone"
+          // were byte-identical on screen. That reasoning is sound and it is
+          // NOT thrown away — it is answered one level up.
           //
-          // The heading therefore always appears once the section renders, and
-          // the note names the GATE rather than apologising — a reader who
-          // knows the bar is "unseen, notable, corroborated and inside the
-          // chase radius" can tell an empty lane is working.
+          // The synthesis: the SECTION still explains itself when every lane
+          // is empty (that whole-section empty state is right above, and it
+          // names every gate at once), but a single empty lane inside a
+          // section that DOES have content no longer prints a paragraph
+          // apologising for itself. An alert page listing four things that are
+          // not happening buries the one that is.
           //
-          // ⚠️ Only when the section is rendering AT ALL. The all-lanes-empty
-          // case already has its own copy, which explains every lane at once,
-          // and printing both would be the same fact twice.
-          html += '<h3 class="lanehead">🎯 Celebrity Birds' + laneHelpBtn('celebrity') + '</h3>';
-          html += '<div class="status">Nothing qualifies right now. A bird '
-            + 'reaches this lane by being <b>unseen</b>, flagged <b>notable</b>, '
-            + 'reported from a <b>public place</b> within <b>'
-            + chaseMaxMi() + ' mi</b>, and corroborated by more than a single '
-            + 'sighting in the last ' + BL.FRESH_HOURS + ' hours — so an empty '
-            + 'lane here is the section working, not the section missing.</div>';
+          // ⚠️ So the ambiguity F211 fixed is still fixed — just by the one
+          // copy that can state it for all four lanes rather than four copies
+          // competing with the news.
         }
         if (events.length) {
           html += '<h3 class="lanehead">🐦 ' + events.length + ' species drawing a crowd' + laneHelpBtn('crowd') + '</h3>';
@@ -21662,6 +21982,11 @@
         }).catch(function () { return []; });
         Promise.all([pEvents, pCascades, pConverge, pNeeds]).then(function (r) {
           renderSurge(r[0], r[1], r[2], r[3], _merged);
+          // F263. AFTER THE PAINT, never before it. The rows on screen stay on
+          // screen; if a fresher snapshot lands, the lane repaints with it.
+          lazyRefreshMegaSnapshot(function () {
+            if (visibleSectionId() === 'sec-surgeBtn') renderSurge(r[0], r[1], r[2], r[3], _merged);
+          });
           var ml = megaLane(getAnchors());
           var n = r[0].length + r[1].length + r[2].length + r[3].length
             + ((ml && ml.rows.length) || 0);
@@ -23720,6 +24045,55 @@
         headerScopeRefresh();
         bindHeaderScope();
       }
+      // ⚠️ F265. THE RANK HAD NO OWNER EITHER.
+      //
+      // Reported from the device: the header showed *"209sp"* with no rank on the
+      // first open of the day. F256 fixed the REPAINT — the rank now redraws
+      // when it arrives — but nothing at boot ever made it arrive.
+      // `cachedRankMe()` accepts only an entry dated TODAY, and the only writer
+      // is opening Top 100. So the header read a cache that nobody had filled.
+      //
+      // ⚠️ THIS IS THE THIRD INSTANCE OF ONE PATTERN IN TWO DAYS, and that is
+      // the finding worth keeping:
+      //   F253 — the hotspot merge read `easymiss_v1:` keys only Nemesis birds
+      //          writes; the device log measured 60 reads, 0 writes.
+      //   F263 — Bird gen read a mega snapshot only Mega rarities writes, and
+      //          printed "reopen Rare birds to refresh" as an admission.
+      //   F265 — the header reads a rank only Top 100 writes.
+      // **A CACHE WHOSE ONLY WRITER IS A SCREEN THE READER MAY NEVER OPEN IS
+      // NOT A CACHE, IT IS A DEPENDENCY ON LUCK.** The read is free and looks
+      // correct in every test, which is why all three shipped.
+      //
+      // Background lane, once per session, only when today's entry is missing:
+      // this is one scrape and the header is not what the reader is waiting on.
+      //
+      // ⚠️ CALLED FROM BOOT, NOT FROM renderMenuIdentity — and the test suite
+      // caught me putting it there. `the menu names you, from cache, without
+      // spending a call` is a real invariant: the menu and the header repaint
+      // constantly, and a fetch hung off a repaint is a fetch with no bound.
+      // The prefetch belongs to STARTUP, which happens once and already makes
+      // calls.
+      var _rankLazyDone = false;
+      function lazyFetchRankMe() {
+        if (_rankLazyDone) return;
+        if (!getDisplayName()) return;              // nothing to look up
+        if (cachedRankMe(getRegion())) return;      // already have today's
+        var rr = null;
+        try { rr = rankPrimaryRegion(); } catch (e) { return; }
+        if (!rr || !rr.region) return;
+        _rankLazyDone = true;
+        dbg('net', 'rank not cached for today — fetching it here rather than '
+          + 'waiting for you to open Top 100');
+        fetchRank(rr, new Date().getFullYear(), getDisplayName())
+          .then(function () {
+            // The whole point: repaint, or the fetch is invisible (F256).
+            try { headerIdentityRefresh(); } catch (e) {}
+            try { renderMenuIdentity(); } catch (e) {}
+          })
+          .catch(function (e) {
+            dbg('warn', 'rank prefetch failed: ' + ((e && e.message) || e));
+          });
+      }
 
       // Bound once. The chip is in static markup, so a listener attached on
       // every menu render would stack up one per repaint.
@@ -24030,6 +24404,33 @@
       }
 
       function showSection(id) {
+        // F261. THE PAGE IS LAID OUT AGAINST A STALE VIEWPORT, AND NOTHING
+        // EVER RE-MEASURES.
+        //
+        // Reported: "the content panel is only about 80% of the width",
+        // "impacting every page", "not happening consistently". Measured off
+        // the device screenshot at 402px: the content column — NAVBAR INCLUDED
+        // — is 300px, a uniform 0.746.
+        //
+        // ⚠️ THREE OF MY HYPOTHESES WERE WRONG and the owner supplied the clue
+        // that killed them all: *"if i switch apps away from the app and come
+        // back to the app, it fixes it. i did no interaction with the app"*,
+        // and *"no refresh needed"*. Switching apps reloads nothing and
+        // re-renders nothing — the ONLY thing it does is make iOS force a
+        // RE-LAYOUT. So the markup was always right and the width it was laid
+        // out against was wrong. Pull-to-refresh cured it for the same reason,
+        // not because the data was stale.
+        //
+        // ⚠️ It does not reproduce in headless Chrome: the mockup at 393px puts
+        // the card at 34px from BOTH edges (91.2%), while the device shows
+        // 15px / 62px. Chrome honours the same CSS and gets it right, so this
+        // is engine-specific — the same conclusion `.panel { overflow-x: clip }`
+        // reached, "engine- or data-specific and cannot be fixed by name".
+        //
+        // So this does not try to name the box. It detects the state the reader
+        // described and applies the cure they found, which is a re-layout.
+        checkGeometry('section ' + id);
+
         // F228. Logged BEFORE anything else here, because everything below can
         // throw and the transition is the fact worth keeping.
         try {
@@ -24310,9 +24711,35 @@
         return vv && isFinite(vv.scale) ? vv.scale : 1;
       }
       function syncZoomReset() {
-        // 1.02 rather than 1: WKWebView reports tiny fractional scales at rest,
-        // and a button that flickers on at 1.001 is its own bug.
-        var z = currentScale() > 1.02;
+        // ⚠️ F261. BOTH DIRECTIONS. This tested `> 1.02` only, so it could see a
+        // reader who had zoomed IN and was blind to one who was zoomed OUT —
+        // and zoomed out is the state that was actually reported:
+        //
+        //   "content is not filling the screen" · "the content panel is only
+        //    about 80% of the width" · "its happening on twitches today too" ·
+        //    "the issue is impacting every page" · "its not happening
+        //    consistently"
+        //
+        // Measured off the device screenshot at a 402px viewport: the content
+        // column — NAVBAR INCLUDED — is 300px, a uniform scale of 0.746. A
+        // uniform scale that takes the navbar with it is not a card that is too
+        // narrow; it is the whole page fitted to something other than the
+        // viewport. Every section inherits it, which is exactly what "impacting
+        // every page" means.
+        //
+        // ⚠️ THE ROOT CAUSE IS NOT FOUND. A time-sampled sweep of every panel at
+        // six viewports reports nothing over the line, which is the same answer
+        // the sideways-drag bug gave before `.panel { overflow-x: clip }` — see
+        // that note: "engine- or data-specific and cannot be fixed by name".
+        // So this is NOT a fix for the cause. It is the way out, and the reader
+        // did not have one: the button that exists for precisely this moment
+        // could not appear, because the test only ran one way.
+        //
+        // 0.98, symmetric with the 1.02 above, and for the same reason —
+        // WKWebView reports tiny fractional scales at rest and a button that
+        // flickers on at 0.999 is its own bug.
+        var s = currentScale();
+        var z = s > 1.02 || s < 0.98;
         document.documentElement.classList.toggle('zoomed', z);
       }
       function resetZoom() {
@@ -24333,6 +24760,78 @@
           });
         });
       }
+      // ── F261: THE FIRST LAYOUT IS WRONG, AND NOTHING EVER RE-MEASURES ─────
+      //
+      // Owner: *"it seems to load the view with the wrong width initially but
+      // then fixes on any refresh"*, and the clue that settled it — *"if i
+      // switch apps away from the app and come back to the app, it fixes it. i
+      // did no interaction with the app"* · *"no refresh needed"*.
+      //
+      // Switching apps fetches nothing, re-renders nothing and changes no
+      // state. The ONLY thing it does is make iOS force a RE-LAYOUT. So the
+      // CSS was never wrong — it was applied against a viewport width the web
+      // view did not end up having. Pull-to-refresh cured it for the same
+      // reason, not because the data was stale.
+      //
+      // ⚠️ It does not reproduce in headless Chrome. The mockup at 393px puts
+      // the card 34px from BOTH edges; the device measured 15px / 62px, a
+      // uniform 0.746 that took the navbar with it. Chrome honours the same
+      // rules and gets it right, so there is no rule to fix — the same dead end
+      // `.panel { overflow-x: clip }` records as "engine- or data-specific and
+      // cannot be fixed by name".
+      //
+      // So: do not name the box. DETECT the state and apply the cure the owner
+      // found. Re-asserting the viewport meta is exactly the nudge resetZoom
+      // already uses, and it is what makes WKWebView lay out again.
+      var _healAt = 0;
+      function healLayout(why) {
+        var now = Date.now();
+        if (now - _healAt < 3000) return;      // one nudge, not a loop
+        _healAt = now;
+        try { dbg('warn', 'layout re-measured (' + why + ')'); } catch (e) {}
+        resetZoom();
+      }
+      // ⚠️ SILENT WHEN HEALTHY. A diagnostic that fires on a good page trains
+      // you to ignore it, and this one can act, so a false positive is not just
+      // noise — it would fight a reader who deliberately pinched in.
+      function checkGeometry(where) {
+        setTimeout(function () {
+          try {
+            var d = document.documentElement, vv = window.visualViewport;
+            var sc = currentScale();
+            var over = d.scrollWidth - d.clientWidth;
+            // Visual viewport narrower than the layout viewport is the exact
+            // shape of "laid out at the wrong width": the page believes it is
+            // one size and is being shown at another.
+            var shrunk = vv && isFinite(vv.width) && (vv.width < d.clientWidth - 1);
+            if (sc >= 0.98 && over <= 0 && !shrunk) return;
+            var worst = null, all = document.querySelectorAll('body *');
+            for (var i = 0; i < all.length; i++) {
+              var cls = (all[i].getAttribute && all[i].getAttribute('class')) || '';
+              if (/leaflet-/.test(cls)) continue;   // panes are transformed, not wide
+              var r = all[i].getBoundingClientRect();
+              if (!r.width && !r.height) continue;
+              if (!worst || r.right > worst.right) worst = { right: r.right, el: all[i] };
+            }
+            var who = '';
+            if (worst && worst.el) {
+              var c0 = (worst.el.getAttribute('class') || '').split(/\s+/)[0];
+              who = ' · widest ' + worst.el.tagName.toLowerCase()
+                  + (worst.el.id ? '#' + worst.el.id : '')
+                  + (c0 ? '.' + c0 : '') + ' right=' + Math.round(worst.right);
+            }
+            dbg('warn', 'GEOMETRY ' + where + ' · layout ' + d.clientWidth
+              + ' · scrollW ' + d.scrollWidth
+              + ' · visual ' + (vv ? Math.round(vv.width) : '?')
+              + ' · zoom ' + (+sc.toFixed(3))
+              + (over > 0 ? ' · OVERFLOWS by ' + over + 'px' : '') + who);
+            // ⚠️ Only ever DOWNWARD. A reader who pinched IN wants to be zoomed
+            // in, and yanking that back would be the accessibility bug this
+            // file spends its first ten lines warning about.
+            if (sc < 0.98 || shrunk) healLayout(where);
+          } catch (e) {}
+        }, 250);
+      }
       function bindZoomReset() {
         var b = document.getElementById('zoomreset');
         if (b) b.addEventListener('click', resetZoom);
@@ -24342,6 +24841,23 @@
           vv.addEventListener('scroll', syncZoomReset);
         }
         syncZoomReset();
+        // F261. THE THREE MOMENTS THE READER PROVED MATTER.
+        //
+        // There were NO resume listeners in this app at all, which is the whole
+        // gap: the first layout was wrong and nothing ever looked again. The
+        // owner had to switch apps by hand to make iOS do it.
+        //
+        //   boot      — where the wrong width is established
+        //   resume    — the cure they found, now automatic
+        //   viewport  — a resize is the engine telling us it changed its mind
+        checkGeometry('boot');
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) checkGeometry('resume');
+        });
+        window.addEventListener('pageshow', function () { checkGeometry('pageshow'); });
+        if (vv && vv.addEventListener) {
+          vv.addEventListener('resize', function () { checkGeometry('viewport resize'); });
+        }
       }
 
       function bindSwipeBack() {
@@ -25201,6 +25717,10 @@
       });
       bindSwipeBack();
       bindZoomReset();
+      // F265. STARTUP, not a repaint. The header reads a rank cache whose
+      // only writer was opening Top 100 — so on the first run of the day it
+      // read a cache nobody had filled. Once per session, background lane.
+      try { lazyFetchRankMe(); } catch (e) {}
       bindDoubleTapGuard();
       $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
       $('addTripBtn').addEventListener('click', function () {
@@ -26092,6 +26612,11 @@
         // of the tiles, so nothing looked wrong. A source regex cannot tell
         // those apart; only rendering one can.
         menuBadge: menuBadge, refreshMenuBadges: refreshMenuBadges,
+        // F256: the news rule and its wording, exposed so the four qualifiers
+        // can be DRIVEN rather than argued about — and so the control ("rare
+        // and far and already seen qualifies for nothing") can be asserted,
+        // which is the half that changes today's behaviour.
+        megaNews: megaNews, megaNewsLabel: megaNewsLabel, megaLane: megaLane,
         MENU_BADGES: MENU_BADGES,
         // F195(b): exposed so the header block can be driven and asserted.
         headerIdentityRefresh: headerIdentityRefresh,

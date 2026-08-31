@@ -1511,11 +1511,35 @@
   // rows = [{name, rank, recent}] as rankings._top_rows returns them.
   // parse(recent) -> {species, date} | null, supplied by the caller because the
   // two repos already own that regex.
-  var CASCADE_MIN_BIRDERS = 3, CASCADE_WINDOW_DAYS = 3;
+  //
+  // ⚠️ F264. TWO BIRDERS, AND IT HAS TO BE RECENT.
+  //
+  // Owner, from the device: *"2 species cascading through the leaderboard looks
+  // stale because of the perigrine falcoln. dont show birds here unless they
+  // are newly added by multiple people. like two leaderboard top 100 added the
+  // same bird"*.
+  //
+  // ⚠️ THE WINDOW WAS RELATIVE, NOT ABSOLUTE. It required the ticks to fall
+  // within three days OF EACH OTHER and never that they were recent — so three
+  // birders who added Peregrine Falcon within one week of each other three
+  // weeks ago satisfied it forever. The lane is a NEWS lane; a cluster with no
+  // upper bound on its age is a fact about last month.
+  //
+  // CASCADE_MAX_AGE_DAYS is that bound, and CASCADE_MIN_BIRDERS drops 3 -> 2
+  // because two of the top hundred adding the same bird is the owner's own
+  // definition of the signal. Lowering the count without adding the age bound
+  // would have made it noisier AND still stale.
+  var CASCADE_MIN_BIRDERS = 2, CASCADE_WINDOW_DAYS = 3, CASCADE_MAX_AGE_DAYS = 7;
   function tickCascades(rows, parse, opts) {
     opts = opts || {};
     var minB = opts.minBirders || CASCADE_MIN_BIRDERS;
     var windowDays = opts.windowDays || CASCADE_WINDOW_DAYS;
+    var maxAge = opts.maxAgeDays || CASCADE_MAX_AGE_DAYS;
+    // ⚠️ `== null`, not `||` — the house convention the algorithm registry
+    // enforces, and it is right on the merits: `nowMs: 0` is a valid instant
+    // and `||` would silently discard it for the live clock, which is exactly
+    // the untestable state the rule exists to prevent.
+    var nowMs = opts.nowMs == null ? Date.now() : opts.nowMs;
     var groups = {}, order = [];
     (rows || []).forEach(function (r) {
       var p = r && r.recent ? parse(r.recent) : null;
@@ -1537,6 +1561,21 @@
       // bird that people happen to add at different times of year.
       var a = new Date(g.earliest).getTime(), b = new Date(g.latest).getTime();
       if (isFinite(a) && isFinite(b) && (b - a) > windowDays * 86400000) return;
+      // ⚠️ F264. ...AND THE WINDOW MUST BE RECENT. The check above is relative:
+      // it says the ticks are close TO EACH OTHER, never that they are close to
+      // TODAY. Without this a tight cluster from a month ago is news forever,
+      // which is exactly what made the lane read as stale.
+      //
+      // ⚠️ WHOLE CALENDAR DAYS, from the LOCAL date, because report.py compares
+      // `date.today() - date.fromisoformat(latest)` and that is a day count.
+      // Comparing raw timestamps instead made the two disagree by half a day
+      // and the parity suite caught it immediately: a cluster exactly at the
+      // bound passed in Python and failed in JS.
+      if (isFinite(b) && maxAge > 0) {
+        var _n = new Date(nowMs);
+        var _nowDay = Date.UTC(_n.getFullYear(), _n.getMonth(), _n.getDate());
+        if ((_nowDay - b) > maxAge * 86400000) return;
+      }
       g.birders.sort(function (x, y) { return (x.rank || 9999) - (y.rank || 9999); });
       out.push(g);
     });

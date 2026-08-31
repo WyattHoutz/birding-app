@@ -391,13 +391,44 @@ const AUDIT = `<script>
     var secs = [].slice.call(document.querySelectorAll('section.panel'))
       .map(function (s) { return s.id; }).filter(Boolean);
     var i = 0;
+    // ⚠️ F261. SAMPLED ACROSS TIME, because the bug that prompted this was
+    // TRANSIENT and a single sample could not see it.
+    //
+    // Reported from the device with a reproduction: open Twitches today and
+    // the whole page — navbar included — renders at about 80% width and left
+    // aligned; pull to refresh and it is correct. Measured off the screenshot
+    // at 402px: the content column is 300px, a uniform 0.746 scale. A uniform
+    // scale that includes the navbar is not a card that is too narrow, it is
+    // WKWebView fitting the page to something wider than the viewport — and
+    // once the content settles and the wide thing is gone, it fits again.
+    //
+    // The audit scanned ONCE, 350 ms after opening, and reported "nothing
+    // overflows" for six viewports while this shipped. It was measuring a
+    // moment, not the section. A CHECK THAT LOOKS ONCE CANNOT SEE A FLICKER.
+    var TICKS = [80, 350, 1200];
     function step() {
       if (i >= secs.length) return finish(out);
       var id = secs[i++];
       try { A.showSection(id); } catch (e) { return step(); }
       // showSection triggers autoLoad, which paints asynchronously. Scanning
-      // immediately measures an empty panel, which cannot overflow.
-      setTimeout(function () { out.push(scan(id)); step(); }, 350);
+      // immediately measures an empty panel, which cannot overflow — so the
+      //early tick is not a replacement for the later ones, it is an addition.
+      var worst = null, k = 0;
+      function tick() {
+        if (k >= TICKS.length) { out.push(worst); return step(); }
+        var at = TICKS[k], prev = k ? TICKS[k - 1] : 0;
+        k++;
+        setTimeout(function () {
+          var s = scan(id);
+          s.atMs = at;
+          // WORST, not last: the widest moment is the one the reader saw.
+          if (!worst || (s.items.length && s.items[0].over > (worst.items[0] ? worst.items[0].over : 0))
+                     || (!worst.items.length && s.items.length)) worst = s;
+          if (!worst) worst = s;
+          tick();
+        }, at - prev);
+      }
+      tick();
     }
     step();
   }

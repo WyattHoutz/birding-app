@@ -608,7 +608,7 @@ test('Happening now is wired and renders every lane it detects', async () => {
       { name: 'Brian Pendleton', rank: 3, recent: 'Terek Sandpiper (Jul 19, 2026)' },
       { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
       { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    ], A.parseRecentTick),
+    ], A.parseRecentTick, { nowMs: Date.parse('2026-07-21T12:00:00') }),
     [{ locId: 'L2', loc: 'Stanwood STP', observers: 9, baseline: 1, ratio: 9 }]);
 
   const txt = app.$('surgeResults').textContent;
@@ -5572,34 +5572,46 @@ test('the GBIF lookup needs a scientific name and asks for no eBird quota', asyn
 // were byte-identical on screen. This app refuses that ambiguity everywhere
 // else (a filter says what it removed; the mega lane states its snapshot age),
 // and the one place it was not applied is the lane that got reported.
-test('an empty Celebrity lane says so instead of vanishing', async () => {
+test('F264: an empty lane is silent, but an empty SECTION still explains itself', async () => {
   const app = await boot();
   const A = app.window.__app, d = app.window.document;
 
-  // One other lane firing, so the section renders and the all-lanes-empty
-  // copy — which explains every lane at once — is NOT what we are reading.
+  // ⚠️ THIS TEST WAS "an empty Celebrity lane says so instead of vanishing"
+  // (F211), and the owner reversed it: *"if theres no birds, dont show
+  // anything."* — with the principle behind it, *"bird gen needs fresh bird
+  // buzz and news. its like a alert so nothing should be stale."*
+  //
+  // F211's reasoning is NOT discarded. It exists because an empty lane once
+  // rendered nothing at all, so "nothing qualified today" and "this feature
+  // was deleted" were byte-identical. The synthesis: the SECTION still says
+  // that when it is wholly empty; a single empty lane inside a section that
+  // has news no longer prints a paragraph about what it did not find. An
+  // alert listing four things that are not happening buries the one that is.
   A.renderSurge([], [], [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }], []);
   const txt = d.getElementById('surgeResults').textContent;
-  assert.match(txt, /Celebrity Birds/,
-    'the lane disappeared entirely — indistinguishable from a deleted feature');
-  assert.match(txt, /Nothing qualifies right now/,
-    'and it must say it found nothing, not merely exist');
-  // Naming the gate is what makes an empty lane checkable rather than
-  // worrying: a reader who knows the bar can tell working from broken.
-  assert.match(txt, /unseen/i, 'the note names the unseen gate');
-  assert.match(txt, /notable/i, 'and the notable gate');
-  assert.match(txt, /\d+ mi/, 'and the chase radius it used');
+  assert.match(txt, /Magnuson Park/, 'the lane that DID find something renders');
+  assert.doesNotMatch(txt, /Nothing qualifies right now/,
+    'an empty lane beside a populated one must not narrate its own absence');
+  assert.doesNotMatch(txt, /Celebrity Birds/,
+    'an empty lane prints no heading either — a heading over nothing is the '
+    + 'same noise one line shorter');
 
-  // ...and it must not crowd out a lane that DID find something.
-  const withRows = A.renderSurge([], [], [], [
+  // ⚠️ THE OTHER HALF, and it is what keeps F211 satisfied: with EVERY lane
+  // empty the section still explains itself, in one place, for all lanes.
+  A.renderSurge([], [], [], []);
+  const empty = d.getElementById('surgeResults').textContent;
+  assert.ok(empty.trim().length > 40,
+    'a wholly empty section must not be a blank panel — that is exactly the '
+    + '"feature looks deleted" bug F211 was filed for');
+
+  // ...and a populated lane is unaffected.
+  A.renderSurge([], [], [], [
     { code: 'tuf', name: 'Tufted Puffin', reports: 3, nPlaces: 2, distMi: 4,
       locName: 'Marina Beach', subId: 'S1', whenStr: '2026-08-27 08:00',
       lat: 47, lon: -122 },
   ]);
   const full = d.getElementById('surgeResults').textContent;
   assert.match(full, /Tufted Puffin/, 'a populated lane still renders its birds');
-  assert.doesNotMatch(full, /Nothing qualifies right now/,
-    'the empty note must not appear beside actual results');
   app.window.close();
 });
 
@@ -5618,9 +5630,15 @@ test('Happening now titles all three lanes so the last is not a footnote', async
   // FOUR, not three: since F211 the Celebrity lane announces itself even when
   // it is empty, because a lane that renders nothing at all is indistinguishable
   // from a lane that has been deleted — which is exactly what was reported.
-  assert.equal(heads.length, 4, 'every lane gets its own heading');
-  assert.ok(heads.some(h => h.includes('Celebrity')),
-    'the celebrity lane must be named even with nothing in it');
+  // F264: only lanes with content get a heading now. Three lanes are fed here.
+  assert.equal(heads.length, 3, 'every lane WITH CONTENT gets its own heading');
+  // ⚠️ F264 reversed the line that used to be here — "the celebrity lane must
+  // be named even with nothing in it". The owner: *"if theres no birds, dont
+  // show anything."* The lane fed nothing is now silent; the section-wide
+  // empty state is what keeps F211's ambiguity closed, and it is asserted in
+  // the F264 test rather than here.
+  assert.ok(!heads.some(h => h.includes('Celebrity')),
+    'a lane with nothing in it prints no heading');
   // Pinned to the PROPERTY — the hotspot lane comes LAST — rather than to an
   // index, which is what broke this guard when a lane was added in front of it.
   assert.ok(heads[heads.length - 1].includes('hotspot'),
@@ -9375,16 +9393,36 @@ test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
   // ⚠️ `.wholine` is a GLOBAL class shared with two other sections, fixed at
   //    14px, and it overrode the scaled `.who` so the birder's NAME — the one
   //    thing the row is about — stayed 14px while everything around it grew.
-  //    Measured at 393px before the fix: .who 22.5px, .wholine 14px.
+  //    Measured at 393px before that fix: .who 22.5px, .wholine 14px.
+  //
+  // ⚠️ F262 REVERSED THE SCALING, BY THE OWNER: *"names are getting cut off.
+  //    they should be same font size as other menus that lists a name."* The
+  //    +50% put the name at 22.5px — the LARGEST name in the app, against 17px
+  //    for a species in a compact list — and F246's own mitigation was to
+  //    shrink the COLUMNS to make room, which treats the symptom.
+  //
+  //    What SURVIVES from F246 and is still asserted: the two rules must agree,
+  //    so the global `.wholine` can never again override the scoped `.who`.
+  //    That was the actual bug; the 1.5 was the remedy that overshot.
   const wholine = /\.rankrow \.wholine \{[^}]*\}/.exec(HTML);
   assert.ok(wholine, 'the row name has a scoped rule');
-  assert.match(wholine[0], /font-size:[^;]*var\(--rf\)/,
-    'the NAME scales too, not only the cell around it');
-  for (const cls of ['.rk', '.who', '.n', '.mv']) {
+  const whoRule = /\.rankrow \.who \{[^}]*\}/.exec(HTML);
+  assert.ok(whoRule, 'the row name cell has a scoped rule');
+  const px = (s) => (/font-size:[^;]*?(\d+)px/.exec(s) || [])[1];
+  assert.ok(px(wholine[0]) && px(wholine[0]) === px(whoRule[0]),
+    'the name and the cell around it must still declare ONE size — that '
+    + 'disagreement is what F246 actually fixed');
+  // ⚠️ `.who` is deliberately NOT in this list any more (F262): the NAME left
+  // the row-scale factor at the owner's request, while the NUMBERS keep it —
+  // the digits were never what clipped, and enlarging the row was the actual
+  // ask F246 was built for.
+  for (const cls of ['.rk', '.n', '.mv']) {
     const rule = new RegExp('\\.rankrow \\' + cls + ' \\{[^}]*\\}').exec(HTML);
     assert.ok(rule && /var\(--rf\)/.test(rule[0]),
       cls + ' scales with the row');
   }
+  assert.ok(!/var\(--rf\)/.test(whoRule[0]),
+    'the NAME must not scale with the row — that is what clipped it');
   app.window.close();
 });
 
@@ -16479,19 +16517,33 @@ test('the geometry line does not report overflow while zoomed out', () => {
 // "undefined rarities" to the screen with a green suite for exactly this
 // reason.
 test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothing', async () => {
+  // ⚠️ F264: RELATIVE DATES. The lane now requires a mega to be RECENT, so a
+  // fixture pinned to fixed August days stops being news the moment the
+  // calendar moves past it — a test that rots is a test that will one day fail
+  // for a reason with nothing to do with the code.
+  const dayAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const snap = JSON.stringify({
     at: Date.now() - 3 * 3600 * 1000,
     region: 'US-WA',
     rows: [
       // Two reports of one bird -> ONE row, newest kept.
-      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: '2026-08-19 07:00',
+      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(2) + ' 07:00',
         locName: 'Near Home Park', locId: 'L111', subId: 'S1', lat: 47.76, lng: -122.17 },
-      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: '2026-08-20 09:30',
+      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(1) + ' 09:30',
         locName: 'Near Home Park', locId: 'L111', subId: 'S2', lat: 47.76, lng: -122.17 },
       // Far away: must still be SHOWN (a mega is worth a drive by definition)
       // and must say it is outside the radius.
-      { speciesCode: 'liftra', comName: 'Little Stint', obsDt: '2026-08-20 08:00',
+      // Far away and singly reported: under F256 this is NOT news and is held
+      // back — Mega rarities carries it.
+      { speciesCode: 'liftra', comName: 'Little Stint', obsDt: dayAgo(1) + ' 08:00',
         locName: 'Faraway Flats', locId: 'L222', subId: 'S3', lat: 46.10, lng: -119.00 },
+      // Far away but REPORTED TWICE, so it qualifies (F256 "multiple reports")
+      // and must still say it is outside the radius — distance orders this lane
+      // and never gates it, so an unlabelled far row would read as local.
+      { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 08:00',
+        locName: 'Faraway Flats', locId: 'L222', subId: 'S4', lat: 46.10, lng: -119.00 },
+      { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 10:00',
+        locName: 'Other Far Place', locId: 'L333', subId: 'S5', lat: 46.11, lng: -119.01 },
     ],
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
@@ -16499,15 +16551,31 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
 
   const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
   assert.ok(lane, 'the snapshot was not read back');
-  assert.equal(lane.rows.length, 2, 'reports were not grouped to one row per species');
-  assert.equal(lane.rows[0].code, 'rufhum', 'the lane is not ordered closest-first');
-  assert.equal(lane.rows[0].reports, 2, 'the report count per species is wrong');
-  assert.equal(lane.rows[0].obsDt, '2026-08-20 09:30', 'the NEWEST report was not kept');
+  assert.equal(lane.all.length, 3, 'reports were not grouped to one row per species');
+  assert.equal(lane.all[0].code, 'rufhum', 'the lane is not ordered closest-first');
+  assert.equal(lane.all[0].reports, 2, 'the report count per species is wrong');
+  assert.equal(lane.all[0].obsDt, dayAgo(1) + ' 09:30', 'the NEWEST report was not kept');
 
-  // The far mega survives. Every other lane gates on the chase radius; this is
-  // the one lane where that rule is wrong.
-  assert.ok(lane.rows.some(r => r.code === 'liftra'),
-    'a mega outside the chase radius was dropped — distance must ORDER this lane, never gate it');
+  // ⚠️ F256 NARROWED F160, DELIBERATELY, AND THIS TEST USED TO ENCODE F160.
+  //
+  // F160's rule was "distance ORDERS this lane, never gates it", because a
+  // continent-level rarity is worth a drive by definition. Sound about the
+  // BIRD, wrong about the NEWS: the owner reported the far ones crowding out
+  // the close one he could act on — "the ruff and wagtail are too far for bird
+  // gen, and are already in the mega rarities. they should only show up in bird
+  // gen when they are new".
+  //
+  // So distance still never gates BY ITSELF — a far NEW mega still leads — but
+  // rarity alone no longer entitles a bird to the lane. Little Stint here is
+  // far, one report, and nothing has marked it new, so it qualifies for none of
+  // the four and belongs in Mega rarities, which still carries it.
+  assert.ok(lane.all.some(r => r.code === 'liftra'),
+    'the far mega must still be COMPUTED — it is held back from one lane, not lost');
+  assert.ok(!lane.rows.some(r => r.code === 'liftra'),
+    'a far, singly-reported mega is not news (F256)');
+  assert.equal(lane.held, 1, 'the lane must count what it held back so it can say so');
+  assert.ok(lane.rows.some(r => r.code === 'rufhum'),
+    'a mega with two reports inside the chase area IS news');
 
   const before = app.state.fetches.length;
   A.renderSurge([], [], [], []);
@@ -16521,7 +16589,15 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
 
   const txt = box.textContent;
   assert.match(txt, /Rufous Hummingbird/, 'the mega did not render');
-  assert.match(txt, /Little Stint/, 'the far mega did not render');
+  // F256: the far, singly-reported mega is HELD BACK, and the lane says so
+  // rather than silently shrinking — a filtered lane that does not name its
+  // filter is indistinguishable from one that lost data.
+  assert.doesNotMatch(txt, /Little Stint/,
+    'a far, singly-reported mega is not news (F256)');
+  assert.match(txt, /not news today/,
+    'the lane must say what it held back');
+  assert.match(txt, /Mega rarities/,
+    'and where the held-back bird actually is');
   assert.match(txt, /outside your chase radius/,
     'the far mega rendered without saying it is far, which reads as local');
   assert.ok(!/undefined|NaN/.test(txt), 'a dropped card slot rendered undefined/NaN: ' + txt.slice(0, 200));
@@ -16562,8 +16638,10 @@ test('a mega found this week is marked; one that was already here is not', async
   const a = await boot({ storage: { ebird_mega_snapshot_v1: snap,
                                     ebird_aba_archive_v1: watched } });
   const found = a.window.__app.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
-  assert.ok(found.rows[0].found, 'a bird we watched arrive is not marked as found');
-  assert.equal(found.rows[0].found.day, day(2), 'and it is dated by its FIRST report');
+  assert.ok(found.all[0].found, 'a bird we watched arrive is not marked as found');
+  assert.equal(found.all[0].found.day, day(2), 'and it is dated by its FIRST report');
+  assert.ok(found.rows.some(r => r.code === 'nazboo'),
+    'a newly found mega is news at any distance (F256 qualifier 2)');
 
   a.window.__app.renderSurge([], [], [], []);
   const txt = a.window.document.getElementById('surgeResults').textContent;
@@ -16590,19 +16668,28 @@ test('a mega found this week is marked; one that was already here is not', async
   });
   const d = await boot({ storage: { ebird_mega_snapshot_v1: snap,
                                     ebird_aba_archive_v1: longAgo } });
-  assert.equal(d.window.__app.megaLane([]).rows[0].found, null,
+  // ⚠️ ANCHORED AT HOME ON PURPOSE. With no anchor this row now qualifies for
+  // nothing under F256, so the lane renders empty and the doesNotMatch below
+  // would pass by rendering NOTHING — a check that cannot fail. Giving it the
+  // home anchor makes it news for being NEAR, so the row really is on screen
+  // and the absence of the badge is a fact about the badge.
+  const dLane = d.window.__app.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
+  assert.equal(dLane.all[0].found, null,
     'a mega we watched arrive TWO MONTHS ago is not this week\u2019s news — '
     + '"just discovered" has to expire or it stops meaning anything');
+  assert.ok(dLane.rows.some(r => r.code === 'nazboo'),
+    'the row must still be ON SCREEN, or the badge assertion below proves nothing');
   d.window.__app.renderSurge([], [], [], []);
-  assert.doesNotMatch(
-    d.window.document.getElementById('surgeResults').textContent,
+  const dTxt = d.window.document.getElementById('surgeResults').textContent;
+  assert.match(dTxt, /Nazca Booby/, 'the row rendered');
+  assert.doesNotMatch(dTxt,
     /found (today|yesterday|\d+ days ago)/i,
     'the badge rendered for a bird that arrived two months ago');
   d.window.close();
 
   // ...and an empty archive is the same answer: no evidence is not evidence.
   const c = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
-  assert.equal(c.window.__app.megaLane([]).rows[0].found, null,
+  assert.equal(c.window.__app.megaLane([]).all[0].found, null,
     'with no archive at all there is nothing to claim');
   c.window.close();
 });
@@ -20418,4 +20505,259 @@ test('F257: the chase computation is handed the watchlist', async () => {
   assert.ok(weighted < plain,
     'a bird you half-saw must not anchor a drive like one you have never seen');
   app.window.close();
+});
+
+
+// ---------------------------------------------------------------------------
+// F256. RARITY IS THE ENTRY TICKET, NOT THE RANKING.
+//
+// Owner, 2026-08-30, canonical restatement:
+//   "so celebrity birds are rare birds with multiple reports, and new aba
+//    birds, and aba birds in my day trip / chase area"
+// and, choosing between further candidates:
+//   "maybe an unseen bird with multiple reports at the same hotspot"
+//
+// One filter, a four-way OR. Being ABA Code 3+ makes a bird a CANDIDATE; a
+// qualifier makes it news. The half that changes behaviour is the NEGATIVE
+// one — rare + far + already seen qualifies for nothing — which is the Ruff
+// and the wagtail he named, both already in Mega rarities.
+test('F256: a mega earns its place in Bird gen, it is not entitled to one', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const MAX = 35;
+
+  const base = { reports: 1, mi: 200, found: null, unseen: false, spotReports: 0 };
+  // ⚠️ Through rr: an array built inside jsdom carries jsdom's Array
+  // prototype, and assert/strict's deepEqual compares prototypes — a
+  // same-valued array from the app fails against a literal written here.
+  const q = (over) => arr(A.megaNews(Object.assign({}, base, over), { chaseMaxMi: MAX }));
+
+  // ⚠️ THE CONTROL, and it is the whole point of the change. Without this the
+  // test passes for a gate that lets everything through.
+  assert.deepEqual(q({}), [],
+    'rare + far + already seen + one report qualifies for NOTHING — that is '
+    + 'the Ruff and the wagtail, and Mega rarities already carries them');
+
+  // Each qualifier ALONE is sufficient.
+  assert.deepEqual(q({ reports: 2 }), ['multi'], 'multiple reports is news');
+  assert.deepEqual(q({ mi: 12 }), ['near'], 'inside the chase area is news');
+  assert.deepEqual(q({ found: { day: '2026-08-30', days: 0 } }), ['new'],
+    'a first appearance is news at ANY distance');
+  assert.deepEqual(q({ unseen: true, spotReports: 3 }), ['spot'],
+    'an unseen bird with several reports at ONE hotspot is news');
+
+  // ...and the strongest one leads, because that is the label the row shows.
+  const many = q({ unseen: true, spotReports: 3, mi: 12, reports: 4,
+                   found: { day: '2026-08-30', days: 0 } });
+  assert.equal(many[0], 'spot',
+    'reports at one hotspot lead: scattered reports say a bird is AROUND, '
+    + 'reports at one spot say WHERE TO STAND');
+
+  // The boundary of "multiple", stated rather than tuned.
+  assert.deepEqual(q({ reports: 1 }), [], 'one report is not multiple');
+
+  // "At the same hotspot" is a DIFFERENT claim from "multiple reports", and
+  // conflating them is the easy mistake: an unseen bird seen once each at three
+  // different places has three reports and nowhere to stand.
+  assert.ok(!q({ unseen: true, spotReports: 1, reports: 3 }).includes('spot'),
+    'three scattered reports are not three reports at one hotspot');
+
+  // ⚠️ Seen-ness gates ONLY the hotspot qualifier. A bird you have already seen
+  // can still be news for being new or near — it is the SPOT rule that is about
+  // where YOU should go.
+  assert.ok(!q({ unseen: false, spotReports: 5 }).includes('spot'),
+    'the hotspot qualifier is about a bird you still need');
+  assert.deepEqual(q({ unseen: false, mi: 5 }), ['near'],
+    'but a seen mega inside the chase area is still news');
+
+  // Every qualifier says WHY in words - never a colour, never position alone.
+  const row = { reports: 4, mi: 12, spotReports: 3, spotName: 'Marymoor Park',
+                unseen: true, found: { day: '2026-08-30', days: 0 } };
+  A.megaNews(row, { chaseMaxMi: MAX }).forEach((tag) => {
+    const label = A.megaNewsLabel(tag, row);
+    assert.ok(label && /[a-z]/.test(label),
+      `qualifier ${tag} must state itself in words, got ${label!==undefined?JSON.stringify(label):'undefined'}`);
+  });
+  assert.match(A.megaNewsLabel('spot', row), /Marymoor Park/,
+    'the hotspot qualifier NAMES the place, because that is the actionable part');
+  app.window.close();
+});
+
+
+// ---------------------------------------------------------------------------
+// F261. THE FIRST LAYOUT IS WRONG, AND NOTHING EVER RE-MEASURED.
+//
+// Owner: "it seems to load the view with the wrong width initially but then
+// fixes on any refresh", and the clue that settled it — "if i switch apps away
+// from the app and come back to the app, it fixes it. i did no interaction
+// with the app" · "no refresh needed".
+//
+// Switching apps fetches nothing and re-renders nothing. The only thing it
+// does is make iOS force a RE-LAYOUT. So the CSS was never wrong; it was
+// applied against a viewport the web view did not end up having.
+//
+// ⚠️ It does not reproduce in headless Chrome — the mockup at 393px puts the
+// card 34px from BOTH edges, while the device measured 15px / 62px. So this
+// test does NOT try to reproduce the engine bug. It pins the three things that
+// are ours: the detector fires on the reported state, stays silent on a good
+// page, and NEVER fights a reader who deliberately zoomed in.
+test('F261: the layout is re-measured on resume, boot and section change', async () => {
+  const app = await boot();
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+
+  // ⚠️ There were NO resume listeners in this app at all. That is the gap: the
+  // owner had to switch apps BY HAND to make the page lay out again.
+  const bz = HTML.slice(HTML.indexOf('function bindZoomReset()'),
+                        HTML.indexOf('function bindSwipeBack()'));
+  assert.ok(bz.length > 0, 'bindZoomReset still bounds this window');
+  assert.match(bz, /checkGeometry\('boot'\)/, 'boot is where the wrong width is set');
+  assert.match(bz, /visibilitychange/, 'resume is the cure the owner found by hand');
+  assert.match(bz, /checkGeometry\('resume'\)/, 'and it must actually re-measure');
+
+  // The cure is a re-layout, and re-asserting the viewport meta is what forces
+  // one. Pinned to the CALL, not to the function name — a name can appear in a
+  // comment, which is how a guard was made unfailable once already.
+  const hl = HTML.slice(HTML.indexOf('function healLayout(why)'),
+                        HTML.indexOf('function checkGeometry(where)'));
+  assert.match(hl, /resetZoom\(\);/, 'the heal re-applies the viewport');
+  assert.match(hl, /_healAt/, 'and is rate-limited, so it cannot loop');
+
+  // ⚠️ THE ACCESSIBILITY INVARIANT, and it is the one that must never regress.
+  // This file's first ten lines are a warning about taking zoom away from a
+  // low-vision reader. Healing may only ever act DOWNWARD.
+  const cg = HTML.slice(HTML.indexOf('function checkGeometry(where)'),
+                        HTML.indexOf('function bindZoomReset()'));
+  assert.match(cg, /if \(sc < 0\.98 \|\| shrunk\) healLayout\(where\);/,
+    'a page zoomed IN is the reader choosing to zoom in, and must be left alone');
+  assert.ok(!/sc > 1/.test(cg.split('healLayout')[1] || ''),
+    'nothing may heal an intentional zoom-in');
+
+  // Silent when healthy: a diagnostic that fires on a good page trains you to
+  // ignore it, and this one can ACT.
+  assert.match(cg, /if \(sc >= 0\.98 && over <= 0 && !shrunk\) return;/,
+    'a healthy page must produce no warning and no nudge');
+
+  // And it names the widest box, because "the page is narrow" is a symptom and
+  // the next report needs a suspect.
+  assert.match(cg, /widest /, 'the deviation names the widest element');
+  app.window.close();
+});
+
+
+// ---------------------------------------------------------------------------
+// F262. THE LEADERBOARD NAME WAS THE BIGGEST NAME IN THE APP.
+//
+// Owner, from the device: "names are getting cut off. they should be same font
+// size as other menus that lists a name." and "the bird name and details are
+// wrapping at a midpoint that doesnt make sense."
+//
+// ⚠️ THIS REVERSES PART OF F246, BY THE OWNER — the same shape as F256
+// reversing F200 on the rank denominator. F246 scaled the leaderboard +50%
+// (--rf: 1.5), which put the birder's name at 22.5px against 17px for a
+// species name in a compact list. The mitigation then was to shrink the
+// COLUMNS, which treats the symptom: the type had outgrown its own row.
+test('F262: a birder name is sized like every other name in a list', () => {
+  const css = HTML.slice(HTML.indexOf('.ranktable { --rf'),
+                         HTML.indexOf('.rankrow .n {'));
+  assert.ok(css.length, 'the leaderboard rules still bound this window');
+
+  // ⚠️ Pinned to the ABSENCE of --rf on the name, not to the literal 17px
+  // alone: a later +50% would otherwise sail past by scaling a number that
+  // still reads as 17.
+  const who = /\.rankrow \.who \{([^}]*)\}/.exec(css);
+  assert.ok(who, '.rankrow .who still exists');
+  assert.ok(!/--rf\b/.test(who[1]),
+    'the NAME must not ride the row-scale factor — that is what clipped it');
+  assert.match(who[1], /17px/, 'and it matches .obs.card-sm .name');
+
+  const wl = /\.rankrow \.wholine \{([^}]*)\}/.exec(css);
+  assert.ok(wl, '.rankrow .wholine still exists');
+  assert.ok(!/--rf\b/.test(wl[1]),
+    'the name line and the name must not disagree — F246 already hit that');
+  assert.match(wl[1], /17px/);
+
+  // The two must be the SAME number, or the <a> inside re-opens F246's bug.
+  const n1 = /(\d+)px/.exec(who[1])[1], n2 = /(\d+)px/.exec(wl[1])[1];
+  assert.equal(n1, n2, 'the cell and the line inside it must agree');
+
+  // ⚠️ ...and the numbers KEEP the scale. F246 was about the row being
+  // readable; the digits were never what clipped.
+  const n = /\.rankrow \.n \{([^}]*)\}/.exec(HTML);
+  assert.match(n[1], /--rf/, 'the species count still scales with the row');
+
+  // The wrap fix: a hanging indent, DERIVED from the thumb's own size so the
+  // two cannot drift apart.
+  const rl = /\.rankrow \.ranklast \{([\s\S]*?)\}/.exec(HTML);
+  assert.ok(rl, '.rankrow .ranklast still exists');
+  assert.match(rl[1], /padding-left: calc\(\(20px \* var\(--s\) \* var\(--rf\)\) \+ 6px\)/,
+    'continuation lines are indented past the icon');
+  assert.match(rl[1], /text-indent: calc\(-1 \* \(\(20px \* var\(--s\) \* var\(--rf\)\) \+ 6px\)\)/,
+    'and the first line still starts at the icon — that is what makes it hang');
+});
+
+
+// ---------------------------------------------------------------------------
+// F265. A CACHE WHOSE ONLY WRITER IS A SCREEN YOU MAY NEVER OPEN.
+//
+// Reported on v1.60.0: the header showed "209sp" with no rank on the first
+// open of the day. F256 fixed the REPAINT — the rank redraws when it arrives —
+// but nothing at boot ever made it arrive. cachedRankMe() accepts only an
+// entry dated TODAY, and the only writer was opening Top 100.
+//
+// ⚠️ CONFIRMED FROM THE DEVICE LOG, not inferred: at 15:39 the header had no
+// rank; at 15:40:30 "nav (menu) -> sec-rankBtn" is immediately followed by the
+// top100 scrape. The rank appeared because the owner opened Top 100.
+//
+// ⚠️ THIS IS THE THIRD INSTANCE OF ONE PATTERN IN TWO DAYS:
+//   F253  the hotspot merge read easymiss_v1: keys only Nemesis birds writes
+//         — measured in the log as 60 reads, 0 writes.
+//   F263  Bird gen read a mega snapshot only Mega rarities writes, and printed
+//         "reopen Rare birds to refresh" as an admission.
+//   F265  the header reads a rank only Top 100 writes.
+// The read is free and looks correct in every test, which is why all three
+// shipped. So this guard is about OWNERSHIP, not about the rank.
+test('F265: every lazy cache read at boot has a writer at boot', () => {
+  // The prefetch exists, is bounded, and repaints — a fetch whose result
+  // nothing redraws is the F256 bug one level down.
+  const fn = HTML.slice(HTML.indexOf('function lazyFetchRankMe()'),
+                        HTML.indexOf('function lazyFetchRankMe()') + 1400);
+  assert.ok(fn.length > 100, 'lazyFetchRankMe still exists');
+  assert.match(fn, /if \(cachedRankMe\(getRegion\(\)\)\) return;/,
+    'it must not re-fetch what today already has');
+  assert.match(fn, /_rankLazyDone/, 'once per session, not once per menu render');
+  assert.match(fn, /headerIdentityRefresh\(\)/,
+    'and it MUST repaint, or the fetch is invisible — that is F256 exactly');
+
+  // ⚠️ Pinned to the CALL, not the name: a guard bounded by a name matches its
+  // own comment, which is how one was made unfailable three times here.
+  //
+  // ⚠️ AND IT MUST BE CALLED FROM BOOT, NOT FROM A REPAINT. My first version
+  // hung this off renderMenuIdentity and the suite caught it: `the menu names
+  // you, from cache, without spending a call` is a real invariant, because the
+  // menu and header repaint constantly and a fetch on a repaint has no bound.
+  const bootSeq = HTML.slice(HTML.indexOf('bindZoomReset();'),
+                             HTML.indexOf('bindZoomReset();') + 500);
+  assert.match(bootSeq, /lazyFetchRankMe\(\)/,
+    'the prefetch runs at startup, which happens once');
+  const menuFn = HTML.slice(HTML.indexOf('function renderMenuIdentity'),
+                            HTML.indexOf('function lazyFetchRankMe()'));
+  assert.ok(!/\n\s*lazyFetchRankMe\(\);/.test(menuFn),
+    'and NOT from the menu render, which must stay free');
+
+  // The mega snapshot, same pattern, same requirement (F263).
+  const mega = HTML.slice(HTML.indexOf('function lazyRefreshMegaSnapshot'),
+                          HTML.indexOf('function lazyRefreshMegaSnapshot') + 1600);
+  assert.match(mega, /MEGA_LAZY_MAX_H/, 'it only fires on a genuinely old snapshot');
+  assert.match(mega, /saveMegaSnapshot/, 'and it writes what the lane reads');
+
+  // ...and the prose that admitted the missing owner is gone from the RENDERED
+  // string, not merely from the file. ⚠️ My first version of this grepped the
+  // whole of index.html and failed on my own comments quoting the old text —
+  // a guard that cannot tell code from a comment about code.
+  const age = HTML.slice(HTML.indexOf('function megaAge(at)'),
+                         HTML.indexOf('function megaAge(at)') + 700);
+  assert.ok(!/reopen Rare birds to refresh/.test(age),
+    'a section must not tell the reader to go open another section to get data');
+  assert.match(age, /refreshing in the background/,
+    'it says what is actually happening instead');
 });
