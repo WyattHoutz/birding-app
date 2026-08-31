@@ -20161,3 +20161,201 @@ test('F194: a wall that is gone stops being reported', async () => {
     'and so may an ordinary successful read');
   app.window.close();
 });
+
+
+// ---------------------------------------------------------------------------
+// F259. The storage report is supposed to say where the megabytes went. It was
+// bucketing keys with a hand-maintained regex — /^(bc_[a-z]+:|ebird_[a-z_]+?:
+// |easymiss_v1:)/ — whose character class admits no digits and no second
+// underscore. Every namespace that was later version-bumped or given a
+// two-word name silently stopped matching and fell into "(singles)".
+//
+// Measured 2026-08-30: 10 of 20 namespaces missed, and they were the LARGE
+// ones. Nobody edited the regex; bc_ckl: became bc_ckl2: and
+// ebird_hotspots_v1: became _v2:, ordinary bumps that each deleted a row from
+// the accounting. THIS IS A GUARD BROKEN BY A CHANGE NOWHERE NEAR IT, for the
+// fourth recorded time (F165, F197, F245).
+//
+// So this test is pinned to the PROPERTY - every namespaced key is attributed
+// to its own namespace - and never to a list, which is the thing that drifted.
+test('F259: the storage report attributes every namespace, not just the small ones', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  // The real key shapes this app writes. The four on the left of the old regex
+  // were already fine; the point of the list is the ones that were not.
+  const REAL = [
+    'ebird_hotspots_v2:US-WA',   // the 682 KB hotspot index
+    'ebird_chase_v1:wa',         // the chase snapshot
+    'ebird_species_v2:US-WA',
+    'ebird_locsp_v1:L123',
+    'bc_ckl2:S12345678',         // the checklist cache - F247's own subject
+    'bc_seen_v1:wa',
+    'bc_arrival_v1:US-WA',
+    'bc_board_v1:US-WA',
+    'bc_hotspot_hist:L99',       // a SECOND underscore
+    'ebird_tide_station:wa',
+    'bc_snap:wa',
+    'easymiss_v1:wa',
+  ];
+  // Sized so the two that matter genuinely ARE the biggest: storeComposition
+  // prints the top six BY BYTES, and a 100-byte fixture would be crowded out
+  // by the app's own seeds — the test would then be measuring its own
+  // fixture's size, not the bucketing rule.
+  REAL.forEach((k, i) => app.window.localStorage.setItem(k, 'x'.repeat(200 + i)));
+  app.window.localStorage.setItem('ebird_hotspots_v2:US-WA', 'x'.repeat(40000));
+  app.window.localStorage.setItem('bc_ckl2:S12345678', 'x'.repeat(30000));
+
+  // Every one of them must name a namespace of its own.
+  const unbucketed = REAL.filter((k) => !A.keyNs(k));
+  assert.deepEqual(unbucketed, [],
+    'these keys have no namespace at all, so the report cannot attribute them');
+
+  // ...and the namespace must be the key's OWN prefix, not a neighbour's.
+  assert.equal(A.keyNs('bc_ckl2:S1'), 'bc_ckl2:',
+    'bc_ckl2 must not be filed under the retired bc_ckl');
+  assert.equal(A.keyNs('ebird_hotspots_v2:US-WA'), 'ebird_hotspots_v2:');
+  assert.equal(A.keyNs('bc_hotspot_hist:L1'), 'bc_hotspot_hist:');
+  assert.equal(A.keyNs('ebird_api_key'), '',
+    'a key with no colon is not a namespace, and must not invent one');
+  // `bcp:` is deliberately absent: it is the profile pointer, which lives
+  // ABOVE the profile shim on _rawLS and is not part of a profile's storage.
+
+  // The report itself: nothing large may hide in (singles).
+  const lines = A.storeReport().join('\n');
+  REAL.forEach((k) => {
+    const ns = A.keyNs(k);
+    assert.ok(lines.includes(ns),
+      `the storage report never names ${ns}, so its bytes are unattributed`);
+  });
+
+  // storeComposition is the one printed after a failed write - the moment the
+  // attribution matters most.
+  const comp = A.storeComposition();
+  assert.ok(/ebird_hotspots_v2:|bc_ckl2:/.test(comp),
+    `the biggest namespaces must be nameable in the failure log, got: ${comp}`);
+  app.window.close();
+});
+
+
+// F259(b). THE SAME DRIFT, BUT THIS ONE COST SOMETHING.
+//
+// SHARED_KEYS decides which caches survive a profile switch — things that are
+// nobody's personal data. It listed `bc_ckl:`, and F247 renamed the checklist
+// cache to `bc_ckl2:` to retire poisoned entries. Matching is by PREFIX, and
+// `bc_ckl2:S1` does not start with `bc_ckl:`, so from F247 onward checklist
+// bodies — explicitly commented "public documents" — silently stopped being
+// shared and every profile re-fetched them.
+//
+// ⚠️ Pinned to the CONSTANT, never to the string. Restating `'bc_ckl2:'` here
+// would reproduce the exact fault it is guarding: two copies of one name, free
+// to drift apart at the next bump.
+test('F259: a namespace bump cannot quietly un-share a shared cache', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  assert.ok(A.CKL_NS, 'the checklist namespace constant is exposed');
+  assert.ok(A.SHARED_KEYS.includes(A.CKL_NS),
+    `SHARED_KEYS must carry the LIVE checklist namespace (${A.CKL_NS}), not a `
+    + `retired one: [${A.SHARED_KEYS.join(', ')}]`);
+
+  // Behaviour, not just membership: a real key in the live namespace is shared.
+  assert.equal(A.bcShared(A.CKL_NS + 'S12345678'), true,
+    'a checklist body is a public document and must survive a profile switch');
+
+  // ...and every entry that ENDS IN A COLON must be a namespace some live key
+  // could actually match. A retired prefix left behind is dead weight that
+  // looks like coverage.
+  assert.equal(A.bcShared('bc_ckl:S1') && !A.SHARED_KEYS.includes(A.CKL_NS), false,
+    'the retired namespace must not be the only checklist entry');
+  app.window.close();
+});
+
+
+// ---------------------------------------------------------------------------
+// F260. THE ONE-WAVE RULE, PINNED TO THE INVARIANT RATHER THAN TO A BRANCH.
+//
+// A device log caught two chase waves running at once, 23 seconds apart, both
+// writing a snapshot, both fighting the same token bucket — the limiter sat at
+// `window 21/20` with single calls stalling 30 to 60 seconds. A wave is ~47
+// calls, so two is ~94.
+//
+// That was fixed once, for the FORCE path, and the test above it still guards
+// that path. ⚠️ The invariant it protects had two other holes, and neither was
+// in the window that test reads:
+//
+//   1. clearChaseCache() wiped _chaseInflight. That does not CANCEL the running
+//      wave, it only makes it invisible — so the next caller starts a rival.
+//      It needs no user action: the own-checklist harvester calls it the moment
+//      it learns a tick and then sets _autoLoaded = {}, well inside the ~2.4
+//      minutes a wave takes.
+//   2. the stale-but-today refresh ran detached and unregistered, so for its
+//      whole ~2.4 minutes the force guard read an empty registry and could not
+//      fire.
+//
+// A GUARD THAT COVERS ONE PATH IS NOT A GUARD ON THE INVARIANT. This counts
+// waves.
+test('F260: learning a tick mid-wave does not start a second wave', async () => {
+  let waves = 0;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/notable/.test(u)) waves++;
+      if (/data\/obs\//.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 50));
+
+  // What the harvester does when it learns a species: the SEEN SET moved, the
+  // fetch centre did not. Joining the running wave is correct as well as
+  // cheap — finish() reads the seen list when it computes, at the END.
+  A.clearChaseCache(true);
+  A.refresh();
+
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled, 'the wave to finish');
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Six region feeds per wave, three of them notable.
+  assert.ok(waves <= 3,
+    `one wave's worth of alert feeds, not two: ${waves}`);
+  app.window.close();
+});
+
+// ...and the registry is only dropped when the FETCH INPUTS moved. Home,
+// radius, region and profile all change where we look, so a wave gathered
+// around the old centre genuinely cannot answer and must not be joined.
+test('F260: a moved home still abandons the running wave', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const from = HTML.indexOf('function clearChaseCache(seenOnly)');
+  assert.ok(from > 0, 'clearChaseCache still takes the seenOnly flag');
+  const to = HTML.indexOf('function haversineMi', from);
+  const cc = HTML.slice(from, to);
+  assert.match(cc, /if \(!seenOnly\) \{ _chaseInflight = \{\}; _chaseRefresh = \{\}; \}/,
+    'a full clear still abandons both registries');
+  assert.ok(!/^\s*_chase = \{\}; _chaseInflight = \{\}/m.test(cc),
+    'and the unconditional wipe is gone');
+
+  // The background refresh must be REGISTERED, or the force guard is
+  // unreachable on the stale-but-today path.
+  const gs = HTML.indexOf('function getChaseAll(force)');
+  const ge = HTML.indexOf('function anyRows(rows)', gs);
+  const gc = HTML.slice(gs, ge);
+  assert.match(gc, /_chaseRefresh\[slug\] = bg;/,
+    'the detached refresh is tracked');
+  assert.match(gc, /if \(_chaseRefresh\[slug\]\) \{/,
+    'and a force joins it instead of racing it');
+
+  // Only the two seen-axis callers may pass the flag. Anything else changes
+  // where we fetch from.
+  const callers = HTML.match(/clearChaseCache\(true\)/g) || [];
+  assert.equal(callers.length, 2,
+    `only the harvester and setWatchlist keep a running wave, got ${callers.length}`);
+  app.window.close();
+});

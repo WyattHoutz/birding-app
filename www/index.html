@@ -2703,7 +2703,13 @@
         'ebird_hotspots_v2:',       // the hotspot index — a 9.3s call
         'bc_ref:',                  // eBird reference/taxonomy cache
         'ebird_birdinfo_v2',        // species blurbs and photos
-        'bc_ckl:',                  // checklist bodies: public documents
+        'bc_ckl2:',                 // checklist bodies: public documents
+        //   ⚠️ F259. This said `bc_ckl:` — the namespace F247 RETIRED. Prefix
+        //   matching meant `bc_ckl2:…` did not start with `bc_ckl:`, so from
+        //   F247 onward the checklist cache silently stopped being shared and
+        //   every profile re-fetched bodies that are public documents. Same
+        //   drift as the storage report's regex, but with a real cost rather
+        //   than a cosmetic one. A guard now ties this entry to CKL_NS.
         'ebird_ebirders_count_v1',  // a published statistic
         'ebird_aba_archive_v1',     // the ABA alert archive
         'bc_easyread',              // accessibility, not identity
@@ -2798,7 +2804,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.57.0';
+      var APP_VERSION = '1.58.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4054,7 +4060,11 @@
           // Only when something was actually LEARNED: clearing on every pass
           // would throw away the wave that is usually already correct.
           if (learned) {
-            clearChaseCache();
+            // F260. seenOnly: the harvester changes WHAT COUNTS AS SEEN, never
+            // where we fetch from, so a wave already in flight is still the
+            // right wave — and dropping the registry here is what let a second
+            // one start 23 seconds behind the first.
+            clearChaseCache(true);
             _autoLoaded = {};
           }
           // The tick is durable now; the names are somebody else's problem —
@@ -8703,6 +8713,13 @@
       var CHASE_TTL_MS = 30 * 60 * 1000;
       var SPECIES_BATCH = 2;
       var _chaseInflight = {};
+      // F260. The BACKGROUND refresh on the stale-but-today path. `run`
+      // resolves with the painted snapshot immediately, so _chaseInflight is
+      // deleted at once while the refresh goes on for ~2.4 minutes — leaving
+      // the force guard reading an empty registry, unable to fire in the one
+      // window where it matters. Tracked separately because a normal caller
+      // must still get the instant snapshot; only a FORCE joins this.
+      var _chaseRefresh = {};
       // The rarity-only view that exists between the notable feeds landing and
       // the rest of phase 1 finishing. Deliberately NOT _chase: it is complete
       // for rarities and badly incomplete for everything else, and _chase is
@@ -9300,6 +9317,16 @@
           // You cannot be more up to date than a fetch that is in progress, so
           // a force during a wave joins it rather than starting a rival.
           if (_chaseInflight[slug]) return _chaseInflight[slug];
+          // F260. ...and the BACKGROUND refresh, which is a wave too. Without
+          // this the guard above is unreachable on the stale-but-today path:
+          // the snapshot resolves instantly, _chaseInflight is already gone,
+          // and a force starts a rival alongside a wave that is ~2 minutes
+          // from finishing.
+          if (_chaseRefresh[slug]) {
+            return _chaseRefresh[slug].then(function () {
+              return _chase[slug] || { t: Date.now(), profile: profile, cv: null, rarity: true };
+            });
+          }
           delete _chase[slug];
           try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
           // ...and the eBird response memo, which is the one that actually
@@ -9534,10 +9561,18 @@
           // data instead of vanishing from the section.
           var shown = finish(snap.codes, true);
           dbg('net', 'showing today\u2019s earlier snapshot while refreshing behind it');
-          runWave().then(function () {
+          // F260. REGISTERED, because this is a wave. It used to run entirely
+          // untracked: `shown` is returned synchronously below, so the promise
+          // in _chaseInflight settles at once and the only record that ~47
+          // calls were in progress disappeared with it.
+          var bg = runWave().then(function () {
             _partialDone[slug] = false;      // let the refreshed data repaint
             if (typeof onChasePartial === 'function') onChasePartial(slug);
           }).catch(function () { /* the snapshot is still on screen */ });
+          _chaseRefresh[slug] = bg;
+          bg.catch(function () {}).then(function () {
+            if (_chaseRefresh[slug] === bg) delete _chaseRefresh[slug];
+          });
           return shown;
         });
         _chaseInflight[slug] = run;
@@ -9550,8 +9585,31 @@
           if (Object.prototype.hasOwnProperty.call(rows, k) && rows[k] && rows[k].length) return true;
         }
         return false;
-      }      function clearChaseCache() {
-        _chase = {}; _chaseInflight = {}; _chaseRarity = {}; resetHotspotCache(); resetListsCache();
+      }      // F260. `seenOnly` says WHICH INPUT CHANGED, and that decides whether the
+      // wave already in flight is still the right wave.
+      //
+      // Clearing the RESULT is always right. ⚠️ Clearing the IN-FLIGHT REGISTRY
+      // is not, because it does not cancel the running wave — it only makes it
+      // invisible, so the next caller starts a second one and both write a
+      // snapshot. A device log caught exactly that: two waves 23 seconds apart,
+      // finishing 185.8s and 163.1s, both fighting the same token bucket, the
+      // limiter sitting at `window 21/20`. A wave is ~47 calls, so two is ~94.
+      //
+      // It needs NO USER ACTION. The own-checklist harvester calls this the
+      // moment it learns a tick and then sets `_autoLoaded = {}`, which
+      // re-triggers the sections — well inside the ~2.4 minutes a wave takes.
+      //
+      // When only the SEEN SET moved, joining the running wave is not merely
+      // cheaper, it is CORRECT: finish() reads getReportSeen() when it
+      // computes, at the END of the wave, so a wave that lands after the seen
+      // set changed already uses the new one.
+      //
+      // When the FETCH INPUTS moved — home, radius, region, profile — the
+      // running wave was gathered around the wrong centre and genuinely cannot
+      // answer, so those callers still drop it.
+      function clearChaseCache(seenOnly) {
+        _chase = {}; _chaseRarity = {}; resetHotspotCache(); resetListsCache();
+        if (!seenOnly) { _chaseInflight = {}; _chaseRefresh = {}; }
         // The per-URL memo has to go with it, or Refresh is answered from the
         // in-memory copy of the very feeds it is trying to re-read.
         ebClearCache();
@@ -11549,7 +11607,7 @@
       // the old one is stale the moment it changes.
       function setWatchlist(a) {
         try { localStorage.setItem(WATCH_KEY, JSON.stringify(a)); } catch (e) {}
-        clearChaseCache();
+        clearChaseCache(true);   // F260: the seen axis moved, not the fetch centre
         _autoLoaded = {};
         renderWatch();
       }
@@ -13755,6 +13813,28 @@
         } catch (e) { /* enumeration failed; nothing to offer */ }
         return out;
       }
+      // F259. THE NAMESPACE IS DERIVED FROM THE KEY, not matched against a list.
+      //
+      // Every storage diagnostic below used to carry its own copy of
+      // `/^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/`. That character class
+      // admits no digits and no second underscore, so ⚠️ EVERY namespace that
+      // was ever version-bumped or given a two-word name stopped matching and
+      // fell into `(singles)`. Measured 2026-08-30 against the real key
+      // prefixes in this file: 10 of 20 missed, and they were the LARGE ones —
+      // `ebird_hotspots_v2:` (682 KB), `ebird_chase_v1:` (the snapshot),
+      // `bc_ckl2:` (the checklist cache this report was built to measure),
+      // `bc_seen_v1:`, `bc_hotspot_hist:`, `bcp:`. The report named the
+      // scalars and hid the megabytes, which is what made `(singles)` look
+      // like a 2,922 KB leak when it was really the accounting mis-filing.
+      //
+      // Nobody edited the regex. `bc_ckl:` became `bc_ckl2:` and
+      // `ebird_hotspots_v1:` became `_v2:` — ordinary bumps that each silently
+      // deleted a row from the report. A LIST THAT MUST BE MAINTAINED BESIDE
+      // THE THING IT DESCRIBES WILL DRIFT; the first colon cannot.
+      function keyNs(k) {
+        var i = k.indexOf(':');
+        return i > 0 ? k.slice(0, i + 1) : '';
+      }
       // What is actually in there, biggest first. Printed only when a write
       // has already failed, so the next device log names the culprit instead
       // of leaving it to inference.
@@ -13764,8 +13844,7 @@
           for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i) || '';
             var v = localStorage.getItem(k) || '';
-            var ns = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
-            var name = ns ? ns[1] : k;
+            var name = keyNs(k) || k;
             by[name] = (by[name] || 0) + k.length + v.length;
           }
         } catch (e) { return 'unreadable'; }
@@ -13811,10 +13890,8 @@
             var v = localStorage.getItem(k) || '';
             var n = k.length + v.length;
             total += n;
-            var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
-            var name = m ? m[1] : '(singles)';
-            var e = by[name] || (by[name] = { n: 0, b: 0, z: 0, raw: 0, max: 0, maxk: '' });
-            e.n++; e.b += n;
+            var name = keyNs(k) || '(singles)';
+            var e = by[name] || (by[name] = { n: 0, b: 0, z: 0, raw: 0, max: 0, maxk: '' });            e.n++; e.b += n;
             // The format tag packJson writes. Counting them is how "we added
             // compression" stops being a claim and becomes a number.
             if (v.slice(0, 2) === 'z:') e.z++;
@@ -13852,8 +13929,7 @@
       // estimate; this is what the device really stored.
       var _zcStats = Object.create(null);
       function zcStat(key) {
-        var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(key);
-        var ns = m ? m[1] : '(singles)';
+        var ns = keyNs(key) || '(singles)';
         return _zcStats[ns] || (_zcStats[ns] = { ns: ns, hit: 0, miss: 0, put: 0, raw: 0, out: 0, fail: 0 });
       }
       // ⚠️ EVERY hit and miss is logged, one compact line each.
@@ -13947,8 +14023,7 @@
         try {
           for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i) || '';
-            var m = /^(bc_[a-z]+:|ebird_[a-z_]+?:|easymiss_v1:)/.exec(k);
-            var ns = m ? m[1] : '(singles)';
+            var ns = keyNs(k) || '(singles)';
             held[ns] = (held[ns] || 0) + 1;
           }
         } catch (e) {}
@@ -26245,6 +26320,16 @@
         saveChaseSnapshot: saveChaseSnapshot, loadChaseSnapshot: loadChaseSnapshot,
         chaseKey: chaseKey, anyRows: anyRows, CHASE_TTL_MS: CHASE_TTL_MS,
         freeCacheSpace: freeCacheSpace, storeComposition: storeComposition,
+        // F259: the storage report and the rule that buckets a key, exposed so
+        // "every namespace is accounted for" can be DRIVEN against the real
+        // key shapes rather than argued about. The list-based version had been
+        // mis-filing 10 of 20 namespaces — including the checklist cache the
+        // report was built to measure — and nothing could see it.
+        storeReport: storeReport, keyNs: keyNs,
+        // F259: SHARED_KEYS and the live namespace constants it must agree
+        // with. Exposed together so the guard can compare them rather than
+        // restate either as a literal — restating is how they drifted.
+        SHARED_KEYS: SHARED_KEYS, CKL_NS: CKL_NS, bcShared: bcShared,
         FG_MAX_CONC: FG_MAX_CONC, FG_MIN_GAP_MS: FG_MIN_GAP_MS,
       FG_WINDOW_MAX: FG_WINDOW_MAX, FG_WINDOW_MS: FG_WINDOW_MS,
       FG_BUCKET: FG_BUCKET, FG_REFILL_PER_S: FG_REFILL_PER_S,
