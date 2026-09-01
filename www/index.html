@@ -2854,7 +2854,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.60.0';
+      var APP_VERSION = '1.61.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9585,6 +9585,44 @@
         // worse - it doubles a 41-call run to 82 - so concurrent callers now
         // share the one wave that is already running.
         if (_chaseInflight[slug]) return _chaseInflight[slug];
+        // ⚠️ F267. PHASE 2 IS A WAVE TOO, AND F260 MISSED IT.
+        //
+        // MEASURED on a device running the PREVIOUS release — which ALREADY HAD the F260
+        // fix — so this is not a regression, it is proof that fix was
+        // incomplete:
+        //
+        //   16:52:58  WAVE start
+        //   16:54:45  WAVE start            <- second wave, first still going
+        //   16:55:09  phase 2 done in 131.3s
+        //   16:55:09  phase 2 done in  24.0s
+        //   16:55:09  chase snapshot saved  (twice)
+        //
+        // The mechanism: `run` resolves with the PHASE 1 result, deliberately,
+        // so the screen comes up in ~16s instead of ~2min. `_chaseInflight` is
+        // therefore deleted while `_chasePhase2` runs on for another two
+        // minutes — and nothing consulted `_chasePhase2`. F260 found exactly
+        // this shape twice (the wipe, and the detached refresh) and I fixed
+        // those two; this is its third sibling, written and exposed but never
+        // read as a guard.
+        //
+        // ⚠️ THE LESSON, and it is the same one three entries running: I fixed
+        // the INSTANCES I could see rather than the INVARIANT. "Only one wave
+        // at a time" is one rule; it had four doors, and closing three of them
+        // still lets a wave through.
+        // ⚠️ AND NOT ON A FORCE. An existing guard caught me here — "a rarity
+        // refresh re-reads the alerts, not the whole wave" timed out, because
+        // a forced refresh fell through to this door and JOINED the phase 2 it
+        // was trying to replace. Refresh means "get me new data"; joining an
+        // in-flight wave answers a different question, and F260's own rule
+        // ("you cannot be more up to date than a fetch in progress") applies to
+        // phase 1, whose feeds are the ones a force wants re-read.
+        if (!force && _chasePhase2[slug]) {
+          return _chasePhase2[slug].then(function () {
+            return _chase[slug] || { t: Date.now(), profile: profile, cv: null, rarity: true };
+          }).catch(function () {
+            return _chase[slug] || { t: Date.now(), profile: profile, cv: null, rarity: true };
+          });
+        }
         var feeds = BL.planFeeds(profile);
         if (!feeds.length) return Promise.resolve({ t: Date.now(), profile: profile, cv: null, rarity: true });
 
@@ -9761,6 +9799,15 @@
               try { dbg('warn', 'phase 2 did not finish; the phase-1 view stands · '
                 + ((e && e.message) || e)); } catch (_) {}
               return _chase[slug];
+            });
+            // ⚠️ F267. CLEAR IT WHEN IT FINISHES, or the guard above becomes
+            // permanent and the section can never fetch again — the mirror
+            // failure of not having the guard at all. Identity-checked, so a
+            // later wave's registration is not deleted by an earlier one
+            // settling.
+            var _p2 = _chasePhase2[slug];
+            _p2.catch(function () {}).then(function () {
+              if (_chasePhase2[slug] === _p2) delete _chasePhase2[slug];
             });
 
             return first;

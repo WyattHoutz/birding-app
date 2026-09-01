@@ -20761,3 +20761,76 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
   assert.match(age, /refreshing in the background/,
     'it says what is actually happening instead');
 });
+
+
+// ---------------------------------------------------------------------------
+// F267. PHASE 2 IS A WAVE TOO, AND F260 MISSED IT.
+//
+// ⚠️ MEASURED on a device running v1.59.0 — a build that ALREADY CONTAINED the
+// F260 fix — so this is not a regression, it is proof that fix was incomplete:
+//
+//   16:52:58  WAVE start
+//   16:54:45  WAVE start            <- second wave, the first still running
+//   16:55:09  phase 2 done in 131.3s
+//   16:55:09  phase 2 done in  24.0s
+//   16:55:09  chase snapshot saved  (twice, 78ms apart)
+//
+// `run` resolves with the PHASE 1 result, deliberately, so the screen comes up
+// in ~16s instead of ~2min. _chaseInflight is therefore deleted while
+// _chasePhase2 runs on for another two minutes — and nothing consulted
+// _chasePhase2. It was written and exposed and never read as a guard.
+//
+// ⚠️ THE LESSON: F260 fixed the two INSTANCES it could see rather than the
+// INVARIANT. "Only one wave at a time" is one rule with four doors, and
+// closing three still lets a wave through. So this test counts waves through
+// the door that was missed.
+test('F267: a caller arriving during phase 2 joins it instead of starting a rival', async () => {
+  let waves = 0;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/notable/.test(u)) waves++;
+      if (/data\/obs\//.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+
+  A.refresh();
+  await new Promise((r) => setTimeout(r, 60));
+  // A second section opening while phase 2 is still in flight. This is the
+  // exact device sequence: nav to one section, then another, ~100s apart.
+  A.refresh();
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled, 'the wave to finish');
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(waves <= 3, `one wave's worth of alert feeds, not two: ${waves}`);
+
+  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const from = HTML.indexOf('function getChaseAll(force)');
+  const to = HTML.indexOf('function anyRows(rows)', from);
+  const gc = HTML.slice(from, to);
+
+  // ⚠️ ALL FOUR doors, asserted together, because the bug was closing three.
+  assert.match(gc, /if \(_chaseInflight\[slug\]\) return _chaseInflight\[slug\];/,
+    'door 1: a concurrent caller joins the running wave');
+  assert.match(gc, /if \(_chaseRefresh\[slug\]\) \{/,
+    'door 2: a force joins the background refresh (F260)');
+  assert.match(gc, /if \(!force && _chasePhase2\[slug\]\) \{/,
+    'door 3: a caller arriving during phase 2 joins it (F267) — and a FORCE '
+    + 'does not, because Refresh means new data, not "wait for the old wave"');
+  // ⚠️ Door 4 lives in clearChaseCache, which is OUTSIDE this window — so it
+  // is read from its own named bounds rather than assumed to be in scope. A
+  // guard that looks in the wrong place reports a defect that is not there,
+  // which is how a real one gets dismissed.
+  const cc = HTML.slice(HTML.indexOf('function clearChaseCache(seenOnly)'),
+                        HTML.indexOf('function haversineMi'));
+  assert.match(cc, /if \(!seenOnly\) \{ _chaseInflight = \{\}; _chaseRefresh = \{\}; \}/,
+    'door 4: a seen-set change does not abandon the registry (F260)');
+
+  // ...and phase 2 must RELEASE its registration, or the guard becomes
+  // permanent — the mirror failure of not having it.
+  assert.match(gc, /if \(_chasePhase2\[slug\] === _p2\) delete _chasePhase2\[slug\];/,
+    'the phase-2 guard clears itself, and identity-checked so a later wave '
+    + 'is not deleted by an earlier one settling');
+  app.window.close();
+});
