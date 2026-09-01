@@ -2892,7 +2892,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.63.0';
+      var APP_VERSION = '1.64.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6560,7 +6560,7 @@
         // section's signal COUNT reads this too — filtering in one place and
         // counting in the other is how a header comes to promise rows that are
         // not there.
-        out.forEach(function (m) { m.news = megaNews(m, { chaseMaxMi: chaseMaxMi() }); });
+        out.forEach(function (m) { m.news = megaNews(m, { dayTripMi: MEGA_DAYTRIP_MI }); });
         // ⚠️ F264. BIRD GEN IS AN ALERT, SO NOTHING IN IT MAY BE STALE.
         //
         // Owner: *"bird gen needs fresh bird buzz and news. its like a alert so
@@ -6606,16 +6606,57 @@
       var MEGA_MULTI_REPORTS = 2;
       // F264. How old a mega's newest report may be and still be NEWS.
       var MEGA_NEWS_MAX_AGE_DAYS = 7;
+      // ⚠️ F271. THE DAY-TRIP RADIUS, WHICH IS NOT THE CHASE RADIUS.
+      //
+      // Owner: *"the booby should show up under celebrity birds only because it
+      // is within my day trip distance"*. The Nazca Booby is **50.1 mi** — and
+      // I gated on `chaseMaxMi()`, which is **35**. So the one bird he named as
+      // qualifying was excluded by the very qualifier meant to admit it, and it
+      // only appeared at all because `multi` let it through by accident.
+      //
+      // 55 mi, and it is DERIVED rather than picked: F254 measured his half-day
+      // tier at ~70 minutes, and his own drive times put Nisqually at 53.7 mi /
+      // 68 min. So ~70 min is ~55 mi at the measured pace. That admits the
+      // Booby (50.1) and excludes the Ruff (98.4), which is exactly the
+      // distinction he drew.
+      //
+      // ⚠️ This is a STOPGAP for F254, not a replacement. When the real
+      // half-day tier ships this must read from it — a second copy of a radius
+      // is how F259's namespaces came apart.
+      var MEGA_DAYTRIP_MI = 55;
       function megaNews(m, opts) {
         opts = opts || {};
         var out = [];
         if (!m) return out;
-        // Strongest first, because the label shows the leading reason and this
-        // is the order the owner put them in when he weighed them.
-        if (m.unseen && (m.spotReports || 0) >= MEGA_MULTI_REPORTS) out.push('spot');
-        if (m.mi != null && opts.chaseMaxMi != null && m.mi <= opts.chaseMaxMi) out.push('near');
+        // ⚠️ F271. DISTANCE GATES THE WEAK QUALIFIERS, and the owner's own
+        // example is what proves it.
+        //
+        // F256 implemented his RESTATED rule as a flat four-way OR:
+        //   *"celebrity birds are rare birds with multiple reports, and new aba
+        //    birds, and aba birds in my day trip / chase area"*
+        // ...and I called that "the canonical form". ⚠️ IT CONTRADICTS THE
+        // CONCRETE INSTRUCTION HE GAVE FIRST:
+        //   *"the ruff and wagtail are too far for bird gen, and are already in
+        //    the mega rarities. they should only show up in bird gen when they
+        //    are new"*
+        //
+        // The Ruff has **14 reports** and is **98 mi** away. Under a flat OR it
+        // qualifies on `multi` — so the lane rendered exactly what he had asked
+        // me to remove, and he reported it as *"the bird gen is not updated"*.
+        // Measured: all four megas in his snapshot passed on `multi` alone.
+        //
+        // ⚠️ A RULE AND ITS WORKED EXAMPLE DISAGREED AND I TRUSTED THE RULE.
+        // The example is the test case; the restatement is a summary of it.
+        // Reconciled: **being far is disqualifying unless the bird is NEW.**
+        // "Multiple reports" and "reports at one hotspot" are reasons to go
+        // somewhere, and they mean nothing about a place you would not drive
+        // to. Only NEW survives distance, because a first record is news
+        // wherever it is.
+        var near = m.mi == null || m.mi <= (opts.dayTripMi == null ? MEGA_DAYTRIP_MI : opts.dayTripMi);
+        if (near && m.unseen && (m.spotReports || 0) >= MEGA_MULTI_REPORTS) out.push('spot');
+        if (m.mi != null && near) out.push('near');
         if (m.found) out.push('new');
-        if ((m.reports || 0) >= MEGA_MULTI_REPORTS) out.push('multi');
+        if (near && (m.reports || 0) >= MEGA_MULTI_REPORTS) out.push('multi');
         return out;
       }
       // ⚠️ Said in WORDS, never by colour or position alone. Each row states
@@ -6626,7 +6667,7 @@
           return m.spotReports + ' reports at ' + (m.spotName || 'one spot')
                + ' \u2014 a bird you need, and somewhere to stand';
         }
-        if (tag === 'near') return 'within your chase area';
+        if (tag === 'near') return 'within a day trip';
         if (tag === 'new') return megaFoundLabel(m.found);
         if (tag === 'multi') return m.reports + ' reports today';
         return '';

@@ -16540,10 +16540,15 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
       // Far away but REPORTED TWICE, so it qualifies (F256 "multiple reports")
       // and must still say it is outside the radius — distance orders this lane
       // and never gates it, so an unlabelled far row would read as local.
+      // ⚠️ F271: BETWEEN the two radii — outside the 35 mi chase radius but
+      // inside the 55 mi day trip. That is the case this test is about: a bird
+      // that must render AND must say it is beyond the chase radius. At 114 mi
+      // (where this fixture used to sit) it is simply held back, which tests
+      // nothing about the label.
       { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 08:00',
-        locName: 'Faraway Flats', locId: 'L222', subId: 'S4', lat: 46.10, lng: -119.00 },
+        locName: 'Faraway Flats', locId: 'L222', subId: 'S4', lat: 48.40, lng: -122.16 },
       { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 10:00',
-        locName: 'Other Far Place', locId: 'L333', subId: 'S5', lat: 46.11, lng: -119.01 },
+        locName: 'Other Far Place', locId: 'L333', subId: 'S5', lat: 48.41, lng: -122.17 },
     ],
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
@@ -20530,7 +20535,7 @@ test('F256: a mega earns its place in Bird gen, it is not entitled to one', asyn
   // ⚠️ Through rr: an array built inside jsdom carries jsdom's Array
   // prototype, and assert/strict's deepEqual compares prototypes — a
   // same-valued array from the app fails against a literal written here.
-  const q = (over) => arr(A.megaNews(Object.assign({}, base, over), { chaseMaxMi: MAX }));
+  const q = (over) => arr(A.megaNews(Object.assign({}, base, over), { dayTripMi: MAX }));
 
   // ⚠️ THE CONTROL, and it is the whole point of the change. Without this the
   // test passes for a gate that lets everything through.
@@ -20538,13 +20543,33 @@ test('F256: a mega earns its place in Bird gen, it is not entitled to one', asyn
     'rare + far + already seen + one report qualifies for NOTHING — that is '
     + 'the Ruff and the wagtail, and Mega rarities already carries them');
 
-  // Each qualifier ALONE is sufficient.
-  assert.deepEqual(q({ reports: 2 }), ['multi'], 'multiple reports is news');
-  assert.deepEqual(q({ mi: 12 }), ['near'], 'inside the chase area is news');
+  // Each qualifier ALONE is sufficient — for a bird you would actually drive to.
+  assert.deepEqual(q({ reports: 2, mi: 12 }), ['near', 'multi'],
+    'multiple reports is news for a bird within reach');
+  assert.deepEqual(q({ mi: 12 }), ['near'], 'inside the day trip is news');
   assert.deepEqual(q({ found: { day: '2026-08-30', days: 0 } }), ['new'],
     'a first appearance is news at ANY distance');
-  assert.deepEqual(q({ unseen: true, spotReports: 3 }), ['spot'],
+  assert.deepEqual(q({ unseen: true, spotReports: 3, mi: 12 }), ['spot', 'near'],
     'an unseen bird with several reports at ONE hotspot is news');
+
+  // ⚠️ F271. DISTANCE GATES THE WEAK QUALIFIERS, and the owner's own example
+  // is the test case. F256 read his RESTATED rule as a flat four-way OR; that
+  // contradicts the concrete instruction he gave first:
+  //
+  //   "the ruff and wagtail are too far for bird gen, and are already in the
+  //    mega rarities. they should only show up in bird gen when they are new"
+  //
+  // The Ruff has 14 reports at 98 mi. Under a flat OR it qualified on `multi`,
+  // so the lane rendered exactly what he had asked to remove — reported as
+  // "the bird gen is not updated". A RULE AND ITS WORKED EXAMPLE DISAGREED AND
+  // I TRUSTED THE RULE.
+  assert.deepEqual(q({ reports: 14, mi: 98 }), [],
+    'the Ruff: 14 reports but 98 mi away — reports mean nothing about a place '
+    + 'you would not drive to');
+  assert.deepEqual(q({ unseen: true, spotReports: 5, mi: 98 }), [],
+    'and neither does a hotspot you will not visit');
+  assert.deepEqual(q({ reports: 14, mi: 98, found: { day: '2026-08-30', days: 0 } }), ['new'],
+    '...but NEW survives any distance — a first record is news wherever it is');
 
   // ...and the strongest one leads, because that is the label the row shows.
   const many = q({ unseen: true, spotReports: 3, mi: 12, reports: 4,
@@ -20573,7 +20598,7 @@ test('F256: a mega earns its place in Bird gen, it is not entitled to one', asyn
   // Every qualifier says WHY in words - never a colour, never position alone.
   const row = { reports: 4, mi: 12, spotReports: 3, spotName: 'Marymoor Park',
                 unseen: true, found: { day: '2026-08-30', days: 0 } };
-  A.megaNews(row, { chaseMaxMi: MAX }).forEach((tag) => {
+  A.megaNews(row, { dayTripMi: MAX }).forEach((tag) => {
     const label = A.megaNewsLabel(tag, row);
     assert.ok(label && /[a-z]/.test(label),
       `qualifier ${tag} must state itself in words, got ${label!==undefined?JSON.stringify(label):'undefined'}`);
