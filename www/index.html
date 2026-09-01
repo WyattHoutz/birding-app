@@ -713,7 +713,45 @@
     .panel { overflow-x: clip; }
     .panel h2 { font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { color: var(--muted); font-weight: 600; }
-    #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
+    #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line);
+      /* ⚠️ F270. THE 80% WIDTH BUG, FOUND AT LAST — AND IT WAS THE NAVBAR.
+         F261 shipped a detector because three of my hypotheses were wrong and
+         the probe kept running after the page had healed. It paid for itself
+         on its first device outing, naming the box in one line:
+
+             GEOMETRY section sec-… · layout 402 · scrollW 492
+                       · OVERFLOWS by 90px · widest div#navbar right=402
+
+         **90px, and the SAME 90px in all fourteen sightings.** A constant
+         overflow is a box with a fixed intrinsic width, not a wrapping
+         accident.
+
+         ⚠️ AND THE LOG CARRIES THE TRIGGER. The first sighting is a pair:
+
+             21:28:26  viewport resize · layout 874   <- landscape
+             21:28:27  viewport resize · layout 402   <- portrait, still 90 over
+
+         A ROTATION. The row lays out at 874, and on the way back something
+         keeps the wider intrinsic size. That is why it was intermittent, why
+         it never reproduced in headless Chrome (which never rotates), and why
+         "it affects every page" — #navbar is chrome, present on all of them.
+
+         ⚠️ `right=402` is the tell that made this hard: no element's right
+         edge EXCEEDS the viewport, so a scan for boxes sticking out finds
+         nothing. The overflow is inside the flex row's scrollable area, which
+         is why six viewports of auditing reported 0.0px over.
+
+         Two changes, and the second is the actual fix:
+           `min-width: 0`  — a flex container is `min-width: auto` by default,
+                             so it refuses to shrink below its content.
+           `overflow-x: clip` — the same containment `.panel` already uses, for
+                             the same reason recorded there: it is the one
+                             overflow value that may be paired with `visible`
+                             on the other axis, so the sticky row does not
+                             become a scroll container and `position: sticky`
+                             keeps working. NOT `hidden`, which would force
+                             overflow-y to auto. */
+      min-width: 0; overflow-x: clip; }
     #navbar[hidden] { display: none; }  /* redundant now: see [hidden] above */
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
     /* Icon-only chrome. #navTitle is the only element in this row with no
@@ -2854,7 +2892,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.62.0';
+      var APP_VERSION = '1.63.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -24929,11 +24967,23 @@
                   + (worst.el.id ? '#' + worst.el.id : '')
                   + (c0 ? '.' + c0 : '') + ' right=' + Math.round(worst.right);
             }
-            dbg('warn', 'GEOMETRY ' + where + ' · layout ' + d.clientWidth
-              + ' · scrollW ' + d.scrollWidth
+            // ⚠️ F270. PRINT THE VALUES `over` WAS COMPUTED FROM, not fresh
+            // reads. The device log caught this instrument contradicting
+            // itself: `scrollW 402 … OVERFLOWS by 90px`, which cannot both be
+            // true at 402 layout. `over` is computed at the top of this
+            // function and the string then re-read `d.scrollWidth` — so a page
+            // that healed in between printed a stale verdict beside fresh
+            // numbers. **A diagnostic that reads its subject twice is
+            // reporting two different moments as one.**
+            var lay = d.clientWidth, sw = d.scrollWidth;
+            dbg('warn', 'GEOMETRY ' + where + ' · layout ' + lay
+              + ' · scrollW ' + sw
               + ' · visual ' + (vv ? Math.round(vv.width) : '?')
               + ' · zoom ' + (+sc.toFixed(3))
-              + (over > 0 ? ' · OVERFLOWS by ' + over + 'px' : '') + who);
+              + (over > 0 ? ' · OVERFLOWS by ' + over + 'px' : '')
+              + (over > 0 && sw - lay !== over
+                  ? ' (healed while measuring: now ' + (sw - lay) + 'px)' : '')
+              + who);
             // ⚠️ Only ever DOWNWARD. A reader who pinched IN wants to be zoomed
             // in, and yanking that back would be the accessibility bug this
             // file spends its first ten lines warning about.

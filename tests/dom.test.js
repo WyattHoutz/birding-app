@@ -20929,3 +20929,80 @@ test('F227: the radius options are the ones the data can support', async () => {
   assert.equal(tight[0].subId, 'S1', 'and keeps the near one');
   app.window.close();
 });
+
+
+// ---------------------------------------------------------------------------
+// F270. THE 80% WIDTH BUG — FOUND, AND IT WAS THE NAVBAR.
+//
+// F261 shipped a DETECTOR rather than a fix, because three of my hypotheses
+// were wrong and the existing probe kept measuring the page after it had
+// healed. It paid for itself on its first device outing and named the box in
+// one line:
+//
+//   GEOMETRY section sec-… · layout 402 · scrollW 492
+//             · OVERFLOWS by 90px · widest div#navbar right=402
+//
+// ⚠️ THE SAME 90px IN ALL FOURTEEN SIGHTINGS. A constant overflow is a box
+// with a fixed intrinsic width, not a wrapping accident.
+//
+// ⚠️ AND THE LOG CARRIED THE TRIGGER — the first sighting is a pair, 1.5s
+// apart: `layout 874` (landscape) then `layout 402` (portrait, still 90 over).
+// A ROTATION. That is why it was intermittent, why headless Chrome never
+// reproduced it (it never rotates), and why it "affected every page": #navbar
+// is chrome, present on all of them.
+//
+// ⚠️ `right=402` is why this was hard: NO element's right edge exceeds the
+// viewport, so scanning for boxes sticking out finds nothing — which is
+// exactly what six viewports of auditing reported for weeks.
+test('F270: the navbar cannot widen the document', () => {
+  // ⚠️ BOUNDED BY THE NEXT RULE, not by a lazy `[\s\S]*?`. My first version
+  // captured **16,315 characters** — most of the stylesheet — so it matched
+  // `overflow-x: clip` from `.panel` and PASSED with the navbar fix deleted.
+  // The mutation caught it. That is the fourth time in this file a window
+  // bounded by something other than a named landmark could not fail.
+  const from = HTML.indexOf('#navbar { position: sticky');
+  const to = HTML.indexOf('#navbar[hidden]', from);
+  assert.ok(from > 0 && to > from, '#navbar and its next rule still bound this');
+  const nav = HTML.slice(from, to);
+  assert.ok(nav.length < 3000, `the window is the RULE, not the sheet (${nav.length})`);
+  // ⚠️ AND THE COMMENT IS STRIPPED BEFORE MATCHING. The mutation caught this
+  // too: the rule's own explanatory comment contains the words
+  // "overflow-x: clip", so the guard matched the PROSE and passed with the
+  // declaration deleted. Third time in this file a guard has matched a comment
+  // about the code instead of the code. Assert on declarations only.
+  const decl = nav.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // The fix, and both halves are load-bearing.
+  assert.match(decl, /min-width:\s*0/,
+    'a flex container is min-width:auto by default, so it refuses to shrink '
+    + 'below its content — that is the mechanism');
+  assert.match(decl, /overflow-x:\s*clip/,
+    'and the containment that makes it true whatever the inner box is');
+
+  // ⚠️ NOT `hidden`. `.panel` records why: clip is the only overflow value
+  // that may pair with `visible` on the other axis, so the sticky row does not
+  // become a scroll container and position:sticky keeps working.
+  assert.ok(!/overflow-x:\s*hidden/.test(decl),
+    'hidden would force overflow-y to auto and break the sticky navbar');
+  assert.match(decl, /position:\s*sticky/,
+    'the row is still sticky — the containment must not have cost that');
+});
+
+// F270. The instrument contradicted itself in the field, and that is a defect
+// in the instrument.
+test('F270: the geometry probe reports ONE moment, not two', () => {
+  const fn = HTML.slice(HTML.indexOf('function checkGeometry(where)'),
+                        HTML.indexOf('function bindZoomReset()'));
+  assert.ok(fn.length > 200, 'checkGeometry still bounds this window');
+
+  // ⚠️ The device log printed `scrollW 402 … OVERFLOWS by 90px`, which cannot
+  // both be true at 402 layout: `over` was computed at the top and the string
+  // then RE-READ d.scrollWidth, so a page that healed in between printed a
+  // stale verdict beside fresh numbers.
+  assert.match(fn, /var lay = d\.clientWidth, sw = d\.scrollWidth;/,
+    'the printed values are captured once');
+  assert.ok(!/' · scrollW ' \+ d\.scrollWidth/.test(fn),
+    'and never re-read from the live DOM after the verdict was formed');
+  assert.match(fn, /healed while measuring/,
+    'and when they disagree it SAYS so rather than printing a contradiction');
+});
