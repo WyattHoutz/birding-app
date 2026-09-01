@@ -12,10 +12,15 @@ follows is what matters when this repo is open on its own.
 
 ## The hard invariant
 
-The app shows the same *content* as the Markdown report but has **no runtime
-GitHub dependency**. Every eBird / GBIF / NOAA / Wikipedia call goes **direct
-from the device**. Never add a proxy, a server, or a build-time fetch of report
-output. The app must work with nothing but an eBird API key.
+The app is now **the product**, not a mirror of anything. ℹ️ The private repo's
+Markdown report was **archived 2026-08-31** (*"im no longer using the markdown
+report"*) — but its `report.py` lives on as the **Python reference
+implementation** this app is proved against, so nothing about parity changes.
+
+The app has **no runtime GitHub dependency**. Every eBird / GBIF / NOAA /
+Wikipedia call goes **direct from the device**. Never add a proxy, a server, or
+a build-time fetch of pipeline output. The app must work with nothing but an
+eBird API key.
 
 `www/logic.js` is the shared-algorithm half and is **parity-tested against the
 private repo's Python**. Change a shared algorithm here and the Python side must
@@ -26,7 +31,7 @@ change with it, or `tests/parity/run_all.py` over there fails.
 ## Before you push
 
 ```powershell
-npm test                 # ~480 unit + DOM tests (jsdom)
+npm test                 # ~670 unit + DOM tests (jsdom)
 npm run test:layout      # SIX viewport/text combos in REAL Chrome
 ```
 
@@ -46,19 +51,32 @@ cd ..\birding ; python tests\parity\run_all.py
 
 ## Releasing
 
+> ⚠️ **Pushing `main` is what ships. Tags trigger nothing — CI makes the tag.**
+
 1. Bump **both** `www/index.html` (`var APP_VERSION`) and `package.json`.
-   `tests/version.test.js` fails if they disagree.
+   `tests/version.test.js` fails if they disagree. The `package.json` value
+   becomes the tag name.
 2. Add a release-index row in `..\birding\docs\BACKLOG.md` — a guard rejects a
-   tag with no row.
-3. `git push` then `git tag -a vX.Y.Z && git push origin vX.Y.Z`.
-4. The tag triggers a macOS build producing the sideloadable unsigned `.ipa`.
-5. **Verify your change is inside the `.ipa`**, not merely in the commit:
+   release with no row.
+3. `git push origin main`. That single push runs the tests, builds the unsigned
+   `.ipa` on a macOS runner, and then **creates the tag and the GitHub Release
+   itself** from `package.json` — idempotently, so it is safe on every push.
+4. **Verify your change is inside the `.ipa`**, not merely in the commit:
 
 ```powershell
 gh release download vX.Y.Z --pattern "*.ipa"
 Expand-Archive BirdChaser-unsigned.ipa -DestinationPath x
 # grep the extracted www/index.html for your change
 ```
+
+⚠️ **CORRECTED 2026-08-31 — this used to say "the tag triggers a macOS build".**
+It does not; `ios-build.yml` triggers on `push: branches: [main]` and has no tag
+trigger. A hand-made local tag ships **nothing**. Measured that day: `v1.63.0`
+was a local tag on an unpushed commit and the backlog called it shipped, while
+`origin/main` was still v1.62.0 — no build, no Release, no `.ipa`.
+
+**A release exists only if `gh release list` shows it.** ⚠️ Push two version
+bumps at once and only the newest is ever released.
 
 Actions minutes are **free here** (public repo) — measured at 0 billable
 minutes including macOS. Do not move work into the private repo to "save"

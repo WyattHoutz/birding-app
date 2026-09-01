@@ -4,6 +4,43 @@ A self-contained iPhone app for personal eBird target tracking, built with
 [Capacitor](https://capacitorjs.com/). It is a native app you sideload onto
 your own device — no App Store, no paid Apple Developer account.
 
+> **🐍 Looking for the Python pipeline, the backlog, or the release runbook?**
+> They live in the sibling repository **`birding`** (private).
+
+---
+
+## Two repositories, and why
+
+The project is split in two, and **you can land in either one**. Here is the map.
+
+| | **`birding-app`** (this repo) | **`birding`** |
+|---|---|---|
+| Visibility | 🌍 **public** | 🔒 **private** |
+| Holds | The app: `www/index.html`, `www/logic.js` | Python pipeline, `docs/` (backlog, algorithms, terms) |
+| Actions minutes | **free** | **billed** (2,000/mo cap) |
+| On disk | `C:\Users\wyhoutz\source\repos\birding-app` | `C:\Users\wyhoutz\source\repos\birding` |
+
+**Why two.** This repo must be public so GitHub Actions builds it on a macOS
+runner for free and the `.ipa` can be downloaded and sideloaded. The other repo
+holds an eBird API key, a data cache containing **thousands of real birders'
+names**, and the owner's personal life list — none of which may ever be public.
+The split is by *what each thing needs*, not by convenience.
+
+**They must be siblings on disk.** The private repo's checks resolve this one as
+`..\birding-app`, and the parity suite reads `www/logic.js` directly.
+
+**How the two stay honest.** `www/logic.js` and the private repo's Python are
+two implementations of the same algorithms, **parity-tested against each
+other**: Python computes a fixture, JS computes the same fixture, and the JSON
+must match. Change one side and you must change the other, or the parity suite
+fails. See **[PARITY.md](PARITY.md)** for the feature matrix.
+
+ℹ️ The private repo's Markdown report was **archived on 2026-08-31** — this app
+replaced it. Its `report.py` lives on as the Python reference implementation
+that this app is tested against.
+
+---
+
 ## Design principles
 
 - **No runtime dependency on GitHub.** Once installed, the app talks only to
@@ -43,14 +80,57 @@ CocoaPods. The app icon and launch image are generated during CI from the
 committed `assets/*.png` (see [`assets/generate.js`](assets/generate.js)) via
 `@capacitor/assets`, so we still don't need to commit `ios/`.
 
-### Build + install
+### How a change ships
 
-1. Push to `main` (or run the workflow manually from the **Actions** tab).
-2. Download the `BirdChaser-unsigned-ipa` artifact from the completed run.
-3. Sideload it with [AltStore](https://altstore.io/) + AltServer on Windows,
+> ⚠️ **Pushing `main` is what ships the app. Tags do not trigger anything —
+> CI creates the tag and the Release itself.**
+
+Getting that backwards produces a *phantom release*: a tag on your machine and
+nothing on anyone's phone. On `git push origin main`, `ios-build.yml` runs:
+
+| Order | Job | Runner | What it does |
+|---|---|---|---|
+| 1 | `test` | Ubuntu | `npm ci`, `npm test` (~670), `npm run test:layout` (real Chrome, 6 viewports) |
+| 2 | `build` | **macOS** | `npx cap add ios`, icons, `cap sync`, `xcodebuild`, zips `BirdChaser-unsigned.ipa` |
+| 3 | `release` | Ubuntu | Reads `package.json` → if `vX.Y.Z` has no Release yet, **creates the tag and the Release**, attaching the `.ipa` this run built |
+
+So the version in `package.json` decides the tag name, and bumping it *is*
+cutting the release. The job is idempotent — safe on every push, including ones
+that don't touch the version. ⚠️ Push two version bumps at once and only the
+newest is ever released.
+
+Bump **both** version fields together or `tests/version.test.js` fails:
+
+```
+www/index.html      var APP_VERSION = 'X.Y.Z';
+package.json        "version": "X.Y.Z",
+```
+
+📖 **The full step-by-step, including recovery when it goes wrong, is
+`docs/RELEASE.md` in the private `birding` repo.**
+
+### Install on the phone
+
+1. Grab `BirdChaser-unsigned.ipa` from the
+   [latest Release](https://github.com/WyattHoutz/birding-app/releases)
+   (or `gh release download vX.Y.Z --pattern "*.ipa"`). It is also uploaded as a
+   build artifact on every run, which is what you want if the version did not
+   change.
+2. Sideload it with [AltStore](https://altstore.io/) + AltServer on Windows,
    signing with your free Apple ID.
-   - Free-Apple-ID limits: app expires every 7 days (AltServer auto-refreshes
-     over Wi-Fi), max 3 sideloaded apps, no push notifications.
+   - Free-Apple-ID limits: the app **expires every 7 days** (AltServer
+     auto-refreshes over Wi-Fi), max 3 sideloaded apps, no push notifications.
+3. Confirm what is actually running — the footer reads
+   `Bird Chaser · vX.Y.Z · tap 5× for 🐞 debug`.
+
+⚠️ **Verify a change inside the shipped `.ipa`, not just in the commit** — they
+are different claims:
+
+```powershell
+gh release download vX.Y.Z --pattern "*.ipa"
+Expand-Archive BirdChaser-unsigned.ipa -DestinationPath ipa-check -Force
+Select-String ipa-check\Payload\App.app\public\index.html -Pattern "APP_VERSION"
+```
 
 ## Local development (Windows)
 
@@ -59,13 +139,22 @@ needs the cloud Mac.
 
 ```powershell
 npm install
+npm test                 # unit + syntax + DOM suites (jsdom)
+npm run test:layout      # six viewport/text combos in real Chrome
+npm run mockups          # static UI mockups (also attached to each Release)
 # open www/index.html in a browser to preview the UI
 ```
 
-### Publishing a release
+⚠️ **`npm test` is blind to geometry** — jsdom has no layout engine. v1.26.13
+shipped a 55.6 px overflow with a fully green unit suite; only the layout audit
+caught it. If you touched CSS or card markup, `test:layout` is the check that
+matters.
 
-The workflow creates the release and attaches the `.ipa`; the notes are set
-afterwards. Do that through the retry wrapper:
+### Fixing release notes after the fact
+
+The notes are written automatically from the subject and body of the commit that
+changed the version, so a good commit message *is* the release note. To correct
+them afterwards, go through the retry wrapper:
 
 ```powershell
 powershell -File scripts/gh-retry.ps1 release edit v1.3.1 --notes-file notes.md
