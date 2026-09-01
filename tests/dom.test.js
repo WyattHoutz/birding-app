@@ -16527,10 +16527,22 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
     region: 'US-WA',
     rows: [
       // Two reports of one bird -> ONE row, newest kept.
+      // ⚠️ F275: Rufous Hummingbird is ON THE BUNDLED YEAR-LIST SEED, so it is
+      // SEEN. That made it the perfect accidental fixture for the old rule and
+      // the wrong one for the new: a mega you have already ticked is not news
+      // however close it is, so this row is now HELD BACK. Kept exactly as it
+      // was, because it is the clearest possible case of the rule.
       { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(2) + ' 07:00',
         locName: 'Near Home Park', locId: 'L111', subId: 'S1', lat: 47.76, lng: -122.17 },
       { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(1) + ' 09:30',
         locName: 'Near Home Park', locId: 'L111', subId: 'S2', lat: 47.76, lng: -122.17 },
+      // ...and the control for it: same shape, same distance band, but a bird
+      // nobody has on a Washington year list. Without this the suite could not
+      // tell "F275 works" from "the lane holds everything back".
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: dayAgo(2) + ' 07:10',
+        locName: 'Near Home Jetty', locId: 'L444', subId: 'S6', lat: 47.80, lng: -122.17 },
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: dayAgo(1) + ' 09:40',
+        locName: 'Near Home Jetty', locId: 'L444', subId: 'S7', lat: 47.80, lng: -122.17 },
       // Far away: must still be SHOWN (a mega is worth a drive by definition)
       // and must say it is outside the radius.
       // Far away and singly reported: under F256 this is NOT news and is held
@@ -16556,7 +16568,7 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
 
   const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
   assert.ok(lane, 'the snapshot was not read back');
-  assert.equal(lane.all.length, 3, 'reports were not grouped to one row per species');
+  assert.equal(lane.all.length, 4, 'reports were not grouped to one row per species');
   assert.equal(lane.all[0].code, 'rufhum', 'the lane is not ordered closest-first');
   assert.equal(lane.all[0].reports, 2, 'the report count per species is wrong');
   assert.equal(lane.all[0].obsDt, dayAgo(1) + ' 09:30', 'the NEWEST report was not kept');
@@ -16578,9 +16590,15 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
     'the far mega must still be COMPUTED — it is held back from one lane, not lost');
   assert.ok(!lane.rows.some(r => r.code === 'liftra'),
     'a far, singly-reported mega is not news (F256)');
-  assert.equal(lane.held, 1, 'the lane must count what it held back so it can say so');
-  assert.ok(lane.rows.some(r => r.code === 'rufhum'),
-    'a mega with two reports inside the chase area IS news');
+  assert.equal(lane.held, 2, 'the lane must count what it held back so it can say so');
+  // ⚠️ F275, AND ITS CONTROL. A mega you have already seen is not news however
+  // close it is — Rufous Hummingbird is near, twice-reported, and on the seed
+  // year list, so it is held. The Nazca Booby is the same shape and UNSEEN, so
+  // it is news. Without the pair, "held back" and "broken" look identical.
+  assert.ok(!lane.rows.some(r => r.code === 'rufhum'),
+    'F275: a mega already on the year list is not news, however close');
+  assert.ok(lane.rows.some(r => r.code === 'nazboo1'),
+    'F275 control: an UNSEEN mega with two reports inside the chase area IS news');
 
   const before = app.state.fetches.length;
   A.renderSurge([], [], [], []);
@@ -16593,7 +16611,11 @@ test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothin
   assert.match(heads[0], /ABA Code 3\+/, 'the mega lane does not lead the section');
 
   const txt = box.textContent;
-  assert.match(txt, /Rufous Hummingbird/, 'the mega did not render');
+  assert.match(txt, /Nazca Booby/, 'the mega did not render');
+  // ⚠️ F275: and the SEEN one must not, which is the same assertion from the
+  // other side. This line used to require Rufous Hummingbird to be present.
+  assert.doesNotMatch(txt, /Rufous Hummingbird/,
+    'F275: a mega already on the year list must not render, however close');
   // F256: the far, singly-reported mega is HELD BACK, and the lane says so
   // rather than silently shrinking — a filtered lane that does not name its
   // filter is indistinguishable from one that lost data.
@@ -20543,10 +20565,12 @@ test('F256: a mega earns its place in Bird gen, it is not entitled to one', asyn
     'rare + far + already seen + one report qualifies for NOTHING — that is '
     + 'the Ruff and the wagtail, and Mega rarities already carries them');
 
-  // Each qualifier ALONE is sufficient — for a bird you would actually drive to.
-  assert.deepEqual(q({ reports: 2, mi: 12 }), ['near', 'multi'],
-    'multiple reports is news for a bird within reach');
-  assert.deepEqual(q({ mi: 12 }), ['near'], 'inside the day trip is news');
+  // Each qualifier ALONE is sufficient — for a bird you would actually drive
+  // to AND still need. ⚠️ F275 added `unseen` to the nearby qualifiers, so
+  // these pass it explicitly; `base` is deliberately `unseen: false`.
+  assert.deepEqual(q({ reports: 2, mi: 12, unseen: true }), ['near', 'multi'],
+    'multiple reports is news for a bird within reach that you still need');
+  assert.deepEqual(q({ mi: 12, unseen: true }), ['near'], 'inside the day trip is news');
   assert.deepEqual(q({ found: { day: '2026-08-30', days: 0 } }), ['new'],
     'a first appearance is news at ANY distance');
   assert.deepEqual(q({ unseen: true, spotReports: 3, mi: 12 }), ['spot', 'near'],
@@ -20587,13 +20611,29 @@ test('F256: a mega earns its place in Bird gen, it is not entitled to one', asyn
   assert.ok(!q({ unseen: true, spotReports: 1, reports: 3 }).includes('spot'),
     'three scattered reports are not three reports at one hotspot');
 
-  // ⚠️ Seen-ness gates ONLY the hotspot qualifier. A bird you have already seen
-  // can still be news for being new or near — it is the SPOT rule that is about
-  // where YOU should go.
-  assert.ok(!q({ unseen: false, spotReports: 5 }).includes('spot'),
+  // ⚠️ F275. UNSEEN GATES EVERY NEARBY QUALIFIER, not just the hotspot one.
+  //
+  // Owner: *"only new abas or abas in chase area that are unseen, to be
+  // specific."* Before this, `near` and `multi` asked only about distance, so
+  // an ABA rarity ALREADY ON YOUR LIST kept alerting for being close — which
+  // is not news to the reader, it is a bird they have ticked.
+  //
+  // The inconsistency was the tell: `spot` already required it. The three
+  // nearby qualifiers are one claim at three strengths — "worth going to" —
+  // and worth-going-to is false for a bird you have seen.
+  assert.ok(!q({ unseen: false, spotReports: 5, mi: 5 }).includes('spot'),
     'the hotspot qualifier is about a bird you still need');
-  assert.deepEqual(q({ unseen: false, mi: 5 }), ['near'],
-    'but a seen mega inside the chase area is still news');
+  assert.deepEqual(q({ unseen: false, mi: 5 }), [],
+    'F275: a mega you have ALREADY SEEN is not news, however close it is');
+  assert.deepEqual(q({ unseen: false, mi: 5, reports: 9 }), [],
+    'F275: nine reports of a bird you have already ticked is still not news');
+  assert.deepEqual(q({ unseen: true, mi: 5 }), ['near'],
+    'F275 control: the same row you still NEED is news — so the gate is '
+    + '`unseen`, not something that silently rejects everything');
+  // ...and `new` is deliberately NOT gated by it: a first record is news
+  // whether or not you have seen the species somewhere else.
+  assert.deepEqual(q({ unseen: false, mi: 5, found: { day: '2026-08-30', days: 0 } }),
+    ['new'], 'F275: a first record is news even for a species you have seen');
 
   // Every qualifier says WHY in words - never a colour, never position alone.
   const row = { reports: 4, mi: 12, spotReports: 3, spotName: 'Marymoor Park',

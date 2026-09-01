@@ -2892,7 +2892,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.64.0';
+      var APP_VERSION = '1.65.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -6652,11 +6652,29 @@
         // somewhere, and they mean nothing about a place you would not drive
         // to. Only NEW survives distance, because a first record is news
         // wherever it is.
+        // ⚠️ F275, 2026-09-01. UNSEEN GATES THE NEARBY QUALIFIERS TOO.
+        //
+        // F271 (above) established that being far is disqualifying unless the
+        // bird is new. The owner then narrowed the surviving half:
+        //   *"only new abas or abas in chase area that are unseen, to be
+        //    specific"*
+        // ...and `near` and `multi` did NOT check `unseen`, so an ABA rarity
+        // you have ALREADY SEEN kept alerting simply for being close. That is
+        // not news to the person reading it; it is a bird they have ticked.
+        //
+        // `spot` already required it, which is the tell: the three nearby
+        // qualifiers are the same claim at different strengths — "worth going
+        // to" — and worth-going-to is false for a bird already on your list.
+        //
+        // 'new' deliberately stays ungated. A first record is news whether or
+        // not you have seen the species elsewhere, and it is the one qualifier
+        // F271 found must survive distance.
         var near = m.mi == null || m.mi <= (opts.dayTripMi == null ? MEGA_DAYTRIP_MI : opts.dayTripMi);
-        if (near && m.unseen && (m.spotReports || 0) >= MEGA_MULTI_REPORTS) out.push('spot');
-        if (m.mi != null && near) out.push('near');
+        var worth = near && m.unseen;
+        if (worth && (m.spotReports || 0) >= MEGA_MULTI_REPORTS) out.push('spot');
+        if (m.mi != null && worth) out.push('near');
         if (m.found) out.push('new');
-        if (near && (m.reports || 0) >= MEGA_MULTI_REPORTS) out.push('multi');
+        if (worth && (m.reports || 0) >= MEGA_MULTI_REPORTS) out.push('multi');
         return out;
       }
       // ⚠️ Said in WORDS, never by colour or position alone. Each row states
