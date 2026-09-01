@@ -2854,7 +2854,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.61.0';
+      var APP_VERSION = '1.62.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -13407,8 +13407,37 @@
 
       // --- Birdiest recent checklists (rank by species count) ---      // Mirrors report.section_birdiest_checklists: dedup by checklist, last 7
       // days, public hotspots only (skip restricted), best checklist per
-      // hotspot, within 40 mi of home. Fed the per-county product/lists feed.
-      function buildBirdiest(lists, home) {
+      // hotspot, within the chosen radius of home. Fed the per-county
+      // product/lists feed.
+      //
+      // ⚠️ F227. THE RADIUS IS A DIAL NOW, AND THE OPTIONS ARE MEASURED.
+      // Alex, via the owner: *"1/5/10/20/40/100 miles or something"*. Two of
+      // those six are refused, and the reason is in the data rather than in
+      // taste. Measured over 234 distinct places in the two live county feeds,
+      // home at (47.75, -122.16):
+      //
+      //     1 mi     0 places   ⛔ the nearest place is 2.1 mi — an empty section
+      //     5 mi     8   (3%)   ✅
+      //    10 mi    54  (23%)   ✅
+      //    20 mi   178  (76%)   ✅
+      //    40 mi   233 (100%)   ✅  the old hard-coded value
+      //   100 mi   234          ⛔ adds ONE place; the data stops at 42.4 mi
+      //
+      // ⚠️ 1 mi and 100 mi both offer a scope the data cannot support. 100 mi
+      // does not need a bigger number in a filter — it needs counties derived
+      // from home, which is F1/F254. Offering it here would be a promise kept
+      // by nothing, which is the failure this repo keeps naming.
+      //
+      // 5/10/20/40 are PURE FILTERING of rows already fetched: no extra calls
+      // at any setting.
+      var BIRDIEST_RADII = [5, 10, 20, 40];
+      var BIRDIEST_RADIUS_KEY = 'bc_birdiest_mi';
+      function birdiestRadius() {
+        var v = parseInt(localStorage.getItem(BIRDIEST_RADIUS_KEY) || '', 10);
+        return BIRDIEST_RADII.indexOf(v) >= 0 ? v : 40;
+      }
+      function buildBirdiest(lists, home, maxMi) {
+        var lim = maxMi || birdiestRadius();
         var cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - 7);
         var own = (getDisplayName() || '').trim().toLowerCase(), bySub = {};
         (lists || []).forEach(function (chk) {
@@ -13428,7 +13457,7 @@
           if (COLD_SKIP_RE.test(nm)) return;
           var lat = loc.latitude, lng = loc.longitude;
           if (lat == null || lng == null) return;
-          if (home && haversineMi(home.lat, home.lng, +lat, +lng) > 40) return;
+          if (home && haversineMi(home.lat, home.lng, +lat, +lng) > lim) return;
           var lid = chk.locId || loc.locId || iso, n = parseInt(chk.numSpecies || 0, 10) || 0;
           var e = best[lid], en = e ? (parseInt(e.numSpecies || 0, 10) || 0) : -1;
           if (!e || n > en || (n === en && iso > (e.isoObsDate || ''))) best[lid] = chk;
@@ -13455,7 +13484,40 @@
           // list. It is true, worth reading once, and was a permanent yellow
           // block taller than the first two rows of the answer it qualified.
           setSectionNote($('cklResults').closest('section'), sectionNoteHtml(fw.warning));
-          if (!top.length) { st.textContent = 'No recent hotspot checklists within 40 mi in ' + countyLabelStr() + '.'; return; }
+          // F227. THE RADIUS PICKER, above the list it filters.
+          //
+          // ⚠️ It states what each option WOULD show before you pick it, so a
+          // setting that empties the section is visible as a number rather
+          // than discovered as a blank screen. That is the same rule the Top
+          // 100 filter follows (count before you offer) and the reason 1 mi is
+          // not on the list at all — it returns 0 places from this home.
+          var bar = $('cklRadius');
+          if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'cklRadius';
+            // ⚠️ `.sortpick`/`.sortbtn` — the pattern Twitches today already
+            // uses for Newest/Nearest. A fourth control shape for the fourth
+            // filter is how a UI stops looking like one app, and the
+            // button-shape guard would reject a new radius anyway.
+            bar.className = 'sortpick';
+            bar.style.margin = '0 0 10px';
+            $('cklResults').parentNode.insertBefore(bar, $('cklResults'));
+          }
+          var cur = birdiestRadius();
+          bar.innerHTML = BIRDIEST_RADII.map(function (mi) {
+            var n = buildBirdiest(lists, home, mi).length;
+            return '<button type="button" class="sortbtn" data-mi="' + mi + '"'
+              + ' aria-pressed="' + (mi === cur ? 'true' : 'false') + '">'
+              + mi + ' mi · ' + n + '</button>';
+          }).join('');
+          bar.querySelectorAll('.sortbtn').forEach(function (b) {
+            b.addEventListener('click', function () {
+              try { localStorage.setItem(BIRDIEST_RADIUS_KEY, b.getAttribute('data-mi')); } catch (e) {}
+              dbg('info', 'Birdiest radius \u2192 ' + b.getAttribute('data-mi') + ' mi');
+              loadBirdiest();
+            });
+          });
+          if (!top.length) { st.textContent = 'No recent hotspot checklists within ' + cur + ' mi in ' + countyLabelStr() + '.'; return; }
           st.textContent = top.length + ' checklist' + (top.length === 1 ? '' : 's') + ' · updated ' + nowTime();
           var el = $('cklResults');
           el.innerHTML = ChecklistCards.list('medium', top.map(function (l, i) {
@@ -26664,6 +26726,11 @@
         // and far and already seen qualifies for nothing") can be asserted,
         // which is the half that changes today's behaviour.
         megaNews: megaNews, megaNewsLabel: megaNewsLabel, megaLane: megaLane,
+        // F227: the radius dial and its filter, exposed so "which options the
+        // data can support" is DRIVEN rather than asserted from a comment —
+        // the refusals (1 mi, 100 mi) are the measured part.
+        BIRDIEST_RADII: BIRDIEST_RADII, birdiestRadius: birdiestRadius,
+        buildBirdiest: buildBirdiest,
         MENU_BADGES: MENU_BADGES,
         // F195(b): exposed so the header block can be driven and asserted.
         headerIdentityRefresh: headerIdentityRefresh,

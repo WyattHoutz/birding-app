@@ -127,7 +127,33 @@
     // all. Re-derive on a winter sample before treating it as settled.
     TOD_NIGHT_MIN_DAYS: 3,
     // convoys (report.py CONVOY_*)
-    CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 200,
+    CONVOY_LOOKBACK_DAYS: 7, CONVOY_MIN_STOPS: 2, CONVOY_MAX_RESULTS: 1200,
+    // ⚠️ F227. 1200, AND THE OLD 200 WAS NEVER eBIRD'S NUMBER — IT WAS OURS.
+    //
+    // The warning text told the reader "eBird caps this feed at 200 checklists
+    // per county". 200 is this constant: a default we chose, quoted back as
+    // somebody else's constraint, which is how a number stops being
+    // re-derivable. F179 is the same failure — `dist=50` copied onto three
+    // endpoints with three different real limits.
+    //
+    // MEASURED against live eBird 2026-08-28, King US-WA-033 + Snohomish
+    // US-WA-061 (scripts/probe_checklist_window.py):
+    //
+    //     maxResults   King days   Snohomish days
+    //        200            2            4          <- what shipped
+    //       1200            7           17
+    //       2000           11           27
+    //       2001         HTTP 400                   <- the REAL ceiling
+    //
+    // 1200, not 2000, and the reason is cost rather than caution: 2000 rows is
+    // 1,260 KB and 3.0-4.4 s PER COUNTY. 1200 buys the 7 days Alex actually
+    // asked for in the busiest county in the state, and buying 11 would cost
+    // roughly double for four days nobody requested.
+    //
+    // ⚠️ The ceiling is 2000 and it is NOT a round-number guess: 2000 returned
+    // 200 OK and 2001 returned HTTP 400. Do not raise this without re-running
+    // the probe — the busiest county sets the floor, and King's density moves.
+    CHECKLIST_MAX_RESULTS_CEILING: 2000,
     // A FIELD TRIP IS A CONVOY THAT NEVER DRIVES ANYWHERE.
     //
     // "birder convoys didnt get the group of people at cedar mouth today, there
@@ -2270,6 +2296,16 @@
 
   // Returns {days, warning}. A feed that covers its window gets no warning —
   // a banner that cries wolf stops being read.
+  //
+  // ⚠️ F227. THE WARNING NAMED THE WRONG CULPRIT. It said "eBird caps this feed
+  // at 200 checklists per county" — but 200 was `CONVOY_MAX_RESULTS`, OUR
+  // configured default, presented to the reader as an external limit. A number
+  // we chose, written into a sentence about somebody else's constraint, stops
+  // being re-derivable: nobody re-measures a limit they believe belongs to an
+  // API. F179 is the same failure with `dist=50`.
+  //
+  // The sentence now says WE set it and names the real ceiling, so the next
+  // reader can tell a tuning decision from a hard limit.
   function feedWindow(lists, claimed) {
     var span = feedSpanDays(lists);
     if (span === null || span >= claimed) return { days: claimed, warning: '' };
@@ -2277,10 +2313,11 @@
     return {
       days: span,
       warning: 'Showing ' + span + ' day' + p + ', not ' + claimed +
-        '. eBird caps this feed at ' + CONST.CONVOY_MAX_RESULTS +
-        ' checklists per county, and in a county this busy that only reaches ' +
-        'back ' + span + ' day' + p + '. Anything older is not missing — it ' +
-        'was never returned.'
+        '. This app asks for ' + CONST.CONVOY_MAX_RESULTS +
+        ' checklists per county — eBird\u2019s own limit is ' +
+        CONST.CHECKLIST_MAX_RESULTS_CEILING + ' — and in a county this busy ' +
+        'that only reaches back ' + span + ' day' + p + '. Anything older is ' +
+        'not missing \u2014 it was never returned.'
     };
   }
 

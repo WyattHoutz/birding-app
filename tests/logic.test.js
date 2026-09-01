@@ -90,7 +90,13 @@ test('planConvoyFeeds: per-county product/lists; empty for rarity trackers', () 
   assert.equal(feeds.length, mo.counties.length, 'one convoy feed per county');
   feeds.forEach((f, i) => {
     assert.equal(f.path, 'product/lists/' + mo.counties[i].code);
-    assert.match(BL.requestUrl(f), /maxResults=200/, 'convoy feed caps results');
+    // ⚠️ F227: pinned to the CONSTANT, not to a literal. A hard-coded 200 here
+    // is the same fault as the warning text that called our own default
+    // "eBird's cap" — restating a number is how it stops tracking the thing it
+    // describes, and this assertion had to be edited when the cap moved.
+    assert.match(BL.requestUrl(f),
+      new RegExp('maxResults=' + BL.CONST.CONVOY_MAX_RESULTS),
+      'convoy feed asks for the configured number of checklists');
   });
   assert.equal(BL.planConvoyFeeds(BL.profileFor('aba')).length, 0, 'aba: no convoy feeds');
 });

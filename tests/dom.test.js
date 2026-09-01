@@ -20834,3 +20834,98 @@ test('F267: a caller arriving during phase 2 joins it instead of starting a riva
     + 'is not deleted by an earlier one settling');
   app.window.close();
 });
+
+
+// ---------------------------------------------------------------------------
+// F227. A NUMBER WE CHOSE, QUOTED BACK AS SOMEBODY ELSE'S LIMIT.
+//
+// The section told the reader "eBird caps this feed at 200 checklists per
+// county". 200 was CONVOY_MAX_RESULTS — our own configured default. ⚠️ A number
+// we picked, written into a sentence about an API constraint, stops being
+// re-derivable: nobody re-measures a ceiling they believe belongs to eBird.
+// F179 is the same failure with dist=50 copied onto three endpoints that have
+// three different real limits.
+//
+// MEASURED against live eBird (scripts/probe_checklist_window.py), King
+// US-WA-033 + Snohomish US-WA-061:
+//     200 -> 2 days   1200 -> 7 days   2000 -> 11 days   2001 -> HTTP 400
+test('F227: the feed window names US as the cap, and eBird as the ceiling', () => {
+  const BL2 = require(path.join(WWW, 'logic.js'));
+
+  // The ask was 7 days. 200 could not deliver it in the busiest county; 1200
+  // can. The ceiling is a SEPARATE constant so the two can never be confused
+  // again — which is the whole defect.
+  assert.equal(BL2.CONST.CONVOY_MAX_RESULTS, 1200,
+    'the configured ask buys the 7 days that were requested');
+  assert.equal(BL2.CONST.CHECKLIST_MAX_RESULTS_CEILING, 2000,
+    'and eBird\u2019s real limit is a different number, measured at 2001 -> 400');
+  assert.ok(BL2.CONST.CONVOY_MAX_RESULTS < BL2.CONST.CHECKLIST_MAX_RESULTS_CEILING,
+    'we must ask for less than the ceiling, or the ceiling is not a ceiling');
+
+  // ⚠️ THE SENTENCE ITSELF. Driven, not grepped: the warning only appears when
+  // the feed is SHORT, so asserting the string means building that state.
+  const short = [
+    { isoObsDate: '2026-08-30 08:00' },
+    { isoObsDate: '2026-08-31 08:00' },
+  ];
+  const w = BL2.feedWindow(short, 7);
+  assert.equal(w.days, 2, 'the span is what the rows actually cover');
+  assert.ok(!/eBird caps/.test(w.warning),
+    'the app must not tell the reader OUR default is eBird\u2019s cap');
+  assert.match(w.warning, /This app asks for 1200/,
+    'it says who chose the number');
+  assert.match(w.warning, /eBird\u2019s own limit is 2000/,
+    'and names the real ceiling, so the next reader can tell them apart');
+
+  // A feed that covers its window says nothing — a banner that cries wolf
+  // stops being read.
+  const full = [{ isoObsDate: '2026-08-25 08:00' }, { isoObsDate: '2026-08-31 08:00' }];
+  assert.equal(BL2.feedWindow(full, 7).warning, '',
+    'no warning when the feed reaches the window it claims');
+});
+
+// F227. The radius dial. ⚠️ The measured part is which options are REFUSED.
+//
+// Alex, via the owner: "1/5/10/20/40/100 miles or something". Measured over
+// 234 distinct places in two live county feeds, home (47.75, -122.16):
+//     1 mi -> 0 places (nearest is 2.1 mi)   ·   100 mi -> 234, ONE more than 40
+// Both promise a scope the data cannot support. 100 mi is not a bigger number
+// in a filter — it needs counties derived from home, which is F1/F254.
+test('F227: the radius options are the ones the data can support', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+
+  assert.deepEqual(arr(A.BIRDIEST_RADII), [5, 10, 20, 40],
+    'the offered radii');
+  assert.ok(!arr(A.BIRDIEST_RADII).includes(1),
+    '1 mi returns ZERO places from this home — an option that empties the '
+    + 'section is a promise the data cannot keep');
+  assert.ok(!arr(A.BIRDIEST_RADII).includes(100),
+    '100 mi adds ONE place; the county feeds stop at 42.4 mi. It needs '
+    + 'derived counties (F1/F254), not a bigger filter');
+
+  // Default, and it survives a bad stored value rather than throwing.
+  assert.equal(A.birdiestRadius(), 40, 'defaults to the old hard-coded value');
+  app.window.localStorage.setItem('bc_birdiest_mi', '7');
+  assert.equal(A.birdiestRadius(), 40, 'an unoffered value falls back');
+  app.window.localStorage.setItem('bc_birdiest_mi', '10');
+  assert.equal(A.birdiestRadius(), 10, 'an offered value is honoured');
+
+  // ⚠️ The radius must actually FILTER. A picker that changes a label and not
+  // the list is the F246 "icons inert without a hydrator" failure again.
+  const home = { lat: 47.75, lng: -122.16 };
+  const near = { subId: 'S1', numSpecies: 40, isoObsDate: new Date().toISOString().slice(0, 10) + ' 08:00',
+                 locId: 'L1', loc: { isHotspot: true, name: 'Near Park', latitude: 47.76, longitude: -122.17 } };
+  // ⚠️ The far park must sit BETWEEN the two radii being compared, or the test
+  // proves nothing about the dial. My first fixture put it at 43 mi — outside
+  // 40 as well as 5 — so "40 mi holds both" failed on the FIXTURE, not the
+  // code. Placed deliberately: ~25 mi, inside 40 and well outside 5.
+  const far  = { subId: 'S2', numSpecies: 90, isoObsDate: new Date().toISOString().slice(0, 10) + ' 08:00',
+                 locId: 'L2', loc: { isHotspot: true, name: 'Far Park', latitude: 48.10, longitude: -122.30 } };
+  const wide = arr(A.buildBirdiest([near, far], home, 40));
+  const tight = arr(A.buildBirdiest([near, far], home, 5));
+  assert.equal(wide.length, 2, '40 mi holds both');
+  assert.equal(tight.length, 1, '5 mi drops the far one');
+  assert.equal(tight[0].subId, 'S1', 'and keeps the near one');
+  app.window.close();
+});
