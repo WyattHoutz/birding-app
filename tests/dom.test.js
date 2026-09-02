@@ -578,7 +578,7 @@ test('swiping right on the Contents menu is a no-op', async () => {
  * guards the wiring: the loader runs, drives all three lanes, and the results
  * reach the DOM.
  */
-test('Happening now is wired and renders every lane it detects', async () => {
+test('Bird gen is wired and renders every alert source it detects', async () => {
   const app = await boot();
   app.open(/Bird gen/i);
   assert.equal(app.$('surgeResults').closest('section').hidden, false,
@@ -612,10 +612,10 @@ test('Happening now is wired and renders every lane it detects', async () => {
     [{ locId: 'L2', loc: 'Stanwood STP', observers: 9, baseline: 1, ratio: 9 }]);
 
   const txt = app.$('surgeResults').textContent;
-  assert.match(txt, /Tufted Puffin/, 'lane 1: the species drawing the crowd');
-  assert.match(txt, /20 birders/, 'lane 1: observers, which is the whole signal');
-  assert.match(txt, /Terek Sandpiper/, 'lane 2: the leaderboard cascade');
-  assert.match(txt, /Stanwood STP/, 'lane 3: the species-blind hotspot convergence');
+  assert.match(txt, /Tufted Puffin/, 'the species drawing the crowd');
+  assert.match(txt, /20 birders/, 'observers are the crowd signal');
+  assert.match(txt, /Terek Sandpiper/, 'the leaderboard cascade');
+  assert.match(txt, /Stanwood STP/, 'the species-blind hotspot convergence');
   // The place must be ACTIONABLE — a link, not a bare name. It used to pin an
   // ebird.org href; the name now opens Stake out a hotspot instead, which is
   // more actionable rather than less, so the guard asserts the property and
@@ -5284,86 +5284,103 @@ test('the map-provider setting is reachable and lists every provider', async () 
   app.window.close();
 });
 
-// "19" on its own is not information. Every number in Happening now says what
-// it counts, and the supporting names/links are rows rather than a run-on line.
-test('Happening now labels every count and lists names as rows', async () => {
-  const app = await boot();
-  const birders = [];
-  for (let i = 0; i < 12; i++) birders.push({ name: 'Birder ' + i, rank: i + 1 });
-  app.window.__app.renderSurge(
-    [{
-      code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11, ratio: 10,
-      novel: false, seen: false, loc: 'Marina Beach Park', locId: 'L123',
-      lat: 47.8, lon: -122.4, latest: '2026-07-29 08:00', subId: 'S999', distMi: 12.3,
-    }],
-    [{ species: 'Terek Sandpiper', code: '', birders, latest: '2026-07-28' }],
-    [{ loc: 'Marina Beach Park', locId: 'L123', observers: 16, ratio: 10 }]);
+test('F274 renders one ranked small-card feed with every alert type and count', async () => {
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const snap = JSON.stringify({
+    at: Date.now() - 15 * 60000,
+    region: 'US-WA',
+    rows: [
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(90),
+        locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM1', lat: 47.76, lng: -122.17 },
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(60),
+        locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM2', lat: 47.76, lng: -122.17 },
+    ],
+  });
+  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const A = app.window.__app;
+  const birders = [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }, { name: 'Bruce', rank: 8 }];
+  const merged = [
+    { locId: 'LHOT', subId: 'SH1', code: 'amerob', name: 'American Robin',
+      dateStr: localStamp(20), kind: 'Sighting' },
+  ];
+  A.renderSurge(
+    [{ code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11, ratio: 10,
+      novel: false, loc: 'Marina Beach Park', locId: 'LCROWD', lat: 47.8, lon: -122.4,
+      latest: localStamp(10), subId: 'SC1', distMi: 12.3 }],
+    [{ species: 'Terek Sandpiper', code: 'tersan', birders, latest: localStamp(80),
+      recent: [{ obsDt: localStamp(80), locName: 'Stanwood STP',
+        lat: 47.77, lng: -122.18, subId: 'SK1' }] }],
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1, reason: 'surge' }],
+    [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
+      distMi: 6.2, locName: 'Marymoor Park', subId: 'SN1', whenStr: localStamp(180) }],
+    merged);
+
   const box = app.$('surgeResults');
-  // Each lane used to print its headline number TWICE — once as a big
-  // `.count.big` and again, immediately below, inside `.meta`. Two renderings of
-  // one number read as two facts. The surviving invariant is not "how many
-  // headline numbers are there" but "every number is stated once, with its
-  // unit", so the assertion moved onto the line that carries the meaning.
-  assert.equal(box.querySelectorAll('.count.big').length, 0,
-    'a headline number that only restates the sub-header below it is a duplicate, not emphasis');
-  const metas = [...box.querySelectorAll('.meta')].map((m) => m.textContent);
-  assert.equal(metas.length, 3, 'one sub-header per lane');
-  assert.match(metas[0], /\b10 birders\b/,
-    'the observation lane counts distinct BIRDERS, and says so');
-  assert.match(metas[1], /\b12 of the top 100 added it\b/,
-    'the cascade count is a slice of the leaderboard, not a count of sightings');
-  assert.match(metas[2], /\b16 birders\b/,
-    'the convergence lane counts birders at the spot, and says so');
-  metas.forEach((m) => assert.ok(/\d/.test(m) && /[a-z]/i.test(m),
-    'a bare number explains nothing — every count carries its unit: ' + m));
+  const feed = box.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
+  assert.ok(feed, 'the unified-feed marker and wrapper are missing');
+  assert.ok(feed.matches('ul.obs.card-sm.surgefeed'),
+    'the one feed is not the real SpeciesCards.small wrapper shape');
+  const topLists = [...box.children].filter((el) => el.matches && el.matches('ul.obs.card-sm'));
+  assert.equal(topLists.length, 1, 'five visual lanes survived as multiple top-level card lists');
+  assert.equal(box.querySelectorAll('.lanehead').length, 0, 'lane headings survived the merge');
+  const photoCss = CARDS_SPECIES.slice(CARDS_SPECIES.indexOf('.obs.card-sm .thumb {'),
+    CARDS_SPECIES.indexOf('}', CARDS_SPECIES.indexOf('.obs.card-sm .thumb {')) + 1);
+  const tileCss = HTML.slice(HTML.indexOf('.surgekindtile {'),
+    HTML.indexOf('}', HTML.indexOf('.surgekindtile {')) + 1);
+  const photoSize = /width:\s*calc\((\d+)px/.exec(photoCss);
+  const tileSize = /width:\s*calc\((\d+)px/.exec(tileCss);
+  assert.ok(photoSize && tileSize, 'the two 56px bookend sizes are no longer measurable');
+  assert.equal(tileSize[1], photoSize[1],
+    'the right category tile no longer matches the small-card bird photo');
+  assert.equal(tileSize[1], '56', 'both bookends drifted from the approved 56px size');
 
-  // Convergence rows are PLACES, so they have no photo. They now go through the
-  // SAME medium hotspot card Top patches uses, whose numbered badge occupies
-  // that slot — "i would like these hotspots to use the same medium hotspot
-  // card as top patches, use number circles too". The invariant is unchanged:
-  // the slot must not be empty, or the headers do not line up with the bird
-  // rows directly above them.
-  const conv0 = box.querySelectorAll('ul.obs')[2];
-  const pin = conv0 && conv0.querySelector('.hsnum');
-  assert.ok(pin, 'a place row still needs something in the photo slot');
-  assert.match(pin.textContent, /^\d+$/,
-    'the badge must carry the row number, so a card can be tied to its map pin');
+  const rows = [...feed.children];
+  assert.deepEqual(rows.map((row) => row.dataset.alertKind),
+    ['mega', 'need', 'crowd', 'cascade', 'hotspot'],
+    'Priority must order category severity first, then recency');
+  assert.equal(rows.length, 5, 'one of the five alert types disappeared');
+  const expected = {
+    mega: ['MEGA', '🦅'], need: ['YOU NEED IT', '🎯'], crowd: ['CROWD', '🐦'],
+    cascade: ['CASCADE', '🏆'], hotspot: ['HOTSPOT', '📍'],
+  };
+  const glyphs = Object.values(expected).map((x) => x[1]);
+  const borderStyles = [];
+  rows.forEach((row) => {
+    const kind = row.dataset.alertKind;
+    assert.ok(row.querySelector(':scope > .name > .thumb'),
+      `${kind} lost the 56px left tile supplied through SpeciesCards.small`);
+    const badge = row.querySelector('.surgebadge');
+    const tile = row.querySelector(':scope > .name > .surgekindwrap .surgekindtile');
+    assert.equal(badge.textContent.trim(), expected[kind][0], `${kind} lost its word badge`);
+    assert.equal(tile.textContent.trim(), expected[kind][1], `${kind} lost its right-edge lane glyph`);
+    glyphs.forEach((glyph) => assert.ok(!badge.textContent.includes(glyph),
+      `${kind} duplicates its category glyph inside the body badge`));
+    borderStyles.push(app.window.getComputedStyle(tile).borderTopStyle);
+    assert.ok(row.querySelector('.surgeage').textContent.trim(), `${kind} lost its relative age`);
+    const body = row.querySelector('.surgealertbody');
+    assert.match(body.textContent, /Why it is news:/, `${kind} does not explain admission`);
+    assert.match(body.textContent, /Where/, `${kind} lost its location`);
+    assert.match(body.textContent, /Latest/, `${kind} lost its absolute timestamp label`);
+    const absolute = body.querySelector('.surgeabsolute').textContent.trim();
+    assert.ok(absolute && !/ago/i.test(absolute), `${kind} duplicated relative age in the body`);
+  });
+  assert.equal(new Set(borderStyles).size, 5,
+    'the five right-edge category tiles are distinguishable only by colour');
 
-  // The cascade lane used to print "Name (#4) · Name (#7) · …" as one paragraph,
-  // then eight labelled rows. It now uses the SAME card as Leader Board Ticks, where
-  // the roster is ONE SENTENCE with a capped list — which is what stops a
-  // forty-birder cascade filling the screen.
-  const cascade = box.querySelectorAll('ul.obs')[1];
-  const wholine = cascade.querySelector('.wholine');
-  assert.ok(wholine, 'the roster is neither a sentence nor capped');
-  assert.match(wholine.textContent, /Who added it/,
-    'the roster does not say what it is a list of');
-  const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
-  // The remainder is stated rather than silently dropped.
-  assert.match(src, /more of the top 100/,
-    'the remainder is silently dropped once the roster is capped');
-  // ...and the reports behind it are collapsed, not inline. This fixture's
-  // cascade has NO reports and no species code, so the row must instead say
-  // WHY there is nowhere to go — a leaderboard tick with no report attached is
-  // the one case where this lane cannot be actionable, and saying so is better
-  // than an empty row.
-  assert.match(cascade.textContent, /nowhere to link to/,
-    'a cascade with no report behind it renders as a dead end instead of saying why');
-  assert.match(src, /cascadeChecklists\(c\.recent\)/,
-    'the reports behind a cascade are no longer collapsed, so one row becomes a page');
-
-  // The place and the checklist are what you act on, so they must be findable.
-  const surge = box.querySelectorAll('ul.obs')[0];
-  assert.match(surge.textContent, /Where/);
-  assert.match(surge.textContent, /S999/, 'the checklist is named by its subId, never "checklist"');
-  // Convergence carries no coordinates of its own, so the NAME links the
-  // hotspot page. It used to add a second "Recent visits at X" link saying the
-  // same thing one line lower; the row is one line now, and the name is the
-  // destination.
-  const conv = box.querySelectorAll('ul.obs')[2];
-  assert.match(conv.innerHTML, /ebird\.org\/hotspot\/L123/);
-  assert.match(conv.textContent, /Marina Beach Park/,
-    'the busy hotspot is not named, so there is nothing to link or drive to');
+  const counts = Object.fromEntries([...box.querySelectorAll('.surgecount')].map((el) => [
+    el.dataset.countKind, Number(el.querySelector('b').textContent),
+  ]));
+  assert.deepEqual(counts, { mega: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1 },
+    'the five lane counts were lost when their headings were removed');
+  assert.match(feed.querySelector('[data-alert-kind="cascade"]').textContent, /Who added it/,
+    'cascade evidence was discarded to make the row compact');
+  assert.ok(feed.querySelector('[data-alert-kind="hotspot"] [data-loc="LHOT"]'),
+    'the hotspot name is no longer actionable');
+  assert.deepEqual(app.state.errors, [], 'the unified render threw an uncaught error');
   app.window.close();
 });
 
@@ -5447,16 +5464,26 @@ test('busy hotspots rank by the iconic multiplier and tag the row with it', asyn
     const a = li.querySelector('.ntext a');
     return (a || li.querySelector('.ntext')).textContent.trim();
   };
-  const names0 = [...app.$('surgeConvList').querySelectorAll('.sppl > li')].map(nameOf);
-  assert.equal(names0.length, 3, 'the lane painted nothing before the multipliers resolved');
-  assert.equal(app.$('surgeConvList').querySelectorAll('.ictag').length, 0,
+  const hotspot = app.$('surgeFeed').querySelector('[data-alert-kind="hotspot"]');
+  assert.ok(hotspot, 'the busy place did not join the unified alert feed');
+  assert.equal(hotspot.getAttribute('data-hsloc'), 'L123',
+    'the compact hotspot row dropped the location hook its async loaders need');
+  assert.ok(hotspot.querySelector('.hslists') && hotspot.querySelector('.hsckl'),
+    'the compact hotspot row dropped its species or checklist hydration slot');
+  const hydrateSrc = HTML.slice(HTML.indexOf('function fillConvergence'),
+    HTML.indexOf('function hotspotCoordSet'));
+  assert.match(hydrateSrc, /hydrateLocSpecies\(host\)[\s\S]*hydrateHotspotChecklists\(host\)/,
+    'the unified row no longer runs the established after-paint hydration chain');
+  const names0 = [...hotspot.querySelectorAll('.sppl > li')].map(nameOf);
+  assert.equal(names0.length, 3, 'the alert painted nothing before the multipliers resolved');
+  assert.equal(hotspot.querySelectorAll('.ictag').length, 0,
     'a multiplier was printed before it was measured');
 
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 10));
-    if (app.$('surgeConvList').querySelector('.ictag')) break;
+    if (hotspot.querySelector('.ictag')) break;
   }
-  const rows = [...app.$('surgeConvList').querySelectorAll('.sppl > li')];
+  const rows = [...hotspot.querySelectorAll('.sppl > li')];
   const names = rows.map(nameOf);
   // Mystery Bird sits ABOVE American Robin on purpose: the robin was measured
   // and found ordinary here, which is a stronger "not why anyone came" than
@@ -5603,6 +5630,11 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
   assert.ok(empty.trim().length > 40,
     'a wholly empty section must not be a blank panel — that is exactly the '
     + '"feature looks deleted" bug F211 was filed for');
+  for (const gate of [/Nothing you need/, /ABA Code 3\+ mega/, /drawing a crowd/,
+                      /cascading through the leaderboard/, /hotspot outdraw/]) {
+    assert.match(empty, gate,
+      'the whole-section empty state stopped explaining one of the merged feed gates');
+  }
 
   // ...and a populated lane is unaffected.
   A.renderSurge([], [], [], [
@@ -5615,7 +5647,7 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
   app.window.close();
 });
 
-test('Happening now titles all three lanes so the last is not a footnote', async () => {
+test('Happening now merges populated signals without burying the hotspot', async () => {
   const app = await boot();
   const A = app.window.__app, d = app.window.document;
   A.renderSurge(
@@ -5626,41 +5658,29 @@ test('Happening now titles all three lanes so the last is not a footnote', async
       recent: [{ obsDt: '2026-07-28 10:00', locName: 'Stanwood STP',
         lat: 48, lng: -122, subId: 'S9' }] }],
     [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }]);
-  const heads = [].map.call(d.querySelectorAll('#surgeResults .lanehead'), e => e.textContent);
-  // FOUR, not three: since F211 the Celebrity lane announces itself even when
-  // it is empty, because a lane that renders nothing at all is indistinguishable
-  // from a lane that has been deleted — which is exactly what was reported.
-  // F264: only lanes with content get a heading now. Three lanes are fed here.
-  assert.equal(heads.length, 3, 'every lane WITH CONTENT gets its own heading');
-  // ⚠️ F264 reversed the line that used to be here — "the celebrity lane must
-  // be named even with nothing in it". The owner: *"if theres no birds, dont
-  // show anything."* The lane fed nothing is now silent; the section-wide
-  // empty state is what keeps F211's ambiguity closed, and it is asserted in
-  // the F264 test rather than here.
-  assert.ok(!heads.some(h => h.includes('Celebrity')),
-    'a lane with nothing in it prints no heading');
-  // Pinned to the PROPERTY — the hotspot lane comes LAST — rather than to an
-  // index, which is what broke this guard when a lane was added in front of it.
-  assert.ok(heads[heads.length - 1].includes('hotspot'),
-    'including the hotspot lane that was buried');
+  const boxEl = d.getElementById('surgeResults');
+  assert.equal(boxEl.querySelectorAll('.lanehead').length, 0,
+    'the five headings survived inside what should be one feed');
+  const feed = boxEl.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
+  assert.ok(feed, 'the populated signals are not inside the unified feed');
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
+    ['crowd', 'cascade', 'hotspot'],
+    'the hotspot must remain visible after crowd and cascade in Priority order');
   const box = d.getElementById('surgeResults').innerHTML;
-  // A leaderboard row on its own says a bird is gettable but never where. That
-  // used to be a labelled "Where it is being reported" block under the row;
-  // the row is one line now, so the place and time ARE the row — but the lane
-  // must still end somewhere you can drive to.
   assert.match(box, /class="ckgo"|class="extlink"/,
-    'the cascade lane became actionable');
+    'the cascade alert became actionable');
   assert.match(box, /Stanwood STP/, 'with a real place');
   assert.match(box, /S9/, 'and a checklist to cite');
-  // "the paragraph text under this section goes into the information help
-  // dialogue too" — so the lane explanations left the screen and the ⓘ dialog
-  // is where they have to be, or they are simply gone.
   const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
   const how = (docs.docs.surgeBtn.how || []).join(' ');
+  assert.match(how, /Priority[\s\S]*Newest/,
+    'the section help does not explain the two feed sort modes');
+  assert.doesNotMatch(how, /independent lanes/i,
+    'the section help still describes the removed visual lanes');
   assert.match(how, /species-blind/,
     'the hotspot lane no longer explains why it is notable, in the section or the dialog');
-  assert.match(how, /Celebrity Birds/,
-    'the renamed lane is not described where its paragraph went');
+  assert.match(how, /YOU NEED IT/,
+    'the personal alert category is not described where its paragraph went');
 });
 
 // The MEDIUM card is a 2x2 table, and that is the whole point of it. The float
@@ -13962,26 +13982,79 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
     'a bird whose distance never resolved was offered as somewhere to drive tonight');
 });
 
-test('Happening now leads with what you need, not with the crowd', async () => {
-  // Ordering IS the feature. The other three lanes answer "what are other
-  // birders doing"; putting this fourth would repeat the original failure.
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-  const fn = HTML.slice(HTML.indexOf('function renderSurge'),
-                        HTML.indexOf('function loadSurge'));
-  const need = fn.indexOf('Celebrity Birds');
-  const crowd = fn.indexOf('species drawing a crowd');
-  assert.ok(need > -1, 'the needs lane is not rendered at all');
-  assert.ok(crowd > -1, 'the crowd lane vanished');
-  assert.ok(need < crowd,
-    'the needs lane must LEAD — it is the one about you, and burying it under '
-    + 'the crowd lanes is the failure that was reported');
+test('F274 Priority and Newest reorder existing alert rows without refetching', async () => {
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const app = await boot();
+  const A = app.window.__app;
+  A.renderSurge(
+    [
+      { code: 'baisan', name: "Baird's Sandpiper", observers: 7, checklists: 9,
+        ratio: 5, loc: 'Cedar River Mouth', locId: 'LC', lat: 47.7, lon: -122.2,
+        latest: localStamp(5), subId: 'SC', distMi: 12 },
+      { code: 'ruff', name: 'Ruff', observers: 5, checklists: 5,
+        ratio: 4, loc: 'Nisqually NWR', locId: 'LR', lat: 47.0, lon: -122.8,
+        latest: localStamp(120), subId: 'SR', distMi: 31 },
+    ],
+    [{ species: 'Northern Waterthrush', code: 'norwat',
+      birders: [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }],
+      latest: localStamp(60),
+      recent: [{ obsDt: localStamp(60), locName: 'Union Bay Natural Area',
+        lat: 47.76, lng: -122.17, subId: 'SK' }] }],
+    [],
+    [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
+      distMi: 6, locName: 'Marymoor Park', subId: 'SN', whenStr: localStamp(180) }],
+    []);
 
-  // And it must be fed from the records the wave already merged, not from a
-  // new fetch: a lane that costs calls is a lane that gets switched off.
+  const feed = app.$('surgeFeed');
+  const order = () => [...feed.children].map((row) => row.dataset.alertKind);
+  const names = () => [...feed.children].map((row) => {
+    const link = row.querySelector('.ntext a');
+    return (link || row.querySelector('.ntext')).textContent.trim().split(/\s{2,}/)[0];
+  });
+  const priority = app.document.querySelector('[data-surge-sort="priority"]');
+  const newest = app.document.querySelector('[data-surge-sort="newest"]');
+  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
+    'Priority must rank category severity before report time');
+  assert.match(names()[1], /Baird's Sandpiper/);
+  assert.match(names()[2], /Ruff/,
+    'Priority did not use recency as the tiebreak inside the CROWD category');
+  assert.equal(priority.getAttribute('aria-pressed'), 'true');
+  assert.match(priority.textContent, /^Priority selected$/,
+    'the default selected state is not visible in words');
+  assert.equal(newest.getAttribute('aria-pressed'), 'false');
+  assert.doesNotMatch(app.document.querySelector('.surgesortrow').textContent, /Buzz/i,
+    'Buzz already names crowd attention and must not label cross-category severity');
+
+  const before = app.state.fetches.length;
+  newest.click();
+  assert.deepEqual(order(), ['crowd', 'cascade', 'crowd', 'need'],
+    'Newest did not sort report times across category boundaries');
+  assert.match(names()[0], /Baird's Sandpiper/);
+  assert.match(names()[1], /Northern Waterthrush/);
+  assert.match(names()[2], /Ruff/);
+  assert.match(names()[3], /Spotted Sandpiper/);
+  assert.equal(app.state.fetches.length, before,
+    'sorting is a DOM view over in-memory rows and must not refetch');
+  assert.equal(newest.getAttribute('aria-pressed'), 'true');
+  assert.match(newest.textContent, /^Newest selected$/);
+  assert.equal(priority.getAttribute('aria-pressed'), 'false');
+  assert.equal(priority.textContent, 'Priority');
+
+  priority.click();
+  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
+    'Priority cannot restore its category-severity order');
+  assert.equal(app.state.fetches.length, before,
+    'switching back to Priority refetched the feed');
+
   const load = HTML.slice(HTML.indexOf('function loadSurge'),
                           HTML.indexOf('function loadSurge') + 6000);
   assert.match(load, /BL\.needNearby\(_merged/,
-    'the lane fetches its own data instead of reusing the merged wave');
+    'the need alerts stopped reusing the merged wave and added a fetch path');
+  app.window.close();
 });
 
 // ---- F30 tier 3: Look up a place (was Scout another place) ---------------------------------------
@@ -15611,7 +15684,7 @@ test('the cascade lane can hand you off to the board it came from', () => {
     'sec-lastNewBtn cannot resolve, because there is no lastNewBtn to derive it from');
 });
 
-test('every Happening now lane explains its own logic', () => {
+test('the unified Bird gen help keeps every former lane rule reachable', () => {
   // "i dont understand why sabines gull and rudy turnstone were chosen. each of
   // these three happening now sections needs a help dialogue button explaining
   // the logic."
@@ -15622,13 +15695,13 @@ test('every Happening now lane explains its own logic', () => {
   for (const key of ['celebrity', 'crowd', 'cascade', 'busy', 'mega']) {
     assert.ok(new RegExp('\\b' + key + ':').test(src), `no help text for the ${key} lane`);
   }
-  // Every lane heading must carry the button, or a lane has help nobody can
-  // reach — the same shape of bug as a control with no listener.
+  assert.match(src, /LANE_DOCS\.feed\s*=/,
+    'the five rule sets were not collected behind the feed-level help');
   const rs = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
-  const heads = (rs.match(/class="lanehead"/g) || []).length;
-  const btns = (rs.match(/laneHelpBtn\('/g) || []).length;
-  assert.equal(btns, heads,
-    `${heads} lane headings but ${btns} help buttons — one lane cannot explain itself`);
+  assert.doesNotMatch(rs, /class="lanehead"/,
+    'the unified feed still emits per-lane headings');
+  assert.equal((rs.match(/laneHelpBtn\('feed'\)/g) || []).length, 1,
+    'the alert feed must have exactly one help entry point');
 
   // WIRED. A button that opens nothing is the bug this app keeps re-learning.
   assert.match(HTML, /closest\('\.lanehelp'\)/, 'the lane help buttons have no handler');
@@ -16516,121 +16589,82 @@ test('the geometry line does not report overflow while zoomed out', () => {
 // halves of that are invisible to a search over source text. v1.0.28 shipped
 // "undefined rarities" to the screen with a green suite for exactly this
 // reason.
-test('Mega rarities lead Happening now, read a cached snapshot, and fetch nothing', async () => {
-  // ⚠️ F264: RELATIVE DATES. The lane now requires a mega to be RECENT, so a
-  // fixture pinned to fixed August days stops being news the moment the
-  // calendar moves past it — a test that rots is a test that will one day fail
-  // for a reason with nothing to do with the code.
+test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch rendering', async () => {
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
   const dayAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const snap = JSON.stringify({
     at: Date.now() - 3 * 3600 * 1000,
     region: 'US-WA',
     rows: [
-      // Two reports of one bird -> ONE row, newest kept.
-      // ⚠️ F275: Rufous Hummingbird is ON THE BUNDLED YEAR-LIST SEED, so it is
-      // SEEN. That made it the perfect accidental fixture for the old rule and
-      // the wrong one for the new: a mega you have already ticked is not news
-      // however close it is, so this row is now HELD BACK. Kept exactly as it
-      // was, because it is the clearest possible case of the rule.
-      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(2) + ' 07:00',
-        locName: 'Near Home Park', locId: 'L111', subId: 'S1', lat: 47.76, lng: -122.17 },
-      { speciesCode: 'rufhum', comName: 'Rufous Hummingbird', obsDt: dayAgo(1) + ' 09:30',
-        locName: 'Near Home Park', locId: 'L111', subId: 'S2', lat: 47.76, lng: -122.17 },
-      // ...and the control for it: same shape, same distance band, but a bird
-      // nobody has on a Washington year list. Without this the suite could not
-      // tell "F275 works" from "the lane holds everything back".
-      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: dayAgo(2) + ' 07:10',
-        locName: 'Near Home Jetty', locId: 'L444', subId: 'S6', lat: 47.80, lng: -122.17 },
-      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: dayAgo(1) + ' 09:40',
-        locName: 'Near Home Jetty', locId: 'L444', subId: 'S7', lat: 47.80, lng: -122.17 },
-      // Far away: must still be SHOWN (a mega is worth a drive by definition)
-      // and must say it is outside the radius.
-      // Far away and singly reported: under F256 this is NOT news and is held
-      // back — Mega rarities carries it.
-      { speciesCode: 'liftra', comName: 'Little Stint', obsDt: dayAgo(1) + ' 08:00',
-        locName: 'Faraway Flats', locId: 'L222', subId: 'S3', lat: 46.10, lng: -119.00 },
-      // Far away but REPORTED TWICE, so it qualifies (F256 "multiple reports")
-      // and must still say it is outside the radius — distance orders this lane
-      // and never gates it, so an unlabelled far row would read as local.
-      // ⚠️ F271: BETWEEN the two radii — outside the 35 mi chase radius but
-      // inside the 55 mi day trip. That is the case this test is about: a bird
-      // that must render AND must say it is beyond the chase radius. At 114 mi
-      // (where this fixture used to sit) it is simply held back, which tests
-      // nothing about the label.
-      { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 08:00',
-        locName: 'Faraway Flats', locId: 'L222', subId: 'S4', lat: 48.40, lng: -122.16 },
-      { speciesCode: 'temsti', comName: "Temminck's Stint", obsDt: dayAgo(1) + ' 10:00',
-        locName: 'Other Far Place', locId: 'L333', subId: 'S5', lat: 48.41, lng: -122.17 },
+      // Far + already seen + not new: must be held back even with two reports.
+      { speciesCode: 'whiwag', comName: 'White Wagtail', obsDt: localStamp(120),
+        locName: 'Wallula Junction', locId: 'LW1', subId: 'SW1', lat: 46.10, lng: -119.00 },
+      { speciesCode: 'whiwag', comName: 'White Wagtail', obsDt: localStamp(90),
+        locName: 'Wallula Junction', locId: 'LW1', subId: 'SW2', lat: 46.10, lng: -119.00 },
+      // Near + unseen: the F275 control.
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(80),
+        locName: 'Near Home Jetty', locId: 'LN1', subId: 'SN1', lat: 47.80, lng: -122.17 },
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(60),
+        locName: 'Near Home Jetty', locId: 'LN1', subId: 'SN2', lat: 47.80, lng: -122.17 },
+      // Far + new: `new` is the one qualifier that survives distance.
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', obsDt: localStamp(30),
+        locName: 'Far New Flats', locId: 'LF1', subId: 'SF1', lat: 46.12, lng: -119.02 },
     ],
   });
-  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const watched = JSON.stringify({
+    'US-WA': {
+      'amecro|S0': { speciesCode: 'amecro', obsDt: dayAgo(29) + ' 08:00' },
+      'whiwag|SW0': { speciesCode: 'whiwag', obsDt: dayAgo(20) + ' 08:00' },
+      'shtsan|SF1': { speciesCode: 'shtsan', obsDt: localStamp(30) },
+    },
+  });
+  const app = await boot({ storage: {
+    ebird_mega_snapshot_v1: snap,
+    ebird_aba_archive_v1: watched,
+  } });
   const A = app.window.__app;
+  const slug = A.getReportSlug();
+  const reportSeed = app.window.__SEED_BIRDLIST__.seenByReport[slug];
+  reportSeed.codes = reportSeed.codes.concat('whiwag');
 
   const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
-  assert.ok(lane, 'the snapshot was not read back');
-  assert.equal(lane.all.length, 4, 'reports were not grouped to one row per species');
-  assert.equal(lane.all[0].code, 'rufhum', 'the lane is not ordered closest-first');
-  assert.equal(lane.all[0].reports, 2, 'the report count per species is wrong');
-  assert.equal(lane.all[0].obsDt, dayAgo(1) + ' 09:30', 'the NEWEST report was not kept');
-
-  // ⚠️ F256 NARROWED F160, DELIBERATELY, AND THIS TEST USED TO ENCODE F160.
-  //
-  // F160's rule was "distance ORDERS this lane, never gates it", because a
-  // continent-level rarity is worth a drive by definition. Sound about the
-  // BIRD, wrong about the NEWS: the owner reported the far ones crowding out
-  // the close one he could act on — "the ruff and wagtail are too far for bird
-  // gen, and are already in the mega rarities. they should only show up in bird
-  // gen when they are new".
-  //
-  // So distance still never gates BY ITSELF — a far NEW mega still leads — but
-  // rarity alone no longer entitles a bird to the lane. Little Stint here is
-  // far, one report, and nothing has marked it new, so it qualifies for none of
-  // the four and belongs in Mega rarities, which still carries it.
-  assert.ok(lane.all.some(r => r.code === 'liftra'),
-    'the far mega must still be COMPUTED — it is held back from one lane, not lost');
-  assert.ok(!lane.rows.some(r => r.code === 'liftra'),
-    'a far, singly-reported mega is not news (F256)');
-  assert.equal(lane.held, 2, 'the lane must count what it held back so it can say so');
-  // ⚠️ F275, AND ITS CONTROL. A mega you have already seen is not news however
-  // close it is — Rufous Hummingbird is near, twice-reported, and on the seed
-  // year list, so it is held. The Nazca Booby is the same shape and UNSEEN, so
-  // it is news. Without the pair, "held back" and "broken" look identical.
-  assert.ok(!lane.rows.some(r => r.code === 'rufhum'),
-    'F275: a mega already on the year list is not news, however close');
-  assert.ok(lane.rows.some(r => r.code === 'nazboo1'),
-    'F275 control: an UNSEEN mega with two reports inside the chase area IS news');
+  assert.ok(lane, 'the cached mega snapshot was not read');
+  assert.equal(lane.all.length, 3, 'reports were not grouped one row per mega');
+  assert.ok(!lane.rows.some((r) => r.code === 'whiwag'),
+    'F275: White Wagtail is far, already seen, not new, and must not alert');
+  assert.ok(lane.rows.some((r) => r.code === 'nazboo1'),
+    'F275 control: a near + unseen mega must alert');
+  assert.ok(lane.rows.some((r) => r.code === 'shtsan'),
+    'the far + new mega exception was lost');
+  assert.equal(lane.held, 1, 'the held-back count must include White Wagtail');
 
   const before = app.state.fetches.length;
   A.renderSurge([], [], [], []);
   assert.equal(app.state.fetches.length, before,
-    'the mega lane issued a request — it must only ever read the cached snapshot');
+    'rendering cached mega alerts issued a request');
 
-  const box = app.window.document.getElementById('surgeResults');
-  const heads = [...box.querySelectorAll('h3.lanehead')].map(h => h.textContent);
-  assert.ok(heads.length, 'no lanes rendered');
-  assert.match(heads[0], /ABA Code 3\+/, 'the mega lane does not lead the section');
-
+  const box = app.$('surgeResults');
+  const feed = box.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
+  assert.ok(feed, 'mega alerts did not use the unified feed');
+  assert.equal(box.querySelectorAll('.lanehead').length, 0, 'the old mega lane heading survived');
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['mega', 'mega']);
   const txt = box.textContent;
-  assert.match(txt, /Nazca Booby/, 'the mega did not render');
-  // ⚠️ F275: and the SEEN one must not, which is the same assertion from the
-  // other side. This line used to require Rufous Hummingbird to be present.
-  assert.doesNotMatch(txt, /Rufous Hummingbird/,
-    'F275: a mega already on the year list must not render, however close');
-  // F256: the far, singly-reported mega is HELD BACK, and the lane says so
-  // rather than silently shrinking — a filtered lane that does not name its
-  // filter is indistinguishable from one that lost data.
-  assert.doesNotMatch(txt, /Little Stint/,
-    'a far, singly-reported mega is not news (F256)');
-  assert.match(txt, /not news today/,
-    'the lane must say what it held back');
-  assert.match(txt, /Mega rarities/,
-    'and where the held-back bird actually is');
+  assert.match(txt, /Nazca Booby/, 'the near + unseen mega did not render');
+  assert.match(txt, /Sharp-tailed Sandpiper/, 'the far + new mega did not render');
+  assert.doesNotMatch(txt, /White Wagtail/,
+    'the far, seen, not-new White Wagtail rendered despite F275');
+  assert.match(txt, /1 more mega is not news today/,
+    'the filtered feed no longer discloses its held-back mega');
+  assert.match(txt, /Mega rarities/, 'the disclosure no longer says where the held-back bird remains');
   assert.match(txt, /outside your chase radius/,
-    'the far mega rendered without saying it is far, which reads as local');
-  assert.ok(!/undefined|NaN/.test(txt), 'a dropped card slot rendered undefined/NaN: ' + txt.slice(0, 200));
-  // The lane says how stale it is. Without this, "no megas" and "not refreshed
-  // since Tuesday" look identical.
-  assert.match(txt, /3h ago/, 'the lane does not state the age of its snapshot');
+    'the far + new mega renders as though it were local');
+  assert.match(txt, /3h ago/, 'the cached mega snapshot age disappeared');
+  assert.ok(!/undefined|NaN/.test(txt), 'a dropped small-card slot rendered undefined/NaN');
+  app.window.close();
 });
 
 // ── F212: "it was just discovered this week" ──────────────────────────────
@@ -16671,16 +16705,16 @@ test('a mega found this week is marked; one that was already here is not', async
     'a newly found mega is news at any distance (F256 qualifier 2)');
 
   a.window.__app.renderSurge([], [], [], []);
-  const txt = a.window.document.getElementById('surgeResults').textContent;
-  // The PHRASING is asserted, not the arithmetic: `toISOString()` is UTC while
-  // the code counts from LOCAL midnight, so a fixed "2 days ago" here fails on
-  // any evening west of Greenwich — which is exactly where this app is used.
-  // The exact date is pinned above, on `found.day`, where it is unambiguous.
-  assert.match(txt, /found (today|yesterday|\d+ days ago)/i,
-    'the badge must say WHEN in words — the glyph and the fill are the second '
-    + 'and third channels, never the only ones');
+  const row = a.window.document.querySelector('#surgeFeed > [data-alert-kind="mega"]');
+  const txt = row.textContent;
+  assert.match(txt, /first reported/i,
+    'the discovery qualifier disappeared from Why it is news');
   assert.match(txt, /since we began watching/i,
     'and must state how long we watched without seeing it, or the date is just a date');
+  assert.doesNotMatch(row.querySelector('.surgealertbody').textContent, /\bago\b/i,
+    'relative age must live only in the right column');
+  assert.match(row.querySelector('.surgeage').textContent, /\bago\b/i,
+    'the prominent right column lost the relative age');
   a.window.close();
 
   // ALREADY HERE — WE DID WATCH IT ARRIVE, BUT MONTHS AGO. Coverage reaches
@@ -16707,11 +16741,11 @@ test('a mega found this week is marked; one that was already here is not', async
   assert.ok(dLane.rows.some(r => r.code === 'nazboo'),
     'the row must still be ON SCREEN, or the badge assertion below proves nothing');
   d.window.__app.renderSurge([], [], [], []);
-  const dTxt = d.window.document.getElementById('surgeResults').textContent;
+  const dRow = d.window.document.querySelector('#surgeFeed > [data-alert-kind="mega"]');
+  const dTxt = dRow.textContent;
   assert.match(dTxt, /Nazca Booby/, 'the row rendered');
-  assert.doesNotMatch(dTxt,
-    /found (today|yesterday|\d+ days ago)/i,
-    'the badge rendered for a bird that arrived two months ago');
+  assert.doesNotMatch(dTxt, /first reported/i,
+    'the discovery qualifier rendered for a bird that arrived two months ago');
   d.window.close();
 
   // ...and an empty archive is the same answer: no evidence is not evidence.

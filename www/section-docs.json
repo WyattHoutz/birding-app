@@ -22,27 +22,30 @@
   "docs": {
     "surgeBtn": {
       "report": "## 🔔 Bird gen — The news birders are talking about",
-      "summary": "Detects a crowd forming right now, rather than a bird merely being present.",
+      "summary": "One ranked feed of fresh megas, birds you need, crowd attention, leaderboard cascades and unusually busy hotspots.",
       "inputs": [
+        "the cached ABA Code 3+ snapshot last populated by Mega rarities",
         "county recent + notable feeds",
         "the region's Top 100 board",
         "hotspot activity in the same feeds"
       ],
       "how": [
-        "Four independent lanes run over feeds other sections already pay for, so this costs no extra fetching.",
-        "Celebrity Birds: species eBird flags as NOTABLE here that you still need, reported within your chase distance in the last 24 hours, one row per BIRD rather than per report - the same bird at three ponds is one decision, not three. Closest first. This lane leads: the other three are about what OTHER birders are doing.",
-        "Each row is ONE line - code, count, locations, observations, where, when - and every fact on it comes from the SAME report: the nearest one, which is the one the distance is measured to. A row taking its place from one sighting and its time from another would read as a single observation and not be one. The labelled Nearest/Latest rows this replaced spent three lines of card on four short facts.",
-        "NOTABLE, not merely unseen. Asked for as \"happening now should be things local birders would talk about without having to check ebird\" - and three people reporting a bird that is ordinary here is well corroborated and still nobody mentions it. A bird earns this lane by being unusual HERE, not by being missing from your year list, so an unseen-but-ordinary bird belongs in All unseen reports and Closest spots, which are the sections about you.",
+        "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
+        "Priority is the default: MEGA, YOU NEED IT, CROWD, CASCADE, HOTSPOT, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "Every row carries the category word, the category's existing glyph, a prominent relative age, an absolute date/time, Where, Latest and Why it is news. Word, glyph and distinct border style all identify the category without relying on colour.",
+        "MEGA: a first record inside the covered window is news at any distance. Nearby, multiple-report and single-hotspot qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
+        "YOU NEED IT: species eBird flags as NOTABLE here that are still missing from your list, reported within your chase distance in the last 24 hours, one row per bird rather than per report.",
+        "NOTABLE, not merely unseen. Asked for as \"happening now should be things local birders would talk about without having to check ebird\" - and three people reporting a bird that is ordinary here is well corroborated and still nobody mentions it. An unseen-but-ordinary bird belongs in All unseen reports and Closest spots.",
         "A thin report must ALSO be either reviewed by eBird or seen 3 times: a mega found an hour ago has exactly one report and is worth keeping, while a single UNREVIEWED report is the \"one off that might not be real\".",
-        "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive, in this lane as in every other place-ranking section.",
-        "Observation surge: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
-        "Leaderboard cascade: 3+ of the region's top 100 adding the same species within 3 days. Sees counties our feeds never cover, lags up to a day. The board names the bird and the date and nothing else, so the place and time on the row come from a species-scoped state feed - that is where to actually go. Same one-line format as Celebrity Birds; the roster and the other reports are behind the expander.",
-        "Hotspot convergence: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable — which is how a locally-regular bird draws twenty birders without tripping a rarity alert.",
+        "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
+        "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
+        "CASCADE: 3+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
+        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact alert row keeps recent species and checklist evidence behind one disclosure, and the established after-paint hydration still fills it.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],
       "limits": [
-        "The nearby-needs lane is deliberately SHORT: 24 hours and your chase distance. A bird you need that has been around for a week is still worth having, and it is in All unseen reports - the point of an alert is that it is short enough to read.",
-        "A report whose date cannot be read is dropped from that lane rather than assumed fresh, because \"just now\" is the only thing the lane claims.",
+        "The YOU NEED IT category is deliberately SHORT: 24 hours and your chase distance. A bird you need that has been around for a week remains in All unseen reports - the point of an alert is that it is short enough to read.",
+        "A report whose date cannot be read is dropped from a freshness-gated source rather than assumed fresh.",
         "The baseline is measured from the data actually fetched (7 days), capped at the configured window, so a short feed cannot inflate every ratio.",
         "With no trailing history at all the row reads \"new here\" and prints no ratio — a ratio over a zero denominator invents precision."
       ]
