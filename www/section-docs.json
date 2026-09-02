@@ -32,6 +32,8 @@
       "how": [
         "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
         "Priority is the default: MEGA, YOU NEED IT, CROWD, CASCADE, HOTSPOT, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "If the same species qualifies in several categories it renders once under the strongest category, while Why it is news retains every qualifying reason.",
+        "Each source reports whether it succeeded, failed, or has not been loaded. Successful rows remain visible when another source fails, and the feed only claims nothing is happening when every applicable source succeeded.",
         "Every row carries the category word, the category's existing glyph, a prominent relative age, an absolute date/time, Where, Latest and Why it is news. Word, glyph and distinct border style all identify the category without relying on colour.",
         "MEGA: a first record inside the covered window is news at any distance. Nearby, multiple-report and single-hotspot qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
         "YOU NEED IT: species eBird flags as NOTABLE here that are still missing from your list, reported within your chase distance in the last 24 hours, one row per bird rather than per report.",
@@ -39,8 +41,8 @@
         "A thin report must ALSO be either reviewed by eBird or seen 3 times: a mega found an hour ago has exactly one report and is worth keeping, while a single UNREVIEWED report is the \"one off that might not be real\".",
         "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
         "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
-        "CASCADE: 3+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
-        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact alert row keeps recent species and checklist evidence behind one disclosure, and the established after-paint hydration still fills it.",
+        "CASCADE: 2+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
+        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. The row's Latest and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for its detail. Its compact alert row keeps recent species and checklist evidence behind one disclosure, and the established after-paint hydration still fills it.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],
       "limits": [

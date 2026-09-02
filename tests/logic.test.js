@@ -664,6 +664,10 @@ test('surgeEvents: reports whether you still need the bird, without filtering on
 });
 
 test('tickCascades: two of the top 100 adding the same bird in days is a mega', () => {
+  assert.equal(BL.CASCADE.MIN_BIRDERS, 2,
+    'the public cascade contract drifted back to the obsolete 3-birder threshold');
+  assert.equal(BL.CASCADE.WINDOW_DAYS, 3,
+    'the public cascade contract no longer exposes the source window');
   const parse = (s) => {
     const m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s).trim());
     if (!m) return null;
@@ -779,6 +783,11 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
   assert.equal(out.length, 1, 'only the spot that broke its own norm fires');
   assert.equal(out[0].locId, 'L1');
   assert.equal(out[0].observers, 8);
+  const latest = DAY(0, 14);
+  assert.equal(out[0].latest, latest,
+    'the event did not retain the newest hot checklist timestamp from its own input rows');
+  assert.equal(out[0].eventAt, Date.parse(latest.replace(' ', 'T')),
+    'the sortable event time is not the same checklist timestamp shown to the reader');
 });
 
 test('hotspotConvergence: no trailing history means no claim, not an infinite one', () => {

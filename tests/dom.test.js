@@ -5303,9 +5303,10 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
   const A = app.window.__app;
   const birders = [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }, { name: 'Bruce', rank: 8 }];
+  const hotspotLatest = localStamp(20);
   const merged = [
     { locId: 'LHOT', subId: 'SH1', code: 'amerob', name: 'American Robin',
-      dateStr: localStamp(20), kind: 'Sighting' },
+      dateStr: hotspotLatest, kind: 'Sighting' },
   ];
   A.renderSurge(
     [{ code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11, ratio: 10,
@@ -5314,7 +5315,8 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     [{ species: 'Terek Sandpiper', code: 'tersan', birders, latest: localStamp(80),
       recent: [{ obsDt: localStamp(80), locName: 'Stanwood STP',
         lat: 47.77, lng: -122.18, subId: 'SK1' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1, reason: 'surge' }],
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1, reason: 'surge',
+      latest: hotspotLatest, eventAt: Date.parse(hotspotLatest.replace(' ', 'T')) }],
     [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
       distMi: 6.2, locName: 'Marymoor Park', subId: 'SN1', whenStr: localStamp(180) }],
     merged);
@@ -5381,6 +5383,75 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   assert.ok(feed.querySelector('[data-alert-kind="hotspot"] [data-loc="LHOT"]'),
     'the hotspot name is no longer actionable');
   assert.deepEqual(app.state.errors, [], 'the unified render threw an uncaught error');
+  app.window.close();
+});
+
+test('F274 deduplicates a species to its strongest category and keeps every reason', async () => {
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const newest = localStamp(5);
+  const snap = JSON.stringify({
+    at: Date.now(), region: 'US-WA',
+    rows: [
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(60),
+        locName: 'Near Home Jetty', locId: 'LM', subId: 'SM1', lat: 47.80, lng: -122.17 },
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(45),
+        locName: 'Near Home Jetty', locId: 'LM', subId: 'SM2', lat: 47.80, lng: -122.17 },
+    ],
+  });
+  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const A = app.window.__app;
+  A.renderSurge(
+    [{ code: 'nazboo1', name: 'Nazca Booby', observers: 7, checklists: 9,
+      ratio: 5, loc: 'Near Home Jetty', locId: 'LM', lat: 47.8, lon: -122.17,
+      latest: newest, subId: 'SC', distMi: 6 }],
+    [{ species: 'Nazca Booby', code: '',
+      birders: [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }],
+      latest: localStamp(15),
+      recent: [{ obsDt: localStamp(15), locName: 'Marymoor Park',
+        lat: 47.76, lng: -122.17, subId: 'SK' }] }],
+    [],
+    [{ code: 'nazboo1', name: 'Nazca Booby', sightings: 4, nPlaces: 1,
+      distMi: 6, locName: 'Near Home Jetty', subId: 'SN', whenStr: localStamp(30) }],
+    [],
+    { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' });
+
+  const feed = app.$('surgeFeed');
+  assert.equal(feed.children.length, 1,
+    'the same species rendered once per qualifying source');
+  const row = feed.firstElementChild;
+  assert.equal(row.dataset.alertKind, 'mega',
+    'the strongest category precedence MEGA > NEED > CROWD > CASCADE was not applied');
+  assert.equal(row.querySelector('.surgebadge').textContent.trim(), 'MEGA');
+  assert.match(row.textContent, /within a day trip/,
+    'the strongest category reason disappeared');
+  assert.match(row.textContent, /Also YOU NEED IT:/,
+    'the needed-bird reason was discarded during dedupe');
+  assert.match(row.textContent, /Also CROWD:/,
+    'the weaker qualifying category is not identified in Why it is news');
+  assert.match(row.textContent, /7 birders.*5× normal/s,
+    'the weaker source reason was discarded during dedupe');
+  assert.match(row.textContent, /Also CASCADE:/,
+    'a code-less cascade for the same named species escaped dedupe');
+  assert.match(row.textContent, /2 of the top 100 added it within 3 days/,
+    'the cascade reason or its real two-birder threshold was discarded');
+  assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
+    'the deduped row did not retain the newest qualifying source time');
+  assert.doesNotMatch(row.querySelector('.surgeabsolute').textContent, /unavailable/i,
+    'Latest no longer agrees with the time used by Newest sorting');
+  const counts = Object.fromEntries([...app.document.querySelectorAll('.surgecount')].map((el) => [
+    el.dataset.countKind, Number(el.querySelector('b').textContent),
+  ]));
+  assert.equal(counts.mega, 1);
+  assert.equal(counts.need, 0,
+    'category counts promise a duplicate YOU NEED IT row that dedupe removed');
+  assert.equal(counts.crowd, 0,
+    'category counts promise a duplicate CROWD row that dedupe removed');
+  assert.equal(counts.cascade, 0,
+    'category counts promise a duplicate CASCADE row that dedupe removed');
   app.window.close();
 });
 
@@ -5602,6 +5673,7 @@ test('the GBIF lookup needs a scientific name and asks for no eBird quota', asyn
 test('F264: an empty lane is silent, but an empty SECTION still explains itself', async () => {
   const app = await boot();
   const A = app.window.__app, d = app.window.document;
+  const allOk = { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' };
 
   // ⚠️ THIS TEST WAS "an empty Celebrity lane says so instead of vanishing"
   // (F211), and the owner reversed it: *"if theres no birds, dont show
@@ -5614,7 +5686,8 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
   // that when it is wholly empty; a single empty lane inside a section that
   // has news no longer prints a paragraph about what it did not find. An
   // alert listing four things that are not happening buries the one that is.
-  A.renderSurge([], [], [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }], []);
+  A.renderSurge([], [], [{ locId: 'L1', loc: 'Magnuson Park', observers: 16, ratio: 10 }], [],
+    [], allOk);
   const txt = d.getElementById('surgeResults').textContent;
   assert.match(txt, /Magnuson Park/, 'the lane that DID find something renders');
   assert.doesNotMatch(txt, /Nothing qualifies right now/,
@@ -5625,7 +5698,7 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
 
   // ⚠️ THE OTHER HALF, and it is what keeps F211 satisfied: with EVERY lane
   // empty the section still explains itself, in one place, for all lanes.
-  A.renderSurge([], [], [], []);
+  A.renderSurge([], [], [], [], [], allOk);
   const empty = d.getElementById('surgeResults').textContent;
   assert.ok(empty.trim().length > 40,
     'a wholly empty section must not be a blank panel — that is exactly the '
@@ -5641,9 +5714,62 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
     { code: 'tuf', name: 'Tufted Puffin', reports: 3, nPlaces: 2, distMi: 4,
       locName: 'Marina Beach', subId: 'S1', whenStr: '2026-08-27 08:00',
       lat: 47, lon: -122 },
-  ]);
+  ], [], allOk);
   const full = d.getElementById('surgeResults').textContent;
   assert.match(full, /Tufted Puffin/, 'a populated lane still renders its birds');
+  app.window.close();
+});
+
+test('F274 distinguishes failed, successful-empty, and not-loaded alert sources', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const loadedSources = { observations: 'ok', leaderboard: 'ok', hotspots: 'ok' };
+
+  A.renderSurge([{
+    code: 'baisan', name: "Baird's Sandpiper", observers: 7, checklists: 9,
+    ratio: 5, loc: 'Cedar River Mouth', locId: 'LC', lat: 47.7, lon: -122.2,
+    latest: '2026-09-02 08:00', subId: 'SC', distMi: 12,
+  }], [], [], [], [], { ...loadedSources, mega: 'ok', leaderboard: 'failed' });
+  let box = app.$('surgeResults');
+  assert.match(box.textContent, /Baird's Sandpiper/,
+    'a failed leaderboard source erased rows from a successful observation source');
+  assert.match(box.querySelector('.surgesourcewarn').textContent, /Top 100 leaderboard failed/,
+    'the warning does not name the unavailable source');
+  assert.equal(box.dataset.sourceLeaderboard, 'failed',
+    'the failed state was flattened into an empty source');
+  assert.doesNotMatch(box.textContent, /Nothing you need has been reported/,
+    'a partial feed made the definitive all-clear claim');
+
+  A.renderSurge([], [], [], [], [], {
+    ...loadedSources, mega: 'ok', leaderboard: 'failed',
+  });
+  box = app.$('surgeResults');
+  assert.match(box.textContent, /Top 100 leaderboard failed/,
+    'an empty failed source was flattened into an ordinary empty array');
+  assert.doesNotMatch(box.textContent, /Nothing you need has been reported/,
+    'failed-as-empty produced the definitive whole-section empty state');
+
+  app.window.localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
+    at: Date.now(), region: 'US-WA', rows: [],
+  }));
+  A.renderSurge([], [], [], [], [], loadedSources);
+  box = app.$('surgeResults');
+  assert.equal(box.querySelector('.surgesourcewarn'), null,
+    'an all-success empty result is incorrectly warned as incomplete');
+  assert.match(box.textContent, /Nothing you need has been reported/,
+    'the definitive empty state disappeared even though every source succeeded');
+
+  app.window.localStorage.removeItem('ebird_mega_snapshot_v1');
+  A.renderSurge([], [], [], [], [], loadedSources);
+  box = app.$('surgeResults');
+  assert.match(box.querySelector('.surgesourcewarn').textContent,
+    /Mega snapshot not loaded.*open Mega rarities once/i,
+    'a missing mega snapshot is being reported as zero megas');
+  assert.match(box.textContent, /No alerts are available from the sources that loaded/,
+    'an incomplete empty feed does not state the limited claim it can support');
+  assert.doesNotMatch(box.textContent, /no eligible ABA Code 3\+ mega is news today/i,
+    'not loaded was flattened into a definitive no-mega result');
+  assert.equal(box.dataset.sourceMega, 'notLoaded');
   app.window.close();
 });
 
@@ -5677,6 +5803,8 @@ test('Happening now merges populated signals without burying the hotspot', async
     'the section help does not explain the two feed sort modes');
   assert.doesNotMatch(how, /independent lanes/i,
     'the section help still describes the removed visual lanes');
+  assert.match(how, /CASCADE: 2\+ of the region's top 100/,
+    'the section help repeated the obsolete 3-birder cascade threshold');
   assert.match(how, /species-blind/,
     'the hotspot lane no longer explains why it is notable, in the section or the dialog');
   assert.match(how, /YOU NEED IT/,
@@ -14375,6 +14503,50 @@ test('F274 Priority and Newest reorder existing alert rows without refetching', 
   app.window.close();
 });
 
+test('F274 Newest uses hotspotConvergence checklist time without a merged hotspot row', async () => {
+  const app = await boot();
+  const A = app.window.__app, BL = app.window.BirdLogic;
+  const now = Date.now();
+  const stamp = (ms) => {
+    const d = new Date(ms);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const rows = [];
+  for (let d = 2; d < 14; d++) {
+    rows.push({ locId: 'LHOT', locName: 'Montlake Fill', userDisplayName: 'regular',
+      subId: 'R' + d, obsDt: stamp(now - d * 86400000) });
+  }
+  for (let i = 0; i < BL.CONVERGE.MIN_OBSERVERS; i++) {
+    rows.push({ locId: 'LHOT', locName: 'Montlake Fill', userDisplayName: 'visitor' + i,
+      subId: 'H' + i, obsDt: stamp(now - (10 + i) * 60000) });
+  }
+  const hotspots = BL.hotspotConvergence(rows, { now });
+  assert.equal(hotspots.length, 1, 'the fixture did not produce a hotspot alert');
+
+  A.renderSurge(
+    [{ code: 'baisan', name: "Baird's Sandpiper", observers: 7, checklists: 9,
+      ratio: 5, loc: 'Cedar River Mouth', locId: 'LC', lat: 47.7, lon: -122.2,
+      latest: stamp(now - 60 * 60000), subId: 'SC', distMi: 12 }],
+    [], hotspots, [],
+    [{ locId: 'UNRELATED', subId: 'SX', code: 'amerob', name: 'American Robin',
+      dateStr: stamp(now - 1 * 60000) }],
+    { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' });
+
+  const feed = app.$('surgeFeed');
+  const hot = feed.querySelector('[data-alert-kind="hotspot"]');
+  assert.equal(Number(hot.dataset.surgeLatest), hotspots[0].eventAt,
+    'the hotspot alert ignored its own newest checklist timestamp');
+  assert.doesNotMatch(hot.querySelector('.surgeabsolute').textContent, /unavailable/i,
+    'the hotspot body lost the absolute checklist date/time');
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
+    'Priority order should still put CROWD ahead of HOTSPOT');
+  app.document.querySelector('[data-surge-sort="newest"]').click();
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['hotspot', 'crowd'],
+    'Newest inferred hotspot time from unrelated merged species observations');
+  app.window.close();
+});
+
 // ---- F30 tier 3: Look up a place (was Scout another place) ---------------------------------------
 //
 // "id like to support this kind of lookup. it would be like temporary change
@@ -16015,6 +16187,8 @@ test('the unified Bird gen help keeps every former lane rule reachable', () => {
   }
   assert.match(src, /LANE_DOCS\.feed\s*=/,
     'the five rule sets were not collected behind the feed-level help');
+  assert.match(src, /BL\.CASCADE\.MIN_BIRDERS/,
+    'the live cascade help restates a threshold instead of reading the source constant');
   const rs = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
   assert.doesNotMatch(rs, /class="lanehead"/,
     'the unified feed still emits per-lane headings');

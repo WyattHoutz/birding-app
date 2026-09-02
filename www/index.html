@@ -1549,6 +1549,11 @@
     .surgefeedhead .lanehelp { margin-left: -2px; color: var(--muted); }
     .surgeintro { margin: 3px 0 9px; color: var(--muted);
                   font-size: calc(12.5px * var(--s)); line-height: 1.42; }
+    .surgesourcewarn { margin: 7px 0 10px; padding: 8px 10px;
+                       border: 2px dashed #8A5A00; border-radius: 10px;
+                       background: var(--note-bg); color: var(--note-ink);
+                       font-size: calc(12px * var(--s)); line-height: 1.4; }
+    .surgesourcewarn b { color: inherit; }
     .surgesortrow { display: flex; align-items: center; gap: 6px; margin: 7px 0 10px; }
     .surgesortlabel { color: var(--muted); font-size: calc(12px * var(--s));
                      font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
@@ -1582,6 +1587,7 @@
     .surgewhy { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
     .surgewhytext { min-width: 0; overflow-wrap: anywhere; }
     .surgewhylabel { font-weight: 800; color: var(--muted); }
+    .surgealsowhy { display: block; margin-top: 2px; }
     .surgebadge { flex: 0 0 auto; display: inline-flex; align-items: center;
                   font-size: calc(10.5px * var(--s)); font-weight: 800;
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
@@ -22149,12 +22155,9 @@
         (merged || []).forEach(function (r) {
           if (!r || !r.locId) return;
           var d = by[r.locId] || (by[r.locId] = {
-            sppSet: {}, listSet: {}, species: [], seen: {}, latest: '', latestMs: 0
+            sppSet: {}, listSet: {}, species: [], seen: {}
           });
           if (r.subId) d.listSet[r.subId] = 1;
-          var at = r.dateStr || r.obsDt || r.whenStr || r.latest || '';
-          var atMs = surgeTimeValue(at);
-          if (atMs > d.latestMs) { d.latest = at; d.latestMs = atMs; }
           if (!r.code) return;
           d.sppSet[r.code] = 1;
           if (!d.seen[r.code]) {
@@ -22434,8 +22437,9 @@
             + 'and it becomes a chase board: when several of the top 100 add the '
             + '<b>same</b> species within a few days, that bird is demonstrably '
             + 'findable right now.</p>'
-            + '<p>That is the whole rule — <b>' + 3 + '+ of the top 100 within '
-            + '3 days</b>. It is not a rarity feed, so a bird can appear here '
+            + '<p>That is the whole rule — <b>' + BL.CASCADE.MIN_BIRDERS
+            + '+ of the top 100 within ' + BL.CASCADE.WINDOW_DAYS
+            + ' days</b>. It is not a rarity feed, so a bird can appear here '
             + 'without being flagged rare anywhere, and a mega nobody has ticked '
             + 'yet will not appear at all.</p>'
             + '<p>This category sees the <b>whole region</b>, including counties your '
@@ -22467,6 +22471,10 @@
           + 'five categories — mega, you need it, crowd, cascade, hotspot — then '
           + 'uses recency inside each category. <b>Newest</b> ignores category '
           + 'severity and orders every row by its latest report time.</p>'
+          + '<p>If one species qualifies more than once, it appears once under '
+          + 'its strongest category and keeps every qualifying reason on that '
+          + 'row. If a source fails or the mega snapshot has not been loaded, '
+          + 'the feed names that gap instead of claiming nothing is happening.</p>'
           + '<h3>' + LANE_DOCS.mega.title + '</h3>' + LANE_DOCS.mega.body
           + '<h3>' + LANE_DOCS.celebrity.title + '</h3>' + LANE_DOCS.celebrity.body
           + '<h3>' + LANE_DOCS.crowd.title + '</h3>' + LANE_DOCS.crowd.body
@@ -22566,6 +22574,53 @@
         hotspot: { priority: 4, word: 'HOTSPOT',     glyph: '📍' }
       };
       var _surgeSort = 'priority';
+      var SURGE_SOURCE_LABELS = {
+        mega: 'Mega snapshot',
+        observations: 'Recent/notable bird feeds',
+        leaderboard: 'Top 100 leaderboard',
+        hotspots: 'Hotspot activity feeds'
+      };
+
+      function surgeSourceStates(mega, supplied) {
+        var out = {
+          mega: mega ? 'ok' : 'notLoaded',
+          observations: 'ok',
+          leaderboard: 'ok',
+          hotspots: 'ok'
+        };
+        Object.keys(supplied || {}).forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(out, key)) out[key] = supplied[key];
+        });
+        return out;
+      }
+
+      function surgeSourcesComplete(states) {
+        return Object.keys(states || {}).every(function (key) {
+          return states[key] === 'ok' || states[key] === 'notApplicable';
+        });
+      }
+
+      function surgeSourceWarning(states) {
+        var unavailable = [];
+        Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
+          var state = states[key], label = SURGE_SOURCE_LABELS[key];
+          if (state === 'failed') unavailable.push(label + ' failed');
+          if (state === 'notLoaded') {
+            unavailable.push(key === 'mega'
+              ? label + ' not loaded — open Mega rarities once'
+              : label + ' not loaded');
+          }
+        });
+        if (!unavailable.length) return '';
+        return '<div class="surgesourcewarn" role="status">⚠️ <b>Incomplete feed.</b> '
+          + esc(unavailable.join('; ')) + '. Results use only sources that loaded.</div>';
+      }
+
+      function markSurgeSourceStates(box, states) {
+        Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
+          box.setAttribute('data-source-' + key, states[key] || 'notLoaded');
+        });
+      }
 
       function surgeTimeValue(s) {
         if (s == null || s === '') return 0;
@@ -22629,10 +22684,21 @@
         var where = a.where || '<span class="dim">Location unavailable</span>';
         var latest = '<span class="surgeabsolute">' + esc(surgeDateText(a.when)) + '</span>'
           + (a.latestExtra || '');
+        var reasons = (a.reasons || [{ kind: a.kind, why: a.why }]).slice()
+          .sort(function (x, y) {
+            return SURGE_KINDS[x.kind].priority - SURGE_KINDS[y.kind].priority;
+          });
+        var primary = reasons.filter(function (r) { return r.kind === a.kind; })[0] || reasons[0];
+        var why = primary ? primary.why : a.why;
+        reasons.forEach(function (reason) {
+          if (reason === primary) return;
+          why += '<span class="surgealsowhy"><b>Also '
+            + SURGE_KINDS[reason.kind].word + ':</b> ' + reason.why + '</span>';
+        });
         return '<div class="surgealertbody">'
           + '<div class="surgewhy"><span class="surgebadge surgebadge-' + a.kind + '">'
           + k.word + '</span><span class="surgewhytext">'
-          + '<span class="surgewhylabel">Why it is news:</span> ' + a.why + '</span></div>'
+          + '<span class="surgewhylabel">Why it is news:</span> ' + why + '</span></div>'
           + '<ul class="surgefacts">'
           + '<li><span class="surgefactlabel">Where</span>'
           + '<span class="surgefactvalue">' + where + '</span></li>'
@@ -22662,6 +22728,79 @@
           below: surgeAlertBody(a),
           data: data
         });
+      }
+
+      function mergeSurgeSpeciesRows(rows) {
+        var out = [], bySpecies = {};
+        (rows || []).forEach(function (row) {
+          if (row.kind === 'hotspot') { out.push(row); return; }
+          var aliases = [];
+          var codeKey = String(row.speciesKey || row.code || '').trim().toLowerCase();
+          var nameKey = String(row.speciesNameKey || '').trim().toLowerCase();
+          if (codeKey) aliases.push('code:' + codeKey);
+          if (nameKey) aliases.push('name:' + nameKey);
+          if (!aliases.length) { out.push(row); return; }
+          var reason = { kind: row.kind, why: row.why };
+          var hit = null;
+          aliases.some(function (key) {
+            if (!bySpecies[key]) return false;
+            hit = bySpecies[key];
+            return true;
+          });
+          if (!hit) {
+            row.reasons = [reason];
+            row._surgeExtras = row.extra ? [{ kind: row.kind, html: row.extra }] : [];
+            row._surgeLatestView = {
+              time: row.time, when: row.when, where: row.where,
+              latestExtra: row.latestExtra, distance: row.distance
+            };
+            row._surgeAliases = aliases;
+            aliases.forEach(function (key) { bySpecies[key] = row; });
+            out.push(row);
+            return;
+          }
+          aliases.forEach(function (key) {
+            if (hit._surgeAliases.indexOf(key) < 0) hit._surgeAliases.push(key);
+          });
+          if (!hit.reasons.some(function (r) {
+            return r.kind === reason.kind && r.why === reason.why;
+          })) hit.reasons.push(reason);
+          if (row.extra && !hit._surgeExtras.some(function (x) {
+            return x.kind === row.kind && x.html === row.extra;
+          })) hit._surgeExtras.push({ kind: row.kind, html: row.extra });
+          if (row.time > hit._surgeLatestView.time) {
+            hit._surgeLatestView = {
+              time: row.time, when: row.when, where: row.where,
+              latestExtra: row.latestExtra, distance: row.distance
+            };
+          }
+
+          var replace = SURGE_KINDS[row.kind].priority < SURGE_KINDS[hit.kind].priority
+            || (row.kind === hit.kind && row.time > hit.time);
+          if (replace) {
+            var reasons = hit.reasons, extras = hit._surgeExtras;
+            var latestView = hit._surgeLatestView;
+            var at = out.indexOf(hit);
+            row.reasons = reasons;
+            row._surgeExtras = extras;
+            row._surgeLatestView = latestView;
+            row._surgeAliases = hit._surgeAliases;
+            row._surgeAliases.forEach(function (key) { bySpecies[key] = row; });
+            out[at] = row;
+            hit = row;
+          } else {
+            hit._surgeAliases.forEach(function (key) { bySpecies[key] = hit; });
+          }
+          hit.time = hit._surgeLatestView.time;
+          hit.when = hit._surgeLatestView.when;
+          hit.where = hit._surgeLatestView.where;
+          hit.latestExtra = hit._surgeLatestView.latestExtra;
+          hit.distance = hit._surgeLatestView.distance;
+          hit.extra = hit._surgeExtras.map(function (x) {
+            return '<div data-alert-evidence-kind="' + x.kind + '">' + x.html + '</div>';
+          }).join('');
+        });
+        return out;
       }
 
       function surgeCountHtml(rows) {
@@ -22755,7 +22894,7 @@
           + '</details>';
       }
 
-      function renderSurge(events, cascades, convergence, needs, merged) {
+      function renderSurge(events, cascades, convergence, needs, merged, sourceState) {
         var box = $('surgeResults');
         events = events || [];
         convergence = convergence || [];
@@ -22764,18 +22903,21 @@
         var mega = megaLane(getAnchors());
         var megaRows = (mega && mega.rows) || [];
         var cascadePairs = surgeCascadePairs(cascades);
+        var sourceStates = surgeSourceStates(mega, sourceState);
+        var sourceWarning = surgeSourceWarning(sourceStates);
+        markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length) {
-          box.innerHTML = '<div class="status">Nothing you need has been reported within '
-            + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours; no eligible '
-            + 'ABA Code 3+ mega is news today; and nothing is drawing a crowd, cascading '
-            + 'through the leaderboard, or making a hotspot outdraw its own norm. '
-            + 'Crowd alerts require ' + BL.SURGE.MIN_OBSERVERS + '+ birders within '
-            + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO
-            + '× the local norm, or ' + BL.SURGE.NOVEL_OBSERVERS
-            + '+ independent observers on a bird with no recent reports. '
-            + 'ABA Code 3+ megas appear after <b>Rare birds</b> has populated the '
-            + 'on-device snapshot.</div>';
+          box.innerHTML = sourceWarning + (surgeSourcesComplete(sourceStates)
+            ? '<div class="status">Nothing you need has been reported within '
+              + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours; no eligible '
+              + 'ABA Code 3+ mega is news today; and nothing is drawing a crowd, cascading '
+              + 'through the leaderboard, or making a hotspot outdraw its own norm. '
+              + 'Crowd alerts require ' + BL.SURGE.MIN_OBSERVERS + '+ birders within '
+              + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO
+              + '× the local norm, or ' + BL.SURGE.NOVEL_OBSERVERS
+              + '+ independent observers on a bird with no recent reports.</div>'
+            : '<div class="status">No alerts are available from the sources that loaded.</div>');
           return 0;
         }
 
@@ -22792,6 +22934,8 @@
           if (far) why += (why ? ' · ' : '') + '<b>outside your chase radius</b>';
           rows.push({
             kind: 'mega',
+            speciesKey: m.code,
+            speciesNameKey: m.name,
             icon: photoSlot(m.name, m.code),
             name: speciesLink(m.name, m.code),
             code: m.code,
@@ -22811,6 +22955,8 @@
           var obs = (e.sightings == null ? e.reports : e.sightings);
           rows.push({
             kind: 'need',
+            speciesKey: e.code,
+            speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
             code: e.code,
@@ -22837,6 +22983,8 @@
           var vs = e.ratio == null ? 'new here' : Math.round(e.ratio) + '× normal';
           rows.push({
             kind: 'crowd',
+            speciesKey: e.code,
+            speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
             code: e.code,
@@ -22874,6 +23022,8 @@
               + '</div>';
           rows.push({
             kind: 'cascade',
+            speciesKey: c.code,
+            speciesNameKey: c.species,
             icon: photoSlot(c.species, c.code || ''),
             name: c.code ? speciesLink(c.species, c.code) : esc(c.species),
             code: c.code || '',
@@ -22881,7 +23031,8 @@
             tags: rareTag('Rarity'),
             sub: c.birders.length + ' of the top 100',
             distance: surgeDistanceText(near),
-            why: '<b>' + c.birders.length + ' of the top 100 added it within 3 days</b>',
+            why: '<b>' + c.birders.length + ' of the top 100 added it within '
+              + BL.CASCADE.WINDOW_DAYS + ' days</b>',
             where: r0 && r0.locName
               ? (r0.subId ? checklistLink(r0.subId, r0.locName) : esc(r0.locName))
               : '<span class="dim">No public in-range report yet</span>',
@@ -22898,13 +23049,13 @@
         var rank = scarcityRank(merged);
         convergence.forEach(function (c) {
           var detail = byLoc[c.locId] || {
-            spp: 0, lists: 0, species: [], latest: '', latestMs: 0
+            spp: 0, lists: 0, species: []
           };
           var xy = coords && coords[c.locId];
           var mi = (xy && home && home.lat != null)
             ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
           var spp = surgeBusySpecies(c, detail, rank);
-          var when = detail.latest || c.latest || '';
+          var when = c.latest || '';
           rows.push({
             kind: 'hotspot',
             icon: surgePlaceTile(),
@@ -22918,7 +23069,7 @@
                   : Math.round(c.ratio) + '× this hotspot’s own norm')) + '</b>',
             where: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || ''),
             when: when,
-            time: surgeTimeValue(when),
+            time: c.eventAt || surgeTimeValue(when),
             extra: surgeHotspotExtra(c, spp, xy),
             data: {
               hsloc: c.locId,
@@ -22928,13 +23079,14 @@
           });
         });
 
+        rows = mergeSurgeSpeciesRows(rows);
         var html = '<div class="surgefeedhead"><div class="surgefeedcount">'
           + rows.length + ' alert' + (rows.length === 1 ? '' : 's') + '</div>'
           + laneHelpBtn('feed') + '</div>'
           + '<div class="surgeintro">Priority ranks all five categories by urgency; '
           + 'Newest sorts only by report time.'
           + (mega ? ' Mega snapshot ' + megaAge(mega.at) + '.' : '') + '</div>'
-          + surgeSortControl() + surgeCountHtml(rows)
+          + sourceWarning + surgeSortControl() + surgeCountHtml(rows)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'
           + ' data-unified-alert-feed="true">'
           + rows.map(function (row) { return surgeAlertCard(row, order++); }).join('')
@@ -22962,8 +23114,9 @@
         btn.disabled = true;
         st.textContent = 'Looking for twitches in ' + getReport().label + '…';
         var now = Date.now();
-        // Each lane resolves to [] on failure rather than rejecting: a dead
-        // leaderboard must not hide an active surge in the observation feed.
+        // Every source returns rows AND state. A failed source is not an empty
+        // source: successful rows still paint, and the UI names what is
+        // unavailable instead of turning a partial answer into "nothing".
         var _merged = [];
         // getChaseRarity, NOT getChase. A device log measured this section
         // sitting on "Step 2 of 2 - 0 of 40" while phase 2 fetched 40
@@ -22979,8 +23132,8 @@
         // The wave keeps running underneath and onRarityEarly repaints when it
         // completes, so the crowd lane still gets the full merged set; it just
         // arrives after the screen is useful instead of before.
-        var pEvents = getChaseRarity().then(function (res) {
-          if (!res.cv) return [];
+        var pObserved = getChaseRarity().then(function (res) {
+          if (!res.cv) throw new Error('recent/notable feeds returned no chase view');
           _merged = res.cv.merged || [];
           // F144: "i dont want to repeat rarities list ... this should be a
           // list of birds that are getting particular attention but didnt make
@@ -22991,24 +23144,56 @@
           var rareCodes = (res.cv.merged || [])
             .filter(function (r) { return r && r.kind === 'Rarity'; })
             .map(function (r) { return r.code; });
-          return BL.surgeEvents(res.cv.merged, {
-            now: now, seen: getReportSeen(), excludeCodes: rareCodes
-          });
-        }).catch(function () { return []; });
+          return {
+            state: 'ok',
+            events: BL.surgeEvents(res.cv.merged, {
+              now: now, seen: getReportSeen(), excludeCodes: rareCodes
+            }),
+            needs: BL.needNearby(_merged, {
+              now: now, seen: getReportSeen(), maxMi: chaseMaxMi()
+            })
+          };
+        }).catch(function (e) {
+          dbg('warn', 'Bird gen recent/notable source: ' + ((e && e.message) || e));
+          return { state: 'failed', events: [], needs: [] };
+        });
         var rr = rankPrimaryRegion();
-        var pCascades = Promise.all([
-          fetchRank(rr, new Date().getFullYear(), getDisplayName())
-            .then(function (data) { return BL.tickCascades((data && data.rows) || [], parseRecentTick); })
-            .catch(function () { return []; }),
-          pEvents
-        ]).then(function (r) { return cascadeSpots(r[0], _merged); })
-          .catch(function () { return []; });
-        var pConverge = !hasCounties() ? Promise.resolve([])
+        var pBoard = fetchRank(rr, new Date().getFullYear(), getDisplayName())
+          .then(function (data) {
+            return {
+              state: 'ok',
+              rows: BL.tickCascades((data && data.rows) || [], parseRecentTick)
+            };
+          }).catch(function (e) {
+            dbg('warn', 'Bird gen leaderboard source: ' + ((e && e.message) || e));
+            return { state: 'failed', rows: [] };
+          });
+        var pCascades = Promise.all([pBoard, pObserved]).then(function (r) {
+          if (r[0].state !== 'ok') return r[0];
+          return cascadeSpots(r[0].rows, _merged)
+            .then(function (rows) { return { state: 'ok', rows: rows }; })
+            .catch(function (e) {
+              dbg('warn', 'Bird gen cascade reports: ' + ((e && e.message) || e));
+              return { state: 'failed', rows: [] };
+            });
+        }).catch(function (e) {
+          dbg('warn', 'Bird gen cascade source: ' + ((e && e.message) || e));
+          return { state: 'failed', rows: [] };
+        });
+        var pConverge = !hasCounties()
+          ? Promise.resolve({ state: 'notApplicable', rows: [] })
           : Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
-              return ebird(BL.requestUrl(f)).catch(function () { return []; });
+              return ebird(BL.requestUrl(f))
+                .then(function (rows) { return { state: 'ok', rows: rows }; })
+                .catch(function (e) {
+                  dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
+                  return { state: 'failed', rows: [] };
+                });
             })).then(function (results) {
               var lists = [];
-              results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
+              results.forEach(function (r) {
+                if (Array.isArray(r.rows)) lists.push.apply(lists, r.rows);
+              });
               var norm = lists.map(function (c) {
                 return {
                   locId: c.locId || (c.loc && c.loc.locId),
@@ -23042,23 +23227,43 @@
                   + Object.keys(_grp).length + ' independent parties \u00b7 '
                   + conv.length + ' hotspots cleared the gate');
               } catch (e) { /* a log line must never break a lane */ }
-              return conv;
-            }).catch(function () { return []; });
-        // F32 costs NOTHING: these are the records the chase wave already
-        // merged for pEvents, filtered by two rules that already exist —
-        // isFresh (24 h) and the report's own chase radius.
-        var pNeeds = pEvents.then(function () {
-          return BL.needNearby(_merged, { now: now, seen: getReportSeen(),
-                                          maxMi: chaseMaxMi() });
-        }).catch(function () { return []; });
-        Promise.all([pEvents, pCascades, pConverge, pNeeds]).then(function (r) {
-          var n = renderSurge(r[0], r[1], r[2], r[3], _merged);
+              return {
+                state: results.some(function (r) { return r.state === 'failed'; })
+                  ? 'failed' : 'ok',
+                rows: conv
+              };
+            }).catch(function (e) {
+              dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
+              return { state: 'failed', rows: [] };
+            });
+        Promise.all([pObserved, pCascades, pConverge]).then(function (r) {
+          var states = {
+            mega: megaLane(getAnchors()) ? 'ok' : 'notLoaded',
+            observations: r[0].state,
+            leaderboard: r[1].state,
+            hotspots: r[2].state
+          };
+          var n = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
+                              _merged, states);
           // F263. AFTER THE PAINT, never before it. The rows on screen stay on
           // screen; if a fresher snapshot lands, the lane repaints with it.
           lazyRefreshMegaSnapshot(function () {
-            if (visibleSectionId() === 'sec-surgeBtn') renderSurge(r[0], r[1], r[2], r[3], _merged);
+            if (visibleSectionId() !== 'sec-surgeBtn') return;
+            states.mega = megaLane(getAnchors()) ? 'ok' : 'notLoaded';
+            var refreshedN = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
+                                         _merged, states);
+            var refreshedComplete = surgeSourcesComplete(states);
+            st.textContent = (refreshedN
+              ? refreshedN + ' active alert' + (refreshedN === 1 ? '' : 's')
+                + (refreshedComplete ? '' : ' · incomplete')
+              : (refreshedComplete ? 'Nothing chasing right now'
+                                   : 'Some alert sources are unavailable'))
+              + ' · ' + nowTime();
           });
-          st.textContent = (n ? n + ' active alert' + (n === 1 ? '' : 's') : 'Nothing chasing right now')
+          var complete = surgeSourcesComplete(states);
+          st.textContent = (n
+            ? n + ' active alert' + (n === 1 ? '' : 's') + (complete ? '' : ' · incomplete')
+            : (complete ? 'Nothing chasing right now' : 'Some alert sources are unavailable'))
             + ' · ' + nowTime();
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });

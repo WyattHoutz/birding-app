@@ -1788,15 +1788,22 @@
     var party = buildParties(rows);
     order.forEach(function (locId) {
       var all = byLoc[locId];
-      var hotObs = {}, coldObs = {}, name = '';
+      var hotObs = {}, coldObs = {}, name = '', eventAt = 0, latest = '';
       all.forEach(function (x) {
         var who = observerKey({ observer: x.row.userDisplayName, subId: x.row.subId });
         if (!name) name = x.row.locName || x.row.loc || '';
         // PARTY, not person, in the hot window — three names from one car is
         // one decision to come here, and this lane's whole claim is that
         // several people independently chose the place.
-        if (x.t >= hotFrom) hotObs[party(who)] = 1;
-        else coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
+        if (x.t >= hotFrom) {
+          hotObs[party(who)] = 1;
+          if (x.t > eventAt) {
+            eventAt = x.t;
+            latest = x.row.obsDt || x.row.dateStr || '';
+          }
+        } else {
+          coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
+        }
       });
       var n = Object.keys(hotObs).length;
       if (n < minObs) return;
@@ -1857,7 +1864,10 @@
       if (!crowd && ratio < minRatio) return;
       out.push({
         locId: locId, loc: name, observers: n,
-        baseline: baseline, ratio: ratio,
+        // The event's own newest HOT checklist. Bird gen sorts and dates the
+        // hotspot from this, never from an unrelated species row later joined
+        // only to explain what people may be looking at.
+        baseline: baseline, ratio: ratio, eventAt: eventAt, latest: latest,
         // WHY it is here, because the two read differently on a card: "14x
         // normal" is a surge, "8 birders, busier than usual" is a crowd.
         reason: ratio >= minRatio ? 'surge' : 'crowd'
@@ -4356,6 +4366,11 @@
     NOTABLE_GRACE_H: NOTABLE_GRACE_H,
     SURGE: SURGE,
     surgeEvents: surgeEvents,
+    CASCADE: {
+      MIN_BIRDERS: CASCADE_MIN_BIRDERS,
+      WINDOW_DAYS: CASCADE_WINDOW_DAYS,
+      MAX_AGE_DAYS: CASCADE_MAX_AGE_DAYS
+    },
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
     // F124: one definition, two readings — each section declares which it
