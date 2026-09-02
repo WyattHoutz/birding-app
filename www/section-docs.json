@@ -417,18 +417,45 @@
       "summary": "Ask where ANY bird is being seen — including ones already on your year list.",
       "inputs": [
         "eBird product/spplist for the region, to turn typed text into a species code",
-        "data/obs/{region}/recent/{code}, the per-species observation feed"
+        "data/obs/{region}/recent/{code}, the per-species observation feed",
+        "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the identification ladder"
       ],
       "how": [
         "Typed text is matched against common and scientific names; one hit goes straight to the birds rather than showing a menu of one.",
         "Observations are grouped by location, keeping each place's most recent sighting and its highest count.",
         "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
-        "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today."
+        "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
+        "A collapsed Identification help row paints before the sightings request. Opening it lists every related spuh from broad to narrow, marks published candidate sets versus coverage-limited field wording, and links each row into Spuh finder.",
+        "Compare possible species finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
       ],
       "limits": [
         "App-only: a Markdown report cannot take a query, and printing every species' places for a region would be a phone book, not a section.",
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
-        "Covers what eBird has for the region; a bird seen only outside it will not appear."
+        "Covers what eBird has for the region; a bird seen only outside it will not appear.",
+        "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
+        "Sixty-four labels are shown with a dashed Coverage limit warning and are never selected automatically: 58 glossed names whose narrower membership is not published, five named subfamilies, and the mixed Buteo/eagle group."
+      ]
+    },
+    "spuhBtn": {
+      "report": null,
+      "summary": "Browse uncertain bird IDs, see what each one contains, and compare possible species without forcing overlapping groups into a false tree.",
+      "inputs": [
+        "eBird ref/taxonomy/ebird, called directly from the device with your API key",
+        "the app's existing attributed Wikipedia/Wikimedia photo pipeline, for a clearly labelled example candidate image"
+      ],
+      "how": [
+        "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
+        "Each spuh is resolved to its exact published candidate-species set. Genus, family and order lists are unions; twelve scientific species-list rows are parsed species by species rather than widened to their whole family.",
+        "Labels with identical candidate sets share one coverage class. Minimal strict subset and superset relations form a DAG, because real groups overlap.",
+        "The definition states the published rank or group, candidate count and evidence threshold for using a broader uncertain ID.",
+        "The example image is one possible candidate and says so in words; it is never called the spuh or the most common member.",
+        "Compare possible species returns zero, one or several minimal published sets containing every selected bird."
+      ],
+      "limits": [
+        "App-only: the archived Markdown report cannot take a search or a set of candidate species.",
+        "The taxonomy tells you membership, not field evidence. A narrow shared group is not proof that the selected possibilities are complete.",
+        "Coverage-limited labels remain searchable and visible but are never automatic recommendations.",
+        "The first use needs an eBird API key and one full taxonomy call. Later opens use the 30-day on-device cache."
       ]
     },
     "iconicBtn": {

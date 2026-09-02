@@ -100,6 +100,14 @@
       "sub": "Where to wait for it"
     },
     {
+      "at": "spuhBtn",
+      "label": "🌳 Spuh finder",
+      "report": null,
+      "map": null,
+      "why": "app-only (F277): a searchable uncertain-ID taxonomy is interactive and is built on the device from the user's direct eBird taxonomy call. The public app ships no taxonomy bundle, and the archived Markdown report cannot accept a spuh query or a set of possible species to compare.",
+      "sub": "Browse uncertain bird IDs"
+    },
+    {
       "at": "stakeHsBtn",
       "label": "🏞 Stake out a hotspot",
       "report": null,

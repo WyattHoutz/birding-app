@@ -83,6 +83,36 @@ const SHOTS = [
     prep: `A.showSection('sec-easyBtn'); return true;` },
   { id: 'opentargets', title: 'Open targets',
     prep: `A.showSection('sec-allUnseenBtn'); return true;` },
+  { id: 'spuhfinder', title: 'Spuh finder — definition and coverage limit',
+    prep: `A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(FIX.spuhRows));
+           A.showSection('sec-spuhBtn');
+           document.getElementById('spuhSearch').value = 'peep sp.';
+           A.runSpuhSearch();
+           return true;` },
+  { id: 'spuhstakeout', title: 'Stakeout bird — collapsed identification ladder',
+    prep: `A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(FIX.spuhRows));
+           A.showSection('sec-spLookupBtn');
+           A.renderSpuhStakeoutShell('semsan', 'Semipalmated Sandpiper');
+           return true;` },
+  { id: 'spuhcompare', title: 'Stakeout bird — compare possible species',
+    prep: `A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(FIX.spuhRows));
+           A.showSection('sec-spLookupBtn');
+           A.renderSpuhStakeoutShell('semsan', 'Semipalmated Sandpiper');
+           var d = document.querySelector('#spLookupIdHelp details');
+           d.open = true; d.dispatchEvent(new document.defaultView.Event('toggle'));
+           setTimeout(function () {
+             var c = d.querySelector('details.spuhcompare');
+             if (!c) return;
+             c.open = true; c.dispatchEvent(new document.defaultView.Event('toggle'));
+             setTimeout(function () {
+               var q = c.querySelector('.spuhcompareq');
+               q.value = 'Solitary Sandpiper';
+               c.querySelector('.spuhcompareadd').click();
+               var add = c.querySelector('[data-add="solsan"]');
+               if (add) add.click();
+             }, 20);
+           }, 20);
+           return true;` },
 ];
 
 // ------------------------------------------------------------------ harness
@@ -142,7 +172,48 @@ const BOOTSTRAP = `
     },
     rarityHtml: function () {
       return document.getElementById('results') ? '' : '';
-    }
+    },
+    spuhRows: (function () {
+      function s(code, name, sci, order, family, n) {
+        return { speciesCode: code, comName: name, sciName: sci,
+          category: 'species', order: order, familySciName: family,
+          familyComName: family, taxonOrder: n };
+      }
+      function u(code, name, sci, order, family, n) {
+        return { speciesCode: code, comName: name, sciName: sci,
+          category: 'spuh', order: order, familySciName: family,
+          familyComName: family, taxonOrder: n };
+      }
+      return [
+        s('semsan', 'Semipalmated Sandpiper', 'Calidris pusilla',
+          'Charadriiformes', 'Scolopacidae', 1),
+        s('wessan', 'Western Sandpiper', 'Calidris mauri',
+          'Charadriiformes', 'Scolopacidae', 2),
+        s('solsan', 'Solitary Sandpiper', 'Tringa solitaria',
+          'Charadriiformes', 'Scolopacidae', 3),
+        s('lesyel', 'Lesser Yellowlegs', 'Tringa flavipes',
+          'Charadriiformes', 'Scolopacidae', 4),
+        s('ribgul', 'Ring-billed Gull', 'Larus delawarensis',
+          'Charadriiformes', 'Laridae', 5),
+        s('calgul', 'California Gull', 'Larus californicus',
+          'Charadriiformes', 'Laridae', 6),
+        u('bird1', 'bird sp.', 'Aves sp.', '', '', 100),
+        u('charad', 'Charadriiformes sp.', 'Charadriiformes sp.',
+          'Charadriiformes', '', 101),
+        u('shoreb1', 'shorebird sp.', 'Charadriiformes sp. (shorebird sp.)',
+          'Charadriiformes', '', 102),
+        u('scolop2', 'Scolopacidae sp.', 'Scolopacidae sp.',
+          'Charadriiformes', 'Scolopacidae', 103),
+        u('calsp', 'Calidris sp.', 'Calidris sp.',
+          'Charadriiformes', 'Scolopacidae', 104),
+        u('calidr', 'peep sp.', 'Calidris sp. (peep sp.)',
+          'Charadriiformes', 'Scolopacidae', 105),
+        u('trinsp', 'Tringa sp.', 'Tringa sp.',
+          'Charadriiformes', 'Scolopacidae', 106),
+        u('larsp', 'Larus sp.', 'Larus sp.',
+          'Charadriiformes', 'Laridae', 107)
+      ];
+    }())
   };
 })();
 </script>`;

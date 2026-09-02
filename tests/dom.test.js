@@ -7788,6 +7788,302 @@ test('the tide table starts at now and says what the water is doing', async () =
 // "where can I find a Western Kingbird" — a question that stays valid when the
 // bird is already on your year list. If a lookup refused birds you have seen it
 // would just be All unseen reports with a search box.
+function installSpuhFixture(app) {
+  function s(code, name, sci, genusOrder, family) {
+    return {
+      speciesCode: code, comName: name, sciName: sci, category: 'species',
+      order: 'Charadriiformes', familySciName: family,
+      familyComName: family, taxonOrder: genusOrder,
+    };
+  }
+  function u(code, name, sci, genusOrder, family) {
+    return {
+      speciesCode: code, comName: name, sciName: sci, category: 'spuh',
+      order: 'Charadriiformes', familySciName: family,
+      familyComName: family, taxonOrder: genusOrder,
+    };
+  }
+  const rows = [
+    s('sem', 'Semipalmated Sandpiper', 'Calidris pusilla', 1, 'Scolopacidae'),
+    s('wes', 'Western Sandpiper', 'Calidris mauri', 2, 'Scolopacidae'),
+    s('sol', 'Solitary Sandpiper', 'Tringa solitaria', 3, 'Scolopacidae'),
+    s('les', 'Lesser Yellowlegs', 'Tringa flavipes', 4, 'Scolopacidae'),
+    s('rng', 'Ring-billed Gull', 'Larus delawarensis', 5, 'Laridae'),
+    s('cag', 'California Gull', 'Larus californicus', 6, 'Laridae'),
+    u('bird', 'bird sp.', 'Aves sp.', 100, ''),
+    u('char', 'Charadriiformes sp.', 'Charadriiformes sp.', 101, ''),
+    u('shore', 'shorebird sp.', 'Charadriiformes sp. (shorebird sp.)', 102, ''),
+    u('scol', 'Scolopacidae sp.', 'Scolopacidae sp.', 103, 'Scolopacidae'),
+    u('cal', 'Calidris sp.', 'Calidris sp.', 104, 'Scolopacidae'),
+    u('peep', 'peep sp.', 'Calidris sp. (peep sp.)', 105, 'Scolopacidae'),
+    u('trin', 'Tringa sp.', 'Tringa sp.', 106, 'Scolopacidae'),
+    u('lar', 'Larus sp.', 'Larus sp.', 107, 'Laridae'),
+  ];
+  const model = app.window.Spuh.createFromTaxonomy(rows);
+  app.window.__app.setSpuhModel(model);
+  return model;
+}
+
+test('Spuh finder explains a searched group and labels its example image honestly', async () => {
+  const app = await boot();
+  installSpuhFixture(app);
+  app.open(/Spuh finder/);
+  app.$('spuhSearch').value = 'peep sp.';
+  app.click(app.$('spuhBtn'));
+  await new Promise((r) => setTimeout(r, 30));
+
+  const detail = app.$('spuhDetail');
+  assert.match(detail.textContent, /What this spuh means/,
+    'the result includes a definition, not only a list of names');
+  assert.match(detail.textContent, /Example candidate image/,
+    'the photo is explicitly one example candidate');
+  assert.match(detail.textContent, /does not define the whole spuh/,
+    'and never presents one species as the spuh itself');
+  assert.match(detail.textContent, /Coverage limit · not auto-selected/,
+    'peep is visible but its unpublished narrower membership is explicit');
+  assert.match(detail.textContent, /Calidris sp\./,
+    'the equal-coverage published genus is visible in the broader path');
+  assert.match(detail.textContent, /no taxonomy bundle ships in the public app/,
+    'the direct-on-device data boundary is stated in the UI');
+  app.window.close();
+});
+
+test('Stakeout identification help survives an empty recent-sightings result', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) return [];
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  const lookup = app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
+
+  const shell = app.document.querySelector('#spLookupIdHelp details.spuhshell');
+  assert.ok(shell, 'the collapsed taxonomy shell paints before the sightings request settles');
+  assert.equal(shell.open, false,
+    'identification help is collapsed by default so it does not take the screen');
+  assert.match(shell.textContent, /Semipalmated Sandpiper/,
+    'the shell belongs to the selected bird');
+  await lookup;
+  assert.match(app.$('spLookupStatus').textContent, /No reports|not being seen right now/,
+    'the recent feed still reports the real empty answer');
+
+  shell.open = true;
+  shell.dispatchEvent(new app.window.Event('toggle'));
+  await new Promise((r) => setTimeout(r, 30));
+  const body = shell.querySelector('.spuhbody').textContent;
+  assert.match(body, /Nearest broader spuh/);
+  assert.match(body, /Calidris sp\./,
+    'the deepest published genus is the automatic broader answer');
+  assert.match(body, /peep sp\./,
+    'the familiar narrower wording remains available to inspect');
+  assert.match(body, /COVERAGE LIMIT/,
+    'but its unpublished membership is encoded with words and a dashed state');
+  app.window.close();
+});
+
+test('Stakeout comparison finds the shared proven spuh and excludes peep', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) return [];
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
+  const shell = app.document.querySelector('#spLookupIdHelp details.spuhshell');
+  shell.open = true;
+  shell.dispatchEvent(new app.window.Event('toggle'));
+  await new Promise((r) => setTimeout(r, 30));
+
+  const compare = shell.querySelector('details.spuhcompare');
+  compare.open = true;
+  compare.dispatchEvent(new app.window.Event('toggle'));
+  const q = compare.querySelector('.spuhcompareq');
+  q.value = 'Solitary Sandpiper';
+  app.click(compare.querySelector('.spuhcompareadd'));
+  app.click(compare.querySelector('[data-add="sol"]'));
+
+  const result = compare.querySelector('.spuhcompareresult').textContent;
+  assert.match(result, /Narrowest shared spuh/);
+  assert.match(result, /Scolopacidae sp\./,
+    'Solitary + Semipalmated stop at their shared published family');
+  assert.doesNotMatch(result, /peep sp\./,
+    'a label that covers only one candidate and lacks separate membership is not selected');
+  assert.match(result, /possibility list is exhaustive|not evidence/i,
+    'the comparison states the assumption rather than presenting taxonomy as field proof');
+  app.window.close();
+});
+
+test('failed Stakeout taxonomy help can retry after close and reopen', async () => {
+  const app = await boot();
+  const good = installSpuhFixture(app);
+  const A = app.window.__app;
+  A.setSpuhModel({});
+  A.renderSpuhStakeoutShell('sem', 'Semipalmated Sandpiper');
+  const shell = app.document.querySelector('#spLookupIdHelp details.spuhshell');
+  shell.open = true;
+  shell.dispatchEvent(new app.window.Event('toggle'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.match(shell.textContent, /Close and reopen this row to retry/,
+    'a failed model load gives an explicit retry path');
+  assert.equal(shell.dataset.filled, undefined,
+    'failure does not poison the disclosure as already filled');
+
+  A.setSpuhModel(good);
+  shell.open = false;
+  shell.dispatchEvent(new app.window.Event('toggle'));
+  shell.open = true;
+  shell.dispatchEvent(new app.window.Event('toggle'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.match(shell.textContent, /Calidris sp\./,
+    'the same disclosure succeeds after the data source recovers');
+  app.window.close();
+});
+
+test('a new Stakeout query clears old identification help and rejects stale paints', async () => {
+  const app = await boot();
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  A.renderSpuhStakeoutShell('sem', 'Semipalmated Sandpiper');
+  assert.match(app.$('spLookupIdHelp').textContent, /Semipalmated Sandpiper/);
+  app.$('spLookupMap').innerHTML = '<span>old map pin</span>';
+  app.$('spLookupUnwatched').innerHTML = '<p>old history</p>';
+
+  app.$('spLookup').value = 'x';
+  A.runSpeciesLookup();
+  assert.equal(app.$('spLookupIdHelp').textContent, '',
+    'even a too-short new search removes the previous bird taxonomy shell');
+  assert.equal(app.$('spLookupMap').textContent, '',
+    'a new query clears the previous bird map before it can be mistaken for the answer');
+  assert.equal(app.$('spLookupUnwatched').textContent, '',
+    'a new query clears the previous bird history too');
+
+  app.$('spLookupMap').innerHTML = '<span>old map pin</span>';
+  app.$('spLookupUnwatched').innerHTML = '<p>old history</p>';
+  A.clearSpeciesLookup();
+  assert.equal(app.$('spLookupMap').textContent, '', 'Close clears the Leaflet host');
+  assert.equal(app.$('spLookupUnwatched').textContent, '', 'Close clears historical rows');
+
+  const lookupAt = HTML.indexOf('function lookupSpecies(code, name, generation)');
+  const lookupEnd = HTML.indexOf('// ---- warming a region', lookupAt);
+  const lookup = HTML.slice(lookupAt, lookupEnd);
+  assert.match(lookup, /if \(generation !== _spLookupGeneration\) return;/,
+    'an older sightings response cannot paint after a newer species selection');
+  assert.match(lookup, /if \(generation === _spLookupGeneration\) st\.textContent = netErr\(e\)/,
+    'and an older failure cannot replace the newer bird with its error');
+  app.window.close();
+});
+
+test('pending Spuh searches cannot repaint after Close or a newer query', async () => {
+  const app = await boot();
+  const model = installSpuhFixture(app);
+  const A = app.window.__app;
+  app.open(/Spuh finder/);
+
+  let resolveFirst;
+  A.setSpuhModelPromise(new Promise((resolve) => { resolveFirst = resolve; }));
+  app.$('spuhSearch').value = 'peep sp.';
+  A.runSpuhSearch();
+  A.clearSpuhFinder();
+  resolveFirst(model);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(app.$('spuhFound').textContent, '');
+  assert.equal(app.$('spuhDetail').textContent, '');
+  assert.match(app.$('spuhStatus').textContent, /Browse uncertain bird IDs/,
+    'a model that arrives after Close cannot restore the cleared view');
+
+  let resolveSecond;
+  A.setSpuhModelPromise(new Promise((resolve) => { resolveSecond = resolve; }));
+  app.$('spuhSearch').value = 'peep sp.';
+  A.runSpuhSearch();
+  app.$('spuhSearch').value = 'Calidris sp.';
+  A.runSpuhSearch();
+  resolveSecond(model);
+  await new Promise((r) => setTimeout(r, 30));
+  const heading = app.document.querySelector('#spuhDetail .spuhhead h3');
+  assert.ok(heading, 'the newer exact search paints after the shared model resolves');
+  assert.equal(heading.textContent, 'Calidris sp.',
+    'the older peep callback cannot overwrite a newer Calidris search');
+  app.window.close();
+});
+
+test('broad Spuh browsing reports totals, pages search results, and keeps every child', async () => {
+  const app = await boot();
+  const rows = [];
+  function letters(i) {
+    return String.fromCharCode(97 + Math.floor(i / 26))
+      + String.fromCharCode(97 + (i % 26));
+  }
+  for (let i = 0; i < 40; i++) {
+    const genus = 'Genus' + letters(i);
+    rows.push({
+      speciesCode: 's' + i, comName: 'Sample Bird ' + i,
+      sciName: genus + ' primus', category: 'species',
+      order: 'Passeriformes', familySciName: 'Sampleidae',
+      familyComName: 'Sample Birds', taxonOrder: i,
+    });
+    rows.push({
+      speciesCode: 'u' + i, comName: 'sample group ' + i + ' sp.',
+      sciName: genus + ' sp.', category: 'spuh',
+      order: 'Passeriformes', familySciName: 'Sampleidae',
+      familyComName: 'Sample Birds', taxonOrder: 100 + i,
+    });
+  }
+  rows.push({
+    speciesCode: 'bird', comName: 'bird sp.', sciName: 'Aves sp.',
+    category: 'spuh', order: '', familySciName: '', familyComName: '',
+    taxonOrder: 99,
+  });
+  const model = app.window.Spuh.createFromTaxonomy(rows);
+  app.window.__app.setSpuhModel(model);
+  app.open(/Spuh finder/);
+  app.$('spuhSearch').value = 'sample group';
+  app.click(app.$('spuhBtn'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(app.document.querySelectorAll('#spuhFound [data-spuh]').length, 25);
+  assert.match(app.$('spuhStatus').textContent, /Showing 25 of 40 matches/);
+  assert.equal(app.$('spuhMore').hidden, false, 'a visible control offers the rest');
+  app.click(app.$('spuhMore'));
+  assert.equal(app.document.querySelectorAll('#spuhFound [data-spuh]').length, 40);
+  assert.match(app.$('spuhStatus').textContent, /Showing 40 of 40 matches/);
+
+  await app.window.__app.renderSpuhNode('bird');
+  const narrower = app.document.querySelector('#spuhDetail details.spuhnarrow');
+  assert.ok(narrower, 'a broad group folds its complete child list');
+  assert.match(narrower.querySelector('summary').textContent, /40/);
+  assert.equal(narrower.querySelectorAll('[data-spuh]').length, 40,
+    'no silent slice hides the 31st and later narrower groups');
+  app.window.close();
+});
+
+test('the Spuh cache has one owner, survives routine refreshes, and erase-all awaits it', () => {
+  const clearAt = HTML.indexOf('function ebClearCache()');
+  const clearEnd = HTML.indexOf('function ebClearObsCache()', clearAt);
+  assert.ok(clearAt > 0 && clearEnd > clearAt,
+    'the routine cache reset is found by named function boundaries');
+  const clear = HTML.slice(clearAt, clearEnd);
+  assert.doesNotMatch(clear, /spuhCacheClear/,
+    'ordinary feed/watchlist invalidation must not discard the 30-day taxonomy model');
+
+  const scrubAt = HTML.indexOf("$('scrubBtn').addEventListener");
+  const scrubEnd = HTML.indexOf("$('geocodeBtn').addEventListener", scrubAt);
+  const scrub = HTML.slice(scrubAt, scrubEnd);
+  assert.match(scrub, /spuhCacheClear\(\)\.then/,
+    'Erase all my data explicitly waits for the IndexedDB deletion');
+  assert.match(scrub, /if \(!cleared\)/,
+    'a failed IndexedDB erase is surfaced rather than followed by a success reload');
+
+  const loadAt = HTML.indexOf('function loadSpuhModel()');
+  const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
+  const load = HTML.slice(loadAt, loadEnd);
+  assert.match(load, /var epoch = _spuhCacheEpoch/);
+  assert.match(load, /epoch !== _spuhCacheEpoch/,
+    'an erase invalidates a taxonomy request already in flight');
+  assert.match(load, /delete _ebCache\[taxonomyPath\]/,
+    'an incomplete successful response is evicted from the in-memory request memo');
+});
+
 test('a species lookup answers for a bird you have ALREADY seen', async () => {
   const app = await boot({
     fetch(url) {
@@ -8108,8 +8404,11 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // the rest of the session. Asserted on the source rather than by driving a
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
-  const src = HTML.slice(HTML.indexOf('function ebird(path, bg)'),
-                         HTML.indexOf('function ebird(path, bg)') + 3600);
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
+  const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
+  assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
+    'the ebird request wrapper is found by named boundaries');
+  const src = HTML.slice(ebirdAt, ebirdEnd);
   assert.match(src, /delete _ebCache\[path\]/,
     'a rejected call is evicted so the next attempt actually goes out');
   assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,
@@ -11432,7 +11731,7 @@ test('no section shows a bare Load button — every loader is the refresh icon',
     // being typed by hand: 🏞 Stake out a hotspot is the same shape — an
     // <input type="search"> with a Search button beside it — and was simply
     // absent from the old array, so nothing had ever asked about it.
-    if (id === 'spLookupBtn' || id === 'stakeHsBtn') {
+    if (id === 'spLookupBtn' || id === 'spuhBtn' || id === 'stakeHsBtn') {
       assert.ok(sec.querySelector('input[type="search"]'),
         id + ' claims to be a typed search, so it must actually carry a search box');
       assert.equal(row.hidden, false, 'the ' + id + ' search box stays on screen');
@@ -11590,6 +11889,22 @@ test('static reference feeds are cached across restarts, observation feeds are n
   // characters as the directory feed but is a live "what is near me" query.
   assert.match(HTML, /ref\\\/hotspot\\\/\(\?!geo\)/,
     'the pattern excludes ref/hotspot/geo explicitly, not by accident');
+  // F277's full taxonomy is 6.3 MB raw. Sending that through ebRefPut would
+  // stringify it for localStorage, hit quota, and only then fall back to the
+  // IndexedDB model cache. The opt-out keeps the normal in-memory cache and
+  // limiter while preventing the knowingly doomed durable write.
+  assert.match(HTML, /var ref = noRefCache \? null : ebRefGet\(path\)/,
+    'ebird can skip only its localStorage reference cache');
+  assert.match(HTML, /if \(!noRefCache\) ebRefPut\(path, v\)/,
+    'and the skip applies to the write as well as the read');
+  const loadAt = HTML.indexOf('function loadSpuhModel()');
+  const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
+  const load = HTML.slice(loadAt, loadEnd);
+  assert.match(load,
+    /var taxonomyPath = 'ref\/taxonomy\/ebird\?fmt=json&locale=en'/,
+    'Spuh finder names the exact full-taxonomy path once');
+  assert.match(load, /ebird\(taxonomyPath, false, true\)/,
+    'and routes that payload around localStorage to IndexedDB instead');
   A.ebRefPurge();
   assert.equal(A.ebRefGet('product/spplist/US-WA'), null, 'and the cache can be cleared');
   app.window.close();
@@ -11620,8 +11935,11 @@ test('the debug log reports what each section cost', async () => {
     assert.ok(rep[i - 1].calls >= rep[i].calls, 'most expensive first');
   }
   // ebird() must actually feed it, or the ledger stays empty in real use.
-  const eb = HTML.slice(HTML.indexOf('function ebird(path, bg)'),
-    HTML.indexOf('function ebird(path, bg)') + 1600);
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
+  const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
+  assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
+    'the ebird request wrapper is found by named boundaries');
+  const eb = HTML.slice(ebirdAt, ebirdEnd);
   assert.match(eb, /costNote\(path, true\)/, 'a cache hit is recorded as a saving');
   assert.match(eb, /costNote\(path, false\)/, 'and a live call as a cost');
   // ...and showSection must name the section, or every call lands on 'startup'.
