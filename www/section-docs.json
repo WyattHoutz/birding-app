@@ -555,15 +555,22 @@
     },
     "migBtn": {
       "report": "## 🛬 On passage — What’s arriving and leaving",
-      "summary": "What is arriving or leaving now, from multi-year history for these counties.",
+      "summary": "County-history passage forecasts, enriched in the app with this year's first regional reports.",
       "inputs": [
-        "about two years of weekly historic observations, built up in the background"
+        "about two years of weekly eBird history for the report counties",
+        "app only: the current-year eBird regional bird-list page, refreshed daily",
+        "app only: bundled state-wide GBIF timing for species missing from county history"
       ],
       "how": [
-        "Species are compared against their own arrival and departure weeks in previous years to flag the ones due now."
+        "County weekly history remains the forecast for every species it covers; bundled GBIF fills only species missing from that history.",
+        "A first report is an observed fact attached separately from the forecast. It is called recent only inside the same two-week window; an early winter outlier does not become a migration wave.",
+        "Only countable Native and Naturalized rows are accepted, and their parsed total must match eBird's declared section count."
       ],
       "limits": [
-        "Needs the historic cache to be built; a fresh region has little to say until it fills."
+        "The archived Markdown report remains county-history-only; the app adds these inputs inside On passage, not as another menu section.",
+        "Sensitive rows say only that the species is present this year: date and location stay withheld, so they are not chaseable from this source. Private locations keep eBird's text but get no invented location id or coordinates.",
+        "An eBird X count is a valid uncounted observation, not a malformed row. Equal-time rows use species code as the locale-independent tie-break.",
+        "Direct HTML is the fast path. If eBird returns its Anubis JavaScript proof-of-work shell, the installed app captures the rendered page through a hidden, id-scoped InAppBrowser session. Good pages are cached once per eBird region and calendar year per day; empty, malformed or mismatched pages are not cached, stale region/year callbacks cannot repaint, and a storage-write failure still leaves the fetched page live for that opening."
       ]
     },
     "bcBody": {

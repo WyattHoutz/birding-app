@@ -2671,7 +2671,9 @@
       <div class="row">
         <button id="migBtn">Build migration history</button>
       </div>
-      <div id="migStatus" class="status">Predicts which species should arrive or depart in the next 2 weeks, from 2 years of weekly checklist history. One-time build (resumable).</div>
+      <div id="migFirstStatus" class="status">First reports load automatically from eBird when you open this section.</div>
+      <div id="migFirstResults"></div>
+      <div id="migStatus" class="status">County history predicts which species should arrive or depart in the next 2 weeks. The one-time build is resumable.</div>
       <div id="migResults"></div>
     </section>
 
@@ -3017,6 +3019,7 @@
         'ebird_ebirders_count_v1',  // a published statistic
         'ebird_aba_archive_v1',     // the ABA alert archive
         'bc_county_meta_v1:',       // static eBird county names + bounds
+        'ebird_first_year_v1:',     // public regional bird-list facts
         'bc_easyread',              // accessibility, not identity
         'bc_theme'                  // a look, not a list - shared like text size
       ];
@@ -3109,7 +3112,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.67.0';
+      var APP_VERSION = '1.68.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -12014,7 +12017,8 @@
           + extA(checklistUrl(sub), label, 'extlink cklopen') + '</div>';
       }
       function mapA(lat, lng, text) {
-        return (isFinite(+lat) && isFinite(+lng))
+        return (lat != null && lng != null && lat !== '' && lng !== ''
+          && isFinite(+lat) && isFinite(+lng))
           ? '<a class="maplink" data-q="' + esc(lat + ',' + lng) + '">' + esc(text) + '</a>' : esc(text);
       }
       // report.py::_loc_link — public hotspots link the NAME to the hotspot page
@@ -12086,7 +12090,8 @@
           // "Edmonds Waterfront ( 🗺" with the ")" stranded on the next line.
           // The NBSP glues it to the last word of the name; nowrap stops the
           // parens splitting off the glyph.
-          var maps = (isFinite(+lat) && isFinite(+lng))
+          var maps = (lat != null && lng != null && lat !== '' && lng !== ''
+            && isFinite(+lat) && isFinite(+lng))
             ? '<span class="mapwrap">\u00a0(' + mapA(lat, lng, '🗺') + ')</span>' : '';
           // The hotspot NAME opens Stake out a hotspot; the 🗺 still goes to
           // Maps and the card's own actions still reach eBird. This is the
@@ -17679,6 +17684,17 @@
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",ok:onPage,data:A}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
+      function buildFirstYearInject(expectRegion) {
+        return '(function(){try{if(!window.mobileApp)return;' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
+          'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
+          'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          parseFirstYearBirdList.toString() + ';' +
+          'var R=parseFirstYearBirdList(H);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:!!(onPage&&R&&R.valid),data:R}});' +
+          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
 
       // Open an eBird page, wait through the login redirect if needed, inject a
       // parser on each page load, and resolve with the first successful parse.
@@ -17686,12 +17702,17 @@
         var IB = ib();
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
-          var id = null, done = false, timer = null, revealTimer = null, handles = [];
+          var id = null, done = false, timer = null, revealTimer = null;
+          var injectTimer = null, handles = [];
           function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
+          function belongs(ev) {
+            return !(ev && ev.id && id && ev.id !== id);
+          }
           function cleanup() {
             done = true;
             if (timer) clearTimeout(timer);
             if (revealTimer) clearTimeout(revealTimer);
+            if (injectTimer) clearTimeout(injectTimer);
             handles.forEach(function (h) { try { h && h.remove && h.remove(); } catch (e) {} });
             handles = [];
           }
@@ -17701,34 +17722,71 @@
             if (id) { try { IB.close({ id: id }); } catch (e) {} }
             err ? reject(err) : resolve(data);
           }
+          function alive() {
+            try { return !opts.alive || opts.alive(); } catch (e) { return false; }
+          }
+          function stopObsolete() {
+            finish(new Error('The eBird capture was superseded by a new report.'));
+          }
           function reveal() {
             if (done || !id) return;
+            if (!alive()) { stopObsolete(); return; }
             try { IB.show({ id: id }); } catch (e) {}
             if (opts.onStatus) opts.onStatus('Finish on eBird if prompted — this closes automatically.');
           }
+          // `browserPageLoaded` precedes the client-rendered body. Measured on
+          // the Washington bird-list page 2026-09-03: the 661 KB app shell was
+          // available at 2 s, but the 2.2 MB / 80,787-character row body did
+          // not exist until about 4 s. One injection at 500 ms therefore
+          // reports "not ready" once and waits forever. Re-sample the SAME page
+          // for ten seconds; no navigation or additional HTTP request occurs.
+          function inject(attempt) {
+            if (done || !id) return;
+            if (!alive()) { stopObsolete(); return; }
+            if (attempt < 20) {
+              injectTimer = setTimeout(function () { inject(attempt + 1); }, 500);
+            }
+            // Arm the next sample BEFORE crossing the native bridge. A plugin
+            // proxy can throw synchronously instead of returning a rejected
+            // Promise; scheduling afterward would turn one bridge hiccup into
+            // a permanent one-shot capture.
+            try {
+              var request = IB.executeScript({ id: id, code: opts.buildInject() });
+              if (request && request.catch) request.catch(function () {});
+            } catch (e) {}
+          }
           addH('messageFromWebview', function (ev) {
             if (done) return;
+            if (!belongs(ev)) return;
+            if (!alive()) { stopObsolete(); return; }
             var d = ev && ev.detail; if (!d || !d.__ebird) return;
+            if (opts.kind && d.kind !== opts.kind) return;
             // Listeners are registered on the plugin, not on one window, so a
             // leftover eBird window could otherwise resolve this capture with
             // its own page. Ignore anything that names a different window.
-            if (ev && ev.id && id && ev.id !== id) return;
             if (d.ok) finish(null, d.data);
           });
           addH('urlChangeEvent', function (ev) {
             if (done) return;
+            if (!belongs(ev)) return;
+            if (!alive()) { stopObsolete(); return; }
             var u = (ev && ev.url) || '';
             if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
           });
-          addH('browserPageLoaded', function () {
+          addH('browserPageLoaded', function (ev) {
             if (done || !id) return;
-            setTimeout(function () {
-              if (done || !id) return;
-              IB.executeScript({ id: id, code: opts.buildInject() }).catch(function () {});
-            }, 500);
+            if (!belongs(ev)) return;
+            if (!alive()) { stopObsolete(); return; }
+            if (injectTimer) clearTimeout(injectTimer);
+            injectTimer = setTimeout(function () { inject(0); }, 500);
           });
-          addH('closeEvent', function () { finish(new Error('The eBird window was closed before it finished.')); });
-          IB.openWebView({ url: opts.url, showReloadButton: true }).then(function (r) {
+          addH('closeEvent', function (ev) {
+            if (!belongs(ev)) return;
+            finish(new Error('The eBird window was closed before it finished.'));
+          });
+          IB.openWebView({
+            url: opts.url, showReloadButton: true, hidden: true
+          }).then(function (r) {
             id = r && r.id;
             try { IB.hide({ id: id }); } catch (e) {}
             revealTimer = setTimeout(reveal, 6000);
@@ -22298,8 +22356,297 @@
       }
 
 
-      // --- P15: migration outlook (weekly phenology from historic samples) ---
+      // --- P15: migration outlook (regional first reports + weekly phenology) ---
       var MIG_MIN_PRESENCE = 1, MIG_YEARS_BACK = 2, MIG_WINDOW_WEEKS = 2, MIG_SAMPLE_WEEKDAY = 3; // 3 = Wednesday
+      var FIRST_YEAR_NS = 'ebird_first_year_v1:', FIRST_YEAR_RECENT_DAYS = MIG_WINDOW_WEEKS * 7;
+      var _firstYearRun = 0, _firstYearLive = {};
+      var _migFallback = {}, _migFallbackLoading = {};
+
+      // eBird's regional bird-list page is server-rendered after its browser
+      // challenge. Parse the rendered DOM by row roles rather than by a single
+      // minified-state blob: the DOM is what both the ordinary browser and the
+      // installed app's eBird WebView expose.
+      //
+      // Measured 2026-09-03 on Washington:
+      //   380 Native/Naturalized rows (376 ordinary + 4 sensitive)
+      //   11 escapees, 25 hybrids, 136 additional taxa
+      // Only Native/Naturalized rows carry `.countable`, which is the boundary
+      // this parser enforces. All 376 ordinary rows had date, checklist,
+      // observer, and location text; 116 were private locations with no locId.
+      function parseFirstYearBirdList(html) {
+        var out = { valid: false, declared: 0, rows: [], title: '' };
+        var doc;
+        try { doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); }
+        catch (e) { return out; }
+        if (!doc) return out;
+        out.title = doc.title || '';
+
+        function clean(el) {
+          return el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        }
+        function lastVisibleSpan(box) {
+          if (!box) return '';
+          var spans = box.querySelectorAll('span'), value = '';
+          for (var i = 0; i < spans.length; i++) {
+            if (spans[i].classList && spans[i].classList.contains('is-visuallyHidden')) continue;
+            var text = clean(spans[i]);
+            if (text) value = text;
+          }
+          return value;
+        }
+
+        var nodes = doc.querySelectorAll('li.BirdList-list-list-item.countable');
+        if (!nodes.length) return out;
+        var section = nodes[0].closest ? nodes[0].closest('section') : null;
+        var countMatch = /Native and Naturalized\s*\(([\d,]+)\)/i.exec(clean(section));
+        out.declared = countMatch ? parseInt(countMatch[1].replace(/,/g, ''), 10) : 0;
+        var complete = true;
+
+        for (var n = 0; n < nodes.length; n++) {
+          var el = nodes[n];
+          var species = el.querySelector('.Obs-species a[href*="/species/"]');
+          var href = species ? String(species.getAttribute('href') || '') : '';
+          var codeMatch = /\/species\/([a-z0-9]+)/i.exec(href);
+          var code = String(el.id || (codeMatch && codeMatch[1]) || '').toLowerCase();
+          var name = clean(el.querySelector('.Species-common'));
+          var sci = clean(el.querySelector('.Species-sci'));
+          var countEl = el.querySelector('.Obs-count [title]');
+          var countRaw = countEl ? String(countEl.getAttribute('title') || '').trim() : '';
+          var numericCount = countRaw.replace(/,/g, '');
+          var count = /^\d+$/.test(numericCount) ? parseInt(numericCount, 10) : null;
+          var sensitive = !!el.querySelector('.Sensitive-badge');
+          var observedAt = '', date = '', subId = '', observer = '';
+          var locId = '', locName = '', county = '', isPrivate = false;
+
+          if (!sensitive) {
+            var time = el.querySelector('.Obs-date time[datetime]');
+            observedAt = time ? String(time.getAttribute('datetime') || '').trim() : '';
+            date = /^\d{4}-\d{2}-\d{2}/.test(observedAt) ? observedAt.slice(0, 10) : '';
+            var checklist = el.querySelector('.Obs-date a[href*="/checklist/"]');
+            var subMatch = checklist
+              ? /\/checklist\/(S\d+)/i.exec(String(checklist.getAttribute('href') || '')) : null;
+            subId = subMatch ? subMatch[1].toUpperCase() : '';
+            observer = lastVisibleSpan(el.querySelector('.Obs-observer'));
+
+            var locBox = el.querySelector('.Obs-location-name');
+            var locAnchor = locBox && locBox.querySelector('a[href*="/region/"]');
+            var locMatch = locAnchor
+              ? /\/region\/(L\d+)/i.exec(String(locAnchor.getAttribute('href') || '')) : null;
+            locId = locMatch ? locMatch[1].toUpperCase() : '';
+            isPrivate = !locId;
+            var parents = locBox && locBox.querySelector('.Obs-location-name-parents');
+            county = lastVisibleSpan(parents);
+            if (locAnchor) {
+              locName = clean(locAnchor);
+            } else if (locBox) {
+              var clone = locBox.cloneNode(true);
+              var cloneParents = clone.querySelector('.Obs-location-name-parents');
+              if (cloneParents && cloneParents.parentNode) cloneParents.parentNode.removeChild(cloneParents);
+              locName = clean(clone);
+            }
+          }
+
+          if (!/^[a-z0-9]+$/.test(code) || !name || !sci) complete = false;
+          if (!sensitive && (!date || !observedAt || !subId || !observer || !locName)) complete = false;
+          out.rows.push({
+            code: code, name: name, sci: sci, count: count, countRaw: countRaw,
+            sensitive: sensitive, date: date, observedAt: observedAt, subId: subId,
+            observer: observer, locId: locId, locName: locName, county: county,
+            isPrivate: isPrivate
+          });
+        }
+
+        out.valid = !!(complete && out.declared > 0
+          && nodes.length === out.declared && out.rows.length === out.declared);
+        return out;
+      }
+
+      function firstYearKey(region, year) {
+        return FIRST_YEAR_NS + String(region || '').toUpperCase() + '|' + String(year || '');
+      }
+      function firstYearUrl(region) {
+        return 'https://ebird.org/region/' + encodeURIComponent(region)
+          + '/bird-list?yr=cur&rank=lrec';
+      }
+      function firstYearContext() {
+        var now = new Date();
+        return { region: getRegion(), year: now.getFullYear() };
+      }
+      function firstYearRead(region, year) {
+        var key = firstYearKey(region, year);
+        if (_firstYearLive[key]) return _firstYearLive[key];
+        try {
+          var value = JSON.parse(localStorage.getItem(key) || 'null');
+          if (value && Array.isArray(value.rows)) {
+            _firstYearLive[key] = value;
+            return value;
+          }
+          return null;
+        } catch (e) { return null; }
+      }
+      function firstYearWrite(region, year, page) {
+        var value = {
+          day: todayStr(), region: region, year: year,
+          declared: page.declared, rows: page.rows
+        };
+        _firstYearLive[firstYearKey(region, year)] = value;
+        try { localStorage.setItem(firstYearKey(region, year), JSON.stringify(value)); }
+        catch (e) { /* a full store leaves this as a once-per-open enhancement */ }
+        return value;
+      }
+      function firstYearFetch(region, alive) {
+        var url = firstYearUrl(region);
+        function current() {
+          try { return !alive || alive(); } catch (e) { return false; }
+        }
+        function status(message) {
+          if (current() && $('migFirstStatus')) $('migFirstStatus').textContent = message;
+        }
+        function read(html) {
+          var page = parseFirstYearBirdList(html);
+          if (!page.valid) {
+            throw new Error('eBird bird-list markup did not contain its declared Native/Naturalized rows');
+          }
+          return page;
+        }
+        return fetchPublicHTML(url).then(read).catch(function () {
+          if (!current()) throw new Error('The eBird load was superseded by a new report.');
+          status('eBird needs its browser session; finishing the same regional page there…');
+          return captureEbird({
+            kind: 'firstYear', url: url, alive: current,
+            buildInject: function () { return buildFirstYearInject(region); },
+            onStatus: status
+          }).then(function (page) {
+            if (!page || !page.valid) throw new Error('Could not read eBird first reports');
+            return page;
+          });
+        });
+      }
+      function firstYearAgeLabel(days) {
+        if (days === 0) return { lead: 'today', unit: '' };
+        return { lead: String(days), unit: days === 1 ? 'day ago' : 'days ago' };
+      }
+      function renderFirstYear(value, now) {
+        var box = $('migFirstResults'), status = $('migFirstStatus');
+        if (!box || !status) return;
+        if (!value || !Array.isArray(value.rows)) {
+          box.innerHTML = '';
+          status.textContent = 'First reports load automatically from eBird when you open this section.';
+          return;
+        }
+        var evidence = BL.firstYearEvidence(value.rows, now || new Date(), FIRST_YEAR_RECENT_DAYS);
+        var regionName = rankRegionName(value.region || getRegion());
+        var html = '<div class="rankhead"><b>First reported in ' + esc(regionName)
+          + ' this year — last ' + FIRST_YEAR_RECENT_DAYS + ' days</b></div>';
+        if (evidence.recent.length) {
+          html += SpeciesCards.list('medium', evidence.recent.slice(0, 20).map(function (row) {
+            var age = firstYearAgeLabel(row.ageDays);
+            var parts = [
+              checklistLink(row.subId, 'First reported ' + fmtDate(row.date))
+            ];
+            if (row.locName) {
+              parts.push(locLink(row.locName, null, null, row.locId, row.isPrivate)
+                + (row.county ? ' · ' + esc(row.county) : ''));
+            }
+            if (row.observer) parts.push('by ' + esc(row.observer));
+            return SpeciesCards.medium({
+              icon: photoSlot(row.name, row.code),
+              name: speciesLink(row.name, row.code),
+              code: row.code, alpha: alphaFor(row.code), sci: row.sci,
+              tags: needTag(row.code, row.name),
+              lead: age.lead, leadUnit: age.unit,
+              sub: parts.join(' · ')
+            });
+          }), 'icon-sm');
+        } else {
+          html += '<div class="status">No first reports in the last '
+            + FIRST_YEAR_RECENT_DAYS + ' days.</div>';
+        }
+        if (evidence.sensitive.length) {
+          html += '<div class="rankhead" style="margin-top:14px"><b>Present this year — sensitive</b></div>';
+          html += SpeciesCards.list('medium', evidence.sensitive.map(function (row) {
+            return SpeciesCards.medium({
+              icon: photoSlot(row.name, row.code),
+              name: speciesLink(row.name, row.code),
+              code: row.code, alpha: alphaFor(row.code), sci: row.sci,
+              lead: 'present', leadUnit: 'this year',
+              sub: 'Date and location withheld by eBird; not chaseable from this source.'
+            });
+          }), 'icon-sm');
+        }
+        box.innerHTML = html;
+        hydratePhotos(box);
+        status.textContent = value.rows.length + ' Native/Naturalized species read from eBird'
+          + (value.day ? ' · cached ' + esc(value.day) : '') + '.';
+      }
+      function renderCachedFirstYear() {
+        var ctx = firstYearContext();
+        renderFirstYear(firstYearRead(ctx.region, ctx.year));
+      }
+      function loadMigrationFallback(ctx, run) {
+        var context = ctx.region + '|' + ctx.year;
+        if (!getKey()) return Promise.resolve([]);
+        var state = BL.stateNameFor(getReport());
+        if (!state) return Promise.resolve([]);
+        var obsRegion = getObsRegion();
+        var source = _migFallback[context];
+        var pending = source ? Promise.resolve(source) : _migFallbackLoading[context];
+        if (!pending) {
+          var store = loadArrivalStore(obsRegion, state);
+          pending = loadSpeciesIndex(obsRegion).then(function (rows) {
+            var loaded = { store: store, rows: rows || [] };
+            _migFallback[context] = loaded;
+            return loaded;
+          }).catch(function () {
+            return null;
+          }).then(function (loaded) {
+            delete _migFallbackLoading[context];
+            return loaded;
+          });
+          _migFallbackLoading[context] = pending;
+        }
+        return pending.then(function (loaded) {
+          var active = firstYearContext();
+          if (loaded && _firstYearRun === run
+              && active.region + '|' + active.year === context) {
+            renderMigration();
+          }
+          return loaded;
+        });
+      }
+      function loadMigration() {
+        var ctx = firstYearContext(), context = ctx.region + '|' + ctx.year;
+        var run = ++_firstYearRun;
+        function alive() {
+          var active = firstYearContext();
+          return _firstYearRun === run
+            && active.region + '|' + active.year === context;
+        }
+        renderMigration();
+        loadMigrationFallback(ctx, run);
+        var cached = firstYearRead(ctx.region, ctx.year);
+        if (cached) renderFirstYear(cached);
+        if (cached && cached.day === todayStr()) return Promise.resolve(cached);
+        if ($('migFirstStatus')) {
+          $('migFirstStatus').textContent = cached
+            ? 'Refreshing this year’s first reports from eBird…'
+            : 'Loading this year’s first reports from eBird…';
+        }
+        return firstYearFetch(ctx.region, alive).then(function (page) {
+          var saved = firstYearWrite(ctx.region, ctx.year, page);
+          if (!alive()) return saved;
+          renderMigration();
+          return saved;
+        }).catch(function (e) {
+          if (alive() && $('migFirstStatus')) {
+            $('migFirstStatus').textContent =
+              'First reports are unavailable — eBird’s regional bird-list page could not be read. '
+              + 'The county-history forecast below still works.';
+          }
+          return null;
+        });
+      }
+
       function migKey() { return 'ebird_mig_' + getReportSlug(); }
       function migLoad() { try { return JSON.parse(localStorage.getItem(migKey()) || 'null') || { samples: {}, names: {} }; } catch (e) { return { samples: {}, names: {} }; } }
       function migSave(s) { try { localStorage.setItem(migKey(), JSON.stringify(s)); } catch (e) {} }
@@ -22381,27 +22728,37 @@
         });
         arr.sort(function (a, b) { return (a.weeksUntil - b.weeksUntil) || (b.nWeeks - a.nWeeks); });
         dep.sort(function (a, b) { return (a.weeksUntil - b.weeksUntil) || (b.nWeeks - a.nWeeks); });
-        return { currentWeek: cur, arriving: arr, departing: dep };
+        return {
+          currentWeek: cur, arriving: arr, departing: dep,
+          coveredCodes: Object.keys(phen)
+        };
       }
       function renderMigration() {
         var el = $('migResults'); if (!el) return;
+        renderCachedFirstYear();
         if ($('migRegionLabel')) $('migRegionLabel').textContent = '· ' + countyLabelStr();
         if (!hasCounties()) {
           el.innerHTML = '<div class="status">Migration outlook is built from the report\u2019s county history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           return;
         }
+        var now = new Date(), ctx = firstYearContext();
         var cache = migLoad(), nSamples = Object.keys(cache.samples || {}).length;
-        if (!nSamples) {
-          var bg = bgHistoryStatus();
-          el.innerHTML = '<div class="status">' + (bg
-            ? 'Building ~2 years of weekly checklist history in the background (' + bg.done + '/' + bg.total + ' weeks). It runs at the same rate limit the report uses, resumes across launches, and predicts arrivals/departures offline once cached. Tap “Build migration history” to finish it now.'
-            : 'No history yet — tap “Build migration history”. It fetches ~2 years of weekly checklists once (resumable), then predicts arrivals/departures offline.') + '</div>';
-          return;
-        }
-        var out = migExpectedSoon(cache, new Date(), migYearCodes());
+        var out = nSamples
+          ? migExpectedSoon(cache, now, migYearCodes())
+          : { currentWeek: isoWeek(now), arriving: [], departing: [], coveredCodes: [] };
+        var fallbackSource = _migFallback[ctx.region + '|' + ctx.year];
+        var fallback = fallbackSource
+          ? dueBackRows(fallbackSource.store, fallbackSource.rows, migYearCodes(), now)
+              .filter(function (row) {
+                return row.need && row.days >= 0 && row.days <= FIRST_YEAR_RECENT_DAYS;
+              })
+          : [];
+        var first = firstYearRead(ctx.region, ctx.year);
+        var plan = BL.mergeMigrationForecast(
+          first ? first.rows : [], out.arriving, fallback, now,
+          FIRST_YEAR_RECENT_DAYS, out.coveredCodes);
         function nm(code) { return (cache.names && cache.names[code]) || code; }
-        function whenLabel(w) { return w === 0 ? 'this week' : (w === 1 ? 'next week' : 'in ' + w + ' weeks'); }
-        function section(title, arr, empty) {
+        function forecastSection(title, arr, empty) {
           var h = '<div class="rankhead"><b>' + esc(title) + '</b></div>';
           if (!arr.length) return h + '<div class="status">' + esc(empty) + '</div>';
           // THE SHARED MEDIUM CARD, not hand-rolled markup. This was the last
@@ -22410,28 +22767,70 @@
           // template". Going through SpeciesCards.medium also means it inherits
           // the code chip, the scientific name and every future fix for free.
           return h + SpeciesCards.list('medium', arr.slice(0, 20).map(function (e) {
-            var w = e.weeksUntil;
+            var history = e.source === 'history';
+            var w = e.weeksUntil, days = e.forecastDays;
+            var name = e.name || nm(e.code);
+            var sub = history
+              ? 'county history · seen ' + e.nWeeks + ' wk/yr'
+              : 'bundled GBIF · usually back around ' + esc(BL.prettyMMDD(e.day));
+            if (e.firstReport) {
+              sub += ' · ' + checklistLink(e.firstReport.subId,
+                'first reported ' + fmtDate(e.firstReport.date)) + ' statewide';
+            }
             return SpeciesCards.medium({
-              icon: photoSlot(nm(e.code), e.code),
-              name: speciesLink(nm(e.code), e.code),
+              icon: photoSlot(name, e.code),
+              name: speciesLink(name, e.code),
               code: e.code,
               alpha: alphaFor(e.code),
-              sci: sciFor(e.code),
-              tags: needTag(e.code, nm(e.code)),
+              sci: e.sci || sciFor(e.code),
+              tags: needTag(e.code, name),
               // WHEN, in the big right-hand column the distance normally owns.
               // This section has no distance, and timing is the thing it exists
               // to tell you — it does not belong in the grey sub-line.
+              lead: days === 0 ? 'now' : String(history ? w : days),
+              leadUnit: days === 0 ? '' : (history
+                ? (w === 1 ? 'week' : 'weeks')
+                : (days === 1 ? 'day' : 'days')),
+              sub: sub
+            });
+          }), 'icon-sm');
+        }
+        function departureSection(title, arr, empty) {
+          var h = '<div class="rankhead"><b>' + esc(title) + '</b></div>';
+          if (!arr.length) return h + '<div class="status">' + esc(empty) + '</div>';
+          return h + SpeciesCards.list('medium', arr.slice(0, 20).map(function (e) {
+            var w = e.weeksUntil, name = nm(e.code);
+            return SpeciesCards.medium({
+              icon: photoSlot(name, e.code),
+              name: speciesLink(name, e.code),
+              code: e.code, alpha: alphaFor(e.code), sci: sciFor(e.code),
+              tags: needTag(e.code, name),
               lead: w === 0 ? 'now' : String(w),
               leadUnit: w === 0 ? '' : (w === 1 ? 'week' : 'weeks'),
-              sub: 'seen ' + e.nWeeks + ' wk/yr historically'
+              sub: 'county history · seen ' + e.nWeeks + ' wk/yr'
             });
-          }));
+          }), 'icon-sm');
         }
         var yc = migYearCodes(), haveCodes = Object.keys(yc).length > 0;
-        var html = section('🛬 Arriving soon (unseen targets)', out.arriving, 'Nothing new expected in the next ' + MIG_WINDOW_WEEKS + ' weeks.');
+        var html = '';
+        if (!nSamples) {
+          var bg = bgHistoryStatus();
+          html += '<div class="status">' + (fallback.length
+            ? 'County history is not ready, so the forecast below uses the bundled state-wide GBIF table. Tap “Build migration history” for the more local model.'
+            : (bg
+              ? 'Building ~2 years of weekly checklist history in the background (' + bg.done + '/' + bg.total + ' weeks). It resumes across launches. Tap “Build migration history” to finish it now.'
+              : 'No county history yet — tap “Build migration history”. The one-time build is resumable.')) + '</div>';
+        }
+        html += forecastSection('🛬 Expected soon (unseen targets)', plan.expected,
+          'Nothing new expected in the next ' + MIG_WINDOW_WEEKS + ' weeks.');
         html += '<div style="margin-top:14px"></div>';
-        html += section('🛫 Departing soon (on your year list)', out.departing, haveCodes ? 'Nothing on your list is departing soon.' : 'Import a species-code list (sample data or rankings) to flag departures.');
-        html += '<div class="hint">Week ' + out.currentWeek + ' · ' + nSamples + ' weekly samples cached' + (cache.updated ? ' · built ' + esc(fmtDate(cache.updated)) : '') + '.</div>';
+        html += departureSection('🛫 Departing soon (on your year list)', out.departing,
+          haveCodes ? (nSamples ? 'Nothing on your list is departing soon.'
+            : 'Build county history to predict departures.')
+            : 'Import a species-code list (sample data or rankings) to flag departures.');
+        html += '<div class="hint">Week ' + out.currentWeek + ' · ' + nSamples
+          + ' weekly samples cached' + (cache.updated ? ' · built ' + esc(fmtDate(cache.updated)) : '')
+          + (fallback.length ? ' · bundled GBIF fills forecast gaps' : '') + '.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
       }
@@ -25169,6 +25568,7 @@
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
         myYearBody: { fn: updateMyYear },
         recordBody: { fn: loadStateRecords },
+        migBtn:     { fn: loadMigration },
         helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
@@ -27365,7 +27765,8 @@
       var RESET_ON_REPORT_CHANGE = ['results', 'targetResults', 'destResults', 'excResults',
         'fullDayResults',
         'tripResults', 'activeResults', 'myYearList', 'rankResults', 'rankSummary',
-        'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults'];
+        'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults',
+        'migFirstResults'];
       function setActiveReport(slug) {
         slug = (slug || 'wa').toLowerCase();
         if (slug === getReportSlug()) { syncRegionNav(); return; }
@@ -27373,6 +27774,7 @@
         clearChaseCache();
         clearSpeciesLookup();
         resetSpCodes();
+        _firstYearRun++;
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         loadSettings();
@@ -29092,7 +29494,11 @@
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
         getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
-        fetchRank: fetchRank, rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
+        fetchRank: fetchRank, captureEbird: captureEbird,
+        rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
+        parseFirstYearBirdList: parseFirstYearBirdList,
+        firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
+        loadMigration: loadMigration, renderFirstYear: renderFirstYear,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,

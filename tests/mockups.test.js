@@ -44,7 +44,7 @@ test('every menu section declares representative fixture data or an intentional 
   const allowed = new Set([
     'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
     'spuh', 'hotspot-search', 'stakeout-species', 'patches',
-    'checklists', 'birdcast', 'help', 'static',
+    'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
     assert.ok(allowed.has(shot.kind),
@@ -198,6 +198,32 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the exact 393px/402px release render does not guard the requested one-line controls');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
+});
+
+test('F268 On passage mockup exercises first reports and both forecast sources', () => {
+  const spec = mockups.STUB_SPEC.migBtn;
+  assert.equal(spec.kind, 'migration',
+    'On passage cannot use the generic one-card bird fixture');
+  assert.equal(spec.host, 'migFirstResults');
+  assert.deepEqual(spec.expects, [
+    '#migFirstResults .obs.big.xl.icon-sm > li',
+    '#migFirstResults .spdist',
+    '#migResults .obs.big.xl.icon-sm > li',
+    '#migResults .spdist',
+  ], 'capture readiness requires both F268 lanes and their prominent timing columns');
+
+  const start = source.indexOf("spec.kind === 'migration'");
+  const end = source.indexOf("} else if (spec.kind === 'bird')", start);
+  assert.ok(start >= 0 && end > start, 'the dedicated migration fixture branch exists');
+  const fixture = source.slice(start, end);
+  for (const fact of [
+    'Nazca Booby', 'Gyrfalcon', 'Semipalmated Sandpiper',
+    'Sharp-tailed Sandpiper', 'county history', 'bundled GBIF',
+  ]) {
+    assert.ok(fixture.includes(fact), `On passage mockup lost ${fact}`);
+  }
+  assert.match(fixture, /A\.loadMigration\(\)/,
+    'the fixture must run the real F268 renderer rather than hand-roll cards');
 });
 
 test('the release workflow requires both mockup widths and attaches one combined archive', () => {

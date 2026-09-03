@@ -19,6 +19,77 @@ const fs = require('node:fs');
 
 const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
 
+test('F268 first-year evidence keeps observed reports separate from forecasts', () => {
+  const rows = [
+    { code: 'comnig', name: 'Common Nighthawk', date: '2026-05-19', sensitive: false },
+    { code: 'westan', name: 'Western Tanager', date: '2026-01-02', sensitive: false },
+    { code: 'tersan', name: 'Terek Sandpiper', date: '2026-07-18', sensitive: false },
+    { code: 'gyrfal', name: 'Gyrfalcon', date: '', sensitive: true },
+  ];
+  const evidence = BL.firstYearEvidence(rows, new Date(2026, 4, 23), 14);
+
+  assert.deepEqual(evidence.recent.map((r) => r.code), ['comnig'],
+    'a common migrant enters the recent-first-report lane without a notable flag');
+  assert.equal(evidence.recent[0].ageDays, 4, 'the factual first report carries its age');
+  assert.deepEqual(evidence.sensitive.map((r) => r.code), ['gyrfal'],
+    'sensitive species remain visible as presence-only evidence');
+  assert.ok(evidence.present.comnig, 'dated current-year rows are indexed as observed');
+  assert.ok(evidence.present.westan,
+    'a winter outlier remains a first report rather than being relabelled as migration');
+  assert.ok(!evidence.present.tersan, 'a future fixture date is never treated as observed');
+});
+
+test('F268 migration forecasts prefer county history over bundled GBIF per species', () => {
+  const first = [
+    { code: 'westan', name: 'Western Tanager', date: '2026-01-02', sensitive: false },
+    { code: 'comnig', name: 'Common Nighthawk', date: '2026-05-19', sensitive: false },
+  ];
+  const historic = [
+    { code: 'westan', name: 'Western Tanager', weeksUntil: 1, nWeeks: 18 },
+    { code: 'comnig', name: 'Common Nighthawk', weeksUntil: 0, nWeeks: 12 },
+  ];
+  const gbif = [
+    { code: 'westan', name: 'Western Tanager', days: 3, day: '04-21' },
+    { code: 'purmar', name: 'Purple Martin', days: 5, day: '04-23' },
+    { code: 'rufhum', name: 'Rufous Hummingbird', days: 2, day: '04-20' },
+  ];
+  const plan = BL.mergeMigrationForecast(
+    first, historic, gbif, new Date(2026, 3, 18), 14,
+    { westan: 1, comnig: 1, rufhum: 1 });
+
+  assert.deepEqual(plan.expected.map((r) => [r.code, r.source]), [
+    ['comnig', 'history'],
+    ['purmar', 'gbif'],
+    ['westan', 'history'],
+  ], 'county history wins for a species and bundled GBIF only fills uncovered birds');
+  const westan = plan.expected.find((r) => r.code === 'westan');
+  assert.equal(westan.firstReport.date, '2026-01-02',
+    'the January first report is retained as a separate fact');
+  assert.equal(westan.weeksUntil, 1,
+    'the winter outlier does not overwrite the county migration-wave forecast');
+  assert.equal(plan.expected.filter((r) => r.code === 'westan').length, 1,
+    'one species is never duplicated across forecast sources');
+  assert.ok(!plan.expected.some((r) => r.code === 'rufhum'),
+    'GBIF cannot override a county-history species merely because it is outside the current window');
+
+  const tieRows = [
+    { code: 'lecspa', name: "LeConte's Sparrow", date: '2026-05-20', sensitive: false },
+    { code: 'leaauk', name: 'Least Auklet', date: '2026-05-20', sensitive: false },
+  ];
+  assert.deepEqual(
+    BL.firstYearEvidence(tieRows, new Date(2026, 4, 23), 14)
+      .recent.map((r) => r.code),
+    ['leaauk', 'lecspa'],
+    'equal-age first reports use the locale-independent species code tie-break');
+  assert.deepEqual(
+    BL.mergeMigrationForecast([], [], [
+      { code: 'lecspa', name: "LeConte's Sparrow", days: 5, day: '05-28' },
+      { code: 'leaauk', name: 'Least Auklet', days: 5, day: '05-28' },
+    ], new Date(2026, 4, 23), 14).expected.map((r) => r.code),
+    ['leaauk', 'lecspa'],
+    'equal-day forecasts use the same locale-independent tie-break');
+});
+
 // --- report registry -------------------------------------------------------
 test('registry: REGION_ORDER matches REPORTS keys (no orphans)', () => {
   const keys = Object.keys(BL.REPORTS).sort();

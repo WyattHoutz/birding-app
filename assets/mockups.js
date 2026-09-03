@@ -105,7 +105,9 @@ const STUB_SPEC = {
   allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults' },
-  migBtn:         { kind: 'bird',          host: 'migResults' },
+  migBtn:         { kind: 'migration',     host: 'migFirstResults',
+    expects: ['#migFirstResults .obs.big.xl.icon-sm > li', '#migFirstResults .spdist',
+      '#migResults .obs.big.xl.icon-sm > li', '#migResults .spdist'] },
   bcBody:         { kind: 'birdcast',      host: 'bcBody' },
   todBtn:         { kind: 'bird',          host: 'todResults' },
   myYearBody:     { kind: 'bird',          host: 'myYearList' },
@@ -675,6 +677,56 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'stakeout-species') {
       await fillStakeoutSpecies(A, document, label);
+    } else if (spec.kind === 'migration') {
+      localStorage.setItem(A.firstYearKey('US-WA', 2026), JSON.stringify({
+        day: A.todayStr(), region: 'US-WA', year: 2026, declared: 2,
+        rows: [
+          {
+            code: 'nazboo1', name: 'Nazca Booby', sci: 'Sula granti',
+            count: 1, sensitive: false, date: '2026-08-25',
+            observedAt: '2026-08-25 15:00', subId: 'S386937523',
+            observer: 'Carrington Stephenson', locId: 'L7706326',
+            locName: 'Smith Island', county: 'Island', isPrivate: false
+          },
+          {
+            code: 'gyrfal', name: 'Gyrfalcon', sci: 'Falco rusticolus',
+            count: 1, sensitive: true, date: '', observedAt: '', subId: '',
+            observer: '', locId: '', locName: '', county: '', isPrivate: false
+          }
+        ]
+      }));
+      localStorage.setItem('ebird_mig_wa', JSON.stringify({
+        samples: { 'wa|2025-09-03': ['semsan'] },
+        names: { semsan: 'Semipalmated Sandpiper' },
+        updated: '2026-09-02T18:00:00-07:00'
+      }));
+      localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'semsan', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla', alpha: 'sesa' },
+          { code: 'shtsan', name: 'Sharp-tailed Sandpiper',
+            sci: 'Calidris acuminata', alpha: 'stsa' }
+        ]
+      }));
+      localStorage.setItem(A.dueBackKey('US-WA', 'Washington'), JSON.stringify({
+        at: Date.now(),
+        done: {
+          'Calidris pusilla': { day: '09-05', records: 2400, months: 5 },
+          'Calidris acuminata': { day: '09-07', records: 420, months: 4 }
+        }
+      }));
+      await A.loadMigration();
+      await waitFor(function () {
+        var firstText = document.getElementById('migFirstResults').textContent;
+        var forecastText = document.getElementById('migResults').textContent;
+        return /Nazca Booby/.test(firstText) && /Gyrfalcon/.test(firstText)
+          && /Semipalmated Sandpiper/.test(forecastText)
+          && /Sharp-tailed Sandpiper/.test(forecastText)
+          && /county history/.test(forecastText)
+          && /bundled GBIF/.test(forecastText);
+      }, 'On passage first reports and both forecast sources');
+      markHost(host, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'hotspot' || spec.kind === 'hotspot-search') {

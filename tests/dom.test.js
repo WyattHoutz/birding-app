@@ -28,6 +28,27 @@ const CARDS_SPECIES = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8'
 const CARDS_HOTSPOT = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
+const FIRST_YEAR_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'ebird-first-year.html'), 'utf8');
+
+function recentFirstYearFixture(species) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - 4);
+  const iso = [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+  const row = species || {
+    code: 'comnig', name: 'Common Nighthawk', sci: 'Chordeiles minor',
+  };
+  return FIRST_YEAR_HTML
+    .replaceAll('2026-05-19', iso)
+    .replaceAll('comnig', row.code)
+    .replaceAll('Common Nighthawk', row.name)
+    .replaceAll('Chordeiles minor', row.sci);
+}
 // The native permission that makes "📍 Here" work cannot be committed — ios/ is
 // regenerated every build — so the workflow and the manifest are the only two
 // places that can prove it will be there.
@@ -165,6 +186,7 @@ function boot(opts = {}) {
               json: () => Promise.resolve(JSON.parse(body)),
             });
           }
+
         } catch (e) { /* not a bundled file: fall through to the stub */ }
         // Tests that need a response supply opts.fetch(url) -> html string|null.
         if (opts.fetch) {
@@ -218,6 +240,531 @@ function boot(opts = {}) {
     }, 50));
   });
 }
+
+test('F268 parses countable first-year rows and preserves eBird withholding', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const page = A.parseFirstYearBirdList(FIRST_YEAR_HTML);
+
+  assert.equal(page.valid, true, 'the declared Native/Naturalized row set parses whole');
+  assert.equal(page.declared, 4);
+  assert.deepEqual(arr(page.rows, (r) => r.code),
+    ['comnig', 'tersan', 'brdowl', 'gyrfal'],
+    'escapees, hybrids, and additional taxa are not migration evidence');
+
+  const common = page.rows.find((r) => r.code === 'comnig');
+  assert.deepEqual({
+    name: common.name, sci: common.sci, count: common.count,
+    date: common.date, observedAt: common.observedAt, subId: common.subId,
+    observer: common.observer, locId: common.locId, locName: common.locName,
+    county: common.county, isPrivate: common.isPrivate,
+  }, {
+    name: 'Common Nighthawk', sci: 'Chordeiles minor', count: 1,
+    date: '2026-05-19', observedAt: '2026-05-19 09:20', subId: 'S300000001',
+    observer: 'Fixture Birder', locId: 'L3000001', locName: 'Cattle Ranch',
+    county: 'Yakima', isPrivate: false,
+  }, 'an ordinary row carries the complete first-observation evidence');
+
+  const privateRow = page.rows.find((r) => r.code === 'brdowl');
+  assert.equal(privateRow.locId, '', 'a private location is not invented as a hotspot');
+  assert.equal(privateRow.locName, 'Private patch 48.00000, -123.00000');
+  assert.equal(privateRow.isPrivate, true);
+  const uncounted = page.rows.find((r) => r.code === 'tersan');
+  assert.equal(uncounted.count, null, 'eBird X is a valid uncounted observation');
+  assert.equal(uncounted.countRaw, 'X', 'the source notation is preserved');
+
+  const sensitive = page.rows.find((r) => r.code === 'gyrfal');
+  assert.equal(sensitive.sensitive, true);
+  for (const field of ['date', 'observedAt', 'subId', 'observer', 'locId', 'locName', 'county']) {
+    assert.equal(sensitive[field], '',
+      `sensitive ${field} stays withheld instead of being inferred`);
+  }
+
+  const malformed = A.parseFirstYearBirdList(
+    FIRST_YEAR_HTML.replace('Native and Naturalized (4)', 'Native and Naturalized (5)'));
+  assert.equal(malformed.valid, false,
+    'a partial parse cannot be accepted when the page declares more native rows');
+
+  A.renderFirstYear(
+    { day: '2026-01-03', region: 'US-WA', rows: page.rows },
+    new Date(2026, 0, 3));
+  assert.equal(app.$('migFirstResults').querySelector('[data-q="null,null"]'), null,
+    'a first-report row without coordinates cannot create a null,null map target');
+  const privateLocationLink = [...app.$('migFirstResults').querySelectorAll('a')]
+    .find((link) => /Private patch/.test(link.textContent));
+  assert.equal(privateLocationLink, undefined,
+    'preserved private-location text is plain text when eBird publishes no coordinates');
+  app.window.close();
+});
+
+test('F268 On passage loads first-year data by default and caches one region-year daily', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const calls = [];
+  const fixture = recentFirstYearFixture();
+  app.window.fetch = (url) => {
+    calls.push(String(url));
+    return Promise.resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(fixture),
+    });
+  };
+
+  app.open(/On passage/);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const birdCalls = calls.filter((url) => /\/bird-list\?/.test(url));
+  assert.equal(birdCalls.length, 1, 'opening the section makes one automatic page request');
+  assert.match(birdCalls[0], /\/region\/US-WA\/bird-list\?yr=cur&rank=lrec$/,
+    'the automatic request is the current-year regional list');
+  assert.match(app.$('migFirstResults').textContent, /Common Nighthawk/);
+  assert.match(app.$('migFirstResults').textContent, /first reported/i);
+  assert.match(app.$('migFirstResults').textContent, /Gyrfalcon/);
+  assert.match(app.$('migFirstResults').textContent, /date and location withheld by eBird/i);
+  assert.equal(app.$('migFirstResults').querySelector('[data-q="null,null"]'), null,
+    'a public hotspot without coordinates gets no bogus map control');
+  assert.equal(app.$('migFirstResults').querySelector('.mapwrap'), null,
+    'a public hotspot without coordinates gets no non-actionable map glyph');
+  assert.ok(app.$('migFirstResults').querySelector('.obs.big.xl.icon-sm'),
+    'first-report medium cards use the compact icon modifier at phone width');
+
+  await A.loadMigration();
+  assert.equal(calls.filter((url) => /\/bird-list\?/.test(url)).length, 1,
+    'a second load on the same local day reuses the region-year cache');
+  const key = A.firstYearKey('US-WA', new Date().getFullYear());
+  assert.ok(app.window.localStorage.getItem(key), 'the valid page is cached');
+  A.bcSetProfile('2');
+  await A.loadMigration();
+  assert.equal(calls.filter((url) => /\/bird-list\?/.test(url)).length, 1,
+    'the public region-year page is reused across birder profiles');
+  app.window.close();
+});
+
+test('F268 malformed first-year pages are not cached', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200,
+    text: () => Promise.resolve('<html><title>Bird List - eBird</title><body>moved</body></html>'),
+  });
+
+  await A.loadMigration();
+  const key = A.firstYearKey('US-WA', new Date().getFullYear());
+  assert.equal(app.window.localStorage.getItem(key), null,
+    'an empty or structurally moved page cannot poison the daily cache');
+  assert.match(app.$('migFirstStatus').textContent, /unavailable|could not read/i,
+    'the existing historic forecast stays usable with an explicit source failure');
+  app.window.close();
+});
+
+test('F268 a successful page still renders when first-year cache persistence fails', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const original = app.window.Storage.prototype.setItem;
+  app.window.Storage.prototype.setItem = function (key, value) {
+    if (String(key).includes('ebird_first_year_v1:')) {
+      throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return original.call(this, key, value);
+  };
+  app.window.fetch = (url) => {
+    if (/\/bird-list\?/.test(String(url))) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        text: () => Promise.resolve(recentFirstYearFixture()),
+      });
+    }
+    return new Promise(() => {});
+  };
+
+  await A.loadMigration();
+
+  assert.equal(app.window.localStorage.getItem(
+    A.firstYearKey('US-WA', new Date().getFullYear())), null,
+  'the fixture really prevented persistence');
+  assert.match(app.$('migFirstResults').textContent, /Common Nighthawk/,
+    'the successfully fetched page remains live even when persistence is unavailable');
+  app.window.Storage.prototype.setItem = original;
+  app.window.close();
+});
+
+test('F268 an old region callback cannot repaint the new On passage section', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const pending = {};
+  app.window.fetch = (url) => new Promise((resolve) => {
+    const match = /\/region\/([^/]+)\/bird-list/.exec(String(url));
+    if (!match) return;
+    const region = match[1];
+    pending[region] = resolve;
+  });
+
+  const oldLoad = A.loadMigration();
+  A.setActiveReport('mo');
+  const newLoad = A.loadMigration();
+  pending['US-MO']({
+    ok: true, status: 200,
+    text: () => Promise.resolve(recentFirstYearFixture({
+      code: 'scitfl', name: 'Scissor-tailed Flycatcher', sci: 'Tyrannus forficatus',
+    })),
+  });
+  await newLoad;
+  pending['US-WA']({
+    ok: true, status: 200,
+    text: () => Promise.resolve(recentFirstYearFixture()),
+  });
+  await oldLoad;
+
+  assert.match(app.$('migFirstResults').textContent, /Scissor-tailed Flycatcher/);
+  assert.doesNotMatch(app.$('migFirstResults').textContent, /Common Nighthawk/,
+    'the Washington response did not repaint after Missouri became active');
+  app.window.close();
+});
+
+test('F268 a completed first-report request repaints existing forecast context', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date();
+  function weekOf(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - start) / 86400000 + 1) / 7);
+  }
+  function sampleDateForWeek(year, targetWeek) {
+    for (let d = new Date(year, 0, 1); d.getFullYear() === year; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 3 && weekOf(d) === targetWeek) {
+        return [
+          d.getFullYear(),
+          String(d.getMonth() + 1).padStart(2, '0'),
+          String(d.getDate()).padStart(2, '0'),
+        ].join('-');
+      }
+    }
+    throw new Error('no Wednesday for ISO week ' + targetWeek);
+  }
+  const sampleDate = sampleDateForWeek(now.getFullYear() - 1, weekOf(now));
+  app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
+    samples: { ['wa|' + sampleDate]: ['comnig'] },
+    names: { comnig: 'Common Nighthawk' },
+    updated: now.toISOString(),
+  }));
+  seedSeen(app, ['amecro']);
+  let resolvePage;
+  app.window.fetch = (url) => {
+    if (/\/bird-list\?/.test(String(url))) {
+      return new Promise((resolve) => { resolvePage = resolve; });
+    }
+    return new Promise(() => {});
+  };
+
+  const loading = A.loadMigration();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.match(app.$('migResults').textContent, /Common Nighthawk/);
+  assert.doesNotMatch(app.$('migResults').textContent, /first reported/i);
+  resolvePage({
+    ok: true, status: 200,
+    text: () => Promise.resolve(recentFirstYearFixture()),
+  });
+  await loading;
+
+  assert.match(app.$('migResults').textContent, /first reported/i,
+    'the forecast repaints after first-report evidence arrives asynchronously');
+  app.window.close();
+});
+
+test('F268 first-report headings name the acquired eBird region, not a trip report', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setActiveReport('fort-casey');
+  const page = A.parseFirstYearBirdList(recentFirstYearFixture());
+  A.renderFirstYear({
+    day: A.todayStr(), region: 'US-WA', year: new Date().getFullYear(), rows: page.rows,
+  });
+
+  assert.match(app.$('migFirstResults').textContent,
+    /First reported in Washington this year/);
+  assert.doesNotMatch(app.$('migFirstResults').textContent,
+    /First reported in Fort Casey Camping Trip/,
+    'statewide evidence is not relabelled as trip-area evidence');
+  app.window.close();
+});
+
+test('F268 an obsolete eBird capture cannot reveal or update the new report', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const handlers = {};
+  let shown = 0, closed = 0;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView() { return Promise.resolve({ id: 'obsolete-f268' }); },
+    hide() {},
+    show() { shown++; },
+    close() { closed++; },
+    executeScript() { return Promise.resolve(); },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+  app.window.fetch = (url) => {
+    if (/\/bird-list\?/.test(String(url))) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        text: () => Promise.resolve('<html><body>not rendered yet</body></html>'),
+      });
+    }
+    return new Promise(() => {});
+  };
+
+  const loading = A.loadMigration();
+  for (let i = 0; i < 20 && !handlers.urlChangeEvent; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(typeof handlers.urlChangeEvent, 'function');
+  A.setActiveReport('mo');
+  handlers.urlChangeEvent({ url: 'https://secure.birds.cornell.edu/cassso/login' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(shown, 0, 'an obsolete Washington login window is never surfaced over Missouri');
+  assert.ok(closed >= 1, 'the obsolete capture is closed instead of waiting for timeout');
+  assert.doesNotMatch(app.$('migFirstStatus').textContent, /Finish on eBird/,
+    'the old capture cannot overwrite the active report status');
+  await loading;
+  app.window.close();
+});
+
+test('F268 On passage uses county history before bundled GBIF forecasts', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date();
+
+  function weekOf(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - start) / 86400000 + 1) / 7);
+  }
+  function sampleDateForWeek(year, targetWeek) {
+    for (let d = new Date(year, 0, 1); d.getFullYear() === year; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 3 && weekOf(d) === targetWeek) {
+        return [
+          d.getFullYear(),
+          String(d.getMonth() + 1).padStart(2, '0'),
+          String(d.getDate()).padStart(2, '0'),
+        ].join('-');
+      }
+    }
+    throw new Error('no Wednesday for ISO week ' + targetWeek);
+  }
+  function monthDayAfter(days) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+    return String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+  }
+
+  const targetWeek = weekOf(now) === 53 ? 1 : weekOf(now) + 1;
+  const sampleDate = sampleDateForWeek(now.getFullYear() - 1, targetWeek);
+  const outsideWeek = ((targetWeek + 9 - 1) % 53) + 1;
+  const outsideDate = sampleDateForWeek(now.getFullYear() - 1, outsideWeek);
+  app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
+    samples: {
+      ['wa|' + sampleDate]: ['westan'],
+      ['wa|' + outsideDate]: ['rufhum'],
+    },
+    names: { westan: 'Western Tanager', rufhum: 'Rufous Hummingbird' },
+    updated: now.toISOString(),
+  }));
+  app.window.localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+    at: Date.now(),
+    rows: [
+      { code: 'westan', name: 'Western Tanager', sci: 'Piranga ludoviciana', alpha: 'weta' },
+      { code: 'purmar', name: 'Purple Martin', sci: 'Progne subis', alpha: 'puma' },
+      { code: 'rufhum', name: 'Rufous Hummingbird', sci: 'Selasphorus rufus', alpha: 'ruhu' },
+    ],
+  }));
+  app.window.localStorage.setItem(A.dueBackKey('US-WA', 'Washington'), JSON.stringify({
+    at: Date.now(),
+    done: {
+      'Piranga ludoviciana': { day: monthDayAfter(3), records: 420, months: 5 },
+      'Progne subis': { day: monthDayAfter(5), records: 840, months: 5 },
+      'Selasphorus rufus': { day: monthDayAfter(2), records: 1200, months: 6 },
+    },
+  }));
+  app.window.localStorage.setItem(
+    A.firstYearKey('US-WA', now.getFullYear()),
+    JSON.stringify({
+      day: A.todayStr(), region: 'US-WA', year: now.getFullYear(), declared: 1,
+      rows: [{
+        code: 'westan', name: 'Western Tanager', sci: 'Piranga ludoviciana',
+        count: 1, sensitive: false, date: now.getFullYear() + '-01-02',
+        observedAt: now.getFullYear() + '-01-02 08:44', subId: 'S300000004',
+        observer: 'Fixture Birder', locId: 'L3000004', locName: 'Union Bay',
+        county: 'King', isPrivate: false,
+      }],
+    }));
+  seedSeen(app, ['amecro']);
+
+  app.open(/On passage/);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const text = app.$('migResults').textContent.replace(/\s+/g, ' ');
+  assert.match(text, /Western Tanager.*county history/i,
+    'the species with both sources uses its county-history forecast');
+  assert.match(text, /Purple Martin.*bundled GBIF/i,
+    'a species absent from county history gets the bundled fallback');
+  assert.equal((text.match(/Western Tanager/g) || []).length, 1,
+    'the same species is not duplicated by the lower-priority GBIF source');
+  assert.doesNotMatch(text, /Rufous Hummingbird/,
+    'GBIF cannot fill a species covered by county history outside the current window');
+  assert.match(text, /first reported Jan 2/i,
+    'the winter first report remains separate context on the history forecast');
+  assert.ok(app.$('migResults').querySelector('.obs.big.xl.icon-sm'),
+    'forecast medium cards use the compact icon modifier at phone width');
+
+  seedSeen(app, ['amecro', 'purmar']);
+  await A.loadMigration();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const afterSeen = app.$('migResults').textContent.replace(/\s+/g, ' ');
+  assert.doesNotMatch(afterSeen, /Purple Martin/,
+    'cached source facts are re-filtered after the active seen list changes');
+  app.window.close();
+});
+
+test('F268 the current load repaints when it joins a pending GBIF source load', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date();
+  const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5);
+  const day = String(due.getMonth() + 1).padStart(2, '0') + '-'
+    + String(due.getDate()).padStart(2, '0');
+  app.window.localStorage.setItem(
+    A.firstYearKey('US-WA', now.getFullYear()),
+    JSON.stringify({
+      day: A.todayStr(), region: 'US-WA', year: now.getFullYear(),
+      declared: 0, rows: [],
+    }));
+  app.window.localStorage.setItem(A.dueBackKey('US-WA', 'Washington'), JSON.stringify({
+    at: Date.now(),
+    done: { 'Progne subis': { day, records: 840, months: 5 } },
+  }));
+  seedSeen(app, ['amecro']);
+
+  let releaseSpecies;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    if (/product\/spplist\/US-WA/.test(u)) {
+      return new Promise((resolve) => {
+        releaseSpecies = () => resolve({
+          ok: true, status: 200, headers: { get: () => null },
+          json: () => Promise.resolve(['purmar']),
+          text: () => Promise.resolve('["purmar"]'),
+        });
+      });
+    }
+    if (/ref\/taxonomy\/ebird/.test(u)) {
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: () => null },
+        json: () => Promise.resolve([{
+          speciesCode: 'purmar', comName: 'Purple Martin',
+          sciName: 'Progne subis', bandingCodes: ['PUMA'],
+        }]),
+        text: () => Promise.resolve('[]'),
+      });
+    }
+    return new Promise(() => {});
+  };
+
+  A.loadMigration();
+  A.loadMigration();
+  for (let i = 0; i < 200 && !releaseSpecies; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(typeof releaseSpecies, 'function',
+    'the shared fallback source request started');
+  releaseSpecies();
+  for (let i = 0; i < 300 && !/Purple Martin/.test(app.$('migResults').textContent); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.match(app.$('migResults').textContent, /Purple Martin/);
+  assert.match(app.$('migResults').textContent, /bundled GBIF/,
+    'the newer load attached its own repaint to the shared pending source');
+  app.window.close();
+});
+
+test('F268 eBird capture retries until the rendered bird-list rows exist', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const handlers = {};
+  let injections = 0, presented = 0, shown = 0, closed = 0, openOptions = null;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView(options) {
+      openOptions = options;
+      if (!options.hidden) presented++;
+      return Promise.resolve({ id: 'f268-window' });
+    },
+    hide() {},
+    show() { shown++; },
+    close() { closed++; },
+    executeScript() {
+      injections++;
+      const ok = injections >= 2;
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f268-window',
+        detail: {
+          __ebird: true, kind: 'firstYear', ok,
+          data: ok ? { valid: true, rows: [{ code: 'comnig' }] } : null,
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  const resultPromise = A.captureEbird({
+    kind: 'firstYear',
+    url: 'https://ebird.org/region/US-WA/bird-list?yr=cur&rank=lrec',
+    buildInject: () => '/* fixture parser */',
+    timeout: 5000,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(typeof handlers.browserPageLoaded, 'function',
+    'the fake browser registered its page-load listener');
+  assert.equal(typeof handlers.messageFromWebview, 'function',
+    'the fake browser registered its message listener');
+  assert.equal(openOptions.hidden, true,
+    'native hidden mode prevents a visible flash before openWebView resolves');
+  assert.equal(presented, 0, 'the capture was never presented by default');
+  handlers.urlChangeEvent({
+    id: 'another-window',
+    url: 'https://secure.birds.cornell.edu/cassso/login',
+  });
+  handlers.closeEvent({ id: 'another-window' });
+  assert.equal(shown, 0, 'another WebView login event cannot reveal this capture');
+  assert.equal(closed, 0, 'another WebView close event cannot abort this capture');
+  handlers.browserPageLoaded({ id: 'f268-window' });
+  let result;
+  try {
+    result = await resultPromise;
+  } catch (error) {
+    assert.fail((error && error.message || error)
+      + ' · injections=' + injections
+      + ' · listeners=' + Object.keys(handlers).sort().join(','));
+  }
+
+  assert.equal(injections, 2,
+    'the same browser page is sampled again after its first not-ready result');
+  assert.equal(closed, 1, 'the successful capture closes only its own WebView');
+  assert.equal(result.rows[0].code, 'comnig');
+  app.window.close();
+});
 
 test('app boots: Leaflet loads and the Contents menu is built', async () => {
   const app = await boot();

@@ -3593,6 +3593,119 @@
     return null;
   }
 
+  // A regional bird-list date is an OBSERVATION fact, not automatically the
+  // migration wave. Washington's 2026 page proves why: Western Tanager was
+  // first reported on Jan 2 and Rufous Hummingbird on Jan 5, both winter
+  // outliers months before their normal passage. Keep those facts available,
+  // but only call a first report "recent" inside the same two-week window the
+  // migration section already uses.
+  function firstYearEvidence(rows, today, recentDays) {
+    var now = today ? new Date(today) : new Date();
+    var dayMs = 86400000;
+    var at = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var year = at.getFullYear();
+    var windowDays = recentDays == null ? 14 : +recentDays;
+    var present = {}, recent = [], sensitive = [];
+
+    (rows || []).forEach(function (row) {
+      if (!row || !row.code) return;
+      if (row.sensitive) {
+        sensitive.push(row);
+        return;
+      }
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(row.date || ''));
+      if (!m || +m[1] !== year) return;
+      var d = new Date(+m[1], +m[2] - 1, +m[3]);
+      if (isNaN(d.getTime()) || d.getFullYear() !== +m[1]
+          || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) return;
+      var age = Math.round((at - d) / dayMs);
+      if (age < 0) return;
+      present[row.code] = row;
+      if (age <= windowDays) {
+        var copy = {};
+        Object.keys(row).forEach(function (k) { copy[k] = row[k]; });
+        copy.ageDays = age;
+        recent.push(copy);
+      }
+    });
+
+    recent.sort(function (a, b) {
+      var byAge = a.ageDays - b.ageDays;
+      if (byAge) return byAge;
+      var ac = String(a.code || ''), bc = String(b.code || '');
+      return ac < bc ? -1 : (ac > bc ? 1 : 0);
+    });
+    sensitive.sort(function (a, b) {
+      var ac = String(a.code || ''), bc = String(b.code || '');
+      return ac < bc ? -1 : (ac > bc ? 1 : 0);
+    });
+    return { present: present, recent: recent, sensitive: sensitive };
+  }
+
+  // One species can carry TWO kinds of timing without contradiction:
+  //
+  //   firstReport  factual: first eBird report in the region this year
+  //   forecast     modelled: when the broader migration wave reaches the area
+  //
+  // County weekly history is more local than the bundled state-wide GBIF
+  // model, so it wins per species. GBIF only fills species absent from the
+  // county forecast. A first report is attached to either forecast as
+  // corroborating context; it never overwrites the forecast and turns a
+  // winter outlier into a false spring-arrival claim.
+  function mergeMigrationForecast(
+      firstRows, historicRows, gbifRows, today, recentDays, historicCovered) {
+    var evidence = firstYearEvidence(firstRows, today, recentDays);
+    var expected = [], historicCodes = {}, emittedHistory = {};
+
+    if (Array.isArray(historicCovered)) {
+      historicCovered.forEach(function (item) {
+        var code = typeof item === 'string' ? item : item && item.code;
+        if (code) historicCodes[code] = 1;
+      });
+    } else if (historicCovered && typeof historicCovered === 'object') {
+      Object.keys(historicCovered).forEach(function (code) {
+        historicCodes[code] = 1;
+      });
+    }
+
+    (historicRows || []).forEach(function (row) {
+      if (!row || !row.code || emittedHistory[row.code]) return;
+      emittedHistory[row.code] = 1;
+      historicCodes[row.code] = 1;
+      var copy = {};
+      Object.keys(row).forEach(function (k) { copy[k] = row[k]; });
+      copy.source = 'history';
+      copy.forecastDays = Math.max(0, +(row.weeksUntil || 0) * 7);
+      copy.firstReport = evidence.present[row.code] || null;
+      expected.push(copy);
+    });
+
+    (gbifRows || []).forEach(function (row) {
+      if (!row || !row.code || historicCodes[row.code]) return;
+      var days = +row.days;
+      if (!isFinite(days) || days < 0) return;
+      var copy = {};
+      Object.keys(row).forEach(function (k) { copy[k] = row[k]; });
+      copy.source = 'gbif';
+      copy.forecastDays = days;
+      copy.firstReport = evidence.present[row.code] || null;
+      expected.push(copy);
+    });
+
+    expected.sort(function (a, b) {
+      var byDay = a.forecastDays - b.forecastDays;
+      if (byDay) return byDay;
+      var ac = String(a.code || ''), bc = String(b.code || '');
+      return ac < bc ? -1 : (ac > bc ? 1 : 0);
+    });
+    return {
+      present: evidence.present,
+      recent: evidence.recent,
+      sensitive: evidence.sensitive,
+      expected: expected
+    };
+  }
+
   function daysUntil(mmdd, today) {
     if (!mmdd) return null;
     var t = today ? new Date(today) : new Date();
@@ -4427,6 +4540,8 @@
     isPublicPlace: isPublicPlace,
     reportsForState: reportsForState,
     arrivalDay: arrivalDay,
+    firstYearEvidence: firstYearEvidence,
+    mergeMigrationForecast: mergeMigrationForecast,
     daysUntil: daysUntil,
     prettyMMDD: prettyMMDD,
     scoutGroups: scoutGroups,
