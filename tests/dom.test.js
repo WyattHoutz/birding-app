@@ -15847,8 +15847,16 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
     'the four-letter and eBird codes are not together on the next line');
   assert.equal(mega.querySelector('.ntext > .spcode'), null,
     'the eBird code still competes with the common name');
-  assert.match(identifier.textContent,
-    /mi,\s*Ocean Shores Jetty.*?,\s*9\/2 \d{1,2}:\d{2}[ap]\./s,
+  const compact = identifier.textContent.replace(/\s+/g, ' ').trim();
+  const absolute = identifier.querySelector('.surgeabsolute').textContent.trim();
+  const distanceAt = compact.indexOf('mi,');
+  const placeAt = compact.indexOf('Ocean Shores Jetty');
+  const dateAt = compact.indexOf(absolute);
+  assert.match(absolute, /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap]$/,
+    'the compact absolute date no longer states month, day and time');
+  assert.ok(compact.includes(absolute + '.'),
+    'the compact evidence line no longer ends as a sentence');
+  assert.ok(distanceAt >= 0 && distanceAt < placeAt && placeAt < dateAt,
     'place and latest time do not follow the mileage in the compact fact line');
   assert.equal(mega.querySelector('.splink').getAttribute('data-sp'), 'nazboo1',
     'tapping the bird name no longer opens its Species Stakeout');
