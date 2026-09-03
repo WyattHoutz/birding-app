@@ -710,6 +710,15 @@ ferry-gated hotspot 17 mi away scores 52 effective miles, so a penalised 35 mi
 radius would have dropped it — and since rarities arrive through the geo feed,
 dropped it invisibly rather than merely ranking it lower.
 
+F254 adds a second shared layer without bundling county data. The app fetches
+eBird county names and bounding boxes directly, while `county_scope.py` is the
+Python reference for the same geometry. `test_county_scope.py` independently
+enumerates the expected Washington sets, then proves both sides use the nearest
+bounding-box edge, recompute from Home, derive the Half-day/Full-day ceilings
+from `travel-zones.json`, and classify the actual hotspot rather than its
+county. County bounds decide what is worth fetching; they never promise how
+long the destination itself takes.
+
 ## County-scoped auxiliary panels
 
 Beyond the chase engine, the auxiliary panels — BirdCast, time-of-day

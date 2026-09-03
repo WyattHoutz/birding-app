@@ -341,13 +341,14 @@
       "queue_risk_minutes": 120
     },
     "mainland|olympic": {
-      "minutes": 47,
+      "minutes": 81,
       "via": "⛴ ferry, then the Hood Canal Bridge",
       "gate": "ferry",
-      "measured_minutes": 34,
+      "measured_minutes": 68,
       "queue_minutes": 13,
       "ferry_count": 1,
       "queue_risk_minutes": 120,
+      "_why": "Port Townsend is 135 minutes each way in the owner's measured route. The 32-mile straight-line base contributes 54.86 minutes at 35 mph, leaving 80.14 minutes; the integer model rounds that upward to 68 route minutes plus the standard 13-minute ferry queue allowance so the strict 4.5-hour boundary remains a trip.",
       "hood_canal_closure_minutes": 55,
       "hood_canal_detour_ferries": [
         "Mukilteo-Clinton Ferry",

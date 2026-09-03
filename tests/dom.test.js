@@ -453,6 +453,8 @@ test('every section the report maps has a map container, wired to a renderer', a
 
   const mapped = CONTRACT.menu.filter((m) => m.map);
   assert.ok(mapped.length >= 6, 'contract lists the report-mapped sections');
+  assert.match(HTML, /#destMap,\s*#excMap,\s*#fullDayMap,/,
+    'the Full-day Leaflet container has no shared height/aspect-ratio rule');
   for (const m of mapped) {
     const el = app.$(m.map);
     assert.ok(el, `#${m.map} container missing for "${m.label}"`);
@@ -462,8 +464,14 @@ test('every section the report maps has a map container, wired to a renderer', a
     // A container nobody draws into is the bug that shipped in v1.0.5: Hot,
     // Cold and Birdiest rendered lists with no map even though the report maps
     // them. Require the container to be handed to a map renderer.
-    const wired = lines.some((ln) =>
+    let wired = lines.some((ln) =>
       ln.includes("$('" + m.map + "')") && RENDERERS.some((f) => ln.includes(f + '(')));
+    if (!wired && (m.at === 'excBtn' || m.at === 'fullDayBtn')) {
+      const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
+        HTML.indexOf('function loadExcursions('));
+      wired = tier.includes('renderDestinations(rows, $(mapId), $(resultsId))')
+        && HTML.includes("'" + m.map + "'");
+    }
     assert.ok(wired, `#${m.map} exists but is never passed to a map renderer`);
   }
   // Sections the report does NOT map must not sprout stray map containers.
@@ -2135,21 +2143,21 @@ test('the rate limiter is sized for the key it actually has to itself', () => {
     + 'queued call for a 20s cooldown');
 });
 
-test('the Go birding anchor now covers six sections, and rank from it', async () => {
+test('the Go birding anchor now covers seven sections, and rank from it', async () => {
   const app = await boot();
   const doc = app.window.document, A = app.window.__app;
 
   // Quick outing NAVIGATES between anchors (it is the destination); the other
-  // five RE-RANK in place. Different verbs, same three options in the same
-  // order — that is what makes it one template rather than six menus.
+  // six RE-RANK in place. Different verbs, same three options in the same
+  // order — that is what makes it one template rather than seven menus.
   //
   // F241. Grew from three to five: 📋 Near misses and 🥚 Nemesis birds gained
   // the switch on "add the control for find/here/home to the near misses and
   // common misses" — six sections in all now offer Here / Home / Find…
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
-  assert.equal(rows.length, 5,
-    'Today\u2019s patches, Day-trip patches, Closest patches, Near misses '
-    + 'and Nemesis birds each carry the switch');
+  assert.equal(rows.length, 6,
+    'Today\u2019s, Half-day, Full-day, Closest, Near misses and Nemesis '
+    + 'each carry the switch');
   for (const r of rows) {
     const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
     assert.deepEqual(chips, ['here', 'home', 'find'],
@@ -2158,10 +2166,10 @@ test('the Go birding anchor now covers six sections, and rank from it', async ()
   const quick = [...doc.querySelectorAll('.modeswitch[data-modes="quick"] .modebtn')]
     .map((b) => (b.getAttribute('data-goto') || '').replace('quick:', ''));
   assert.deepEqual(quick, ['here', 'home', 'find'],
-    'and Quick outing still offers exactly those, so the six agree');
+    'and Quick outing still offers exactly those, so the seven agree');
 
   // The single choke point for the THREE sections that re-rank an already
-  // fetched CANDIDATE SET (Today's patches, Day-trip patches, Closest unseen
+  // fetched CANDIDATE SET (Today's patches, Half-day/Full-day, Closest unseen
   // birds). Near misses and Nemesis birds are NOT claimed here: Near misses
   // deliberately stays home-anchored (its list mirrors report.py's Closest
   // spots and is parity-tested; re-ranking it is a separate, larger change),
@@ -3405,23 +3413,31 @@ test('only chase-derived sections repaint on the phase-1 publish', () => {
   // it re-issued those, and at ~3.3 s per call under the measured rate limit
   // that turned a free repaint into a 30-second reload — reported from a device
   // as "happening now appears to be in a load loop".
-  const src = HTML.slice(HTML.indexOf('function onChasePartial('),
-    HTML.indexOf('function onChasePartial(') + 900);
+  const repaintAt = HTML.indexOf('function onChasePartial(');
+  const repaintEnd = HTML.indexOf('function autoLoad(', repaintAt);
+  assert.ok(repaintAt > 0 && repaintEnd > repaintAt,
+    'onChasePartial and autoLoad no longer bound the repaint implementation');
+  const src = HTML.slice(repaintAt, repaintEnd);
   assert.match(src, /spec\.fromChase/,
     'the repaint is restricted to loaders that issue no requests of their own');
   assert.match(src, /_partialDone\[slug\]/,
     'and fires once per wave, so a repaint can never cascade');
+  assert.match(src, /-tier-\(half\|full\)/,
+    'tier phase two has no separate repaint path');
+  assert.match(src, /loadFullDay\(\).*loadExcursions\(\)/s,
+    'the tier repaint no longer targets the matching visible board');
 
   const loaders = HTML.slice(HTML.indexOf('var LOADERS = {'),
         HTML.indexOf('var _autoLoaded'));
   // These render purely from the chase cache — verified by grepping each loader
   // for its own ebird() calls.
-  ['allUnseenBtn', 'activeBtn', 'destBtn', 'targetsBtn', 'excBtn'].forEach((id) => {
+  ['allUnseenBtn', 'activeBtn', 'destBtn', 'targetsBtn'].forEach((id) => {
     assert.match(loaders, new RegExp(id + ':[^\\n]*fromChase: true'),
       id + ' renders from the chase cache and may repaint');
   });
   // These fetch their own feeds and must NOT be repainted.
-  ['surgeBtn', 'convoyBtn', 'tripBtn', 'quickBtn', 'easyBtn', 'rankBtn', 'abaBtn'].forEach((id) => {
+  ['surgeBtn', 'convoyBtn', 'tripBtn', 'quickBtn', 'easyBtn', 'rankBtn',
+    'abaBtn', 'excBtn', 'fullDayBtn'].forEach((id) => {
     const line = loaders.split('\n').filter((l) => l.indexOf(id + ':') >= 0)[0] || '';
     assert.ok(line && line.indexOf('fromChase') < 0,
       id + ' issues its own requests, so repainting it would refetch');
@@ -6557,7 +6573,7 @@ test('a full chase clear invalidates and unregisters detached phase two', async 
   assert.equal(A.chasePhase2(slug), null,
     'a new getChase cannot join the obsolete phase-two promise');
 
-  const start = HTML.indexOf('function getChaseAll(force)');
+  const start = HTML.indexOf('function getChaseAll(');
   const end = HTML.indexOf('function anyRows(rows)', start);
   const src = HTML.slice(start, end);
   assert.match(src, /requireCurrentChase\(\);\s*applyFetchResults\(spResults\)/,
@@ -11739,7 +11755,7 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
 // can be re-anchored must SAY where it ranked from, and draw itself around
 // that point. A silent correct answer is indistinguishable from no answer.
 test('a re-anchorable section says where it ranked from, and maps it there', () => {
-  const anchored = ['loadTargets', 'loadDestinations', 'loadExcursions'];
+  const anchored = ['loadTargets', 'loadDestinations', 'loadDayTier'];
   anchored.forEach(function (fn) {
     const at = HTML.indexOf('function ' + fn + '(');
     assert.ok(at > 0, fn + ' exists');
@@ -12788,13 +12804,13 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // and will move again. What is asserted is the property the entry was
   // written for: each of these is its own top-level tile rather than a mode
   // buried inside another section, and they sit together.
-  const GO = ['destBtn', 'excBtn', 'favResults', 'quickBtn', 'targetsBtn',
+  const GO = ['destBtn', 'excBtn', 'fullDayBtn', 'favResults', 'quickBtn', 'targetsBtn',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Today', 'Day-trip patches', 'Find local patches',
+  for (const want of ['Today', 'Half-day patches', 'Full-day patches', 'Find local patches',
                       'Closest patches', 'Stakeout bird', 'Stake out a hotspot',
                       'Iconic spots near me',
                       'Hot patches', 'Cold patches']) {
@@ -13308,6 +13324,349 @@ test('destinations and excursions drop hotspots with nothing you need', async ()
   A.renderDestinations([list[1]], doc.getElementById('destMap'), doc.getElementById('destResults'));
   assert.match(doc.getElementById('destResults').textContent, /No hotspot in range/,
     'an empty section explains itself');
+  app.window.close();
+});
+
+test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', async () => {
+  const list = [
+    { code: 'US-WA-067', name: 'Thurston' },
+    { code: 'US-WA-007', name: 'Chelan' },
+    { code: 'US-WA-063', name: 'Spokane' },
+    { code: 'US-WA-099', name: 'Synthetic Near County' },
+  ];
+  const info = {
+    'US-WA-067': {
+      bounds: { minX: -123.202760, maxX: -122.217056, minY: 46.762589, maxY: 47.186668 },
+    },
+    'US-WA-007': {
+      bounds: { minX: -121.180688, maxX: -119.859017, minY: 47.258622, maxY: 48.550461 },
+    },
+    'US-WA-063': {
+      bounds: { minX: -117.822762, maxX: -117.041809, minY: 47.258579, maxY: 48.047691 },
+    },
+    'US-WA-099': {
+      bounds: { minX: -122.20, maxX: -122.10, minY: 47.70, maxY: 47.80 },
+    },
+  };
+  let chelanReads = 0;
+  const fetch = (url) => {
+    if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) return list;
+    const found = /ref\/region\/info\/(US-WA-\d+)/.exec(url);
+    if (!found) return null;
+    if (found[1] === 'US-WA-007' && ++chelanReads === 1) return { bounds: {} };
+    return info[found[1]];
+  };
+  const app = await boot({ fetch });
+  const A = app.window.__app;
+  const regionCalls = () => app.state.fetches.filter((url) => /ref\/region\//.test(url));
+  assert.equal(regionCalls().length, 0,
+    'county metadata was fetched before a day tier asked for it');
+
+  const first = await A.tripScopeProfile('full');
+  assert.equal(first.countyScopeComplete, false,
+    'a malformed county response was presented as a complete scope');
+  assert.deepEqual(arr(first.countyScopeFailed), ['US-WA-007']);
+  assert.deepEqual(arr(first.tierCountyCodes), ['US-WA-067', 'US-WA-099'],
+    'the partial catalog did not preserve the valid API-selected counties');
+
+  const full = await A.tripScopeProfile('full');
+  assert.equal(full.countyScopeComplete, true);
+  assert.deepEqual(arr(full.tierCountyCodes), ['US-WA-007', 'US-WA-067', 'US-WA-099'],
+    'the retry did not add the recovered county and the synthetic API county');
+  const planned = app.window.BirdLogic.planFeeds(full).map((feed) => feed.file);
+  assert.ok(planned.includes('us-wa-099-recent.json'),
+    'the feed plan is still backed by a hidden authored county list');
+  assert.ok(planned.includes('us-wa-007-notable.json'));
+  assert.equal(chelanReads, 2, 'the malformed county response was cached as an answer');
+
+  const afterRetry = regionCalls().length;
+  await A.tripScopeProfile('full');
+  assert.equal(regionCalls().length, afterRetry,
+    'a complete catalog was fetched again in the same session');
+
+  const persisted = {};
+  for (let i = 0; i < app.window.localStorage.length; i++) {
+    const key = app.window.localStorage.key(i);
+    if (key && key.startsWith('bc_county_meta_v1:')) {
+      persisted[key] = app.window.localStorage.getItem(key);
+    }
+  }
+  assert.equal(Object.keys(persisted).length, 5,
+    'the list and four valid county bounds were not stored under the permanent shared owner');
+
+  app.window.localStorage.setItem(A.homeKey('lat'), '47.66');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-117.43');
+  const moved = await A.tripScopeProfile('full');
+  assert.deepEqual(arr(moved.tierCountyCodes), ['US-WA-063'],
+    'moving Home reused a cached derived selection instead of the cached raw catalog');
+  assert.equal(regionCalls().length, afterRetry,
+    'moving Home refetched static county metadata');
+  app.window.close();
+
+  let restartedCalls = 0;
+  const restarted = await boot({
+    storage: { ...persisted, bc_profile: 'other' },
+    fetch(url) {
+      if (/ref\/region\//.test(url)) {
+        restartedCalls++;
+        return { __status: 400, __body: { error: 'metadata should be cached' } };
+      }
+      return null;
+    },
+  });
+  const restored = await restarted.window.__app.tripScopeProfile('full');
+  assert.deepEqual(arr(restored.tierCountyCodes), ['US-WA-007', 'US-WA-067', 'US-WA-099']);
+  assert.equal(restartedCalls, 0,
+    'a new app process did not reuse the permanent county catalog');
+  restarted.window.close();
+});
+
+test('F254 rejects county scope that resolves after Home changes', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  await A.loadTravelZones();
+  let resolveInfo;
+  const response = (body) => Promise.resolve({
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(JSON.stringify(body)),
+    json: () => Promise.resolve(body),
+  });
+  app.window.fetch = (url) => {
+    if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
+      return response([{ code: 'US-WA-067', name: 'Thurston' }]);
+    }
+    if (/ref\/region\/info\/US-WA-067/.test(url)) {
+      return new Promise((resolve) => {
+        resolveInfo = () => resolve({
+          ok: true, status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify({
+            bounds: { minX: -123.202760, maxX: -122.217056,
+              minY: 46.762589, maxY: 47.186668 },
+          })),
+          json: () => Promise.resolve({
+            bounds: { minX: -123.202760, maxX: -122.217056,
+              minY: 46.762589, maxY: 47.186668 },
+          }),
+        });
+      });
+    }
+    return new Promise(() => {});
+  };
+  const pending = A.tripScopeProfile('full');
+  for (let i = 0; i < 50 && !resolveInfo; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(resolveInfo, 'the deferred county-info request never started');
+  app.window.localStorage.setItem(A.homeKey('lat'), '47.66');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-117.43');
+  A.clearChaseCache(false);
+  resolveInfo();
+  await assert.rejects(pending, /superseded/i,
+    'an old-Home county result was allowed to start a current-generation tier wave');
+  app.window.close();
+});
+
+test('F254 an all-failed county catalog is unavailable, not a rarity tracker', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
+        return [{ code: 'US-WA-067', name: 'Thurston' }];
+      }
+      if (/ref\/region\/info\/US-WA-067/.test(url)) return { bounds: {} };
+      return null;
+    },
+  });
+  await assert.rejects(app.window.__app.tripScopeProfile('full'),
+    /county bounds.*unavailable/i,
+    'an empty failed scope was converted into a successful zero-county profile');
+  app.window.close();
+});
+
+test('F254 tier chase preserves its derived profile and projects Full-day separately', async () => {
+  const today = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())} 08:00`;
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
+        return [{ code: 'US-WA-099', name: 'Synthetic Near County' }];
+      }
+      if (/ref\/region\/info\/US-WA-099/.test(url)) {
+        return { bounds: { minX: -122.20, maxX: -122.10, minY: 47.70, maxY: 47.80 } };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  const baseRows = [1, 2, 3, 4].map((n) => ({
+    speciesCode: 'base' + n, comName: 'Base Bird ' + n,
+    obsDt: stamp, locName: 'Base Park ' + n, locId: 'LBASE' + n,
+    subId: 'SBASE' + n, lat: 47.75 + n * 0.015, lng: -122.16,
+    subnational2Code: 'US-WA-033', subnational2Name: 'King',
+  }));
+  A.seedChase(base.slug, {
+    t: Date.now(),
+    rarity: false,
+    rows: { 'king-recent.json': baseRows },
+    speciesCodes: baseRows.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const profile = await A.tripScopeProfile('full');
+  A.seedChase(profile.slug, {
+    t: Date.now(),
+    rarity: false,
+    rows: {
+      'us-wa-099-recent.json': [{
+        speciesCode: 'leabir', comName: 'Leavenworth Bird',
+        obsDt: stamp, locName: 'Leavenworth', locId: 'LLEA', subId: 'SLEA',
+        lat: 47.5962, lng: -120.6615, subnational2Code: 'US-WA-099',
+        subnational2Name: 'Synthetic Near County',
+      }],
+    },
+    speciesCodes: ['leabir'],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  const before = app.state.fetches.filter((url) => /data\/obs\//.test(url)).length;
+  const result = await A.getTierChase('full');
+  assert.equal(result.profile.slug, profile.slug,
+    'the tier snapshot was reprojected through the base Washington profile');
+  assert.equal(result.profile.tierBand, 'full');
+  assert.deepEqual(arr(result.cv.excursions, (row) => row.loc), []);
+  assert.deepEqual(arr(result.cv.fullDay, (row) => row.loc), ['Leavenworth']);
+  assert.equal(result.cv.fullDay[0].travelBand, 'full');
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\//.test(url)).length, before,
+    'a fresh tier snapshot was ignored and refetched');
+  app.window.close();
+});
+
+test('F254 adds a Full-day sibling instead of widening the Half-day section', () => {
+  const half = CONTRACT.menu.findIndex((item) => item.at === 'excBtn');
+  const full = CONTRACT.menu.findIndex((item) => item.at === 'fullDayBtn');
+  assert.ok(half >= 0, 'the existing excursion section disappeared');
+  assert.equal(CONTRACT.menu[half].label, '🚗 Half-day patches');
+  assert.equal(CONTRACT.menu[half].report,
+    '## 🚗 Half-day patches — Top half-day hotspots');
+  assert.equal(full, half + 1,
+    'Full-day must be a sibling immediately after Half-day, not a mode hidden inside it');
+  assert.equal(CONTRACT.menu[full].label, '🛣️ Full-day patches');
+  assert.equal(CONTRACT.menu[full].report,
+    '## 🛣️ Full-day patches — Top full-day hotspots');
+  assert.match(HTML, /id="fullDayBtn"[\s\S]*id="fullDayMap"[\s\S]*id="fullDayResults"/,
+    'the Full-day contract has no independently loadable panel');
+});
+
+test('F254 Half-day and Full-day loaders render disjoint seeded tier results', async () => {
+  const today = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())} 08:00`;
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
+        return [
+          { code: 'US-WA-067', name: 'Thurston' },
+          { code: 'US-WA-007', name: 'Chelan' },
+        ];
+      }
+      if (/ref\/region\/info\/US-WA-067/.test(url)) {
+        return {
+          bounds: { minX: -123.202760, maxX: -122.217056, minY: 46.762589, maxY: 47.186668 },
+        };
+      }
+      if (/ref\/region\/info\/US-WA-007/.test(url)) {
+        return {
+          bounds: { minX: -121.180688, maxX: -119.859017, minY: 47.258622, maxY: 48.550461 },
+        };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  const baseRows = [1, 2, 3, 4].map((n) => ({
+    speciesCode: 'base' + n, comName: 'Base Bird ' + n,
+    obsDt: stamp, locName: 'Base Park ' + n, locId: 'LBASE' + n,
+    subId: 'SBASE' + n, lat: 47.75 + n * 0.015, lng: -122.16,
+    subnational2Code: 'US-WA-033', subnational2Name: 'King',
+  }));
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false, rows: { 'king-recent.json': baseRows },
+    speciesCodes: baseRows.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const halfProfile = await A.tripScopeProfile('half');
+  const fullProfile = await A.tripScopeProfile('full');
+  const rows = {
+    'us-wa-067-recent.json': [{
+      speciesCode: 'nisbir', comName: 'Nisqually Bird',
+      obsDt: stamp, locName: 'Nisqually NWR', locId: 'LNIS', subId: 'SNIS',
+      lat: 47.0725, lng: -122.7100,
+      subnational2Code: 'US-WA-067', subnational2Name: 'Thurston',
+    }],
+    'us-wa-007-recent.json': [{
+      speciesCode: 'leabir', comName: 'Leavenworth Bird',
+      obsDt: stamp, locName: 'Leavenworth', locId: 'LLEA', subId: 'SLEA',
+      lat: 47.5962, lng: -120.6615,
+      subnational2Code: 'US-WA-007', subnational2Name: 'Chelan',
+    }],
+  };
+  const seed = (profile) => A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows,
+    speciesCodes: ['leabir', 'nisbir'],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  seed(halfProfile);
+  seed(fullProfile);
+
+  const halfLoad = A.loadExcursions();
+  assert.ok(halfLoad && typeof halfLoad.then === 'function',
+    'Half-day loader cannot be awaited or repainted after phase two');
+  await halfLoad;
+  const halfText = app.$('excResults').textContent;
+  assert.match(halfText, /Nisqually NWR/);
+  assert.match(halfText, /half day/);
+  assert.doesNotMatch(halfText, /Leavenworth/);
+
+  const fullLoad = A.loadFullDay();
+  assert.ok(fullLoad && typeof fullLoad.then === 'function',
+    'Full-day loader cannot be awaited or repainted after phase two');
+  await fullLoad;
+  const fullText = app.$('fullDayResults').textContent;
+  assert.match(fullText, /Leavenworth/);
+  assert.match(fullText, /full day/);
+  assert.doesNotMatch(fullText, /Nisqually NWR/);
+  assert.equal(new Set([
+    ...app.$('excResults').querySelectorAll('.hscard'),
+    ...app.$('fullDayResults').querySelectorAll('.hscard'),
+  ]).size, 2, 'the two tier boards did not render one independent card each');
+
+  A.seedChase(fullProfile.slug, {
+    t: Date.now(), rarity: false,
+    rows: {
+      'us-wa-067-recent.json': [],
+      'us-wa-067-notable.json': [],
+      'us-wa-007-recent.json': [],
+      'us-wa-007-notable.json': [],
+    },
+    speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(fullProfile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(fullProfile),
+    feedFailed: true, feedComplete: false, partial: false, stale: false,
+  });
+  await A.loadFullDay();
+  assert.match(app.$('fullDayStatus').textContent, /incomplete|unavailable/i,
+    'failed tier feeds are presented as a confident empty result');
+  assert.doesNotMatch(app.$('fullDayStatus').textContent,
+    /No target-rich|updated \d/i,
+    'a failed or stale tier claims a current successful answer');
   app.window.close();
 });
 
@@ -13990,14 +14349,15 @@ test('the Go birding sections refresh observations, not the world', () => {
   assert.ok(!re.test('ref/hotspot/US-WA-033'),
     'and NOT the hotspot directory, which is a list of parks');
 
-  // All four sections wired: destinations and excursions through getChase,
-  // hot and cold through their own scan.
+  // All five sections wired: Today through getChase, both day tiers through
+  // getTierChase, and hot/cold through their own scan.
   const dest = HTML.slice(HTML.indexOf('function loadDestinations'),
     HTML.indexOf('function loadDestinations') + 1200);
   assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top patches');
-  const exc = HTML.slice(HTML.indexOf('function loadExcursions'),
-    HTML.indexOf('function loadExcursions') + 1200);
-  assert.match(exc, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Worth the drive');
+  const tiers = HTML.slice(HTML.indexOf('function loadDayTier'),
+    HTML.indexOf('function loadExcursions'));
+  assert.match(tiers, /getTierChase\(bandId, takeForce\(\) \? 'obs' : false/,
+    'Half-day and Full-day');
   const scan = HTML.slice(HTML.indexOf('function runHotspotScan'),
     HTML.indexOf('function runHotspotScan') + 2600);
   assert.match(scan, /if \(opts\.force\) ebClearMatching\(FORCE_OBS_RE\)/,
@@ -14428,7 +14788,7 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
   // nowhere near it": the failure names the wrong culprit and costs a bisect.
   // Both landmarks below are unique in index.html.
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-  const from = HTML.indexOf('function getChaseAll(force)');
+  const from = HTML.indexOf('function getChaseAll(');
   const to = HTML.indexOf('function fetchAll(list, step, bg)');
   assert.ok(from > 0 && to > from,
     'getChaseAll and its inner fetchAll still bound the window this reads');
@@ -14881,10 +15241,10 @@ test('planFeeds sends the two geo feeds different distances', () => {
 // cached wave taken at a smaller distance cannot answer a wider question — and
 // serving it would put "within 75 mi" over rows never looked for past 35.
 test('widening the radius invalidates a narrower cached wave', () => {
-  const src = HTML.slice(HTML.indexOf('function getChaseAll(force)'),
+  const src = HTML.slice(HTML.indexOf('function getChaseAll('),
                          HTML.indexOf('function fetchAll(list, step, bg)'));
-  assert.match(src, /var profile = chaseProfile\(\)/,
-    'the wave is planned from the reader\'s radius, not the profile default');
+  assert.match(src, /var profile = profileOverride \|\| chaseProfile\(\)/,
+    'the wave is planned from the reader\'s radius or an explicit tier profile');
   assert.match(src, /c\.geoNotableKm < wantKm/,
     'a cached wave taken at a SMALLER distance is dropped');
   assert.ok(!/c\.geoNotableKm > wantKm/.test(src),
@@ -17407,13 +17767,13 @@ test('a short Top patches list says which radius it covered', () => {
   // 11 mi out and the section stops at the daily-drive radius.
   //
   // WIDENING WOULD BE THE WRONG FIX, which is the part worth pinning. Beyond
-  // this radius IS "Worth the drive", already its own section, so a ladder here
+  // this radius IS Half-day patches, already its own section, so a ladder here
   // would print that section twice.
   const at = HTML.indexOf('function loadDestinations');
-  const src = HTML.slice(at, HTML.indexOf('\n      // --- Top excursions', at));
+  const src = HTML.slice(at, HTML.indexOf('function loadDayTier', at));
   assert.ok(at > 0, 'loadDestinations not found');
   assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
-  assert.ok(/Day-trip patches/.test(src),
+  assert.ok(/Half-day patches/.test(src),
     'the note does not point at the section holding everything further out');
   assert.ok(/destRadiusMi\(\)/.test(src),
     'the note does not name the radius, so it states a limit without saying what it is');
@@ -22553,7 +22913,7 @@ test('F260: a moved home still abandons the running wave', async () => {
 
   // The background refresh must be REGISTERED, or the force guard is
   // unreachable on the stale-but-today path.
-  const gs = HTML.indexOf('function getChaseAll(force)');
+  const gs = HTML.indexOf('function getChaseAll(');
   const ge = HTML.indexOf('function anyRows(rows)', gs);
   const gc = HTML.slice(gs, ge);
   assert.match(gc, /_chaseRefresh\[slug\] = bg;/,
@@ -22975,7 +23335,7 @@ test('F267: a caller arriving during phase 2 joins it instead of starting a riva
   assert.ok(waves <= 3, `one wave's worth of alert feeds, not two: ${waves}`);
 
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-  const from = HTML.indexOf('function getChaseAll(force)');
+  const from = HTML.indexOf('function getChaseAll(');
   const to = HTML.indexOf('function anyRows(rows)', from);
   const gc = HTML.slice(from, to);
 

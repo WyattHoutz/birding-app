@@ -1037,8 +1037,8 @@
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
-    #spLookupMap:empty, #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
+    #destMap, #excMap, #fullDayMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #spLookupMap:empty, #destMap:empty, #excMap:empty, #fullDayMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
@@ -2382,14 +2382,25 @@
     </section>
 
     <section class="panel">
-      <h2>🚗 Day-trip patches <span class="dim" id="excRegionLabel"></span></h2>
+      <h2>🚗 Half-day patches <span class="dim" id="excRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
-        <button id="excBtn">Find excursions</button>
+        <button id="excBtn">Find half-day options</button>
       </div>
-      <div id="excStatus" class="status">Target-rich hotspots beyond a day-trip radius (needs Home set).</div>
+      <div id="excStatus" class="status">Target-rich hotspots for a half-day outing, with county scope derived from Home.</div>
       <div id="excMap"></div>
       <ul id="excResults" class="obs dest"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🛣️ Full-day patches <span class="dim" id="fullDayRegionLabel"></span></h2>
+      <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
+      <div class="row">
+        <button id="fullDayBtn">Find full-day options</button>
+      </div>
+      <div id="fullDayStatus" class="status">Farther target-rich hotspots worth planning a full day around, loaded only when this section opens.</div>
+      <div id="fullDayMap"></div>
+      <ul id="fullDayResults" class="obs dest"></ul>
     </section>
 
     <section class="panel">
@@ -3005,6 +3016,7 @@
         //   than a cosmetic one. A guard now ties this entry to CKL_NS.
         'ebird_ebirders_count_v1',  // a published statistic
         'ebird_aba_archive_v1',     // the ABA alert archive
+        'bc_county_meta_v1:',       // static eBird county names + bounds
         'bc_easyread',              // accessibility, not identity
         'bc_theme'                  // a look, not a list - shared like text size
       ];
@@ -3097,7 +3109,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.66.0';
+      var APP_VERSION = '1.67.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3160,6 +3172,202 @@
         out.chaseMaxMi = mi;
         out.home = home;
         return out;
+      }
+      var COUNTY_META_NS = 'bc_county_meta_v1:';
+      var _countyCatalogInflight = {};
+      var _travelZonesPromise = null;
+
+      function loadTravelZones() {
+        if (_travelZonesPromise) return _travelZonesPromise;
+        _travelZonesPromise = fetch('travel-zones.json').then(function (r) {
+          if (!r || !r.ok) throw new Error('Travel zones are unavailable');
+          return r.json();
+        }).then(function (cfg) {
+          if (!cfg || !Array.isArray(cfg.bands)) {
+            throw new Error('Travel zones have no day bands');
+          }
+          return cfg;
+        }).catch(function (e) {
+          _travelZonesPromise = null;
+          throw e;
+        });
+        return _travelZonesPromise;
+      }
+
+      function countyParentCode(profile) {
+        var code = String((profile && profile.stateCode) || '').trim().toUpperCase();
+        return /^[A-Z]{2}-[A-Z0-9]{2,3}$/.test(code) ? code : '';
+      }
+
+      function countyListKey(parent) {
+        return COUNTY_META_NS + 'list:' + parent;
+      }
+
+      function countyInfoKey(code) {
+        return COUNTY_META_NS + 'info:' + code;
+      }
+
+      function countyListRows(value) {
+        if (!Array.isArray(value)) return [];
+        return value.map(function (row) {
+          var code = String((row && row.code) || '').trim().toUpperCase();
+          var name = String((row && row.name) || code).trim();
+          return code ? { code: code, name: name } : null;
+        }).filter(Boolean);
+      }
+
+      function countyInfoRow(value, fallback) {
+        var b = value && value.bounds;
+        var nums = b && [b.minX, b.maxX, b.minY, b.maxY].map(Number);
+        if (!nums || !nums.every(isFinite)) return null;
+        return {
+          code: fallback.code,
+          name: fallback.name || fallback.code,
+          bounds: {
+            minX: nums[0], maxX: nums[1], minY: nums[2], maxY: nums[3]
+          }
+        };
+      }
+
+      function forgetCountyValue(key, path) {
+        zcForget(key);
+        try { localStorage.removeItem(key); } catch (e) {}
+        if (path && _ebCache[path]) delete _ebCache[path];
+      }
+
+      function ensureCountyCatalog(parent, onProgress) {
+        parent = String(parent || '').trim().toUpperCase();
+        if (!parent) return Promise.reject(new Error('This report has no county parent region'));
+        if (_countyCatalogInflight[parent]) return _countyCatalogInflight[parent];
+        var listKey = countyListKey(parent);
+        var listPath = 'ref/region/list/subnational2/' + encodeURIComponent(parent);
+
+        function readList() {
+          return zcGet(listKey).then(function (cached) {
+            var rows = countyListRows(cached);
+            if (rows.length) return rows;
+            if (cached != null) forgetCountyValue(listKey, listPath);
+            return ebird(listPath, false, true).then(function (live) {
+              rows = countyListRows(live);
+              if (!rows.length) {
+                forgetCountyValue(listKey, listPath);
+                throw new Error('eBird returned no counties for ' + parent);
+              }
+              return zcPut(listKey, rows).then(function () { return rows; });
+            });
+          });
+        }
+
+        function readInfo(item) {
+          var key = countyInfoKey(item.code);
+          var path = 'ref/region/info/' + encodeURIComponent(item.code);
+          return zcGet(key).then(function (cached) {
+            var row = countyInfoRow(cached, item);
+            if (row) return row;
+            if (cached != null) forgetCountyValue(key, path);
+            return ebird(path, false, true).then(function (live) {
+              row = countyInfoRow(live, item);
+              if (!row) {
+                forgetCountyValue(key, path);
+                throw new Error('eBird returned invalid bounds for ' + item.code);
+              }
+              return zcPut(key, row).then(function () { return row; });
+            });
+          });
+        }
+
+        var promise = readList().then(function (items) {
+          var done = 0;
+          return Promise.all(items.map(function (item) {
+            return readInfo(item).then(function (row) {
+              done++;
+              if (typeof onProgress === 'function') onProgress(done, items.length, item.name);
+              return { row: row };
+            }).catch(function (error) {
+              done++;
+              if (typeof onProgress === 'function') onProgress(done, items.length, item.name);
+              return { code: item.code, error: error };
+            });
+          })).then(function (results) {
+            var rows = [], failed = [];
+            results.forEach(function (result) {
+              if (result.row) rows.push(result.row);
+              else if (result.code) failed.push(result.code);
+            });
+            rows.sort(function (a, b) {
+              return a.code < b.code ? -1 : (a.code > b.code ? 1 : 0);
+            });
+            failed.sort();
+            return {
+              rows: rows,
+              failed: failed,
+              complete: failed.length === 0 && rows.length === items.length,
+              total: items.length
+            };
+          });
+        });
+        _countyCatalogInflight[parent] = promise;
+        promise.catch(function () {}).then(function () {
+          if (_countyCatalogInflight[parent] === promise) {
+            delete _countyCatalogInflight[parent];
+          }
+        });
+        return promise;
+      }
+
+      function tripScopeProfile(bandId, onProgress) {
+        var base = chaseProfile();
+        var home = getHome();
+        var parent = countyParentCode(base);
+        var startGeneration = _chaseGeneration;
+        var startSlug = getReportSlug();
+        var startHome = home && Number(home.lat) + ',' + Number(home.lng);
+        if (!home || !isFinite(Number(home.lat)) || !isFinite(Number(home.lng))) {
+          return Promise.reject(new Error('Set Home before loading destination tiers'));
+        }
+        return Promise.all([
+          loadTravelZones(),
+          ensureCountyCatalog(parent, onProgress)
+        ]).then(function (parts) {
+          var cfg = parts[0], catalog = parts[1];
+          var currentHome = getHome();
+          var currentHomeKey = currentHome
+            && Number(currentHome.lat) + ',' + Number(currentHome.lng);
+          if (startGeneration !== _chaseGeneration
+              || startSlug !== getReportSlug()
+              || startHome !== currentHomeKey) {
+            var superseded = new Error('Destination tier request superseded by new Home or report');
+            superseded.tierSuperseded = true;
+            throw superseded;
+          }
+          if (!catalog.rows.length) {
+            throw new Error('County bounds are unavailable; refresh to retry');
+          }
+          var cap = BL.travelBandMaxStraightMi(cfg, bandId);
+          if (!(cap > 0)) throw new Error('No straight-line ceiling for ' + bandId);
+          var scope = BL.deriveCountyScope(home, catalog.rows, cap);
+          if (!scope.length) {
+            throw new Error(catalog.complete
+              ? 'No counties are inside this destination tier from Home'
+              : 'County bounds are unavailable for this destination tier; refresh to retry');
+          }
+          var out = {};
+          Object.keys(base || {}).forEach(function (key) { out[key] = base[key]; });
+          out.slug = base.slug + '-tier-' + bandId;
+          out.counties = scope.map(function (row) {
+            return { slug: row.slug, code: row.code, label: row.label };
+          });
+          out.geoFeed = false;
+          out.chaseMaxMi = cap;
+          out.home = home;
+          out.tierBand = bandId;
+          out.tierCapMi = cap;
+          out.tierCountyCodes = scope.map(function (row) { return row.code; });
+          out.countyScopeComplete = catalog.complete;
+          out.countyScopeFailed = catalog.failed.slice();
+          out.travelCfg = cfg;
+          return out;
+        });
       }
       // Kept as a name because the debug panel and the seam still read it; it
       // is the DEFAULT, not the live value. Anything deciding what to show must
@@ -10550,6 +10758,7 @@
         out.notableToday = recs(cv.notableToday);
         out.destinations = clusters(cv.destinations);
         out.excursions = clusters(cv.excursions);
+        out.fullDay = clusters(cv.fullDay);
         // `stakeout` is a locId eligibility set, not a display list. Narrowing
         // it would change whether a place is CHASEABLE, which is a different
         // claim from whether it is in the county you are looking at.
@@ -10581,6 +10790,7 @@
           seen: getReportSeen(), ownName: getDisplayName(), snapshotDate: todayStr(),
           watch: watchCodes(),
           home: getHome(), dailyDriveMi: profile.dailyDriveMi,
+          travelCfg: profile.travelCfg || null,
           hotspots: cachedHotspots(profile)
         });
       }
@@ -10672,8 +10882,8 @@
         // lookup and tomorrow's "new since" all still see everything fetched.
         return getChaseAll(force).then(countyView);
       }
-      function getChaseAll(force) {
-        var profile = chaseProfile(), slug = profile.slug;
+      function getChaseAll(force, profileOverride) {
+        var profile = profileOverride || chaseProfile(), slug = profile.slug;
         var wantKm = BL.geoNotableDistKm(profile);
         var wantBaseKey = chaseFetchBaseKey(profile);
         var generation = _chaseGeneration;
@@ -10911,7 +11121,7 @@
         function finish(codes, stale) {
           requireCurrentChase();
           var partial = !!arguments[2];
-          var outputProfile = chaseProfile();
+          var outputProfile = profileOverride || chaseProfile();
           var outputBaseKey = chaseFetchBaseKey(outputProfile);
           var outputKm = BL.geoNotableDistKm(outputProfile);
           if (outputBaseKey !== wantBaseKey || outputKm > gatheredKm) {
@@ -11233,6 +11443,25 @@
           if (_chaseInflight[slug] === _run) delete _chaseInflight[slug];
         });
         return run;
+      }
+      function getTierChase(bandId, force, onProgress) {
+        return Promise.all([
+          getChase(force),
+          tripScopeProfile(bandId, onProgress)
+        ]).then(function (parts) {
+          var base = parts[0], profile = parts[1];
+          profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
+            ? base.cv.destRadiusMi
+            : (profile.dailyDriveMi || BL.CONST.DAILY_DRIVE_MI);
+          if (force) {
+            delete _chase[profile.slug];
+            try { localStorage.removeItem(chaseKey(profile.slug)); } catch (e) {}
+            BL.planFeeds(profile).forEach(function (feed) {
+              delete _ebCache[BL.requestUrl(feed)];
+            });
+          }
+          return getChaseAll(false, profile);
+        });
       }
       function anyRows(rows) {
         if (!rows) return false;
@@ -14394,6 +14623,7 @@
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
             distMi: d.dist,
             facts: [
+              d.travelNote || d.travelLabel || '',
               BL.yieldBand(d.score, _scores),
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
@@ -14536,28 +14766,73 @@
             $('destResults').insertAdjacentHTML('afterend', rad > base
               ? '<div class="hint" id="destThin">Widened to <b>' + rad + ' mi</b> — too '
                 + 'little was within ' + base + ' mi to be worth a list. '
-                + '<b>🚗 Day-trip patches</b> starts where this stops, so nothing is in both.</div>'
+                + '<b>🚗 Half-day patches</b> starts where this stops, so nothing is in both.</div>'
               : '<div class="hint" id="destThin">That is everything within <b>'
                 + rad + ' mi</b> — the radius this section covers, not '
                 + 'everything that is out there. Anywhere further is in '
-                + '<b>🚗 Day-trip patches</b>.</div>');
+                + '<b>🚗 Half-day patches</b>.</div>');
           }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
-      // --- Top excursions (target-rich hotspots beyond a day-trip radius) ---
-      function loadExcursions() {
-        if (!getKey()) { $('excStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var btn = $('excBtn'), st = $('excStatus'), profile = getReport();
-        btn.disabled = true; $('excResults').innerHTML = ''; $('excMap').innerHTML = ''; st.textContent = 'Finding excursions beyond ' + profile.dailyDriveMi + ' mi…';
-        getChase(takeForce() ? 'obs' : false).then(function (c) {
+      function loadDayTier(bandId, btnId, statusId, mapId, resultsId) {
+        var label = bandId === 'full' ? 'Full-day' : 'Half-day';
+        if (!getKey()) {
+          $(statusId).textContent = 'Add your eBird API key in Settings first.';
+          showSettings(true);
+          return Promise.resolve(null);
+        }
+        var btn = $(btnId), st = $(statusId);
+        btn.disabled = true;
+        $(resultsId).innerHTML = '';
+        $(mapId).innerHTML = '';
+        st.textContent = 'Loading ' + label.toLowerCase() + ' county scope from Home…';
+        return getTierChase(bandId, takeForce() ? 'obs' : false,
+          function (done, total, county) {
+            st.textContent = 'Mapping counties ' + done + ' of ' + total
+              + (county ? ' · ' + county : '') + '…';
+          }).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var exc = rerankFromAnchor(c.cv.excursions.map(toDest));
-          if (!exc.length) { st.textContent = 'No target-rich hotspots beyond ' + profile.dailyDriveMi + ' mi right now.'; return; }
-          st.textContent = exc.length + ' excursion' + (exc.length === 1 ? '' : 's')
-            + fromHere() + coverageNote(exc) + ' · updated ' + nowTime();
-          renderDestinations(exc, $('excMap'), $('excResults'));
-        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+          var source = bandId === 'full' ? c.cv.fullDay : c.cv.excursions;
+          var rows = rerankFromAnchor((source || []).map(toDest));
+          var scopeN = (c.profile.tierCountyCodes || []).length;
+          var scope = scopeN + ' count' + (scopeN === 1 ? 'y' : 'ies')
+            + ' selected from Home';
+          var partial = c.profile.countyScopeComplete ? ''
+            : ' · ⚠️ some county bounds failed; refresh to retry';
+          var feedIssue = !!(c.feedFailed || c.partial || c.stale
+            || c.feedComplete === false);
+          if (!rows.length) {
+            if (feedIssue) {
+              st.textContent = 'Incomplete ' + label.toLowerCase()
+                + ' answer — some observation feeds are unavailable'
+                + partial + '. Refresh to retry.';
+              return;
+            }
+            st.textContent = 'No target-rich ' + label.toLowerCase()
+              + ' hotspots are reported right now · ' + scope + partial + '.';
+            return;
+          }
+          st.textContent = rows.length + ' ' + label.toLowerCase() + ' option'
+            + (rows.length === 1 ? '' : 's') + fromHere()
+            + ' · ' + scope + partial
+            + (feedIssue ? ' · ⚠️ incomplete earlier data'
+                         : ' · updated ' + nowTime());
+          renderDestinations(rows, $(mapId), $(resultsId));
+        }).catch(function (e) {
+          st.textContent = netErr(e);
+        }).finally(function () {
+          btn.disabled = false;
+        });
+      }
+
+      function loadExcursions() {
+        return loadDayTier('half', 'excBtn', 'excStatus', 'excMap', 'excResults');
+      }
+
+      function loadFullDay() {
+        return loadDayTier('full', 'fullDayBtn', 'fullDayStatus',
+          'fullDayMap', 'fullDayResults');
       }
 
       // --- Trip planner (nearest-neighbour route through nearby targets) ---
@@ -24743,7 +25018,8 @@
         rankBtn:       'Your eBird standing',
         patchBtn:      'Where the top 100 actually bird',
         destBtn:       'Top hotspots to visit',
-        excBtn:        'Top excursion hotspots',
+        excBtn:        'Top half-day hotspots',
+        fullDayBtn:    'Top full-day hotspots',
         quickBtn:      'Local hotspots',
         targetsBtn:    'Nearest place with a bird you need',
         spLookupBtn:   'Where to wait for it',
@@ -24784,7 +25060,8 @@
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'destBtn',       label: '🥇 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'excBtn',        label: '🚗 Day-trip patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'excBtn',        label: '🚗 Half-day patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'fullDayBtn',    label: '🛣️ Full-day patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'quickBtn',      label: '🚶 Find local patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'targetsBtn',    label: '📍 Closest patches', needs: 'geo', group: 'Patches - Go birding' },
@@ -24879,7 +25156,8 @@
         destBtn:    { fn: loadDestinations, needsKey: true, fromChase: true, countyView: true },
         targetsBtn: { fn: loadTargets,      needsKey: true, fromChase: true, countyView: true },
         quickBtn:   { fn: loadQuickOuting,  needsKey: true },
-        excBtn:     { fn: loadExcursions,   needsKey: true, fromChase: true, countyView: true },
+        excBtn:     { fn: loadExcursions,   needsKey: true, needsHome: true },
+        fullDayBtn: { fn: loadFullDay,      needsKey: true, needsHome: true },
         hotBtn:     { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadChecklists,   needsKey: true },
@@ -24905,9 +25183,25 @@
       // loop. Repainting must be free.
       var _partialDone = {};
       function onChasePartial(slug) {
-        if (!slug || slug !== getReport().slug) return;
+        if (!slug) return;
         if (_partialDone[slug]) return;      // once per wave, never a cascade
         _partialDone[slug] = true;
+        var tier = /-tier-(half|full)$/.exec(slug);
+        if (tier) {
+          var at = tier[1] === 'full' ? 'fullDayBtn' : 'excBtn';
+          var tierSec = loadedSectionFor(at);
+          if (!tierSec) return;
+          if (visibleSectionId() !== tierSec.id) {
+            _autoLoaded[tierSec.id] = false;
+            return;
+          }
+          try { tier[1] === 'full' ? loadFullDay() : loadExcursions(); }
+          catch (e) {
+            try { dbg('error', 'tier repaint ' + at + ': ' + (e && e.message || e)); } catch (_) {}
+          }
+          return;
+        }
+        if (slug !== getReport().slug) return;
         var _painted = [];
         Object.keys(_autoLoaded).forEach(function (id) {
           if (!_autoLoaded[id]) return;
@@ -27069,6 +27363,7 @@
       // region being left. The Contents list is regenerated too, because each
       // region's report emits a different set of sections.
       var RESET_ON_REPORT_CHANGE = ['results', 'targetResults', 'destResults', 'excResults',
+        'fullDayResults',
         'tripResults', 'activeResults', 'myYearList', 'rankResults', 'rankSummary',
         'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults'];
       function setActiveReport(slug) {
@@ -27119,6 +27414,7 @@
         $('targetRegionLabel').textContent = reg;
         $('destRegionLabel').textContent = reg;
         $('excRegionLabel').textContent = reg;
+        $('fullDayRegionLabel').textContent = reg;
         $('tripRegionLabel').textContent = reg;
         $('cklRegionLabel').textContent = reg;
         $('quickRegionLabel').textContent = reg;
@@ -28006,6 +28302,7 @@
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);      $('destBtn').addEventListener('click', loadDestinations);
       $('excBtn').addEventListener('click', loadExcursions);
+      $('fullDayBtn').addEventListener('click', loadFullDay);
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadChecklists);
       $('cklModeBest').addEventListener('click', function () { setChecklistMode('best'); });
@@ -28755,6 +29052,8 @@
         boardMoveHTML: boardMoveHTML,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, chaseProfile: chaseProfile,
+        loadTravelZones: loadTravelZones, ensureCountyCatalog: ensureCountyCatalog,
+        tripScopeProfile: tripScopeProfile, getTierChase: getTierChase,
         syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
         ownSeenMeta: ownSeenMeta, ownNewSubs: ownNewSubs, isOwnRow: isOwnRow,
@@ -28779,6 +29078,7 @@
         getCountyView: getCountyView, setCountyView: setCountyView,
         countyViewLabel: countyViewLabel, filterCvByCounty: filterCvByCounty,
         countyView: countyView, getCounties: getCounties,
+        loadExcursions: loadExcursions, loadFullDay: loadFullDay,
         getRankScope: getRankScope, setRankScope: setRankScope,
         rankScopeOptions: rankScopeOptions, rankRegionName: rankRegionName,
         LOADERS: LOADERS,

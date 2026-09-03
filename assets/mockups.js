@@ -82,6 +82,7 @@ const STUB_SPEC = {
     expects: ['#patchResults .hscard.hscard-md', '#patchResults .patchwho'] },
   destBtn:        { kind: 'hotspot',       host: 'destResults', map: 'destMap' },
   excBtn:         { kind: 'hotspot',       host: 'excResults', map: 'excMap' },
+  fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
   spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
@@ -144,7 +145,7 @@ const EXTRA_SHOTS = [
            return FIX.prepareCompare(A, document, sec);` },
 ];
 
-// Review-only states do not increase the mandatory 34-shot release contract.
+// Review-only states do not increase the mandatory 35-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
   { id: 'stakeoutreports', at: 'spLookupBtn',
@@ -350,11 +351,21 @@ const BOOTSTRAP = `
   }
   function hotspotRows(window, at) {
     var HC = window.HotspotCards;
+    var examples = {
+      excBtn: [
+        { name: 'Nisqually NWR', distance: 54.5, sub: 'half day · 18 targets' },
+        { name: 'Snoqualmie Pass', distance: 41.5, sub: 'half day · 11 targets' }
+      ],
+      fullDayBtn: [
+        { name: 'Leavenworth — Waterfront Park', distance: 70.5,
+          sub: 'full day · 18 targets' },
+        { name: 'Government Meadows', distance: 58.2,
+          sub: 'full day · 11 targets' }
+      ]
+    }[at];
     var facts = {
       destBtn: ['14 target species · rarity-weighted score 21',
         '9 target species · rarity-weighted score 14'],
-      excBtn: ['Full-day destination · 63 mi · 18 targets',
-        'Day-trip destination · 47 mi · 11 targets'],
       quickBtn: ['8 minutes from Home · 12 targets',
         '17 minutes from Home · 9 targets'],
       targetsBtn: ['Nearest report of Western Sandpiper',
@@ -371,6 +382,13 @@ const BOOTSTRAP = `
         'SAVED · 9 target species']
     }[at] || ['14 target species · 62 recent reports',
       '9 target species · unusually active today'];
+    if (examples) {
+      return examples.map(function (row, i) {
+        return HC.medium({
+          num: i + 1, name: row.name, distance: row.distance, sub: row.sub
+        });
+      });
+    }
     return [
       HC.medium({ num: 1, name: 'Marymoor Park — Bird Loop',
         distance: 8.4, sub: facts[0] }),

@@ -298,16 +298,46 @@
       ]
     },
     "excBtn": {
-      "report": "## 🚗 Day-trip patches — Top excursion hotspots",
-      "summary": "Longer drives that are worth it — the best unseen-bird haul per mile.",
+      "report": "## 🚗 Half-day patches — Top half-day hotspots",
+      "reportNote": "The Bird Chaser app lazily derives county scope from the current Home. The archived Markdown report classifies only the county rows already present in its snapshot.",
+      "summary": "Outings beyond Today’s patches that still fit a half day.",
       "inputs": [
-        "the same clustered unseen reports as Top destinations"
+        "the same clustered unseen reports as Today’s patches",
+        "eBird’s county list and county bounding boxes for the active state",
+        "the shared travel-zone day bands"
       ],
       "how": [
-        "Scored on unseen species relative to drive distance, so a distant site has to earn its mileage."
+        "The first open loads county names and bounds from eBird and caches each valid result permanently. A failed or malformed county is not cached and is retried on refresh.",
+        "County acquisition is derived from Home: include counties whose nearest bounding-box edge is inside the half-day band’s straight-line ceiling. Moving Home recomputes the selection from the same cached metadata.",
+        "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction; quick and half-day bands stay here.",
+        "The board starts beyond the exact adaptive boundary Today’s patches used, so one hotspot cannot appear in both.",
+        "Rarities count ×3, needs-verification keeps its reduced weight, and distance decay makes a farther site earn the drive."
       ],
       "limits": [
-        "Uses straight-line distance, not road distance."
+        "A county box can include inaccessible terrain near Home, so scope deliberately overfetches. It never assigns a travel band to the whole county.",
+        "The county scope is selected from Home. Here and Find may rerank loaded cards, but they do not silently acquire a different state-sized data set.",
+        "The first cold catalog is expensive, but it is paid only when Half-day or Full-day is opened and never again for valid county bounds."
+      ]
+    },
+    "fullDayBtn": {
+      "report": "## 🛣️ Full-day patches — Top full-day hotspots",
+      "reportNote": "The Bird Chaser app lazily derives county scope from the current Home. The archived Markdown report classifies only the county rows already present in its snapshot.",
+      "summary": "Farther hotspots worth planning a full birding day around.",
+      "inputs": [
+        "the same API-derived county catalog as Half-day patches",
+        "recent and notable observations from counties inside the full-day acquisition envelope",
+        "the shared travel-zone day bands"
+      ],
+      "how": [
+        "The county envelope comes from the full-day band’s straight-line ceiling, not a Washington county list or a hand-picked destination list.",
+        "Each hotspot must classify as full day from its own coordinates. Half-day options remain in Half-day; anything in the trip band is not offered as a day outing.",
+        "This board ranks independently, so dense nearby parks cannot bury the long-drive options the section exists to compare.",
+        "Every card states full day in words and keeps route friction such as a ferry or seasonal pass as an additional non-colour signal."
+      ],
+      "limits": [
+        "County edge distance is a fetch envelope, not a driving-time promise.",
+        "A first cold load may take several minutes because every selected county contributes recent and notable feeds. Cached bounds and in-session eBird responses make later opens cheaper.",
+        "The model still records known route-calibration gaps such as Port Townsend; it does not invent a routing API."
       ]
     },
     "hotBtn": {

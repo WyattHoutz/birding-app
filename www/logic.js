@@ -703,14 +703,15 @@
     });
   }
 
-  function inTargetCounties(rec, countyLabels) {
+  function inTargetCounties(rec, countyLabels, countyCodes) {
+    if (rec && rec.county && (countyCodes || []).indexOf(rec.county) >= 0) return true;
     var srcs = rec.sources || [];
     for (var i = 0; i < srcs.length; i++) if (countyLabels.indexOf(srcs[i]) >= 0) return true;
     return false;
   }
 
-  function inExcursionPool(rec, countyLabels) {
-    if (inTargetCounties(rec, countyLabels)) return true;
+  function inExcursionPool(rec, countyLabels, countyCodes) {
+    if (inTargetCounties(rec, countyLabels, countyCodes)) return true;
     var srcs = rec.sources || [];
     for (var i = 0; i < srcs.length; i++) if (/^Geo/.test(srcs[i])) return true;
     return false;
@@ -727,6 +728,50 @@
   }
   function haversineMi(la1, lo1, la2, lo2) {
     return haversineKm(la1, lo1, la2, lo2) * 0.621371;
+  }
+
+  function wrappedLonDelta(a, b) {
+    var d = Math.abs(Number(a) - Number(b)) % 360;
+    return d > 180 ? 360 - d : d;
+  }
+
+  function nearestBoundsLon(lng, minX, maxX) {
+    if (minX <= maxX) return Math.min(Math.max(lng, minX), maxX);
+    if (lng >= minX || lng <= maxX) return lng;
+    return wrappedLonDelta(lng, minX) <= wrappedLonDelta(lng, maxX) ? minX : maxX;
+  }
+
+  function countyEdgeMi(home, bounds) {
+    var lat = home && Number(home.lat), lng = home && Number(home.lng);
+    var minX = bounds && Number(bounds.minX), maxX = bounds && Number(bounds.maxX);
+    var minY = bounds && Number(bounds.minY), maxY = bounds && Number(bounds.maxY);
+    if (![lat, lng, minX, maxX, minY, maxY].every(isFinite)) return Infinity;
+    if (minY > maxY) { var swap = minY; minY = maxY; maxY = swap; }
+    var nearLat = Math.min(Math.max(lat, minY), maxY);
+    var nearLng = nearestBoundsLon(lng, minX, maxX);
+    return haversineMi(lat, lng, nearLat, nearLng);
+  }
+
+  function deriveCountyScope(home, counties, edgeMi) {
+    var cap = Number(edgeMi);
+    if (!home || !isFinite(Number(home.lat)) || !isFinite(Number(home.lng))
+        || !isFinite(cap) || cap < 0) return [];
+    return (counties || []).map(function (row) {
+      var code = String((row && row.code) || '').trim().toUpperCase();
+      var dist = countyEdgeMi(home, row && row.bounds);
+      if (!code || !isFinite(dist) || dist > cap) return null;
+      var name = String((row && (row.name || row.label)) || code).trim();
+      return {
+        code: code,
+        name: name,
+        label: name,
+        slug: code.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        edgeMi: dist,
+        bounds: row.bounds
+      };
+    }).filter(Boolean).sort(function (a, b) {
+      return a.code < b.code ? -1 : (a.code > b.code ? 1 : 0);
+    });
   }
 
   function annotateDistance(records, home) {
@@ -940,6 +985,11 @@
       : opts.radiusMi;
     var top = opts.top == null ? CONST.TOP_EXC : opts.top;
     var decay = CONST.EXCURSION_DECAY_MI;
+    var bandSet = null;
+    if (Array.isArray(opts.bandIds)) {
+      bandSet = {};
+      opts.bandIds.forEach(function (id) { bandSet[String(id)] = 1; });
+    }
     // A cluster belongs in excursions if it's beyond the daily-drive radius OR
     // it hosts a special-trip location (ferry / pelagic / open water / strait) —
     // those warrant a dedicated outing regardless of distance, so a ferry
@@ -948,6 +998,17 @@
     var scored = scoreDestinationClusters(excursionRecent, opts.watch).filter(function (c) {
       return c.distMi > threshold ||
              c.records.some(function (r) { return isSpecialTrip(r); });
+    }).map(function (c) {
+      if (opts.travelCfg && opts.home) {
+        var band = destinationTravelBand(opts.travelCfg, opts.home, c);
+        c.travelBand = band.id;
+        c.travelLabel = band.label;
+        c.travelNote = travelNote(opts.travelCfg, c.distMi,
+          opts.home.lat, opts.home.lng, c.lat, c.lon);
+      }
+      return c;
+    }).filter(function (c) {
+      return !bandSet || !!bandSet[c.travelBand];
     }).map(function (c) {
       var extra = Math.max(0, c.distMi - threshold);
       c.effective = c.score / (1 + extra / decay);
@@ -2463,6 +2524,7 @@
     var dailyDriveMi = opts.dailyDriveMi == null ? profile.dailyDriveMi : opts.dailyDriveMi;
     var snapshotDate = opts.snapshotDate;
     var countyLabels = (profile.counties || []).map(function (c) { return c.label; });
+    var countyCodes = (profile.counties || []).map(function (c) { return c.code; });
 
     // merged snapshot (analyze.load_snapshot) → exclusions → distances.
     var allRecs = applyExclusions(mergeFromFiles(profile, opts.rowsToday || {}, opts.speciesCodes), profile);
@@ -2478,7 +2540,9 @@
     Object.keys(publicPins).forEach(function (k) { stakeout[k] = 1; });
     var unseenAll = computeUnseen(allRecs, seen, { excludeOwn: false });
     var unseen = computeUnseen(allRecs, seen, { excludeOwn: true, ownName: ownName });
-    var near = unseen.filter(function (r) { return inTargetCounties(r, countyLabels); });
+    var near = unseen.filter(function (r) {
+      return inTargetCounties(r, countyLabels, countyCodes);
+    });
 
     var snapMid = parseObsDt(snapshotDate);
     function recMs(r) { var d = parseObsDt(r.dateStr); return d ? d.getTime() : NaN; }
@@ -2491,7 +2555,7 @@
 
     var nearRecent = near.filter(function (r) { return recMs(r) >= cutoff; });
     var excursionRecent = unseen.filter(function (r) {
-      if (!inExcursionPool(r, countyLabels)) return false;
+      if (!inExcursionPool(r, countyLabels, countyCodes)) return false;
       var t = recMs(r);
       return t >= cutoff || (isSpecialTrip(r) && t >= excCutoff);
     });
@@ -2499,20 +2563,38 @@
     var nearRecentGo = nearRecent.filter(function (r) { return isChaseable(r, stakeout); });
     var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
 
-    var dest = destinations(nearRecentGo, { dailyDriveMi: dailyDriveMi,
-                                            chaseMaxMi: profile.chaseMaxMi,
-                                            watch: watch });
+    var destOpts = {
+      dailyDriveMi: dailyDriveMi,
+      chaseMaxMi: profile.chaseMaxMi,
+      watch: watch
+    };
+    if (profile.tierBaseRadiusMi != null) {
+      destOpts.radiusMi = profile.tierBaseRadiusMi;
+    }
+    var dest = destinations(nearRecentGo, destOpts);
     // The boundary destinations settled on, so excursions start exactly where
     // patches stop and no place can appear in both.
-    var exc = excursions(excursionRecentGo, { dailyDriveMi: dailyDriveMi,
-                                              radiusMi: dest.radiusMi,
-                                              watch: watch });
+    var excursionOpts = {
+      dailyDriveMi: dailyDriveMi,
+      radiusMi: dest.radiusMi,
+      watch: watch,
+      travelCfg: opts.travelCfg,
+      home: home
+    };
+    var exc = opts.travelCfg
+      ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
+          { bandIds: ['quick', 'half'] }))
+      : excursions(excursionRecentGo, excursionOpts);
+    var full = opts.travelCfg
+      ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
+          { bandIds: ['full'] }))
+      : [];
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
     return {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
-      near: near, destinations: dest, excursions: exc,
+      near: near, destinations: dest, excursions: exc, fullDay: full,
       destRadiusMi: dest.radiusMi,
       notableToday: notable
     };
@@ -2530,6 +2612,9 @@
     return {
       locId: cluster.locId || '', locName: cluster.loc || 'Unknown location',
       lat: cluster.lat, lng: cluster.lon,
+      travelBand: cluster.travelBand || '',
+      travelLabel: cluster.travelLabel || '',
+      travelNote: cluster.travelNote || '',
       species: (cluster.species || []).map(function (s) {
         // EVERYTHING THE ROW CAN RENDER, not just its name. This projection
         // kept only code/comName/rare and dropped six fields the small species
@@ -3157,6 +3242,36 @@
       return { id: String(last.id || ''), label: String(last.label || '') };
     }
     return { id: '', label: '' };
+  }
+
+  function travelBandMaxStraightMi(cfg, bandId) {
+    var bands = (cfg && cfg.bands) || [];
+    for (var i = 0; i < bands.length; i++) {
+      if (String(bands[i].id || '') !== String(bandId || '')) continue;
+      var hours = Number(bands[i].max_round_trip_h);
+      if (!hours || !isFinite(hours)) return 0;
+      return hours * travelMph(cfg) / 2;
+    }
+    return 0;
+  }
+
+  function destinationTravelBand(cfg, home, cluster) {
+    var lat = cluster && Number(cluster.lat);
+    var lon = cluster && Number(cluster.lon == null ? cluster.lng : cluster.lon);
+    var straight = cluster && Number(cluster.distMi);
+    if (!isFinite(straight) && home && isFinite(lat) && isFinite(lon)) {
+      straight = haversineMi(Number(home.lat), Number(home.lng), lat, lon);
+    }
+    if (!isFinite(straight)) straight = 0;
+    var effective = travelEffectiveMi(cfg, straight,
+      home && Number(home.lat), home && Number(home.lng), lat, lon);
+    var band = travelDayBand(cfg, effective);
+    return {
+      id: band.id,
+      label: band.label,
+      straightMi: straight,
+      effectiveMi: effective
+    };
   }
 
   // Integer arithmetic rather than toFixed: Python rounds half to EVEN and JS
@@ -4350,6 +4465,8 @@
     inExcursionPool: inExcursionPool,
     haversineKm: haversineKm,
     haversineMi: haversineMi,
+    countyEdgeMi: countyEdgeMi,
+    deriveCountyScope: deriveCountyScope,
     annotateDistance: annotateDistance,
     parseObsDt: parseObsDt,
     dayStr: dayStr,
@@ -4458,6 +4575,8 @@
     travelEffectiveMi: travelEffectiveMi,
     travelRoundTripH: travelRoundTripH,
     travelDayBand: travelDayBand,
+    travelBandMaxStraightMi: travelBandMaxStraightMi,
+    destinationTravelBand: destinationTravelBand,
     travelHalfHours: travelHalfHours,
     travelNote: travelNote,
     MEDIA_ICON: MEDIA_ICON,

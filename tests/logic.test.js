@@ -1030,6 +1030,14 @@ const KINGSTON = [47.7970, -122.4960];
 const MURDEN = [47.6470, -122.4950];   // Bainbridge — ferry-gated
 const OCEAN = [46.9260, -124.1710];    // Ocean Shores — plain mainland
 const MARYMOOR = [47.6585, -122.1180];
+const F254_COUNTIES = [
+  { code: 'US-WA-067', name: 'Thurston',
+    bounds: { minX: -123.202760, maxX: -122.217056, minY: 46.762589, maxY: 47.186668 } },
+  { code: 'US-WA-007', name: 'Chelan',
+    bounds: { minX: -121.180688, maxX: -119.859017, minY: 47.258622, maxY: 48.550461 } },
+  { code: 'US-WA-063', name: 'Spokane',
+    bounds: { minX: -117.822762, maxX: -117.041809, minY: 47.258579, maxY: 48.047691 } },
+];
 
 test('travel zones: real places land in the zone they belong to', () => {
   const cases = [
@@ -1133,6 +1141,74 @@ test('travel zones: the label is the shape of the day, not the mileage (F1 decis
   assert.match(note, /ferry/, 'and says how you would cross');
   assert.equal(BL.travelNote(TZ, 7, HOME[0], HOME[1], MARYMOOR[0], MARYMOOR[1]), '',
     'a place with no water in the way stays uncluttered');
+});
+
+test('F254 county scope uses nearest edge while actual hotspots decide the day tier', () => {
+  const halfCap = BL.travelBandMaxStraightMi(TZ, 'half');
+  const fullCap = BL.travelBandMaxStraightMi(TZ, 'full');
+  assert.equal(halfCap, 57.75, 'Half-day scope stopped deriving from the 3.3 h band');
+  assert.equal(fullCap, 78.75, 'Full-day scope stopped deriving from the 4.5 h band');
+
+  const wood = BL.deriveCountyScope({ lat: HOME[0], lng: HOME[1] },
+    F254_COUNTIES, fullCap);
+  assert.deepEqual(wood.map((c) => c.code), ['US-WA-007', 'US-WA-067'],
+    'the Woodinville scope must discover Chelan and Thurston without a named list');
+  const moved = BL.deriveCountyScope({ lat: 47.66, lng: -117.43 },
+    F254_COUNTIES, fullCap);
+  assert.deepEqual(moved.map((c) => c.code), ['US-WA-063'],
+    'county selection was cached by install instead of recomputed from moved Home');
+
+  const longBox = { minX: 0.1, maxX: 8, minY: -0.1, maxY: 0.1 };
+  assert.ok(BL.countyEdgeMi({ lat: 0, lng: 0 }, longBox) < 7,
+    'scope is not measured to the nearest bounding-box edge');
+  assert.ok(BL.haversineMi(0, 0, 0, 4.05) > 250,
+    'the nearest-edge control no longer distinguishes a long county from its centroid');
+
+  assert.equal(BL.destinationTravelBand(TZ, { lat: HOME[0], lng: HOME[1] },
+    { distMi: 54.5, lat: 47.0725, lon: -122.7100 }).id, 'half',
+  'Nisqually belongs in Half-day, not the new Full-day board');
+  assert.equal(BL.destinationTravelBand(TZ, { lat: HOME[0], lng: HOME[1] },
+    { distMi: 70.5, lat: 47.5962, lon: -120.6615 }).id, 'full',
+  'Leavenworth is the named Full-day control');
+  assert.equal(BL.destinationTravelBand(TZ, { lat: HOME[0], lng: HOME[1] },
+    { distMi: 17.3, lat: MURDEN[0], lon: MURDEN[1] }).id, 'half',
+  'a ferry-gated 17-mile hotspot is classified from its effective route, not raw mileage');
+  assert.equal(BL.destinationTravelBand(TZ, { lat: HOME[0], lng: HOME[1] },
+    { distMi: 110, lat: OCEAN[0], lon: OCEAN[1] }).id, 'trip',
+  'Ocean Shores is still a trip, not a day-out recommendation');
+});
+
+test('F254 Half-day and Full-day boards are disjoint travel-band views', () => {
+  const row = (code, name, loc, distMi, lat, lon, kind = 'Need') => ({
+    code, name, loc, locId: 'L-' + code, distMi, lat, lon, kind,
+    dateStr: '2026-09-03 08:00', subId: 'S-' + code,
+  });
+  const records = [
+    row('stan', 'Stanwood Bird', 'Stanwood', 34.4, 48.2340, -122.3480),
+    row('nwr', 'Nisqually Bird', 'Nisqually NWR', 54.5, 47.0725, -122.7100),
+    row('mur', 'Murden Bird', 'Murden Cove', 17.3, MURDEN[0], MURDEN[1]),
+    row('lea', 'Leavenworth Bird', 'Leavenworth', 70.5, 47.5962, -120.6615),
+    row('gov', 'Meadows Bird', 'Government Meadows', 58.2, 47.0896, -121.3942),
+    row('oce', 'Ocean Bird', 'Ocean Shores', 110, OCEAN[0], OCEAN[1]),
+  ];
+  const opts = {
+    radiusMi: 12, travelCfg: TZ, home: { lat: HOME[0], lng: HOME[1] },
+  };
+  const half = BL.excursions(records, { ...opts, bandIds: ['quick', 'half'], top: 20 });
+  const full = BL.excursions(records, { ...opts, bandIds: ['full'], top: 20 });
+  const names = (rows) => rows.map((x) => x.loc).sort();
+  assert.deepEqual(names(half), ['Murden Cove', 'Nisqually NWR', 'Stanwood']);
+  assert.deepEqual(names(full), ['Government Meadows', 'Leavenworth']);
+  assert.equal(new Set([...half, ...full].map((x) => x.loc)).size,
+    half.length + full.length, 'a destination appears in both day tiers');
+  assert.ok(![...half, ...full].some((x) => x.loc === 'Ocean Shores'),
+    'a trip beyond the Full-day ceiling is still offered as a day patch');
+  assert.deepEqual(new Set(half.map((x) => x.travelBand)), new Set(['quick', 'half']));
+  assert.deepEqual(new Set(full.map((x) => x.travelBand)), new Set(['full']));
+  assert.equal(BL.inExcursionPool(
+    { sources: ['Sp:leabir'], county: 'US-WA-007' },
+    ['Chelan'], ['US-WA-007']), true,
+  'a phase-two-only location in a selected county never reaches tier scoring');
 });
 
 test('travel zones: half-hour formatting avoids the round-half-to-even trap', () => {

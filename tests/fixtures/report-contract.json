@@ -72,10 +72,17 @@
     },
     {
       "at": "excBtn",
-      "label": "🚗 Day-trip patches",
-      "report": "## 🚗 Day-trip patches — Top excursion hotspots",
+      "label": "🚗 Half-day patches",
+      "report": "## 🚗 Half-day patches — Top half-day hotspots",
       "map": "excMap",
-      "sub": "Top excursion hotspots"
+      "sub": "Top half-day hotspots"
+    },
+    {
+      "at": "fullDayBtn",
+      "label": "🛣️ Full-day patches",
+      "report": "## 🛣️ Full-day patches — Top full-day hotspots",
+      "map": "fullDayMap",
+      "sub": "Top full-day hotspots"
     },
     {
       "at": "quickBtn",
