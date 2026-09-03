@@ -21,7 +21,8 @@
   ],
   "docs": {
     "surgeBtn": {
-      "report": "## 🔔 Bird gen — The news birders are talking about",
+      "report": "## 🔔 Bird Gen - Talk and news — Fresh ranked alerts",
+      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, MEGA and YOU NEED IT describe the Bird Chaser app, whose current UI is the product.",
       "summary": "One ranked feed of fresh megas, birds you need, crowd attention, leaderboard cascades and unusually busy hotspots.",
       "inputs": [
         "the cached ABA Code 3+ snapshot last populated by Mega rarities",
@@ -31,18 +32,20 @@
       ],
       "how": [
         "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
-        "Priority is the default: MEGA, YOU NEED IT, CROWD, CASCADE, HOTSPOT, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
-        "If the same species qualifies in several categories it renders once under the strongest category, while Why it is news retains every qualifying reason.",
-        "Each source reports whether it succeeded, failed, or has not been loaded. Successful rows remain visible when another source fails, and the feed only claims nothing is happening when every applicable source succeeded.",
-        "Every row carries the category word, the category's existing glyph, a prominent relative age, an absolute date/time, Where, Latest and Why it is news. Word, glyph and distinct border style all identify the category without relying on colour.",
-        "MEGA: a first record inside the covered window is news at any distance. Nearby, multiple-report and single-hotspot qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
+        "Buzz is the default: MEGA, YOU NEED IT, CROWD, CASCADE, HOTSPOT, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
+        "Seen status is resolved once after duplicate species and their reasons are merged. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
+        "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in the row's accessible category-tag metadata without consuming another visible row.",
+        "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data.",
+        "Every bird row puts its category tag beside the linked common name, then its four-letter/eBird identifiers, category facts, mileage, linked place and linked newest-checklist date below. The right column carries a compact one-line relative age such as 24hr ago. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
+        "MEGA: newness is scoped to the species within a 4-mile locality cluster, so nearby personal-location labels remain one continuing bird while a distant new site can alert. A new locality inside the covered window is news at any distance. Nearby, multiple-report and single-locality qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
         "YOU NEED IT: species eBird flags as NOTABLE here that are still missing from your list, reported within your chase distance in the last 24 hours, one row per bird rather than per report.",
         "NOTABLE, not merely unseen. Asked for as \"happening now should be things local birders would talk about without having to check ebird\" - and three people reporting a bird that is ordinary here is well corroborated and still nobody mentions it. An unseen-but-ordinary bird belongs in All unseen reports and Closest spots.",
         "A thin report must ALSO be either reviewed by eBird or seen 3 times: a mega found an hour ago has exactly one report and is worth keeping, while a single UNREVIEWED report is the \"one off that might not be real\".",
         "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
         "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
         "CASCADE: 2+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
-        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. The row's Latest and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for its detail. Its compact alert row keeps recent species and checklist evidence behind one disclosure, and the established after-paint hydration still fills it.",
+        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact date and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for detail. Recent species and checklist evidence remain behind one disclosure, and the established after-paint hydration still fills it.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],
       "limits": [
@@ -424,18 +427,20 @@
       ],
       "how": [
         "Typed text is matched against common and scientific names; one hit goes straight to the birds rather than showing a menu of one.",
-        "Observations are grouped by location, keeping each place's most recent sighting and its highest count.",
+        "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
         "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
+        "The first 25 places paint immediately. Show more appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
         "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
-        "A collapsed Identification help row paints before the sightings request. Opening it lists every related spuh from broad to narrow, marks published candidate sets versus coverage-limited field wording, and links each row into Spuh finder.",
+        "A visible Identification path starts loading independently of the sightings request. It aligns class, order, family, genus and species from broad to specific, groups equivalent spuh labels side by side at one coverage level, marks coverage-limited wording, and links every spuh into Spuh finder.",
         "Compare possible species finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
       ],
       "limits": [
         "App-only: a Markdown report cannot take a query, and printing every species' places for a region would be a phone book, not a section.",
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
         "Covers what eBird has for the region; a bird seen only outside it will not appear.",
+        "The per-species feed returns only the most recent report at each place. One row per place is the endpoint's limit, not the bird's full history; repeated visits at the same place may be omitted.",
         "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
-        "Sixty-four labels are shown with a dashed Coverage limit warning and are never selected automatically: 58 glossed names whose narrower membership is not published, five named subfamilies, and the mixed Buteo/eagle group."
+        "Seventy-nine labels are shown with a dashed Coverage limit warning and are never selected automatically: 73 parenthetical glosses whose narrower membership is not published (58 share coverage with another spuh and 15 are lone labels), five named subfamilies, and the mixed Buteo/eagle group."
       ]
     },
     "spuhBtn": {
@@ -449,7 +454,7 @@
         "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
         "Each spuh is resolved to its exact published candidate-species set. Genus, family and order lists are unions; twelve scientific species-list rows are parsed species by species rather than widened to their whole family.",
         "Labels with identical candidate sets share one coverage class. Minimal strict subset and superset relations form a DAG, because real groups overlap.",
-        "The definition states the published rank or group, candidate count and evidence threshold for using a broader uncertain ID.",
+        "The hierarchy, candidate set and narrower groups lead the result. The information button holds the generated definition, source boundary and example-image source so repeat users do not have to scroll past explanatory prose.",
         "The example image is one possible candidate and says so in words; it is never called the spuh or the most common member.",
         "Compare possible species returns zero, one or several minimal published sets containing every selected bird."
       ],

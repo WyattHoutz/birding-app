@@ -24,6 +24,10 @@ const { spawn, spawnSync } = require('child_process');
 
 const APP = path.join(__dirname, '..');
 const WWW = path.join(APP, 'www');
+const WA_SEEN = JSON.parse(fs.readFileSync(
+  path.join(APP, 'tests', 'fixtures', 'wa-seen-2026-stub.json'), 'utf8'));
+const WA_BIRDS = Object.fromEntries(WA_SEEN.birds.map((bird) => [bird.code, bird]));
+const ToggleControls = require(path.join(WWW, 'controls-toggle.js'));
 // ⚠️ OUTPUT GOES TO /mockups/, WHICH IS GITIGNORED, and that is measured
 // rather than fussy — see .gitignore: one run is ~0.8 MB and git keeps every
 // version forever. Writing beside this script left 19 untracked PNGs in
@@ -97,14 +101,21 @@ function drawnTile(hex, glyph) {
 //
 // So the two megas below show the two legal paths, and White Wagtail moves to
 // the held-back count where it belongs.
+function fixtureBird(code) {
+  const bird = WA_BIRDS[code];
+  if (!bird) throw new Error('missing WA mock bird ' + code);
+  return { ...bird, ic: photo(code) };
+}
 const BIRDS = {
-  nazca:  { name: 'Nazca Booby',          sci: 'Sula granti',             code: 'nazboo1', alpha: 'NAZB', ic: photo('nazboo1') },
-  shtsan: { name: 'Sharp-tailed Sandpiper', sci: 'Calidris acuminata',    code: 'shtsan',  alpha: 'SPTS', ic: photo('shtsan') },
-  wagtail:{ name: 'White Wagtail',        sci: 'Motacilla alba',          code: 'whiwag',  alpha: 'WAWA', ic: photo('whiwag') },
-  ruff:   { name: 'Ruff',                 sci: 'Calidris pugnax',         code: 'ruff',    alpha: 'RUFF', ic: photo('ruff') },
-  sposan: { name: 'Spotted Sandpiper',    sci: 'Actitis macularius',      code: 'sposan',  alpha: 'SPSA', ic: photo('sposan') },
-  baisan: { name: "Baird's Sandpiper",    sci: 'Calidris bairdii',        code: 'baisan',  alpha: 'BASA', ic: photo('baisan') },
-  norwat: { name: 'Northern Waterthrush', sci: 'Parkesia noveboracensis', code: 'norwat',  alpha: 'NOWA', ic: photo('norwat') },
+  nazca: fixtureBird('nazboo1'),
+  shtsan: fixtureBird('shtsan'),
+  wagtail: fixtureBird('whiwag'),
+  ruff: fixtureBird('ruff'),
+  sposan: fixtureBird('sposan'),
+  baisan: fixtureBird('baisan'),
+  norwat: fixtureBird('norwat'),
+  amgplo: fixtureBird('amgplo'),
+  vesspa: fixtureBird('vesspa'),
 };
 
 // Okabe-Ito. The owner has red-green colour blindness, so these are the
@@ -506,52 +517,42 @@ function badgeSmall(kind, wordOnly) {
 
 function smallRow(o, opts) {
   opts = opts || {};
+  const facts = [
+    String(o.sub || '').replace(/ \u00b7 /g, ', '),
+    o.mi.toFixed(1) + 'mi',
+    o.where ? '<a href="#">' + o.where + '</a>' : '',
+    o.date ? '<a href="#">' + o.date + '</a>' : '',
+  ].filter(Boolean).join(', ') + '.';
   return SC.small({
     icon: o.b ? o.b.ic : o.ic,
-    name: o.b ? o.b.name : o.name,
-    tags: o.tag || '',
-    // ⚠️ `distance`, NOT `distMi`. distMi renders nothing on a small card.
-    distance: o.mi + ' mi',
-    sub: o.sub,
+    name: o.b ? '<a href="#">' + o.b.name + '</a>' : o.name,
+    code: o.b ? o.b.code : '',
+    alpha: o.b ? o.b.alpha : '',
+    identifierLine: true,
+    tags: (opts.badge === false ? '' : badgeSmall(o.kind, true)) + (o.tag || ''),
+    sub: facts,
     right: opts.rightIcon ? kindIcon(o.kind) : '',
-    below: '<div class="arow">'
-      + '<div class="awhy">'
-      + (opts.badge === false ? '' : badgeSmall(o.kind, opts.wordOnly)) + o.why + '</div>'
-      + '<div class="aline">' + (o.where ? '<a href="#">' + o.where + '</a> \u00b7 ' : '')
-      + o.age + (o.extra ? ' \u00b7 ' + o.extra : '') + '</div></div>',
+    below: '',
   });
 }
 
 const ALERTS = [
-  { kind: 'mega', b: BIRDS.nazca, sub: '11 reports', mi: 50.1,
-    tag: '<span class="megafresh">\uD83C\uDD95 found today</span>',
-    why: '<b>found today</b> \u00b7 within a day trip \u00b7 11 reports today',
-    where: 'Ocean Shores Jetty', age: 'Sep 1, 2:14 PM \u00b7 14 min ago' },
-  { kind: 'mega', b: BIRDS.shtsan, sub: '4 reports', mi: 98.2,
-    tag: '<span class="megafresh">\uD83C\uDD95 found today</span>',
-    why: '<b>found today</b> \u2014 98 mi, shown <b>because it is new</b>',
-    where: 'Wallula Junction', age: 'Sep 1, 12:10 PM \u00b7 2 h ago' },
-  { kind: 'need', b: BIRDS.sposan, sub: '4 sightings', mi: 6.2,
-    why: '<b>You still need it</b> \u00b7 4 sightings at one spot',
-    where: 'Marymoor Park', age: 'Sep 1, 11:05 AM \u00b7 3 h ago' },
-  { kind: 'crowd', b: BIRDS.baisan, sub: '7 birders \u00b7 9 lists', mi: 12.4,
-    tag: '<span class="megafresh">\uD83C\uDD95 new here</span>',
-    why: '7 birders \u00b7 <b>5\u00d7 normal here</b>',
-    where: 'Cedar River Mouth', age: 'Sep 1, 1:32 PM \u00b7 56 min ago', extra: '<a href="#">S387245442</a>' },
-  { kind: 'crowd', b: BIRDS.ruff, sub: '5 birders', mi: 31.0,
-    why: '5 observers \u00b7 <b>no reports here in two weeks</b>',
-    where: 'Nisqually NWR', age: 'Sep 1, 12:10 PM \u00b7 2 h ago', extra: '<a href="#">S387240118</a>' },
-  { kind: 'cascade', b: BIRDS.norwat, sub: '4 of the top 100', mi: 18.9,
-    why: '<b>4 of the top 100 added it in 3 days</b>',
-    where: 'Union Bay Natural Area', age: 'Aug 31, 7:20 AM \u00b7 1 day ago' },
-  { kind: 'hotspot', ic: drawnTile('#555', '\uD83D\uDCCD'), name: 'Montlake Fill',
-    sub: '11 birders today', mi: 9.7,
-    why: '<b>3.1\u00d7 this hotspot\u2019s own norm</b>',
-    where: '', age: 'Sep 1, 1:58 PM \u00b7 30 min ago' },
-];
+  { kind: 'mega', b: BIRDS.nazca, sub: '1 report', mi: 50.3,
+    why: 'Within a day trip.', where: 'Smith Island', date: '9/1 5:50p' },
+  { kind: 'need', b: BIRDS.amgplo, sub: '4 sightings', mi: 21.9,
+    why: 'You still need it.', where: 'Tulalip Bay', date: '9/1 5:10p' },
+  { kind: 'need', b: BIRDS.vesspa, sub: '12 sightings', mi: 14.3,
+    why: 'You still need it.', where: 'Jefferson Park, Seattle', date: '9/1 4:12p' },
+  { kind: 'mega', b: BIRDS.ruff, sub: '21 reports', mi: 98.2,
+    tag: '<span class="megafresh">\uD83C\uDD95 new locality</span>',
+    why: 'First reports at Hoquiam STP.', where: 'Hoquiam STP', date: '8/28 3:50p' },
+].map((alert) => ({
+  ...alert,
+  seen: !!(alert.b && WA_BIRDS[alert.b.code] && WA_BIRDS[alert.b.code].seen),
+}));
 
 function feedChrome() {
-  return '<div class="feedhead">\uD83D\uDD14 7 alerts '
+  return '<div class="feedhead">\uD83D\uDD14 ' + ALERTS.length + ' alerts '
     + '<button class="lanehelp" type="button">\u24D8</button></div>'
     + '<div class="feedsub">Newest 14 minutes ago \u00b7 ranked by what matters most, '
     + 'then by what is freshest.</div>'
@@ -565,15 +566,41 @@ function feedChrome() {
 }
 
 function feedFoot() {
-  return '<div class="afoot">\u26A0\uFE0F <b>4 more megas are not news today</b> '
-    + '\u2014 White Wagtail and 3 others are <b>too far and not new</b>, already '
-    + 'seen, or a single report. All of them are in <b>Mega rarities</b>.</div>';
+  return '<div class="afoot">\u26A0\uFE0F <b>White Wagtail is not new at Neah Bay</b> '
+    + '\u2014 nearby hotspot labels are one continuing locality. It remains in '
+    + '<b>Mega rarities</b>, not this alert feed.</div>';
 }
 
 function smallHtml(opts) {
   return feedChrome()
     + '<ul class="obs card-sm sfeed">'
     + ALERTS.map(function (a) { return smallRow(a, opts); }).join('')
+    + '</ul>' + feedFoot();
+}
+
+function filterHtml() {
+  const visible = ALERTS.filter((a) => !a.seen);
+  const hidden = ALERTS.length - visible.length;
+  const counts = Object.fromEntries(['mega', 'need', 'crowd', 'cascade', 'hotspot']
+    .map((kind) => [kind, visible.filter((alert) => alert.kind === kind).length]));
+  return '<div class="surgesortrow">'
+    + ToggleControls.group({ label: 'Sort alert feed', options: [
+      { label: 'Buzz', pressed: true }, { label: 'Newest', pressed: false },
+    ] })
+    + ToggleControls.group({ label: 'Bird alerts shown', options: [
+      { label: 'Unseen', pressed: true }, { label: 'All', pressed: false },
+    ] }) + '</div>'
+    + '<div class="feedhead">\uD83D\uDD14 ' + visible.length
+    + ' alerts <span style="font-size:12px;color:var(--muted)">\u00b7 ' + hidden
+    + ' seen hidden</span> <button class="lanehelp" type="button">\u24D8</button></div>'
+    + '<div class="kinds">'
+    + '<span class="kindchip" style="color:#9E4400">\uD83E\uDD85 ' + counts.mega + ' mega</span>'
+    + '<span class="kindchip" style="color:#005B8F">\uD83C\uDFAF ' + counts.need + ' you need</span>'
+    + '<span class="kindchip" style="color:#111">\uD83D\uDC26 ' + counts.crowd + ' crowd</span>'
+    + '<span class="kindchip" style="color:#6B4400">\uD83C\uDFC6 ' + counts.cascade + ' cascade</span>'
+    + '<span class="kindchip" style="color:#555">\uD83D\uDCCD ' + counts.hotspot + ' hotspot</span>'
+    + '</div><ul class="obs card-sm sfeed">'
+    + visible.map(function (a) { return smallRow(a, { rightIcon: true, wordOnly: true }); }).join('')
     + '</ul>' + feedFoot();
 }
 
@@ -648,13 +675,16 @@ async function main() {
     smallHtml({ rightIcon: true, wordOnly: true }));
   PAGES['/smallr2'] = page('OPTION C2 \u2014 small cards + right icon, badge keeps glyph AND word',
     smallHtml({ rightIcon: true }));
+  PAGES['/filter'] = page('F281 \u2014 unseen bird alerts by default, All reveals seen birds',
+    filterHtml());
 
   // Standalone copies so the mockup can be opened WITHOUT this script running.
   // Everything is inlined -- the CSS, and the bird tiles as data-URI SVG -- so
   // a file:// open is the same picture as the capture.
   for (const [route, file] of [['/current', 'current'], ['/proposed', 'optionA'],
                                ['/compact', 'optionB'], ['/small', 'optionC'],
-                               ['/smallr', 'optionC1'], ['/smallr2', 'optionC2']]) {
+                               ['/smallr', 'optionC1'], ['/smallr2', 'optionC2'],
+                               ['/filter', 'filter']]) {
     fs.writeFileSync(path.join(HERE, 'alertfeed-' + file + '.html'), PAGES[route]);
   }
   // ⚠️ ONLY C1 vs C2. Owner: *"Do not show B or C or original"* — a comparison
@@ -731,7 +761,7 @@ async function main() {
   await c.send('Page.enable', {}, sessionId);
   await c.send('Runtime.enable', {}, sessionId);
 
-  for (const which of ['current', 'proposed', 'compact', 'small', 'smallr', 'smallr2']) {
+  for (const which of ['current', 'proposed', 'compact', 'small', 'smallr', 'smallr2', 'filter']) {
     // ⚠️ THE HARNESS MUST BE SAME-ORIGIN. A `data:` URL is an opaque origin,
     // so `frame.contentDocument` reads as null and every measurement silently
     // returns undefined — which is how both shots first came out at the same
@@ -793,4 +823,3 @@ async function main() {
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
-

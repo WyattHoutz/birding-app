@@ -69,8 +69,10 @@ const TAXONOMY = [
   spuh('trin', 'Tringa sp.', 'Tringa sp.',
     'Charadriiformes', 'Scolopacidae', 105),
   spuh('gpl', 'golden-plover sp.',
-    'Pluvialis dominica/apricaria/fulva',
+    'Pluvialis dominica/apricaria/fulva (golden-plover sp.)',
     'Charadriiformes', 'Charadriidae', 106),
+  spuh('plu', 'Pluvialis sp.', 'Pluvialis sp.',
+    'Charadriiformes', 'Charadriidae', 106.5),
   spuh('lar', 'Larus sp.', 'Larus sp.',
     'Charadriiformes', 'Laridae', 107),
   spuh('gul', 'gull sp.', 'Larinae sp. (gull sp.)',
@@ -97,7 +99,7 @@ test('packTaxonomy keeps only the compact fields needed at runtime', () => {
   const packed = Spuh.packTaxonomy(TAXONOMY);
   assert.equal(packed.v, Spuh.SCHEMA);
   assert.equal(packed.species.length, 14);
-  assert.equal(packed.spuhs.length, 12);
+  assert.equal(packed.spuhs.length, 13);
   assert.deepEqual(packed.aliases, [['sem-form', 'sem']]);
   assert.ok(JSON.stringify(packed).length < JSON.stringify(TAXONOMY).length);
 });
@@ -106,9 +108,36 @@ test('explicit scientific species lists resolve exactly, not to the family', () 
   const model = build();
   const node = model.node('gpl');
   assert.equal(node.route, 'species-list');
+  assert.equal(node.gloss, 'golden-plover sp.');
+  assert.equal(model.coverage(node).nodes.length, 2,
+    'the exact row deliberately shares coverage with Pluvialis sp.');
   assert.equal(node.limit, '');
   assert.deepEqual(model.candidates(node).map((s) => s.code),
     ['amg', 'eug', 'pag']);
+});
+
+test('a lone narrower gloss cannot become an automatic result', () => {
+  const model = Spuh.createFromTaxonomy([
+    species('ibi', 'Test Ibis', 'Eudocimus testus',
+      'Pelecaniformes', 'Threskiornithidae', 1),
+    species('spo', 'Test Spoonbill', 'Platalea testus',
+      'Pelecaniformes', 'Threskiornithidae', 2),
+    species('her', 'Test Heron', 'Ardea testus',
+      'Pelecaniformes', 'Ardeidae', 3),
+    spuh('bird2', 'bird sp.', 'Aves sp.', '', '', 100),
+    spuh('ibis', 'ibis sp.', 'Threskiornithidae sp. (ibis sp.)',
+      'Pelecaniformes', 'Threskiornithidae', 101)
+  ]);
+  const ibis = model.node('ibis');
+
+  assert.equal(model.coverage(ibis).nodes.length, 1,
+    'the guard must not depend on an equal-coverage peer');
+  assert.equal(ibis.limit, 'same-group');
+  assert.deepEqual(
+    model.narrowestShared(['ibi']).map((x) => x.node.code),
+    ['bird2'],
+    'the unsupported ibis wording is excluded from automatic results'
+  );
 });
 
 test('published genus, family and order coverage stays exact', () => {

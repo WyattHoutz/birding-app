@@ -354,6 +354,32 @@ test('Celebrity birds keeps a bird whose checklist started before the window', (
     'the grace is no longer the measured 5 h');
 });
 
+test('needNearby preserves the newest report tuple separately from the nearest one', () => {
+  const now = Date.parse('2026-09-03T12:00:00');
+  const rows = [
+    { code: 'amgplo', name: 'American Golden-Plover', kind: 'Rarity',
+      dateStr: '2026-09-03 08:00', loc: 'Nearest Pond', locId: 'L1',
+      subId: 'S1', observer: 'A', lat: 47.7000, lon: -122.2000, distMi: 2 },
+    { code: 'amgplo', name: 'American Golden-Plover', kind: 'Rarity',
+      dateStr: '2026-09-03 11:00', loc: 'Newest Pond', locId: 'L2',
+      subId: 'S2', observer: 'B', lat: 47.7010, lon: -122.2000, distMi: 3 },
+    { code: 'amgplo', name: 'American Golden-Plover', kind: 'Rarity',
+      dateStr: '2026-09-03 09:00', loc: 'Nearest Pond', locId: 'L1',
+      subId: 'S3', observer: 'C', lat: 47.7000, lon: -122.2000, distMi: 2 },
+    { code: 'amgplo', name: 'American Golden-Plover', kind: 'Rarity',
+      dateStr: '2026-09-03 10:00', loc: 'Newest Pond', locId: 'L2',
+      subId: 'S4', observer: 'D', lat: 47.7010, lon: -122.2000, distMi: 3 },
+  ];
+  const row = BL.needNearby(rows, { now, seen: {}, maxMi: 35, hours: 24 })[0];
+  assert.equal(row.locName, 'Nearest Pond');
+  assert.equal(row.subId, 'S1');
+  assert.equal(row.latestLocName, 'Newest Pond');
+  assert.equal(row.latestLocId, 'L2');
+  assert.equal(row.latestSubId, 'S2');
+  assert.equal(row.latestStr, '2026-09-03 11:00');
+  assert.equal(row.latestDistMi, 3);
+});
+
 test('a shared checklist counts as ONE party in the busy-hotspot lane', () => {
   // Six people on one list is one decision to visit, not six. Before this,
   // Cedar River mouth's 16 observers counted as 16 independent parties and
@@ -1477,6 +1503,10 @@ test('a celebrity bird needs 4 independent sightings at ONE place, in range', ()
   assert.equal(real[0].locName, 'Juanita Bay Park');
   assert.equal(real[0].sightings, 4, 'the count must describe the qualifying place');
   assert.ok(real[0].distMi < 5, 'the row must carry the qualifying place, not the farthest report');
+  assert.equal(real[0].latestStr, '2026-08-20 11:40',
+    'the alert time comes from the newest report in the qualifying cluster');
+  assert.equal(real[0].latestSubId, 'Sd',
+    'the Latest link belongs to that newest report rather than the nearest one');
 
   // 3. THREE IS NOT FOUR, and "it was reviewed" is no longer an escape hatch.
   //    That bypass exempted every reviewed rarity — nearly all of them — so the

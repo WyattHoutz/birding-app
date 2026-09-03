@@ -296,10 +296,16 @@
       nodeByCode[node.code] = node;
     });
 
+    // A parenthetical gloss narrows the published group named before it even
+    // when no second spuh happens to share that coverage. Explicit species
+    // lists publish their members directly and are not coverage-limited.
     classes.forEach(function (coverageClass) {
-      if (coverageClass.nodes.length < 2) return;
       coverageClass.nodes.forEach(function (node) {
-        if (node.gloss && !node.limit) node.limit = 'same-group';
+        var namesPublishedCoverage = stripSpuhName(node.sci) === node.group;
+        if (node.gloss && !node.limit && node.route !== 'species-list'
+            && (coverageClass.nodes.length > 1 || namesPublishedCoverage)) {
+          node.limit = 'same-group';
+        }
       });
     });
 

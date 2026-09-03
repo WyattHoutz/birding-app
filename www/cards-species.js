@@ -277,6 +277,9 @@
     '  font-size: calc(11px * var(--s)); color: var(--muted); margin-left: 6px;',
     '  white-space: nowrap;',
     '}',
+    '.obs.card-sm .ntext .spidline .spcode,',
+    '.obs.card-sm .ntext .spidline .spalpha { margin-left: 0; }',
+    '.obs.card-sm .ntext .spidline .spalphasep { color: var(--muted); }',
     /* The banding code is the one said out loud, so it is the one weighted. */
     '.obs.card-sm .ntext .spalpha { font-weight: 700; letter-spacing: .02em; }',
     '.obs.xl > li > .meta > .spcode, .obs.card-md > li > .meta > .spcode {',
@@ -616,6 +619,22 @@
     return body + sep;
   }
 
+  function identifierLineHtml(v) {
+    var c = codeText(v.code);
+    var a = alphaText(v.alpha);
+    var details = subHtml(v, false);
+    if (!c && !details) return '';
+    var identifier = c
+      ? (a
+        ? '<span class="spalpha">' + a + '</span>'
+          + '<span class="spalphasep">/</span>'
+          + '<span class="spcode">' + c + '</span>'
+        : '<span class="spcode">' + c + '</span>')
+      : '';
+    return '<span class="sub spidline">' + identifier
+      + (identifier && details ? ', ' : '') + details + '</span>';
+  }
+
   /* ---- The SCIENTIFIC name, MEDIUM and LARGE only ----
      Small stays clean: it is a scanning surface and a second name on every row
      is precisely the noise it exists to avoid.
@@ -720,12 +739,13 @@
 
   function build(tpl, v, cls) {
     v = v || {};
+    var identifierLine = tpl === SMALL && !!v.identifierLine;
     return fill(tpl, {
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' ').trim(),
       icon: v.icon || '',
       name: v.name || '',
       tags: v.tags || '',
-      sub: subHtml(v, tpl === SMALL),
+      sub: identifierLine ? identifierLineHtml(v) : subHtml(v, tpl === SMALL),
       dist: distHtml(v, tpl),
       // The eBird species code, on MEDIUM cards only.
       //
@@ -743,7 +763,7 @@
       // that it looks identical everywhere and no section can forget it.
       count: countHtml(v, tpl),
       when: whenHtml(v, tpl),
-      code: codeHtml(v, tpl),
+      code: identifierLine ? '' : codeHtml(v, tpl),
       sci: sciHtml(v, tpl),
       conf: confHtml(v, tpl),
       // An optional control at the RIGHT EDGE of a small row. It has to be a

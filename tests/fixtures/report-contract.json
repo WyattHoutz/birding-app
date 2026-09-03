@@ -25,11 +25,11 @@
   "menu": [
     {
       "at": "surgeBtn",
-      "label": "🔔 Bird gen",
-      "report": "## 🔔 Bird gen — The news birders are talking about",
+      "label": "🔔 Bird Gen - Talk and news",
+      "report": "## 🔔 Bird Gen - Talk and news — Fresh ranked alerts",
       "map": null,
       "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake",
-      "sub": "The news birders are talking about"
+      "sub": "Fresh ranked alerts"
     },
     {
       "at": "wxBtn",

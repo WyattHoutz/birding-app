@@ -4025,15 +4025,18 @@
         var conf = chaseConfidence(cl.rows, { nowMs: now });
         // The nearest row in the cluster is the one the card describes, so
         // the place, checklist, time and count all come from one report.
-        var near = null, nearD = null, places = {};
+        var near = null, nearD = null, newest = null, newestT = -Infinity, places = {};
         cl.rows.forEach(function (r) {
           var pid = r.locId || r.loc || r.locName || '';
           if (pid) places[pid] = 1;
+          var rt = recTime(r);
+          if (isFinite(rt) && rt > newestT) { newestT = rt; newest = r; }
           var d = r.distMi == null ? null : Number(r.distMi);
           if (d == null || !isFinite(d)) return;
           if (nearD == null || d < nearD) { nearD = d; near = r; }
         });
         var cand = { conf: conf, row: near, distMi: nearD,
+                     newest: newest, newestT: newestT,
                      nPlaces: Object.keys(places).length, reports: cl.rows.length };
         if (!best || cand.conf.events > best.conf.events
             || (cand.conf.events === best.conf.events
@@ -4057,6 +4060,18 @@
           g.count = (typeof r.count === 'number') ? r.count : null;
           g.lat = r.lat == null ? null : r.lat;
           g.lon = (r.lon == null ? r.lng : r.lon);
+        }
+        var latest = best.newest;
+        if (latest) {
+          g.latest = best.newestT;
+          g.latestStr = latest.dateStr || '';
+          g.latestSubId = latest.subId || '';
+          g.latestLocId = latest.locId || '';
+          g.latestLocName = latest.loc || latest.locName || '';
+          g.latestLat = latest.lat == null ? null : latest.lat;
+          g.latestLon = latest.lon == null ? latest.lng : latest.lon;
+          g.latestDistMi = latest.distMi == null ? null : Number(latest.distMi);
+          g.latestCount = (typeof latest.count === 'number') ? latest.count : null;
         }
       }
       g.rows = null;                    // grouping detail, not render data

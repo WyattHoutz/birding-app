@@ -241,6 +241,12 @@ OVERRIDES = {
     'brnowl.jpg': (0.1746, 0.0145, 0.8333, 1.0006),
     'norshr4.jpg': (0.1786, 0.0086, 0.8373, 1.0007),
     'norhar2.jpg': (0.0198, 0.0566, 0.996, 0.7056),
+
+    # F290. The automatic crop starts 292px into the 1070x756 source and
+    # removes the left-facing bird's whole head. A quarter-slide leaves 4.4px
+    # of clear frame before the bill at the 56px small-card size while keeping
+    # the folded wing and useful tail context.
+    'vesspa.jpg': 0.25,
 }
 
 
@@ -313,6 +319,8 @@ OVERRIDE_SRC_SHA = {
     'brnowl.jpg': 'ee2a08775fe2bf9c',
     'norshr4.jpg': '11cadfa73bd10231',
     'norhar2.jpg': '8da9999a680a8d25',
+    # F290: same credited photograph re-fetched from Wikimedia at 1070x756.
+    'vesspa.jpg': 'e7a65b4b836cbf65',
 }
 
 

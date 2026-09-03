@@ -1,0 +1,167 @@
+{
+  "region": "US-WA",
+  "asOf": "2026-09-02",
+  "speciesObserved": 215,
+  "birds": [
+    {
+      "code": "lobcur",
+      "name": "Long-billed Curlew",
+      "sci": "Numenius americanus",
+      "alpha": "LBCU",
+      "seen": true,
+      "firstSeen": "2026-08-30",
+      "ordinal": 215
+    },
+    {
+      "code": "fragul",
+      "name": "Franklin's Gull",
+      "sci": "Leucophaeus pipixcan",
+      "alpha": "FRGU",
+      "seen": true,
+      "firstSeen": "2026-08-23",
+      "ordinal": 214
+    },
+    {
+      "code": "margod",
+      "name": "Marbled Godwit",
+      "sci": "Limosa fedoa",
+      "alpha": "MAGO",
+      "seen": true,
+      "firstSeen": "2026-08-23",
+      "ordinal": 213
+    },
+    {
+      "code": "baisan",
+      "name": "Baird's Sandpiper",
+      "sci": "Calidris bairdii",
+      "alpha": "BASA",
+      "seen": true,
+      "firstSeen": "2026-08-22",
+      "ordinal": 212
+    },
+    {
+      "code": "horlar",
+      "name": "Horned Lark",
+      "sci": "Eremophila alpestris",
+      "alpha": "HOLA",
+      "seen": true,
+      "firstSeen": "2026-08-17",
+      "ordinal": 211
+    },
+    {
+      "code": "casvir",
+      "name": "Cassin's Vireo",
+      "sci": "Vireo cassinii",
+      "alpha": "CAVI",
+      "seen": true,
+      "firstSeen": "2026-08-15",
+      "ordinal": 210
+    },
+    {
+      "code": "solsan",
+      "name": "Solitary Sandpiper",
+      "sci": "Tringa solitaria",
+      "alpha": "SOSA",
+      "seen": true,
+      "firstSeen": "2026-08-12",
+      "ordinal": 209
+    },
+    {
+      "code": "ruff",
+      "name": "Ruff",
+      "sci": "Calidris pugnax",
+      "alpha": "RUFF",
+      "seen": true,
+      "firstSeen": "2026-06-27",
+      "ordinal": 193
+    },
+    {
+      "code": "sposan",
+      "name": "Spotted Sandpiper",
+      "sci": "Actitis macularius",
+      "alpha": "SPSA",
+      "seen": true,
+      "firstSeen": "2026-05-12",
+      "ordinal": 175
+    },
+    {
+      "code": "wessan",
+      "name": "Western Sandpiper",
+      "sci": "Calidris mauri",
+      "alpha": "WESA",
+      "seen": true,
+      "firstSeen": "2026-02-20",
+      "ordinal": 106
+    },
+    {
+      "code": "calgul",
+      "name": "California Gull",
+      "sci": "Larus californicus",
+      "alpha": "CAGU",
+      "seen": true
+    },
+    {
+      "code": "ribgul",
+      "name": "Ring-billed Gull",
+      "sci": "Larus delawarensis",
+      "alpha": "RBGU",
+      "seen": true
+    },
+    {
+      "code": "nazboo1",
+      "name": "Nazca Booby",
+      "sci": "Sula granti",
+      "alpha": "NABO",
+      "seen": false
+    },
+    {
+      "code": "shtsan",
+      "name": "Sharp-tailed Sandpiper",
+      "sci": "Calidris acuminata",
+      "alpha": "SPTS",
+      "seen": false
+    },
+    {
+      "code": "semsan",
+      "name": "Semipalmated Sandpiper",
+      "sci": "Calidris pusilla",
+      "alpha": "SESA",
+      "seen": false
+    },
+    {
+      "code": "norwat",
+      "name": "Northern Waterthrush",
+      "sci": "Parkesia noveboracensis",
+      "alpha": "NOWA",
+      "seen": false
+    },
+    {
+      "code": "whiwag",
+      "name": "White Wagtail",
+      "sci": "Motacilla alba",
+      "alpha": "WHWA",
+      "seen": false
+    },
+    {
+      "code": "vesspa",
+      "name": "Vesper Sparrow",
+      "sci": "Pooecetes gramineus",
+      "alpha": "VESP",
+      "seen": false
+    },
+    {
+      "code": "corplo",
+      "name": "Common Ringed Plover",
+      "sci": "Charadrius hiaticula",
+      "alpha": "CRPL",
+      "seen": false
+    },
+    {
+      "code": "amgplo",
+      "name": "American Golden-Plover",
+      "sci": "Pluvialis dominica",
+      "alpha": "AMGP",
+      "seen": false
+    }
+  ]
+}

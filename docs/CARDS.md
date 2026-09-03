@@ -45,6 +45,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | template | built by | section |
 |---|---|---|
 | `small` | `speciesListHtml` | the bird lists nested inside a hotspot card ("3 unseen 🔍" / "40 more species already seen") |
+| `small` | `surgeAlertCard` | 🔔 Bird Gen — compact bird, alpha/eBird identifier line, linked facts and reason |
 | `medium` | `refresh` | 🌅 Today's rarity reports |
 | `medium` | `renderSpeciesLookup` | 📖 Species lookup |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
@@ -59,6 +60,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `hotspotCard` | 🥇 Top destinations · 🚗 Top excursions · 🧭 Trip planner · 🚶 Quick outing · 📍 Closest spots · 🔥 Hot hotspots · ❄️ Cold hotspots — **every** hotspot list in the app goes through this one builder |
 | `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
 | `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
+| `small` | `spLookupPlaceCards` | 🔍 Stakeout bird recent reports — one row per hotspot, newest checklist linked, lazily appended into one list |
 | `large` | `renderStakeHs` | 🗺 Stake out a hotspot — ONE place, in depth: eBird code, address, all-time totals, the birds seen there in the last 30 days, its iconic score, its recent checklists, and who birds it. The one section that is about a single hotspot rather than a list of them, which is exactly what the large card is for |
 | `marker` | — | **unused** — and it is a trap, not an oversight: `build()` derives the badge from `num`/`icon`, so a caller passing a ready-made `marker` has it silently dropped. Stakeout *By odds* numbers its rows by passing `num` |
 
@@ -84,6 +86,9 @@ but called from nowhere in `index.html`.
 > *By odds* view, and **`HotspotCards.large` went to Stake out a hotspot on
 > 2026-08-22** — which is the argument below playing out as intended: the
 > shape was there when a section needed it, so nobody invented a fourth.
+>
+> `HotspotCards.small` now serves both *By odds* and the recent-report list;
+> the shared size is what keeps those place rows visually consistent.
 >
 > `marker` is a special case. *By odds* really does number its rows, but
 > `build()` computes the badge from `num`/`icon` and **ignores a `marker`
@@ -127,3 +132,8 @@ tests and its gallery entry in the same commit, and say why.
    coordinate, home-derived route, arbitrary URL, observer name, or new
    location payload. The QR sheet always states the destination and keeps an
    ordinary **Open on eBird** link: QR is visual, not the only way to act.
+
+`SpeciesCards.small({ identifierLine: true })` keeps the common name on its
+headline and moves the alpha/eBird identifiers into the existing compact
+subline. Bird Gen uses it for `NABO/nazboo1, ...`; ordinary small species lists
+keep their established inline identifier layout.
