@@ -1212,7 +1212,7 @@ test('Bird gen is wired and renders every alert source it detects', async () => 
   const txt = app.$('surgeResults').textContent;
   assert.match(txt, /Tufted Puffin/, 'the species drawing the crowd');
   assert.match(txt, /x20/, 'the second line carries the crowd report count');
-  assert.match(txt, /CROWD: Multiple independent reports with no trailing baseline!/,
+  assert.match(txt, /CROWD.*Multiple independent reports with no trailing baseline!/s,
     'the third line explains the crowd signal');
   assert.match(txt, /Terek Sandpiper/, 'the leaderboard cascade');
   assert.match(txt, /Stanwood STP/, 'the species-blind hotspot convergence');
@@ -1252,9 +1252,13 @@ test('a zero-baseline surge keeps "new here" accessible, never an infinite ratio
   assert.doesNotMatch(txt, /Infinity|NaN/, 'and never invents a number');
   assert.doesNotMatch(row.querySelector(':scope > .name').textContent, /🆕/,
     'the compact headline still carries a second state outside the category tag');
+  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(), 'CROWD',
+    'the category badge did not move to the explanation row');
   assert.match(row.querySelector('.surgeexplain b').textContent,
-    /CROWD: Multiple independent reports with no trailing baseline/i,
+    /Multiple independent reports with no trailing baseline/i,
     'a novel crowd is falsely described as above normal');
+  assert.doesNotMatch(row.querySelector('.surgeexplain b').textContent, /^CROWD:/i,
+    'the written category prefix duplicates the badge');
   app.window.close();
 });
 
@@ -6176,9 +6180,11 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     const kind = row.dataset.alertKind;
     assert.ok(row.querySelector(':scope > .name > .thumb'),
       `${kind} lost the 56px left tile supplied through SpeciesCards.small`);
-    const badge = row.querySelector(':scope > .name > .ntext > .surgebadge');
+    const badge = row.querySelector(':scope > .surgeexplain > .surgebadge');
     const tile = row.querySelector(':scope > .name > .surgekindwrap .surgekindtile');
     assert.equal(badge.textContent.trim(), expected[kind][0], `${kind} lost its word badge`);
+    assert.equal(row.querySelector(':scope > .name > .ntext > .surgebadge'), null,
+      `${kind} category badge still sits after the name`);
     assert.equal(tile.textContent.trim(), expected[kind][1], `${kind} lost its right-edge lane glyph`);
     glyphs.forEach((glyph) => assert.ok(!badge.textContent.includes(glyph),
       `${kind} duplicates its category glyph inside the name tag`));
@@ -6309,16 +6315,26 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
   });
   const mega = feed.querySelector('[data-alert-kind="mega"]');
   assert.match(mega.querySelector('.splink').textContent, /Nazca Booby/);
-  assert.equal(mega.querySelector('.surgebadge').textContent.trim(), 'MEGA');
+  assert.equal(mega.querySelector(':scope > .name .surgebadge'), null,
+    'MEGA still appears after the bird name');
+  assert.equal(mega.querySelector(':scope > .surgeexplain > .surgebadge').textContent.trim(),
+    'MEGA');
   const facts = mega.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
   assert.match(facts, /^NABO x1 - Smith Island - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap]$/i,
     'the second line is not ALPHA xcount - place - compact date');
   assert.doesNotMatch(facts, /nazboo1|\d+(?:\.\d+)?mi\b/i,
     'the second line still includes the eBird code or distance');
   assert.equal(mega.querySelector('.surgeexplain b').textContent.trim(),
-    'MEGA: An unseen ABA Code 3+ is within a day trip!');
+    'An unseen ABA Code 3+ is within a day trip!');
+  assert.doesNotMatch(mega.querySelector('.surgeexplain b').textContent, /^MEGA:/,
+    'the written category duplicates the MEGA badge');
+  assert.equal(app.window.getComputedStyle(
+    mega.querySelector('.surgefacts .spalpha')).marginLeft, '0px',
+    'the bird code keeps inherited leading space');
   assert.equal(mega.querySelector('[data-sec="sec-abaBtn"]'), null,
     'the removed All Mega rarities link is still present');
+  assert.equal(app.$('surgeResults').querySelector('[data-sec="sec-lastNewBtn"]'), null,
+    'the removed Leader Board Ticks footer link is still present');
   app.window.close();
 });
 
@@ -6367,7 +6383,7 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
   patchApp.window.close();
 });
 
-test('F302 reviewed Bird Gen rows put R immediately before the bird identifier', async () => {
+test('F311 Bird Gen never renders the rarity R marker', async () => {
   const app = await boot();
   const A = app.window.__app;
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -6383,15 +6399,10 @@ test('F302 reviewed Bird Gen rows put R immediately before the bird identifier',
       subId: 'S2', whenStr: stamp, rare: true }], []);
 
   for (const row of app.$('surgeFeed').children) {
-    const line = row.querySelector('.surgefacts');
-    const review = line && line.querySelector('.rarebadge');
-    const identifier = line && line.querySelector('.spalpha');
-    assert.ok(review && identifier, 'review state and identifier do not share one line');
-    assert.ok(review.compareDocumentPosition(identifier)
-      & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-    'R does not immediately precede the bird identifier');
-    assert.equal(row.querySelector(':scope > .name > .ntext > .rarebadge'), null,
-      'R still competes with the bird name and category tag');
+    assert.equal(row.querySelector('.rarebadge'), null,
+      'Bird Gen still renders the R rare-bird marker');
+    assert.ok(row.querySelector('.surgefacts .spalpha'),
+      'removing R also removed the four-letter bird code');
   }
   app.window.close();
 });
@@ -6502,8 +6513,13 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     'a code-less cascade for the same named species escaped dedupe');
   assert.match(row.dataset.surgeReasonText, /2 of the top 100 added it within 3 days/,
     'the cascade reason or its real two-birder threshold was discarded');
-  assert.match(row.querySelector('.surgeexplain b').textContent, /MEGA:/,
+  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+    'MEGA', 'the strongest category is not the explanation-row badge');
+  assert.match(row.querySelector('.surgeexplain b').textContent,
+    /unseen ABA Code 3\+ has multiple local reports/i,
     'the strongest rule is not the visible third-line explanation');
+  assert.doesNotMatch(row.querySelector('.surgeexplain b').textContent, /^MEGA:/,
+    'the written category duplicates the explanation-row badge');
   assert.equal(row.querySelector('.surgenotelink, [data-sec="sec-abaBtn"]'), null,
     'the removed category links survived the single-state redesign');
   assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
@@ -6544,8 +6560,10 @@ test('F302 same-category dedupe keeps distinct accessible CROWD reasons', async 
     'one same-category reason was discarded from accessible metadata');
   assert.equal(row.querySelector('.surgenotereasons'), null,
     'the removed expandable Notes block returned');
+  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+    'CROWD', 'the deduped category badge did not move to the explanation row');
   assert.match(row.querySelector('.surgeexplain b').textContent,
-    /CROWD: Many birders are reporting it above normal!/);
+    /Many birders are reporting it above normal!/);
   app.window.close();
 });
 
@@ -18693,26 +18711,15 @@ test('the odds rows are numbered, readable, and within reach first', () => {
     'the map plots every iconic place, including the ones behind the expander');
 });
 
-test('the cascade lane can hand you off to the board it came from', () => {
-  // "add a link to jump to the Leader Board Ticks section after
-  // the list." The obvious next question after "a few of the top 100 are
-  // ticking this" is what else the board has been ticking.
+test('Bird Gen has no category destination footer', () => {
+  // Owner, reviewing the F311 mockup: "remove the link to leaderboard ticks
+  // at the bottom of the mockup". Bird Gen is the news itself, not a set of
+  // category launchers; F302 already removed the equivalent Mega link.
   const src = HTML.slice(HTML.indexOf('function renderSurge'), HTML.indexOf('function loadSurge'));
-  assert.match(src, /data-sec="sec-lastNewBtn"/, 'there is no jump to Leader Board Ticks');
-
-  // WIRED, not just rendered. A link that navigates nowhere is the same bug as
-  // the rankings scope control that sat dead for a whole release — and in this
-  // app navigation is showSection(), never a URL, so an unhandled .seclink
-  // would be a no-op in the WKWebView rather than a page load.
-  assert.match(HTML, /closest\('\.seclink'\)/,
-    'the in-app jump link has no handler');
-  assert.match(HTML, /\.seclink[\s\S]{0,300}?showSection\(sid\)/,
-    'the handler does not actually navigate');
-
-  // ...and the target section really exists under that id. Section ids are
-  // derived as 'sec-' + the menu button id, so a typo here fails silently.
-  assert.match(HTML, /id="lastNewBtn"/,
-    'sec-lastNewBtn cannot resolve, because there is no lastNewBtn to derive it from');
+  assert.doesNotMatch(src, /data-sec="sec-lastNewBtn"/,
+    'the removed Leader Board Ticks footer returned');
+  assert.doesNotMatch(src, /Leader Board Ticks\s*→/,
+    'the removed leaderboard footer text returned');
 });
 
 test('the unified Bird gen help keeps every former lane rule reachable', async () => {

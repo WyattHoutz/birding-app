@@ -160,7 +160,7 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
     source.indexOf("} else if (spec.kind === 'spuh')"));
   for (const fact of [
     'comter', 'Common Tern', 'NABO x1 - Smith Island - 9/1 5:50p',
-    'MEGA: An unseen ABA Code 3+ is within a day trip!',
+    'An unseen ABA Code 3+ is within a day trip!',
     'Cedar River mouth', 'Marymoor Park', 'high yield',
   ]) {
     assert.ok(paint.includes(fact), `F302 Bird Gen mockup lost ${fact}`);
@@ -168,14 +168,20 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
   assert.match(paint,
     /:scope > \.name > \.ntext > \.sub > \.surgefacts[\s\S]*:scope > \.surgeexplain > b/,
     'the release fixture does not verify the name-cell and full-width rows');
-  assert.match(paint, /surgefacts[\s\S]*rarebadge/,
-    'the release fixture does not verify R moved before the bird code');
+  assert.match(paint, /Bird Gen still displays the R rare-bird marker/,
+    'the release fixture does not reject the removed R marker');
+  assert.match(paint, /category badge returned beside the bird name/,
+    'the release fixture does not pin the category badge to the explanation row');
+  assert.match(paint, /bird code keeps inherited leading space/,
+    'the release fixture does not pin the bird code flush-left');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,
     'the release fixture does not fail if a report drawer returns');
   assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
     'the release gate does not assert the new Cascade row');
   assert.match(paint, /still links to All Mega rarities/,
     'the release fixture does not fail if the removed Mega link returns');
+  assert.match(paint, /still links to Leader Board Ticks/,
+    'the release fixture does not fail if the removed leaderboard link returns');
   assert.doesNotMatch(source, /prepareBirdGenCompact|birdgencompact/,
     'the mockup suite still carries a second Notes state that no longer exists');
 });

@@ -1591,16 +1591,16 @@
                   font-size: calc(10.5px * var(--s)); font-weight: 800;
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
-    .surgefeed .ntext > .surgebadge { margin-left: 6px; vertical-align: middle; }
     .surgefacts { display: block; color: var(--muted);
                   font-size: calc(13px * var(--s)); line-height: 1.35; }
-    .surgefacts .rarebadge { margin-right: 3px; vertical-align: 1px; }
+    .surgefeed.obs.card-sm .ntext .surgefacts .spalpha { margin-left: 0; }
     .surgefactsep { white-space: nowrap; }
     .surgefeed > li > .surgeexplain {
       display: block; box-sizing: border-box; width: 100%;
       margin-top: 7px; padding: 0 2px; color: var(--ink);
       font-size: calc(13px * var(--s)); line-height: 1.35;
     }
+    .surgeexplain > .surgebadge { margin-right: 6px; vertical-align: 1px; }
     .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
     .surgeplacethumb { position: relative; background:
       linear-gradient(25deg, transparent 44%, #b7b7be 45%, #b7b7be 52%, transparent 53%),
@@ -3123,7 +3123,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.69.0';
+      var APP_VERSION = '1.70.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -23708,7 +23708,6 @@
         if (a.checklistId) date = checklistLink(a.checklistId, date);
         var count = Number(a.count);
         var lead = [
-          a.identifierPrefix || '',
           a.alpha ? '<span class="spalpha">' + esc(a.alpha) + '</span>' : '',
           isFinite(count) && count >= 0
             ? '<span class="surgecountvalue">x' + Math.floor(count) + '</span>' : ''
@@ -23810,11 +23809,18 @@
           + '">' + word + '</span>';
       }
 
-      function surgeExplanationHtml(a) {
+      function surgeExplanationHtml(a, reasonText) {
+        var word = SURGE_KINDS[a.kind].word;
         var text = a.noteHeader
-          || (SURGE_KINDS[a.kind].word + ': Current alert rule matched!');
+          || (word + ': Current alert rule matched!');
+        var prefix = word + ':';
+        if (text.slice(0, prefix.length).toUpperCase() === prefix.toUpperCase()) {
+          text = text.slice(prefix.length).trim();
+        }
         if (!/[.!?]$/.test(text)) text += '!';
-        return '<div class="surgeexplain"><b>' + esc(text) + '</b>'
+        return '<div class="surgeexplain">'
+          + surgeCategoryTag(a.kind, reasonText)
+          + '<b>' + esc(text) + '</b>'
           + (a.extra ? '<span class="surgeexplainextra">' + a.extra + '</span>' : '')
           + '</div>';
       }
@@ -23835,10 +23841,10 @@
         return SpeciesCards.small({
           icon: a.icon,
           name: a.name,
-          tags: surgeCategoryTag(a.kind, reason.text) + (a.tags || ''),
+          tags: a.tags || '',
           sub: surgeFactsHtml(a),
           right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime),
-          below: surgeExplanationHtml(a),
+          below: surgeExplanationHtml(a, reason.text),
           data: data
         });
       }
@@ -24234,7 +24240,6 @@
             name: speciesLink(e.name, e.code),
             code: e.code,
             alpha: e.alpha || alphaFor(e.code),
-            identifierPrefix: e.rare ? rareTag('Rarity') : '',
             noteHeader: 'CELEBRITY: An unseen rarity has multiple sightings!',
             count: obs || 0,
             sub: [
@@ -24299,7 +24304,6 @@
             name: c.code ? speciesLink(c.species, c.code) : esc(c.species),
             code: c.code || '',
             alpha: c.code ? (c.alpha || alphaFor(c.code)) : '',
-            identifierPrefix: c.code ? rareTag('Rarity') : '',
             noteHeader: 'CASCADE: Multiple top birders added it within '
               + BL.CASCADE.WINDOW_DAYS + ' days',
             count: c.birders.length,
@@ -24403,9 +24407,6 @@
           + ' data-unified-alert-feed="true">'
           + rows.map(function (row) { return surgeAlertCard(row, order++); }).join('')
           + '</ul>'
-          + (cascadePairs.length
-              ? '<div class="destfoot"><a class="seclink" data-sec="sec-lastNewBtn">'
-                + '🔭 Leader Board Ticks →</a></div>' : '')
           + (mega && mega.held
               ? '<div class="surgeheld">⚠️ <b>' + mega.held + ' more '
                 + (mega.held === 1 ? 'mega is' : 'megas are')

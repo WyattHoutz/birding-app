@@ -138,6 +138,8 @@ headline and moves the alpha/eBird identifiers into the existing compact
 subline. Ordinary small species lists keep their established inline identifier
 layout. Bird Gen renders its own alpha-only three-line news shape because that
 feed deliberately omits the eBird species code and mileage. Its name cell has
-two lines — the common name and category, then
-`NABO x1 - Smith Island - 9/1 5:50p` — while the bold alert explanation is a
-separate full-width row below the headline cell.
+two lines — the common name alone, then
+`NABO x1 - Smith Island - 9/1 5:50p`, flush with the name. The category badge
+begins a separate full-width explanation row below the headline cell, followed
+by the bold reason without a repeated `MEGA:`-style prefix. Bird Gen also omits
+the rarity `R` marker; the alert category already carries the useful state.

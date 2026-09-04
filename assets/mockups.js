@@ -727,18 +727,28 @@ const BOOTSTRAP = `
           + (megaFacts ? megaFacts.textContent.replace(/\\s+/g, ' ').trim() : 'missing')
           + ' HTML=' + (megaFacts ? megaFacts.innerHTML : 'missing'));
       }
-      if (!mega.querySelector('.surgeexplain > b')
+      if (!mega.querySelector(':scope > .surgeexplain > .surgebadge')
+          || mega.querySelector(':scope > .surgeexplain > .surgebadge').textContent.trim()
+            !== 'MEGA'
+          || !mega.querySelector('.surgeexplain > b')
           || mega.querySelector('.surgeexplain > b').textContent.trim()
-            !== 'MEGA: An unseen ABA Code 3+ is within a day trip!') {
+            !== 'An unseen ABA Code 3+ is within a day trip!') {
         throw new Error('Bird Gen MEGA explanation drifted from the approved markup');
+      }
+      if (mega.querySelector(':scope > .name .surgebadge')) {
+        throw new Error('Bird Gen category badge returned beside the bird name');
       }
       if (mega.querySelector('[data-sec="sec-abaBtn"]')) {
         throw new Error('Bird Gen still links to All Mega rarities');
       }
-      var reviewLine = document.querySelector(
-        '#surgeFeed [data-species-code="comter"] .surgefacts');
-      if (!reviewLine || !reviewLine.querySelector('.rarebadge')) {
-        throw new Error('Bird Gen review R is not before the four-letter code');
+      if (document.querySelector('#surgeResults [data-sec="sec-lastNewBtn"]')) {
+        throw new Error('Bird Gen still links to Leader Board Ticks');
+      }
+      if (document.querySelector('#surgeFeed .rarebadge')) {
+        throw new Error('Bird Gen still displays the R rare-bird marker');
+      }
+      if (getComputedStyle(megaFacts.querySelector('.spalpha')).marginLeft !== '0px') {
+        throw new Error('Bird Gen bird code keeps inherited leading space');
       }
       markHost(host, label);
     } else if (spec.kind === 'spuh') {
