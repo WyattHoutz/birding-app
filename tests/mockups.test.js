@@ -65,14 +65,54 @@ test('blank detection inspects the active section and requires its data marker',
     'the active section must declare that its fixture finished');
   assert.match(source, /host\.getAttribute\('data-mock-data'\) === 'true'/,
     'the configured real result host must contain representative data');
-  assert.match(source, /ready\.isStatic \? \(ready\.text < 200 \|\| ready\.controls < 3\)/,
-    'footer/navbar text cannot make a blank data section pass');
-  assert.match(source, /ready\.loading\.length \|\| ready\.disabled\.length/,
-    'visible loading or disabled-loader states fail the shot');
+  assert.match(source, /problems\.push\('blank static surface'\)/,
+    'footer/navbar text cannot make a thin static section pass');
+  assert.match(source, /problems\.push\('blank data surface'\)/,
+    'footer/navbar text cannot make an unmarked data section pass');
+  assert.match(source, /problems\.push\('loading'\)/,
+    'visible loading states fail the shot');
+  assert.match(source, /problems\.push\('disabled controls'\)/,
+    'visible disabled-loader states fail the shot');
   assert.match(source, /FIXTURE CHANGED AFTER READY/,
     'a later asynchronous overwrite is detected');
   assert.match(source, /STUB NOT READY/,
     'a missing fixture exits as a named failure rather than writing a blank PNG');
+});
+
+test('blank-shot decisions reject missing data instead of merely existing in source', () => {
+  const ready = {
+    at: 'easyBtn', expectedAt: 'easyBtn', ready: true, isStatic: false,
+    sectionVisible: true, hostVisible: true, data: true, text: 120,
+    controls: 2, inCapture: true, loading: [], disabled: [], missing: [],
+    mapReady: true,
+  };
+  assert.deepEqual(mockups.shotReadinessProblems(ready), [],
+    'a populated data section is ready');
+  assert.deepEqual(mockups.shotReadinessProblems({ ...ready, data: false }),
+    ['blank data surface'],
+    'a navbar/footer cannot make an unmarked result host pass');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, loading: ['Loading recent reports…'],
+  }), ['loading'], 'a visible loading state cannot be captured as finished');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, missing: ['#easyResults .hscard'],
+  }), ['missing expected components'],
+  'a generic card cannot replace the production shape a shot promises');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, isStatic: true, data: false, text: 199, controls: 3,
+  }), ['blank static surface'],
+  'a static screen still needs enough authored content');
+
+  assert.equal(mockups.shotLooksBlank({ text: 29, nodes: 20 }, true), true);
+  assert.equal(mockups.shotLooksBlank({ text: 80, nodes: 4 }, true), true);
+  assert.equal(mockups.shotLooksBlank({ text: 30, nodes: 5 }, true), false);
+  assert.equal(mockups.shotLooksBlank({ text: 199, nodes: 120 }, false), true);
+  assert.equal(mockups.shotLooksBlank({ text: 200, nodes: 100 }, false), false);
+
+  assert.match(source, /shotReadinessProblems\(ready\)/,
+    'the generator does not use the readiness decision the guard drives');
+  assert.match(source, /shotLooksBlank\(seen, !!shot\.at\)/,
+    'the generator does not use the blank-pixel decision the guard drives');
 });
 
 test('fixture families use shared card components and accessible state labels', () => {

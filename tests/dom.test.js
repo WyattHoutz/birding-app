@@ -1075,6 +1075,24 @@ test('opening a section auto-loads its content (no button tap)', async () => {
   app.window.close();
 });
 
+test('F278 a failed Nemesis first-open is retryable, while success stays loaded', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const sec = app.$('easyBtn').closest('section');
+  let calls = 0;
+  sec._loader.fn = () => Promise.resolve(++calls > 1);
+
+  assert.equal(await A.autoLoad(sec), false, 'the first load reproduces a failed sample');
+  assert.equal(calls, 1);
+  assert.equal(await A.autoLoad(sec), true,
+    'reopening the same section retries after the failed first load');
+  assert.equal(calls, 2);
+  A.autoLoad(sec);
+  assert.equal(calls, 2,
+    'a successful retry stays loaded and does not restart on every open');
+  app.window.close();
+});
+
 test('hot and cold hotspots render from ONE shared scan', async () => {
   const app = await boot();
   app.open(/Hot patches/);
@@ -3250,6 +3268,50 @@ test('easy misses: a fetched day is cached, because a past day never changes', a
   app.window.close();
 });
 
+test('F278 Nemesis distinguishes true-empty, partial and failed day samples', async () => {
+  const county = 'US-WA-033';
+  const d1 = new Date('2026-07-21T12:00:00');
+  const d2 = new Date('2026-07-22T12:00:00');
+  const d3 = new Date('2026-07-23T12:00:00');
+  const app = await boot({
+    fetch: (u) => (/\/historic\//.test(String(u))
+      ? { __status: 404 } : null),
+  });
+  const A = app.window.__app;
+
+  const k1 = A.easyCacheKey(county, d1);
+  const k2 = A.easyCacheKey(county, d2);
+  assert.notEqual(k1, k2, 'the two day jobs have distinct cache keys');
+  assert.equal(app.window.localStorage.getItem(k2), null,
+    'the day intended to fail is not already cached');
+  await A.zcPut(k1, []);
+  const partial = await A.easyFetch([county], [d1, d2]);
+  assert.equal(app.state.fetches.filter((u) => /\/historic\/2026\/7\/22/.test(u)).length, 1,
+    'the uncached day must reach the historic endpoint exactly once');
+  assert.equal(partial.length, 0,
+    'an empty successful day and a failed day can both contain zero rows');
+  assert.deepEqual({ ...A.easySampleState(partial) }, {
+    attempted: 2, failed: 1, allFailed: false, partial: true,
+  }, app.window.__dbg.buf.map((e) => e.msg).join('\n'));
+  assert.match(A.easyResultStatus([], 2, A.easySampleState(partial)),
+    /partial sample: 1 of 2 day feeds unavailable/,
+    'the visible status names incomplete evidence instead of claiming a true empty');
+
+  const failed = await A.easyFetch([county], [d3]);
+  assert.deepEqual({ ...A.easySampleState(failed) }, {
+    attempted: 1, failed: 1, allFailed: true, partial: false,
+  }, 'an all-failed first open is not converted into an empty answer');
+
+  await A.zcPut(k2, []);
+  const empty = await A.easyFetch([county], [d1, d2]);
+  assert.deepEqual({ ...A.easySampleState(empty) }, {
+    attempted: 2, failed: 0, allFailed: false, partial: false,
+  }, 'two successful empty days remain a valid empty sample');
+  assert.doesNotMatch(A.easyResultStatus([], 2, A.easySampleState(empty)), /partial|unavailable/,
+    'a true empty result is not mislabeled as a failure');
+  app.window.close();
+});
+
 test('convoy checklists load concurrently, with a hard cap on in-flight calls', async () => {
   // Serial + a 170 ms gap meant ~9 s of mostly-idle key for a ten-convoy day.
   // Unbounded parallelism is the other failure: it would swamp the single
@@ -4746,6 +4808,98 @@ test('switching reports invalidates Stakeout bird results, code lists and in-fli
     'a Washington response cannot repaint after Arizona becomes active');
   assert.doesNotMatch(D.getElementById('spLookupStatus').textContent, /Old Washington Marsh|US-WA/,
     'the stale completion cannot relabel itself with the new report');
+  app.window.close();
+});
+
+test('Stakeout search tries parent regions without claiming a parent bird is local', async () => {
+  const calls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/product\/spplist\/US-WA(?:[/?]|$)/.test(u)) return [];
+      if (/product\/spplist\/US(?:[/?]|$)/.test(u)) return ['ostric2'];
+      if (/ref\/taxonomy\/ebird\?.*species=ostric2/.test(u)) {
+        return [{
+          speciesCode: 'ostric2', category: 'species',
+          comName: 'Common Ostrich', sciName: 'Struthio camelus',
+          order: 'Struthioniformes', familyCode: 'struth1',
+          familyComName: 'Ostriches', taxonOrder: 1,
+        }];
+      }
+      if (/data\/obs\/US-WA\/recent\/ostric2/.test(u)) return [];
+      if (/ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  assert.deepEqual(
+    Array.from(A.speciesSearchScopes('US-WA-033', 'King County'), (s) => s.code),
+    ['US-WA-033', 'US-WA', 'US'],
+    'a county lookup climbs through its state before its country');
+
+  doc.getElementById('spLookup').value = 'Common Ostrich';
+  await A.runSpeciesLookup();
+
+  const waAt = calls.findIndex((u) => /product\/spplist\/US-WA(?:[/?]|$)/.test(u));
+  const usAt = calls.findIndex((u) => /product\/spplist\/US(?:[/?]|$)/.test(u));
+  assert.ok(waAt >= 0 && usAt > waAt,
+    'Washington must be searched before the United States parent');
+  const found = doc.getElementById('spLookupFound');
+  assert.match(found.textContent, /Outside Washington — United States/,
+    'the parent result has a visible out-of-area boundary');
+  assert.match(found.textContent, /Common Ostrich/);
+  assert.match(found.textContent, /not on Washington’s regional list/,
+    'the row itself says it is not a Washington bird');
+  assert.equal(found.querySelectorAll('li[data-code="ostric2"]').length, 1,
+    'the parent result is not merged or duplicated');
+
+  app.click(found.querySelector('li[data-code="ostric2"]'));
+  await waitFor(() => /No reports of Common Ostrich in US-WA/.test(
+    doc.getElementById('spLookupStatus').textContent), 'the local sighting answer');
+  assert.ok(calls.some((u) => /data\/obs\/US-WA\/recent\/ostric2/.test(u)),
+    'opening a parent taxonomy result still asks the active report for sightings');
+  assert.ok(!calls.some((u) => /data\/obs\/US\/recent\/ostric2/.test(u)),
+    'a United States taxonomy match cannot silently become a United States sighting search');
+  app.window.close();
+});
+
+test('full eBird taxonomy is an explicit last resort after every region misses', async () => {
+  const calls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/product\/spplist\/US-WA(?:[/?]|$)/.test(u)) return [];
+      if (/product\/spplist\/US(?:[/?]|$)/.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  A.setSpuhModel(app.window.Spuh.createFromTaxonomy([{
+    speciesCode: 'ostric2', category: 'species',
+    comName: 'Common Ostrich', sciName: 'Struthio camelus',
+    order: 'Struthioniformes', familyCode: 'struth1',
+    familyComName: 'Ostriches', taxonOrder: 1,
+  }]));
+
+  doc.getElementById('spLookup').value = 'Common Ostrich';
+  await A.runSpeciesLookup();
+  const action = doc.querySelector('#spLookupFound .sptaxaction button');
+  assert.ok(action, 'the world taxonomy is offered only after local and parent lists miss');
+  assert.equal(action.textContent, 'Search full eBird taxonomy');
+  assert.ok(!calls.some((u) => /ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)),
+    'the full taxonomy is not fetched before the user chooses the broader scope');
+
+  app.click(action);
+  await waitFor(() => /Full eBird taxonomy — outside Washington/.test(
+    doc.getElementById('spLookupFound').textContent), 'the explicit taxonomy result');
+  assert.match(doc.getElementById('spLookupFound').textContent,
+    /Common Ostrich.*not on Washington’s regional list/s,
+    'the world result keeps the same out-of-area warning');
   app.window.close();
 });
 
@@ -9030,6 +9184,24 @@ test('the layout audit cleans up the browsers it launches', () => {
     'three hung starts is still a failure — the retry must not swallow it');
 });
 
+test('F251 the layout audit measures the named viewport, not a scrollbar-narrowed one', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  const body = src.replace(/\r/g, '').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+
+  assert.match(body, /--hide-scrollbars/,
+    'desktop Chrome is consuming 15px for a classic scrollbar again, so a '
+    + '393px run is really measuring 378px');
+  assert.match(body, /if \(r\.vw !== WIDTH\)/,
+    'the audit no longer fails when the app measures a different width than '
+    + 'the command named');
+
+  const debt = /const MIDWORD_KNOWN = \[([\s\S]*?)\];/.exec(body);
+  assert.ok(debt, 'the mid-word debt list disappeared instead of being emptied');
+  assert.equal(debt[1].trim(), '',
+    'false 378px findings are still exempted at the real 393px device width');
+});
+
 // The measured cause, guarded at the CSS level because this suite cannot
 // measure: a flexible grid/flex track defaults to `min-width: auto`, so it
 // refuses to shrink below its content's min-content width. Pair that with
@@ -11712,6 +11884,60 @@ test('the compressed cache round-trips, and small values stay raw (F247)', async
   assert.equal(await A.zcGet('bc_test:poison'), null, 'a stored null reads as a miss');
   assert.equal(LS.getItem('bc_test:poison'), null,
     'and is REMOVED, so the next write can heal it');
+  app.window.close();
+});
+
+test('F247 cache logging names hits, misses, nearby keys and session activity', async () => {
+  const app = await boot({
+    storage: {
+      ebird_report: 'wa',
+      'bc_test:held': 'j:{"ok":true}',
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+
+  assert.equal(A.cacheLogOn(), true,
+    'the sideloaded build keeps per-event cache logging on by default');
+  assert.equal((await A.zcGet('bc_test:held')).ok, true);
+  assert.equal(await A.zcGet('bc_test:missing'), null);
+  assert.equal(await A.zcPut('bc_test:new', {
+    rows: Array.from({ length: 30 }, (_, i) => ['bird' + i, 'place' + i]),
+  }), true);
+
+  const events = W.__dbg.buf.map((e) => e.msg).join('\n');
+  assert.match(events, /cache HIT\(raw\) bc_test:held/,
+    'a stored read says it was a hit and whether it was compressed');
+  assert.match(events, /cache MISS bc_test:missing/,
+    'a miss names the exact key that was asked for');
+  assert.match(events, /asked: bc_test:missing[\s\S]*holds: bc_test:held/,
+    'a miss in a non-empty namespace prints both spellings side by side');
+  assert.match(events, /cache PUT\(raw\) bc_test:new/,
+    'a write names the exact key and stored format');
+
+  const activity = A.zcActivityReport().join('\n');
+  assert.match(activity, /1 hit\s+1 miss\s+1 put[\s\S]*bc_test:/,
+    'the session report counts reads, misses and writes by namespace');
+  assert.match(activity, /\(2 held\)/,
+    'the report says how many entries that namespace actually holds');
+
+  const context = A.dbgContext();
+  assert.match(context, /cache: .* across .* namespaces/,
+    'the copied debug context always includes the storage composition');
+  assert.match(context, /cache activity this session:/,
+    'the copied debug context always includes the activity report');
+  assert.match(context, /bc_test:/,
+    'the copied report names the namespace rather than leaving bytes unattributed');
+
+  const before = W.__dbg.buf.length;
+  A.setCacheLog(false);
+  assert.equal(W.localStorage.getItem('bc_cache_log'), 'off',
+    'the release toggle is durable');
+  await A.zcGet('bc_off:missing');
+  assert.equal(W.__dbg.buf.length, before,
+    'turning off per-event logging stops the running log cost');
+  assert.match(A.zcActivityReport().join('\n'), /bc_off:/,
+    'the on-demand activity snapshot remains available when events are off');
   app.window.close();
 });
 
@@ -20631,6 +20857,31 @@ test('the Contents grid cannot crush a tile label', () => {
     'the layout audit reports crushed labels');
   assert.match(audit, /rows\.length > words \+ 1/,
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
+});
+
+test('F303 Show bird codes owns a measured row below Search and Close', async () => {
+  const app = await boot();
+  const codes = app.$('spCodesBtn');
+  const search = app.$('spLookupBtn');
+  const close = app.$('spLookupClear');
+  assert.notEqual(codes.closest('.row'), search.closest('.row'),
+    'Show bird codes shares the Search action row');
+  assert.equal(search.closest('.row'), close.closest('.row'),
+    'Search and Close no longer share their action row');
+
+  const audit = fs.readFileSync(
+    path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  assert.match(audit, /codesBtn\.parentElement === searchBtn\.parentElement/,
+    'the browser audit does not verify the authored row identity');
+  assert.match(audit, /codesRect\.top < actionBottom - 0\.5/,
+    'the browser audit does not prove Show bird codes starts below both actions');
+  assert.match(audit, /CODE CONTROL ROW/,
+    'the browser audit does not report the failed row contract');
+  assert.match(audit, /CODE CONTROL TARGET/,
+    'the browser audit does not enforce the 44px target');
+  assert.match(HTML, /#spCodesBtn\s*\{[^}]*min-height:\s*44px/,
+    'the named control does not guarantee its 44px target at normal text size');
+  app.window.close();
 });
 
 

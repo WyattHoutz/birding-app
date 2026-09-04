@@ -454,12 +454,15 @@
       "report": null,
       "summary": "Ask where ANY bird is being seen — including ones already on your year list.",
       "inputs": [
-        "eBird product/spplist for the region, to turn typed text into a species code",
+        "eBird product/spplist for the active region and, only after an empty match, each parent region in order",
         "data/obs/{region}/recent/{code}, the per-species observation feed",
         "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the identification ladder"
       ],
       "how": [
-        "Typed text is matched against common and scientific names; one hit goes straight to the birds rather than showing a menu of one.",
+        "Typed text is matched against common and scientific names. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level.",
+        "A parent-region result stays under an Outside {active region} heading and each row says it is not on the active regional list. Opening it still asks the original report for sightings, so a taxonomy match can never masquerade as a local observation.",
+        "If every regional level misses, Search full eBird taxonomy is offered as an explicit action rather than silently changing the search to the whole world.",
+        "One active-region match goes straight to the bird rather than showing a menu of one; fallback matches keep their visible scope boundary even when there is only one.",
         "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
         "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
         "The first 25 places paint immediately. Show more appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
@@ -470,7 +473,7 @@
       "limits": [
         "App-only: a Markdown report cannot take a query, and printing every species' places for a region would be a phone book, not a section.",
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
-        "Covers what eBird has for the region; a bird seen only outside it will not appear.",
+        "The name lookup can identify a bird outside the region, but the sightings answer remains scoped to the active report. A fallback match may therefore lead to the honest answer that there are no local reports in the active window.",
         "The per-species feed returns only the most recent report at each place. One row per place is the endpoint's limit, not the bird's full history; repeated visits at the same place may be omitted.",
         "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
         "Seventy-nine labels are shown with a dashed Coverage limit warning and are never selected automatically: 73 parenthetical glosses whose narrower membership is not published (58 share coverage with another spuh and 15 are lone labels), five named subfamilies, and the mixed Buteo/eagle group."

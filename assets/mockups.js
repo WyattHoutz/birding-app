@@ -164,6 +164,32 @@ const SHOTS = [
   { id: 'menu', title: 'Contents menu', prep: 'return true;' },
 ].concat(SECTION_SHOTS, EXTRA_SHOTS);
 
+function shotReadinessProblems(ready) {
+  const problems = [];
+  if (!ready || ready.error) problems.push((ready && ready.error) || 'missing readiness result');
+  if (!ready || !ready.ready) problems.push('fixture not ready');
+  if (ready && ready.expectedAt && ready.at !== ready.expectedAt) problems.push('wrong fixture');
+  if (!ready || !ready.sectionVisible) problems.push('section hidden');
+  if (!ready || !ready.hostVisible) problems.push('result host hidden');
+  if (!ready || !ready.inCapture) problems.push('result host outside capture');
+  if (ready && ready.loading && ready.loading.length) problems.push('loading');
+  if (ready && ready.disabled && ready.disabled.length) problems.push('disabled controls');
+  if (ready && ready.missing && ready.missing.length) problems.push('missing expected components');
+  if (ready && !ready.mapReady) problems.push('map not ready');
+  if (ready && ready.isStatic) {
+    if (ready.text < 200 || ready.controls < 3) problems.push('blank static surface');
+  } else if (!ready || !ready.data || ready.text < 30) {
+    problems.push('blank data surface');
+  }
+  return problems;
+}
+
+function shotLooksBlank(seen, hasSection) {
+  const minText = hasSection ? 30 : 200;
+  const minNodes = hasSection ? 5 : 100;
+  return !seen || (seen.text || 0) < minText || (seen.nodes || 0) < minNodes;
+}
+
 // ------------------------------------------------------------------ harness
 //
 // Injected into the app document BEFORE its own scripts run, so the app boots
@@ -1150,13 +1176,12 @@ async function main() {
           });
         })()`, returnByValue: true }, sessionId);
       const ready = JSON.parse(readyProbe.result.value || '{}');
-      if (ready.error || !ready.ready || ready.at !== shot.at
-          || !ready.sectionVisible || !ready.hostVisible || !ready.inCapture
-          || ready.loading.length || ready.disabled.length || ready.missing.length || !ready.mapReady
-          || (ready.isStatic ? (ready.text < 200 || ready.controls < 3)
-                             : (!ready.data || ready.text < 30))) {
+      ready.expectedAt = shot.at;
+      const readinessProblems = shotReadinessProblems(ready);
+      if (readinessProblems.length) {
         console.error('  !! ' + shot.id + ': STUB NOT READY — '
-          + JSON.stringify(ready) + '. The active section, not the footer, must '
+          + readinessProblems.join(', ') + ' · ' + JSON.stringify(ready)
+          + '. The active section, not the footer, must '
           + 'carry representative data.');
         blank.push(shot.id);
         continue;
@@ -1218,9 +1243,7 @@ async function main() {
     const seen = JSON.parse(probe.result.value || '{}');
     // The menu is a large grid; a section may intentionally be compact. The
     // stricter per-host readiness check above carries the data guarantee.
-    var minText = shot.at ? 30 : 200;
-    var minNodes = shot.at ? 5 : 100;
-    if ((seen.text || 0) < minText || (seen.nodes || 0) < minNodes) {
+    if (shotLooksBlank(seen, !!shot.at)) {
       console.error('  !! ' + shot.id + ': BLANK — only ' + (seen.text || 0)
         + ' chars and ' + (seen.nodes || 0) + ' elements painted. The shot was '
         + 'NOT written; fix the prep rather than shipping a white rectangle.'
@@ -1258,7 +1281,8 @@ async function main() {
 }
 
 module.exports = {
-  CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS
+  CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
+  shotReadinessProblems, shotLooksBlank
 };
 
 if (require.main === module) {

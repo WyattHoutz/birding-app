@@ -992,6 +992,7 @@
     /* Outer margin so a control row is separated from the content it acts on
        rather than sitting flush against it. */
     .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
+    #spCodesBtn { min-height: 44px; }
     /* Condensed. Five chunky buttons wrapped onto three rows on a 402px
        phone and pushed the answer below the fold - the controls were taking
        more of the screen than the content they control.
@@ -1646,6 +1647,10 @@
     .picklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
     .picklist .pname { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: calc(16px * var(--s)); overflow-wrap: anywhere; }
     .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .picklist li.spscope { display: block; padding: 12px 0 4px; border-top: 0;
+                           color: var(--ink); font-size: calc(14px * var(--s)); }
+    .picklist li.spscope strong { display: block; font-size: calc(16px * var(--s)); }
+    .picklist li.sptaxaction { display: block; border-top: 0; padding-top: 8px; }
     /* The ▲▼✕ column NEVER wraps below the card.
        It used to: `.favrow` was `flex-wrap: wrap`, and flexbox wraps a line
        BEFORE it shrinks an item below its min-content width — so as soon as
@@ -3124,7 +3129,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.70.0';
+      var APP_VERSION = '1.71.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -9010,6 +9015,101 @@
         renderSpCodes();
       }
 
+      var SPECIES_COUNTRY_NAMES = {
+        US: 'United States',
+        CA: 'Canada',
+        MX: 'Mexico'
+      };
+
+      function speciesRegionParent(region) {
+        var parts = String(region || '').toUpperCase().split('-').filter(Boolean);
+        if (parts.length <= 1) return '';
+        parts.pop();
+        return parts.join('-');
+      }
+
+      function speciesRegionLabel(region) {
+        var code = String(region || '').toUpperCase();
+        return (BL.US_STATES && BL.US_STATES[code])
+          || SPECIES_COUNTRY_NAMES[code]
+          || code;
+      }
+
+      function speciesSearchScopes(region, label) {
+        var out = [], seen = {}, code = String(region || '').toUpperCase();
+        while (code && !seen[code]) {
+          seen[code] = 1;
+          out.push({
+            code: code,
+            label: out.length ? speciesRegionLabel(code) : (label || speciesRegionLabel(code)),
+            local: out.length === 0
+          });
+          code = speciesRegionParent(code);
+        }
+        return out;
+      }
+
+      function appendSpeciesChoices(found, hits, opts) {
+        opts = opts || {};
+        if (opts.heading) {
+          var head = document.createElement('li');
+          head.className = 'spscope';
+          head.innerHTML = '<strong>' + esc(opts.heading) + '</strong>'
+            + (opts.detail ? '<span class="pmeta">' + esc(opts.detail) + '</span>' : '');
+          found.appendChild(head);
+        }
+        hits.forEach(function (s) {
+          var li = document.createElement('li');
+          li.className = 'tappable';
+          li.setAttribute('data-code', s.code);
+          li.setAttribute('data-name', s.name);
+          li.innerHTML = photoSlot(s.name, s.code)
+            + '<span class="pname">' + esc(s.name)
+            + '<span class="pmeta">'
+            + (opts.rowNote ? esc(opts.rowNote) + ' · ' : '')
+            + esc(s.code) + '</span></span>'
+            + '<button class="favbtn splook" data-code="' + esc(s.code) + '" data-name="'
+            + esc(s.name) + '" aria-label="Look up ' + esc(s.name) + '">📖</button>';
+          found.appendChild(li);
+        });
+        hydratePhotos(found);
+      }
+
+      function offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug) {
+        st.textContent = 'No species recorded in ' + scopeLabel
+          + ' or its parent regions matches “' + q + '”.';
+        var action = document.createElement('li');
+        action.className = 'sptaxaction';
+        action.innerHTML = '<button class="secondary" type="button">Search full eBird taxonomy</button>';
+        found.appendChild(action);
+        action.querySelector('button').addEventListener('click', function () {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+          action.querySelector('button').disabled = true;
+          st.textContent = 'Searching the full eBird taxonomy…';
+          loadSpuhModel().then(function (model) {
+            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+            var hits = searchSpecies((model && model.species) || [], q);
+            found.innerHTML = '';
+            if (!hits.length) {
+              st.textContent = 'No species in the full eBird taxonomy matches “' + q + '”.';
+              return;
+            }
+            appendSpeciesChoices(found, hits, {
+              heading: 'Full eBird taxonomy — outside ' + scopeLabel,
+              detail: 'These birds are valid eBird species, but not on the active regional list.',
+              rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
+            });
+            st.textContent = hits.length + ' taxonomy match' + (hits.length === 1 ? '' : 'es')
+              + ' outside ' + scopeLabel + ' · tap one to check the active report anyway.';
+          }).catch(function (e) {
+            if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
+              st.textContent = netErr(e);
+              action.querySelector('button').disabled = false;
+            }
+          });
+        });
+      }
+
       function runSpeciesLookup() {
         var q = ($('spLookup') || {}).value || '';
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
@@ -9023,33 +9123,45 @@
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
         if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
-        st.textContent = 'Finding species recorded in ' + scopeLabel + '…';
-        loadSpeciesIndex(scopeRegion).then(function (rows) {
-          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
-          var hits = searchSpecies(rows, q);
-          if (!hits.length) {
-            st.textContent = 'No species recorded in ' + scopeLabel + ' matches “' + q + '”.';
-            return;
+        var scopes = speciesSearchScopes(scopeRegion, scopeLabel);
+        function searchAt(index) {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
+            return Promise.resolve();
           }
-          // One match is an answer, not a menu — go straight to the birds.
-          if (hits.length === 1) {
-            return lookupSpecies(hits[0].code, hits[0].name, generation, scopeSlug);
+          if (index >= scopes.length) {
+            offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug);
+            return Promise.resolve();
           }
-          st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
-          hits.forEach(function (s) {
-            var li = document.createElement('li');
-            li.className = 'tappable';
-            li.setAttribute('data-code', s.code);
-            li.setAttribute('data-name', s.name);
-            li.innerHTML = photoSlot(s.name, s.code)
-              + '<span class="pname">' + esc(s.name)
-              + '<span class="pmeta">' + esc(s.code) + '</span></span>'
-              + '<button class="favbtn splook" data-code="' + esc(s.code) + '" data-name="'
-              + esc(s.name) + '" aria-label="Look up ' + esc(s.name) + '">📖</button>';
-            found.appendChild(li);
+          var scope = scopes[index];
+          st.textContent = index
+            ? 'No match in ' + scopes[index - 1].label + '. Searching ' + scope.label + '…'
+            : 'Finding species recorded in ' + scope.label + '…';
+          return loadSpeciesIndex(scope.code).then(function (rows) {
+            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+            var hits = searchSpecies(rows, q);
+            if (!hits.length) return searchAt(index + 1);
+            // One LOCAL match is an answer, not a menu — go straight to the
+            // bird. A parent match always stays behind its visible scope
+            // boundary so it cannot be mistaken for a local record.
+            if (scope.local && hits.length === 1) {
+              return lookupSpecies(hits[0].code, hits[0].name, generation, scopeSlug);
+            }
+            if (scope.local) {
+              st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
+              appendSpeciesChoices(found, hits);
+              return;
+            }
+            appendSpeciesChoices(found, hits, {
+              heading: 'Outside ' + scopeLabel + ' — ' + scope.label,
+              detail: 'The active regional list had no match; this is the first parent region that did.',
+              rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
+            });
+            st.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es')
+              + ' outside ' + scopeLabel + ' in ' + scope.label
+              + ' · tap one to check the active report anyway.';
           });
-          hydratePhotos(found);
-        }).catch(function (e) {
+        }
+        return searchAt(0).catch(function (e) {
           if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
             st.textContent = netErr(e);
           }
@@ -12819,7 +12931,7 @@
             // Keep the bytes so the next launch doesn't need the network.
             return fetch(src).then(function (r) { return r.ok ? r.blob() : null; })
               .then(function (b) { if (b) return idbPut(key, b); })
-              .catch(function () {})
+              .catch(function () { failed++; })
               .then(function () { done(cached); });
           });
         }).catch(function () { giveUp(); done(cached); });
@@ -20943,7 +21055,7 @@
       function easyFetch(codes, dates, onProg) {
         var jobs = [];
         codes.forEach(function (c) { dates.forEach(function (d) { jobs.push([c, d]); }); });
-        var acc = [], done = 0;
+        var acc = [], done = 0, failed = 0;
         return jobs.reduce(function (p, j) {
           return p.then(function () {
             var c = j[0], d = j[1], key = easyCacheKey(c, d);
@@ -20973,7 +21085,7 @@
               var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
               return ebirdBg(path)
                 .then(function (r) {
-                  if (!Array.isArray(r)) return;
+                  if (!Array.isArray(r)) { failed++; return; }
                   var small = easyCompact(r);
                   acc.push.apply(acc, easyExpand(small));
                   // A past day's checklists never change, so a stored day is
@@ -20981,11 +21093,38 @@
                   // the sweep.
                   zcPut(key, small);
                 })
-                .catch(function () {})
+                .catch(function () { failed++; })
                 .then(function () { if (onProg) onProg(++done, jobs.length); });
             });
           });
-        }, Promise.resolve()).then(function () { return acc; });
+        }, Promise.resolve()).then(function () {
+          // Array metadata preserves every existing caller while distinguishing
+          // a true empty day from a request that never answered. Both used to
+          // be `[]`, so first-open failure looked like a confident empty result.
+          acc.attempted = jobs.length;
+          acc.failed = failed;
+          return acc;
+        });
+      }
+      function easySampleState(all) {
+        var attempted = Math.max(0, Number(all && all.attempted) || 0);
+        var failed = Math.max(0, Math.min(attempted, Number(all && all.failed) || 0));
+        return {
+          attempted: attempted,
+          failed: failed,
+          allFailed: attempted > 0 && failed === attempted,
+          partial: failed > 0 && failed < attempted
+        };
+      }
+      function easyResultStatus(rows, nDays, sample) {
+        var text = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
+          + ' reported on ' + Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100)
+          + '%+ of ' + nDays + ' sampled days';
+        if (sample.partial) {
+          text += ' · partial sample: ' + sample.failed + ' of '
+            + sample.attempted + ' day feeds unavailable';
+        }
+        return text + ' · ' + nowTime();
       }
       // --- Due back soon: which unseen birds are worth a GBIF call ----------
       //
@@ -21303,12 +21442,12 @@
         hydratePhotos(box);
       }
       function loadEasyMisses() {
-        if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return Promise.resolve(false); }
         if ($('easyRegionLabel')) $('easyRegionLabel').textContent = '· ' + countyLabelStr();
         var btn = $('easyBtn'), st = $('easyStatus');
         if (!hasCounties()) {
           $('easyResults').innerHTML = '<div class="status">Easy misses is built from county checklist history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
-          st.textContent = ''; return;
+          st.textContent = ''; return Promise.resolve(true);
         }
         // ⚠️ F247. The results are NOT cleared here any more.
         //
@@ -21324,13 +21463,17 @@
         var had = !!$('easyResults').querySelector('li');
         st.textContent = (had ? 'Refreshing — ' : '')
           + 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
-        easyFetch(countyCodes(), dates, function (i, n) {
+        return easyFetch(countyCodes(), dates, function (i, n) {
           st.textContent = 'Sampling recent days… ' + i + '/' + n;
         }).then(function (all) {
+          var sample = easySampleState(all);
+          if (sample.allFailed) {
+            throw new Error('No Nemesis day feeds could be read. Reopen this section to retry.');
+          }
           var codes = {};
           all.forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; });
           var keys = Object.keys(codes);
-          if (!keys.length) return [all, {}];
+          if (!keys.length) return [all, {}, sample];
           // The same reportAs map the convoy section needs: without it a
           // subspecies report of a bird you already have reads as a miss.
           return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(keys.join(',')))
@@ -21340,15 +21483,17 @@
               (Array.isArray(tax) ? tax : []).forEach(function (t) {
                 if (t.speciesCode && t.reportAs) parentOf[t.speciesCode] = t.reportAs;
               });
-              return [all, parentOf];
+              return [all, parentOf, sample];
             });
         }).then(function (pair) {
           var rows = computeEasyMisses(pair[0], dates.length, pair[1]);
           renderEasyMisses(rows, dates.length);
-          st.textContent = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
-            + ' reported on ' + Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100)
-            + '%+ of ' + dates.length + ' sampled days · ' + nowTime();
-        }).catch(function (e) { st.textContent = netErr(e); })
+          st.textContent = easyResultStatus(rows, dates.length, pair[2]);
+          return true;
+        }).catch(function (e) {
+          st.textContent = netErr(e);
+          return false;
+        })
           .finally(function () { btn.disabled = false; });
       }
 
@@ -25459,7 +25604,7 @@
         cklBtn:     { fn: loadChecklists,   needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
-        easyBtn:    { fn: loadEasyMisses,  needsKey: true },
+        easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true },
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
@@ -25541,7 +25686,25 @@
         // live rather than cached, so this is the line that explains a cost
         // bucket appearing for a section the reader never chose.
         try { dbg('info', 'autoload ' + sec.id + ' \u00b7 on ' + visibleSectionId() + navWhy()); } catch (e) {}
-        try { spec.fn(); } catch (e) { try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {} }
+        var result;
+        try { result = spec.fn(); }
+        catch (e) {
+          if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
+          try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+          return Promise.resolve(false);
+        }
+        if (result && typeof result.then === 'function') {
+          return result.then(function (ok) {
+            if (spec.retryOnFailure && ok === false) _autoLoaded[sec.id] = false;
+            return ok;
+          }, function (e) {
+            if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
+            try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+            return false;
+          });
+        }
+        if (spec.retryOnFailure && result === false) _autoLoaded[sec.id] = false;
+        return result;
       }
       var _sections = [];
       // --- F228 instrumentation: what moved the reader, and what asked it to --
@@ -29394,6 +29557,7 @@
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
+        easySampleState: easySampleState, easyResultStatus: easyResultStatus,
         gbifScanOrder: gbifScanOrder, dueBackSoon: dueBackSoon,
         daysUntilMonthDay: daysUntilMonthDay, GBIF_SCAN_MAX: GBIF_SCAN_MAX,
         DUE_BACK_WINDOW_DAYS: DUE_BACK_WINDOW_DAYS,
@@ -29430,6 +29594,8 @@
         setEasySort: setEasySort, easySortRows: easySortRows, renderEasyMisses: renderEasyMisses,
         hotspotFeeds: hotspotFeeds, hotspotCachedDays: hotspotCachedDays,
         easyCacheKey: easyCacheKey, easyCompact: easyCompact, zcPut: zcPut, zcGet: zcGet,
+        zcActivityReport: zcActivityReport, cacheLogOn: cacheLogOn,
+        setCacheLog: setCacheLog,
         renderHot: renderHot, renderCold: renderCold, showSection: showSection,
         auditOverflow: auditOverflow,
         dragSnapshot: dragSnapshot, dragExtremes: dragExtremes,
@@ -29518,7 +29684,8 @@
         runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
         speciesLookupRecords: speciesLookupRecords, sortSpeciesPlaces: sortSpeciesPlaces,
-        speciesLookupPath: speciesLookupPath, SP_LOOKUP_BACK: SP_LOOKUP_BACK,
+        speciesLookupPath: speciesLookupPath, speciesSearchScopes: speciesSearchScopes,
+        SP_LOOKUP_BACK: SP_LOOKUP_BACK,
         loadSpuhModel: loadSpuhModel, runSpuhSearch: runSpuhSearch,
         renderSpuhNode: renderSpuhNode, renderSpuhStakeoutNav: renderSpuhStakeoutNav,
         openSpuhFinder: openSpuhFinder,
@@ -29541,7 +29708,8 @@
         _chaseInflight[slug] = promise;
       },
       chaseGeneration: function () { return _chaseGeneration; },
-      loadedSectionFor: loadedSectionFor, onChasePhaseOne: onChasePhaseOne,
+      loadedSectionFor: loadedSectionFor, autoLoad: autoLoad,
+      onChasePhaseOne: onChasePhaseOne,
       onChasePartial: onChasePartial,
       progressStage: progressStage, progressStep: progressStep, progressEnd: progressEnd,
       progressState: function () { return _stage ? { label: _stage.label, total: _stage.total, done: _stage.done } : null; },

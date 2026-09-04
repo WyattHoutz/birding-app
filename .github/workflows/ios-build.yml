@@ -254,7 +254,8 @@ jobs:
           # generated changelog, because it was written by hand to do exactly
           # that. Subject becomes the title, body becomes the notes.
           git log -1 --pretty=%s > .release-title
-          git log -1 --pretty=%b > .release-notes
+          git log -1 --pretty=%b > .release-body
+          node assets/release-notes.js .release-body .release-notes
           {
             echo ""
             echo "---"
