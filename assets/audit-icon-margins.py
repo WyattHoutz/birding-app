@@ -1,9 +1,10 @@
 """Measure EVERY bundled bird icon for subject-to-edge clearance.
 
 WHY THIS EXISTS: F190 scored its crop rule against 13 icons that were looked
-at, out of 1,290 shipped. The owner has since reported six more bad crops one
-at a time (glwgul, killde, comloo, brdowl, baleag, shshaw), which is what a
-1% sample buys you. This measures all of them.
+at, out of 1,290 shipped. The owner then reported six more bad crops one at a
+time, which is what a 1% sample buys you. F250 fixed shshaw with a dedicated
+landmark guard because this detector missed it; the five unresolved controls
+below are what this audit must still identify.
 
 WHAT IT MEASURES: the shipped icon is already square, so the question is not
 "where would we cut" but "did the cut clip the bird". It reuses the cropper's
@@ -11,9 +12,9 @@ OWN subject detection, then reports the clearance between the subject box and
 each of the four edges as a fraction of the icon side.
 
 IT MEASURES DETECTION, AND DETECTION IS THE KNOWN RESIDUAL FAULT (F190). So
-this is a SUSPECT LIST, not a verdict. It is validated against the six birds
-the owner reported: a detector that cannot flag known-bad icons has no power
-and must be said so out loud.
+this is a SUSPECT LIST, not a verdict. It is validated against five birds the
+owner reported that do not have F250's dedicated landmark guard: a detector
+that cannot flag known-bad icons has no power and must be said so out loud.
 
     python assets/audit-icon-margins.py [--csv out.csv]
 """
@@ -47,7 +48,6 @@ REPORTED = {
     "comloo": "head still cropped",
     "brdowl": "not centered",
     "baleag": "tail still trimmed",
-    "shshaw": "top of head too close to top edge",
 }
 
 # The cropper's own idea of a safe edge.
@@ -88,9 +88,9 @@ def measure(path):
     # decision a defect.
     #
     # MEASURED across all 1,289: scoring the HEAD end instead flags **492
-    # (38.2%)** and still catches **5 of 6**, for which the by-chance
-    # probability is **0.033**. Weak evidence, but real evidence — against
-    # none at all.
+    # (38.2%)** and catches the five remaining controls, for which the
+    # by-chance probability is **0.008**. Strong evidence — while shshaw's
+    # dedicated landmark guard covers the known detector miss.
     #
     # The head end is the frame side the head ANCHOR is nearest to, which is
     # exactly the direction F190's HEAD_PAD protects.
@@ -141,7 +141,7 @@ def main(argv):
     print()
 
     # ---- THE CONTROL --------------------------------------------------------
-    print("CONTROL - the six the owner reported by eye:")
+    print("CONTROL - five owner-reported defects without dedicated landmark guards:")
     hit = 0
     for code, why in REPORTED.items():
         r = next((x for x in rows if x[0] == code), None)
@@ -192,4 +192,3 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
-
