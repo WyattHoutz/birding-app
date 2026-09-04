@@ -11805,6 +11805,60 @@ test('the compressed cache round-trips, and small values stay raw (F247)', async
   app.window.close();
 });
 
+test('F247 cache logging names hits, misses, nearby keys and session activity', async () => {
+  const app = await boot({
+    storage: {
+      ebird_report: 'wa',
+      'bc_test:held': 'j:{"ok":true}',
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+
+  assert.equal(A.cacheLogOn(), true,
+    'the sideloaded build keeps per-event cache logging on by default');
+  assert.equal((await A.zcGet('bc_test:held')).ok, true);
+  assert.equal(await A.zcGet('bc_test:missing'), null);
+  assert.equal(await A.zcPut('bc_test:new', {
+    rows: Array.from({ length: 30 }, (_, i) => ['bird' + i, 'place' + i]),
+  }), true);
+
+  const events = W.__dbg.buf.map((e) => e.msg).join('\n');
+  assert.match(events, /cache HIT\(raw\) bc_test:held/,
+    'a stored read says it was a hit and whether it was compressed');
+  assert.match(events, /cache MISS bc_test:missing/,
+    'a miss names the exact key that was asked for');
+  assert.match(events, /asked: bc_test:missing[\s\S]*holds: bc_test:held/,
+    'a miss in a non-empty namespace prints both spellings side by side');
+  assert.match(events, /cache PUT\(raw\) bc_test:new/,
+    'a write names the exact key and stored format');
+
+  const activity = A.zcActivityReport().join('\n');
+  assert.match(activity, /1 hit\s+1 miss\s+1 put[\s\S]*bc_test:/,
+    'the session report counts reads, misses and writes by namespace');
+  assert.match(activity, /\(2 held\)/,
+    'the report says how many entries that namespace actually holds');
+
+  const context = A.dbgContext();
+  assert.match(context, /cache: .* across .* namespaces/,
+    'the copied debug context always includes the storage composition');
+  assert.match(context, /cache activity this session:/,
+    'the copied debug context always includes the activity report');
+  assert.match(context, /bc_test:/,
+    'the copied report names the namespace rather than leaving bytes unattributed');
+
+  const before = W.__dbg.buf.length;
+  A.setCacheLog(false);
+  assert.equal(W.localStorage.getItem('bc_cache_log'), 'off',
+    'the release toggle is durable');
+  await A.zcGet('bc_off:missing');
+  assert.equal(W.__dbg.buf.length, before,
+    'turning off per-event logging stops the running log cost');
+  assert.match(A.zcActivityReport().join('\n'), /bc_off:/,
+    'the on-demand activity snapshot remains available when events are off');
+  app.window.close();
+});
+
 test('Nemesis birds sorts by date and distance without refetching (F246)', async () => {
   // Owner: "after the data loads, it needs the toggle for sorting by date or
   // distance used in other reports."
