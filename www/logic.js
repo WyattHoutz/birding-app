@@ -1849,7 +1849,7 @@
     var party = buildParties(rows);
     order.forEach(function (locId) {
       var all = byLoc[locId];
-      var hotObs = {}, coldObs = {}, name = '', eventAt = 0, latest = '';
+      var hotObs = {}, coldObs = {}, name = '', eventAt = 0, latest = '', subId = '';
       all.forEach(function (x) {
         var who = observerKey({ observer: x.row.userDisplayName, subId: x.row.subId });
         if (!name) name = x.row.locName || x.row.loc || '';
@@ -1861,6 +1861,7 @@
           if (x.t > eventAt) {
             eventAt = x.t;
             latest = x.row.obsDt || x.row.dateStr || '';
+            subId = x.row.subId || '';
           }
         } else {
           coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
@@ -1929,6 +1930,7 @@
         // hotspot from this, never from an unrelated species row later joined
         // only to explain what people may be looking at.
         baseline: baseline, ratio: ratio, eventAt: eventAt, latest: latest,
+        subId: subId,
         // WHY it is here, because the two read differently on a card: "14x
         // normal" is a surge, "8 birders, busier than usual" is a crowd.
         reason: ratio >= minRatio ? 'surge' : 'crowd'

@@ -529,6 +529,10 @@ const BOOTSTRAP = `
       A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(window.FIX.spuhRows));
     }
     if (at === 'surgeBtn') {
+      var speciesSeed = localStorage.getItem('ebird_species_v2:US-WA');
+      if (speciesSeed) {
+        localStorage.setItem('ebird_species_v2:' + A.getObsRegion(), speciesSeed);
+      }
       localStorage.setItem('ebird_aba_archive_v1', JSON.stringify({
         'US-WA': {
           'nazboo1|S386937523': {
@@ -619,8 +623,30 @@ const BOOTSTRAP = `
           !== WA_SEEN_STUB.speciesObserved) {
         throw new Error('Washington year-list fixture total is not 215');
       }
+      localStorage.setItem('ebird_hotspots_v2:US-WA', JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { locId: 'LHOT', name: 'Cedar River mouth', lat: 47.49, lng: -122.22 }
+        ]
+      }));
       A.renderSurge(
-        [], [], [], [
+        [], [
+          { species: 'Common Tern', code: 'comter', alpha: 'COTE',
+            birders: [
+              { name: 'Mike & MerryLynn Denny', rank: 33 },
+              { name: 'RJ Baltierra', rank: 61 }
+            ],
+            latest: '2026-09-02 14:19',
+            recent: [
+              { obsDt: '2026-09-02 14:19',
+                locName: 'Seattle-Winslow Ferry (Kitsap Co.)',
+                locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'S389100001' }
+            ] }
+        ], [
+          { loc: 'Cedar River mouth', locId: 'LHOT', observers: 8, ratio: 14,
+            reason: 'surge', latest: '2026-09-02 15:40',
+            eventAt: Date.parse('2026-09-02T15:40:00-07:00') }
+        ], [
           { code: 'amgplo', name: 'American Golden-Plover', sightings: 4,
             nPlaces: 4, distMi: 21.9, locName: 'Tulalip Bay',
             locId: 'L802523', lat: 48.0545637, lon: -122.2884498,
@@ -636,7 +662,17 @@ const BOOTSTRAP = `
             latestLocName: 'Jefferson Park, Seattle', latestLocId: 'L14245785',
             latestLat: 47.5704544, latestLon: -122.310873, latestDistMi: 14.3 }
         ], [],
-        { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' });
+        { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' },
+        [
+          { locId: 'LPATCH', locName: 'Marymoor Park', lat: 47.66, lng: -122.12,
+            dist: 8.4, score: 18, rare: 2, band: 'high yield',
+            species: [
+              { code: 'shtsan', comName: 'Sharp-tailed Sandpiper', rare: true,
+                count: 1, dateStr: '2026-09-02 16:05', subId: 'SP1' },
+              { code: 'norwat', comName: 'Northern Waterthrush', rare: true,
+                count: 1, dateStr: '2026-09-02 15:20', subId: 'SP2' }
+            ] }
+        ]);
       var alertRows = Array.prototype.slice.call(
         document.querySelectorAll('#surgeFeed > [data-species-code]'));
       var visibleCodes = alertRows.filter(function (row) {
@@ -645,7 +681,7 @@ const BOOTSTRAP = `
       var hiddenCodes = alertRows.filter(function (row) {
         return row.hidden;
       }).map(function (row) { return row.getAttribute('data-species-code'); });
-      if (visibleCodes.join(',') !== 'nazboo1,amgplo,vesspa'
+      if (visibleCodes.join(',') !== 'nazboo1,amgplo,vesspa,comter'
           || hiddenCodes.join(',') !== 'ruff') {
         throw new Error('Bird Gen fixture species/filter state drifted: visible='
           + visibleCodes.join(',') + ' hidden=' + hiddenCodes.join(','));
@@ -661,6 +697,47 @@ const BOOTSTRAP = `
           || Math.abs(toggleGroups[0].getBoundingClientRect().top
             - toggleGroups[1].getBoundingClientRect().top) > 1) {
         throw new Error('Bird Gen toggle pairs wrapped at the exact mockup width');
+      }
+      if (document.querySelector('[data-surge-notes], .surgenotesrow, .surgenote')) {
+        throw new Error('Bird Gen release fixture still contains the removed Notes UI');
+      }
+      if (document.querySelector('#surgeFeed details')) {
+        throw new Error('Bird Gen release fixture still contains a report drawer');
+      }
+      if (/Who added it/i.test(document.getElementById('surgeFeed').textContent)) {
+        throw new Error('Bird Gen release fixture still uses Who added it');
+      }
+      if (/&amp;/.test(document.getElementById('surgeFeed').textContent)) {
+        throw new Error('Bird Gen release fixture displays an encoded HTML entity');
+      }
+      if (!document.querySelector('#surgeFeed [data-alert-kind="hotspot"]')
+          || !document.querySelector('#surgeFeed [data-alert-kind="patch"]')) {
+        throw new Error('Bird Gen release fixture is missing HOTSPOT or TOP PATCH');
+      }
+      var cards = Array.prototype.slice.call(document.querySelectorAll('#surgeFeed > li'));
+      if (!cards.length || cards.some(function (row) {
+        return !row.querySelector('.surgefacts') || !row.querySelector('.surgeexplain > b');
+      })) throw new Error('Bird Gen release fixture lost its second or third line');
+      var mega = document.querySelector('#surgeFeed [data-species-code="nazboo1"]');
+      var megaFacts = mega && mega.querySelector('.surgefacts');
+      if (!megaFacts || megaFacts.textContent.replace(/\\s+/g, ' ').trim()
+          !== 'NABO x1 - Smith Island - 9/1 5:50p') {
+        throw new Error('Bird Gen MEGA fact line drifted from the approved markup: '
+          + (megaFacts ? megaFacts.textContent.replace(/\\s+/g, ' ').trim() : 'missing')
+          + ' HTML=' + (megaFacts ? megaFacts.innerHTML : 'missing'));
+      }
+      if (!mega.querySelector('.surgeexplain > b')
+          || mega.querySelector('.surgeexplain > b').textContent.trim()
+            !== 'MEGA: An unseen ABA Code 3+ is within a day trip!') {
+        throw new Error('Bird Gen MEGA explanation drifted from the approved markup');
+      }
+      if (mega.querySelector('[data-sec="sec-abaBtn"]')) {
+        throw new Error('Bird Gen still links to All Mega rarities');
+      }
+      var reviewLine = document.querySelector(
+        '#surgeFeed [data-species-code="comter"] .surgefacts');
+      if (!reviewLine || !reviewLine.querySelector('.rarebadge')) {
+        throw new Error('Bird Gen review R is not before the four-letter code');
       }
       markHost(host, label);
     } else if (spec.kind === 'spuh') {

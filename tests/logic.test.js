@@ -883,6 +883,8 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
   const latest = DAY(0, 14);
   assert.equal(out[0].latest, latest,
     'the event did not retain the newest hot checklist timestamp from its own input rows');
+  assert.equal(out[0].subId, 'S7',
+    'the event did not retain the newest hot checklist id with its timestamp');
   assert.equal(out[0].eventAt, Date.parse(latest.replace(' ', 'T')),
     'the sortable event time is not the same checklist timestamp shown to the reader');
 });

@@ -135,5 +135,7 @@ tests and its gallery entry in the same commit, and say why.
 
 `SpeciesCards.small({ identifierLine: true })` keeps the common name on its
 headline and moves the alpha/eBird identifiers into the existing compact
-subline. Bird Gen uses it for `NABO/nazboo1, ...`; ordinary small species lists
-keep their established inline identifier layout.
+subline. Ordinary small species lists keep their established inline identifier
+layout. Bird Gen now renders its own alpha-only three-line news shape
+(`NABO x1 - Smith Island - 9/1 5:50p`) because that feed deliberately omits
+the eBird species code and mileage.

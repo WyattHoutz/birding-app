@@ -31,7 +31,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
   assert.equal(mockups.SHOTS.length,
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
-  assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id), ['stakeoutreports'],
+  assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
+    ['stakeoutreports'],
     'focused review states stay available without inflating the release contract');
 });
 
@@ -132,7 +133,7 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
   ]) {
     assert.ok(paint.includes(fact), `Bird Gen paint lost measured fact ${fact}`);
   }
-  assert.doesNotMatch(paint, /wessan|Western Sandpiper|Marymoor Park/,
+  assert.doesNotMatch(paint, /wessan|Western Sandpiper/,
     'the current Bird Gen shot still uses the superseded invented rows');
   assert.match(alertSource, /NABO\/nazboo1|fixtureBird\('nazboo1'\)/,
     'the dedicated review mock lost the corrected NABO identifier');
@@ -150,8 +151,32 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release fixture no longer renders in the Washington timezone');
   assert.match(source, /Bird Gen fixture age drifted[\s\S]{0,120}24hr ago/,
     'the release renderer does not behaviorally guard its approved relative age');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
     'the release gate does not assert its exact visible Bird Gen species');
+});
+
+test('F302 Bird Gen mockup shows the approved three-line cards', () => {
+  const paint = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
+    source.indexOf("} else if (spec.kind === 'spuh')"));
+  for (const fact of [
+    'comter', 'Common Tern', 'NABO x1 - Smith Island - 9/1 5:50p',
+    'MEGA: An unseen ABA Code 3+ is within a day trip!',
+    'Cedar River mouth', 'Marymoor Park', 'high yield',
+  ]) {
+    assert.ok(paint.includes(fact), `F302 Bird Gen mockup lost ${fact}`);
+  }
+  assert.match(paint, /surgefacts[\s\S]*surgeexplain/,
+    'the release fixture does not verify the second and third card lines');
+  assert.match(paint, /surgefacts[\s\S]*rarebadge/,
+    'the release fixture does not verify R moved before the bird code');
+  assert.match(paint, /querySelector\('#surgeFeed details'\)/,
+    'the release fixture does not fail if a report drawer returns');
+  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
+    'the release gate does not assert the new Cascade row');
+  assert.match(paint, /still links to All Mega rarities/,
+    'the release fixture does not fail if the removed Mega link returns');
+  assert.doesNotMatch(source, /prepareBirdGenCompact|birdgencompact/,
+    'the mockup suite still carries a second Notes state that no longer exists');
 });
 
 test('fixture specs point at real hosts and maps in index.html', () => {

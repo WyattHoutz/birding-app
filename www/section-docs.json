@@ -22,37 +22,40 @@
   "docs": {
     "surgeBtn": {
       "report": "## 🔔 Bird Gen - Talk and news — Fresh ranked alerts",
-      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, MEGA and YOU NEED IT describe the Bird Chaser app, whose current UI is the product.",
-      "summary": "One ranked feed of fresh megas, birds you need, crowd attention, leaderboard cascades and unusually busy hotspots.",
+      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
+      "summary": "One ranked feed of fresh megas, celebrity birds, crowd attention, leaderboard cascades, unusually busy hotspots and high-yield top patches.",
       "inputs": [
         "the cached ABA Code 3+ snapshot last populated by Mega rarities",
         "county recent + notable feeds",
         "the region's Top 100 board",
-        "hotspot activity in the same feeds"
+        "hotspot activity and the complete destination projection in the same feeds"
       ],
       "how": [
         "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
-        "Buzz is the default: MEGA, YOU NEED IT, CROWD, CASCADE, HOTSPOT, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "Buzz is the default: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "Every alert is one always-visible three-line card: name plus category; four-letter code, xN, linked place and linked compact date; then a bold category explanation. The alert icon and relative age remain at the right.",
         "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
         "Seen status is resolved once after duplicate species and their reasons are merged. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
-        "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in the row's accessible category-tag metadata without consuming another visible row.",
-        "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data.",
-        "Every bird row puts its category tag beside the linked common name, then its four-letter/eBird identifiers, category facts, mileage, linked place and linked newest-checklist date below. The right column carries a compact one-line relative age such as 24hr ago. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
+        "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
+        "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data. A complete stale chase snapshot can still supply TOP PATCH alerts while live data refreshes; partial and failed destination views cannot.",
+        "The whole headline strip - image, common name or hotspot, category tag, alert icon and age - is one keyboard-actionable route to Stakeout bird or Stakeout hotspot. Any review-state R sits immediately before the four-letter code on line two; xN, linked place and linked newest-checklist date follow. Bird Gen does not show the eBird species code, mileage, a Notes toggle or category destination links. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
         "MEGA: newness is scoped to the species within a 4-mile locality cluster, so nearby personal-location labels remain one continuing bird while a distant new site can alert. A new locality inside the covered window is news at any distance. Nearby, multiple-report and single-locality qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
-        "YOU NEED IT: species eBird flags as NOTABLE here that are still missing from your list, reported within your chase distance in the last 24 hours, one row per bird rather than per report.",
+        "CELEBRITY: an unseen species eBird flags as notable here has 4 or more independent sightings at one hotspot or adjacent walkable hotspots, within chase distance and the last 24 hours plus the shared checklist-start grace.",
         "NOTABLE, not merely unseen. Asked for as \"happening now should be things local birders would talk about without having to check ebird\" - and three people reporting a bird that is ordinary here is well corroborated and still nobody mentions it. An unseen-but-ordinary bird belongs in All unseen reports and Closest spots.",
-        "A thin report must ALSO be either reviewed by eBird or seen 3 times: a mega found an hour ago has exactly one report and is worth keeping, while a single UNREVIEWED report is the \"one off that might not be real\".",
+        "CELEBRITY has no one-report rarity exception: one mega can be worth chasing in Twitches today, but this category specifically means four independent sightings at one walkable locality.",
         "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
-        "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m.",
+        "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m. With no trailing baseline, the bold third line says so instead of claiming the reports are above normal or printing an infinite ratio.",
         "CASCADE: 2+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
-        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact date and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for detail. Recent species and checklist evidence remain behind one disclosure, and the established after-paint hydration still fills it.",
+        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact date and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for detail. The place name opens Stakeout hotspot; Bird Gen performs no hidden species/checklist hydration.",
+        "TOP PATCH: only the highest yieldBand from a complete destination projection, meaning a score at least twice the current list median when at least four destinations can be compared. The headline opens Stakeout hotspot.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],
       "limits": [
-        "The YOU NEED IT category is deliberately SHORT: 24 hours and your chase distance. A bird you need that has been around for a week remains in All unseen reports - the point of an alert is that it is short enough to read.",
+        "The CELEBRITY category is deliberately short: 24 hours plus checklist-start grace and your chase distance. A bird you need that has been around for a week remains in All unseen reports - the point of an alert is that it is short enough to read.",
         "A report whose date cannot be read is dropped from a freshness-gated source rather than assumed fresh.",
         "The baseline is measured from the data actually fetched (7 days), capped at the configured window, so a short feed cannot inflate every ratio.",
-        "With no trailing history at all the row reads \"new here\" and prints no ratio — a ratio over a zero denominator invents precision."
+        "With no trailing history at all the row reads \"new here\" and prints no ratio — a ratio over a zero denominator invents precision.",
+        "Bird Gen is a news feed, not a checklist browser. It keeps one linked newest date as evidence but renders no recent-report list, checklist drawer or hotspot species appendix; those details live in the two Stakeout sections."
       ]
     },
     "wxBtn": {

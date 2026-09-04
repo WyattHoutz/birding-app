@@ -1569,6 +1569,10 @@
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
     .surgefeed > li > .name { align-items: flex-start; gap: 10px; }
+    .surgefeed > li > .name.surgeheadline { cursor: pointer; border-radius: 8px; }
+    .surgefeed > li > .name.surgeheadline:focus-visible {
+      outline: 3px solid var(--safe-blue); outline-offset: 3px;
+    }
     .surgefeed > li > .name > .ntext { flex: 1 1 auto; padding-top: 1px; }
     .surgefeed .ntext .sub { margin-top: 4px; }
     .surgekindwrap { margin-left: auto; flex: 0 0 calc(62px * var(--s));
@@ -1588,12 +1592,14 @@
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
     .surgefeed .ntext > .surgebadge { margin-left: 6px; vertical-align: middle; }
-    .surgeevidence { margin-top: 5px; }
-    .surgehotdetail { margin-top: 7px; border-top: 1px solid var(--line); padding-top: 6px; }
-    .surgehotdetail > summary { color: var(--link); font-size: calc(12px * var(--s));
-                               font-weight: 800; cursor: pointer; }
-    .surgehotdetail .hslists, .surgehotdetail .hsckl,
-    .surgehotdetail .hsact { margin-top: 7px; }
+    .surgebody { margin: 4px 0 0 calc(66px * var(--s)); }
+    .surgefacts { display: block; color: var(--muted);
+                  font-size: calc(13px * var(--s)); line-height: 1.35; }
+    .surgefacts .rarebadge { margin-right: 3px; vertical-align: 1px; }
+    .surgefactsep { white-space: nowrap; }
+    .surgeexplain { margin-top: 5px; padding-left: 2px; color: var(--ink);
+                    font-size: calc(13px * var(--s)); line-height: 1.35; }
+    .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
     .surgeplacethumb { position: relative; background:
       linear-gradient(25deg, transparent 44%, #b7b7be 45%, #b7b7be 52%, transparent 53%),
       linear-gradient(105deg, transparent 44%, #d8d8dd 45%, #d8d8dd 52%, transparent 53%),
@@ -1619,6 +1625,9 @@
     .surgebadge-hotspot { background: #f1f1f4; color: #333;
                           border: 2px ridge #6E6E78; }
     .surgekind-hotspot { background: #f4f4f6; border: 3px ridge #6E6E78; }
+    .surgebadge-patch { background: #EAF7FF; color: #005B8F;
+                        border: 2px outset var(--safe-blue); }
+    .surgekind-patch { background: #EAF7FF; border: 3px outset var(--safe-blue); }
     /* A feed that came back capped is not an error — the section still renders —
        but it is the difference between "these are the birds" and "these are the
        birds that fit". Styled like a warning rather than a caption because a
@@ -10846,11 +10855,17 @@
       function onRarityEarly(slug) {
         if (!slug || slug !== getReport().slug) return;
         var _painted = [];
-        ['refreshBtn', 'activeBtn', 'surgeBtn'].forEach(function (id) {
+        ['refreshBtn', 'activeBtn'].forEach(function (id) {
           if (!loadedSectionFor(id)) return;    // never opened; nothing to repaint
           var spec = LOADERS[id];
           if (spec && spec.fn) { _painted.push(id); try { spec.fn(); } catch (e) {} }
         });
+        var surge = loadedSectionFor('surgeBtn');
+        if (surge && visibleSectionId() === surge.id
+            && _surgeEarlyPaint && _chaseRarity[slug]) {
+          _painted.push('surgeBtn');
+          try { _surgeEarlyPaint(countyView(_chaseRarity[slug])); } catch (e) {}
+        }
         // F228. This fan-out re-runs OTHER sections' loaders. It is supposed to
         // repaint them in place and never to surface them, so naming who it
         // ran is what separates "the reader navigated" from "a background
@@ -10869,6 +10884,16 @@
           // Mark it cold so autoLoad consumes the full result when reopened.
           _autoLoaded[sec.id] = false;
           return;
+        }
+        if (_surgeEarlyPaint && _chase[slug]) {
+          try {
+            dbg('info', 'Bird gen repaint · full phase-one feeds are ready');
+            _surgeEarlyPaint(countyView(_chase[slug]));
+            return;
+          } catch (e) {
+            try { dbg('error', 'Bird gen phase-one incremental repaint: '
+              + (e && e.message || e)); } catch (_) {}
+          }
         }
         try {
           dbg('info', 'Bird gen repaint · full phase-one feeds are ready');
@@ -16749,6 +16774,7 @@
         el.querySelector('.sheettitle').textContent = title || '';
         el.querySelector('.sheetsub').textContent = sub || '';
         el.querySelector('.sheetbody').innerHTML = bodyHtml || '';
+        el.querySelector('.sheet').scrollTop = 0;
         el.hidden = false;
         try { _sheetPrevFocus = document.activeElement; } catch (e) { _sheetPrevFocus = null; }
         try { el.querySelector('.sheetclose').focus(); } catch (e) {}
@@ -23384,143 +23410,6 @@
       //                             19 of 64 ABA regions, while Baird's Sandpiper,
       //                             Pectoral Sandpiper and Red-necked Phalarope
       //                             occupy 64 and Long-billed Dowitcher 63.
-      //
-      // Range size is not local scarcity. A continent-wide shorebird is still
-      // the thing worth driving for at THIS pond in August, and a small-range
-      // vagrant is not what the crowd is there for. The only signal that
-      // reproduces eBird's own Iconic Birds panel for that hotspot is the one
-      // this app already computes: share of records at the place divided by its
-      // share across the county.
-      //
-      // BOUNDED AND AFTER PAINT. GBIF is keyless so this spends no eBird
-      // budget, but it is still traffic: the top 3 hotspots, 10 species each,
-      // and every part of it caches for 30 days (the box total per box, the
-      // county rates per species+county), so a second look costs almost
-      // nothing.
-      var _busyIconic = {};
-      var BUSY_ICONIC_SPOTS = 3, BUSY_ICONIC_SPP = 10;
-      // Below this a place is simply average for the bird, which is not a
-      // reason to drive anywhere. eBird's own panel starts well above it.
-      var BUSY_ICONIC_MIN = 1.5;
-
-      function hydrateBusyIconic(convergence, byLoc, coords) {
-        var stateName = BL.stateNameFor(getReport());
-        if (!stateName) return Promise.resolve(false);
-        var jobs = [];
-        (convergence || []).slice(0, BUSY_ICONIC_SPOTS).forEach(function (c) {
-          var xy = coords && coords[c.locId], d = byLoc[c.locId];
-          if (!xy || !d) return;
-          d.species.slice(0, BUSY_ICONIC_SPP).forEach(function (s) {
-            if (!s.code) return;
-            if (_busyIconic[c.locId + '|' + s.code] !== undefined) return;
-            jobs.push({ key: c.locId + '|' + s.code, code: s.code, lat: xy.lat, lng: xy.lng });
-          });
-        });
-        if (!jobs.length) return Promise.resolve(false);
-        return pool(jobs, 3, function (j) {
-          // A null means ASKED AND UNANSWERABLE, so it is never asked again and
-          // never rendered as a number. Absent and zero are different facts.
-          var sci = sciNameFor(j.code);
-          if (!sci) { _busyIconic[j.key] = null; return Promise.resolve(); }
-          return gbifTaxonKey(sci).then(function (tk) {
-            if (!tk) { _busyIconic[j.key] = null; return; }
-            var wkt = BL.gbifBoxWkt(j.lat, j.lng);
-            return gbifCountyGid(j.lat, j.lng).then(function (gid) {
-              return Promise.all([
-                // The count call now also returns WHICH MONTHS those records
-                // fall in — GBIF hands back a facet alongside `count`, so the
-                // month spread that makes an all-months multiplier readable
-                // costs no extra call.
-                gbifCountMonths(GBIF_OCC + '&taxonKey=' + tk + '&geometry='
-                          + encodeURIComponent(wkt) + iconicQs()),
-                gbifBoxTotal(wkt, stateName),
-                gid ? gbifCountyRates(tk, gid) : null
-              ]);
-            }).then(function (r) {
-              var sp = r[0], base = r[2];
-              var mult = (sp && base)
-                ? BL.iconicMultiplier(sp.n, r[1], base.sp, base.all) : null;
-              _busyIconic[j.key] = (mult == null) ? null
-                : { m: mult, when: BL.monthSpanLabel(sp.months) };
-            });
-          }).catch(function () { _busyIconic[j.key] = null; });
-        }).then(function () { return true; });
-      }
-
-      // The unified feed uses SpeciesCards.small for places too. The nested
-      // hotspot evidence keeps the same .hslists/.hsckl hooks as HotspotCards,
-      // so the established after-paint species and checklist hydration still
-      // corrects the approximate first paint instead of being discarded.
-      function surgeBusySpecies(c, detail, rank) {
-        return (detail.species || []).slice().map(function (s) {
-          var rec = _busyIconic[c.locId + '|' + s.code];
-          var m = rec && rec.m;
-          var hit = (m != null && m >= BUSY_ICONIC_MIN);
-          return {
-            code: s.code, comName: s.comName, rare: s.rare,
-            _m: (m == null ? null : m), _t: (m == null ? 1 : (hit ? 0 : 2)),
-            pre: hit ? '<span class="ictag">' + Math.round(m) + '\u00d7'
-              + (rec.when ? ' <span class="icwhen">' + esc(rec.when) + '</span>' : '')
-              + '</span>' : ''
-          };
-        }).sort(function (a, b) {
-          if (a._t !== b._t) return a._t - b._t;
-          if (a._m != null && b._m != null) return b._m - a._m;
-          return (rank[a.code] || 0) - (rank[b.code] || 0);
-        });
-      }
-
-      function surgeHotspotLists(locId, species) {
-        var split = locSpeciesSplit(locId, species);
-        return HotspotCards.splitLists({
-          unseen: split.unseen.length ? speciesListHtml(split.unseen, { presorted: true }) : '',
-          unseenLabel: split.unseen.length ? split.unseen.length + ' recently reported species' : '',
-          seen: split.seen.length ? speciesListHtml(split.seen) : '',
-          seenLabel: split.seen.length ? split.seen.length + ' more species already seen' : ''
-        });
-      }
-
-      function surgeScoredSpecies(species) {
-        return JSON.stringify((species || []).map(function (s) {
-          return { code: s.code || '', name: s.comName || s.name || '',
-                   dateStr: s.dateStr || '', subId: s.subId || '',
-                   count: (s.count == null ? null : s.count) };
-        }).filter(function (s) { return s.code || s.name; }));
-      }
-
-      function fillConvergence(convergence, merged) {
-        var host = $('surgeFeed');
-        if (!host || !convergence || !convergence.length) return;
-        var byLoc = convergenceDetail(merged);
-        var coords = hotspotCoordSet(getObsRegion());
-        var rank = scarcityRank(merged);
-        var paintDetails = function () {
-          var cards = [].slice.call(host.querySelectorAll('[data-alert-kind="hotspot"][data-hsloc]'));
-          var byCard = {};
-          cards.forEach(function (el) { byCard[el.getAttribute('data-hsloc')] = el; });
-          convergence.forEach(function (c) {
-            var el = byCard[c.locId];
-            if (!el) return;
-            var detail = byLoc[c.locId] || { species: [] };
-            var spp = surgeBusySpecies(c, detail, rank);
-            el.setAttribute('data-scored', surgeScoredSpecies(spp));
-            var slot = el.querySelector('.hslists');
-            if (slot) slot.innerHTML = surgeHotspotLists(c.locId, spp);
-          });
-          hydratePhotos(host);
-          return hydrateLocSpecies(host)
-            .then(function () { return hydrateHotspotChecklists(host); })
-            .catch(function (e) { dbg('warn', 'busy hotspots: ' + ((e && e.message) || e)); });
-        };
-        paintDetails();
-        // Iconic scoring is still bounded and after paint. It changes only
-        // the nested species evidence; the alert row and current sort survive.
-        hydrateBusyIconic(convergence, byLoc, coords)
-          .then(function (changed) {
-            if (changed && $('surgeFeed') === host) return paintDetails();
-          }).catch(function () {});
-      }
-
       // locId -> coordinates, straight off the cached hotspot directory. The
       // convergence feed carries no coordinates at all, which is why this lane
       // could never offer a distance or a map link; the directory is already
@@ -23572,18 +23461,17 @@
         celebrity: {
           title: '🎯 Celebrity Birds',
           body: '<p>Birds <b>eBird flags as notable in this region</b> that are '
-            + 'not on your year list, reported within your chase distance in the '
-            + 'last ' + BL.FRESH_HOURS + ' hours. Closest first.</p>'
-            + '<p><b>Notable, not merely unseen.</b> Three people reporting a bird '
-            + 'that is ordinary here is well corroborated and still nobody '
-            + 'mentions it. A bird earns this category by being unusual <i>here</i>, '
-            + 'not by being missing from your list — an unseen-but-ordinary bird '
-            + 'is in <b>All unseen reports</b> and <b>Closest spots</b>, which are '
-            + 'the sections about you.</p>'
-            + '<p>A thin report must also be either <b>reviewed by eBird</b> or seen '
-            + '<b>' + BL.NEED_MIN_SIGHTINGS + ' times</b>: a mega found an hour ago '
-            + 'has one report and is worth keeping, while a single unreviewed one '
-            + 'is the "might not be real" case.</p>'
+            + 'not on your year list, with <b>' + BL.NEED_MIN_SIGHTINGS
+            + ' or more independent sightings</b> at one hotspot or adjacent '
+            + 'walkable hotspots, within chase distance and the last '
+            + BL.FRESH_HOURS + ' hours plus checklist-start grace.</p>'
+            + '<p><b>Notable, not merely unseen.</b> A bird earns this category '
+            + 'by being unusual <i>here</i> and drawing a real local stakeout. '
+            + 'An unseen-but-ordinary bird belongs in <b>All unseen reports</b> '
+            + 'and <b>Closest spots</b>. A one-report mega belongs in '
+            + '<b>Twitches today</b>; CELEBRITY has no reviewed-rarity exemption.</p>'
+            + '<p>Within this category the unified feed uses the newest report '
+            + 'time, just as its Buzz and Newest descriptions state.</p>'
             + '<p>Every report-specific fact on a row comes from the <b>same newest '
             + 'report</b> — place, distance, count, date and checklist link. Private addresses '
             + 'are never listed.</p>'
@@ -23598,9 +23486,9 @@
             + '<b>' + BL.SURGE.MIN_RATIO + '× the local norm</b>, or — for a bird with '
             + 'no trailing history at all — at <b>' + BL.SURGE.NOVEL_OBSERVERS
             + ' independent observers on two different checklists</b>.</p>'
-            + '<p>🆕 means nothing was reported there in the trailing two weeks, so '
-            + 'there is no ratio to quote. A ratio over a zero baseline would '
-            + 'invent precision, so it says "new here" instead of "∞×".</p>'
+            + '<p>With no trailing history there is no ratio to quote. A ratio '
+            + 'over a zero baseline would invent precision, so the bold third '
+            + 'line names the missing baseline instead.</p>'
             + '<p>Rarities are deliberately excluded: they already have their own '
             + 'sections, and this category exists to catch the birds those miss.</p>'
         },
@@ -23634,98 +23522,49 @@
             + 'always-busy park is not news; a quiet one suddenly filling up is. '
             + 'A place with no trailing history is <i>unmeasured</i>, not busy, so '
             + 'it is dropped rather than called new.</p>'
-            + '<p>The birds under each card are what has been reported there '
-            + 'recently, <b>unseen ones open and already-seen collapsed</b>, rarest '
-            + 'first — that is the answer to why it is busy.</p>'
+            + '<p>The headline opens Stakeout hotspot. Bird Gen does not duplicate '
+            + '<b>Hot patches</b> or the Stakeout section’s species/checklist lists.</p>'
+        },
+        patch: {
+          title: '🥇 High-yield top patches',
+          body: '<p>Today’s patches grades every current destination against the '
+            + 'median score of the same list. Bird Gen includes only the top '
+            + '<b>high yield</b> category — score at least twice that median — '
+            + 'and only after the complete chase view is ready.</p>'
+            + '<p>The headline opens Stakeout hotspot; <b>Find local patches</b> '
+            + 'keeps the place in its full local-patch context. This is a local '
+            + 'projection of data the chase '
+            + 'wave already computed, so it adds no API call.</p>'
         }
       };
       LANE_DOCS.feed = {
         title: '🔔 Bird Gen - Talk and news',
         body: '<p>One feed ranks every active alert. <b>Buzz</b> orders the '
-          + 'five categories — mega, you need it, crowd, cascade, hotspot — then '
+          + 'six categories — mega, celebrity, crowd, cascade, hotspot, top patch — then '
           + 'uses recency inside each category. <b>Newest</b> ignores category '
           + 'severity and orders every row by its latest report time.</p>'
           + '<p>Hotspot alerts stay visible in Unseen mode because they describe '
           + 'a place, not one bird.</p>'
           + '<p>If one species qualifies more than once, it appears once under '
           + 'its strongest category and keeps every qualifying reason on that '
-          + 'row. If a source fails or the mega snapshot has not been loaded, '
-          + 'the feed names that gap instead of claiming nothing is happening.</p>'
+          + 'row in accessible category metadata. The visible third line explains '
+          + 'the strongest category.</p>'
+          + '<p>Every card has three lines: name plus category; four-letter code, '
+          + '<b>xN</b>, linked place and linked compact date; then a bold category '
+          + 'explanation. The alert icon and relative age remain at the right. '
+          + 'The whole headline opens Stakeout bird or Stakeout hotspot; this '
+          + 'news feed does not expand into report, species or checklist lists.</p>'
+          + '<p>If a source fails or the mega snapshot has not been loaded, '
+          + 'the feed names that gap instead of claiming nothing is happening. '
+          + 'A complete retained snapshot may still supply TOP PATCH rows while '
+          + 'live data refreshes; partial or failed destination views may not.</p>'
           + '<h3>' + LANE_DOCS.mega.title + '</h3>' + LANE_DOCS.mega.body
           + '<h3>' + LANE_DOCS.celebrity.title + '</h3>' + LANE_DOCS.celebrity.body
           + '<h3>' + LANE_DOCS.crowd.title + '</h3>' + LANE_DOCS.crowd.body
           + '<h3>' + LANE_DOCS.cascade.title + '</h3>' + LANE_DOCS.cascade.body
           + '<h3>' + LANE_DOCS.busy.title + '</h3>' + LANE_DOCS.busy.body
+          + '<h3>' + LANE_DOCS.patch.title + '</h3>' + LANE_DOCS.patch.body
       };
-      // The checklists behind one bird, collapsed — the same shape Leader Board Ticks
-      // uses, built from the merged feed rather than a fetch. The row above is
-      // the decision; these are the evidence you open once you have made it.
-      function speciesChecklists(merged, code) {
-        var home = getHome();
-        var subs = {}, rows = [];
-        (merged || []).forEach(function (r) {
-          if (!r || r.code !== code || !r.subId || subs[r.subId]) return;
-          subs[r.subId] = 1;
-          rows.push(r);
-        });
-        if (!rows.length) return '';
-        rows.sort(function (a, b) {
-          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
-        });
-        var mk = function (r) {
-          var lng = r.lon == null ? r.lng : r.lon;
-          var d = (home && isFinite(r.lat) && isFinite(lng))
-            ? haversineMi(home.lat, home.lng, +r.lat, +lng) : null;
-          return ChecklistCards.small({
-            place: r.loc || r.locName || '',
-            href: checklistUrl(r.subId),
-            date: fmtDateTime(r.dateStr),
-            count: r.count,
-            distMi: d,
-            distQ: distQ(r.lat, lng),
-            map: mapPin(r.lat, lng),
-            who: r.observer ? esc(r.observer) : ''
-          });
-        };
-        var SHOW = 5;
-        return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
-          'recent checklist', '',
-          moreDetails(rows.length - SHOW, { one: 'checklist', many: 'checklists' }, function () {
-            return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
-          }));
-      }
-
-      // The reports behind a cascade, collapsed — same shape as Leader Board Ticks.
-      // These rows come from a species-scoped state feed, not the board, which
-      // is why they carry a place and a checklist at all.
-      function cascadeChecklists(recent) {
-        var home = getHome();
-        var rows = (recent || []).slice().sort(function (a, b) {
-          return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
-        });
-        if (!rows.length) return '';
-        var mk = function (r) {
-          var d = (home && isFinite(r.lat) && isFinite(r.lng))
-            ? haversineMi(home.lat, home.lng, +r.lat, +r.lng) : null;
-          return ChecklistCards.small({
-            place: r.locName || '',
-            href: r.subId ? checklistUrl(r.subId) : '',
-            date: fmtDateTime(r.obsDt),
-            count: r.howMany,
-            distMi: d,
-            distQ: distQ(r.lat, r.lng),
-            map: mapPin(r.lat, r.lng),
-            who: r.userDisplayName ? esc(r.userDisplayName) : ''
-          });
-        };
-        var SHOW = 5;
-        return checklistDetails(rows.slice(0, SHOW).map(mk), rows.length,
-          'recent report', '',
-          moreDetails(rows.length - SHOW, { one: 'report', many: 'reports' }, function () {
-            return ChecklistCards.list('small', rows.slice(SHOW).map(mk));
-          }));
-      }
-
       function laneHelpBtn(key) {
         return '<button type="button" class="lanehelp" data-lane="' + key
           + '" aria-label="How this ' + (key === 'feed' ? 'alert feed' : 'lane')
@@ -23749,13 +23588,15 @@
       }
       var SURGE_KINDS = {
         mega:    { priority: 0, word: 'MEGA',        glyph: '🦅' },
-        need:    { priority: 1, word: 'YOU NEED IT', glyph: '🎯' },
+        need:    { priority: 1, word: 'CELEBRITY',   glyph: '🎯' },
         crowd:   { priority: 2, word: 'CROWD',       glyph: '🐦' },
         cascade: { priority: 3, word: 'CASCADE',     glyph: '🏆' },
-        hotspot: { priority: 4, word: 'HOTSPOT',     glyph: '📍' }
+        hotspot: { priority: 4, word: 'HOTSPOT',     glyph: '📍' },
+        patch:   { priority: 5, word: 'TOP PATCH',   glyph: '🥇' }
       };
       var _surgeSort = 'priority';
       var _surgeFilter = 'unseen';
+      var _surgeEarlyPaint = null;
       var _surgeLoadGeneration = 0;
       var SURGE_SOURCE_LABELS = {
         mega: 'Mega snapshot',
@@ -23860,18 +23701,23 @@
         return /\d{1,2}:\d{2}/.test(String(s)) ? out : out + ', time unavailable';
       }
 
-      function surgeSummaryHtml(a) {
+      function surgeFactsHtml(a) {
         var date = esc(surgeCompactDate(a.when));
         if (a.checklistId) date = checklistLink(a.checklistId, date);
-        var eventCount = Number(a.eventCount);
+        var count = Number(a.count);
+        var lead = [
+          a.identifierPrefix || '',
+          a.alpha ? '<span class="spalpha">' + esc(a.alpha) + '</span>' : '',
+          isFinite(count) && count >= 0
+            ? '<span class="surgecountvalue">x' + Math.floor(count) + '</span>' : ''
+        ].filter(Boolean).join(' ');
         var bits = [
-          String(a.sub || '').replace(/ \u00b7 /g, ', '),
-          isFinite(eventCount) && eventCount > 1 ? '\u00d7' + Math.floor(eventCount) : '',
-          a.distance || '',
+          lead,
           a.where || '<span class="dim">Location unavailable</span>',
           '<span class="surgeabsolute">' + date + '</span>'
         ].filter(Boolean);
-        return bits.join(', ') + '.';
+        return '<span class="surgefacts">'
+          + bits.join('<span class="surgefactsep"> - </span>') + '</span>';
       }
 
       function surgeSentence(html) {
@@ -23931,18 +23777,26 @@
           + surgeSortControl() + surgeFilterControl() + '</div>';
       }
 
-      function surgeReasonMeta(a) {
-        var reasons = (a.reasons || [{ kind: a.kind, why: a.why }]).slice()
+      function surgeReasons(a) {
+        return (a.reasons || [{ kind: a.kind, why: a.why }]).slice()
           .sort(function (x, y) {
             return SURGE_KINDS[x.kind].priority - SURGE_KINDS[y.kind].priority;
           });
+      }
+
+      function surgeReasonPlain(reason) {
+        var holder = document.createElement('div');
+        holder.innerHTML = surgeSentence(reason.why);
+        return String(holder.textContent || '').replace(/\s+/g, ' ').trim();
+      }
+
+      function surgeReasonMeta(a) {
+        var reasons = surgeReasons(a);
         var words = [], text = [];
         reasons.forEach(function (reason) {
           var word = SURGE_KINDS[reason.kind].word;
-          var plain = surgeSentence(reason.why).replace(/<[^>]*>/g, '')
-            .replace(/\s+/g, ' ').trim();
           words.push(reason.kind);
-          text.push(word + ': ' + plain);
+          text.push(word + ': ' + surgeReasonPlain(reason));
         });
         return { kinds: words.join(','), text: text.join(' | ') };
       }
@@ -23954,6 +23808,20 @@
           + '">' + word + '</span>';
       }
 
+      function surgeExplanationHtml(a) {
+        var text = a.noteHeader
+          || (SURGE_KINDS[a.kind].word + ': Current alert rule matched!');
+        if (!/[.!?]$/.test(text)) text += '!';
+        return '<div class="surgeexplain"><b>' + esc(text) + '</b>'
+          + (a.extra ? '<span class="surgeexplainextra">' + a.extra + '</span>' : '')
+          + '</div>';
+      }
+
+      function surgeBodyHtml(a) {
+        return '<div class="surgebody">' + surgeFactsHtml(a)
+          + surgeExplanationHtml(a) + '</div>';
+      }
+
       function surgeAlertCard(a, order) {
         var k = SURGE_KINDS[a.kind], reason = surgeReasonMeta(a), data = {
           'alert-kind': a.kind,
@@ -23962,6 +23830,7 @@
           'surge-order': order,
           'surge-seen': a.seenState || 'unseen',
           'species-code': a.code || '',
+          'species-name': a.speciesNameKey || '',
           'surge-reasons': reason.kinds,
           'surge-reason-text': reason.text
         };
@@ -23969,13 +23838,9 @@
         return SpeciesCards.small({
           icon: a.icon,
           name: a.name,
-          code: a.code || '',
-          alpha: a.alpha || '',
           tags: surgeCategoryTag(a.kind, reason.text) + (a.tags || ''),
-          sub: surgeSummaryHtml(a),
-          identifierLine: true,
           right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime),
-          below: a.extra ? '<div class="surgeevidence">' + a.extra + '</div>' : '',
+          below: surgeBodyHtml(a),
           data: data
         });
       }
@@ -23983,7 +23848,10 @@
       function mergeSurgeSpeciesRows(rows) {
         var out = [], bySpecies = {};
         (rows || []).forEach(function (row) {
-          if (row.kind === 'hotspot') { out.push(row); return; }
+          if (row.kind === 'hotspot' || row.kind === 'patch') {
+            out.push(row);
+            return;
+          }
           var aliases = [];
           var codeKey = String(row.speciesKey || row.code || '').trim().toLowerCase();
           var nameKey = String(row.speciesNameKey || '').trim().toLowerCase();
@@ -24064,14 +23932,17 @@
       }
 
       function surgeCountHtml(rows) {
-        var counts = { mega: 0, need: 0, crowd: 0, cascade: 0, hotspot: 0 };
+        var counts = {
+          mega: 0, need: 0, crowd: 0, cascade: 0, hotspot: 0, patch: 0
+        };
         rows.forEach(function (r) { counts[r.kind] += 1; });
         return '<div class="surgecounts" aria-label="Alert counts by category">'
           + '<span class="surgecount" data-count-kind="mega"><b>' + counts.mega + '</b> mega</span>'
-          + '<span class="surgecount" data-count-kind="need"><b>' + counts.need + '</b> you need</span>'
+          + '<span class="surgecount" data-count-kind="need"><b>' + counts.need + '</b> celebrity</span>'
           + '<span class="surgecount" data-count-kind="crowd"><b>' + counts.crowd + '</b> crowd</span>'
           + '<span class="surgecount" data-count-kind="cascade"><b>' + counts.cascade + '</b> cascade</span>'
           + '<span class="surgecount" data-count-kind="hotspot"><b>' + counts.hotspot + '</b> hotspot</span>'
+          + '<span class="surgecount" data-count-kind="patch"><b>' + counts.patch + '</b> top patch</span>'
           + '</div>';
       }
 
@@ -24107,7 +23978,9 @@
         if (!box || !list) return 0;
         var rows = [].slice.call(list.children);
         var visible = 0, hiddenSeen = 0;
-        var counts = { mega: 0, need: 0, crowd: 0, cascade: 0, hotspot: 0 };
+        var counts = {
+          mega: 0, need: 0, crowd: 0, cascade: 0, hotspot: 0, patch: 0
+        };
         rows.forEach(function (row) {
           var hide = _surgeFilter === 'unseen'
             && row.getAttribute('data-surge-seen') === 'seen';
@@ -24140,6 +24013,48 @@
         return visible;
       }
 
+      function wireSurgeHeadlines() {
+        var feed = $('surgeFeed');
+        if (!feed) return;
+        [].forEach.call(feed.children, function (row) {
+          var head = row.querySelector(':scope > .name');
+          if (!head) return;
+          var locId = row.getAttribute('data-hsloc') || '';
+          var locName = row.getAttribute('data-hslocname') || '';
+          var code = row.getAttribute('data-species-code') || '';
+          var speciesName = row.getAttribute('data-species-name') || code;
+          var place = !!locId;
+          if (!place && !code && !speciesName) return;
+          head.classList.add('surgeheadline');
+          head.setAttribute('role', 'link');
+          head.tabIndex = 0;
+          head.setAttribute('aria-label', place
+            ? 'Open ' + locName + ' in Stakeout hotspot'
+            : 'Open ' + speciesName + ' in Stakeout bird');
+          function open() {
+            if (place) openStakeHotspot(locId, locName || locId);
+            else if (code) openStakeSpecies(code, speciesName || code);
+            else {
+              if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
+              var input = $('spLookup');
+              if (input) input.value = speciesName;
+              if ($('spLookupFound')) $('spLookupFound').innerHTML = '';
+              runSpeciesLookup();
+            }
+          }
+          head.addEventListener('click', function (ev) {
+            if (ev.target.closest && ev.target.closest('a, button')) return;
+            ev.preventDefault();
+            open();
+          });
+          head.addEventListener('keydown', function (ev) {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            ev.preventDefault();
+            open();
+          });
+        });
+      }
+
       function wireSurgeControls() {
         [].forEach.call(document.querySelectorAll('#surgeResults .surgesortbtn'), function (b) {
           b.addEventListener('click', function () {
@@ -24153,10 +24068,16 @@
         });
         applySurgeSort(_surgeSort);
         applySurgeFilter(_surgeFilter);
+        wireSurgeHeadlines();
       }
 
       function surgePlaceTile() {
         return '<span class="thumb surgeplacethumb" aria-hidden="true"></span>';
+      }
+
+      function surgePlaceLink(name, locId) {
+        name = name || locId || '';
+        return locId ? stakeHotspotLink(locId, name) : esc(name);
       }
 
       function surgeMegaNewsLabel(tag, m) {
@@ -24171,6 +24092,38 @@
         if (tag === 'new') return 'First reported ' + esc(fmtDate(m.found && m.found.day));
         if (tag === 'multi') return m.reports + ' recent reports in this locality';
         return '';
+      }
+
+      function surgeMegaNoteHeader(m) {
+        var news = (m && m.news) || [];
+        if (news.indexOf('new') >= 0) {
+          return m.unseen === false
+            ? 'MEGA: A new ABA Code 3+'
+            : 'MEGA: A new unseen ABA Code 3+';
+        }
+        if (news.indexOf('spot') >= 0 || news.indexOf('multi') >= 0) {
+          return 'MEGA: An unseen ABA Code 3+ has multiple local reports';
+        }
+        if (news.indexOf('near') >= 0) {
+          return 'MEGA: An unseen ABA Code 3+ is within a day trip';
+        }
+        return 'MEGA: An ABA Code 3+ meets today’s news rule';
+      }
+
+      function surgeHighYieldPatches(clusters) {
+        var rows = (clusters || []).map(toDest).filter(function (d) {
+          return d && d.locId && d.species && d.species.length;
+        });
+        var scores = rows.map(function (d) { return d.score; });
+        return rows.filter(function (d) {
+          d.band = BL.yieldBand(d.score, scores);
+          return d.band === 'high yield';
+        });
+      }
+
+      function surgeDestinationsComplete(res) {
+        return !!(res && res.cv && !res.feedFailed && !res.partial
+          && res.feedComplete !== false);
       }
 
       function surgeCascadePairs(cascades) {
@@ -24193,24 +24146,14 @@
         }).filter(Boolean);
       }
 
-      function surgeHotspotExtra(c, species, xy) {
-        var acts = (xy && isFinite(+xy.lat) && isFinite(+xy.lng)
-          ? '<a class="maplink" data-q="' + esc(+xy.lat + ',' + +xy.lng) + '">🗺 Open in Maps ↗</a>'
-          : '') + ebirdHotspotA(c.locId)
-          + favLink({ locId: c.locId, locName: c.loc, lat: xy && xy.lat, lng: xy && xy.lng });
-        return '<details class="surgehotdetail"><summary>Birds and checklists at this hotspot</summary>'
-          + '<div class="hslists">' + surgeHotspotLists(c.locId, species) + '</div>'
-          + '<div class="hsckl"></div>'
-          + (acts ? '<div class="hsact">' + acts + '</div>' : '')
-          + '</details>';
-      }
-
-      function renderSurge(events, cascades, convergence, needs, merged, sourceState) {
+      function renderSurge(
+          events, cascades, convergence, needs, merged, sourceState, topPatches) {
         var box = $('surgeResults');
         events = events || [];
         convergence = convergence || [];
         needs = needs || [];
         merged = merged || [];
+        topPatches = topPatches || [];
         var mega = megaLane(getAnchors());
         var megaRows = (mega && mega.rows) || [];
         var cascadePairs = surgeCascadePairs(cascades);
@@ -24218,7 +24161,7 @@
         var sourceWarning = surgeSourceWarning(sourceStates);
         markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
-            && !cascadePairs.length && !convergence.length) {
+            && !cascadePairs.length && !convergence.length && !topPatches.length) {
           LANE_DOCS.feed.context = '<p><b>Current feed:</b> no active alerts.'
             + (mega ? ' Mega snapshot ' + esc(megaAge(mega.at)) + '.' : ' No mega snapshot loaded.')
             + '</p>';
@@ -24258,12 +24201,14 @@
             icon: photoSlot(m.name, m.code),
             name: speciesLink(m.name, m.code),
             code: m.code,
-            alpha: alphaFor(m.code),
+            alpha: m.alpha || alphaFor(m.code),
+            noteHeader: surgeMegaNoteHeader(m),
+            count: m.reports,
             sub: m.reports === 1 ? '1 report' : m.reports + ' recent reports',
             distance: surgeDistanceText(m.mi),
             why: why || 'ABA Code 3+ rarity meeting today’s alert rules',
             where: m.locName
-              ? locLink(m.locName, m.lat, m.lng, m.locId, false) : '',
+              ? surgePlaceLink(m.locName, m.locId) : '',
             when: m.obsDt,
             time: surgeTimeValue(m.obsDt),
             checklistId: m.subId || ''
@@ -24285,8 +24230,10 @@
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
             code: e.code,
-            alpha: alphaFor(e.code),
-            tags: e.rare ? ' ' + rareTag('Rarity') : '',
+            alpha: e.alpha || alphaFor(e.code),
+            identifierPrefix: e.rare ? rareTag('Rarity') : '',
+            noteHeader: 'CELEBRITY: An unseen rarity has multiple sightings!',
+            count: obs || 0,
             sub: [
               obs ? obs + ' sighting' + (obs === 1 ? '' : 's') : '',
               e.nPlaces ? e.nPlaces + ' loc' + (e.nPlaces === 1 ? '' : 's') : ''
@@ -24295,11 +24242,10 @@
             distance: surgeDistanceText(latestMi),
             why: '<b>You still need it</b> · eBird marked it notable inside your chase radius',
             where: latestName
-              ? locLink(latestName, latestLat, latestLon, latestLocId, false) : '',
+              ? surgePlaceLink(latestName, latestLocId) : '',
             when: e.latestStr || e.whenStr,
             time: e.latest || surgeTimeValue(e.latestStr || e.whenStr),
-            checklistId: e.latestSubId || e.subId || '',
-            extra: speciesChecklists(merged, e.code)
+            checklistId: e.latestSubId || e.subId || ''
           });
         });
 
@@ -24312,13 +24258,16 @@
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
             code: e.code,
-            alpha: alphaFor(e.code),
-            tags: e.novel ? ' 🆕' : '',
+            alpha: e.alpha || alphaFor(e.code),
+            noteHeader: e.novel
+              ? 'CROWD: Multiple independent reports with no trailing baseline'
+              : 'CROWD: Many birders are reporting it above normal',
+            count: e.checklists || e.observers || 0,
             sub: e.observers + ' birder' + (e.observers === 1 ? '' : 's')
               + (e.checklists > e.observers ? ' · ' + e.checklists + ' lists' : ''),
             distance: surgeDistanceText(e.distMi),
             why: e.observers + ' birders · <b>' + esc(vs) + '</b>',
-            where: locLink(e.loc || e.locId, e.lat, e.lon, e.locId),
+            where: surgePlaceLink(e.loc || e.locId, e.locId),
             when: e.latest,
             time: surgeTimeValue(e.latest),
             checklistId: e.subId || ''
@@ -24339,13 +24288,6 @@
             whoTxt += ' <span class="dim">and ' + (c.birders.length - WHO)
               + ' more of the top 100</span>';
           }
-          var who = '<div class="wholine"><span class="lbl">Who added it</span> '
-            + whoTxt + '</div>';
-          var ck = r0 ? cascadeChecklists(c.recent)
-            : '<div class="sp dim">' + (c.code
-                ? 'No public in-range report is available in the state feed’s 30-day window.'
-                : 'Not in this region’s species list, so there is nowhere to link to yet.')
-              + '</div>';
           rows.push({
             kind: 'cascade',
             speciesKey: c.code,
@@ -24353,44 +24295,45 @@
             icon: photoSlot(c.species, c.code || ''),
             name: c.code ? speciesLink(c.species, c.code) : esc(c.species),
             code: c.code || '',
-            alpha: c.code ? alphaFor(c.code) : '',
-            tags: rareTag('Rarity'),
+            alpha: c.code ? (c.alpha || alphaFor(c.code)) : '',
+            identifierPrefix: c.code ? rareTag('Rarity') : '',
+            noteHeader: 'CASCADE: Multiple top birders added it within '
+              + BL.CASCADE.WINDOW_DAYS + ' days',
+            count: c.birders.length,
             sub: c.birders.length + ' of the top 100',
             distance: surgeDistanceText(near),
             why: '<b>' + c.birders.length + ' of the top 100 added it within '
-              + BL.CASCADE.WINDOW_DAYS + ' days</b>',
+              + BL.CASCADE.WINDOW_DAYS + ' days</b> · ' + whoTxt,
             where: newest && newest.locName
-              ? locLink(newest.locName, newest.lat, newest.lng,
-                  newest.locId || '', false)
+              ? surgePlaceLink(newest.locName, newest.locId || '')
               : '<span class="dim">No public in-range report yet</span>',
             when: newestWhen,
             time: surgeTimeValue(newestWhen),
             ageTime: surgePreciseTimeValue(newestWhen),
             checklistId: (newest && newest.subId) || '',
-            extra: who + ck
+            extra: c.code ? '' : 'Not in this region’s species list; '
+              + 'the headline will search Stakeout by name.'
           });
         });
 
-        var byLoc = convergenceDetail(merged);
         var coords = hotspotCoordSet(getObsRegion());
         var home = getHome();
-        var rank = scarcityRank(merged);
         convergence.forEach(function (c) {
-          var detail = byLoc[c.locId] || {
-            spp: 0, lists: 0, species: []
-          };
           var xy = coords && coords[c.locId];
           var mi = (xy && home && home.lat != null)
             ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
-          var spp = surgeBusySpecies(c, detail, rank);
           var when = c.latest || '';
           rows.push({
             kind: 'hotspot',
             icon: surgePlaceTile(),
             name: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || 'Unnamed spot'),
-            sub: c.observers + ' birders'
-              + (detail.lists ? ' · ' + detail.lists + ' lists' : ''),
+            sub: c.observers + ' birders',
             distance: surgeDistanceText(mi),
+            noteHeader: 'HOTSPOT: ' + (c.reason === 'crowd'
+              ? 'Busier than usual'
+              : (c.ratio == null ? 'New against its norm'
+                : Math.round(c.ratio) + '× this hotspot’s own norm')),
+            count: c.observers || 0,
             why: c.observers + ' birders · <b>'
               + (c.reason === 'crowd' ? 'busier than usual'
                 : (c.ratio == null ? 'new against its norm'
@@ -24398,11 +24341,39 @@
             where: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || ''),
             when: when,
             time: c.eventAt || surgeTimeValue(when),
-            extra: surgeHotspotExtra(c, spp, xy),
+            checklistId: c.subId || '',
             data: {
               hsloc: c.locId,
-              hslatest: when,
-              scored: surgeScoredSpecies(spp)
+              hslocname: c.loc || '',
+              hslatest: when
+            }
+          });
+        });
+
+        topPatches.forEach(function (d) {
+          var species = (d.species || []).slice().sort(function (a, b) {
+            return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          });
+          var newest = species[0] || {};
+          var name = d.locName || d.name || d.locId || 'Unnamed patch';
+          rows.push({
+            kind: 'patch',
+            icon: surgePlaceTile(),
+            name: esc(name),
+            sub: (d.band || 'high yield') + ' · ' + species.length + ' target'
+              + (species.length === 1 ? '' : 's'),
+            distance: surgeDistanceText(d.dist),
+            noteHeader: 'TOP PATCH: A high-yield local patch',
+            count: species.length,
+            why: '<b>High yield</b> · scored in the top category among today’s patches',
+            where: d.locId ? stakeHotspotLink(d.locId, name) : esc(name),
+            when: newest.dateStr || '',
+            time: surgeTimeValue(newest.dateStr || ''),
+            checklistId: newest.subId || '',
+            eventCount: newest.count,
+            data: {
+              hsloc: d.locId || '',
+              hslocname: name
             }
           });
         });
@@ -24410,7 +24381,8 @@
         rows = mergeSurgeSpeciesRows(rows);
         var isSeen = seenResolver();
         rows.forEach(function (row) {
-          row.seenState = row.kind === 'hotspot' ? 'not-applicable'
+          row.seenState = (row.kind === 'hotspot' || row.kind === 'patch')
+            ? 'not-applicable'
             : (isSeen(row.speciesKey || row.code, row.speciesNameKey) ? 'seen' : 'unseen');
         });
         LANE_DOCS.feed.context = '<p><b>Current feed:</b> ' + rows.length + ' active alert'
@@ -24439,10 +24411,30 @@
               : '');
         box.innerHTML = html;
         wireSurgeControls();
-        fillConvergence(convergence, merged);
         hydratePhotos(box);
         return rows.length;
       }
+
+      function surgeObservedResult(res, now) {
+        if (!res || !res.cv) throw new Error('recent/notable feeds returned no chase view');
+        var merged = res.cv.merged || [];
+        var rareCodes = merged.filter(function (r) {
+          return r && r.kind === 'Rarity';
+        }).map(function (r) { return r.code; });
+        return {
+          state: chaseAlertSourceState(res),
+          merged: merged,
+          events: BL.surgeEvents(merged, {
+            now: now, seen: getReportSeen(), excludeCodes: rareCodes
+          }),
+          needs: BL.needNearby(merged, {
+            now: now, seen: getReportSeen(), maxMi: chaseMaxMi()
+          }),
+          patches: surgeDestinationsComplete(res)
+            ? surgeHighYieldPatches(res.cv.destinations || []) : []
+        };
+      }
+
       function loadSurge() {
         if (!getKey()) {
           $('surgeStatus').hidden = false;
@@ -24452,16 +24444,44 @@
         }
         var generation = ++_surgeLoadGeneration;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
-        var btn = $('surgeBtn'), st = $('surgeStatus');
-        $('surgeResults').innerHTML = '';
+        var btn = $('surgeBtn'), st = $('surgeStatus'), resultsBox = $('surgeResults');
+        var existingFeed = resultsBox.querySelector('#surgeFeed');
+        if (!existingFeed) resultsBox.innerHTML = '';
         btn.disabled = true;
         st.hidden = false;
-        st.textContent = 'Looking for twitches in ' + getReport().label + '…';
+        st.textContent = (existingFeed ? 'Refreshing' : 'Looking for twitches in')
+          + ' ' + getReport().label + '…';
         var now = Date.now();
         // Every source returns rows AND state. A failed source is not an empty
         // source: successful rows still paint, and the UI names what is
         // unavailable instead of turning a partial answer into "nothing".
         var _merged = [];
+        function paintObserved(observed) {
+          if (generation !== _surgeLoadGeneration) return observed;
+          _merged = observed.merged || [];
+          var states = {
+            mega: megaAlertSourceState(megaLane(getAnchors())),
+            observations: observed.state,
+            leaderboard: 'loading',
+            hotspots: hasCounties() ? 'loading' : 'notApplicable'
+          };
+          var n = renderSurge(observed.events, [], [], observed.needs,
+                              _merged, states, observed.patches);
+          st.textContent = (n ? n + ' active alert' + (n === 1 ? '' : 's')
+                              : 'Observation alerts are still loading')
+            + ' · other sources updating · ' + nowTime();
+          st.hidden = true;
+          btn.disabled = false;
+          return observed;
+        }
+        _surgeEarlyPaint = function (res) {
+          if (generation !== _surgeLoadGeneration) return;
+          try {
+            return paintObserved(surgeObservedResult(res, now));
+          } catch (e) {
+            dbg('warn', 'Bird gen early observation paint: ' + ((e && e.message) || e));
+          }
+        };
         // getChaseRarity, NOT getChase. A device log measured this section
         // sitting on "Step 2 of 2 - 0 of 40" while phase 2 fetched 40
         // per-species feeds: phase 1 finished in 5.5s, phase 2 took 221.3s, and
@@ -24477,30 +24497,11 @@
         // completes, so the crowd lane still gets the full merged set; it just
         // arrives after the screen is useful instead of before.
         var pObserved = getChaseRarity().then(function (res) {
-          if (!res.cv) throw new Error('recent/notable feeds returned no chase view');
-          _merged = res.cv.merged || [];
-          // F144: "i dont want to repeat rarities list ... this should be a
-          // list of birds that are getting particular attention but didnt make
-          // the aba list like the wandering tattler." The merged set already
-          // marks notable rows as kind 'Rarity', so this costs nothing and
-          // needs no extra data: anything the rarity feeds flag belongs to
-          // those sections, and what is left is the buzz nobody else reports.
-          var rareCodes = (res.cv.merged || [])
-            .filter(function (r) { return r && r.kind === 'Rarity'; })
-            .map(function (r) { return r.code; });
-          return {
-            state: chaseAlertSourceState(res),
-            events: BL.surgeEvents(res.cv.merged, {
-              now: now, seen: getReportSeen(), excludeCodes: rareCodes
-            }),
-            needs: BL.needNearby(_merged, {
-              now: now, seen: getReportSeen(), maxMi: chaseMaxMi()
-            })
-          };
+          return surgeObservedResult(res, now);
         }).catch(function (e) {
           dbg('warn', 'Bird gen recent/notable source: ' + ((e && e.message) || e));
-          return { state: 'failed', events: [], needs: [] };
-        });
+          return { state: 'failed', merged: [], events: [], needs: [], patches: [] };
+        }).then(paintObserved);
         var rr = rankPrimaryRegion();
         var pBoard = fetchRank(rr, new Date().getFullYear(), getDisplayName())
           .then(function (data) {
@@ -24526,9 +24527,9 @@
           dbg('warn', 'Bird gen cascade source: ' + ((e && e.message) || e));
           return { state: 'failed', rows: [] };
         });
-        var pConverge = !hasCounties()
-          ? Promise.resolve({ state: 'notApplicable', rows: [] })
-          : Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
+        var pConverge = pObserved.then(function () {
+          if (!hasCounties()) return { state: 'notApplicable', rows: [] };
+          return Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
               return ebird(BL.requestUrl(f))
                 .then(function (rows) { return { state: 'ok', rows: rows }; })
                 .catch(function (e) {
@@ -24578,7 +24579,8 @@
                   ? 'failed' : 'ok',
                 rows: conv
               };
-            }).catch(function (e) {
+            });
+        }).catch(function (e) {
               dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
             });
@@ -24591,7 +24593,7 @@
             hotspots: r[2].state
           };
           var n = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
-                              _merged, states);
+                              _merged, states, r[0].patches);
           // F263. AFTER THE PAINT, never before it. The rows on screen stay on
           // screen; if a fresher snapshot lands, the lane repaints with it.
           lazyRefreshMegaSnapshot(function () {
@@ -24599,7 +24601,7 @@
             if (visibleSectionId() !== 'sec-surgeBtn') return;
             states.mega = megaAlertSourceState(megaLane(getAnchors()));
             var refreshedN = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
-                                         _merged, states);
+                                         _merged, states, r[0].patches);
             var refreshedComplete = surgeSourcesComplete(states);
             st.textContent = (refreshedN
               ? refreshedN + ' active alert' + (refreshedN === 1 ? '' : 's')
@@ -24621,7 +24623,10 @@
             st.textContent = netErr(e);
           }
         }).finally(function () {
-          if (generation === _surgeLoadGeneration) btn.disabled = false;
+          if (generation === _surgeLoadGeneration) {
+            btn.disabled = false;
+            _surgeEarlyPaint = null;
+          }
         });
       }
       // The leaderboard says a bird is gettable and never says where — it
@@ -29407,7 +29412,9 @@
         GBIF_REFILL_PER_S: GBIF_REFILL_PER_S,
         watchDropped: watchDropped,
         loadAbaAlert: loadAbaAlert,
-        renderSurge: renderSurge, chaseAlertSourceState: chaseAlertSourceState,
+        renderSurge: renderSurge, loadSurge: loadSurge,
+        chaseAlertSourceState: chaseAlertSourceState,
+        surgeDestinationsComplete: surgeDestinationsComplete,
         megaAlertSourceState: megaAlertSourceState,
         lazyRefreshMegaSnapshot: lazyRefreshMegaSnapshot,
         MEGA_SNAP_KEY: MEGA_SNAP_KEY,
@@ -29512,7 +29519,7 @@
         DUE_BACK_WINDOW_DAYS: DUE_BACK_WINDOW_DAYS,
         pool: pool, rankHistRead: rankHistRead, rankHistRecord: rankHistRecord,
         renderSurge: renderSurge, parseRecentTick: parseRecentTick,
-        getObsRegion: getObsRegion, busyIconic: function () { return _busyIconic; },
+        getObsRegion: getObsRegion,
         facetCounts: facetCounts, iconicBoxFacet: iconicBoxFacet,
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         firstReport: firstReport, coverageStart: coverageStart,

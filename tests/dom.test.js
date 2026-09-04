@@ -297,6 +297,21 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
   app.window.close();
 });
 
+test('F302 complete stale chase views retain TOP PATCH eligibility', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.surgeDestinationsComplete({
+    stale: true, partial: false, feedComplete: true, feedFailed: false, cv: {},
+  }), true, 'a complete retained snapshot lost its destination alerts during refresh');
+  assert.equal(A.surgeDestinationsComplete({
+    stale: false, partial: true, feedComplete: false, feedFailed: false, cv: {},
+  }), false, 'a partial notable-only head start was treated as complete destinations');
+  assert.equal(A.surgeDestinationsComplete({
+    stale: false, partial: false, feedComplete: true, feedFailed: true, cv: {},
+  }), false, 'a failed destination source was treated as usable');
+  app.window.close();
+});
+
 test('F268 On passage loads first-year data by default and caches one region-year daily', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -1196,7 +1211,9 @@ test('Bird gen is wired and renders every alert source it detects', async () => 
 
   const txt = app.$('surgeResults').textContent;
   assert.match(txt, /Tufted Puffin/, 'the species drawing the crowd');
-  assert.match(txt, /20 birders/, 'observers are the crowd signal');
+  assert.match(txt, /x20/, 'the second line carries the crowd report count');
+  assert.match(txt, /CROWD: Multiple independent reports with no trailing baseline!/,
+    'the third line explains the crowd signal');
   assert.match(txt, /Terek Sandpiper/, 'the leaderboard cascade');
   assert.match(txt, /Stanwood STP/, 'the species-blind hotspot convergence');
   // The place must be ACTIONABLE — a link, not a bare name. It used to pin an
@@ -1233,7 +1250,11 @@ test('a zero-baseline surge keeps "new here" accessible, never an infinite ratio
   assert.match(row.querySelector('.surgebadge').getAttribute('aria-label'), /new here/,
     'the compact category tag no longer exposes the retained reason');
   assert.doesNotMatch(txt, /Infinity|NaN/, 'and never invents a number');
-  assert.match(txt, /🆕/, 'flags the "drop everything" case');
+  assert.doesNotMatch(row.querySelector(':scope > .name').textContent, /🆕/,
+    'the compact headline still carries a second state outside the category tag');
+  assert.match(row.querySelector('.surgeexplain b').textContent,
+    /CROWD: Multiple independent reports with no trailing baseline/i,
+    'a novel crowd is falsely described as above normal');
   app.window.close();
 });
 
@@ -6045,6 +6066,8 @@ test('Bird Gen puts Talk and news in the title and leads directly with controls'
     'the explanatory paragraph is still visible above the feed');
   assert.ok(results.querySelector('.surgesortrow + .surgefeedhead'),
     'the count does not follow the controls');
+  assert.equal(results.querySelector('.surgenotesrow, [data-surge-notes]'), null,
+    'the removed Bird Gen notes toggle still sits above the feed');
   const help = results.querySelector('.lanehelp[data-lane="feed"]');
   assert.ok(help, 'the moved explanation has no info-button destination');
   app.click(help);
@@ -6141,7 +6164,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     'Priority must order category severity first, then recency');
   assert.equal(rows.length, 5, 'one of the five alert types disappeared');
   const expected = {
-    mega: ['MEGA', '🦅'], need: ['YOU NEED IT', '🎯'], crowd: ['CROWD', '🐦'],
+    mega: ['MEGA', '🦅'], need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
     cascade: ['CASCADE', '🏆'], hotspot: ['HOTSPOT', '📍'],
   };
   const glyphs = Object.values(expected).map((x) => x[1]);
@@ -6158,10 +6181,14 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
       `${kind} duplicates its category glyph inside the name tag`));
     borderStyles.push(app.window.getComputedStyle(tile).borderTopStyle);
     assert.ok(row.querySelector('.surgeage').textContent.trim(), `${kind} lost its relative age`);
-    const summary = row.querySelector('.ntext > .sub');
-    assert.ok(summary, `${kind} lost its compact identifier and fact line`);
-    assert.match(summary.textContent, /mi.*,.*\d{1,2}\/\d{1,2}/s,
-      `${kind} does not place location and date after mileage`);
+    const summary = row.querySelector('.surgefacts');
+    assert.ok(summary, `${kind} lost its always-visible code/count/place/date line`);
+    assert.match(summary.textContent, /x\d+.* - .+ - \d{1,2}\/\d{1,2}/s,
+      `${kind} does not place count, location and date on the second line`);
+    assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
+      `${kind} still spends the compact line on mileage`);
+    assert.ok(row.querySelector('.surgeexplain > b'),
+      `${kind} lost its bold third-line explanation`);
     assert.equal(row.querySelector('.surgewhy'), null,
       `${kind} still renders a separate category/reason row`);
     assert.match(row.dataset.surgeReasons, new RegExp(kind),
@@ -6181,13 +6208,234 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const counts = Object.fromEntries([...box.querySelectorAll('.surgecount')].map((el) => [
     el.dataset.countKind, Number(el.querySelector('b').textContent),
   ]));
-  assert.deepEqual(counts, { mega: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1 },
+  assert.deepEqual(counts, {
+    mega: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
+  },
     'the five lane counts were lost when their headings were removed');
-  assert.match(feed.querySelector('[data-alert-kind="cascade"]').textContent, /Who added it/,
-    'cascade evidence was discarded to make the row compact');
+  const cascade = feed.querySelector('[data-alert-kind="cascade"]');
+  assert.match(cascade.dataset.surgeReasonText, /Brian.*#3.*Liam.*#4.*Bruce.*#8/s,
+    'cascade evidence was discarded from accessible reason metadata');
+  assert.doesNotMatch(cascade.textContent, /Who added it/i,
+    'the visible explanation still uses the category-specific old label');
   assert.ok(feed.querySelector('[data-alert-kind="hotspot"] [data-loc="LHOT"]'),
     'the hotspot name is no longer actionable');
   assert.deepEqual(app.state.errors, [], 'the unified render threw an uncaught error');
+  app.window.close();
+});
+
+test('F302 Bird Gen renders one always-visible three-line news card', async () => {
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+      + `${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const snap = JSON.stringify({
+    at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    rows: [
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(45),
+        locName: 'Smith Island', locId: 'LMEGA', subId: 'SM2',
+        lat: 48.31, lng: -122.84 },
+    ],
+  });
+  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(), JSON.stringify({
+    at: Date.now(), rows: [{ code: 'nazboo1', alpha: 'NABO' }],
+  }));
+  seedSeen(app, ['zzseencontrol']);
+  A.renderSurge(
+    [{ code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11,
+      ratio: 10, novel: false, loc: 'Marina Beach Park', locId: 'LCROWD',
+      lat: 47.8, lon: -122.4, latest: localStamp(10), subId: 'SC1', distMi: 12.3 }],
+    [{ species: 'Common Tern', code: 'comter',
+      birders: [{ name: 'Mike & MerryLynn Denny', rank: 33 },
+        { name: 'RJ Baltierra', rank: 61 }],
+      latest: localStamp(80),
+      recent: [{ obsDt: localStamp(80), locName: 'Seattle-Winslow Ferry',
+        locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'SK1' }] }],
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1,
+      reason: 'surge', latest: localStamp(20),
+      eventAt: Date.parse(localStamp(20).replace(' ', 'T')) }],
+    [{ code: 'amgplo', name: 'American Golden-Plover', sightings: 4, nPlaces: 1,
+      distMi: 6.2, locName: 'Boe Road', locId: 'LBOE',
+      subId: 'SN1', whenStr: localStamp(30), rare: true }],
+    [{ locId: 'LBOE', subId: 'SN1', code: 'amgplo',
+      name: 'American Golden-Plover', dateStr: localStamp(30), kind: 'Rarity' }],
+    { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' },
+    [{ locId: 'LPATCH', locName: 'Marymoor Park', lat: 47.66, lng: -122.12,
+      dist: 8.4, score: 18, rare: 1,
+      species: [
+        { code: 'shtsan', comName: 'Sharp-tailed Sandpiper', rare: true,
+          count: 1, dateStr: localStamp(15), subId: 'SP1' },
+        { code: 'norwat', comName: 'Northern Waterthrush', rare: true,
+          count: 1, dateStr: localStamp(40), subId: 'SP2' },
+      ] }]);
+
+  const feed = app.$('surgeFeed');
+  const rows = [...feed.children];
+  assert.equal(rows.length, 6, 'the fixture stopped exercising every news category');
+  assert.equal(feed.querySelector('details'), null,
+    'Bird Gen still contains a nested reports/checklists disclosure');
+  assert.equal(feed.querySelector('.cklrows, .hsckl, .hslists, .surgehotdetail'), null,
+    'Bird Gen still owns checklist or hotspot-detail list hosts');
+  assert.doesNotMatch(feed.textContent, /Who added it/i,
+    'the category-specific note is still hard-coded as Who added it');
+  assert.equal(app.$('surgeResults').querySelector('.surgenotesrow, [data-surge-notes]'), null,
+    'the removed Notes / No notes control is still rendered');
+  assert.equal(feed.querySelector('.surgenote, .surgenotelink'), null,
+    'the removed Notes container or category links still survive in a row');
+  rows.forEach((row) => {
+    assert.ok(row.querySelector(':scope > .surgebody > .surgefacts'),
+      'the always-visible code/count/place/date line is missing under the name');
+    assert.ok(row.querySelector(':scope > .surgebody > .surgeexplain > b'),
+      'the bold category explanation is not the third card line');
+    const headline = row.querySelector(':scope > .name[role="link"]');
+    assert.ok(headline && headline.tabIndex === 0,
+      'the image/name/category/time headline is not one keyboard-actionable link');
+  });
+  const mega = feed.querySelector('[data-alert-kind="mega"]');
+  assert.match(mega.querySelector('.splink').textContent, /Nazca Booby/);
+  assert.equal(mega.querySelector('.surgebadge').textContent.trim(), 'MEGA');
+  const facts = mega.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
+  assert.match(facts, /^NABO x1 - Smith Island - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap]$/i,
+    'the second line is not ALPHA xcount - place - compact date');
+  assert.doesNotMatch(facts, /nazboo1|\d+(?:\.\d+)?mi\b/i,
+    'the second line still includes the eBird code or distance');
+  assert.equal(mega.querySelector('.surgeexplain b').textContent.trim(),
+    'MEGA: An unseen ABA Code 3+ is within a day trip!');
+  assert.equal(mega.querySelector('[data-sec="sec-abaBtn"]'), null,
+    'the removed All Mega rarities link is still present');
+  app.window.close();
+});
+
+test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async () => {
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const birdApp = await boot();
+  birdApp.window.__app.renderSurge(
+    [{ code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11,
+      ratio: 10, loc: 'Marina Beach Park', locId: 'LBIRD',
+      lat: 47.8, lon: -122.4, latest: stamp, subId: 'S1', distMi: 12.3 }],
+    [], [], [], []);
+  const bird = birdApp.$('surgeFeed').querySelector(
+    '[data-alert-kind="crowd"] > .name > .thumb');
+  assert.ok(bird, 'the bird image is missing from the clickable headline row');
+  birdApp.click(bird);
+  assert.equal(birdApp.$('sec-spLookupBtn').hidden, false);
+  assert.equal(birdApp.$('spLookup').value, 'Tufted Puffin');
+  birdApp.window.close();
+
+  const hotspotApp = await boot();
+  hotspotApp.window.__app.renderSurge(
+    [], [], [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1,
+      reason: 'surge', latest: stamp, eventAt: Date.parse(stamp.replace(' ', 'T')) }],
+    [], []);
+  const hotspot = hotspotApp.$('surgeFeed').querySelector(
+    '[data-alert-kind="hotspot"] .surgekindtile');
+  assert.ok(hotspot, 'the hotspot alert tile is missing from the clickable headline row');
+  hotspotApp.click(hotspot);
+  assert.equal(hotspotApp.$('sec-stakeHsBtn').hidden, false);
+  assert.equal(hotspotApp.$('stakeHs').value, 'Montlake Fill');
+  hotspotApp.window.close();
+
+  const patchApp = await boot();
+  patchApp.window.__app.renderSurge([], [], [], [], [], null, [{
+    locId: 'LPATCH', locName: 'Marymoor Park', lat: 47.66, lng: -122.12,
+    dist: 8.4, score: 18, rare: 1,
+    species: [{ code: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+      dateStr: stamp, subId: 'SP1' }],
+  }]);
+  const patch = patchApp.$('surgeFeed').querySelector(
+    '[data-alert-kind="patch"] .surgekindtile');
+  assert.ok(patch, 'the TOP PATCH alert tile is missing');
+  patchApp.click(patch);
+  assert.equal(patchApp.$('sec-stakeHsBtn').hidden, false);
+  assert.equal(patchApp.$('stakeHs').value, 'Marymoor Park');
+  patchApp.window.close();
+});
+
+test('F302 reviewed Bird Gen rows put R immediately before the bird identifier', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  A.renderSurge(
+    [], [{ species: 'Common Tern', code: 'comter', alpha: 'COTE',
+      birders: [{ name: 'Mike Denny', rank: 33 }, { name: 'RJ Baltierra', rank: 61 }],
+      latest: stamp,
+      recent: [{ obsDt: stamp, locName: 'Seattle-Winslow Ferry',
+        locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'S1' }] }],
+    [], [{ code: 'amgplo', alpha: 'AMGP',
+      name: 'American Golden-Plover', sightings: 4,
+      nPlaces: 1, distMi: 6.2, locName: 'Boe Road', locId: 'LBOE',
+      subId: 'S2', whenStr: stamp, rare: true }], []);
+
+  for (const row of app.$('surgeFeed').children) {
+    const line = row.querySelector('.surgefacts');
+    const review = line && line.querySelector('.rarebadge');
+    const identifier = line && line.querySelector('.spalpha');
+    assert.ok(review && identifier, 'review state and identifier do not share one line');
+    assert.ok(review.compareDocumentPosition(identifier)
+      & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'R does not immediately precede the bird identifier');
+    assert.equal(row.querySelector(':scope > .name > .ntext > .rarebadge'), null,
+      'R still competes with the bird name and category tag');
+  }
+  app.window.close();
+});
+
+test('F302 a name-only Cascade opens Stakeout search and explains its scope gap', async () => {
+  const app = await boot();
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  app.window.__app.renderSurge([], [{
+    species: 'Common Ostrich', code: '',
+    birders: [{ name: 'A', rank: 1 }, { name: 'B', rank: 2 }],
+    latest: stamp, recent: [], locationState: 'failed',
+  }], [], [], []);
+
+  const row = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
+  const head = row.querySelector(':scope > .name[role="link"]');
+  assert.ok(head, 'a Cascade without a regional code is still an inert headline');
+  assert.match(row.querySelector('.surgeexplainextra').textContent,
+    /not in this region’s species list.*search Stakeout by name/is,
+    'the unresolved regional identity is not explained below the headline');
+  app.click(row.querySelector('.surgekindtile'));
+  assert.equal(app.$('sec-spLookupBtn').hidden, false);
+  assert.equal(app.$('spLookup').value, 'Common Ostrich');
+  app.window.close();
+});
+
+test('F302 Bird Gen info lists every category and reopens at the top', async () => {
+  const app = await boot();
+  app.window.__app.renderSurge([], [], [], [], []);
+  const help = app.$('surgeResults').querySelector('.lanehelp[data-lane="feed"]');
+  app.click(help);
+  const sheet = app.document.querySelector('#appSheet');
+  const panel = sheet.querySelector('.sheet');
+  const body = sheet.querySelector('.sheetbody');
+  for (const label of [
+    'ABA Code 3+ megas', 'Celebrity Birds', 'Species drawing a crowd',
+    'Species cascading through the leaderboard', 'Hotspots unusually busy',
+    'High-yield top patches',
+  ]) {
+    const literal = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(body.textContent, new RegExp(literal),
+      `the Bird Gen info sheet is missing ${label}`);
+  }
+  assert.match(body.textContent,
+    /Celebrity Birds[\s\S]*4 or more independent sightings/i,
+    'the CELEBRITY explanation does not state its four-sighting gate');
+  assert.doesNotMatch(body.textContent, /Closest first/i,
+    'the CELEBRITY explanation still promises a sort the unified feed does not use');
+  assert.doesNotMatch(body.textContent,
+    /thin report[\s\S]*reviewed|reviewed by eBird[\s\S]*or seen/i,
+    'the CELEBRITY explanation still advertises a removed reviewed-rarity exception');
+  panel.scrollTop = 500;
+  app.window.__app.hideSheet();
+  app.click(help);
+  assert.equal(panel.scrollTop, 0,
+    'the long Bird Gen info sheet reopened at an old blank scroll position');
+  assert.ok(body.textContent.trim().length > 500,
+    'the reopened Bird Gen info sheet is blank or only partially populated');
   app.window.close();
 });
 
@@ -6233,7 +6481,7 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
   assert.equal(row.querySelector('.surgebadge').textContent.trim(), 'MEGA');
   assert.match(row.dataset.surgeReasonText, /within a day trip/i,
     'the strongest category reason disappeared');
-  assert.match(row.dataset.surgeReasonText, /YOU NEED IT:/,
+  assert.match(row.dataset.surgeReasonText, /CELEBRITY:/,
     'the needed-bird reason was discarded during dedupe');
   assert.match(row.dataset.surgeReasonText, /CROWD:.*7 birders.*5× normal/s,
     'the weaker source reason was discarded during dedupe');
@@ -6241,8 +6489,10 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     'a code-less cascade for the same named species escaped dedupe');
   assert.match(row.dataset.surgeReasonText, /2 of the top 100 added it within 3 days/,
     'the cascade reason or its real two-birder threshold was discarded');
-  assert.doesNotMatch(row.textContent, /within a day trip|Also YOU NEED IT|Also CROWD/i,
-    'retained reasons still consume a separate visible row');
+  assert.match(row.querySelector('.surgeexplain b').textContent, /MEGA:/,
+    'the strongest rule is not the visible third-line explanation');
+  assert.equal(row.querySelector('.surgenotelink, [data-sec="sec-abaBtn"]'), null,
+    'the removed category links survived the single-state redesign');
   assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
     'the deduped row did not retain the newest qualifying source time');
   assert.doesNotMatch(row.querySelector('.surgeabsolute').textContent, /unavailable/i,
@@ -6252,11 +6502,37 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
   ]));
   assert.equal(counts.mega, 1);
   assert.equal(counts.need, 0,
-    'category counts promise a duplicate YOU NEED IT row that dedupe removed');
+    'category counts promise a duplicate CELEBRITY row that dedupe removed');
   assert.equal(counts.crowd, 0,
     'category counts promise a duplicate CROWD row that dedupe removed');
   assert.equal(counts.cascade, 0,
     'category counts promise a duplicate CASCADE row that dedupe removed');
+  app.window.close();
+});
+
+test('F302 same-category dedupe keeps distinct accessible CROWD reasons', async () => {
+  const stamp = (minsAgo) => new Date(Date.now() - minsAgo * 60000)
+    .toISOString().slice(0, 16).replace('T', ' ');
+  const app = await boot();
+  app.window.__app.renderSurge([
+    { code: 'moudov', name: 'Mourning Dove', observers: 5, checklists: 5,
+      ratio: 5, novel: false, loc: 'Older crowd', locId: 'LOLD',
+      lat: 47.7, lon: -122.2, latest: stamp(60), subId: 'SOLD', distMi: 4 },
+    { code: 'moudov', name: 'Mourning Dove', observers: 4, checklists: 4,
+      ratio: 6, novel: false, loc: 'Newest crowd', locId: 'LNEW',
+      lat: 47.8, lon: -122.3, latest: stamp(5), subId: 'SNEW', distMi: 5 },
+  ], [], [], [], []);
+  const feed = app.$('surgeFeed');
+  assert.equal(feed.children.length, 1,
+    'same-category events for one species were not deduped to one headline');
+  const row = feed.firstElementChild;
+  assert.match(row.dataset.surgeReasonText,
+    /CROWD:.*5 birders.*5× normal.*CROWD:.*4 birders.*6× normal/s,
+    'one same-category reason was discarded from accessible metadata');
+  assert.equal(row.querySelector('.surgenotereasons'), null,
+    'the removed expandable Notes block returned');
+  assert.match(row.querySelector('.surgeexplain b').textContent,
+    /CROWD: Many birders are reporting it above normal!/);
   app.window.close();
 });
 
@@ -6270,7 +6546,7 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
 // Rendered, not regexed — the ordering only exists at runtime, and the exact
 // trap here is that speciesListHtml re-sorts by rare-then-alphabetical unless
 // it is told the list is already ordered.
-test('busy hotspots rank by the iconic multiplier and tag the row with it', async () => {
+test('Bird Gen hotspot news performs no hidden species or checklist hydration', async () => {
   const gbif = (u) => {
     if (/species\/match/.test(u)) {
       if (/Tyrannus/.test(u)) return { usageKey: 1 };
@@ -6328,54 +6604,23 @@ test('busy hotspots rank by the iconic multiplier and tag the row with it', asyn
   app.window.__app.renderSurge([], [], [{ loc: 'Cedar River mouth', locId: 'L123', observers: 16, ratio: 10 }],
     [], merged);
 
-  // FIRST PAINT MUST NOT WAIT. The whole point of hydrating after paint is
-  // that a bounded pile of GBIF calls cannot hold the section hostage the way
-  // the 221-second phase-2 stall did.
-  const nameOf = (li) => {
-    // Any anchor, not `a.extlink` specifically: a species name became an
-    // `a.splink` when tapping a bird started opening Stakeout bird instead of
-    // ebird.org. Pinned to the old class this fell through to `.ntext`, which
-    // includes the [R] and 🔍 badges — so the test failed on badge text while
-    // reporting an ordering problem that did not exist.
-    const a = li.querySelector('.ntext a');
-    return (a || li.querySelector('.ntext')).textContent.trim();
-  };
   const hotspot = app.$('surgeFeed').querySelector('[data-alert-kind="hotspot"]');
   assert.ok(hotspot, 'the busy place did not join the unified alert feed');
   assert.equal(hotspot.getAttribute('data-hsloc'), 'L123',
-    'the compact hotspot row dropped the location hook its async loaders need');
-  assert.ok(hotspot.querySelector('.hslists') && hotspot.querySelector('.hsckl'),
-    'the compact hotspot row dropped its species or checklist hydration slot');
-  const hydrateSrc = HTML.slice(HTML.indexOf('function fillConvergence'),
-    HTML.indexOf('function hotspotCoordSet'));
-  assert.match(hydrateSrc, /hydrateLocSpecies\(host\)[\s\S]*hydrateHotspotChecklists\(host\)/,
-    'the unified row no longer runs the established after-paint hydration chain');
-  const names0 = [...hotspot.querySelectorAll('.sppl > li')].map(nameOf);
-  assert.equal(names0.length, 3, 'the alert painted nothing before the multipliers resolved');
+    'the compact hotspot row dropped its stable place identity');
+  assert.ok(hotspot.querySelector('.hslink[data-loc="L123"]'),
+    'the hotspot name no longer opens Stakeout hotspot');
+  assert.equal(hotspot.querySelector('details, .hslists, .hsckl, .sppl'), null,
+    'the news row still owns a hidden species/checklist drawer');
   assert.equal(hotspot.querySelectorAll('.ictag').length, 0,
-    'a multiplier was printed before it was measured');
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 10));
-    if (hotspot.querySelector('.ictag')) break;
-  }
-  const rows = [...hotspot.querySelectorAll('.sppl > li')];
-  const names = rows.map(nameOf);
-  // Mystery Bird sits ABOVE American Robin on purpose: the robin was measured
-  // and found ordinary here, which is a stronger "not why anyone came" than
-  // never having been measurable at all.
-  assert.deepEqual(names, ['Eastern Kingbird', 'Mystery Bird', 'American Robin'],
-    'the lane is not ordered by how much this place stands out for each bird');
-  const tags = rows.map((li) => {
-    const t = li.querySelector('.ictag');
-    return t ? t.textContent : null;
-  });
-  assert.deepEqual(tags, ['30× May–Jul', null, null],
-    'a bare ordering is not a reason — the row must say 30×, and must not invent one for a bird that is merely average or unmeasured');
-  // ...and the multiplier is ADDITIVE. It is a reason to look, not a
-  // replacement for "you have not seen this one".
-  assert.ok(rows[0].querySelector('.rarebadge'),
-    'the iconic tag evicted the [R] badge it was supposed to sit beside');
+    'Bird Gen still runs hidden iconic scoring for a list it no longer shows');
+  assert.match(hotspot.querySelector('.surgeexplain').textContent,
+    /10× this hotspot’s own norm/,
+    'the removed detail drawer took the reason the hotspot is news with it');
+  const renderSrc = HTML.slice(HTML.indexOf('function renderSurge('),
+    HTML.indexOf('function loadSurge('));
+  assert.doesNotMatch(renderSrc, /fillConvergence\(/,
+    'renderSurge still starts hidden hotspot species/checklist hydration');
   app.window.close();
 });
 
@@ -7222,7 +7467,7 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
   });
 
   const row = app.document.querySelector('[data-alert-kind="cascade"]');
-  const summary = row.querySelector('.ntext > .sub');
+  const summary = row.querySelector('.surgefacts');
   assert.match(summary.textContent, /Farther New Report/,
     'the newest date is paired with a different, older place');
   assert.doesNotMatch(summary.textContent, /Nearest Old Report/,
@@ -7269,12 +7514,11 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
   assert.doesNotMatch(row.textContent, /Nearest Old Pond/,
     'the compact tuple still mixes nearest-place text with the newest date');
   assert.match(row.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/);
-  assert.match(row.querySelector('.sub').textContent, /7\.0mi/,
-    'the mileage is not from the same newest report as place/date/checklist');
-  assert.match(row.querySelector('.sub').textContent, /×7/,
-    'the displayed bird count is not from the newest linked checklist');
-  assert.doesNotMatch(row.querySelector('.sub').textContent, /×2/,
-    'the nearest older checklist count leaked into the newest tuple');
+  const facts = row.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
+  assert.match(facts, /x4 - Newest Pond - /,
+    'the CELEBRITY line does not keep qualifying sightings with the newest place/date');
+  assert.doesNotMatch(facts, /\d+(?:\.\d+)?mi\b|x7|x2/i,
+    'removed mileage or per-checklist counts leaked into the compact fact line');
 
   app.window.__app.renderSurge([], [], [], [{
     code: 'amgplo', name: 'American Golden-Plover', sightings: 4, nPlaces: 2,
@@ -7289,8 +7533,10 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
     mega: 'notApplicable', observations: 'ok',
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
-  const missingCount = app.document.querySelector('[data-alert-kind="need"] .sub');
-  assert.doesNotMatch(missingCount.textContent, /×7/,
+  const missingCount = app.document.querySelector('[data-alert-kind="need"] .surgefacts');
+  assert.match(missingCount.textContent, /x4/,
+    'the qualifying sighting count disappeared when the newest checklist count was absent');
+  assert.doesNotMatch(missingCount.textContent, /x7/,
     'a missing newest count borrows the nearest older checklist count');
   app.window.close();
 });
@@ -7330,6 +7576,26 @@ test('a hidden Bird Gen consumes the full phase-one repaint when reopened', asyn
     'reopening autoloads the full phase-one result');
   assert.match(app.$('surgeStatus').textContent, /Looking for twitches/,
     'the stale partial screen did not survive the reopen');
+  app.window.close();
+});
+
+test('F309 refreshing Bird Gen preserves current cards while feeds update', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.renderSurge([{
+    code: 'vesspa', alpha: 'VESP', name: 'Vesper Sparrow',
+    observers: 5, checklists: 5, ratio: 4,
+    loc: 'Jefferson Park', locId: 'L1',
+    latest: '2026-09-03 16:12', subId: 'S1',
+  }], [], [], [], []);
+  const before = app.$('surgeFeed');
+  assert.match(before.textContent, /Vesper Sparrow/);
+  assert.equal(typeof A.loadSurge, 'function',
+    'the regression cannot drive the real Bird Gen reload path');
+  A.loadSurge();
+  assert.equal(app.$('surgeFeed'), before,
+    'refresh clears the useful feed before replacement data is ready');
+  assert.match(app.$('surgeFeed').textContent, /Vesper Sparrow/);
   app.window.close();
 });
 
@@ -7381,8 +7647,10 @@ test('Happening now merges populated signals without burying the hotspot', async
     'the section help repeated the obsolete 3-birder cascade threshold');
   assert.match(how, /species-blind/,
     'the hotspot lane no longer explains why it is notable, in the section or the dialog');
-  assert.match(how, /YOU NEED IT/,
-    'the personal alert category is not described where its paragraph went');
+  assert.match(how, /CELEBRITY/,
+    'the corroborated notable-bird category is not described where its paragraph went');
+  assert.match(how, /TOP PATCH/,
+    'the high-yield destination category is absent from section help');
 });
 
 // The MEDIUM card is a 2x2 table, and that is the whole point of it. The float
@@ -8930,7 +9198,14 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   const esrc = HTML.slice(early, HTML.indexOf('\n      function ', early + 1));
   assert.match(esrc, /'surgeBtn'/,
     'Bird gen no longer paints the useful notable-feed head start');
-  assert.match(src, /chaseAlertSourceState\(res\)/,
+  assert.match(esrc, /_surgeEarlyPaint/,
+    'the notable-feed head start has no direct incremental paint path');
+  assert.doesNotMatch(esrc, /\['refreshBtn', 'activeBtn', 'surgeBtn'\]/,
+    'the 3-of-6 callback recursively starts the whole Bird Gen loader');
+  const observedAt = HTML.indexOf('function surgeObservedResult');
+  const observedSrc = HTML.slice(observedAt,
+    HTML.indexOf('\n      function ', observedAt + 1));
+  assert.match(observedSrc, /chaseAlertSourceState\(res\)/,
     'the partial/stale chase result is flattened to a successful source');
   const fullAt = HTML.indexOf('function onChasePhaseOne');
   const fullSrc = HTML.slice(fullAt, HTML.indexOf('\n      function ', fullAt + 1));
@@ -8942,6 +9217,8 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
     'phase-one completion never invokes the Bird gen repaint');
   assert.match(src, /generation !== _surgeLoadGeneration/,
     'an older partial paint can overwrite the later complete paint');
+  assert.match(src, /var pConverge = pObserved\.then/,
+    'optional product/list hotspot calls can jump ahead of the six-feed observation source');
 
   // And the head start must keep the wave running underneath rather than
   // replacing it - otherwise the partial view becomes the permanent one.
@@ -16413,7 +16690,6 @@ test('the species code rides on every species-card size', () => {
   assert.doesNotMatch(compact,
     /Nazca Booby<span class="spcode">/,
     'the eBird identifier still competes with the common name');
-
   // REVERSED 2026-08-18, with My year: "make sure all the fields from medium
   // card are included." The large card was missing code, dist and conf, so a
   // section moving from medium to large would have silently LOST facts the
@@ -16643,9 +16919,10 @@ test('F274 Buzz and Newest reorder existing alert rows without refetching', asyn
   assert.equal(app.state.fetches.length, before,
     'switching back to Buzz refetched the feed');
 
-  const load = HTML.slice(HTML.indexOf('function loadSurge'),
-                          HTML.indexOf('function loadSurge') + 6000);
-  assert.match(load, /BL\.needNearby\(_merged/,
+  const observedAt = HTML.indexOf('function surgeObservedResult');
+  const observed = HTML.slice(observedAt,
+    HTML.indexOf('\n      function ', observedAt + 1));
+  assert.match(observed, /BL\.needNearby\(merged/,
     'the need alerts stopped reusing the merged wave and added a fetch path');
   app.window.close();
 });
@@ -16727,7 +17004,9 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
     '· 3 seen hidden');
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
     .map((el) => [el.dataset.countKind, Number(el.querySelector('b').textContent)]));
-  assert.deepEqual(counts(), { mega: 0, need: 1, crowd: 1, cascade: 0, hotspot: 1 },
+  assert.deepEqual(counts(), {
+    mega: 0, need: 1, crowd: 1, cascade: 0, hotspot: 1, patch: 0,
+  },
     'category counts describe all rows instead of the visible unseen view');
 
   const before = app.state.fetches.length;
@@ -16740,7 +17019,9 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
   assert.equal(unseen.getAttribute('aria-pressed'), 'false');
   assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
   assert.equal(app.document.querySelector('[data-surge-hidden-count]').textContent, '');
-  assert.deepEqual(counts(), { mega: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1 },
+  assert.deepEqual(counts(), {
+    mega: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
+  },
     'All did not restore the full category counts');
 
   unseen.click();
@@ -16748,23 +17029,23 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
   assert.equal(app.state.fetches.length, before, 'switching back to Unseen refetched Bird Gen');
 
   const mega = feed.querySelector('[data-alert-kind="mega"]');
-  const identifier = mega.querySelector('.ntext > .sub');
-  assert.ok(identifier, 'the Bird Gen identifier and facts do not have a subline');
-  assert.match(identifier.textContent, /NABO\/nazboo1,\s*1 report/,
-    'the four-letter and eBird codes are not together on the next line');
+  const identifier = mega.querySelector('.surgefacts');
+  assert.ok(identifier, 'the Bird Gen row does not carry the identifier and facts');
+  assert.match(identifier.textContent, /NABO x1 - Ocean Shores Jetty/,
+    'the four-letter code, count and place are not together on the next line');
   assert.equal(mega.querySelector('.ntext > .spcode'), null,
     'the eBird code still competes with the common name');
   const compact = identifier.textContent.replace(/\s+/g, ' ').trim();
   const absolute = identifier.querySelector('.surgeabsolute').textContent.trim();
-  const distanceAt = compact.indexOf('mi,');
+  const countAt = compact.indexOf('x1');
   const placeAt = compact.indexOf('Ocean Shores Jetty');
   const dateAt = compact.indexOf(absolute);
   assert.match(absolute, /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap]$/,
     'the compact absolute date no longer states month, day and time');
-  assert.ok(compact.includes(absolute + '.'),
-    'the compact evidence line no longer ends as a sentence');
-  assert.ok(distanceAt >= 0 && distanceAt < placeAt && placeAt < dateAt,
-    'place and latest time do not follow the mileage in the compact fact line');
+  assert.ok(countAt >= 0 && countAt < placeAt && placeAt < dateAt,
+    'count, place and latest time are not ordered on the compact fact line');
+  assert.doesNotMatch(compact, /\d+(?:\.\d+)?mi\b/i,
+    'the compact fact line still includes mileage');
   assert.equal(mega.querySelector('.splink').getAttribute('data-sp'), 'nazboo1',
     'tapping the bird name no longer opens its Species Stakeout');
   assert.match(identifier.querySelector('.surgeabsolute a').getAttribute('data-href'), /SM1/,
@@ -16794,6 +17075,8 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
   }
   const hotspots = BL.hotspotConvergence(rows, { now });
   assert.equal(hotspots.length, 1, 'the fixture did not produce a hotspot alert');
+  assert.equal(hotspots[0].subId, 'H0',
+    'the newest hotspot checklist id did not survive convergence');
 
   A.renderSurge(
     [{ code: 'baisan', name: "Baird's Sandpiper", observers: 7, checklists: 9,
@@ -16810,6 +17093,8 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
     'the hotspot alert ignored its own newest checklist timestamp');
   assert.doesNotMatch(hot.querySelector('.surgeabsolute').textContent, /unavailable/i,
     'the hotspot body lost the absolute checklist date/time');
+  assert.match(hot.querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
+    'the hotspot Notes date does not open the newest hot checklist');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
     'Priority order should still put CROWD ahead of HOTSPOT');
   app.document.querySelector('[data-surge-sort="newest"]').click();
@@ -19680,7 +19965,7 @@ test('a repeated mega hotspot owns the compact place, date and checklist tuple',
   } });
   app.window.__app.renderSurge([], [], [], []);
   const row = app.document.querySelector('[data-alert-kind="mega"]');
-  const summary = row.querySelector('.ntext > .sub');
+  const summary = row.querySelector('.surgefacts');
   assert.match(summary.textContent, /Repeated Hotspot/);
   assert.doesNotMatch(summary.textContent, /Nearby Newer Pin/,
     'the repeated-hotspot reason points somewhere other than the compact tuple');

@@ -16,7 +16,7 @@
  *      tritanopia.
  *   2. Every border/background pair clears 3:1 (WCAG non-text contrast), same
  *      three simulations.
- *   3. The five categories are separable WITHOUT colour at all: distinct
+ *   3. The six categories are separable WITHOUT colour at all: distinct
  *      border STYLE and distinct WORD.
  *
  * ⚠️ SEVERITY. The owner reports MODERATE deuteranomaly, not dichromacy. This
@@ -73,7 +73,7 @@ const PAGE_BG = '#ffffff';
 const KINDS = {
   mega:    { word: 'MEGA',        border: 'solid',  ink: '#ffffff', fill: '#9E4400',
              badgeBorder: '#9E4400', tileBg: '#FFF3EA', tileBorder: '#9E4400' },
-  need:    { word: 'YOU NEED IT', border: 'double', ink: '#005B8F', fill: '#ffffff',
+  need:    { word: 'CELEBRITY',   border: 'double', ink: '#005B8F', fill: '#ffffff',
              badgeBorder: '#005B8F', tileBg: '#EFF7FC', tileBorder: '#005B8F' },
   crowd:   { word: 'CROWD',       border: 'dashed', ink: '#111111', fill: '#ffffff',
              badgeBorder: '#111111', tileBg: '#ffffff', tileBorder: '#111111' },
@@ -81,6 +81,8 @@ const KINDS = {
              badgeBorder: '#B37400', tileBg: '#ffffff', tileBorder: '#6B4400' },
   hotspot: { word: 'HOTSPOT',     border: 'ridge',  ink: '#333333', fill: '#f1f1f4',
              badgeBorder: '#6E6E78', tileBg: '#f4f4f6', tileBorder: '#6E6E78' },
+  patch:   { word: 'TOP PATCH',   border: 'outset', ink: '#005B8F', fill: '#EAF7FF',
+             badgeBorder: '#0072B2', tileBg: '#EAF7FF', tileBorder: '#0072B2' },
 };
 
 const TEXT_MIN = 4.5;   // WCAG AA, small text
@@ -155,4 +157,4 @@ if (problems.length) {
   process.exit(1);
 }
 console.log('ok   every pair clears its threshold under normal, protan, deutan and tritan,');
-console.log('     and the five categories are separable with no colour at all');
+console.log('     and the six categories are separable with no colour at all');
