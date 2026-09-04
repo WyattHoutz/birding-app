@@ -2105,6 +2105,14 @@
                  border-radius: 13px; padding: 11px; background: var(--card); }
     .spuhtaxnav h3 { margin: 0; font-size: calc(18px * var(--s)); }
     .spuhtaxnav > .hint { margin: 4px 0 10px; }
+    .spuhtaxmost { margin-bottom: 10px; }
+    .spuhtaxmost > .hint { margin: 6px 0 0; }
+    .spuhtaxdetails { border-top: 1px solid var(--line); padding-top: 3px; }
+    .spuhtaxdetails > summary { min-height: calc(44px * var(--s));
+                 display: flex; align-items: center; cursor: pointer;
+                 font-size: calc(15px * var(--s)); font-weight: 800; }
+    .spuhtaxdetailsbody { padding-top: 6px; }
+    .spuhtaxdetailsbody > .hint { margin: 0 0 10px; }
     .spuhtaxpath { list-style: none; margin: 0; padding: 0; }
     .spuhtaxlevel { position: relative; margin: 0; padding: 0 0 25px; }
     .spuhtaxlevel:last-child { padding-bottom: 0; }
@@ -8708,6 +8716,14 @@
         };
         var ranks = ['class', 'order', 'family', 'genus'];
         if (buckets.group.length) ranks.push('group');
+        var narrowest = model.narrowestShared([species.code]).map(function (answer) {
+          return answer.coverage;
+        });
+        var mostSpecific = '<div class="spuhtaxmost">'
+          + '<span class="spuhtaxrank">Most specific spuh</span>'
+          + groupsHtml(narrowest)
+          + '<p class="hint">The narrowest proven eBird candidate set containing '
+          + 'this species. Tap a label to open it in Spuh finder.</p></div>';
         var levels = ranks.map(function (rank) {
           var taxon = spuhTaxon(rank, species);
           return '<li class="spuhtaxlevel" data-rank="' + rank + '">'
@@ -8722,13 +8738,15 @@
           + '<span class="spuhmeta">' + esc(species.sci) + '</span></div></li>';
 
         return '<div class="spuhtaxnav" data-species="' + esc(species.code) + '">'
-          + '<h3>Identification path</h3>'
-          + '<p class="hint">Broad to specific. Buttons on the same row are '
+          + mostSpecific
+          + '<details class="spuhtaxdetails"><summary>Identification path</summary>'
+          + '<div class="spuhtaxdetailsbody"><p class="hint">Broad to specific. '
+          + 'Buttons on the same row are '
           + 'equivalent labels for one published candidate set; dashed labels have '
           + 'a coverage limit and are never automatic recommendations.</p>'
           + '<ol class="spuhtaxpath">' + levels + '</ol>'
           + '<details class="spuhcompare"><summary>Compare possible species</summary>'
-          + '<div class="spuhcomparebody"></div></details></div>';
+          + '<div class="spuhcomparebody"></div></details></div></details></div>';
       }
 
       function renderSpuhStakeoutNav(code, name, generation) {
@@ -8736,8 +8754,9 @@
         if (!host) return Promise.resolve(null);
         if (generation == null) generation = _spLookupGeneration;
         host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
-          + '<h3>Identification path</h3>'
-          + '<div class="status">Loading the eBird taxonomy…</div></div>';
+          + '<div class="spuhtaxmost"><span class="spuhtaxrank">'
+          + 'Most specific spuh</span>'
+          + '<div class="status">Loading the eBird taxonomy…</div></div></div>';
         return loadSpuhModel().then(function (model) {
           if (generation !== _spLookupGeneration) return null;
           if (!model || typeof model.speciesRow !== 'function') {
@@ -8763,10 +8782,10 @@
         }).catch(function (e) {
           if (generation !== _spLookupGeneration) return null;
           host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
-            + '<h3>Identification path unavailable</h3>'
-            + '<div class="spuhlimit"><div class="spuheyebrow">'
+            + '<div class="spuhtaxmost"><span class="spuhtaxrank">'
+            + 'Most specific spuh</span><div class="spuhlimit"><div class="spuheyebrow">'
             + '⛔ Taxonomy unavailable</div><p>' + esc((e && e.message) || e)
-            + '</p><p>Run a new Stakeout bird lookup to retry.</p></div></div>';
+            + '</p><p>Run a new Stakeout bird lookup to retry.</p></div></div></div>';
           return null;
         });
       }

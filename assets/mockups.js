@@ -101,7 +101,9 @@ const STUB_SPEC = {
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
   spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
+    maxHostHeight: 340,
     expects: ['#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
+      '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
       '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
   spuhBtn:        { kind: 'spuh',          host: 'spuhDetail',
@@ -141,6 +143,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     kind: spec && spec.kind,
     host: spec && spec.host,
     map: spec && spec.map,
+    maxHostHeight: spec && spec.maxHostHeight,
     expects: (spec && spec.expects) || [],
     prep: `FIX.before(${at}, A, document);
            var anchor = document.getElementById(${at});
@@ -187,6 +190,10 @@ function shotReadinessProblems(ready) {
   if (!ready || !ready.sectionVisible) problems.push('section hidden');
   if (!ready || !ready.hostVisible) problems.push('result host hidden');
   if (!ready || !ready.inCapture) problems.push('result host outside capture');
+  if (ready && ready.maxHostHeight
+      && ready.hostHeight > ready.maxHostHeight) {
+    problems.push('oversized result host');
+  }
   if (ready && ready.loading && ready.loading.length) problems.push('loading');
   if (ready && ready.disabled && ready.disabled.length) problems.push('disabled controls');
   if (ready && ready.missing && ready.missing.length) problems.push('missing expected components');
@@ -894,6 +901,9 @@ const BOOTSTRAP = `
     var compare = await waitFor(function () {
       return detail.querySelector('details.spuhcompare');
     }, 'Spuh comparison disclosure');
+    var path = detail.querySelector('details.spuhtaxdetails');
+    if (!path) throw new Error('missing collapsed identification path');
+    path.open = true;
     compare.open = true;
     compare.dispatchEvent(new document.defaultView.Event('toggle'));
     var query = await waitFor(function () {
@@ -1113,6 +1123,7 @@ async function main() {
     ? SHOTS.concat(REVIEW_SHOTS).filter((s) => ONLY.includes(s.id)) : SHOTS;
   const made = [], blank = [];
   for (const shot of shots) {
+    let measuredHostHeight = null;
     // Everything runs INSIDE the iframe, which is the box with the real width.
     // ⚠️ Do NOT declare a local named `document` here: `var` hoists, so the
     // first line would dereference the local (undefined) rather than the outer
@@ -1182,6 +1193,7 @@ async function main() {
             sectionVisible: visible(sec),
             hostVisible: visible(host),
             data: host.getAttribute('data-mock-data') === 'true',
+            hostHeight: +hr.height.toFixed(1),
             text: (host.innerText || '').replace(/\\s+/g, ' ').trim().length,
             controls: host.querySelectorAll('button,input,select,a[href],details').length,
             inCapture: hr.bottom > 0 && hr.top < ${HEIGHT},
@@ -1194,6 +1206,8 @@ async function main() {
         })()`, returnByValue: true }, sessionId);
       const ready = JSON.parse(readyProbe.result.value || '{}');
       ready.expectedAt = shot.at;
+      ready.maxHostHeight = shot.maxHostHeight || 0;
+      measuredHostHeight = ready.hostHeight;
       const readinessProblems = shotReadinessProblems(ready);
       if (readinessProblems.length) {
         console.error('  !! ' + shot.id + ': STUB NOT READY — '
@@ -1272,7 +1286,8 @@ async function main() {
     }
     fs.writeFileSync(path.join(OUT, name), Buffer.from(png.data, 'base64'));
     made.push({ name, title: shot.title, h });
-    console.log('  ' + name.padEnd(28) + WIDTH + 'x' + h);
+    console.log('  ' + name.padEnd(28) + WIDTH + 'x' + h
+      + (shot.maxHostHeight ? ' · result host ' + measuredHostHeight + 'px' : ''));
   }
 
   // An index, so the folder is browsable rather than a pile of PNGs.

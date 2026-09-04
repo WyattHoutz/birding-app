@@ -467,7 +467,8 @@
         "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
         "The first 25 places paint immediately. Show more appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
         "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
-        "A visible Identification path starts loading independently of the sightings request. It aligns class, order, family, genus and species from broad to specific, groups equivalent spuh labels side by side at one coverage level, marks coverage-limited wording, and links every spuh into Spuh finder.",
+        "A compact Most specific spuh answer starts loading independently of the sightings request. It uses the minimal proven candidate set, keeps equivalent labels together, marks coverage-limited wording, and links every label into Spuh finder.",
+        "The full class, order, family, genus and species Identification path is collapsed below that answer. Expanding it preserves every broad-to-specific level and the comparison tool without making the default lookup a full screen of taxonomy.",
         "Compare possible species finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
       ],
       "limits": [
