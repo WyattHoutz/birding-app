@@ -1647,6 +1647,10 @@
     .picklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
     .picklist .pname { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: calc(16px * var(--s)); overflow-wrap: anywhere; }
     .picklist .pmeta { display: block; font-size: calc(12px * var(--s)); font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .picklist li.spscope { display: block; padding: 12px 0 4px; border-top: 0;
+                           color: var(--ink); font-size: calc(14px * var(--s)); }
+    .picklist li.spscope strong { display: block; font-size: calc(16px * var(--s)); }
+    .picklist li.sptaxaction { display: block; border-top: 0; padding-top: 8px; }
     /* The ▲▼✕ column NEVER wraps below the card.
        It used to: `.favrow` was `flex-wrap: wrap`, and flexbox wraps a line
        BEFORE it shrinks an item below its min-content width — so as soon as
@@ -9015,6 +9019,101 @@
         renderSpCodes();
       }
 
+      var SPECIES_COUNTRY_NAMES = {
+        US: 'United States',
+        CA: 'Canada',
+        MX: 'Mexico'
+      };
+
+      function speciesRegionParent(region) {
+        var parts = String(region || '').toUpperCase().split('-').filter(Boolean);
+        if (parts.length <= 1) return '';
+        parts.pop();
+        return parts.join('-');
+      }
+
+      function speciesRegionLabel(region) {
+        var code = String(region || '').toUpperCase();
+        return (BL.US_STATES && BL.US_STATES[code])
+          || SPECIES_COUNTRY_NAMES[code]
+          || code;
+      }
+
+      function speciesSearchScopes(region, label) {
+        var out = [], seen = {}, code = String(region || '').toUpperCase();
+        while (code && !seen[code]) {
+          seen[code] = 1;
+          out.push({
+            code: code,
+            label: out.length ? speciesRegionLabel(code) : (label || speciesRegionLabel(code)),
+            local: out.length === 0
+          });
+          code = speciesRegionParent(code);
+        }
+        return out;
+      }
+
+      function appendSpeciesChoices(found, hits, opts) {
+        opts = opts || {};
+        if (opts.heading) {
+          var head = document.createElement('li');
+          head.className = 'spscope';
+          head.innerHTML = '<strong>' + esc(opts.heading) + '</strong>'
+            + (opts.detail ? '<span class="pmeta">' + esc(opts.detail) + '</span>' : '');
+          found.appendChild(head);
+        }
+        hits.forEach(function (s) {
+          var li = document.createElement('li');
+          li.className = 'tappable';
+          li.setAttribute('data-code', s.code);
+          li.setAttribute('data-name', s.name);
+          li.innerHTML = photoSlot(s.name, s.code)
+            + '<span class="pname">' + esc(s.name)
+            + '<span class="pmeta">'
+            + (opts.rowNote ? esc(opts.rowNote) + ' · ' : '')
+            + esc(s.code) + '</span></span>'
+            + '<button class="favbtn splook" data-code="' + esc(s.code) + '" data-name="'
+            + esc(s.name) + '" aria-label="Look up ' + esc(s.name) + '">📖</button>';
+          found.appendChild(li);
+        });
+        hydratePhotos(found);
+      }
+
+      function offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug) {
+        st.textContent = 'No species recorded in ' + scopeLabel
+          + ' or its parent regions matches “' + q + '”.';
+        var action = document.createElement('li');
+        action.className = 'sptaxaction';
+        action.innerHTML = '<button class="secondary" type="button">Search full eBird taxonomy</button>';
+        found.appendChild(action);
+        action.querySelector('button').addEventListener('click', function () {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+          action.querySelector('button').disabled = true;
+          st.textContent = 'Searching the full eBird taxonomy…';
+          loadSpuhModel().then(function (model) {
+            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+            var hits = searchSpecies((model && model.species) || [], q);
+            found.innerHTML = '';
+            if (!hits.length) {
+              st.textContent = 'No species in the full eBird taxonomy matches “' + q + '”.';
+              return;
+            }
+            appendSpeciesChoices(found, hits, {
+              heading: 'Full eBird taxonomy — outside ' + scopeLabel,
+              detail: 'These birds are valid eBird species, but not on the active regional list.',
+              rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
+            });
+            st.textContent = hits.length + ' taxonomy match' + (hits.length === 1 ? '' : 'es')
+              + ' outside ' + scopeLabel + ' · tap one to check the active report anyway.';
+          }).catch(function (e) {
+            if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
+              st.textContent = netErr(e);
+              action.querySelector('button').disabled = false;
+            }
+          });
+        });
+      }
+
       function runSpeciesLookup() {
         var q = ($('spLookup') || {}).value || '';
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
@@ -9028,33 +9127,45 @@
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
         if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
-        st.textContent = 'Finding species recorded in ' + scopeLabel + '…';
-        loadSpeciesIndex(scopeRegion).then(function (rows) {
-          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
-          var hits = searchSpecies(rows, q);
-          if (!hits.length) {
-            st.textContent = 'No species recorded in ' + scopeLabel + ' matches “' + q + '”.';
-            return;
+        var scopes = speciesSearchScopes(scopeRegion, scopeLabel);
+        function searchAt(index) {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
+            return Promise.resolve();
           }
-          // One match is an answer, not a menu — go straight to the birds.
-          if (hits.length === 1) {
-            return lookupSpecies(hits[0].code, hits[0].name, generation, scopeSlug);
+          if (index >= scopes.length) {
+            offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug);
+            return Promise.resolve();
           }
-          st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
-          hits.forEach(function (s) {
-            var li = document.createElement('li');
-            li.className = 'tappable';
-            li.setAttribute('data-code', s.code);
-            li.setAttribute('data-name', s.name);
-            li.innerHTML = photoSlot(s.name, s.code)
-              + '<span class="pname">' + esc(s.name)
-              + '<span class="pmeta">' + esc(s.code) + '</span></span>'
-              + '<button class="favbtn splook" data-code="' + esc(s.code) + '" data-name="'
-              + esc(s.name) + '" aria-label="Look up ' + esc(s.name) + '">📖</button>';
-            found.appendChild(li);
+          var scope = scopes[index];
+          st.textContent = index
+            ? 'No match in ' + scopes[index - 1].label + '. Searching ' + scope.label + '…'
+            : 'Finding species recorded in ' + scope.label + '…';
+          return loadSpeciesIndex(scope.code).then(function (rows) {
+            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+            var hits = searchSpecies(rows, q);
+            if (!hits.length) return searchAt(index + 1);
+            // One LOCAL match is an answer, not a menu — go straight to the
+            // bird. A parent match always stays behind its visible scope
+            // boundary so it cannot be mistaken for a local record.
+            if (scope.local && hits.length === 1) {
+              return lookupSpecies(hits[0].code, hits[0].name, generation, scopeSlug);
+            }
+            if (scope.local) {
+              st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
+              appendSpeciesChoices(found, hits);
+              return;
+            }
+            appendSpeciesChoices(found, hits, {
+              heading: 'Outside ' + scopeLabel + ' — ' + scope.label,
+              detail: 'The active regional list had no match; this is the first parent region that did.',
+              rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
+            });
+            st.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es')
+              + ' outside ' + scopeLabel + ' in ' + scope.label
+              + ' · tap one to check the active report anyway.';
           });
-          hydratePhotos(found);
-        }).catch(function (e) {
+        }
+        return searchAt(0).catch(function (e) {
           if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
             st.textContent = netErr(e);
           }
@@ -29641,7 +29752,8 @@
         runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
         speciesLookupRecords: speciesLookupRecords, sortSpeciesPlaces: sortSpeciesPlaces,
-        speciesLookupPath: speciesLookupPath, SP_LOOKUP_BACK: SP_LOOKUP_BACK,
+        speciesLookupPath: speciesLookupPath, speciesSearchScopes: speciesSearchScopes,
+        SP_LOOKUP_BACK: SP_LOOKUP_BACK,
         loadSpuhModel: loadSpuhModel, runSpuhSearch: runSpuhSearch,
         renderSpuhNode: renderSpuhNode, renderSpuhStakeoutNav: renderSpuhStakeoutNav,
         openSpuhFinder: openSpuhFinder,
