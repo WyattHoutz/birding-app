@@ -9120,6 +9120,24 @@ test('the layout audit cleans up the browsers it launches', () => {
     'three hung starts is still a failure — the retry must not swallow it');
 });
 
+test('F251 the layout audit measures the named viewport, not a scrollbar-narrowed one', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  const body = src.replace(/\r/g, '').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+
+  assert.match(body, /--hide-scrollbars/,
+    'desktop Chrome is consuming 15px for a classic scrollbar again, so a '
+    + '393px run is really measuring 378px');
+  assert.match(body, /if \(r\.vw !== WIDTH\)/,
+    'the audit no longer fails when the app measures a different width than '
+    + 'the command named');
+
+  const debt = /const MIDWORD_KNOWN = \[([\s\S]*?)\];/.exec(body);
+  assert.ok(debt, 'the mid-word debt list disappeared instead of being emptied');
+  assert.equal(debt[1].trim(), '',
+    'false 378px findings are still exempted at the real 393px device width');
+});
+
 // The measured cause, guarded at the CSS level because this suite cannot
 // measure: a flexible grid/flex track defaults to `min-width: auto`, so it
 // refuses to shrink below its content's min-content width. Pair that with

@@ -32,34 +32,22 @@ const SCALE = process.argv[3] || '1';
 // in the sweep from the first commit rather than after something clips.
 const EASY = String(process.argv[4] || '') === 'easyread';
 
-// F245. LABELS WHOSE MID-WORD BREAK IS ACCEPTED, AND WHY.
+// F245/F251. LABELS WHOSE MID-WORD BREAK IS ACCEPTED.
 //
-// ⚠️ This is a DEBT LIST, not a permission slip. Every entry is a tile label
-// that splits in the middle of a word at 393px — iPhone 14/15 Pro width, and
-// one of the six this sweep already walks. They are accepted because the owner
-// deferred the only real fix: "dont change button wrapping now. or sizes"
-// (F237). Detection is not a wrapping change, so it ships; the cure does not.
+// This must be EMPTY. The five entries previously here were manufactured by
+// the harness: desktop Chrome's classic scrollbar consumed 15px, so a command
+// labelled 393px actually measured documentElement.clientWidth == 378. The
+// mockup generator already used --hide-scrollbars, and iOS uses non-consuming
+// overlay scrollbars; both painted every word intact.
 //
-// MEASURED 2026-08-29 at 393px / scale 1, where the label column is 62.8px —
-// NOT the 67.3px figure this project has been quoting, which is the 402px
-// column. That mistake is why these five went unnoticed: candidates were being
-// measured against a column 4.5px wider than the binding one.
+// Measured 2026-09-04, same worktree and browser:
 //
-//     Twitches today / this week   "Twitches" 64.7px   short by 1.9px
-//     Stakeout bird                "Stakeout" 66.3px   short by 3.5px
-//     Nemesis birds                "Nemesis"  64.1px   short by 1.3px
-//     Convoys                      "Convoys"  64.1px   short by 1.3px
+//   without --hide-scrollbars  requested 393, measured 378 -> five breaks
+//   with    --hide-scrollbars  requested 393, measured 393 -> zero breaks
 //
-// ANY OTHER label that splits mid-word FAILS the sweep. The point is to stop
-// the set growing while the fix is deferred — and this list should SHRINK to
-// empty when F237 is taken up, not be added to.
-const MIDWORD_KNOWN = [
-  'Twitches today',
-  'Twitches this week',
-  'Stakeout bird',
-  'Nemesis birds',
-  'Convoys',
-];
+// ANY label that splits mid-word now fails the sweep. A named device width that
+// does not equal the measured app width fails separately below.
+const MIDWORD_KNOWN = [];
 
 // Windows dev box and Linux CI runner both have to find a browser. CHROME_BIN
 // wins so a runner can point at whatever it actually installed.
@@ -327,6 +315,33 @@ const AUDIT = `<script>
                        liw: cel.closest && cel.closest('li')
                          ? +cel.closest('li').getBoundingClientRect().width.toFixed(1) : -1,
                        lines: rows.length,
+                       // F251. A character Range and a word Range can disagree
+                       // at a soft wrap boundary. The screenshot paints the
+                       // word, so record the browser's rectangles for each
+                       // WHOLE word beside the per-character line assignment.
+                       // One rect means the word painted intact; two means it
+                       // genuinely crossed the line.
+                       wordRects: (function () {
+                         var out = [], wt = document.createTreeWalker(
+                           cel, NodeFilter.SHOW_TEXT, null), wn;
+                         while ((wn = wt.nextNode())) {
+                           var text = wn.nodeValue || '', wm;
+                           var re = /\\S+/g;
+                           while ((wm = re.exec(text))) {
+                             var wr = document.createRange();
+                             wr.setStart(wn, wm.index);
+                             wr.setEnd(wn, wm.index + wm[0].length);
+                             var rs = [].slice.call(wr.getClientRects())
+                               .filter(function (x) { return x.width || x.height; })
+                               .map(function (x) {
+                                 return Math.round(x.top) + '@'
+                                   + x.left.toFixed(1) + '+' + x.width.toFixed(1);
+                               });
+                             out.push(wm[0] + '=' + rs.join(','));
+                           }
+                         }
+                         return out.join(' ');
+                       })(),
                        // F251. What ELSE is inside the button, and how much of
                        // the 151px it takes. If the glyph plus padding leaves
                        // ~63px the label really is constrained; if it does not,
@@ -529,7 +544,7 @@ const server = http.createServer((req, res) => {
 server.listen(0, '127.0.0.1', () => {
   const port = server.address().port;
   const buildArgs = (profile) => [
-    '--headless=new', '--disable-gpu', '--no-sandbox',
+    '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
     '--user-data-dir=' + profile,
     '--window-size=' + (WIDTH + 420) + ',' + (HEIGHT + 120),
     '--force-device-scale-factor=1',
@@ -674,6 +689,16 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      // F251. The number in the command and the viewport measured inside the
+      // app must be the SAME number. Desktop Chrome's classic scrollbar used
+      // to consume 15px, so a run labelled 393px was actually auditing 378px
+      // while iOS and the mockup generator use non-consuming overlay/hidden
+      // scrollbars. That false width manufactured five mid-word breaks.
+      if (r.vw !== WIDTH) {
+        bad++;
+        console.log('   VIEWPORT MISMATCH  requested ' + WIDTH + 'px but app measured '
+          + r.vw + 'px — the harness is not testing the named device width');
+      }
       var nameless = r.unnamed || [];
       if (nameless.length) {
         bad++;
@@ -716,6 +741,7 @@ server.listen(0, '127.0.0.1', () => {
           + '"' + it.text + '"  broke as: ' + it.broke + '  col=' + it.w + 'px'
           + '\n        label ' + it.w + 'px  parent ' + it.pw + 'px  li ' + it.liw
           + 'px  font ' + it.fs + 'px  lines ' + it.lines + '  ' + it.ww
+          + '\n        whole words: ' + it.wordRects
           + '\n        inside: ' + it.sibs
           + '\n        at ' + it.sel);
       });
