@@ -32,6 +32,8 @@ const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const FIRST_YEAR_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-first-year.html'), 'utf8');
+const SEED = JSON.parse(
+  fs.readFileSync(path.join(WWW, 'seed-birdlist.json'), 'utf8'));
 
 function recentFirstYearFixture(species) {
   const d = new Date();
@@ -171,6 +173,19 @@ function boot(opts = {}) {
       window.localStorage.setItem('ebird_home_lat', '47.75');
       window.localStorage.setItem('ebird_home_lng', '-122.16');
       window.localStorage.setItem('ebird_report', opts.report || 'wa');
+      if (opts.sample !== false) {
+        const rep = SEED.seenByReport[opts.report || 'wa'] || {};
+        const seen = {};
+        SEED.codes.forEach((code) => { seen[String(code).toLowerCase()] = 1; });
+        window.localStorage.setItem('ebird_seen', JSON.stringify(seen));
+        window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+        window.localStorage.setItem('ebird_seen_meta', JSON.stringify({
+          source: 'seed',
+          count: SEED.codes.length,
+          year: SEED.year,
+          yearCount: (rep.yearList || []).length,
+        }));
+      }
       Object.entries(opts.storage || {}).forEach(([k, v]) => window.localStorage.setItem(k, v));
       window.fetch = function (url) {
         state.fetches.push(String(url));
@@ -8822,7 +8837,7 @@ test('F13: with no key stored the Contents menu leads with a way to get one', as
 });
 
 test('F13: a stored key hides the banner', async () => {
-  const app = await boot();
+  const app = await boot({ storage: { ebird_display_name: 'Sample Birder' } });
   assert.equal(app.$('keyBanner').hidden, true,
     'once a key is stored the banner is noise and must get out of the way');
 });
@@ -8833,6 +8848,8 @@ test('F13: Settings offers get / paste / test beside the key field', async () =>
     assert.ok(app.$(id), id + ' must exist: a bare password box is where the old dead end was');
   });
   assert.ok(app.$('keyStatus'), 'and somewhere to report what happened');
+  assert.equal(app.$('keyTestBtn').textContent, 'Test & save',
+    'the successful action says it persists the key');
   assert.ok(/ebird\.org\/api\/keygen/.test(HTML),
     'the key request form is the destination and must be named in the app, not looked up');
   assert.equal(app.window.__app.EBIRD_KEYGEN_URL, 'https://ebird.org/api/keygen');
@@ -8844,9 +8861,13 @@ test('F13: an obviously wrong key is named and refused, never silently saved', a
   assert.match(wrong('https://ebird.org/api/keygen'), /URL/,
     'pasting the page URL instead of the key is the most likely mistake');
   assert.match(wrong('abc def'), /space/, 'a copied line of surrounding text carries whitespace');
-  assert.match(wrong('ab'), /characters/, 'a truncated copy is short');
-  assert.match(wrong('abcd-efgh-ijkl'), /punctuation/, 'eBird keys are alphanumeric');
+  assert.equal(wrong('ab'), '',
+    'length is not guessed locally — eBird itself decides whether a key works');
+  assert.equal(wrong('abcd-efgh-ijkl'), '',
+    'future punctuation is not rejected before eBird can test it');
   assert.equal(wrong('a1b2c3d4e5f6'), '', 'a real 12-character key passes');
+  assert.equal(wrong('a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6'), '',
+    'the working 36-character key reported from the iPhone passes');
 
   app.open(/Settings/);
   app.$('apiKey').value = 'https://ebird.org/api/keygen';
@@ -8866,6 +8887,78 @@ test('F13: testing a key asks eBird and reports what it said', async () => {
     'the check is a real call - claiming a key works without asking is how the old dead end felt');
   const empty = await app.window.__app.testApiKey('');
   assert.equal(empty.ok, false, 'nothing to test is not a pass');
+});
+
+test('F315: a working 36-character key saves and closes first-run setup', async () => {
+  const key = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6';
+  const app = await boot({
+    key: null,
+    fetch: (u) => (/ref\/region\/info/.test(u) ? { code: 'US-WA' } : null),
+  });
+  assert.equal(app.window.__app.usesBundledSeed(), true,
+    'the fixture begins in the migrated v1.72 sample-data state');
+  app.click(app.$('keyBannerBtn'));
+  app.$('apiKey').value = key;
+  app.click(app.$('keyTestBtn'));
+  await waitFor(() => app.window.localStorage.getItem('ebird_api_key') === key,
+    'the tested key to be saved');
+  assert.equal(app.$('settingsPanel').hidden, true,
+    'first-run setup closes after the key succeeds');
+  assert.equal(app.$('menuPanel').hidden, false, 'the user returns to Contents');
+  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/,
+    'the blocking key setup is replaced by a separate nonblocking identity step');
+  assert.ok(app.$('nameBannerBtn'), 'the name step has a direct action');
+  assert.equal(app.window.__app.getSeenMeta(), null,
+    'a migrated owner sample is removed when a new account completes setup');
+  assert.equal(app.window.__app.reportYearList().length, 0,
+    'the new account does not inherit the bundled Washington year list');
+});
+
+test('F315: the display-name follow-up opens the field without restarting key setup', async () => {
+  const app = await boot({ sample: false });
+  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/);
+  app.click(app.$('nameBannerBtn'));
+  assert.equal(app.$('settingsPanel').hidden, false);
+  assert.equal(app.window.document.activeElement, app.$('ebirdName'),
+    'the follow-up lands on the name field rather than at the top of Settings');
+});
+
+test('F315: a clean install stays empty until sample data or a CSV is chosen', async () => {
+  const app = await boot({ key: null, sample: false });
+  const A = app.window.__app;
+  assert.equal(A.getSeenMeta(), null);
+  assert.equal(A.reportYearList().length, 0);
+  assert.equal(Object.keys(A.getReportSeen()).length, 0);
+  assert.doesNotMatch(app.$('hdrId').textContent, /209sp/,
+    'a new account cannot display the owner snapshot as its own');
+  assert.equal(A.loadSeed(true), true, 'sample data remains an explicit demo action');
+  assert.equal(A.usesBundledSeed(), true);
+  assert.ok(A.reportYearList().length > 0);
+});
+
+test('F315: CSV identity fills the display/profile name and replaces sample data', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const csv = [
+    'Common Name,Scientific Name,Date,First Name,Last Name',
+    'American Robin,Turdus migratorius,2026-09-04,Sample,Birder',
+  ].join('\n');
+  assert.equal(A.importCSV(csv), 1);
+  assert.equal(A.getDisplayName(), 'Sample Birder');
+  assert.equal(A.profileLabel(''), 'Sample Birder');
+  assert.equal(A.usesBundledSeed(), false,
+    'an imported account list, not the bundled owner sample, is authoritative');
+  assert.equal(A.reportYearList().length, 0,
+    'the private bundled per-report list is no longer rendered after import');
+  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), true,
+    'the imported account list still marks its own bird seen');
+  assert.equal(A.seenCodesForRows({
+    recent: [{ speciesCode: 'amerob', comName: 'American Robin' }],
+  }).amerob, 1,
+  'the chase algorithm receives species codes resolved from imported names');
+  A.renderMenuIdentity();
+  assert.match(app.$('hdrId').textContent, /Sample Birder.*1sp/s,
+    'the header uses imported identity and count instead of 209sp');
 });
 
 
@@ -23640,12 +23733,8 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   const chip = app.window.document.querySelector('.secprofile');
   assert.ok(chip, 'a test profile says so');
   assert.match(chip.textContent, /Test 2/, 'and names which one');
-  // THE MEASURED HAZARD, stated on screen: reportYearList() returns the SAME
-  // count in every profile, because the bundled seed is shipped CODE and not
-  // per-profile storage. A test profile therefore prints the main birder's
-  // species count as its own until it harvests its own list.
-  assert.match(chip.textContent, /seed is shared/,
-    'and warns that the species count is not its own yet');
+  assert.match(chip.textContent, /key, imported list and harvested ticks are separate/,
+    'and states the isolation rule rather than claiming the owner seed is shared');
   assert.ok(!/^\s*$/.test(chip.textContent));
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');

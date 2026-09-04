@@ -270,6 +270,14 @@ const BOOTSTRAP = `
     localStorage.clear();
     localStorage.setItem('ebird_report', 'wa');
     localStorage.setItem('ebird_api_key', 'mockupmockup');
+    localStorage.setItem('ebird_seen_field', 'speciesCode');
+    localStorage.setItem('ebird_seen_meta', JSON.stringify({
+      source: 'seed',
+      count: WA_SEEN_STUB.speciesObserved,
+      rows: WA_SEEN_STUB.speciesObserved,
+      year: 2026,
+      yearCount: WA_SEEN_STUB.speciesObserved
+    }));
     // ⚠️ BLURRED TO 2 dp ON PURPOSE. This repo is PUBLIC, and the home-privacy
     // guard rejects any 4+ dp coordinate within 2 km of the real anchor — it
     // caught this file. A mockup needs a plausible home, not a real one.

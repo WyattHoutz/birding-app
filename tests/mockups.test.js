@@ -168,6 +168,8 @@ test('Washington mock data follows the owner-provided September 2 seen snapshot'
     'the header count is still the obsolete invented total');
   assert.match(source, /Object\.defineProperty\(window, '__SEED_BIRDLIST__'/,
     'the fixture is not injected through the seed object production actually reads');
+  assert.match(source, /ebird_seen_meta[\s\S]*source:\s*'seed'/,
+    'release mockups must explicitly opt into sample data now that clean installs stay empty');
   assert.match(source, /Washington seen fixture did not reach getReportSeen/,
     'the renderer never behaviorally verifies seen/unseen state');
 });
