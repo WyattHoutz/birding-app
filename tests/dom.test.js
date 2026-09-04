@@ -26,6 +26,8 @@ const HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
 // pointing them back at index.html is how a second definition creeps in.
 const CARDS_SPECIES = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
 const CARDS_HOTSPOT = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
+const INFO_DIALOGS_SOURCE = fs.readFileSync(
+  path.join(WWW, 'info-dialogs.js'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const FIRST_YEAR_HTML = fs.readFileSync(
@@ -18955,11 +18957,13 @@ test('the unified Bird gen help keeps every former lane rule reachable', async (
   //
   // Four lanes with four different rules sat under ONE section-level ℹ, so the
   // answer to "why THIS bird" was never on screen beside the bird.
-  const src = HTML.slice(HTML.indexOf('var LANE_DOCS'), HTML.indexOf('function renderSurge'));
+  const src = INFO_DIALOGS_SOURCE.slice(
+    INFO_DIALOGS_SOURCE.indexOf('function laneDocs'),
+    INFO_DIALOGS_SOURCE.indexOf('function birdGenContext'));
   for (const key of ['celebrity', 'crowd', 'cascade', 'busy', 'mega']) {
     assert.ok(new RegExp('\\b' + key + ':').test(src), `no help text for the ${key} lane`);
   }
-  assert.match(src, /LANE_DOCS\.feed\s*=/,
+  assert.match(src, /docs\.feed\s*=/,
     'the five rule sets were not collected behind the feed-level help');
   assert.match(src, /BL\.CASCADE\.MIN_BIRDERS/,
     'the live cascade help restates a threshold instead of reading the source constant');
@@ -18986,7 +18990,8 @@ test('the unified Bird gen help keeps every former lane rule reachable', async (
 
   // WIRED. A button that opens nothing is the bug this app keeps re-learning.
   assert.match(HTML, /closest\('\.lanehelp'\)/, 'the lane help buttons have no handler');
-  assert.match(HTML, /\.lanehelp[\s\S]{0,300}?showSheet\(/, 'the handler opens nothing');
+  assert.match(HTML, /\.lanehelp[\s\S]{0,300}?showInfoSheet\('bird-gen-feed'/,
+    'the handler opens nothing');
 
   // The cascade text has to answer the actual question, which was not "what is
   // a cascade" but "why was THIS bird picked".
@@ -23192,8 +23197,8 @@ test('the place search is wired to the fetch, not only to the ranking', () => {
   // The bug was a MISSING CALL, so the guard is about the call being there.
   // Both submit paths — the Find... sheet that serves the four Go birding
   // sections, and Quick outing's own place box — must scout.
-  const find = HTML.slice(HTML.indexOf("showSheet('Rank from a place'"),
-                          HTML.indexOf("showSheet('Rank from a place'") + 1800);
+  const find = HTML.slice(HTML.indexOf("showExcludedSheet('rank-from-place'"),
+    HTML.indexOf("showExcludedSheet('rank-from-place'") + 1900);
   assert.match(find, /autoScoutForAnchor\(found\)/,
     'the Find… sheet scouts the place it resolved');
   assert.ok(!/oninput|addEventListener\('input'[^)]*autoScout/.test(find),

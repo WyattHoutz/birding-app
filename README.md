@@ -142,8 +142,15 @@ npm install
 npm test                 # unit + syntax + DOM suites (jsdom)
 npm run test:layout      # six viewport/text combos in real Chrome
 npm run mockups          # static UI mockups (also attached to each Release)
+npm run info-catalog     # rebuild docs/info-dialogs.html from the app's prose sources
 # open www/index.html in a browser to preview the UI
 ```
+
+Open [`docs/info-dialogs.html`](docs/info-dialogs.html) directly to search and
+review every informational popup without running the app. Section explanations
+come from `www/section-docs.json`; the remaining authored sheets come from
+`www/info-dialogs.js`. The generated page also names the transactional,
+record-specific and error dialogs it deliberately excludes.
 
 ⚠️ **`npm test` is blind to geometry** — jsdom has no layout engine. v1.26.13
 shipped a 55.6 px overflow with a fully green unit suite; only the layout audit
