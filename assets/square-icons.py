@@ -242,6 +242,14 @@ OVERRIDES = {
     'norshr4.jpg': (0.1786, 0.0086, 0.8373, 1.0007),
     'norhar2.jpg': (0.0198, 0.0566, 0.996, 0.7056),
 
+    # F250. The 250x360 source cannot preserve the owner's whole 1.107-square
+    # framing: keeping more tail leaves the crown at the top edge. The owner's
+    # explicit priority is "better trim tail than head", so move the 250px
+    # window from y=35 to y=15. The measured crown at source y=36 then keeps
+    # 4.7px of air at the 56px card size, while crop bottom y=265 still keeps
+    # the feet and perch through y=260.
+    'shshaw.jpg': 0.136,
+
     # F290. The automatic crop starts 292px into the 1070x756 source and
     # removes the left-facing bird's whole head. A quarter-slide leaves 4.4px
     # of clear frame before the bill at the 56px small-card size while keeping
@@ -319,6 +327,8 @@ OVERRIDE_SRC_SHA = {
     'brnowl.jpg': 'ee2a08775fe2bf9c',
     'norshr4.jpg': '11cadfa73bd10231',
     'norhar2.jpg': '8da9999a680a8d25',
+    # F250: same 250x360 source whose crown/perch landmarks were measured.
+    'shshaw.jpg': '88d0e03cb12f2ede',
     # F290: same credited photograph re-fetched from Wikimedia at 1070x756.
     'vesspa.jpg': 'e7a65b4b836cbf65',
 }
