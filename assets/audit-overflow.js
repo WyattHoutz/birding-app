@@ -226,6 +226,41 @@ const AUDIT = `<script>
         }
       }
     }
+    // F303. The bird-code control has its OWN authored row below the Search /
+    // Close actions. A flex wrap that happens to put it there at one width is
+    // not the same property: widen the phone and it jumps back beside Search.
+    // This runs at EVERY viewport; the 44px checks above remain Easy-read-only
+    // for ordinary controls, while this named control is part of the contract.
+    var controlRows = [];
+    var searchBtn = document.getElementById('spLookupBtn');
+    var closeBtn = document.getElementById('spLookupClear');
+    var codesBtn = document.getElementById('spCodesBtn');
+    if (searchBtn && closeBtn && codesBtn) {
+      if (codesBtn.parentElement === searchBtn.parentElement
+          || codesBtn.parentElement === closeBtn.parentElement) {
+        controlRows.push({ kind: 'same-authored-row' });
+      }
+      var searchRect = searchBtn.getBoundingClientRect();
+      var closeRect = closeBtn.getBoundingClientRect();
+      var codesRect = codesBtn.getBoundingClientRect();
+      if (searchRect.width && codesRect.width) {
+        var actionBottom = Math.max(searchRect.bottom, closeRect.bottom);
+        if (codesRect.top < actionBottom - 0.5) {
+          controlRows.push({
+            kind: 'not-below',
+            top: +codesRect.top.toFixed(1),
+            actionBottom: +actionBottom.toFixed(1)
+          });
+        }
+        if (codesRect.width < 43.5 || codesRect.height < 43.5) {
+          controlRows.push({
+            kind: 'too-small',
+            w: +codesRect.width.toFixed(1),
+            h: +codesRect.height.toFixed(1)
+          });
+        }
+      }
+    }
     // F181. Text that is CRUSHED rather than clipped: a label broken in the
     // middle of a word. Invisible to every overflow check by construction —
     // the whole point of the collapse is that nothing passes the edge — and
@@ -382,7 +417,8 @@ const AUDIT = `<script>
       over: document.documentElement.scrollWidth - vw,
       items: items.slice(0, 8),
       small: small.slice(0, 8),
-      unnamed: unnamed.slice(0, 10)
+      unnamed: unnamed.slice(0, 10),
+      controlRows: controlRows
     };
   }
   function run() {
@@ -410,6 +446,13 @@ const AUDIT = `<script>
       if (i >= secs.length) return finish(out);
       var id = secs[i++];
       try { A.showSection(id); } catch (e) { return step(); }
+      // F303 needs all three actions rendered simultaneously. Close normally
+      // appears only after a search, but showing it for the audit changes no
+      // layout rule and lets the row contract be measured directly.
+      if (id === 'sec-spLookupBtn') {
+        var close = document.getElementById('spLookupClear');
+        if (close) close.hidden = false;
+      }
       // showSection triggers autoLoad, which paints asynchronously. Scanning
       // immediately measures an empty panel, which cannot overflow — so the
       //early tick is not a replacement for the later ones, it is an addition.
@@ -681,6 +724,23 @@ server.listen(0, '127.0.0.1', () => {
         bad++;
         tiny.forEach(function (it) {
           console.log('   TAP TARGET ' + it.w + 'x' + it.h + ' < 44px  ' + it.sel);
+        });
+      }
+      var controlRows = r.controlRows || [];
+      if (controlRows.length) {
+        bad++;
+        controlRows.forEach(function (it) {
+          if (it.kind === 'too-small') {
+            console.log('   CODE CONTROL TARGET ' + it.w + 'x' + it.h
+              + ' < 44px  #spCodesBtn');
+          } else if (it.kind === 'same-authored-row') {
+            console.log('   CODE CONTROL ROW #spCodesBtn shares the authored '
+              + 'Search / Close row');
+          } else {
+            console.log('   CODE CONTROL ROW top=' + it.top
+              + ' overlaps action bottom=' + it.actionBottom
+              + '  #spCodesBtn must start below Search and Close');
+          }
         });
       }
       if (r.over <= 0.5 && !r.items.length) return;
