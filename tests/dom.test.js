@@ -4747,6 +4747,98 @@ test('switching reports invalidates Stakeout bird results, code lists and in-fli
   app.window.close();
 });
 
+test('Stakeout search tries parent regions without claiming a parent bird is local', async () => {
+  const calls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/product\/spplist\/US-WA(?:[/?]|$)/.test(u)) return [];
+      if (/product\/spplist\/US(?:[/?]|$)/.test(u)) return ['ostric2'];
+      if (/ref\/taxonomy\/ebird\?.*species=ostric2/.test(u)) {
+        return [{
+          speciesCode: 'ostric2', category: 'species',
+          comName: 'Common Ostrich', sciName: 'Struthio camelus',
+          order: 'Struthioniformes', familyCode: 'struth1',
+          familyComName: 'Ostriches', taxonOrder: 1,
+        }];
+      }
+      if (/data\/obs\/US-WA\/recent\/ostric2/.test(u)) return [];
+      if (/ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  assert.deepEqual(
+    Array.from(A.speciesSearchScopes('US-WA-033', 'King County'), (s) => s.code),
+    ['US-WA-033', 'US-WA', 'US'],
+    'a county lookup climbs through its state before its country');
+
+  doc.getElementById('spLookup').value = 'Common Ostrich';
+  await A.runSpeciesLookup();
+
+  const waAt = calls.findIndex((u) => /product\/spplist\/US-WA(?:[/?]|$)/.test(u));
+  const usAt = calls.findIndex((u) => /product\/spplist\/US(?:[/?]|$)/.test(u));
+  assert.ok(waAt >= 0 && usAt > waAt,
+    'Washington must be searched before the United States parent');
+  const found = doc.getElementById('spLookupFound');
+  assert.match(found.textContent, /Outside Washington — United States/,
+    'the parent result has a visible out-of-area boundary');
+  assert.match(found.textContent, /Common Ostrich/);
+  assert.match(found.textContent, /not on Washington’s regional list/,
+    'the row itself says it is not a Washington bird');
+  assert.equal(found.querySelectorAll('li[data-code="ostric2"]').length, 1,
+    'the parent result is not merged or duplicated');
+
+  app.click(found.querySelector('li[data-code="ostric2"]'));
+  await waitFor(() => /No reports of Common Ostrich in US-WA/.test(
+    doc.getElementById('spLookupStatus').textContent), 'the local sighting answer');
+  assert.ok(calls.some((u) => /data\/obs\/US-WA\/recent\/ostric2/.test(u)),
+    'opening a parent taxonomy result still asks the active report for sightings');
+  assert.ok(!calls.some((u) => /data\/obs\/US\/recent\/ostric2/.test(u)),
+    'a United States taxonomy match cannot silently become a United States sighting search');
+  app.window.close();
+});
+
+test('full eBird taxonomy is an explicit last resort after every region misses', async () => {
+  const calls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/product\/spplist\/US-WA(?:[/?]|$)/.test(u)) return [];
+      if (/product\/spplist\/US(?:[/?]|$)/.test(u)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  A.setSpuhModel(app.window.Spuh.createFromTaxonomy([{
+    speciesCode: 'ostric2', category: 'species',
+    comName: 'Common Ostrich', sciName: 'Struthio camelus',
+    order: 'Struthioniformes', familyCode: 'struth1',
+    familyComName: 'Ostriches', taxonOrder: 1,
+  }]));
+
+  doc.getElementById('spLookup').value = 'Common Ostrich';
+  await A.runSpeciesLookup();
+  const action = doc.querySelector('#spLookupFound .sptaxaction button');
+  assert.ok(action, 'the world taxonomy is offered only after local and parent lists miss');
+  assert.equal(action.textContent, 'Search full eBird taxonomy');
+  assert.ok(!calls.some((u) => /ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)),
+    'the full taxonomy is not fetched before the user chooses the broader scope');
+
+  app.click(action);
+  await waitFor(() => /Full eBird taxonomy — outside Washington/.test(
+    doc.getElementById('spLookupFound').textContent), 'the explicit taxonomy result');
+  assert.match(doc.getElementById('spLookupFound').textContent,
+    /Common Ostrich.*not on Washington’s regional list/s,
+    'the world result keeps the same out-of-area warning');
+  app.window.close();
+});
+
 test('the historical block never blocks or breaks the live answer', async () => {
   const app = await boot({
     fetch(url) {
