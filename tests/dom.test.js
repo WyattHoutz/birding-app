@@ -10091,7 +10091,7 @@ test('Spuh finder explains a searched group and labels its example image honestl
   app.window.close();
 });
 
-test('Stakeout shows a visible ranked Spuh navigator before an empty sightings result', async () => {
+test('Stakeout leads with the most specific Spuh and collapses the ranked path', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) return [];
@@ -10101,8 +10101,9 @@ test('Stakeout shows a visible ranked Spuh navigator before an empty sightings r
   installSpuhFixture(app);
   const lookup = app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
 
-  const loading = app.document.querySelector('#spLookupIdHelp .spuhtaxnav');
-  assert.ok(loading, 'the visible taxonomy navigator paints before sightings settle');
+  const loading = app.document.querySelector('#spLookupIdHelp .spuhtaxmost');
+  assert.ok(loading, 'the compact taxonomy answer paints before sightings settle');
+  assert.match(loading.textContent, /Most specific spuh/);
   assert.match(loading.textContent, /Loading the eBird taxonomy/);
   await lookup;
   assert.match(app.$('spLookupStatus').textContent, /No reports|not being seen right now/,
@@ -10114,10 +10115,25 @@ test('Stakeout shows a visible ranked Spuh navigator before an empty sightings r
   const nav = app.document.querySelector('#spLookupIdHelp .spuhtaxnav');
   assert.ok(nav && !nav.closest('details.spuhshell'),
     'the hierarchy is visible, not hidden behind the old disclosure');
+  const most = nav.querySelector('.spuhtaxmost');
+  const path = nav.querySelector('details.spuhtaxdetails');
+  assert.ok(most && path
+    && (most.compareDocumentPosition(path)
+      & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
+  'the most-specific answer precedes the full identification path');
+  assert.equal(path.open, false, 'the full-screen rank ladder is collapsed by default');
+  assert.match(most.textContent, /Most specific spuh.*Calidris sp\..*peep sp\./s);
+  assert.match(most.textContent, /2 possible species/);
+  assert.doesNotMatch(most.textContent, /bird sp\.|shorebird sp\.|Scolopacidae sp\./,
+    'a broad parent cannot replace the minimal proven candidate set');
+  assert.equal(most.querySelectorAll('.spuhtaxlink').length, 2,
+    'equivalent labels for the minimal set remain available together');
+  assert.match(most.textContent, /COVERAGE LIMIT/,
+    'a limited equivalent remains labelled rather than becoming a silent recommendation');
   assert.deepEqual(
-    [...nav.querySelectorAll('.spuhtaxlevel')].map((level) => level.dataset.rank),
+    [...path.querySelectorAll('.spuhtaxlevel')].map((level) => level.dataset.rank),
     ['class', 'order', 'family', 'genus', 'species'],
-    'the path is ordered broad-to-specific by taxonomic rank');
+    'the collapsed path preserves every broad-to-specific rank');
   assert.match(nav.querySelector('[data-rank="class"]').textContent, /Aves.*bird sp\./s);
   assert.match(nav.querySelector('[data-rank="order"]').textContent,
     /Charadriiformes.*shorebird sp\..*large shorebird sp\./s);
@@ -10143,6 +10159,7 @@ test('Stakeout shows a visible ranked Spuh navigator before an empty sightings r
     .every((button) => button.tagName === 'BUTTON'),
   'every spuh label is a native clickable control into Spuh finder');
 
+  path.open = true;
   const peep = [...nav.querySelectorAll('.spuhtaxlink[data-spuh]')]
     .find((button) => /peep sp\./.test(button.textContent));
   app.click(peep);
@@ -10164,6 +10181,7 @@ test('Stakeout comparison finds the shared proven spuh and excludes peep', async
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
   await waitFor(() => app.document.querySelector('#spLookupIdHelp .spuhtaxnav'),
     'the taxonomy navigator');
+  app.document.querySelector('#spLookupIdHelp details.spuhtaxdetails').open = true;
   const compare = app.document.querySelector('#spLookupIdHelp details.spuhcompare');
   compare.open = true;
   compare.dispatchEvent(new app.window.Event('toggle'));
@@ -10205,8 +10223,8 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   assert.match(app.$('spLookupResults').textContent, /Marymoor Park/,
     'the sighting survives the independent taxonomy failure');
   assert.match(app.$('spLookupIdHelp').textContent,
-    /Identification path unavailable.*new Stakeout bird lookup to retry/s,
-    'the failed navigator names the retry path without an obsolete disclosure');
+    /Most specific spuh.*Taxonomy unavailable.*new Stakeout bird lookup to retry/s,
+    'the failed compact answer remains visible and names the retry path');
 
   A.setSpuhModel(good);
   await A.lookupSpecies('sem', 'Semipalmated Sandpiper');

@@ -99,6 +99,10 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
   }), ['missing expected components'],
   'a generic card cannot replace the production shape a shot promises');
   assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, hostHeight: 341, maxHostHeight: 340,
+  }), ['oversized result host'],
+  'a default result host that grows beyond its measured release cap fails');
+  assert.deepEqual(mockups.shotReadinessProblems({
     ...ready, isStatic: true, data: false, text: 199, controls: 3,
   }), ['blank static surface'],
   'a static screen still needs enough authored content');
@@ -260,11 +264,15 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'Pro patches must run its real loader instead of receiving a generic rank table');
 
   assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-species');
+  assert.ok(mockups.STUB_SPEC.spLookupBtn.maxHostHeight > 0
+      && mockups.STUB_SPEC.spLookupBtn.maxHostHeight <= 340,
+  'Stakeout keeps a measured default taxonomy-height ceiling');
   assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'spLookupIdHelp',
     'the capture anchor is the visible taxonomy path, while component checks guard the card');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
     '#spLookupResults > li',
     '#spLookupIdHelp .spuhtaxnav',
+    '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
     '#spLookupResults .spLookupPlaceList > .hscard-sm',
   ]);
@@ -272,8 +280,10 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'Stakeout bird must run its real medium-card + places renderer');
   assert.doesNotMatch(source, /spLookupHero|details\.spuhshell|renderSpuhStakeoutShell/,
     'the release fixture must not preserve the removed duplicate hero or collapsed shell');
+  assert.match(source, /detail\.querySelector\('details\.spuhtaxdetails'\)[\s\S]*path\.open = true/,
+    'the comparison shot must deliberately expand the otherwise compact path');
   assert.match(source, /detail\.querySelector\('details\.spuhcompare'\)/,
-    'the comparison shot opens the control inside the visible navigator');
+    'the comparison shot opens the control inside the expanded navigator');
   assert.match(source, /prepareStakeoutReports[\s\S]*more\.click\(\)/,
     'the focused Stakeout review shot does not exercise the real lazy append');
   assert.match(source, /ready\.missing\.length/,
