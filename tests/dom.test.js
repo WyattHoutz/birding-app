@@ -1073,6 +1073,24 @@ test('opening a section auto-loads its content (no button tap)', async () => {
   app.window.close();
 });
 
+test('F278 a failed Nemesis first-open is retryable, while success stays loaded', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const sec = app.$('easyBtn').closest('section');
+  let calls = 0;
+  sec._loader.fn = () => Promise.resolve(++calls > 1);
+
+  assert.equal(await A.autoLoad(sec), false, 'the first load reproduces a failed sample');
+  assert.equal(calls, 1);
+  assert.equal(await A.autoLoad(sec), true,
+    'reopening the same section retries after the failed first load');
+  assert.equal(calls, 2);
+  A.autoLoad(sec);
+  assert.equal(calls, 2,
+    'a successful retry stays loaded and does not restart on every open');
+  app.window.close();
+});
+
 test('hot and cold hotspots render from ONE shared scan', async () => {
   const app = await boot();
   app.open(/Hot patches/);
@@ -3245,6 +3263,50 @@ test('easy misses: a fetched day is cached, because a past day never changes', a
   assert.deepEqual(Array.from(second, (o) => o.speciesCode), ['amerob']);
   assert.equal(second[0].locName, 'Marymoor',
     'the cache keeps the fields the section renders, not just the code');
+  app.window.close();
+});
+
+test('F278 Nemesis distinguishes true-empty, partial and failed day samples', async () => {
+  const county = 'US-WA-033';
+  const d1 = new Date('2026-07-21T12:00:00');
+  const d2 = new Date('2026-07-22T12:00:00');
+  const d3 = new Date('2026-07-23T12:00:00');
+  const app = await boot({
+    fetch: (u) => (/\/historic\//.test(String(u))
+      ? { __status: 404 } : null),
+  });
+  const A = app.window.__app;
+
+  const k1 = A.easyCacheKey(county, d1);
+  const k2 = A.easyCacheKey(county, d2);
+  assert.notEqual(k1, k2, 'the two day jobs have distinct cache keys');
+  assert.equal(app.window.localStorage.getItem(k2), null,
+    'the day intended to fail is not already cached');
+  await A.zcPut(k1, []);
+  const partial = await A.easyFetch([county], [d1, d2]);
+  assert.equal(app.state.fetches.filter((u) => /\/historic\/2026\/7\/22/.test(u)).length, 1,
+    'the uncached day must reach the historic endpoint exactly once');
+  assert.equal(partial.length, 0,
+    'an empty successful day and a failed day can both contain zero rows');
+  assert.deepEqual({ ...A.easySampleState(partial) }, {
+    attempted: 2, failed: 1, allFailed: false, partial: true,
+  }, app.window.__dbg.buf.map((e) => e.msg).join('\n'));
+  assert.match(A.easyResultStatus([], 2, A.easySampleState(partial)),
+    /partial sample: 1 of 2 day feeds unavailable/,
+    'the visible status names incomplete evidence instead of claiming a true empty');
+
+  const failed = await A.easyFetch([county], [d3]);
+  assert.deepEqual({ ...A.easySampleState(failed) }, {
+    attempted: 1, failed: 1, allFailed: true, partial: false,
+  }, 'an all-failed first open is not converted into an empty answer');
+
+  await A.zcPut(k2, []);
+  const empty = await A.easyFetch([county], [d1, d2]);
+  assert.deepEqual({ ...A.easySampleState(empty) }, {
+    attempted: 2, failed: 0, allFailed: false, partial: false,
+  }, 'two successful empty days remain a valid empty sample');
+  assert.doesNotMatch(A.easyResultStatus([], 2, A.easySampleState(empty)), /partial|unavailable/,
+    'a true empty result is not mislabeled as a failure');
   app.window.close();
 });
 
