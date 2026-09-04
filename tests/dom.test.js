@@ -6044,9 +6044,12 @@ test('the map-provider setting is reachable and lists every provider', async () 
   app.window.close();
 });
 
-test('Bird Gen puts Talk and news in the title and leads directly with controls', async () => {
+test('Bird Gen separates its menu title from the Talk and news subtitle', async () => {
   const app = await boot();
-  app.open(/Bird Gen - Talk and news/);
+  const tile = app.document.querySelector('#menuList [data-at="surgeBtn"]');
+  assert.equal(tile.querySelector('.tilelabel').textContent.trim(), 'Bird Gen');
+  assert.equal(tile.querySelector('.tilesub').textContent.trim(), 'Talk and news');
+  app.open(/Bird Gen/);
   app.window.__app.renderSurge([{
     code: 'vesspa', name: 'Vesper Sparrow', observers: 5, checklists: 5,
     ratio: 4, loc: 'Jefferson Park', locId: 'L1', lat: 47.57, lon: -122.31,
@@ -6056,7 +6059,7 @@ test('Bird Gen puts Talk and news in the title and leads directly with controls'
   });
   const section = app.$('sec-surgeBtn');
   assert.equal(section.querySelector('h2').childNodes[0].textContent.trim(),
-    '🔔 Bird Gen - Talk and news');
+    '🔔 Bird Gen');
   assert.equal(section.querySelector('.sechint'), null,
     'the old subtitle still sits between the title and controls');
   const results = app.$('surgeResults');
@@ -6183,12 +6186,17 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     assert.ok(row.querySelector('.surgeage').textContent.trim(), `${kind} lost its relative age`);
     const summary = row.querySelector('.surgefacts');
     assert.ok(summary, `${kind} lost its always-visible code/count/place/date line`);
+    assert.ok(summary.closest('.name'),
+      `${kind} fact line is no longer in the same cell as the bird name`);
     assert.match(summary.textContent, /x\d+.* - .+ - \d{1,2}\/\d{1,2}/s,
       `${kind} does not place count, location and date on the second line`);
     assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
       `${kind} still spends the compact line on mileage`);
-    assert.ok(row.querySelector('.surgeexplain > b'),
+    const explanation = row.querySelector(':scope > .surgeexplain');
+    assert.ok(explanation && explanation.querySelector(':scope > b'),
       `${kind} lost its bold third-line explanation`);
+    assert.equal(explanation.parentElement, row,
+      `${kind} explanation is trapped in the name cell instead of a full-width row`);
     assert.equal(row.querySelector('.surgewhy'), null,
       `${kind} still renders a separate category/reason row`);
     assert.match(row.dataset.surgeReasons, new RegExp(kind),
@@ -6285,11 +6293,16 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
     'the removed Notes / No notes control is still rendered');
   assert.equal(feed.querySelector('.surgenote, .surgenotelink'), null,
     'the removed Notes container or category links still survive in a row');
+  assert.match(HTML,
+    /\.surgefeed > li > \.surgeexplain\s*\{[^}]*width:\s*100%/,
+    'the explanation row no longer spans the full card width');
   rows.forEach((row) => {
-    assert.ok(row.querySelector(':scope > .surgebody > .surgefacts'),
-      'the always-visible code/count/place/date line is missing under the name');
-    assert.ok(row.querySelector(':scope > .surgebody > .surgeexplain > b'),
-      'the bold category explanation is not the third card line');
+    assert.ok(row.querySelector(':scope > .name > .ntext > .sub > .surgefacts'),
+      'the code/count/place/date line is not under the name in the same cell');
+    assert.ok(row.querySelector(':scope > .surgeexplain > b'),
+      'the bold category explanation is not a separate full-width row');
+    assert.equal(row.querySelector(':scope > .surgebody'), null,
+      'the old body wrapper still traps both lines in one cell');
     const headline = row.querySelector(':scope > .name[role="link"]');
     assert.ok(headline && headline.tabIndex === 0,
       'the image/name/category/time headline is not one keyboard-actionable link');
@@ -16129,11 +16142,20 @@ test('the early rarity view never leaks into the shared chase cache', () => {
   assert.match(src, /delete _chaseRarity\[slug\];/,
     'and it is dropped the moment the real phase-1 view exists');
   // The rarity sections are complete here. Bird Gen is a labelled partial
-  // head start and has a separate full-phase repaint.
+  // head start and has a separate full-phase repaint. F309 deliberately
+  // removed Bird Gen from this loader fan-out: putting it back recursively
+  // starts the whole loader at the 3-of-6 boundary and can freeze the app.
   const early = HTML.slice(HTML.indexOf('function onRarityEarly'),
                            HTML.indexOf('function getChase(force)'));
-  assert.match(early, /\['refreshBtn', 'activeBtn', 'surgeBtn'\]/,
-                           'rarity rows and Bird gen’s labelled partial head start repaint here');
+  assert.match(early, /\['refreshBtn', 'activeBtn'\]/,
+    'the two complete rarity sections still repaint through their loaders');
+  assert.doesNotMatch(early, /\['refreshBtn', 'activeBtn', 'surgeBtn'\]/,
+    'Bird Gen re-entered the loader fan-out that F309 removed');
+  assert.match(early, /var surge = loadedSectionFor\('surgeBtn'\)/,
+    'Bird Gen no longer checks whether its partial feed is visible');
+  assert.match(early,
+    /_surgeEarlyPaint\(countyView\(_chaseRarity\[slug\]\)\)/,
+    'Bird Gen no longer paints the labelled partial directly');
   assert.match(src, /chaseFeedMeta\(true, usingSnapshot\)/,
     'the early Bird gen result is not marked partial/stale');
   assert.match(early, /if \(!loadedSectionFor\(id\)\) return;/,
@@ -19979,7 +20001,7 @@ test('a repeated mega hotspot owns the compact place, date and checklist tuple',
   app.window.close();
 });
 
-test('equal-time MEGA and need evidence keeps the newest checklist bird count', async () => {
+test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', async () => {
   const latest = new Date(Date.now() - 20 * 60000);
   const p = (n) => String(n).padStart(2, '0');
   const stamp = `${latest.getFullYear()}-${p(latest.getMonth() + 1)}-${p(latest.getDate())} `
@@ -20003,7 +20025,7 @@ test('equal-time MEGA and need evidence keeps the newest checklist bird count', 
     ebird_aba_archive_v1: JSON.stringify(archive),
   } });
   app.window.__app.renderSurge([], [], [], [{
-    code: 'nazboo1', name: 'Nazca Booby', sightings: 4, nPlaces: 1,
+    code: 'nazboo1', alpha: 'NABO', name: 'Nazca Booby', sightings: 4, nPlaces: 1,
     distMi: 1, locName: 'Smith Island', locId: 'L1', subId: 'SAME',
     whenStr: stamp, latest: Date.parse(stamp.replace(' ', 'T')),
     latestStr: stamp, latestSubId: 'SAME',
@@ -20015,8 +20037,14 @@ test('equal-time MEGA and need evidence keeps the newest checklist bird count', 
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
   const row = app.document.querySelector('[data-alert-kind="mega"]');
-  assert.match(row.querySelector('.sub').textContent, /×7/,
-    'equal-time richer evidence could not fill the missing checklist count');
+  const facts = row.querySelector('.surgefacts');
+  assert.match(facts.textContent.replace(/\s+/g, ' ').trim(),
+    /^NABO x1 - Smith Island - /,
+    'equal-time evidence changed the MEGA report count or split the tuple');
+  assert.doesNotMatch(facts.textContent, /x7/,
+    'the removed per-checklist bird count leaked into the compact line');
+  assert.match(facts.querySelector('.surgeabsolute a').getAttribute('data-href'), /SAME/,
+    'the coherent tuple lost the newest checklist link');
   assert.equal(app.$('surgeFeed').children.length, 1,
     'equal-time evidence rendered a duplicate species row');
   app.window.close();

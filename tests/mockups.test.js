@@ -165,8 +165,9 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
   ]) {
     assert.ok(paint.includes(fact), `F302 Bird Gen mockup lost ${fact}`);
   }
-  assert.match(paint, /surgefacts[\s\S]*surgeexplain/,
-    'the release fixture does not verify the second and third card lines');
+  assert.match(paint,
+    /:scope > \.name > \.ntext > \.sub > \.surgefacts[\s\S]*:scope > \.surgeexplain > b/,
+    'the release fixture does not verify the name-cell and full-width rows');
   assert.match(paint, /surgefacts[\s\S]*rarebadge/,
     'the release fixture does not verify R moved before the bird code');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,

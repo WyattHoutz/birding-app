@@ -21,7 +21,7 @@
   ],
   "docs": {
     "surgeBtn": {
-      "report": "## 🔔 Bird Gen - Talk and news — Fresh ranked alerts",
+      "report": "## 🔔 Bird Gen — Talk and news",
       "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
       "summary": "One ranked feed of fresh megas, celebrity birds, crowd attention, leaderboard cascades, unusually busy hotspots and high-yield top patches.",
       "inputs": [
@@ -33,7 +33,7 @@
       "how": [
         "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
         "Buzz is the default: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
-        "Every alert is one always-visible three-line card: name plus category; four-letter code, xN, linked place and linked compact date; then a bold category explanation. The alert icon and relative age remain at the right.",
+        "Every alert is one always-visible three-line card. The name cell contains two lines: name plus category, then four-letter code, xN, linked place and linked compact date. The bold category explanation is a separate full-width row below the headline cell. The alert icon and relative age remain at the right.",
         "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
         "Seen status is resolved once after duplicate species and their reasons are merged. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",

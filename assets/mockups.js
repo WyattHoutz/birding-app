@@ -716,7 +716,8 @@ const BOOTSTRAP = `
       }
       var cards = Array.prototype.slice.call(document.querySelectorAll('#surgeFeed > li'));
       if (!cards.length || cards.some(function (row) {
-        return !row.querySelector('.surgefacts') || !row.querySelector('.surgeexplain > b');
+        return !row.querySelector(':scope > .name > .ntext > .sub > .surgefacts')
+          || !row.querySelector(':scope > .surgeexplain > b');
       })) throw new Error('Bird Gen release fixture lost its second or third line');
       var mega = document.querySelector('#surgeFeed [data-species-code="nazboo1"]');
       var megaFacts = mega && mega.querySelector('.surgefacts');

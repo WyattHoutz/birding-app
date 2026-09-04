@@ -1574,7 +1574,7 @@
       outline: 3px solid var(--safe-blue); outline-offset: 3px;
     }
     .surgefeed > li > .name > .ntext { flex: 1 1 auto; padding-top: 1px; }
-    .surgefeed .ntext .sub { margin-top: 4px; }
+    .surgefeed .ntext .sub { display: block; margin-top: 4px; }
     .surgekindwrap { margin-left: auto; flex: 0 0 calc(62px * var(--s));
                      width: calc(62px * var(--s)); min-width: calc(62px * var(--s));
                      display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -1592,13 +1592,15 @@
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
     .surgefeed .ntext > .surgebadge { margin-left: 6px; vertical-align: middle; }
-    .surgebody { margin: 4px 0 0 calc(66px * var(--s)); }
     .surgefacts { display: block; color: var(--muted);
                   font-size: calc(13px * var(--s)); line-height: 1.35; }
     .surgefacts .rarebadge { margin-right: 3px; vertical-align: 1px; }
     .surgefactsep { white-space: nowrap; }
-    .surgeexplain { margin-top: 5px; padding-left: 2px; color: var(--ink);
-                    font-size: calc(13px * var(--s)); line-height: 1.35; }
+    .surgefeed > li > .surgeexplain {
+      display: block; box-sizing: border-box; width: 100%;
+      margin-top: 7px; padding: 0 2px; color: var(--ink);
+      font-size: calc(13px * var(--s)); line-height: 1.35;
+    }
     .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
     .surgeplacethumb { position: relative; background:
       linear-gradient(25deg, transparent 44%, #b7b7be 45%, #b7b7be 52%, transparent 53%),
@@ -2484,7 +2486,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔔 Bird Gen - Talk and news <span class="dim" id="surgeRegionLabel"></span></h2>
+      <h2>🔔 Bird Gen <span class="dim" id="surgeRegionLabel"></span></h2>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
       </div>
@@ -3121,7 +3123,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.68.0';
+      var APP_VERSION = '1.69.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -23538,7 +23540,7 @@
         }
       };
       LANE_DOCS.feed = {
-        title: '🔔 Bird Gen - Talk and news',
+        title: '🔔 Bird Gen',
         body: '<p>One feed ranks every active alert. <b>Buzz</b> orders the '
           + 'six categories — mega, celebrity, crowd, cascade, hotspot, top patch — then '
           + 'uses recency inside each category. <b>Newest</b> ignores category '
@@ -23817,11 +23819,6 @@
           + '</div>';
       }
 
-      function surgeBodyHtml(a) {
-        return '<div class="surgebody">' + surgeFactsHtml(a)
-          + surgeExplanationHtml(a) + '</div>';
-      }
-
       function surgeAlertCard(a, order) {
         var k = SURGE_KINDS[a.kind], reason = surgeReasonMeta(a), data = {
           'alert-kind': a.kind,
@@ -23839,8 +23836,9 @@
           icon: a.icon,
           name: a.name,
           tags: surgeCategoryTag(a.kind, reason.text) + (a.tags || ''),
+          sub: surgeFactsHtml(a),
           right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime),
-          below: surgeBodyHtml(a),
+          below: surgeExplanationHtml(a),
           data: data
         });
       }
@@ -23887,6 +23885,10 @@
           if (row.extra && !hit._surgeExtras.some(function (x) {
             return x.kind === row.kind && x.html === row.extra;
           })) hit._surgeExtras.push({ kind: row.kind, html: row.extra });
+          // Category priority chooses the visible reason, not which source is
+          // allowed to fill identity. A cached mega snapshot can lack the
+          // four-letter code that the live notable row already resolved.
+          var mergedAlpha = hit.alpha || row.alpha || '';
           if (row.time > hit._surgeLatestView.time) {
             hit._surgeLatestView = {
               time: row.time, when: row.when, where: row.where,
@@ -23917,6 +23919,7 @@
           } else {
             hit._surgeAliases.forEach(function (key) { bySpecies[key] = hit; });
           }
+          if (!hit.alpha && mergedAlpha) hit.alpha = mergedAlpha;
           hit.time = hit._surgeLatestView.time;
           hit.when = hit._surgeLatestView.when;
           hit.where = hit._surgeLatestView.where;
@@ -25416,7 +25419,7 @@
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
       var MENU_SUB = {
-        surgeBtn:      'Fresh ranked alerts',
+        surgeBtn:      'Talk and news',
         wxBtn:         'Is today worth chasing',
         dueBackBtn:    'Migrants due back soon',
         rankBtn:       'Your eBird standing',
@@ -25459,7 +25462,7 @@
       // emits its sections in, and no longer tries to be. See F201 for why
       // that coupling was cut rather than satisfied.
       var MENU = [
-        { at: 'surgeBtn',      label: '🔔 Bird Gen - Talk and news', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'surgeBtn',      label: '🔔 Bird Gen', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'refreshBtn',    label: '🌅 Twitches today', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
