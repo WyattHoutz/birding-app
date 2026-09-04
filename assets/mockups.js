@@ -43,6 +43,21 @@ const CONTRACT = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'tests', 'fixtures', 'report-contract.json'), 'utf8'));
 const WA_SEEN = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'), 'utf8'));
+const BIRD_ICON_DIR = path.join(WWW, 'assets', 'birds');
+const BUNDLED_ICON_EXTENSIONS = {};
+for (const ext of ['.jpg', '.png']) {
+  for (const file of fs.readdirSync(BIRD_ICON_DIR).sort()) {
+    if (path.extname(file).toLowerCase() !== ext) continue;
+    const code = path.basename(file, ext);
+    if (!BUNDLED_ICON_EXTENSIONS[code]) BUNDLED_ICON_EXTENSIONS[code] = ext;
+  }
+}
+
+function fixtureIconPath(code, extensions = BUNDLED_ICON_EXTENSIONS) {
+  const ext = extensions[code];
+  if (!ext) throw new Error('no bundled fixture icon for ' + code);
+  return 'assets/birds/' + code + ext;
+}
 
 function arg(name, dflt) {
   const i = process.argv.indexOf('--' + name);
@@ -199,6 +214,8 @@ const BOOTSTRAP = `
 (function () {
   window.__BC_MOCKUP_MODE__ = true;
   var WA_SEEN_STUB = ${JSON.stringify(WA_SEEN)};
+  var BIRD_ICON_EXT = ${JSON.stringify(BUNDLED_ICON_EXTENSIONS)};
+  var fixtureIconPath = ${fixtureIconPath.toString()};
   var RealDate = Date;
   var MOCK_NOW = RealDate.parse('2026-09-02T18:00:00-07:00');
   window.Date = class MockDate extends RealDate {
@@ -294,8 +311,8 @@ const BOOTSTRAP = `
     document.head.appendChild(style);
   }
   function mockPhoto(code) {
-    return '<span class="thumb"><img class="birdpic" src="assets/birds/'
-      + code + '.jpg" alt=""></span>';
+    return '<span class="thumb"><img class="birdpic" src="'
+      + fixtureIconPath(code, BIRD_ICON_EXT) + '" alt=""></span>';
   }
   function fixtureStatus(sec, label) {
     var status = sec.querySelector('.status');
@@ -1282,7 +1299,7 @@ async function main() {
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  shotReadinessProblems, shotLooksBlank
+  fixtureIconPath, shotReadinessProblems, shotLooksBlank
 };
 
 if (require.main === module) {

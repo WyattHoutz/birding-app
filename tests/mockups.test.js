@@ -130,6 +130,18 @@ test('fixture families use shared card components and accessible state labels', 
     'the state also carries a non-colour border-style channel');
 });
 
+test('fixture photos use the extension of the bundled icon they render', () => {
+  assert.equal(mockups.fixtureIconPath('semsan'), 'assets/birds/semsan.png',
+    'Semipalmated Sandpiper is a PNG and must not render a broken JPG');
+  assert.equal(mockups.fixtureIconPath('wessan'), 'assets/birds/wessan.jpg',
+    'JPG fixtures keep their existing bundled source');
+  assert.throws(() => mockups.fixtureIconPath('not-a-real-bird'),
+    /no bundled fixture icon for not-a-real-bird/,
+    'a missing fixture asset fails the generator instead of producing a broken image');
+  assert.match(source, /fixtureIconPath\(code, BIRD_ICON_EXT\)/,
+    'the browser fixture must use the same extension-aware resolver the test drives');
+});
+
 test('Washington mock data follows the owner-provided September 2 seen snapshot', () => {
   assert.equal(waSeen.region, 'US-WA');
   assert.equal(waSeen.asOf, '2026-09-02');
