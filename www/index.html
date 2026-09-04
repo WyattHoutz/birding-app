@@ -12934,7 +12934,7 @@
             // Keep the bytes so the next launch doesn't need the network.
             return fetch(src).then(function (r) { return r.ok ? r.blob() : null; })
               .then(function (b) { if (b) return idbPut(key, b); })
-              .catch(function () {})
+              .catch(function () { failed++; })
               .then(function () { done(cached); });
           });
         }).catch(function () { giveUp(); done(cached); });
@@ -21038,7 +21038,7 @@
       function easyFetch(codes, dates, onProg) {
         var jobs = [];
         codes.forEach(function (c) { dates.forEach(function (d) { jobs.push([c, d]); }); });
-        var acc = [], done = 0;
+        var acc = [], done = 0, failed = 0;
         return jobs.reduce(function (p, j) {
           return p.then(function () {
             var c = j[0], d = j[1], key = easyCacheKey(c, d);
@@ -21068,7 +21068,7 @@
               var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
               return ebirdBg(path)
                 .then(function (r) {
-                  if (!Array.isArray(r)) return;
+                  if (!Array.isArray(r)) { failed++; return; }
                   var small = easyCompact(r);
                   acc.push.apply(acc, easyExpand(small));
                   // A past day's checklists never change, so a stored day is
@@ -21076,11 +21076,38 @@
                   // the sweep.
                   zcPut(key, small);
                 })
-                .catch(function () {})
+                .catch(function () { failed++; })
                 .then(function () { if (onProg) onProg(++done, jobs.length); });
             });
           });
-        }, Promise.resolve()).then(function () { return acc; });
+        }, Promise.resolve()).then(function () {
+          // Array metadata preserves every existing caller while distinguishing
+          // a true empty day from a request that never answered. Both used to
+          // be `[]`, so first-open failure looked like a confident empty result.
+          acc.attempted = jobs.length;
+          acc.failed = failed;
+          return acc;
+        });
+      }
+      function easySampleState(all) {
+        var attempted = Math.max(0, Number(all && all.attempted) || 0);
+        var failed = Math.max(0, Math.min(attempted, Number(all && all.failed) || 0));
+        return {
+          attempted: attempted,
+          failed: failed,
+          allFailed: attempted > 0 && failed === attempted,
+          partial: failed > 0 && failed < attempted
+        };
+      }
+      function easyResultStatus(rows, nDays, sample) {
+        var text = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
+          + ' reported on ' + Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100)
+          + '%+ of ' + nDays + ' sampled days';
+        if (sample.partial) {
+          text += ' · partial sample: ' + sample.failed + ' of '
+            + sample.attempted + ' day feeds unavailable';
+        }
+        return text + ' · ' + nowTime();
       }
       // --- Due back soon: which unseen birds are worth a GBIF call ----------
       //
@@ -21398,12 +21425,12 @@
         hydratePhotos(box);
       }
       function loadEasyMisses() {
-        if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return Promise.resolve(false); }
         if ($('easyRegionLabel')) $('easyRegionLabel').textContent = '· ' + countyLabelStr();
         var btn = $('easyBtn'), st = $('easyStatus');
         if (!hasCounties()) {
           $('easyResults').innerHTML = '<div class="status">Easy misses is built from county checklist history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
-          st.textContent = ''; return;
+          st.textContent = ''; return Promise.resolve(true);
         }
         // ⚠️ F247. The results are NOT cleared here any more.
         //
@@ -21419,13 +21446,17 @@
         var had = !!$('easyResults').querySelector('li');
         st.textContent = (had ? 'Refreshing — ' : '')
           + 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
-        easyFetch(countyCodes(), dates, function (i, n) {
+        return easyFetch(countyCodes(), dates, function (i, n) {
           st.textContent = 'Sampling recent days… ' + i + '/' + n;
         }).then(function (all) {
+          var sample = easySampleState(all);
+          if (sample.allFailed) {
+            throw new Error('No Nemesis day feeds could be read. Reopen this section to retry.');
+          }
           var codes = {};
           all.forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; });
           var keys = Object.keys(codes);
-          if (!keys.length) return [all, {}];
+          if (!keys.length) return [all, {}, sample];
           // The same reportAs map the convoy section needs: without it a
           // subspecies report of a bird you already have reads as a miss.
           return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(keys.join(',')))
@@ -21435,15 +21466,17 @@
               (Array.isArray(tax) ? tax : []).forEach(function (t) {
                 if (t.speciesCode && t.reportAs) parentOf[t.speciesCode] = t.reportAs;
               });
-              return [all, parentOf];
+              return [all, parentOf, sample];
             });
         }).then(function (pair) {
           var rows = computeEasyMisses(pair[0], dates.length, pair[1]);
           renderEasyMisses(rows, dates.length);
-          st.textContent = rows.length + ' easy miss' + (rows.length === 1 ? '' : 'es')
-            + ' reported on ' + Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100)
-            + '%+ of ' + dates.length + ' sampled days · ' + nowTime();
-        }).catch(function (e) { st.textContent = netErr(e); })
+          st.textContent = easyResultStatus(rows, dates.length, pair[2]);
+          return true;
+        }).catch(function (e) {
+          st.textContent = netErr(e);
+          return false;
+        })
           .finally(function () { btn.disabled = false; });
       }
 
@@ -25683,7 +25716,7 @@
         cklBtn:     { fn: loadChecklists,   needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
-        easyBtn:    { fn: loadEasyMisses,  needsKey: true },
+        easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true },
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
@@ -25765,7 +25798,25 @@
         // live rather than cached, so this is the line that explains a cost
         // bucket appearing for a section the reader never chose.
         try { dbg('info', 'autoload ' + sec.id + ' \u00b7 on ' + visibleSectionId() + navWhy()); } catch (e) {}
-        try { spec.fn(); } catch (e) { try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {} }
+        var result;
+        try { result = spec.fn(); }
+        catch (e) {
+          if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
+          try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+          return Promise.resolve(false);
+        }
+        if (result && typeof result.then === 'function') {
+          return result.then(function (ok) {
+            if (spec.retryOnFailure && ok === false) _autoLoaded[sec.id] = false;
+            return ok;
+          }, function (e) {
+            if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
+            try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+            return false;
+          });
+        }
+        if (spec.retryOnFailure && result === false) _autoLoaded[sec.id] = false;
+        return result;
       }
       var _sections = [];
       // --- F228 instrumentation: what moved the reader, and what asked it to --
@@ -29630,6 +29681,7 @@
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
+        easySampleState: easySampleState, easyResultStatus: easyResultStatus,
         gbifScanOrder: gbifScanOrder, dueBackSoon: dueBackSoon,
         daysUntilMonthDay: daysUntilMonthDay, GBIF_SCAN_MAX: GBIF_SCAN_MAX,
         DUE_BACK_WINDOW_DAYS: DUE_BACK_WINDOW_DAYS,
@@ -29778,7 +29830,8 @@
         _chaseInflight[slug] = promise;
       },
       chaseGeneration: function () { return _chaseGeneration; },
-      loadedSectionFor: loadedSectionFor, onChasePhaseOne: onChasePhaseOne,
+      loadedSectionFor: loadedSectionFor, autoLoad: autoLoad,
+      onChasePhaseOne: onChasePhaseOne,
       onChasePartial: onChasePartial,
       progressStage: progressStage, progressStep: progressStep, progressEnd: progressEnd,
       progressState: function () { return _stage ? { label: _stage.label, total: _stage.total, done: _stage.done } : null; },
