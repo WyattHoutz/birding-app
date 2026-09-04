@@ -20628,6 +20628,31 @@ test('the Contents grid cannot crush a tile label', () => {
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
 
+test('F303 Show bird codes owns a measured row below Search and Close', async () => {
+  const app = await boot();
+  const codes = app.$('spCodesBtn');
+  const search = app.$('spLookupBtn');
+  const close = app.$('spLookupClear');
+  assert.notEqual(codes.closest('.row'), search.closest('.row'),
+    'Show bird codes shares the Search action row');
+  assert.equal(search.closest('.row'), close.closest('.row'),
+    'Search and Close no longer share their action row');
+
+  const audit = fs.readFileSync(
+    path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  assert.match(audit, /codesBtn\.parentElement === searchBtn\.parentElement/,
+    'the browser audit does not verify the authored row identity');
+  assert.match(audit, /codesRect\.top < actionBottom - 0\.5/,
+    'the browser audit does not prove Show bird codes starts below both actions');
+  assert.match(audit, /CODE CONTROL ROW/,
+    'the browser audit does not report the failed row contract');
+  assert.match(audit, /CODE CONTROL TARGET/,
+    'the browser audit does not enforce the 44px target');
+  assert.match(HTML, /#spCodesBtn\s*\{[^}]*min-height:\s*44px/,
+    'the named control does not guarantee its 44px target at normal text size');
+  app.window.close();
+});
+
 
 // The top bar shows a CODE (US-WA / US-WA-033) and the dropdowns that set it
 // showed only a NAME, so nothing connected the two: "id like to say the code
