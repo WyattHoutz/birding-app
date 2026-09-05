@@ -17985,7 +17985,12 @@
           var injectTimer = null, handles = [], pendingEvents = [];
           function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
           function belongs(ev) {
-            return !!id && !(ev && ev.id && ev.id !== id);
+            // These listeners belong to the PLUGIN, not one WebView. The
+            // pinned plugin always gives managed openWebView events an id,
+            // while Safari/custom-tab events are intentionally id-less. An
+            // ambiguous global event therefore owns nothing: accepting it
+            // would let closing an unrelated external link abort this capture.
+            return !!id && !!(ev && ev.id) && ev.id === id;
           }
           function whenOwned(ev, fn) {
             if (done) return;
@@ -20402,6 +20407,10 @@
       }
       function renderAbaAlert(list, url, grouped, wide, repaint) {
         var openCode = _abaOpen;
+        var openCard = openCode ? document.getElementById('aba-' + openCode) : null;
+        var openScroll = window.scrollY || window.pageYOffset || 0;
+        var preservedOpen = false;
+        _abaPendingDetail = null;
         // ⚠️ THE SCOPE IS DERIVED HERE, NOT TRUSTED FROM THE CALLER.
         //
         // Reported from the device: tapping "ABA area" showed all 53 species
@@ -20637,7 +20646,19 @@
             // you have not opened is a dozen calls nobody asked for.
             card.id = 'aba-' + g.code;
             card.hidden = true;
-            if (detailCards) detailCards.appendChild(card);
+            if (detailCards) {
+              if (openCard && g.code === openCode) {
+                // A late history repaint must not tear the page out from under
+                // somebody reading it. Keep the live node — including open
+                // disclosures and completed hydration — and hold the newly
+                // computed card until the reader returns to the list.
+                _abaPendingDetail = { code: g.code, card: card };
+                detailCards.appendChild(openCard);
+                preservedOpen = true;
+              } else {
+                detailCards.appendChild(card);
+              }
+            }
             // GBIF matches on scientific name only, so the slot stays inert
             // unless one is already in hand — no lookup is worth an extra call.
             var sci = sciFor(g.rs), slot = card.querySelector('.bchist');
@@ -20650,7 +20671,13 @@
           // history, blurb and finder are a network call each — a dozen birds
           // nobody has opened is a dozen calls nobody asked for. abaOpenBird()
           // hydrates the one card it shows, once.
-          if (!(openCode && abaOpenBird(openCode))) abaCloseBird();
+          if (openCode && abaOpenBird(openCode, { keepScroll: preservedOpen })) {
+            if (preservedOpen) {
+              try { window.scrollTo(0, openScroll); } catch (e) {}
+            }
+          } else {
+            abaCloseBird();
+          }
         } else {
           list.slice().sort(function (a, b) {
             var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
@@ -29231,8 +29258,8 @@
       //
       // The back button is the SAME button, told where it is. A second back
       // affordance would be a second navigation model, and this app has one.
-      var _abaOpen = '';
-      function abaOpenBird(code) {
+      var _abaOpen = '', _abaPendingDetail = null;
+      function abaOpenBird(code, opts) {
         var detail = $('abaDetail'), list = $('abaResults');
         var cards = $('abaDetailCards');
         if (!detail || !list || !cards) return false;
@@ -29259,11 +29286,20 @@
         if (t && h) t.textContent = h.textContent.trim();
         var back = $('navBack');
         if (back) back.setAttribute('aria-label', 'Back to the rarities list');
-        try { window.scrollTo(0, 0); } catch (e) {}
+        if (!(opts && opts.keepScroll)) {
+          try { window.scrollTo(0, 0); } catch (e) {}
+        }
         return true;
       }
       function abaCloseBird() {
         var detail = $('abaDetail'), list = $('abaResults');
+        if (_abaPendingDetail) {
+          var current = document.getElementById('aba-' + _abaPendingDetail.code);
+          if (current && current.parentNode) {
+            current.parentNode.replaceChild(_abaPendingDetail.card, current);
+          }
+          _abaPendingDetail = null;
+        }
         if (detail) { detail.hidden = true; }
         if (list) list.hidden = false;
         var st = $('abaStatus'); if (st) st.hidden = false;

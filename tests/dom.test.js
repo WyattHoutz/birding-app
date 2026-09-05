@@ -841,6 +841,19 @@ test('a stale WebView event cannot settle a capture before its own id is known',
 
   resolveOpen({ id: 'current-window' });
   await new Promise((resolve) => setTimeout(resolve, 10));
+  handlers.browserPageLoaded({});
+  handlers.urlChangeEvent({
+    url: 'https://secure.birds.cornell.edu/cassso/login',
+  });
+  handlers.messageFromWebview({
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['unowned'] },
+  });
+  handlers.closeEvent({ url: 'https://unrelated.example/' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false,
+    'an id-less event from an external browser cannot settle this WebView capture');
+  assert.deepEqual(closed, [],
+    'an id-less external close cannot close the capture-owned WebView');
   handlers.messageFromWebview({
     id: 'current-window',
     detail: { __ebird: true, kind: 'aba', ok: true, data: ['current'] },
@@ -14003,25 +14016,48 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
     'the navbar names where you are');
 
+  const openCard = doc.getElementById('aba-whiwag');
+  openCard.dataset.hydrated = '1';
+  const readingState = doc.createElement('details');
+  readingState.open = true;
+  readingState.innerHTML = '<summary>Every report</summary><span class="loaded-state">hydrated evidence</span>';
+  openCard.appendChild(readingState);
+  const scrollCalls = [];
+  app.window.scrollTo = (x, y) => { scrollCalls.push([x, y]); };
+  Object.defineProperty(app.window, 'scrollY', {
+    configurable: true,
+    value: 417,
+  });
+
   // A state-history result can land after the reader opens a bird. Rebuilding
-  // the list must reopen the corresponding rebuilt detail rather than ejecting
-  // the reader to the list.
+  // the list must leave the live detail node alone rather than ejecting the
+  // reader, collapsing their disclosure, discarding hydration or scrolling
+  // them back to the top.
   A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
     () => {});
   assert.equal(detail.hidden, false, 'a late repaint keeps the detail page open');
   assert.equal(list.hidden, true, 'and does not expose the list underneath it');
-  assert.equal(doc.getElementById('aba-whiwag').hidden, false,
-    'the same species detail is reopened after rebuilding');
+  assert.strictEqual(doc.getElementById('aba-whiwag'), openCard,
+    'the same live card node survives instead of being destroyed and rehydrated');
+  assert.equal(readingState.open, true, 'the reader’s open disclosure stays open');
+  assert.match(openCard.querySelector('.loaded-state').textContent, /hydrated evidence/,
+    'completed detail hydration is retained');
+  assert.deepEqual(scrollCalls, [[0, 417]],
+    'the reading position is restored instead of scrolling to the top');
   assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
     'the navigation title remains on the open species');
 
+  A.navBack();
+  assert.notStrictEqual(doc.getElementById('aba-whiwag'), openCard,
+    'returning to the list installs the freshly computed replacement card');
+
   // 3. Back means UP ONE LEVEL, not all the way out.
-  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
-    /rarities list/i, 'and the back button says so');
   // Entering the section first makes "back does not leave it" a real claim:
   // from the menu, everything is hidden and the assertion would be vacuous.
   A.showSection('sec-abaBtn');
   A.abaOpenBird('whiwag');
+  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
+    /rarities list/i, 'and the back button says so');
   assert.equal(doc.getElementById('menuPanel').hidden, true, 'we are in the section');
   A.navBack();
   assert.equal(detail.hidden, true, 'back closes the sub-page');
