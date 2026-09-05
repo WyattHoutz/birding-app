@@ -14020,13 +14020,32 @@ test('F326 a late Mega repaint keeps the selected ABA scope', async () => {
     HTML.indexOf('function renderAbaAlert('));
   assert.match(load, /function paint\(\)[\s\S]*abaScope\(\) === 'aba'/,
     'every async repaint derives scope at paint time');
-  const deepen = load.slice(load.indexOf('return Promise.all'));
+  const deepenStart = load.indexOf('function ensureStateHistory');
+  const deepen = load.slice(deepenStart, load.indexOf('function paint()', deepenStart));
   assert.match(deepen,
     /if \(!extra\.length && !Object\.keys\(_abaWide\)\.length\) return;\s*paint\(\);/,
     'the delayed history pass re-enters the scope-aware painter');
   assert.doesNotMatch(deepen,
     /renderAbaAlert\((?:rows|stateRows),\s*url,\s*scoped,\s*(?:wide|false)/,
     'the old callback cannot replay a captured state scope');
+  assert.match(load, /if \(scoped && !wide\) ensureStateHistory\(species\)/,
+    'opening on ABA and later selecting State still starts state history once');
+  assert.match(load, /var fetchedAt = nowTime\(\), historyPromise = null/,
+    'the alert fetch captures one honest data timestamp');
+  const paintSource = load.slice(load.indexOf('function paint()'),
+    load.indexOf('var view = paint()'));
+  assert.match(paintSource, /\+ fetchedAt\)/,
+    'scope and sort repaints reuse the fetch timestamp');
+  assert.doesNotMatch(paintSource, /nowTime\(\)/,
+    'a local repaint cannot make stale alert data look newly fetched');
+  assert.match(load,
+    /captureEbird\(\{[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
+    'the browser fallback and its status updates belong to the current load');
+  const terminalCatch = load.slice(load.lastIndexOf('.catch(function (e)'),
+    load.lastIndexOf('.finally(function ()'));
+  assert.match(terminalCatch,
+    /\.catch\(function \(e\) \{\s*if \(!stillCurrent\(\) \|\| \(e && e\.abaSuperseded\)\) return;/,
+    'an obsolete browser close/error cannot replace a newer success');
   app.window.close();
 });
 

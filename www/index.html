@@ -20098,7 +20098,10 @@
             dbg('warn', 'ABA direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
-            return captureEbird({ url: url, buildInject: buildAlertInject, onStatus: function (m) { st.textContent = m; } });
+            return captureEbird({
+              url: url, buildInject: buildAlertInject, alive: stillCurrent,
+              onStatus: function (m) { if (stillCurrent()) st.textContent = m; }
+            });
           })
           .then(function (list) {
             if (!stillCurrent()) throw superseded();
@@ -20121,6 +20124,27 @@
             var stateRows = scoped
               ? list.filter(function (o) { return o.subnational1Code === region; })
               : list;
+            var fetchedAt = nowTime(), historyPromise = null;
+            function ensureStateHistory(species) {
+              if (historyPromise || !scoped || !getKey()
+                  || !Object.keys(species || {}).length) return historyPromise;
+              historyPromise = Promise.all(Object.keys(species).map(function (c) {
+                return Promise.all([abaStateHistory(region, c), abaWideHistory(c)])
+                  .then(function (pair) {
+                    if (pair[1]) _abaWide[c] = pair[1];
+                    return pair[0];
+                  });
+              })).then(function (hist) {
+                if (!stillCurrent()) throw superseded();
+                var extra = [].concat.apply([], hist);
+                if (!extra.length && !Object.keys(_abaWide).length) return;
+                paint();
+              }).catch(function (e) {
+                if (!stillCurrent() || (e && e.abaSuperseded)) return;
+                dbg('warn', 'ABA history deepening failed: ' + ((e && e.message) || e));
+              });
+              return historyPromise;
+            }
             // Scope and sort are local projections over the raw alert. The old
             // scope click started a second scrape while the first load's state
             // history was still running; that older callback then explicitly
@@ -20143,9 +20167,9 @@
               }, 0);
               st.textContent = n
                 ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
-                  + ' reports · ' + unseen + ' you still need · ' + nowTime())
+                  + ' reports · ' + unseen + ' you still need · ' + fetchedAt)
                 : ('None — no ABA Code 3+ rarities currently reported in '
-                  + whereLbl + ' · ' + nowTime());
+                  + whereLbl + ' · ' + fetchedAt);
               var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
               verdict('Mega rarities',
                 list.length + ' alert rows'
@@ -20158,6 +20182,7 @@
                     : stateRows.length + ' cleared the ' + region + ' filter')
                 + ' · ' + n + ' species, ' + unseen + ' unseen'
                 + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
+              if (scoped && !wide) ensureStateHistory(species);
               return { wide: wide, species: species, n: n };
             }
             var view = paint();
@@ -20179,30 +20204,13 @@
             // snapshot outlives the view that wrote it, so this would have been
             // a bug that survives closing the section.
             saveMegaSnapshot(stateRows, scoped, startRegion, startSid);
-            // Then deepen it. The alert gives the ABA-code filter but a
-            // truncated report count, so pull each species' real state history
-            // AND its real continent-wide history, then re-render. Rendering
-            // twice is deliberate: the first paint is immediate, and the extra
-            // calls must not hold it up.
-            // State history deepens a STATE list. On the ABA-wide view it would
-            // ask Washington how often a Florida bird has been seen and print
-            // the answer under it, so it is skipped rather than mislabelled.
-            if (!scoped || view.wide || !view.n || !getKey()) return;
-            return Promise.all(Object.keys(view.species).map(function (c) {
-              return Promise.all([abaStateHistory(region, c), abaWideHistory(c)])
-                .then(function (pair) {
-                  if (pair[1]) _abaWide[c] = pair[1];
-                  return pair[0];
-                });
-            })).then(function (hist) {
-              if (!stillCurrent()) throw superseded();
-              var extra = [].concat.apply([], hist);
-              if (!extra.length && !Object.keys(_abaWide).length) return;
-              paint();
-            });
+            // State history deepens lazily the first time the State projection
+            // is painted. Opening on ABA therefore costs no Washington feeds,
+            // but switching to State still starts the authoritative deepening.
+            return historyPromise;
           })
           .catch(function (e) {
-            if (e && e.abaSuperseded) return;
+            if (!stillCurrent() || (e && e.abaSuperseded)) return;
             st.innerHTML = esc(e.message || 'Could not load the alert.') + ' '
               + extA(url, 'View on eBird');
           })
