@@ -17994,6 +17994,11 @@
           }
           function whenOwned(ev, fn) {
             if (done) return;
+            // Obsolescence belongs to this CAPTURE, not to the event. Any
+            // plugin activity is a chance to retire a capture whose report
+            // generation has moved on, but only an exactly identified event
+            // may deliver data or close a still-current capture.
+            if (!alive()) { stopObsolete(); return; }
             // Plugin listeners are global. An older WebView can emit while the
             // new openWebView promise is still resolving, when `id` is null and
             // the old belongs() check accepted everything. Buffer identified
