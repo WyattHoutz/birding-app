@@ -4,7 +4,7 @@
  * pipeline's eBird year-list exports.
  *
  * The birding-app ships a snapshot of the owner's eBird 2026 year lists as
- * bundled sample data so every panel (Targets, Top destinations, My year, …)
+ * bundled sample data so every panel (Targets, Top destinations, My Ticks, …)
  * has something to chew on before an eBird "Download My Data" CSV is imported.
  * The app matches by eBird `speciesCode`, which is exactly what these exports
  * carry, so matching is exact and locale-independent.
@@ -242,7 +242,7 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
     .filter(function (v, i, a) { return a.indexOf(v) === i; })
     .sort(function (a, b) { return a.localeCompare(b); });
   // The full year list (newest first, with first-seen date + checklist), so
-  // "My year" can show what the report's Year List section shows instead of
+  // "My Ticks" can show what the report's Year List section shows instead of
   // just a total.
   seenByReport[reportSlug] = {
     codes: Object.keys(set).sort(),

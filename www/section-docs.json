@@ -607,8 +607,8 @@
       ]
     },
     "myYearBody": {
-      "report": "## 📅 My year — Your list this year",
-      "summary": "Your year list for the region, exactly as the report prints it.",
+      "report": "## 📅 My Ticks — Your seen bird list this year",
+      "summary": "Your seen bird list this year.",
       "inputs": [
         "your eBird year-list export for this region"
       ],

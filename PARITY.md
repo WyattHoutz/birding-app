@@ -788,8 +788,8 @@ selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
 
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
-| 🐦 header — year list count | **My year** count | ✅ | Current-year species count from the imported CSV's Date column, or from the bundled seed on first run. Top-100 rank in **My eBird rankings**. |
-| 🐦 {year} Year List | **My year** list | ✅ | Full per-report year list (v1.0.7): the same rows the report prints — oldest numbered 1, newest first, species → `/species/{code}/{state}`, date → `/checklist/{subId}`, location link, "all obs" lifelist link, plus a thumbnail per entry. Built by `assets/build-seed.js`, whose parser now mirrors `report.py::_parse_lower48_year_list` exactly (section-aware, native-only) — cross-checked against the report in CI. |
+| 🐦 header — year list count | **My Ticks** count | ✅ | Current-year species count from the imported CSV's Date column, or from explicitly loaded sample data. Top-100 rank in **My eBird rankings**. |
+| 🐦 {year} Year List | **My Ticks** list | ✅ | Full per-report year list (v1.0.7): the same rows the report prints — oldest numbered 1, newest first, species → `/species/{code}/{state}`, date → `/checklist/{subId}`, location link, "all obs" lifelist link, plus a thumbnail per entry. Built by `assets/build-seed.js`, whose parser now mirrors `report.py::_parse_lower48_year_list` exactly (section-aware, native-only) — cross-checked against the report in CI. |
 
 ## Environmental (non-eBird sources)
 

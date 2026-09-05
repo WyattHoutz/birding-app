@@ -2533,7 +2533,7 @@
     </section>
 
     <section class="panel">
-      <h2>📅 My year</h2>
+      <h2>📅 My Ticks</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
       <ul id="myYearList" class="obs"></ul>
     </section>
@@ -4311,7 +4311,7 @@
         if (learned) {
           try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
         }
-        verdict('My year', how + ' read in ONE call: ' + rows.length
+        verdict('My Ticks', how + ' read in ONE call: ' + rows.length
           + ' species, ' + learned + ' new'
           + (unresolved ? ', ' + unresolved + ' unresolved to a code' : '')
           + ' · newest ' + lifelistNewest(rows)
@@ -4327,7 +4327,7 @@
             // SAY WHICH FAILURE IT WAS, and this one has four causes: not
             // signed in, an unrecognised header, HTML returned with a 200, or
             // an empty list. They need opposite fixes.
-            verdict('My year', 'lifelist CSV: ' + fmtInt(String(body || '').length)
+            verdict('My Ticks', 'lifelist CSV: ' + fmtInt(String(body || '').length)
               + ' B · ' + (/^\s*<(!doctype|html)/i.test(String(body || ''))
                             ? 'came back as HTML, not CSV'
                             : 'parsed ' + rows.length + ' rows')
@@ -4339,7 +4339,7 @@
             return absorbLifelistRows(res, 'lifelist CSV');
           });
         }).catch(function (e) {
-          verdict('My year', 'lifelist CSV unreachable (' + ((e && e.message) || e)
+          verdict('My Ticks', 'lifelist CSV unreachable (' + ((e && e.message) || e)
             + ') — trying the page instead');
           return 0;
         });
@@ -4356,7 +4356,7 @@
             // the first one for all three, which is the same defect as F184's
             // verdict and F187's pause message: a cause the code did not
             // observe. These four numbers settle it in ONE device run.
-            verdict('My year', 'lifelist page: ' + fmtInt(String(html || '').length)
+            verdict('My Ticks', 'lifelist page: ' + fmtInt(String(html || '').length)
               + ' B · title "' + lifelistTitle(html) + '" · '
               + (lifelistIsLogin(html) ? 'reads as a LOGIN page' : 'reads as a real page')
               + ' · parsed ' + rows.length + ' rows — falling back to the '
@@ -4373,12 +4373,12 @@
           if (learned) {
             try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
           }
-          verdict('My year', 'lifelist page read in ONE call: ' + rows.length
+          verdict('My Ticks', 'lifelist page read in ONE call: ' + rows.length
             + ' species, ' + learned + ' new · newest ' + lifelistNewest(rows)
             + ' — the 730-call walk was skipped');
           return rows.length;
         }).catch(function (e) {
-          verdict('My year', 'lifelist page unreachable (' + ((e && e.message) || e)
+          verdict('My Ticks', 'lifelist page unreachable (' + ((e && e.message) || e)
             + ') — falling back to the day-by-day walk');
           return 0;
         });
@@ -25608,7 +25608,7 @@
         migBtn:        'What’s arriving and leaving',
         bcBody:        'Nightly migration',
         todBtn:        'Time-of-day specialists',
-        myYearBody:    'Your list this year',
+        myYearBody:    'Your seen bird list this year',
         recordBody:    'Overdue megararities',
         settingsPanel: 'Region, text size, data',
         helpBody:      'What every button does'
@@ -25666,7 +25666,7 @@
         { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'myYearBody',    label: '📅 My year', group: 'My Bird List' },
+        { at: 'myYearBody',    label: '📅 My Ticks', group: 'My Bird List' },
         { at: 'nvResults',     label: '❓ Needs proof', group: 'My Bird List' },
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },

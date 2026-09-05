@@ -5146,6 +5146,36 @@ test('every tile title and subtitle comes from the contract, and the report head
   }
 });
 
+test('F316 calls the seen-year surface My Ticks and explains its scope', async () => {
+  const entry = CONTRACT.menu.find((item) => item.at === 'myYearBody');
+  assert.ok(entry, 'the My Ticks contract entry exists');
+  assert.deepEqual(
+    { label: entry.label, sub: entry.sub, report: entry.report },
+    {
+      label: '📅 My Ticks',
+      sub: 'Your seen bird list this year',
+      report: '## 📅 My Ticks — Your seen bird list this year',
+    },
+    'F316 title and subtitle are the product wording, not aliases derived from code');
+
+  const app = await boot();
+  const headingEl = app.document.getElementById('myYearBody')
+    .closest('section').querySelector('h2');
+  const heading = [...headingEl.childNodes]
+    .filter((node) => node.nodeType === app.window.Node.TEXT_NODE)
+    .map((node) => node.textContent).join('').trim();
+  const tile = [...app.document.querySelectorAll('#menuList .toclink')]
+    .find((link) => link.getAttribute('data-at') === 'myYearBody');
+  assert.equal(heading, '📅 My Ticks', 'the section heading uses the F316 title');
+  assert.ok(tile, 'the My Ticks menu tile rendered');
+  assert.equal(tile.getAttribute('aria-label'), '📅 My Ticks',
+    'the accessible tile name uses the F316 title');
+  assert.equal(tile.querySelector('.tilesub').textContent.trim(),
+    'Your seen bird list this year',
+    'the visible tile subtitle states exactly what the list contains');
+  app.window.close();
+});
+
 // A subtitle is published in the REPORT now, not only rendered under a tile, so
 // it has to read as prose. These are the two ways it stops being prose.
 test('a subtitle reads as a sentence fragment, not as a UI hint', () => {

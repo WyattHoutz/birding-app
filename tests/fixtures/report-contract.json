@@ -242,10 +242,10 @@
     },
     {
       "at": "myYearBody",
-      "label": "📅 My year",
-      "report": "## 📅 My year — Your list this year",
+      "label": "📅 My Ticks",
+      "report": "## 📅 My Ticks — Your seen bird list this year",
       "map": null,
-      "sub": "Your list this year"
+      "sub": "Your seen bird list this year"
     },
     {
       "at": "settingsPanel",
