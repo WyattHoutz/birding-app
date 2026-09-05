@@ -2790,9 +2790,10 @@
         re-fetching them per profile would burn the API budget you are trying to test.</p>
       <label for="ebirdName">eBird display name</label>
       <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your public eBird display name" />
-      <p class="hint">Used to find your row and your own checklists. An API key identifies
-        the app, not the account, so eBird does not return this name with the key. Importing
-        MyEBirdData.csv fills it when that export contains First Name and Last Name.</p>
+      <p class="hint" id="ebirdNameHint">Used to find your row and your own checklists.
+        Bird Chaser reads it from the signed-in account menu on the same eBird bird-list
+        page it already uses. The API key and public web key do not identify the account.
+        A manually entered name is never overwritten.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
@@ -3051,6 +3052,35 @@
         'bc_theme'                  // a look, not a list - shared like text size
       ];
       var _rawLS = window.localStorage;
+      var WEB_SESSION_BLOCK_KEY = 'bc_ebird_web_session_untrusted';
+      var _webSessionClearing = false;
+      var _webSessionReady = _rawLS.getItem(WEB_SESSION_BLOCK_KEY) !== '1';
+      function clearEbirdWebSession() {
+        _identityGeneration++;
+        _webSessionClearing = true;
+        _webSessionReady = false;
+        var IB = null, clearing = null;
+        try { IB = ib(); } catch (e) { IB = null; }
+        if (IB && typeof IB.clearAllBrowsingData === 'function') {
+          try { clearing = IB.clearAllBrowsingData(); }
+          catch (e) { clearing = Promise.reject(e); }
+        } else {
+          clearing = Promise.resolve();
+        }
+        return Promise.resolve(clearing).then(function () {
+          _webSessionClearing = false;
+          _webSessionReady = true;
+          try { _rawLS.removeItem(WEB_SESSION_BLOCK_KEY); } catch (e) {}
+          _identityGeneration++;
+          return true;
+        }).catch(function () {
+          _webSessionClearing = false;
+          _webSessionReady = false;
+          try { _rawLS.setItem(WEB_SESSION_BLOCK_KEY, '1'); } catch (e) {}
+          _identityGeneration++;
+          return false;
+        });
+      }
       function bcProfile() {
         try { return (_rawLS.getItem(PROFILE_PTR) || '').trim(); } catch (e) { return ''; }
       }
@@ -3097,8 +3127,31 @@
       // the chase snapshot are all built from the previous account; repainting
       // over them would show one birder's list under another's key.
       function bcSetProfile(p) {
-        try { _rawLS.setItem(PROFILE_PTR, String(p == null ? '' : p).trim()); } catch (e) {}
-        try { window.location.reload(); } catch (e) {}
+        var next = String(p == null ? '' : p).trim(), prev = bcProfile();
+        function finish() {
+          try { _rawLS.setItem(PROFILE_PTR, next); } catch (e) {}
+          try { window.location.reload(); } catch (e) {}
+        }
+        if (next === prev) { finish(); return; }
+
+        // WebKit's cookie jar is process-wide, while Bird Chaser profiles are
+        // localStorage namespaces. Carrying the old eBird login into a new
+        // profile would let its first bird-list capture silently name the new
+        // slot as the old account. Clear the shared browser session BEFORE the
+        // pointer moves; if clearing fails, do not switch into an ambiguous
+        // account context.
+        var IB = null;
+        try { IB = ib(); } catch (e) { IB = null; }
+        if (!(IB && typeof IB.clearAllBrowsingData === 'function')) {
+          finish();
+          return;
+        }
+        clearEbirdWebSession().then(function (cleared) {
+          if (cleared) finish();
+          else {
+            try { setKeyStatus('Could not clear the previous eBird browser session. Profile was not switched.', 'bad'); } catch (_) {}
+          }
+        });
       }
       // F188: A PROFILE NEEDS A NAME, not a slot number.
       //
@@ -3119,10 +3172,13 @@
         try { return JSON.parse(_rawLS.getItem(PROFILE_NAME_KEY) || '{}') || {}; }
         catch (e) { return {}; }
       }
+      function profileNameValue(name) {
+        return String(name || '').slice(0, 24);
+      }
       function setProfileName(slot, name) {
         var all = profileNames();
         var k = String(slot || '');
-        if (name) all[k] = String(name).slice(0, 24); else delete all[k];
+        if (name) all[k] = profileNameValue(name); else delete all[k];
         try { _rawLS.setItem(PROFILE_NAME_KEY, JSON.stringify(all)); } catch (e) {}
       }
       // The DEFAULT slot is "Main" and the others fall back to their slot
@@ -3456,9 +3512,10 @@
 
   // -- Erasing everything this app knows about you -------------------------
   //
-  // Every key the app writes is namespaced `ebird_`, so the scrub enumerates
-  // localStorage and matches on that PREFIX rather than deleting a list of
-  // known names.
+  // Every personal key the app writes is namespaced `ebird_`, so the scrub
+  // enumerates localStorage and matches on that PREFIX rather than deleting a
+  // list of known names. The one shared profile-label MAP is handled entry by
+  // entry below so erasing one account does not erase the other account names.
   //
   // That is not defensive coding for its own sake. Three of the keys are
   // themselves prefixes with one entry per region — ebird_home_<slug>,
@@ -3473,21 +3530,51 @@
   // derived taxonomy model in IndexedDB; the erase handler clears that store
   // explicitly after this synchronous localStorage sweep.
   var SCRUB_PREFIX = 'ebird_';
+  var _scrubbedPendingReload = false;
 
   function scrubbableKeys() {
     var out = [];
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
-      if (k && k.indexOf(SCRUB_PREFIX) === 0) out.push(k);
+      // Profile labels live in one raw map so the picker can name inactive
+      // profiles. Erasing one profile must remove only that map entry, not
+      // every other account's label.
+      if (k && k !== PROFILE_NAME_KEY && k.indexOf(SCRUB_PREFIX) === 0) out.push(k);
     }
     return out;
   }
 
+  function scrubCurrentProfileName() {
+    var all = profileNames(), slot = String(bcProfile());
+    if (!Object.prototype.hasOwnProperty.call(all, slot)) return false;
+    delete all[slot];
+    try {
+      if (Object.keys(all).length) _rawLS.setItem(PROFILE_NAME_KEY, JSON.stringify(all));
+      else _rawLS.removeItem(PROFILE_NAME_KEY);
+      return true;
+    } catch (e) { return false; }
+  }
+
   function scrubPersonalData() {
+    // Immediate write barrier. Removing the persisted revision would otherwise
+    // make an old request that started at revision zero look current again.
+    // The in-memory generation can only move forward during this process.
+    _identityGeneration++;
+    _scrubbedPendingReload = true;
     var keys = scrubbableKeys(), n = 0;
     for (var i = 0; i < keys.length; i++) {
       try { localStorage.removeItem(keys[i]); n++; } catch (e) { /* quota/private mode */ }
     }
+    if (scrubCurrentProfileName()) n++;
+    if ($('ebirdName')) {
+      $('ebirdName').value = '';
+      $('ebirdName').dataset.loadedValue = '';
+    }
+    if ($('bcProfileName')) {
+      $('bcProfileName').value = '';
+      $('bcProfileName').dataset.loadedValue = '';
+    }
+    if ($('saveBtn')) $('saveBtn').disabled = true;
     // The bundled sample list is someone else's birding history. Having just
     // erased yours, silently repopulating the app with theirs on next load is
     // not a clean slate — so mark it dismissed. This is written AFTER the sweep
@@ -17464,7 +17551,7 @@
           displayName: importedName
         }));
         if (importedName && !getDisplayName()) {
-          localStorage.setItem('ebird_display_name', importedName);
+          setDisplayNameValue(importedName, 'csv');
           if (!profileNames()[String(bcProfile())]) {
             setProfileName(bcProfile(), importedName);
           }
@@ -17545,7 +17632,129 @@
       // Every comparison site guards with `own && ...` (and logic.js does the
       // same in isOwn/convoyDetect), so an empty name degrades to "filter
       // nothing" — the safe direction. The rank loaders prompt for it instead.
+      var IDENTITY_META_KEY = 'ebird_identity_v1';
+      var IDENTITY_REV_KEY = 'ebird_identity_rev_v1';
+      var _identityGeneration = 0;
       function getDisplayName() { return (localStorage.getItem('ebird_display_name') || '').trim(); }
+      function identityRevision() {
+        var n = parseInt(localStorage.getItem(IDENTITY_REV_KEY) || '0', 10);
+        return isFinite(n) && n >= 0 ? n : 0;
+      }
+      function bumpIdentityRevision() {
+        var n = identityRevision() + 1;
+        localStorage.setItem(IDENTITY_REV_KEY, String(n));
+        return n;
+      }
+      function getIdentityMeta() {
+        try {
+          var meta = JSON.parse(localStorage.getItem(IDENTITY_META_KEY) || 'null');
+          return meta && typeof meta === 'object' ? meta : null;
+        } catch (e) { return null; }
+      }
+      // One writer for identity provenance. `ebird_display_name` remains the
+      // compatibility key read by every existing comparison, while this small
+      // sidecar records HOW it arrived without duplicating the name or storing
+      // the account-menu username. Both keys are profile-scoped by the F177
+      // localStorage shim and erased by the `ebird_` scrub prefix.
+      function setDisplayNameValue(name, source) {
+        name = String(name || '').replace(/\s+/g, ' ').trim();
+        localStorage.setItem('ebird_display_name', name);
+        bumpIdentityRevision();
+        if (!name) {
+          localStorage.removeItem(IDENTITY_META_KEY);
+          return '';
+        }
+        localStorage.setItem(IDENTITY_META_KEY, JSON.stringify({
+          source: source || 'manual',
+          observedAt: new Date().toISOString()
+        }));
+        return name;
+      }
+      // Manual, CSV and legacy values are explicit overrides. An earlier value
+      // fetched from this same account-menu source may be refreshed when the
+      // authenticated WebView account changes; otherwise signing out of one
+      // account and into another would leave ownership filters tied to the old
+      // account forever.
+      function applyCapturedIdentity(identity) {
+        identity = identity || {};
+        if (identity.status !== 'ok') {
+          return { applied: false, status: identity.status || 'missing' };
+        }
+        var found = String(identity.displayName || '').replace(/\s+/g, ' ').trim();
+        if (!found) return { applied: false, status: 'malformed' };
+        var field = $('ebirdName');
+        if (field) {
+          var loaded = String(field.dataset.loadedValue || '').trim();
+          var typed = String(field.value || '').replace(/\s+/g, ' ').trim();
+          if (typed !== loaded) {
+            return { applied: false, status: 'manual-override' };
+          }
+        }
+        var existing = getDisplayName(), meta = getIdentityMeta();
+        if (existing) {
+          if (existing === found) return { applied: false, status: 'already-set' };
+          if (!(meta && meta.source === 'ebird-bird-list')) {
+            return { applied: false, status: 'manual-override' };
+          }
+        }
+        var previous = existing;
+        setDisplayNameValue(found, 'ebird-bird-list');
+        var profileField = $('bcProfileName');
+        var profileUntouched = !profileField
+          || String(profileField.value || '') === String(profileField.dataset.loadedValue || '');
+        var savedProfileName = profileNames()[String(bcProfile())] || '';
+        var previousProfileName = profileNameValue(previous);
+        var nextProfileName = profileNameValue(found);
+        if (profileUntouched && (!savedProfileName || savedProfileName === previousProfileName)) {
+          setProfileName(bcProfile(), found);
+          if (profileField) {
+            profileField.value = nextProfileName;
+            profileField.dataset.loadedValue = nextProfileName;
+          }
+        }
+        if (field) {
+          field.value = found;
+          field.dataset.loadedValue = found;
+        }
+        try { refreshIdentityHint(); } catch (e) {}
+        try { renderKeyBanner(); } catch (e) {}
+        try { headerIdentityRefresh(); } catch (e) {}
+        try { renderMenuIdentity(); } catch (e) {}
+        return {
+          applied: true,
+          status: previous ? 'updated' : 'applied',
+          displayName: found
+        };
+      }
+      function identityResultMessage(result) {
+        var status = result && result.status;
+        if (status === 'applied') return 'Your signed-in eBird display name was found and saved.';
+        if (status === 'updated') return 'Your saved name was updated to the currently signed-in eBird account.';
+        if (status === 'already-set') return 'The signed-in eBird name matches the saved name.';
+        if (status === 'manual-override') return 'The signed-in eBird name was found; your manually saved name was kept.';
+        if (status === 'logged-out') return 'Sign in to eBird in the opened window, then try again.';
+        if (status === 'anonymous') return 'This eBird account is using Anonymous eBirder, which cannot identify your public rows.';
+        if (status === 'ambiguous') return 'eBird exposed more than one account name, so nothing was changed.';
+        if (status === 'malformed') return 'The eBird account label changed shape, so nothing was changed.';
+        return 'The signed-in eBird account name was not available. You can enter it manually.';
+      }
+      function refreshIdentityHint() {
+        var hint = $('ebirdNameHint');
+        if (!hint) return;
+        var meta = getIdentityMeta(), source = meta && meta.source;
+        var suffix = source === 'ebird-bird-list'
+          ? ' Current source: signed-in eBird bird-list account menu.'
+          : source === 'csv'
+            ? ' Current source: imported eBird CSV.'
+            : getDisplayName()
+              ? ' Current source: manual entry.'
+              : '';
+        hint.textContent = 'Used to find your row and your own checklists. '
+          + 'Bird Chaser reads it from the signed-in account menu on the same '
+          + 'eBird bird-list page it already uses. The API key and public web '
+          + 'key do not identify the account. A manually entered name is never overwritten.'
+          + suffix;
+      }
       function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
 
       // Follow the eBird taxonomy's reportAs chain to the terminal parent
@@ -17789,7 +17998,13 @@
       function openKeygen() {
         var IB = ib();
         if (IB && typeof IB.openWebView === 'function') {
-          try { IB.openWebView({ url: EBIRD_KEYGEN_URL, showReloadButton: true, title: 'eBird API key' }); return true; } catch (e) {}
+          try {
+            IB.openWebView({
+              url: EBIRD_KEYGEN_URL, showReloadButton: true,
+              title: 'eBird API key', persistWebViewData: true
+            });
+            return true;
+          } catch (e) {}
         }
         openExternal(EBIRD_KEYGEN_URL);
         return true;
@@ -17859,12 +18074,31 @@
         if (getKey()) {
           if (!getDisplayName()) {
             el.hidden = false;
-            el.innerHTML = '<div class="kbtitle">👤 Add your eBird display name</div>'
-              + '<p>The API key identifies Bird Chaser, not your eBird account. '
-              + 'Add the public name on your eBird profile so the app can find '
-              + 'your checklists and leaderboard row.</p>'
-              + '<div class="keyrow"><button id="nameBannerBtn" type="button">'
-              + 'Add my name</button></div>';
+            el.innerHTML = '<div class="kbtitle">👤 Fetch your eBird display name</div>'
+              + '<p>The API key and eBird web key do not identify an account. '
+              + 'Bird Chaser can read the name from the signed-in account menu '
+              + 'on the same eBird bird-list page it already uses.</p>'
+              + '<div class="keyrow"><button id="nameFetchBtn" type="button">'
+              + 'Fetch my name</button><button id="nameBannerBtn" class="secondary" '
+              + 'type="button">Enter manually</button></div>'
+              + '<p id="identityFetchStatus" class="hint"></p>';
+            var fb = $('nameFetchBtn');
+            if (fb) fb.addEventListener('click', function () {
+              var status = $('identityFetchStatus');
+              fb.disabled = true;
+              if (status) status.textContent = 'Opening the eBird bird list…';
+              fetchIdentityFromBirdList(function (message) {
+                if (status) status.textContent = message;
+              }).then(function (result) {
+                if (result && result.applied) return;
+                if (status) status.textContent = identityResultMessage(result);
+              }).catch(function (e) {
+                if (status) status.textContent = (e && e.message)
+                  ? e.message : 'Could not read the signed-in eBird account.';
+              }).finally(function () {
+                if ($('nameFetchBtn')) $('nameFetchBtn').disabled = false;
+              });
+            });
             var nb = $('nameBannerBtn');
             if (nb) nb.addEventListener('click', function () {
               showSettings(true);
@@ -17969,10 +18203,57 @@
           'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
           'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
           'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          parseEbirdAccountIdentity.toString() + ';' +
           parseFirstYearBirdList.toString() + ';' +
           'var R=parseFirstYearBirdList(H);' +
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:!!(onPage&&R&&R.valid),data:R}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+      function buildIdentityInject(expectRegion, attempt) {
+        return '(function(){try{if(!window.mobileApp)return;' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
+          'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
+          'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
+          'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          parseEbirdAccountIdentity.toString() + ';' +
+          'var I=parseEbirdAccountIdentity(H);' +
+          'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
+          'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
+          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+
+      function fetchIdentityFromBirdList(onStatus) {
+        if (_webSessionClearing) {
+          return Promise.reject(new Error('The previous eBird browser session is still being cleared.'));
+        }
+        if (!_webSessionReady) {
+          return clearEbirdWebSession().then(function (cleared) {
+            if (!cleared) {
+              throw new Error('The previous eBird browser session could not be cleared.');
+            }
+            return fetchIdentityFromBirdList(onStatus);
+          });
+        }
+        var region = getRegion(), startProfile = bcProfile(), startKey = getKey();
+        var startIdentityRevision = identityRevision();
+        var startIdentityGeneration = _identityGeneration;
+        function current() {
+          return bcProfile() === startProfile && getKey() === startKey
+            && identityRevision() === startIdentityRevision
+            && _identityGeneration === startIdentityGeneration;
+        }
+        return captureEbird({
+          kind: 'identity',
+          url: firstYearUrl(region),
+          alive: current,
+          buildInject: function (attempt) { return buildIdentityInject(region, attempt); },
+          onStatus: onStatus
+        }).then(function (identity) {
+          if (!current()) return { applied: false, status: 'superseded' };
+          return applyCapturedIdentity(identity);
+        });
       }
 
       // Open an eBird page, wait through the login redirect if needed, inject a
@@ -17981,7 +18262,7 @@
         var IB = ib();
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
-          var id = null, done = false, timer = null, revealTimer = null;
+          var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [];
           function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
           function belongs(ev) {
@@ -18008,8 +18289,9 @@
             finish(new Error('The eBird capture was superseded by a new report.'));
           }
           function reveal() {
-            if (done || !id) return;
+            if (done || !id || revealed) return;
             if (!alive()) { stopObsolete(); return; }
+            revealed = true;
             try { IB.show({ id: id }); } catch (e) {}
             if (opts.onStatus) opts.onStatus('Finish on eBird if prompted — this closes automatically.');
           }
@@ -18030,7 +18312,7 @@
             // Promise; scheduling afterward would turn one bridge hiccup into
             // a permanent one-shot capture.
             try {
-              var request = IB.executeScript({ id: id, code: opts.buildInject() });
+              var request = IB.executeScript({ id: id, code: opts.buildInject(attempt) });
               if (request && request.catch) request.catch(function () {});
             } catch (e) {}
           }
@@ -18040,6 +18322,7 @@
             if (!alive()) { stopObsolete(); return; }
             var d = ev && ev.detail; if (!d || !d.__ebird) return;
             if (opts.kind && d.kind !== opts.kind) return;
+            if (d.needsLogin) { reveal(); return; }
             // Listeners are registered on the plugin, not on one window, so a
             // leftover eBird window could otherwise resolve this capture with
             // its own page. Ignore anything that names a different window.
@@ -18064,7 +18347,8 @@
             finish(new Error('The eBird window was closed before it finished.'));
           });
           IB.openWebView({
-            url: opts.url, showReloadButton: true, hidden: true
+            url: opts.url, showReloadButton: true, hidden: true,
+            persistWebViewData: true
           }).then(function (r) {
             id = r && r.id;
             try { IB.hide({ id: id }); } catch (e) {}
@@ -18075,10 +18359,38 @@
       }
 
       function ebirdSignOut() {
-        var IB = ib();
-        if (IB && IB.clearAllBrowsingData) { try { IB.clearAllBrowsingData(); } catch (e) {} }
-        if ($('rankStatus')) $('rankStatus').textContent = 'Signed out of eBird on this device.';
-        if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
+        var meta = getIdentityMeta(), oldName = getDisplayName();
+        if (meta && meta.source === 'ebird-bird-list') {
+          setDisplayNameValue('', 'ebird-sign-out');
+          if (profileNames()[String(bcProfile())] === profileNameValue(oldName)) {
+            setProfileName(bcProfile(), '');
+          }
+          if ($('ebirdName')) {
+            $('ebirdName').value = '';
+            $('ebirdName').dataset.loadedValue = '';
+          }
+          if ($('bcProfileName')
+              && $('bcProfileName').value === profileNameValue(oldName)) {
+            $('bcProfileName').value = '';
+            $('bcProfileName').dataset.loadedValue = '';
+          }
+          refreshIdentityHint();
+          renderKeyBanner();
+          headerIdentityRefresh();
+          renderMenuIdentity();
+        }
+        if ($('rankStatus')) $('rankStatus').textContent = 'Signing out of eBird on this device…';
+        if ($('abaStatus')) $('abaStatus').textContent = 'Signing out…';
+        return clearEbirdWebSession().then(function (cleared) {
+          if (cleared) {
+            if ($('rankStatus')) $('rankStatus').textContent = 'Signed out of eBird on this device.';
+            if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
+          } else {
+            if ($('rankStatus')) $('rankStatus').textContent = 'Could not clear the eBird browser session.';
+            if ($('abaStatus')) $('abaStatus').textContent = 'Sign-out failed. Restart the app before using another account.';
+          }
+          return cleared;
+        });
       }
 
       // Mirrors rankings.py::REGIONS. `activeFor` is what the report FETCHES
@@ -22762,13 +23074,101 @@
       // Only Native/Naturalized rows carry `.countable`, which is the boundary
       // this parser enforces. All 376 ordinary rows had date, checklist,
       // observer, and location text; 116 were private locations with no locId.
+      //
+      // F317, measured in the owner's authenticated browser 2026-09-04: this
+      // SAME page carries the signed-in account in the header's My Account
+      // accessibility label:
+      //
+      //     Birder <display name> (<username>)
+      //
+      // The username is deliberately used only to validate the shape. It is
+      // never returned, persisted, logged or put in a fixture. Scoping to an
+      // aria-label inside the page banner keeps a checklist observer, a Top
+      // 100 row or ordinary visible prose from becoming an account identity.
+      function parseEbirdAccountIdentity(input) {
+        var out = { status: 'missing', displayName: '', evidence: '' };
+        var doc = input && typeof input.querySelectorAll === 'function' ? input : null;
+        if (!doc) {
+          try { doc = new DOMParser().parseFromString(String(input || ''), 'text/html'); }
+          catch (e) { return out; }
+        }
+        if (!doc) return out;
+        if (doc.querySelector('input[type="password"], form[action*="/cassso/login"], form[action*="/login"]')
+            || /sign in/i.test(String(doc.title || ''))) {
+          out.status = 'logged-out';
+          return out;
+        }
+
+        var roots = doc.querySelectorAll('header, [role="banner"]');
+        for (var s = 0; s < roots.length; s++) {
+          var actions = roots[s].querySelectorAll('a[href], button, [role="button"]');
+          for (var a = 0; a < actions.length; a++) {
+            var actionText = String(actions[a].getAttribute('aria-label')
+              || actions[a].textContent || '').replace(/\s+/g, ' ').trim();
+            var actionHref = String(actions[a].getAttribute('href') || '');
+            if (/^sign in$/i.test(actionText)
+                && (!actionHref || /cassso|\/login/i.test(actionHref))) {
+              out.status = 'logged-out';
+              return out;
+            }
+          }
+        }
+        var names = {}, accounts = {}, sawBirder = false, malformed = false;
+        function inspect(el) {
+          if (!el || !el.getAttribute) return;
+          var label = String(el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+          if (!/^Birder\b/i.test(label)) return;
+          sawBirder = true;
+          // Greedy display-name capture is intentional: a display name may
+          // itself contain parentheses; only the FINAL pair is the username.
+          var m = /^Birder\s+(.+)\s+\(([^()]*)\)\s*$/i.exec(label);
+          var name = m ? String(m[1] || '').replace(/\s+/g, ' ').trim() : '';
+          var username = m ? String(m[2] || '').trim() : '';
+          var usernamePresent = !!username;
+          if (!name || !usernamePresent) { malformed = true; return; }
+          names[name] = 1;
+          accounts[name + '\n' + username] = 1;
+        }
+        for (var r = 0; r < roots.length; r++) {
+          inspect(roots[r]);
+          var labelled = roots[r].querySelectorAll('[aria-label]');
+          for (var i = 0; i < labelled.length; i++) inspect(labelled[i]);
+        }
+        var found = Object.keys(names);
+        if (Object.keys(accounts).length > 1 || found.length > 1) {
+          out.status = 'ambiguous';
+          return out;
+        }
+        if (malformed) {
+          out.status = 'malformed';
+          return out;
+        }
+        if (found.length === 1) {
+          if (found[0].toLowerCase() === 'anonymous ebirder') {
+            out.status = 'anonymous';
+            out.evidence = 'account-menu-aria-label';
+            return out;
+          }
+          out.status = 'ok';
+          out.displayName = found[0];
+          out.evidence = 'account-menu-aria-label';
+          return out;
+        }
+        out.status = sawBirder ? 'malformed' : 'missing';
+        return out;
+      }
+
       function parseFirstYearBirdList(html) {
-        var out = { valid: false, declared: 0, rows: [], title: '' };
+        var out = {
+          valid: false, declared: 0, rows: [], title: '',
+          identity: { status: 'missing', displayName: '', evidence: '' }
+        };
         var doc;
         try { doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); }
         catch (e) { return out; }
         if (!doc) return out;
         out.title = doc.title || '';
+        out.identity = parseEbirdAccountIdentity(doc);
 
         function clean(el) {
           return el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '';
@@ -22885,8 +23285,16 @@
       }
       function firstYearFetch(region, alive) {
         var url = firstYearUrl(region);
+        var startProfile = bcProfile(), startKey = getKey();
+        var startIdentityRevision = identityRevision();
+        var startIdentityGeneration = _identityGeneration;
         function current() {
-          try { return !alive || alive(); } catch (e) { return false; }
+          try {
+            return (!alive || alive())
+              && bcProfile() === startProfile
+              && getKey() === startKey
+              && _identityGeneration === startIdentityGeneration;
+          } catch (e) { return false; }
         }
         function status(message) {
           if (current() && $('migFirstStatus')) $('migFirstStatus').textContent = message;
@@ -22909,6 +23317,14 @@
             if (!page || !page.valid) throw new Error('Could not read eBird first reports');
             return page;
           });
+        }).then(function (page) {
+          if (!current()) throw new Error('The eBird load was superseded by a new account or report.');
+          if (page && page.identity
+              && identityRevision() === startIdentityRevision
+              && _webSessionReady && !_webSessionClearing) {
+            applyCapturedIdentity(page.identity);
+          }
+          return page;
         });
       }
       function firstYearAgeLabel(days) {
@@ -28052,7 +28468,10 @@
             _sel.appendChild(o);
           });
           _sel.value = _cur;
-          if ($('bcProfileName')) $('bcProfileName').value = profileNames()[String(_cur)] || '';
+          if ($('bcProfileName')) {
+            $('bcProfileName').value = profileNames()[String(_cur)] || '';
+            $('bcProfileName').dataset.loadedValue = $('bcProfileName').value;
+          }
         }
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
         if ($('themeMode')) $('themeMode').value = getTheme();
@@ -28087,6 +28506,8 @@
         $('tideStation').value = localStorage.getItem(tideKey()) || '';
         if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('ebirdName').value = getDisplayName();
+        $('ebirdName').dataset.loadedValue = getDisplayName();
+        refreshIdentityHint();
         $('abaSid').value = getAbaSid();
         syncRankRegionUI();
         syncRegionNav();
@@ -29465,19 +29886,24 @@
 
       $('scrubBtn').addEventListener('click', function () {
         var n = scrubbableKeys().length;
+        if (Object.prototype.hasOwnProperty.call(profileNames(), String(bcProfile()))) n++;
         if (!confirmAction('erase-device-data',
           'Erase all your data from this device?\n\n' +
           'This removes your eBird API key, seen list, favourites, home locations '
           + 'and every cached panel (' + n + ' local item' + (n === 1 ? '' : 's')
-          + ' plus the on-device taxonomy model).\n\n'
+          + ' plus the on-device taxonomy model and signed-in eBird browser session).\n\n'
           + 'It cannot be undone, and you will need to re-enter your API key.')) return;
         var removed = scrubPersonalData();
         $('scrubStatus').textContent = 'Erased ' + removed + ' local item'
-          + (removed === 1 ? '' : 's') + '. Clearing the taxonomy model\u2026';
-        spuhCacheClear().then(function (cleared) {
-          if (!cleared) {
+          + (removed === 1 ? '' : 's')
+          + '. Clearing the taxonomy model and eBird browser session\u2026';
+        Promise.all([spuhCacheClear(), clearEbirdWebSession()]).then(function (cleared) {
+          if (!cleared[0] || !cleared[1]) {
+            var failed = [];
+            if (!cleared[0]) failed.push('taxonomy cache');
+            if (!cleared[1]) failed.push('eBird browser session');
             $('scrubStatus').textContent = 'The local items were erased, but the '
-              + 'taxonomy cache could not be cleared. The app was not reloaded.';
+              + failed.join(' and ') + ' could not be cleared. The app was not reloaded.';
             return;
           }
           $('scrubStatus').textContent = 'Everything stored by Bird Chaser was erased. '
@@ -29499,6 +29925,12 @@
       });
 
       $('saveBtn').addEventListener('click', function () {
+        if (_scrubbedPendingReload) {
+          if ($('scrubStatus')) {
+            $('scrubStatus').textContent = 'Your data was erased. Waiting for the app to reload…';
+          }
+          return;
+        }
         var btn = this;
         function persist() {
           localStorage.setItem(K.api, $('apiKey').value.trim());
@@ -29514,8 +29946,13 @@
           localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
           // Blank means blank. Falling back to a hardcoded name here would put
           // the author's identity back into storage the first time anyone
-          // pressed Save, undoing the default above.
-          localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim());
+          // pressed Save, undoing the default above. Preserve fetched/CSV
+          // provenance when the field was merely viewed and saved unchanged;
+          // only an actual edit becomes the manual override F317 promises.
+          var enteredName = ($('ebirdName').value || '').trim();
+          var loadedName = $('ebirdName').dataset.loadedValue || '';
+          if (enteredName !== loadedName) setDisplayNameValue(enteredName, 'manual');
+          else localStorage.setItem('ebird_display_name', enteredName);
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
           // F177: switching profile is the LAST thing Save does, because it
           // reloads. Everything above has to land in the profile being left,
@@ -29529,7 +29966,11 @@
           // above lands in the profile being left. Stored in the shared
           // namespace because the picker must be able to read the name of a
           // profile it is not standing in.
-          if ($('bcProfileName')) setProfileName(bcProfile(), ($('bcProfileName').value || '').trim());
+          if ($('bcProfileName')) {
+            var profileEntered = ($('bcProfileName').value || '').trim();
+            var profileLoaded = $('bcProfileName').dataset.loadedValue || '';
+            if (profileEntered !== profileLoaded) setProfileName(bcProfile(), profileEntered);
+          }
           if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
           clearChaseCache();
           _autoLoaded = {};
@@ -29671,6 +30112,11 @@
         MEGA_SNAP_KEY: MEGA_SNAP_KEY,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
+        getIdentityMeta: getIdentityMeta, setDisplayNameValue: setDisplayNameValue,
+        applyCapturedIdentity: applyCapturedIdentity,
+        identityResultMessage: identityResultMessage,
+        identityRevision: identityRevision,
+        IDENTITY_META_KEY: IDENTITY_META_KEY, IDENTITY_REV_KEY: IDENTITY_REV_KEY,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
         reviewFlag: reviewFlag,
@@ -29753,9 +30199,13 @@
         getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, captureEbird: captureEbird,
+        fetchIdentityFromBirdList: fetchIdentityFromBirdList,
+        buildIdentityInject: buildIdentityInject, ebirdSignOut: ebirdSignOut,
         rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
+        parseEbirdAccountIdentity: parseEbirdAccountIdentity,
         parseFirstYearBirdList: parseFirstYearBirdList,
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
+        firstYearWrite: firstYearWrite, firstYearFetch: firstYearFetch,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,

@@ -32,6 +32,12 @@ const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const FIRST_YEAR_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-first-year.html'), 'utf8');
+const ACCOUNT_MENU_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'ebird-account-menu.html'), 'utf8');
+const ACCOUNT_LOGIN_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'ebird-account-login.html'), 'utf8');
+const ACCOUNT_SIGNED_OUT_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'ebird-account-signed-out.html'), 'utf8');
 const SEED = JSON.parse(
   fs.readFileSync(path.join(WWW, 'seed-birdlist.json'), 'utf8'));
 
@@ -311,6 +317,243 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
     .find((link) => /Private patch/.test(link.textContent));
   assert.equal(privateLocationLink, undefined,
     'preserved private-location text is plain text when eBird publishes no coordinates');
+  app.window.close();
+});
+
+// ---------------------------------------------------------------------------
+// F317 — the authenticated regional bird-list page already carries the current
+// account in the header's My Account accessibility label. The public web key
+// is deliberately irrelevant: cookies establish the session, and the parser
+// returns the display name while discarding the username in parentheses.
+// ---------------------------------------------------------------------------
+
+test('F317 parses only the authenticated header account label and discards username', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const identity = A.parseEbirdAccountIdentity(ACCOUNT_MENU_HTML);
+
+  assert.equal(identity.status, 'ok');
+  assert.equal(identity.displayName, 'Sample Observer');
+  assert.equal(identity.evidence, 'account-menu-aria-label');
+  assert.equal(Object.hasOwn(identity, 'username'), false,
+    'the private login name is validation syntax, never returned data');
+  assert.doesNotMatch(JSON.stringify(identity), /sample_login/,
+    'the private login name cannot cross the WebView bridge');
+
+  const visibleOnly = ACCOUNT_MENU_HTML
+    .replace('aria-label="Birder Sample Observer (sample_login)"',
+      'aria-label="My Account"')
+    .replace('>\n        My Account\n      </button>',
+      '>\n        Birder Sample Observer (sample_login)\n      </button>');
+  assert.equal(A.parseEbirdAccountIdentity(visibleOnly).status, 'missing',
+    'visible page prose is not an authenticated account marker');
+
+  const malformed = ACCOUNT_MENU_HTML
+    .replace('Birder Sample Observer (sample_login)',
+      'Birder Sample Observer');
+  assert.equal(A.parseEbirdAccountIdentity(malformed).status, 'malformed',
+    'removing the final username shape invalidates the claimed identity');
+
+  const ambiguous = ACCOUNT_MENU_HTML.replace('</nav>',
+    '<button aria-label="Birder Other Observer (other_login)">My Account</button></nav>');
+  assert.equal(A.parseEbirdAccountIdentity(ambiguous).status, 'ambiguous',
+    'two distinct signed-in labels cannot choose an account by accident');
+  const duplicateName = ACCOUNT_MENU_HTML.replace('</nav>',
+    '<button aria-label="Birder Sample Observer (other_login)">My Account</button></nav>');
+  assert.equal(A.parseEbirdAccountIdentity(duplicateName).status, 'ambiguous',
+    'matching display text cannot collapse two different account labels');
+
+  const anonymous = ACCOUNT_MENU_HTML.replace(
+    'Birder Sample Observer (sample_login)',
+    'Birder Anonymous eBirder (sample_login)');
+  assert.equal(A.parseEbirdAccountIdentity(anonymous).status, 'anonymous');
+  assert.equal(A.parseEbirdAccountIdentity(anonymous).displayName, '',
+    'the shared anonymous label is not usable as a person identity');
+
+  assert.equal(A.parseEbirdAccountIdentity(ACCOUNT_LOGIN_HTML).status, 'logged-out');
+  assert.equal(A.parseEbirdAccountIdentity(ACCOUNT_SIGNED_OUT_HTML).status, 'logged-out',
+    'the public bird-list page exposes a Sign in action rather than a login form');
+  app.window.close();
+});
+
+test('F317 returns identity beside first-year rows without storing it in the page cache', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const page = A.parseFirstYearBirdList(
+    FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header));
+
+  assert.equal(page.valid, true);
+  assert.equal(page.identity.status, 'ok');
+  assert.equal(page.identity.displayName, 'Sample Observer');
+  assert.equal(Object.hasOwn(page.identity, 'username'), false);
+
+  const cached = A.firstYearWrite('US-WA', 2026, page);
+  assert.equal(Object.hasOwn(cached, 'identity'), false,
+    'personal identity never rides in the durable regional bird-list cache');
+  assert.doesNotMatch(JSON.stringify(cached), /Sample Observer|sample_login/);
+  app.window.close();
+});
+
+test('F317 the existing first-year fetch applies identity from the same page response', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+  const app = await boot({
+    sample: false,
+    fetch: (url) => (/\/bird-list\?/.test(url) ? pageHtml : null),
+  });
+  const A = app.window.__app;
+
+  const page = await A.firstYearFetch('US-WA');
+  assert.equal(page.valid, true);
+  assert.equal(page.identity.displayName, 'Sample Observer');
+  assert.equal(A.getDisplayName(), 'Sample Observer',
+    'no second navigation or identity endpoint is required');
+  assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+  assert.equal(app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length, 1,
+    'identity rides the one bird-list request already being made');
+  app.window.close();
+});
+
+test('F317 applies a blank identity once and retains an existing manual override', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const applied = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Sample Observer',
+    evidence: 'account-menu-aria-label', username: 'must_not_persist',
+  });
+
+  assert.equal(applied.applied, true);
+  assert.equal(A.getDisplayName(), 'Sample Observer');
+  assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+  assert.equal(A.profileLabel(''), 'Sample Observer');
+  assert.equal(app.$('bcProfileName').value, 'Sample Observer',
+    'an untouched Settings profile-label field follows the captured identity');
+  app.click(app.$('saveBtn'));
+  assert.equal(A.profileLabel(''), 'Sample Observer',
+    'a later unchanged Save cannot erase the captured profile label');
+  const stored = Array.from(
+    { length: app.window.localStorage.length },
+    (_, i) => app.window.localStorage.getItem(app.window.localStorage.key(i)),
+  ).join('\n');
+  assert.doesNotMatch(stored, /must_not_persist/,
+    'even an unexpected username field is ignored at the mutation boundary');
+
+  const updated = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Updated Observer',
+    evidence: 'account-menu-aria-label',
+  });
+  assert.equal(updated.status, 'updated');
+  assert.equal(A.getDisplayName(), 'Updated Observer',
+    'a new authenticated account replaces an older auto-sourced identity');
+  assert.equal(A.profileLabel(''), 'Updated Observer',
+    'an auto-derived profile label follows the refreshed account');
+
+  A.setDisplayNameValue('Manual Override', 'manual');
+  const retained = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Different Web Account',
+    evidence: 'account-menu-aria-label',
+  });
+  assert.equal(retained.status, 'manual-override');
+  assert.equal(A.getDisplayName(), 'Manual Override');
+  assert.equal(A.getIdentityMeta().source, 'manual');
+  app.window.close();
+});
+
+test('F317 a dirty profile-label field wins over captured auto-naming', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.$('bcProfileName').value = 'My testing slot';
+
+  const applied = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Sample Observer',
+    evidence: 'account-menu-aria-label',
+  });
+  assert.equal(applied.status, 'applied');
+  assert.equal(A.getDisplayName(), 'Sample Observer');
+  assert.equal(app.$('bcProfileName').value, 'My testing slot');
+  assert.equal(A.profileLabel(''), 'Main',
+    'identity cannot overwrite a profile-label edit that has not been saved');
+
+  app.click(app.$('saveBtn'));
+  assert.equal(A.profileLabel(''), 'My testing slot');
+  app.window.close();
+});
+
+test('F317 does not overwrite a manual name being edited but not yet saved', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.$('ebirdName').value = 'Unsaved Manual';
+  app.$('homePlace').value = 'Unsaved home';
+  app.$('abaSid').value = 'SN99999';
+
+  const retained = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Captured Observer',
+    evidence: 'account-menu-aria-label',
+  });
+  assert.equal(retained.status, 'manual-override');
+  assert.equal(A.getDisplayName(), '');
+  assert.equal(app.$('ebirdName').value, 'Unsaved Manual',
+    'an asynchronous capture cannot repaint over an in-progress edit');
+  assert.equal(app.$('homePlace').value, 'Unsaved home');
+  assert.equal(app.$('abaSid').value, 'SN99999',
+    'identity completion updates only identity UI, never reloads all Settings');
+  app.window.close();
+});
+
+test('F317 Fetch my name uses the persistent bird-list WebView session', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const handlers = {};
+  let openOptions = null, injections = 0;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView(options) {
+      openOptions = options;
+      return Promise.resolve({ id: 'f317-window' });
+    },
+    hide() {},
+    show() {},
+    close() {},
+    executeScript() {
+      injections++;
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f317-window',
+        detail: {
+          __ebird: true, kind: 'identity', ok: true,
+          data: {
+            status: 'ok', displayName: 'Sample Observer',
+            evidence: 'account-menu-aria-label',
+          },
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  assert.ok(app.$('nameFetchBtn'), 'the first-run identity action fetches instead of requiring typing');
+  app.click(app.$('nameFetchBtn'));
+  for (let i = 0; i < 50 && !handlers.browserPageLoaded; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  handlers.browserPageLoaded({ id: 'f317-window' });
+  for (let i = 0; i < 300 && A.getDisplayName() !== 'Sample Observer'; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(A.getDisplayName(), 'Sample Observer',
+    'identity was not stored; injections=' + injections
+      + ' status=' + ((app.$('identityFetchStatus') || {}).textContent || '(banner closed)')
+      + ' errors=' + JSON.stringify(app.state.errors));
+
+  assert.match(openOptions.url, /\/region\/US-WA\/bird-list\?yr=cur&rank=lrec/);
+  assert.equal(openOptions.persistWebViewData, true,
+    'the identity capture explicitly uses the persistent WKWebView cookie jar');
+  assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
   app.window.close();
 });
 
@@ -773,6 +1016,8 @@ test('F268 eBird capture retries until the rendered bird-list rows exist', async
     'the fake browser registered its message listener');
   assert.equal(openOptions.hidden, true,
     'native hidden mode prevents a visible flash before openWebView resolves');
+  assert.equal(openOptions.persistWebViewData, true,
+    'authenticated eBird captures explicitly keep the WKWebView session');
   assert.equal(presented, 0, 'the capture was never presented by default');
   handlers.urlChangeEvent({
     id: 'another-window',
@@ -795,6 +1040,301 @@ test('F268 eBird capture retries until the rendered bird-list rows exist', async
     'the same browser page is sampled again after its first not-ready result');
   assert.equal(closed, 1, 'the successful capture closes only its own WebView');
   assert.equal(result.rows[0].code, 'comnig');
+  app.window.close();
+});
+
+test('F317 a signed-out public bird-list reveals the same WebView and waits for login', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const handlers = {};
+  let injections = 0, shown = 0;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView() { return Promise.resolve({ id: 'f317-login-window' }); },
+    hide() {},
+    show() { shown++; },
+    close() {},
+    executeScript() {
+      injections++;
+      const loggedOut = injections === 1;
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f317-login-window',
+        detail: loggedOut ? {
+          __ebird: true, kind: 'identity', ok: false, needsLogin: true,
+          data: { status: 'logged-out', displayName: '', evidence: '' },
+        } : {
+          __ebird: true, kind: 'identity', ok: true,
+          data: {
+            status: 'ok', displayName: 'Sample Observer',
+            evidence: 'account-menu-aria-label',
+          },
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  app.click(app.$('nameFetchBtn'));
+  for (let i = 0; i < 50 && !handlers.browserPageLoaded; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  handlers.browserPageLoaded({ id: 'f317-login-window' });
+  for (let i = 0; i < 100 && shown === 0; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(shown, 1, 'the public Sign in state reveals rather than closes the WebView');
+  assert.equal(A.getDisplayName(), '', 'logged out is not accepted as missing identity');
+
+  handlers.browserPageLoaded({ id: 'f317-login-window' });
+  for (let i = 0; i < 300 && A.getDisplayName() !== 'Sample Observer'; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(A.getDisplayName(), 'Sample Observer',
+    'the same capture completes after the user signs in');
+  app.window.close();
+});
+
+test('F317 switching profiles clears the shared eBird WebView session first', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let releaseClear, clears = 0;
+  app.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() {
+          clears++;
+          return new Promise((resolve) => { releaseClear = resolve; });
+        },
+      },
+    },
+  };
+
+  A.bcSetProfile('2');
+  assert.equal(clears, 1);
+  assert.equal(app.window.localStorage.getItem(A.BC_PROFILE_PTR), null,
+    'the account pointer cannot move while the previous cookie jar is live');
+  releaseClear();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(app.window.localStorage.getItem(A.BC_PROFILE_PTR), '2',
+    'the profile changes only after WebKit browsing data was cleared');
+  app.window.close();
+});
+
+test('F317 eBird sign-out clears fetched identity but preserves a manual override', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let clears = 0;
+  app.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() { clears++; return Promise.resolve(); },
+      },
+    },
+  };
+
+  A.setDisplayNameValue('Fetched Observer', 'ebird-bird-list');
+  A.setProfileName('', 'Fetched Observer');
+  assert.equal(await A.ebirdSignOut(), true);
+  assert.equal(clears, 1);
+  assert.equal(A.getDisplayName(), '');
+  assert.equal(A.profileLabel(''), 'Main',
+    'an auto-filled profile label cannot outlive the browser account');
+
+  A.setDisplayNameValue('Manual Observer', 'manual');
+  A.setProfileName('', 'Manual Observer');
+  assert.equal(await A.ebirdSignOut(), true);
+  assert.equal(clears, 2);
+  assert.equal(A.getDisplayName(), 'Manual Observer',
+    'signing out of the browser does not erase an explicit manual override');
+  assert.equal(A.profileLabel(''), 'Manual Observer');
+  app.window.close();
+});
+
+test('F317 long auto-fetched names refresh and clear their truncated profile label', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() { return Promise.resolve(); },
+      },
+    },
+  };
+  const first = 'A Very Long Sample Observer Name';
+  const second = 'A Different Long Observer Name';
+
+  assert.equal(A.applyCapturedIdentity({
+    status: 'ok', displayName: first, evidence: 'account-menu-aria-label',
+  }).status, 'applied');
+  assert.equal(A.profileLabel(''), first.slice(0, 24));
+  assert.equal(A.applyCapturedIdentity({
+    status: 'ok', displayName: second, evidence: 'account-menu-aria-label',
+  }).status, 'updated');
+  assert.equal(A.profileLabel(''), second.slice(0, 24),
+    'profile-label ownership compares the same canonical 24-character value');
+
+  await A.ebirdSignOut();
+  assert.equal(A.getDisplayName(), '');
+  assert.equal(A.profileLabel(''), 'Main',
+    'sign-out removes the truncated auto-derived label too');
+  app.window.close();
+});
+
+test('F317 sign-out blocks identity while WebKit clearing is pending or failed', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+
+  const pendingApp = await boot({ sample: false });
+  const PA = pendingApp.window.__app;
+  PA.setDisplayNameValue('Fetched Observer', 'ebird-bird-list');
+  let releaseClear;
+  pendingApp.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() {
+          return new Promise((resolve) => { releaseClear = resolve; });
+        },
+      },
+    },
+  };
+  pendingApp.window.fetch = () => Promise.resolve({
+    ok: true, status: 200,
+    text: () => Promise.resolve(pageHtml),
+  });
+
+  const signingOut = PA.ebirdSignOut();
+  const page = await PA.firstYearFetch('US-WA');
+  assert.equal(page.valid, true, 'regional rows remain readable during sign-out');
+  assert.equal(PA.getDisplayName(), '',
+    'an authenticated response cannot restore identity while clearing is pending');
+  releaseClear();
+  assert.equal(await signingOut, true);
+  pendingApp.window.close();
+
+  const failedApp = await boot({ sample: false });
+  const FA = failedApp.window.__app;
+  FA.setDisplayNameValue('Fetched Observer', 'ebird-bird-list');
+  failedApp.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() { return Promise.reject(new Error('fixture clear failure')); },
+      },
+    },
+  };
+  assert.equal(await FA.ebirdSignOut(), false);
+  assert.match(failedApp.$('rankStatus').textContent, /Could not clear/);
+  await assert.rejects(
+    FA.fetchIdentityFromBirdList(),
+    /could not be cleared/,
+    'a failed clear blocks another ambient-session identity capture',
+  );
+  failedApp.window.close();
+});
+
+test('F317 first-year identity is discarded when profile or key changes in flight', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+
+  async function deferredCase(change) {
+    const app = await boot({ sample: false });
+    const A = app.window.__app;
+    let release;
+    app.window.fetch = () => new Promise((resolve) => {
+      release = () => resolve({
+        ok: true, status: 200,
+        text: () => Promise.resolve(pageHtml),
+      });
+    });
+    const pending = A.firstYearFetch('US-WA');
+    for (let i = 0; i < 50 && !release; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    change(app, A);
+    release();
+    await assert.rejects(pending, /superseded by a new account or report/);
+    assert.equal(A.getDisplayName(), '',
+      'an obsolete account response cannot mutate the now-active profile');
+    app.window.close();
+  }
+
+  await deferredCase((app, A) => {
+    app.window.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+  });
+  await deferredCase((app) => {
+    app.window.localStorage.setItem('ebird_api_key', 'DIFFERENT-KEY');
+  });
+});
+
+test('F317 an in-flight capture cannot restore a name the user cleared', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+  const app = await boot({
+    sample: false,
+    storage: {
+      ebird_display_name: 'Old Observer',
+      ebird_identity_v1: JSON.stringify({ source: 'manual' }),
+    },
+  });
+  const A = app.window.__app;
+  let release;
+  app.window.fetch = () => new Promise((resolve) => {
+    release = () => resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(pageHtml),
+    });
+  });
+
+  const pending = A.firstYearFetch('US-WA');
+  for (let i = 0; i < 50 && !release; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const before = A.identityRevision();
+  app.$('ebirdName').value = '';
+  app.click(app.$('saveBtn'));
+  assert.equal(A.getDisplayName(), '');
+  assert.ok(A.identityRevision() > before, 'explicit deletion advances identity state');
+
+  release();
+  const page = await pending;
+  assert.equal(page.valid, true,
+    'identity revision changes do not discard unrelated regional bird-list data');
+  assert.equal(A.getDisplayName(), '',
+    'the stale response cannot reverse an explicit deletion of personal data');
+  app.window.close();
+});
+
+test('F317 a separate identity success does not cancel pending first-year data', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let release;
+  app.window.fetch = () => new Promise((resolve) => {
+    release = () => resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(pageHtml),
+    });
+  });
+
+  const pending = A.firstYearFetch('US-WA');
+  for (let i = 0; i < 50 && !release; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Separate Capture',
+    evidence: 'account-menu-aria-label',
+  }).status, 'applied');
+  release();
+
+  const page = await pending;
+  assert.equal(page.valid, true);
+  assert.equal(A.getDisplayName(), 'Separate Capture',
+    'the older page identity is skipped while its bird rows remain usable');
   app.window.close();
 });
 
@@ -8935,9 +9475,10 @@ test('F315: a working 36-character key saves and closes first-run setup', async 
   assert.equal(app.$('settingsPanel').hidden, true,
     'first-run setup closes after the key succeeds');
   assert.equal(app.$('menuPanel').hidden, false, 'the user returns to Contents');
-  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/,
+  assert.match(app.$('keyBanner').textContent, /Fetch your eBird display name/,
     'the blocking key setup is replaced by a separate nonblocking identity step');
-  assert.ok(app.$('nameBannerBtn'), 'the name step has a direct action');
+  assert.ok(app.$('nameFetchBtn'), 'the primary identity action reads eBird');
+  assert.ok(app.$('nameBannerBtn'), 'manual entry remains available as a fallback');
   assert.equal(app.window.__app.getSeenMeta(), null,
     'a migrated owner sample is removed when a new account completes setup');
   assert.equal(app.window.__app.reportYearList().length, 0,
@@ -8946,11 +9487,28 @@ test('F315: a working 36-character key saves and closes first-run setup', async 
 
 test('F315: the display-name follow-up opens the field without restarting key setup', async () => {
   const app = await boot({ sample: false });
-  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/);
+  assert.match(app.$('keyBanner').textContent, /Fetch your eBird display name/);
   app.click(app.$('nameBannerBtn'));
   assert.equal(app.$('settingsPanel').hidden, false);
   assert.equal(app.window.document.activeElement, app.$('ebirdName'),
     'the follow-up lands on the name field rather than at the top of Settings');
+});
+
+test('F317 editing the Settings field creates a manual override', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.$('ebirdName').value = 'Manual Observer';
+  app.click(app.$('saveBtn'));
+
+  assert.equal(A.getDisplayName(), 'Manual Observer');
+  assert.equal(A.getIdentityMeta().source, 'manual');
+  const retained = A.applyCapturedIdentity({
+    status: 'ok', displayName: 'Signed-in Observer',
+    evidence: 'account-menu-aria-label',
+  });
+  assert.equal(retained.status, 'manual-override');
+  assert.equal(A.getDisplayName(), 'Manual Observer');
+  app.window.close();
 });
 
 test('F315: a clean install stays empty until sample data or a CSV is chosen', async () => {
@@ -8975,6 +9533,7 @@ test('F315: CSV identity fills the display/profile name and replaces sample data
   ].join('\n');
   assert.equal(A.importCSV(csv), 1);
   assert.equal(A.getDisplayName(), 'Sample Birder');
+  assert.equal(A.getIdentityMeta().source, 'csv');
   assert.equal(A.profileLabel(''), 'Sample Birder');
   assert.equal(A.usesBundledSeed(), false,
     'an imported account list, not the bundled owner sample, is authoritative');
@@ -10581,10 +11140,11 @@ test('the Spuh cache has one owner, survives routine refreshes, and erase-all aw
   const scrubAt = HTML.indexOf("$('scrubBtn').addEventListener");
   const scrubEnd = HTML.indexOf("$('geocodeBtn').addEventListener", scrubAt);
   const scrub = HTML.slice(scrubAt, scrubEnd);
-  assert.match(scrub, /spuhCacheClear\(\)\.then/,
-    'Erase all my data explicitly waits for the IndexedDB deletion');
-  assert.match(scrub, /if \(!cleared\)/,
-    'a failed IndexedDB erase is surfaced rather than followed by a success reload');
+  assert.match(scrub,
+    /Promise\.all\(\[spuhCacheClear\(\), clearEbirdWebSession\(\)\]\)\.then/,
+    'Erase all my data waits for IndexedDB and the persistent eBird session');
+  assert.match(scrub, /if \(!cleared\[0\] \|\| !cleared\[1\]\)/,
+    'a failed IndexedDB or browser-session erase blocks the success reload');
 
   const loadAt = HTML.indexOf('function loadSpuhModel()');
   const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
@@ -15103,6 +15663,68 @@ test('erasing your data removes every ebird_ key, including per-region ones', as
   // else's birding history) on next load is not a clean slate.
   assert.equal(ls.getItem('ebird_seed_dismissed'), '1',
     'the bundled sample list stays dismissed after an erase');
+  app.window.close();
+});
+
+test('F317 erasing one profile removes only that profile identity label', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const raw = app.window.localStorage;
+  A.setProfileName('', 'Main Observer');
+  A.setProfileName('2', 'Second Observer');
+
+  raw.setItem(A.BC_PROFILE_PTR, '2');
+  raw.setItem('bcp:2:ebird_display_name', 'Second Observer');
+  raw.setItem('bcp:2:' + A.IDENTITY_META_KEY,
+    JSON.stringify({ source: 'ebird-bird-list' }));
+  A.scrubPersonalData();
+
+  assert.equal(raw.getItem('bcp:2:ebird_display_name'), null);
+  assert.equal(raw.getItem('bcp:2:' + A.IDENTITY_META_KEY), null);
+  assert.deepEqual(JSON.parse(raw.getItem(A.PROFILE_NAME_KEY)), {
+    '': 'Main Observer',
+  }, 'the shared picker map loses only the active profile label');
+
+  raw.setItem(A.BC_PROFILE_PTR, '');
+  A.scrubPersonalData();
+  assert.equal(raw.getItem(A.PROFILE_NAME_KEY), null,
+    'erasing Main removes its remaining label without reviving another profile');
+  app.window.close();
+});
+
+test('F317 erase is a write barrier against stale Save and pending capture', async () => {
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
+  const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Private Observer' },
+  });
+  const A = app.window.__app;
+  A.setProfileName('', 'Private Observer');
+  let release;
+  app.window.fetch = () => new Promise((resolve) => {
+    release = () => resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(pageHtml),
+    });
+  });
+  const pending = A.firstYearFetch('US-WA');
+  for (let i = 0; i < 50 && !release; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  A.scrubPersonalData();
+  app.$('ebirdName').value = 'Private Observer';
+  app.click(app.$('saveBtn'));
+  assert.equal(A.getDisplayName(), '',
+    'Save cannot rewrite a value after erase has started');
+  assert.equal(A.profileLabel(''), 'Main');
+
+  release();
+  await assert.rejects(pending, /superseded by a new account or report/);
+  assert.equal(A.getDisplayName(), '',
+    'an older capture cannot repopulate erased identity');
+  assert.equal(A.profileLabel(''), 'Main');
   app.window.close();
 });
 
