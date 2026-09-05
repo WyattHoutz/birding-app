@@ -1,0 +1,158 @@
+{
+  "US-WA-001": {
+    "name": "Adams",
+    "bounds": { "minX": -119.370751, "maxX": -117.958282, "minY": 46.734681, "maxY": 47.261341 }
+  },
+  "US-WA-003": {
+    "name": "Asotin",
+    "bounds": { "minX": -117.480012, "maxX": -116.912507, "minY": 45.996843, "maxY": 46.46141 }
+  },
+  "US-WA-005": {
+    "name": "Benton",
+    "bounds": { "minX": -119.877029, "maxX": -118.942909, "minY": 45.83762, "maxY": 46.726269 }
+  },
+  "US-WA-007": {
+    "name": "Chelan",
+    "bounds": { "minX": -121.180688, "maxX": -119.859017, "minY": 47.258622, "maxY": 48.550461 }
+  },
+  "US-WA-009": {
+    "name": "Clallam",
+    "bounds": { "minX": -124.76278, "maxX": -122.914178, "minY": 47.866821, "maxY": 48.394443 }
+  },
+  "US-WA-011": {
+    "name": "Clark",
+    "bounds": { "minX": -122.788331, "maxX": -122.243346, "minY": 45.5445262566546, "maxY": 46.060348 }
+  },
+  "US-WA-013": {
+    "name": "Columbia",
+    "bounds": { "minX": -118.245537, "maxX": -117.602882, "minY": 46.00022, "maxY": 46.62634 }
+  },
+  "US-WA-015": {
+    "name": "Cowlitz",
+    "bounds": { "minX": -123.220466, "maxX": -122.238731, "minY": 45.85408, "maxY": 46.386231 }
+  },
+  "US-WA-017": {
+    "name": "Douglas",
+    "bounds": { "minX": -120.321068, "maxX": -118.952721, "minY": 47.22379, "maxY": 48.150193 }
+  },
+  "US-WA-019": {
+    "name": "Ferry",
+    "bounds": { "minX": -118.869498, "maxX": -118.102332, "minY": 47.828183, "maxY": 49.000741 }
+  },
+  "US-WA-021": {
+    "name": "Franklin",
+    "bounds": { "minX": -119.457208, "maxX": -118.200271, "minY": 46.192199, "maxY": 46.739319 }
+  },
+  "US-WA-023": {
+    "name": "Garfield",
+    "bounds": { "minX": -117.864564, "maxX": -117.226982, "minY": 45.998878, "maxY": 46.701889 }
+  },
+  "US-WA-025": {
+    "name": "Grant",
+    "bounds": { "minX": -120.039932, "maxX": -118.974929, "minY": 46.62505, "maxY": 47.963351 }
+  },
+  "US-WA-027": {
+    "name": "Grays Harbor",
+    "bounds": { "minX": -124.354523, "maxX": -123.158859, "minY": 46.79201, "maxY": 47.53419 }
+  },
+  "US-WA-029": {
+    "name": "Island",
+    "bounds": { "minX": -122.770164, "maxX": -122.349189, "minY": 47.904445, "maxY": 48.411336 }
+  },
+  "US-WA-031": {
+    "name": "Jefferson",
+    "bounds": { "minX": -124.611115, "maxX": -122.611923, "minY": 47.515289, "maxY": 48.144723 }
+  },
+  "US-WA-033": {
+    "name": "King",
+    "bounds": { "minX": -122.528222, "maxX": -121.066437, "minY": 47.081299, "maxY": 47.782311 }
+  },
+  "US-WA-035": {
+    "name": "Kitsap",
+    "bounds": { "minX": -123.023018, "maxX": -122.469901, "minY": 47.402942, "maxY": 47.940895 }
+  },
+  "US-WA-037": {
+    "name": "Kittitas",
+    "bounds": { "minX": -121.465302, "maxX": -119.925041, "minY": 46.7365, "maxY": 47.59613 }
+  },
+  "US-WA-039": {
+    "name": "Klickitat",
+    "bounds": { "minX": -121.611253, "maxX": -119.866226, "minY": 45.606443, "maxY": 46.043481 }
+  },
+  "US-WA-041": {
+    "name": "Lewis",
+    "bounds": { "minX": -123.371361, "maxX": -121.355156, "minY": 46.381271, "maxY": 46.793049 }
+  },
+  "US-WA-043": {
+    "name": "Lincoln",
+    "bounds": { "minX": -118.980499, "maxX": -117.818076, "minY": 47.259639, "maxY": 47.95692 }
+  },
+  "US-WA-045": {
+    "name": "Mason",
+    "bounds": { "minX": -123.50338, "maxX": -122.798751, "minY": 47.0834, "maxY": 47.607738 }
+  },
+  "US-WA-047": {
+    "name": "Okanogan",
+    "bounds": { "minX": -120.882301, "maxX": -118.835106, "minY": 47.94072, "maxY": 49.000965 }
+  },
+  "US-WA-049": {
+    "name": "Pacific",
+    "bounds": { "minX": -124.098893, "maxX": -123.357376, "minY": 46.240555, "maxY": 46.795055 }
+  },
+  "US-WA-051": {
+    "name": "Pend Oreille",
+    "bounds": { "minX": -117.632187, "maxX": -117.029427, "minY": 48.045879, "maxY": 49.000659 }
+  },
+  "US-WA-053": {
+    "name": "Pierce",
+    "bounds": { "minX": -122.841781, "maxX": -121.371643, "minY": 46.728871, "maxY": 47.403172 }
+  },
+  "US-WA-055": {
+    "name": "San Juan",
+    "bounds": { "minX": -123.23745, "maxX": -122.741387, "minY": 48.316649, "maxY": 48.789723 }
+  },
+  "US-WA-057": {
+    "name": "Skagit",
+    "bounds": { "minX": -122.740754, "maxX": -120.682373, "minY": 48.2951, "maxY": 48.65976 }
+  },
+  "US-WA-059": {
+    "name": "Skamania",
+    "bounds": { "minX": -122.248192, "maxX": -121.513587, "minY": 45.551954688686, "maxY": 46.38882 }
+  },
+  "US-WA-061": {
+    "name": "Snohomish",
+    "bounds": { "minX": -122.399392, "maxX": -120.905266, "minY": 47.776038, "maxY": 48.299018 }
+  },
+  "US-WA-063": {
+    "name": "Spokane",
+    "bounds": { "minX": -117.822762, "maxX": -117.041809, "minY": 47.258579, "maxY": 48.047691 }
+  },
+  "US-WA-065": {
+    "name": "Stevens",
+    "bounds": { "minX": -118.399117, "maxX": -117.432549, "minY": 47.790871, "maxY": 49.000942 }
+  },
+  "US-WA-067": {
+    "name": "Thurston",
+    "bounds": { "minX": -123.20276, "maxX": -122.217056, "minY": 46.762589, "maxY": 47.186668 }
+  },
+  "US-WA-069": {
+    "name": "Wahkiakum",
+    "bounds": { "minX": -123.725388, "maxX": -123.212681425433, "minY": 46.1434974461435, "maxY": 46.38551 }
+  },
+  "US-WA-071": {
+    "name": "Walla Walla",
+    "bounds": { "minX": -119.040465, "maxX": -117.990752, "minY": 46.00118, "maxY": 46.60567 }
+  },
+  "US-WA-073": {
+    "name": "Whatcom",
+    "bounds": { "minX": -123.091941, "maxX": -120.652778, "minY": 48.638883, "maxY": 49.00359 }
+  },
+  "US-WA-075": {
+    "name": "Whitman",
+    "bounds": { "minX": -118.251572, "maxX": -117.037987, "minY": 46.417721, "maxY": 47.26061 }
+  },
+  "US-WA-077": {
+    "name": "Yakima",
+    "bounds": { "minX": -121.521134, "maxX": -119.864058, "minY": 46.03876, "maxY": 47.08926 }
+  }
+}

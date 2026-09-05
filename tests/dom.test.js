@@ -7600,7 +7600,8 @@ test('a full chase clear invalidates and unregisters detached phase two', async 
   const start = HTML.indexOf('function getChaseAll(');
   const end = HTML.indexOf('function anyRows(rows)', start);
   const src = HTML.slice(start, end);
-  assert.match(src, /requireCurrentChase\(\);\s*applyFetchResults\(spResults\)/,
+  assert.match(src,
+    /requireCurrentChase\(\);[\s\S]*if \(!workCurrent\(phase2Work\)\)[\s\S]*applyFetchResults\(spResults\)/,
     'old phase-two rows are rejected before they can publish');
   assert.match(src, /requireCurrentChase\(\);\s*return saveChaseSnapshot/,
     'and before an obsolete snapshot can be saved');
@@ -10908,14 +10909,14 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // the rest of the session. Asserted on the source rather than by driving a
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
-  const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, work)');
+  const ebirdEnd = HTML.indexOf('function ebirdBg(', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
   const src = HTML.slice(ebirdAt, ebirdEnd);
   assert.match(src, /delete _ebCache\[path\]/,
     'a rejected call is evicted so the next attempt actually goes out');
-  assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p \}/,
+  assert.match(src, /_ebCache\[path\] = \{ t: Date\.now\(\), p: p, work: work \|\| null \}/,
     'and the promise is what is cached, so concurrent callers share one request');
 });
 
@@ -11050,13 +11051,13 @@ test('getChase resolves on phase 1 so the screen can come up', () => {
     'phase 1 produces the result that is returned');
   assert.match(src, /return first;/,
     'and it is returned rather than awaited past');
-  assert.match(src, /_chasePhase2\[slug\] = runTargetPlan\(codes, targetGeneration\)/,
+  assert.match(src, /_chasePhase2\[slug\] = runTargetPlan\(targetCodes, targetGeneration\)/,
     'phase 2 is detached and kept, so a caller that needs it can wait');
   // A phase-2 failure must not take down what is already on screen.
   assert.match(src, /the phase-1 view stands/,
     'and a phase-2 failure leaves the phase-1 view standing');
   // ...and it must not hold the queue against the section you are looking at.
-  assert.match(src, /return fetchBatched\(pending, SPECIES_BATCH, true\)/,
+  assert.match(src, /return fetchBatched\(pending, SPECIES_BATCH, true, phase2Work,/,
     'phase 2 runs in the BACKGROUND lane');
 });
 
@@ -11074,19 +11075,19 @@ test('the section you are looking at is not queued behind the background wave', 
 
   const src = HTML.slice(HTML.indexOf('function fgSchedule('),
                          HTML.indexOf('function retryAfterMs('));
-  assert.match(src, /else if \(bg\) _fgBgWaiters\.push\(take\);/,
+  assert.match(src, /if \(bg\) \{\s*_fgBgWaiters\.push\(job\);\s*fgDrain\(\);/,
     'background callers queue in their own lane');
-  assert.match(src, /else _fgWaiters\.push\(take\);/,
+  assert.match(src, /else _fgWaiters\.push\(job\);/,
     'and everything else keeps the foreground lane');
   // Each lane must stay FIFO. Jumping the whole queue to the FRONT instead
   // would reverse the order of the foreground calls against each other.
   assert.ok(!/_fgWaiters\.unshift\(/.test(HTML),
     'no lane is drained out of order');
-  const rel = HTML.slice(HTML.indexOf('function fgRelease()'),
-                         HTML.indexOf('function fgRelease()') + 600);
+  const rel = HTML.slice(HTML.indexOf('function fgDrain()'),
+                         HTML.indexOf('function fgRelease('));
   assert.match(rel, /_fgWaiters\.length \? _fgWaiters\.shift\(\)/,
     'foreground drains first');
-  assert.match(rel, /_fgBgWaiters\.length \? _fgBgWaiters\.shift\(\)/,
+  assert.match(rel, /if \(!job && _fgBgWaiters\.length\)[\s\S]*job = _fgBgWaiters\.shift\(\)/,
     'and the background lane is served only when nothing else is waiting');
   // The lane is a QUEUE POSITION, not a second rate. Both lanes must go
   // through the same bucket, window and gap, or "priority" would become a way
@@ -14453,7 +14454,7 @@ test('static reference feeds are cached across restarts, observation feeds are n
   // limiter while preventing the knowingly doomed durable write.
   assert.match(HTML, /var ref = noRefCache \? null : ebRefGet\(path\)/,
     'ebird can skip only its localStorage reference cache');
-  assert.match(HTML, /if \(!noRefCache\) ebRefPut\(path, v\)/,
+  assert.match(HTML, /if \(v != null && !noRefCache\) ebRefPut\(path, v\)/,
     'and the skip applies to the write as well as the read');
   const loadAt = HTML.indexOf('function loadSpuhModel()');
   const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
@@ -14493,13 +14494,13 @@ test('the debug log reports what each section cost', async () => {
     assert.ok(rep[i - 1].calls >= rep[i].calls, 'most expensive first');
   }
   // ebird() must actually feed it, or the ledger stays empty in real use.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
-  const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, work)');
+  const ebirdEnd = HTML.indexOf('function ebirdBg(', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
   const eb = HTML.slice(ebirdAt, ebirdEnd);
   assert.match(eb, /costNote\(path, true\)/, 'a cache hit is recorded as a saving');
-  assert.match(eb, /costNote\(path, false\)/, 'and a live call as a cost');
+  assert.match(eb, /costNote\(path, false, section\)/, 'and a live call as a cost');
   // ...and showSection must name the section, or every call lands on 'startup'.
   // ⚠️ SLICED BY NAMED BOUNDARY, not by a byte count. This read
   // `indexOf('function showSection(id)') + 700` and broke when F228 added a
@@ -14582,6 +14583,7 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
   };
   const app = await boot({ fetch });
   const A = app.window.__app;
+  A.setCountySeed({});
   const regionCalls = () => app.state.fetches.filter((url) => /ref\/region\//.test(url));
   assert.equal(regionCalls().length, 0,
     'county metadata was fetched before a day tier asked for it');
@@ -14638,6 +14640,7 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
       return null;
     },
   });
+  restarted.window.__app.setCountySeed({});
   const restored = await restarted.window.__app.tripScopeProfile('full');
   assert.deepEqual(arr(restored.tierCountyCodes), ['US-WA-007', 'US-WA-067', 'US-WA-099']);
   assert.equal(restartedCalls, 0,
@@ -14648,6 +14651,7 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
 test('F254 rejects county scope that resolves after Home changes', async () => {
   const app = await boot();
   const A = app.window.__app;
+  A.setCountySeed({});
   await A.loadTravelZones();
   let resolveInfo;
   const response = (body) => Promise.resolve({
@@ -14702,6 +14706,7 @@ test('F254 an all-failed county catalog is unavailable, not a rarity tracker', a
       return null;
     },
   });
+  app.window.__app.setCountySeed({});
   await assert.rejects(app.window.__app.tripScopeProfile('full'),
     /county bounds.*unavailable/i,
     'an empty failed scope was converted into a successful zero-county profile');
@@ -14724,6 +14729,7 @@ test('F254 tier chase preserves its derived profile and projects Full-day separa
     },
   });
   const A = app.window.__app;
+  A.setCountySeed({});
   seedSeen(app, []);
   const base = A.chaseProfile();
   const baseRows = [1, 2, 3, 4].map((n) => ({
@@ -16013,7 +16019,7 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
   // Both landmarks below are unique in index.html.
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const from = HTML.indexOf('function getChaseAll(');
-  const to = HTML.indexOf('function fetchAll(list, step, bg)');
+  const to = HTML.indexOf('function fetchAll(list, step, bg, work)');
   assert.ok(from > 0 && to > from,
     'getChaseAll and its inner fetchAll still bound the window this reads');
   const gc = HTML.slice(from, to);
@@ -24573,7 +24579,7 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
 // INVARIANT. "Only one wave at a time" is one rule with four doors, and
 // closing three still lets a wave through. So this test counts waves through
 // the door that was missed.
-test('F267: a caller arriving during phase 2 joins it instead of starting a rival', async () => {
+test('F267/F320: a caller during phase 2 gets phase one without starting a rival', async () => {
   let waves = 0;
   const app = await boot({
     fetch(url) {
@@ -24606,8 +24612,10 @@ test('F267: a caller arriving during phase 2 joins it instead of starting a riva
   assert.match(gc, /if \(_chaseRefresh\[slug\]\) \{/,
     'door 2: a force joins the background refresh (F260)');
   assert.match(gc, /if \(!force && _chasePhase2\[slug\]\) \{/,
-    'door 3: a caller arriving during phase 2 joins it (F267) — and a FORCE '
-    + 'does not, because Refresh means new data, not "wait for the old wave"');
+    'door 3: a caller arriving during phase 2 sees the registered wave (F267)');
+  assert.match(gc, /if \(current\) return Promise\.resolve\(current\);/,
+    'and gets the useful phase-one result immediately rather than waiting for '
+    + 'enrichment from the section it just left');
   // ⚠️ Door 4 lives in clearChaseCache, which is OUTSIDE this window — so it
   // is read from its own named bounds rather than assumed to be in scope. A
   // guard that looks in the wrong place reports a defect that is not there,
@@ -24796,4 +24804,468 @@ test('F270: the geometry probe reports ONE moment, not two', () => {
     'and never re-read from the live DOM after the verdict was formed');
   assert.match(fn, /healed while measuring/,
     'and when they disagree it SAYS so rather than printing a contradiction');
+});
+
+
+// ---------------------------------------------------------------------------
+// F320 — first-run request storm.
+// ---------------------------------------------------------------------------
+
+test('F320 clean boot and key save do not start migration history', async () => {
+  const key = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6';
+  const app = await boot({
+    key: null,
+    sample: false,
+    fetch: (url) => /ref\/region\/info\/US-WA/.test(url) ? { code: 'US-WA' } : [],
+  });
+  const A = app.window.__app;
+  assert.equal(A.migrationManualRuns(), 0,
+    'a clean boot started the two-year migration walk');
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 0);
+
+  app.click(app.$('keyBannerBtn'));
+  app.$('apiKey').value = key;
+  app.click(app.$('keyTestBtn'));
+  await waitFor(() => app.window.localStorage.getItem('ebird_api_key') === key,
+    'the tested key to be saved');
+  assert.equal(A.migrationManualRuns(), 0,
+    'saving a new key automatically resumed migration history');
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 0,
+    'key setup queued historic reads before the reader opened Migration');
+
+  const bootTail = HTML.slice(HTML.indexOf('migrateHomeKeys();'));
+  const keySave = HTML.slice(HTML.indexOf('function acceptWorkingKey('),
+    HTML.indexOf('function openKeygen('));
+  assert.doesNotMatch(bootTail, /migBootstrap\(\)|startBackgroundHistory\(/,
+    'startup contains a migration-history scheduler');
+  assert.doesNotMatch(keySave, /migBootstrap\(\)|startBackgroundHistory\(/,
+    'the working-key path contains a migration-history scheduler');
+  app.window.close();
+});
+
+test('F320 interactive work starts before queued background work', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const started = [];
+  const pending = {};
+  const response = (body) => ({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  });
+  app.window.fetch = (url) => new Promise((resolve) => {
+    const path = String(url).replace(/^.*\/v2\//, '');
+    started.push(path);
+    pending[path] = () => resolve(response([]));
+  });
+  A.fgSchedReset(Date.now());
+
+  const bg1 = A.ebirdBg('probe/background-one');
+  await waitFor(() => started.length === 1, 'the first background request to start');
+  const bg2 = A.ebirdBg('probe/background-two');
+  const fg = A.ebird('probe/interactive');
+  pending['probe/background-one']();
+  await waitFor(() => started.length >= 2, 'the next queued request to start');
+  assert.equal(started[1], 'probe/interactive',
+    'a second background request started ahead of the interactive request');
+  pending['probe/interactive']();
+  await waitFor(() => started.length >= 3, 'the remaining background request to resume');
+  assert.equal(started[2], 'probe/background-two');
+  pending['probe/background-two']();
+  await Promise.all([bg1, bg2, fg]);
+  app.window.close();
+});
+
+test('F320 navigation aborts obsolete foreground work and removes its reservation', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let signal;
+  app.window.fetch = (url, init) => new Promise((resolve, reject) => {
+    signal = init && init.signal;
+    if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')),
+      { once: true });
+  });
+  A.fgSchedReset(Date.now());
+  A.fgSetNextAt(Date.now() + 500);
+  const before = A.fgState().reservations;
+  const pending = A.ebird('probe/obsolete-foreground', false, false,
+    A.navWork('obsolete foreground'));
+  await waitFor(() => A.fgState().reservations === before + 1,
+    'the future request reservation to be recorded');
+  A.showSection('settingsPanel');
+  await assert.rejects(pending, (error) => error && error.queueCancelled === true);
+  assert.equal(A.fgState().reservations, before,
+    'cancelling a pre-start request left a ghost rolling-window reservation');
+
+  A.fgSetNextAt(0);
+  const active = A.ebird('probe/active-foreground', false, false,
+    A.navWork('active foreground'));
+  await waitFor(() => signal, 'the active foreground request to start');
+  A.showSection('sec-helpBody');
+  await assert.rejects(active, (error) => error && error.queueCancelled === true);
+  assert.equal(signal.aborted, true,
+    'navigation left an obsolete foreground fetch holding the only slot');
+  app.window.close();
+});
+
+test('F320 Washington Half-day uses bundled county bounds with zero metadata calls', async () => {
+  const app = await boot({
+    sample: false,
+    fetch: () => ({ __status: 401, __body: { error: 'unexpected network' } }),
+  });
+  const profile = await app.window.__app.tripScopeProfile('half');
+  assert.equal(profile.tierCountyCodes.length, 15,
+    'the bundled Woodinville half-day scope stopped matching the measured county set');
+  assert.ok(profile.tierCountyCodes.includes('US-WA-007'));
+  assert.ok(profile.tierCountyCodes.includes('US-WA-067'));
+  const metadata = app.state.fetches.filter((url) =>
+    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
+  assert.equal(metadata.length, 0,
+    'Half-day again enqueued the state list plus every county-info record');
+  app.window.close();
+});
+
+test('F320 empty-account phase two is capped by visible value and rate headroom', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const unseen = Array.from({ length: 80 }, (_, i) => ({
+    code: 'bird' + String(i).padStart(3, '0'),
+  }));
+  const cv = {
+    destinations: [{
+      species: unseen.slice(0, 20),
+    }],
+    unseenAll: unseen,
+  };
+  const codes = A.chasePhase2Codes(cv, 6);
+  assert.equal(A.chasePhase2Max(6), 10,
+    'six phase-one calls plus enrichment no longer fit the 16-start background budget');
+  assert.equal(codes.length, 10,
+    'a zero-seen account again expands every unseen species eagerly');
+  assert.equal(app.window.BirdLogic.planSpeciesFeeds(A.chaseProfile(), codes).length, 10);
+  assert.ok(codes.length < app.window.BirdLogic.SPECIES_FEED_MAX,
+    'the app-only first pass fell back to the old 60-call ceiling');
+  const wave = HTML.slice(HTML.indexOf('var attemptedSpecies = {};'),
+    HTML.indexOf('_chasePhase2[slug] = runTargetPlan', HTML.indexOf('var attemptedSpecies = {};')));
+  assert.match(wave, /phase2Budget - Object\.keys\(attemptedSpecies\)\.length/,
+    'a seen-list replan received a fresh ten-call budget instead of the remainder');
+  assert.match(wave, /pending = pending\.slice\(0, remaining\)/,
+    'the remaining per-wave budget does not bound the replacement plan');
+  app.window.close();
+});
+
+test('F320 navigation cancels obsolete phase-two work and rejects it', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const response = (body) => ({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  });
+  const rows = Array.from({ length: 20 }, (_, i) => ({
+    obsId: 'OBS' + i,
+    speciesCode: 'bird' + String(i).padStart(3, '0'),
+    comName: 'Bird ' + i,
+    locId: 'L' + i,
+    locName: 'Place ' + i,
+    lat: 47.6 + i / 10000,
+    lng: -122.3,
+    obsDt: '2026-09-04 08:00',
+    subId: 'S' + i,
+    subnational2Code: 'US-WA-033',
+    subnational2Name: 'King',
+  }));
+  let speciesStarts = 0;
+  app.window.fetch = (url, init) => {
+    const u = String(url);
+    if (/data\/obs\/US-WA\/recent\/bird/.test(u)) {
+      speciesStarts++;
+      return new Promise((resolve, reject) => {
+        if (init && init.signal) {
+          init.signal.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        }
+      });
+    }
+    if (/\/recent\/notable/.test(u)) return Promise.resolve(response([]));
+    if (/data\/obs\//.test(u)) return Promise.resolve(response(rows));
+    return Promise.resolve(response([]));
+  };
+  A.clearChaseCache(false);
+  await A.getChase();
+  const phase2 = A.chasePhase2();
+  assert.ok(phase2, 'the fixture did not start phase two');
+  await waitFor(() => A.rlPending() > 0, 'phase-two background work to start');
+  A.showSection('settingsPanel');
+  let cancelTimer;
+  const cancelled = Promise.race([
+    phase2,
+    new Promise((resolve, reject) => {
+      cancelTimer = setTimeout(
+        () => reject(new Error('phase-two cancellation timed out')), 2500);
+    }),
+  ]);
+  try {
+    await assert.rejects(cancelled, (error) => error && error.queueCancelled === true,
+      'obsolete phase two resolved as a successful complete wave');
+  } finally {
+    clearTimeout(cancelTimer);
+  }
+  await waitFor(() => A.rlPending() === 0, 'obsolete background work to drain');
+  assert.equal(A.fgState().queuedBg, 0);
+  assert.ok(speciesStarts <= 1,
+    `navigation allowed ${speciesStarts} obsolete species requests to start`);
+  app.window.close();
+});
+
+test('F320 navigation during phase one cannot start phase two under the new section', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const response = (body) => ({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  });
+  const rows = Array.from({ length: 20 }, (_, i) => ({
+    obsId: 'EARLY' + i,
+    speciesCode: 'early' + String(i).padStart(3, '0'),
+    comName: 'Early Bird ' + i,
+    locId: 'LE' + i,
+    locName: 'Early Place ' + i,
+    lat: 47.6 + i / 10000,
+    lng: -122.3,
+    obsDt: '2026-09-04 08:00',
+    subId: 'SE' + i,
+    subnational2Code: 'US-WA-033',
+    subnational2Name: 'King',
+  }));
+  let releaseFirst, speciesStarts = 0, first = true;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    if (/data\/obs\/US-WA\/recent\/early/.test(u)) {
+      speciesStarts++;
+      return Promise.resolve(response([]));
+    }
+    const body = /\/recent\/notable/.test(u) ? [] : rows;
+    if (first && /data\/obs\//.test(u)) {
+      first = false;
+      return new Promise((resolve) => { releaseFirst = () => resolve(response(body)); });
+    }
+    return Promise.resolve(response(body));
+  };
+  A.clearChaseCache(false);
+  const phaseOne = A.getChase();
+  await waitFor(() => releaseFirst, 'the first phase-one request to start');
+  A.showSection('settingsPanel');
+  releaseFirst();
+  await phaseOne;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(speciesStarts, 0,
+    'phase two adopted the destination section after navigation during phase one');
+  assert.equal(A.rlPending(), 0);
+  app.window.close();
+});
+
+test('F320 a runtime-active stall exposes labelled retry and cancel controls', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const start = 100000;
+  A.sleepReset();
+  A.beat(Date.now() - A.FG_ACTIVE_STALL_MS - 11000);
+  assert.ok(A.sleptMs() > A.FG_ACTIVE_STALL_MS,
+    'the control did not create a recorded runtime suspension');
+  assert.equal(A.fgCheckActiveStall(
+    'probe/suspended', { activeSlept0: 0 },
+    start, start + A.FG_ACTIVE_STALL_MS + 1), false,
+  'time already attributed to app suspension was called an active network stall');
+  A.sleepReset();
+  assert.equal(A.fgCheckActiveStall(
+    'probe/stalled', { activeSlept0: A.sleptMs() },
+    start, start + A.FG_ACTIVE_STALL_MS - 1), false,
+  'a request below the measured threshold was called stalled');
+  assert.equal(A.fgCheckActiveStall(
+    'probe/stalled', { activeSlept0: A.sleptMs() },
+    start, start + A.FG_ACTIVE_STALL_MS + 1), true,
+  'a request beyond the measured active-runtime threshold stayed frozen');
+  assert.equal(app.$('loadBar').hidden, false);
+  assert.match(app.$('loadBarText').textContent, /Request stopped.*active runtime/i);
+  assert.equal(app.$('loadBarActions').hidden, false);
+  assert.match(app.$('loadRetry').textContent, /Retry this section/);
+  assert.match(app.$('loadCancel').textContent, /Cancel queued work/);
+  const watchdog = HTML.slice(HTML.indexOf('function fgWatchActive('),
+    HTML.indexOf('// WHY THE QUEUE IS HELD', HTML.indexOf('function fgWatchActive(')));
+  assert.match(watchdog, /var activeMs = fgActiveRuntimeMs\(/,
+    'the real timer path does not compute active runtime before re-arming');
+  assert.match(watchdog, /FG_ACTIVE_STALL_MS - activeMs/,
+    'the real timer path cannot continue polling before the threshold');
+  app.click(app.$('loadCancel'));
+  assert.equal(A.fgStall(), null);
+  assert.equal(app.$('loadBarActions').hidden, true);
+  app.window.close();
+});
+
+test('F320 every long section-owned history plan carries one navigation token', () => {
+  const county = HTML.slice(HTML.indexOf('function ensureCountyCatalog('),
+    HTML.indexOf('function tripScopeProfile('));
+  assert.match(county, /ebird\(listPath, true, true, work\)/,
+    'the non-Washington county list still uses the foreground lane');
+  assert.match(county, /ebird\(path, true, true, work\)/,
+    'county-info reads do not share the cancellable background owner');
+
+  const tod = HTML.slice(HTML.indexOf('function todFetchHistoric('),
+    HTML.indexOf('// --- 🥚 Easy misses'));
+  assert.match(tod, /ebirdBg\(path, work\)/);
+  assert.match(tod, /ebirdBg\(base \+ '&rank=create', work\)/);
+  assert.match(tod, /var work = navWork\('Dawn and dusk history'\)/);
+
+  const easy = HTML.slice(HTML.indexOf('function easyFetch('),
+    HTML.indexOf('// --- Hot / cold hotspots'));
+  assert.match(easy, /ebirdBg\(path, work\)/);
+  assert.match(easy, /var work = navWork\('Nemesis-bird history'\)/);
+
+  const migration = HTML.slice(HTML.indexOf('function migFetchDate('),
+    HTML.indexOf('// --- Birder convoys'));
+  assert.match(migration, /ebirdBg\(path, work\)/);
+  assert.match(migration, /var work = navWork\('Migration history'\)/);
+
+  const backfill = HTML.slice(HTML.indexOf('function backfillTick('),
+    HTML.indexOf('// Said in the register', HTML.indexOf('function backfillTick(')));
+  assert.match(backfill, /ebirdBg\([\s\S]*\?maxResults=200', work\)/,
+    'My Ticks backfill does not give the limiter its run token');
+  assert.match(backfill, /if \(e && e\.queueCancelled\) throw e/,
+    'backfill cancellation is swallowed as an ordinary missing day');
+  assert.match(backfill, /if \(!workCurrent\(work\)\) throw queueCancelledError\(work\);[\s\S]*s\.cursor/,
+    'a cancelled day advances the durable backfill cursor');
+  assert.match(backfill, /if \(workCurrent\(work\)\) \{[\s\S]*setTimeout/,
+    'a cancelled backfill rearms itself');
+});
+
+test('F320 null API results are never memoized as answers', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let calls = 0;
+  app.window.fetch = () => {
+    calls++;
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve(null),
+      text: () => Promise.resolve('null'),
+    });
+  };
+  A.fgSchedReset(Date.now());
+  assert.equal(await A.ebird('probe/null'), null);
+  assert.equal(await A.ebird('probe/null'), null);
+  assert.equal(calls, 2, 'a null result was cached and suppressed the retry');
+  app.window.close();
+});
+
+test('F320 a completed request remains memoized after its section is left', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let calls = 0;
+  app.window.fetch = () => {
+    calls++;
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve('[]'),
+    });
+  };
+  A.fgSchedReset(Date.now());
+  const owner = A.navWork('memo probe');
+  await A.ebird('probe/completed', false, false, owner);
+  A.showSection('settingsPanel');
+  await A.ebird('probe/completed');
+  assert.equal(calls, 1,
+    'navigation invalidated a successfully completed 30-minute memo');
+  app.window.close();
+});
+
+test('F320 failed migration reads remain resumable instead of caching an empty week', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.window.fetch = () => Promise.reject(new Error('offline'));
+  const cache = { samples: {}, names: {} };
+  const day = new Date(2025, 8, 3, 12, 0, 0);
+  await assert.rejects(A.migFetchDate(['US-WA-033'], day, cache), /offline/);
+  assert.equal(cache.samples[A.migSampleKey(day)], undefined,
+    'a failed historic read was stored as a successful empty sample');
+
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve(null),
+    text: () => Promise.resolve('null'),
+  });
+  A.fgSchedReset(Date.now());
+  await assert.rejects(A.migFetchDate(['US-WA-033'], day, cache),
+    /no migration rows/i);
+  assert.equal(cache.samples[A.migSampleKey(day)], undefined,
+    'a null historic response was stored as a successful empty sample');
+  app.window.close();
+});
+
+test('F320 null time-of-day history is not marked complete', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve(null),
+    text: () => Promise.resolve('null'),
+  });
+  A.fgSchedReset(Date.now());
+  const day = new Date(2026, 8, 3, 12, 0, 0);
+  await assert.rejects(A.todFetchCounties(['US-WA-033'], [day], () => {}),
+    /no time-of-day rows/i);
+  assert.equal(A.todHasDay('US-WA-033', day), false,
+    'a null day response was marked complete and made the failure permanent');
+  app.window.close();
+});
+
+test('F320 deterministic empty-account probe reports the before/after plan', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const phaseOne = app.window.BirdLogic.planFeeds(A.chaseProfile()).length;
+  const countyRows = Object.keys(JSON.parse(fs.readFileSync(
+    path.join(WWW, 'county-bounds-wa.json'), 'utf8'))).length;
+  const measurement = {
+    callsEnqueuedBeforeFirstUsefulPaint: { before: phaseOne + 3, after: phaseOne },
+    firstUsefulBirdGenPaintBoundary: {
+      before: `${phaseOne} region calls / 7.1s in supplied trace`,
+      after: `${phaseOne} region calls; no history work ahead of it`,
+    },
+    maxInteractiveQueueWaitFromQueuedBackgroundMs: {
+      before: 'not attributable: the old background pump bypassed this queue',
+      after: 0,
+    },
+    maxObservedInternalQueueWaitMs: { before: 90230, after: 'not asserted' },
+    countyMetadataForegroundCalls: { before: countyRows + 1, after: 0 },
+    phaseTwoCallsWithZeroSeen: {
+      before: app.window.BirdLogic.SPECIES_FEED_MAX,
+      after: A.chasePhase2Max(phaseOne),
+    },
+    remainingPhaseTwoPlanAfterNavigation: {
+      before: app.window.BirdLogic.SPECIES_FEED_MAX,
+      after: 0,
+    },
+  };
+  assert.deepEqual(measurement, {
+    callsEnqueuedBeforeFirstUsefulPaint: { before: 9, after: 6 },
+    firstUsefulBirdGenPaintBoundary: {
+      before: '6 region calls / 7.1s in supplied trace',
+      after: '6 region calls; no history work ahead of it',
+    },
+    maxInteractiveQueueWaitFromQueuedBackgroundMs: {
+      before: 'not attributable: the old background pump bypassed this queue',
+      after: 0,
+    },
+    maxObservedInternalQueueWaitMs: { before: 90230, after: 'not asserted' },
+    countyMetadataForegroundCalls: { before: 40, after: 0 },
+    phaseTwoCallsWithZeroSeen: { before: 60, after: 10 },
+    remainingPhaseTwoPlanAfterNavigation: { before: 60, after: 0 },
+  });
+  console.log('F320_MEASUREMENT ' + JSON.stringify(measurement));
+  app.window.close();
 });

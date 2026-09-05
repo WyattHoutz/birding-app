@@ -593,6 +593,8 @@
     #loadBarFill { height: 100%; width: 0%; background: var(--accent);
                    border-radius: 999px; transition: width .35s ease; }
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
+    #loadBarActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    #loadBarActions button { min-height: 40px; }
     /* "Who added it" as one sentence rather than a row per birder. The table
        version was the tallest thing on the card and the least scanned. */
     .wholine { font-size: calc(14px * var(--s)); line-height: 1.45; margin: 8px 0 0; }
@@ -2251,6 +2253,10 @@
   <div id="loadBar" hidden aria-live="polite">
     <div id="loadBarTrack"><div id="loadBarFill"></div></div>
     <div id="loadBarText" class="hint"></div>
+    <div id="loadBarActions" hidden>
+      <button type="button" id="loadRetry">Retry this section</button>
+      <button type="button" id="loadCancel">Cancel queued work</button>
+    </div>
   </div>
 
   <main>
@@ -3205,6 +3211,7 @@
       }
       var COUNTY_META_NS = 'bc_county_meta_v1:';
       var _countyCatalogInflight = {};
+      var _countySeedPromise = null, _countySeedOverride = null;
       var _travelZonesPromise = null;
 
       function loadTravelZones() {
@@ -3265,10 +3272,45 @@
         if (path && _ebCache[path]) delete _ebCache[path];
       }
 
-      function ensureCountyCatalog(parent, onProgress) {
+      function loadCountySeed(parent) {
+        parent = String(parent || '').trim().toUpperCase();
+        if (_countySeedOverride) {
+          return Promise.resolve(parent === 'US-WA'
+            ? Object.keys(_countySeedOverride).map(function (code) {
+                return countyInfoRow(_countySeedOverride[code], {
+                  code: code, name: _countySeedOverride[code].name || code
+                });
+              }).filter(Boolean)
+            : []);
+        }
+        if (parent !== 'US-WA') return Promise.resolve([]);
+        if (!_countySeedPromise) {
+          _countySeedPromise = fetch('county-bounds-wa.json').then(function (r) {
+            if (!r || !r.ok) throw new Error('Bundled county bounds are unavailable');
+            return r.json();
+          }).then(function (doc) {
+            return Object.keys(doc || {}).map(function (code) {
+              return countyInfoRow(doc[code], {
+                code: code, name: (doc[code] && doc[code].name) || code
+              });
+            }).filter(Boolean);
+          }).catch(function (e) {
+            _countySeedPromise = null;
+            dbg('warn', 'county seed: ' + ((e && e.message) || e));
+            return [];
+          });
+        }
+        return _countySeedPromise;
+      }
+
+      function ensureCountyCatalog(parent, onProgress, work) {
         parent = String(parent || '').trim().toUpperCase();
         if (!parent) return Promise.reject(new Error('This report has no county parent region'));
-        if (_countyCatalogInflight[parent]) return _countyCatalogInflight[parent];
+        if (_countyCatalogInflight[parent]
+            && workCurrent(_countyCatalogInflight[parent]._work)) {
+          return _countyCatalogInflight[parent];
+        }
+        delete _countyCatalogInflight[parent];
         var listKey = countyListKey(parent);
         var listPath = 'ref/region/list/subnational2/' + encodeURIComponent(parent);
 
@@ -3277,7 +3319,7 @@
             var rows = countyListRows(cached);
             if (rows.length) return rows;
             if (cached != null) forgetCountyValue(listKey, listPath);
-            return ebird(listPath, false, true).then(function (live) {
+            return ebird(listPath, true, true, work).then(function (live) {
               rows = countyListRows(live);
               if (!rows.length) {
                 forgetCountyValue(listKey, listPath);
@@ -3295,7 +3337,10 @@
             var row = countyInfoRow(cached, item);
             if (row) return row;
             if (cached != null) forgetCountyValue(key, path);
-            return ebird(path, false, true).then(function (live) {
+            // Bounds are reference enrichment, not the answer the reader
+            // tapped for. They share the one limiter and use its background
+            // lane, so a new interactive section always goes first.
+            return ebird(path, true, true, work).then(function (live) {
               row = countyInfoRow(live, item);
               if (!row) {
                 forgetCountyValue(key, path);
@@ -3306,19 +3351,44 @@
           });
         }
 
-        var promise = readList().then(function (items) {
-          var done = 0;
-          return Promise.all(items.map(function (item) {
-            return readInfo(item).then(function (row) {
-              done++;
-              if (typeof onProgress === 'function') onProgress(done, items.length, item.name);
-              return { row: row };
-            }).catch(function (error) {
-              done++;
-              if (typeof onProgress === 'function') onProgress(done, items.length, item.name);
-              return { code: item.code, error: error };
+        function readInfoBatched(items) {
+          var results = [], i = 0, completed = 0, size = 2;
+          function next() {
+            if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
+            if (i >= items.length) return Promise.resolve(results);
+            var slice = items.slice(i, i + size);
+            i += size;
+            return Promise.all(slice.map(function (item) {
+              return readInfo(item).then(function (row) {
+                completed++;
+                if (typeof onProgress === 'function') onProgress(completed, items.length, item.name);
+                return { row: row };
+              }).catch(function (error) {
+                if (error && error.queueCancelled) throw error;
+                completed++;
+                if (typeof onProgress === 'function') onProgress(completed, items.length, item.name);
+                return { code: item.code, error: error };
+              });
+            })).then(function (batch) {
+              results = results.concat(batch);
+              return next();
             });
-          })).then(function (results) {
+          }
+          return next();
+        }
+
+        var promise = loadCountySeed(parent).then(function (seed) {
+          if (seed.length) {
+            seed.sort(function (a, b) {
+              return a.code < b.code ? -1 : (a.code > b.code ? 1 : 0);
+            });
+            return {
+              rows: seed, failed: [], complete: true, total: seed.length,
+              source: 'bundled'
+            };
+          }
+          return readList().then(function (items) {
+            return readInfoBatched(items).then(function (results) {
             var rows = [], failed = [];
             results.forEach(function (result) {
               if (result.row) rows.push(result.row);
@@ -3335,7 +3405,9 @@
               total: items.length
             };
           });
+          });
         });
+        promise._work = work;
         _countyCatalogInflight[parent] = promise;
         promise.catch(function () {}).then(function () {
           if (_countyCatalogInflight[parent] === promise) {
@@ -3345,10 +3417,11 @@
         return promise;
       }
 
-      function tripScopeProfile(bandId, onProgress) {
+      function tripScopeProfile(bandId, onProgress, workOverride) {
         var base = chaseProfile();
         var home = getHome();
         var parent = countyParentCode(base);
+        var work = workOverride || navWork('county metadata');
         var startGeneration = _chaseGeneration;
         var startSlug = getReportSlug();
         var startHome = home && Number(home.lat) + ',' + Number(home.lng);
@@ -3357,7 +3430,7 @@
         }
         return Promise.all([
           loadTravelZones(),
-          ensureCountyCatalog(parent, onProgress)
+          ensureCountyCatalog(parent, onProgress, work)
         ]).then(function (parts) {
           var cfg = parts[0], catalog = parts[1];
           var currentHome = getHome();
@@ -4054,32 +4127,41 @@
       // calls join the same rate-limited foreground lane as the chase wave, so
       // the wave the reader is actually watching arrives later. Nothing about
       // your own checklists is urgent — they were filed by you, hours ago —
-      // so this waits for the opening burst to clear, exactly as
-      // startBackgroundHistory does for the migration history.
+      // so this waits for the opening burst and then uses the shared
+      // background-priority lane.
       //
       // Fire and forget: nothing on screen waits for it, and a failure must
       // never be visible as anything other than a list that did not grow.
       var _ownHarvestStarted = false, _ownHarvestTimer = null;
       var OWN_HARVEST_DELAY_MS = 6000;
       function scheduleOwnHarvest(delayMs) {
+        var work = navWork('own-checklist harvest');
         clearTimeout(_ownHarvestTimer);
-        _ownHarvestTimer = setTimeout(ensureOwnHarvest,
+        _ownHarvestTimer = setTimeout(function () { ensureOwnHarvest(work); },
           delayMs == null ? OWN_HARVEST_DELAY_MS : delayMs);
       }
-      function ensureOwnHarvest() {
+      function ensureOwnHarvest(work) {
+        if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
         if (_ownHarvestStarted) return Promise.resolve(0);
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         _ownHarvestStarted = true;
         return recentLists().then(function () {
+          if (!workCurrent(work)) throw queueCancelledError(work);
           // recentLists() harvests internally; redraw so a bird learned just
           // now appears without the reader having to do anything.
           try { updateMyYear(); } catch (e) {}
           // F8. The recent feeds only reach back as far as 200 checklists per
           // county — measured at 2 days in King County — so they can never
           // rebuild a YEAR. The backfill walks the rest, well behind this.
-          try { startOwnBackfill(); } catch (e) {}
+          try { startOwnBackfill(undefined, work); } catch (e) {}
           return 1;
-        }).catch(function () { return 0; });
+        }).catch(function (e) {
+          if (e && e.queueCancelled) {
+            _ownHarvestStarted = false;
+            throw e;
+          }
+          return 0;
+        });
       }
 
       // ── F8, THE CHEAP PATH: ONE CALL INSTEAD OF SEVEN HUNDRED ────────────
@@ -4416,7 +4498,7 @@
       // runs first simply leaves less for the other.
       var BACKFILL_SLICE = 4;          // day-lists per tick
       var BACKFILL_GAP_MS = 4000;      // between ticks; the lane is shared
-      var _backfillRunning = false, _backfillTimer = null;
+      var _backfillRunning = false, _backfillTimer = null, _backfillWork = null;
 
       function backfillKey() { return 'ebird_backfill_' + getReportSlug(); }
       function backfillState() {
@@ -4454,7 +4536,10 @@
                  found: s.found, finished: !!s.done };
       }
 
-      function backfillTick() {
+      function backfillTick(workOverride) {
+        var work = workOverride || _backfillWork || cancellableWork('My Ticks backfill');
+        _backfillWork = work;
+        if (!workCurrent(work)) return;
         if (_backfillRunning) return;
         if (!getKey() || !getDisplayName()) return;
         var s = backfillState();
@@ -4482,10 +4567,11 @@
           + s.days + ' done');
         jobs.reduce(function (p, j) {
           return p.then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             var d = j.day.split('-');
             return ebirdBg('product/lists/' + encodeURIComponent(j.county)
                 + '/' + (+d[0]) + '/' + (+d[1]) + '/' + (+d[2])
-                + '?maxResults=200')
+                + '?maxResults=200', work)
               .then(function (rows) {
                 var mine = (Array.isArray(rows) ? rows : []).filter(isOwnRow);
                 s.found += mine.length;
@@ -4494,8 +4580,12 @@
                 // it is the piece that now also records exoticCategory.
                 if (mine.length) { try { harvestOwnChecklists(mine); } catch (e) {} }
               })
-              .catch(function () { /* a missing day is not a failure worth stopping for */ })
+              .catch(function (e) {
+                if (e && e.queueCancelled) throw e;
+                // A missing day is not a failure worth stopping for.
+              })
               .then(function () {
+                if (!workCurrent(work)) throw queueCancelledError(work);
                 // The cursor advances even when the day failed. A day that
                 // cannot be read will not become readable on the next pass, and
                 // retrying it forever is how a backfill stops being a backfill.
@@ -4509,24 +4599,34 @@
           backfillSave(s);
           try { updateMyYear(); } catch (e) {}
           clearTimeout(_backfillTimer);
-          _backfillTimer = setTimeout(backfillTick, BACKFILL_GAP_MS);
+          if (workCurrent(work)) {
+            _backfillTimer = setTimeout(function () { backfillTick(work); },
+              BACKFILL_GAP_MS);
+          }
         });
       }
-      function startOwnBackfill(delayMs) {
+      function startOwnBackfill(delayMs, workOverride) {
+        var work = workOverride || navWork('My Ticks backfill');
+        _backfillWork = work;
         clearTimeout(_backfillTimer);
         _backfillTimer = setTimeout(function () {
+          if (!workCurrent(work)) return;
           // CHEAP PATH FIRST. One call reads the whole year when the device has
           // an eBird session; only if that fails do we spend 730.
           var s = backfillState();
           if (s.done) return;
           tryLifelistYear().then(function (n) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             if (n >= LIFELIST_MIN_ROWS) {
               s.done = true; s.viaLifelist = true; backfillSave(s);
               try { updateMyYear(); } catch (e) {}
               return;
             }
-            backfillTick();
-          }).catch(function () { backfillTick(); });
+            backfillTick(work);
+          }).catch(function (e) {
+            if (e && e.queueCancelled) return;
+            backfillTick(work);
+          });
         }, delayMs == null ? 20000 : delayMs);
       }
       // Said in the register the rest of the app uses: what it is doing, how far
@@ -4889,6 +4989,36 @@
       var _fgStarts = [];
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [], _fgBgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
+      var _navGeneration = 0, _workCancelGeneration = 0;
+      var _fgActiveJob = null, _fgActiveAbort = null;
+      var _fgBgWake = null;
+      var _fgStall = null;
+
+      function navWork(label) {
+        return {
+          navGeneration: _navGeneration,
+          cancelGeneration: _workCancelGeneration,
+          label: label || 'section work'
+        };
+      }
+      function cancellableWork(label) {
+        return {
+          cancelGeneration: _workCancelGeneration,
+          label: label || 'background work'
+        };
+      }
+      function workCurrent(work) {
+        if (!work) return true;
+        if (typeof work.current === 'function') return work.current();
+        return (work.navGeneration == null || work.navGeneration === _navGeneration)
+          && (work.cancelGeneration == null
+              || work.cancelGeneration === _workCancelGeneration);
+      }
+      function queueCancelledError(work, message) {
+        var e = new Error(message || ((work && work.label) || 'Queued work') + ' was cancelled');
+        e.queueCancelled = true;
+        return e;
+      }
 
       // ── F187: was the app WAITING, or was it not running? ─────────────────
       //
@@ -4936,6 +5066,59 @@
         if (!_beatTimer) return;
         clearInterval(_beatTimer);
         _beatTimer = null;
+      }
+      // The supplied v1.73 trace separated the two cases this watchdog must
+      // not confuse: ordinary responses were usually 85-700 ms and the
+      // slowest completed network read was 10.8 s, while one active request
+      // produced no completion for at least 112 s. Thirty seconds is therefore
+      // above the measured completed maximum and well below the observed
+      // freeze. heartbeat() is called before judging it, so time while iOS
+      // suspended the runtime is subtracted instead of aborting a healthy call.
+      var FG_ACTIVE_STALL_MS = 30000;
+      function fgActiveRuntimeMs(stat, startedAt, now) {
+        var sleptAtStart = stat.activeSlept0 == null ? _sleptMs : stat.activeSlept0;
+        return Math.max(0, (now == null ? Date.now() : now) - startedAt
+          - Math.max(0, _sleptMs - sleptAtStart));
+      }
+      function fgMarkStalled(path, activeMs) {
+        _fgStall = {
+          path: path,
+          activeMs: Math.max(0, activeMs || 0),
+          sectionId: visibleSectionId()
+        };
+        dbg('error', 'active eBird request stopped after '
+          + Math.round(_fgStall.activeMs / 1000) + 's runtime · ' + path);
+        fgProgressSync();
+      }
+      function fgClearStall() {
+        _fgStall = null;
+        fgProgressSync();
+      }
+      function fgCheckActiveStall(path, stat, startedAt, now) {
+        var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
+        if (activeMs < FG_ACTIVE_STALL_MS) return false;
+        fgMarkStalled(path, activeMs);
+        return true;
+      }
+      function fgWatchActive(path, stat, controller) {
+        var startedAt = Date.now(), timer = null, stopped = false;
+        stat.activeSlept0 = _sleptMs;
+        function check() {
+          if (stopped) return;
+          heartbeat();
+          var now = Date.now();
+          var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
+          if (fgCheckActiveStall(path, stat, startedAt, now)) {
+            try { controller.abort(); } catch (e) {}
+            return;
+          }
+          timer = setTimeout(check, Math.min(5000, FG_ACTIVE_STALL_MS - activeMs));
+        }
+        timer = setTimeout(check, Math.min(5000, FG_ACTIVE_STALL_MS));
+        return function () {
+          stopped = true;
+          if (timer) clearTimeout(timer);
+        };
       }
       // WHY THE QUEUE IS HELD, as opposed to what we guess it is. Two entirely
       // different things push _fgNextAt forward: our own pacing (the gap, the
@@ -5030,7 +5213,7 @@
       function fgProgressSync() {
         var busy = _fgWaiters.length + _fgBgWaiters.length + _fgActive;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        if (_stage || busy) {
+        if (_stage || busy || _fgStall) {
           if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
         } else if (!_fgIdleTimer) {
           _fgIdleTimer = setTimeout(function () {
@@ -5038,10 +5221,21 @@
           }, FG_IDLE_RESET_MS);
         }
         if (!el) return;
-        if (!_stage && !busy) { el.hidden = true; return; }
-        el.hidden = false;
         var fill = document.getElementById('loadBarFill');
         var txt = document.getElementById('loadBarText');
+        var actions = document.getElementById('loadBarActions');
+        if (_fgStall) {
+          el.hidden = false;
+          if (fill) fill.style.width = '100%';
+          if (txt) txt.textContent = 'Request stopped after '
+            + Math.round(_fgStall.activeMs / 1000)
+            + 's of active runtime. Retry this section or cancel queued work.';
+          if (actions) actions.hidden = false;
+          return;
+        }
+        if (actions) actions.hidden = true;
+        if (!_stage && !busy) { el.hidden = true; return; }
+        el.hidden = false;
 
         // A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
         // nothing completes for up to a minute, so the bar sits still and the
@@ -5087,16 +5281,104 @@
         try { return typeof window !== 'undefined' && window.closed === true; }
         catch (e) { return false; }
       }
+      function fgRestoreReservation(job) {
+        if (!job || !job.scheduleState) return;
+        _fgNextAt = job.scheduleState.nextAt;
+        _fgTokens = job.scheduleState.tokens;
+        _fgTokenAt = job.scheduleState.tokenAt;
+        _fgStarts = job.scheduleState.starts;
+        _fgHoldWhy = job.scheduleState.holdWhy;
+        job.scheduleState = null;
+      }
       // A torn-down page must stop spending the key: calls are queued now, so
       // without this a section the user has navigated away from keeps firing
       // into the same budget the visible screen is competing for.
-      function fgRelease() {
-        _fgActive--;
-        // Foreground first, always: the background lane is only drained when
-        // nothing the user is looking at is waiting.
-        var w = _fgWaiters.length ? _fgWaiters.shift()
-              : (_fgBgWaiters.length ? _fgBgWaiters.shift() : null);
-        if (w) w();
+      function fgDrain() {
+        while (_fgActive < FG_MAX_CONC) {
+          // Foreground first, always: the background lane is only drained when
+          // nothing the user is looking at is waiting.
+          var job = _fgWaiters.length ? _fgWaiters.shift() : null;
+          if (!job && _fgBgWaiters.length) {
+            // Do not let a background job OCCUPY the only active slot while
+            // waiting for a future token/window opening. Preview without
+            // committing; a foreground arrival can then start immediately.
+            var now = Date.now();
+            var at = fgSchedulePreview(now, true);
+            if (at > now) {
+              if (!_fgBgWake) {
+                _fgBgWake = setTimeout(function () {
+                  _fgBgWake = null;
+                  fgDrain();
+                }, Math.max(1, at - now));
+              }
+              return;
+            }
+            job = _fgBgWaiters.shift();
+          }
+          if (!job) return;
+          if (!workCurrent(job.work)) {
+            job.reject(queueCancelledError(job.work));
+            continue;
+          }
+          job.take();
+          return;
+        }
+      }
+      function fgRelease(job) {
+        if (_fgActive > 0) _fgActive--;
+        if (!job || _fgActiveJob === job) _fgActiveJob = null;
+        fgDrain();
+      }
+      function fgRejectQueued(queue, predicate, message) {
+        var keep = [];
+        queue.forEach(function (job) {
+          if (predicate(job)) job.reject(queueCancelledError(job.work, message));
+          else keep.push(job);
+        });
+        return keep;
+      }
+      function fgCancelObsolete() {
+        _fgWaiters = fgRejectQueued(_fgWaiters, function (job) {
+          return !workCurrent(job.work);
+        });
+        _fgBgWaiters = fgRejectQueued(_fgBgWaiters, function (job) {
+          return !workCurrent(job.work);
+        });
+        if (!_fgBgWaiters.length && _fgBgWake) {
+          clearTimeout(_fgBgWake);
+          _fgBgWake = null;
+        }
+        var active = _fgActiveJob;
+        if (active && !active.started && !workCurrent(active.work)) {
+          if (active.timer) clearTimeout(active.timer);
+          fgRestoreReservation(active);
+          active.reject(queueCancelledError(active.work));
+          fgRelease(active);
+        } else if (active && active.started && active.work
+            && !workCurrent(active.work)
+            && _fgActiveAbort && _fgActiveAbort.job === active) {
+          _fgActiveAbort.cancelled = true;
+          try { _fgActiveAbort.controller.abort(); } catch (e) {}
+        }
+        fgProgressSync();
+      }
+      function fgCancelAll(message) {
+        _workCancelGeneration++;
+        _fgWaiters = fgRejectQueued(_fgWaiters, function () { return true; }, message);
+        _fgBgWaiters = fgRejectQueued(_fgBgWaiters, function () { return true; }, message);
+        if (_fgBgWake) { clearTimeout(_fgBgWake); _fgBgWake = null; }
+        var active = _fgActiveJob;
+        if (active && !active.started) {
+          if (active.timer) clearTimeout(active.timer);
+          fgRestoreReservation(active);
+          active.reject(queueCancelledError(active.work, message));
+          fgRelease(active);
+        } else if (_fgActiveAbort) {
+          _fgActiveAbort.cancelled = true;
+          try { _fgActiveAbort.controller.abort(); } catch (e) {}
+        }
+        progressEnd();
+        fgClearStall();
       }
       // Tokens refill continuously. While any remain a call only pays the small
       // gap; once they are gone every call waits for the next drip, which is
@@ -5219,19 +5501,63 @@
         _fgHoldWhy = 'pace';
         return at;
       }
-      function fgSlot(bg) {
+      function fgSchedulePreview(now, bg) {
+        var next = _fgNextAt, tokens = _fgTokens, tokenAt = _fgTokenAt;
+        var starts = _fgStarts.slice(), why = _fgHoldWhy;
+        var at = fgSchedule(now, bg);
+        _fgNextAt = next;
+        _fgTokens = tokens;
+        _fgTokenAt = tokenAt;
+        _fgStarts = starts;
+        _fgHoldWhy = why;
+        return at;
+      }
+      function fgSlot(bg, work) {
         if (fgDead()) return new Promise(function () {});
-        return new Promise(function (resolve) {
+        return new Promise(function (resolve, reject) {
+          var job = {
+            bg: !!bg, work: work || null, reject: reject,
+            started: false, timer: null, take: null
+          };
           function take() {
+            if (!workCurrent(job.work)) {
+              reject(queueCancelledError(job.work));
+              fgDrain();
+              return;
+            }
             _fgActive++;
+            _fgActiveJob = job;
             var now = Date.now();
+            job.scheduleState = {
+              nextAt: _fgNextAt,
+              tokens: _fgTokens,
+              tokenAt: _fgTokenAt,
+              starts: _fgStarts.slice(),
+              holdWhy: _fgHoldWhy
+            };
             var at = fgSchedule(now, bg);
+            job.scheduledAt = at;
             var wait = at - now;
-            if (wait > 0) setTimeout(resolve, wait); else resolve();
+            function grant() {
+              job.timer = null;
+              if (!workCurrent(job.work)) {
+                fgRestoreReservation(job);
+                reject(queueCancelledError(job.work));
+                fgRelease(job);
+                return;
+              }
+              job.started = true;
+              job.scheduleState = null;
+              resolve(job);
+            }
+            if (wait > 0) job.timer = setTimeout(grant, wait); else grant();
           }
-          if (_fgActive < FG_MAX_CONC) take();
-          else if (bg) _fgBgWaiters.push(take);
-          else _fgWaiters.push(take);
+          job.take = take;
+          if (bg) {
+            _fgBgWaiters.push(job);
+            fgDrain();
+          } else if (_fgActive < FG_MAX_CONC) take();
+          else _fgWaiters.push(job);
           fgProgressSync();
         });
       }
@@ -5244,8 +5570,8 @@
         if (isFinite(s) && s > 0) return Math.min(30000, s * 1000);
         return Math.min(FG_COOLDOWN_MS, Math.pow(2, attempt) * 1000);
       }
-      function fgAttempt(path, attempt, bg, stat) {
-        return fgSlot(bg).then(function () {
+      function fgAttempt(path, attempt, bg, stat, work) {
+        return fgSlot(bg, work).then(function (job) {
           // The moment the queue let this call go. Everything before it is
           // waiting for OTHER calls; everything after is this one.
           if (stat && stat.slotAt == null) {
@@ -5255,9 +5581,38 @@
             // corrected with the sleep that actually fell inside it.
             stat.sleptAtSlot = _sleptMs;
           }
-          return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
-            .then(function (r) { fgRelease(); return r; },
-                  function (e) { fgRelease(); throw e; });
+          var controller = typeof AbortController === 'function'
+            ? new AbortController() : null;
+          var stopWatch = controller
+            ? fgWatchActive(path, stat || {}, controller)
+            : function () {};
+          _fgActiveAbort = controller
+            ? { controller: controller, job: job, cancelled: false }
+            : null;
+          var init = { headers: { 'X-eBirdApiToken': getKey() } };
+          if (controller) init.signal = controller.signal;
+          return fetch('https://api.ebird.org/v2/' + path, init)
+            .then(function (r) {
+              stopWatch();
+              if (_fgActiveAbort && _fgActiveAbort.job === job) _fgActiveAbort = null;
+              fgRelease(job);
+              return r;
+            }, function (e) {
+              stopWatch();
+              var manual = _fgActiveAbort && _fgActiveAbort.job === job
+                && _fgActiveAbort.cancelled;
+              if (_fgActiveAbort && _fgActiveAbort.job === job) _fgActiveAbort = null;
+              fgRelease(job);
+              if (manual) throw queueCancelledError(work, 'Queued work was cancelled');
+              if (_fgStall && controller && controller.signal.aborted) {
+                var stalled = new Error('eBird request stopped after '
+                  + Math.round(_fgStall.activeMs / 1000)
+                  + 's of active runtime. Retry this section.');
+                stalled.ebirdStalled = true;
+                throw stalled;
+              }
+              throw e;
+            });
         }).then(function (r) {
           if (r.status === 401 || r.status === 403) {
             dbg('error', 'eBird ' + r.status + ' (key rejected) · ' + path);
@@ -5284,7 +5639,7 @@
               _fgHoldWhy = 'limit';
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
-                return fgAttempt(path, attempt + 1, bg, stat);
+                return fgAttempt(path, attempt + 1, bg, stat, work);
               });
             }
             dbg('error', 'eBird HTTP ' + r.status + ' · ' + path);
@@ -5395,7 +5750,7 @@
         } catch (e) { return null; }
       }
       function ebRefPut(path, v) {
-        if (!EB_REF_RE.test(path)) return;
+        if (!EB_REF_RE.test(path) || v == null) return;
         try {
           localStorage.setItem(EB_REF_NS + path, JSON.stringify({ t: Date.now(), v: v }));
         } catch (e) {
@@ -5443,8 +5798,9 @@
         if (label) _costLabel[_costSection] = label;
         else if (!_costLabel[_costSection]) _costLabel[_costSection] = _costSection;
       }
-      function costNote(path, cached) {
-        var e = _apiCost[_costSection] || (_apiCost[_costSection] = { calls: 0, cached: 0 });
+      function costNote(path, cached, section) {
+        section = section || _costSection;
+        var e = _apiCost[section] || (_apiCost[section] = { calls: 0, cached: 0 });
         if (cached) e.cached++; else e.calls++;
       }
       function costReport() {
@@ -5456,8 +5812,12 @@
       // `bg` marks a call nobody is waiting on — the detached phase-2 species
       // wave. It is only a QUEUE POSITION, never a different rate: both lanes
       // share the token bucket, the rolling window and the AIMD gap.
-      function ebird(path, bg, noRefCache) {
+      function ebird(path, bg, noRefCache, work) {
         var hit = _ebCache[path];
+        if (hit && !workCurrent(hit.work)) {
+          delete _ebCache[path];
+          hit = null;
+        }
         if (hit && (Date.now() - hit.t) < EB_CACHE_MS) {
           // Say so. A log that shows 49 GETs and 30 responses looks like
           // dropped calls; "cached" is the difference between a bug and a
@@ -5481,10 +5841,11 @@
           return rp;
         }
         dbg('net', 'GET ' + path);
-        costNote(path, false);
-        _fgInFlight++; rlPause(); heartbeatStart();
+        var section = _costSection;
+        costNote(path, false, section);
+        _fgInFlight++; heartbeatStart();
         function release() {
-          if (--_fgInFlight <= 0) { _fgInFlight = 0; rlResume(); heartbeatStop(); }
+          if (--_fgInFlight <= 0) { _fgInFlight = 0; heartbeatStop(); }
         }
         var t0 = Date.now();
         // ONE NUMBER WAS DOING TWO JOBS, and it sent the same reader hunting
@@ -5501,10 +5862,22 @@
         // A queue stall and a hung request need opposite responses, so they no
         // longer share a number.
         var stat = { slept0: _sleptMs };
-        var p = fgAttempt(path, 0, bg, stat)
+        var p = fgAttempt(path, 0, bg, stat, work)
           .then(function (v) {
             release(); fgNoteOk();
-            if (!noRefCache) ebRefPut(path, v);
+            if (!workCurrent(work)) {
+              if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
+              throw queueCancelledError(work);
+            }
+            if (v != null && !noRefCache) ebRefPut(path, v);
+            if (v == null && _ebCache[path] && _ebCache[path].p === p) {
+              delete _ebCache[path];
+            } else if (_ebCache[path] && _ebCache[path].p === p) {
+              // Ownership is only for cancelling work while it is pending.
+              // A completed response is valid reference/observation data and
+              // remains reusable after the reader navigates.
+              _ebCache[path].work = null;
+            }
             // The queue depth and the current gap are the two numbers that
             // explain a slow load, and neither was in the log before: without
             // them a 3-second pause between calls is indistinguishable from a
@@ -5524,81 +5897,24 @@
             if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
             throw e;
           });
-        _ebCache[path] = { t: Date.now(), p: p };
+        _ebCache[path] = { t: Date.now(), p: p, work: work || null };
         return p;
       }
-      // --- Rate-limited background queue (mirrors ebird.py) ---------------
-      // ebird.py holds every API call to _MIN_CALL_INTERVAL_S, now 4.0s (~15
-      // req/min). The report YIELDS to the phone: it is an hourly-ish job
-      // nobody waits on, and its cadence dropped to every 3 hours to suit.
-      // It retries 429/5xx
-      // with 2**attempt backoff. The app's background cache builders push
-      // through the SAME limiter so a long history build can never burn the
-      // key that the report's scheduled job depends on. Foreground, user-tapped
-      // loads stay direct — they're a handful of calls the user is waiting on.
-      var RL_MIN_INTERVAL_MS = 1200, RL_MAX_RETRY = 4, RL_RETRY_CODES = { 429: 1, 500: 1, 502: 1, 503: 1, 504: 1 };
-      var _rlQueue = [], _rlLast = 0, _rlBusy = false, _rlPaused = false;
+      // One limiter, two priority lanes. The former `ebirdBg` implementation
+      // had its own 1.2-second pump and therefore competed with foreground
+      // calls despite comments claiming it yielded. The v1.73 trace shows both
+      // lanes active together. Background work now enters fgSlot(true), where
+      // it shares the measured 0.37/s bucket and 22-success window and can
+      // never run ahead of an interactive waiter.
+      var RL_MAX_RETRY = 4, RL_RETRY_CODES = { 429: 1, 500: 1, 502: 1, 503: 1, 504: 1 };
       function rlSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-      // Foreground loads take priority: pause the background queue while one runs.
-      function rlPause() { _rlPaused = true; }
-      function rlResume() { _rlPaused = false; rlPump(); }
-      function rlPump() {
-        if (_rlBusy || _rlPaused || !_rlQueue.length) return;
-        _rlBusy = true;
-        var job = _rlQueue.shift();
-        var wait = Math.max(0, RL_MIN_INTERVAL_MS - (Date.now() - _rlLast));
-        rlSleep(wait).then(function () {
-          _rlLast = Date.now();
-          return rlAttempt(job.path, 0);
-        }).then(job.resolve, job.reject).finally(function () {
-          _rlBusy = false;
-          setTimeout(rlPump, 0);
-        });
+      function ebirdBg(path, work) {
+        return ebird(path, true, false, work);
       }
-      function rlAttempt(path, attempt) {
-        dbg('net', 'GET (rl) ' + path);
-        return fetch('https://api.ebird.org/v2/' + path, { headers: { 'X-eBirdApiToken': getKey() } })
-          .then(function (r) {
-            if (r.status === 401 || r.status === 403) throw new Error('the API key was rejected (HTTP ' + r.status + ').');
-            if (!r.ok) {
-              if (RL_RETRY_CODES[r.status] && attempt < RL_MAX_RETRY) {
-                var back = Math.pow(2, attempt) * 1000;
-                dbg('warn', 'eBird ' + r.status + ' — retry ' + (attempt + 1) + '/' + RL_MAX_RETRY + ' in ' + (back / 1000) + 's');
-                return rlSleep(back).then(function () { _rlLast = Date.now(); return rlAttempt(path, attempt + 1); });
-              }
-              dbg('error', 'eBird HTTP ' + r.status + ' · ' + path);
-              throw new Error('eBird returned HTTP ' + r.status + '.');
-            }
-            return r.json();
-          });
+      function rlPending() {
+        return _fgBgWaiters.length
+          + ((_fgActiveJob && _fgActiveJob.bg) ? 1 : 0);
       }
-      // Queue an eBird call on the rate-limited background lane.
-      //
-      // ⚠️ F247. THE COST REPORT WAS BLIND TO THIS WHOLE LANE, and it is the
-      // expensive one.
-      //
-      // `costNote()` is called by the foreground `ebird()` and was never called
-      // here, so every background call was invisible to the per-section budget.
-      // Measured from the device log of 2026-08-29: Nemesis birds issued ~60
-      // `GET (rl)` historic day-feeds and the report printed
-      // "1 live · 0 cached  🥚 Nemesis birds". The single most expensive
-      // section in the app appeared to be its cheapest.
-      //
-      // That is why the 30-second pauses went undiagnosed for so long: the
-      // instrument built to name the expensive section was reading one lane of
-      // two, and the missing lane was the one saturating the window. The
-      // section is attributed at ENQUEUE time, because by the time the pump
-      // runs the user has usually navigated somewhere else and the cost would
-      // be billed to whatever they opened next.
-      function ebirdBg(path) {
-        var section = _costSection;
-        costNote(path, false, section);
-        return new Promise(function (resolve, reject) {
-          _rlQueue.push({ path: path, resolve: resolve, reject: reject });
-          rlPump();
-        });
-      }
-      function rlPending() { return _rlQueue.length + (_rlBusy ? 1 : 0); }
 
       function netErr(e) {
         dbg('error', 'netErr: ' + (e && e.message ? e.message : e));
@@ -10352,6 +10668,34 @@
 
       var CHASE_TTL_MS = 30 * 60 * 1000;
       var SPECIES_BATCH = 2;
+      // Automatic enrichment gets one measured background-window budget, not
+      // the whole empty-account unseen list. A normal WA phase 1 is 6 region
+      // feeds. The shared limiter allows 16 background starts per minute
+      // (22 minus the 6-call interactive reserve), leaving exactly 10 starts;
+      // that also matches the ten destination cards the phase enriches.
+      function chasePhase2Max(regionFeedCount) {
+        var windowRoom = Math.max(0,
+          FG_WINDOW_MAX - FG_WINDOW_RESERVE - Math.max(0, regionFeedCount || 0));
+        return Math.min((BL.CONST && BL.CONST.TOP_DEST) || 10, windowRoom);
+      }
+      function chasePhase2Codes(cv, regionFeedCount) {
+        var max = chasePhase2Max(regionFeedCount);
+        if (!max) return [];
+        var seen = {}, picked = [];
+        function add(row) {
+          var code = row && row.code;
+          if (!code || seen[code] || picked.length >= max) return;
+          seen[code] = 1;
+          picked.push({ code: code });
+        }
+        // Spend the bounded pass on birds attached to the visible destination
+        // cards first; only then fill unused slots from the wider unseen set.
+        ((cv && cv.destinations) || []).forEach(function (place) {
+          (place.species || []).forEach(add);
+        });
+        ((cv && cv.unseenAll) || []).forEach(add);
+        return BL.speciesTargetCodes(picked, max);
+      }
       var _chaseInflight = {};
       // F260. The BACKGROUND refresh on the stale-but-today path. `run`
       // resolves with the painted snapshot immediately, so _chaseInflight is
@@ -11058,13 +11402,23 @@
         // lookup and tomorrow's "new since" all still see everything fetched.
         return getChaseAll(force).then(countyView);
       }
-      function getChaseAll(force, profileOverride) {
+      function getChaseAll(force, profileOverride, workOverride) {
         var profile = profileOverride || chaseProfile(), slug = profile.slug;
         var wantKm = BL.geoNotableDistKm(profile);
         var wantBaseKey = chaseFetchBaseKey(profile);
         var generation = _chaseGeneration;
         var generationReplaced = false;
         function chaseCurrent() { return generation === _chaseGeneration; }
+        var waveWork = {
+          label: profileOverride ? 'day-tier wave' : 'shared chase wave',
+          current: function () {
+            return chaseCurrent() && workCurrent(workOverride);
+          }
+        };
+        // Capture the initiating section NOW, not after phase one. If the
+        // reader navigates during those first six calls, enrichment belongs to
+        // the section they left and must never adopt the destination section.
+        var phase2Owner = workOverride || navWork('Bird Gen phase-two enrichment');
         function requireCurrentChase() {
           if (chaseCurrent()) return;
           var e = new Error('Chase wave superseded by new fetch settings');
@@ -11075,6 +11429,7 @@
           if (!generationReplaced) {
             generation = ++_chaseGeneration;
             generationReplaced = true;
+            fgCancelObsolete();
           }
           _chaseInflight = {};
           _chaseRefresh = {};
@@ -11206,20 +11561,22 @@
         // still lets a wave through.
         // ⚠️ AND NOT ON A FORCE. An existing guard caught me here — "a rarity
         // refresh re-reads the alerts, not the whole wave" timed out, because
-        // a forced refresh fell through to this door and JOINED the phase 2 it
-        // was trying to replace. Refresh means "get me new data"; joining an
+        // a forced refresh fell through to this door and reused the phase 2 it
+        // was trying to replace. Refresh means "get me new data"; reusing an
         // in-flight wave answers a different question, and F260's own rule
         // ("you cannot be more up to date than a fetch in progress") applies to
         // phase 1, whose feeds are the ones a force wants re-read.
+        //
+        // F320: a normal caller must not WAIT here either. Phase 1 is already
+        // in _chase and is the usable answer; returning it immediately both
+        // prevents a rival wave and keeps navigation responsive.
         if (!force && _chasePhase2[slug]) {
           if (waveCovers(_chasePhase2[slug])) {
-            return _chasePhase2[slug].then(function () {
-              return projectChaseResult(_chase[slug], profile, slug)
-                || { t: Date.now(), profile: profile, cv: null, rarity: true };
-            }).catch(function () {
-              return projectChaseResult(_chase[slug], profile, slug)
-                || { t: Date.now(), profile: profile, cv: null, rarity: true };
-            });
+            // Phase 1 is already a useful answer. Waiting for detached
+            // enrichment here made every newly opened chase section sit
+            // behind the section the reader had just left.
+            var current = projectChaseResult(_chase[slug], profile, slug);
+            if (current) return Promise.resolve(current);
           }
           replaceChaseGeneration();
         }
@@ -11318,13 +11675,14 @@
           _chase[slug] = res;
           return res;
         }
-        function fetchAll(list, step, bg) {
+        function fetchAll(list, step, bg, work) {
           return Promise.all(list.map(function (f) {
-            return ebird(BL.requestUrl(f), bg)
+            return ebird(BL.requestUrl(f), bg, false, work)
               .then(function (rows) {
                 return { file: f.file, state: 'ok', rows: Array.isArray(rows) ? rows : [] };
               })
               .catch(function (e) {
+                if (e && e.queueCancelled) throw e;
                 try {
                   dbg('warn', 'chase feed failed · ' + f.file + ' · '
                     + ((e && e.message) || e));
@@ -11344,16 +11702,20 @@
         // Phase 2 is one call PER UNSEEN SPECIES - 41 on a normal Washington
         // day. The foreground gate is the real limiter now, so this only bounds
         // how many promises exist at once.
-        function fetchBatched(list, size, bg) {
+        function fetchBatched(list, size, bg, work, shouldContinue, onBatch) {
           var out = [], i = 0;
           function next() {
             requireCurrentChase();
+            if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
             if (i >= list.length) return Promise.resolve(out);
             var slice = list.slice(i, i + size);
             i += size;
-            return fetchAll(slice, true, bg).then(function (rs) {
+            if (onBatch) onBatch(slice);
+            return fetchAll(slice, true, bg, work).then(function (rs) {
               requireCurrentChase();
+              if (!workCurrent(work)) throw queueCancelledError(work);
               out = out.concat(rs);
+              if (shouldContinue && !shouldContinue()) return out;
               return next();
             });
           }
@@ -11391,7 +11753,7 @@
           var early = [], rest = [];
           feeds.forEach(function (f) { (f.kind === 'notable' ? early : rest).push(f); });
           if (!early.length || !rest.length) { early = feeds; rest = []; }
-          return fetchAll(early, true).then(function (rs) {
+          return fetchAll(early, true, false, waveWork).then(function (rs) {
             requireCurrentChase();
             applyFetchResults(rs);
             if (rest.length && anyRows(rowsByFile)) {
@@ -11409,7 +11771,7 @@
                 + 's · ' + early.length + ' of ' + feeds.length + ' feeds');
               try { onRarityEarly(slug); } catch (e) {}
             }
-            return fetchAll(rest, true);
+            return fetchAll(rest, true, false, waveWork);
           }).then(function (results) {
             requireCurrentChase();
             applyFetchResults(results);
@@ -11450,8 +11812,10 @@
             // Phase 1 tells us WHICH birds we still need; only then can phase 2
             // ask where each of them actually is. That ordering is the whole
             // reason this could not be a static fetch plan.
-            var codes = BL.speciesTargetCodes(compute(null).unseenAll);
-            var spFeeds = BL.planSpeciesFeeds(profile, codes);
+            var phaseOneCv = compute(null);
+            var codes = BL.speciesTargetCodes(phaseOneCv.unseenAll);
+            var targetCodes = chasePhase2Codes(phaseOneCv, feeds.length);
+            var spFeeds = BL.planSpeciesFeeds(profile, targetCodes);
 
             // RESOLVE HERE, on phase 1. Not "publish and keep waiting".
             //
@@ -11497,6 +11861,13 @@
             // complaint: one `ref/hotspot/geo` call, minutes behind the wave.
             var attemptedSpecies = {};
             var targetGeneration = _chaseTargetGeneration;
+            var phase2Budget = chasePhase2Max(feeds.length);
+            var phase2Work = {
+              label: 'Bird Gen phase-two enrichment',
+              current: function () {
+                return workCurrent(waveWork) && workCurrent(phase2Owner);
+              }
+            };
             function sameTargetCodes(a, b) {
               if (a.length !== b.length) return false;
               for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -11505,19 +11876,30 @@
             function runTargetPlan(targetCodes, expectedTargetGeneration) {
               requireCurrentChase();
               var pending = BL.planSpeciesFeeds(profile, targetCodes).filter(function (feed) {
-                if (attemptedSpecies[feed.file]) return false;
-                attemptedSpecies[feed.file] = 1;
-                return true;
+                return !attemptedSpecies[feed.file];
               });
-              return fetchBatched(pending, SPECIES_BATCH, true).then(function (spResults) {
+              var remaining = Math.max(0,
+                phase2Budget - Object.keys(attemptedSpecies).length);
+              pending = pending.slice(0, remaining);
+              return fetchBatched(pending, SPECIES_BATCH, true, phase2Work,
+                function () {
+                  return expectedTargetGeneration === _chaseTargetGeneration;
+                }, function (batch) {
+                  batch.forEach(function (feed) {
+                    attemptedSpecies[feed.file] = 1;
+                  });
+                }).then(function (spResults) {
                 requireCurrentChase();
+                if (!workCurrent(phase2Work)) throw queueCancelledError(phase2Work);
                 applyFetchResults(spResults);
-                var currentCodes = BL.speciesTargetCodes(compute(null).unseenAll);
+                var currentCv = compute(null);
+                var currentCodes = BL.speciesTargetCodes(currentCv.unseenAll);
+                var currentTargets = chasePhase2Codes(currentCv, feeds.length);
                 if (expectedTargetGeneration !== _chaseTargetGeneration
-                    || !sameTargetCodes(targetCodes, currentCodes)) {
+                    || !sameTargetCodes(targetCodes, currentTargets)) {
                   dbg('net', 'phase 2 target plan changed · '
-                    + targetCodes.length + ' → ' + currentCodes.length + ' species');
-                  return runTargetPlan(currentCodes, _chaseTargetGeneration);
+                    + targetCodes.length + ' → ' + currentTargets.length + ' species');
+                  return runTargetPlan(currentTargets, _chaseTargetGeneration);
                 }
                 finish(currentCodes, usingSnapshot && feedMeta.feedFailed);
                 dbg('net', 'WAVE phase 2 done in '
@@ -11527,18 +11909,27 @@
                   { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm });
               });
             }
-            _chasePhase2[slug] = runTargetPlan(codes, targetGeneration).then(function () {
+            _chasePhase2[slug] = runTargetPlan(targetCodes, targetGeneration).then(function () {
               requireCurrentChase();
               progressEnd();
               _partialDone[slug] = false;
               if (typeof onChasePartial === 'function') onChasePartial(slug);
               return _chase[slug];
             }).catch(function (e) {
-              if (e && e.chaseSuperseded) return _chase[slug] || null;
               progressEnd();
-              try { dbg('warn', 'phase 2 did not finish; the phase-1 view stands · '
-                + ((e && e.message) || e)); } catch (_) {}
-              return _chase[slug];
+              if (e && (e.chaseSuperseded || e.queueCancelled)) {
+                try { dbg('info', 'phase 2 cancelled; phase-one view kept · '
+                  + ((e && e.message) || e)); } catch (_) {}
+              } else {
+                try { dbg('warn', 'phase 2 did not finish; the phase-1 view stands · '
+                  + ((e && e.message) || e)); } catch (_) {}
+              }
+              // Cancellation or failure must not discard the valid phase-one
+              // result, but the enrichment promise still rejects so callers
+              // cannot mistake an incomplete pass for success.
+              return saveChaseSnapshot(slug, codes, rowsByFile, feedStates, generation,
+                { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm })
+                .then(function () { throw e; });
             });
             _chasePhase2[slug]._fetchBaseKey = wantBaseKey;
             _chasePhase2[slug]._geoNotableKm = wantKm;
@@ -11621,9 +12012,11 @@
         return run;
       }
       function getTierChase(bandId, force, onProgress) {
+        var work = navWork((bandId === 'full' ? 'Full-day' : 'Half-day')
+          + ' planning');
         return Promise.all([
           getChase(force),
-          tripScopeProfile(bandId, onProgress)
+          tripScopeProfile(bandId, onProgress, work)
         ]).then(function (parts) {
           var base = parts[0], profile = parts[1];
           profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
@@ -11636,7 +12029,7 @@
               delete _ebCache[BL.requestUrl(feed)];
             });
           }
-          return getChaseAll(false, profile);
+          return getChaseAll(false, profile, work);
         });
       }
       function anyRows(rows) {
@@ -11675,6 +12068,7 @@
           _chaseInflight = {};
           _chaseRefresh = {};
           _chasePhase2 = {};
+          fgCancelObsolete();
         }
         // The per-URL memo has to go with it, or Refresh is answered from the
         // in-memory copy of the very feeds it is trying to re-read.
@@ -17843,7 +18237,6 @@
         updateCsvStatus();
         updateMyYear();
         renderMenuIdentity();
-        startBackgroundHistory(3000);
         if (finishSetup) {
           _keySetupFromBanner = false;
           loadSettings();
@@ -21006,9 +21399,10 @@
       // so it is detected and surfaced rather than discovered later.
       var TOD_DAY_MAX = 2000;
       var _todTruncated = 0;
-      function todFetchHistoric(region, dates, onProg) {
+      function todFetchHistoric(region, dates, onProg, work) {
         return dates.reduce(function (p, dt, idx) {
           return p.then(function (acc) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             if (onProg) onProg(idx + 1, dates.length);
             var base = 'data/obs/' + encodeURIComponent(region) + '/historic/' + dt.getFullYear() + '/' + (dt.getMonth() + 1) + '/' + dt.getDate() + '?detail=full&maxResults=' + TOD_DAY_MAX;
             // ── F210: BOTH ENDS OF THE DAY, not just the last sighting ─────
@@ -21031,61 +21425,63 @@
             // Background lane: same 1.2s spacing + backoff as the report's
             // ebird.py, so a 21-day × N-county sample can't exhaust the key.
             // The limiter supplies the spacing, so no extra sleep here.
-            return ebirdBg(path)
+            return ebirdBg(path, work)
               .then(function (r) {
-                if (Array.isArray(r)) {
-                  // A day that comes back exactly at the cap was almost
-                  // certainly cut off. Saying so beats a quietly partial day.
-                  if (r.length >= TOD_DAY_MAX) {
-                    _todTruncated++;
-                    dbg('net', 'time-of-day: ' + region + ' ' + dt.toISOString().slice(0, 10)
-                      + ' hit the ' + TOD_DAY_MAX + '-row cap — that day is truncated');
-                  }
-                  // The FIRST sighting of each species that day. Paired here,
-                  // where both ends exist together — the stored sample keeps
-                  // only hours, so nothing downstream could ever work out
-                  // which two belong to one day.
-                  return ebirdBg(base + '&rank=create')
-                    .then(function (fr) {
-                      var first = {};
-                      (Array.isArray(fr) ? fr : []).forEach(function (o) {
-                        if (o && o.speciesCode && !first[o.speciesCode]) {
-                          first[o.speciesCode] = o.obsDt;
-                        }
-                      });
-                      r.forEach(function (o) {
-                        // `firstDt` rides ON the row rather than in a parallel
-                        // map, for the same reason the solar tag rides in the
-                        // stored number: two structures that must stay aligned
-                        // are a drift waiting to happen.
-                        if (o && o.speciesCode && first[o.speciesCode]) {
-                          o.firstDt = first[o.speciesCode];
-                        }
-                      });
-                      acc.push.apply(acc, r);
-                      return acc;
-                    })
-                    .catch(function () { acc.push.apply(acc, r); return acc; });
+                if (!Array.isArray(r)) {
+                  throw new Error('eBird returned no time-of-day rows for ' + region);
                 }
-                return acc;
-              })
-              .catch(function () { return acc; });
+                // A day that comes back exactly at the cap was almost
+                // certainly cut off. Saying so beats a quietly partial day.
+                if (r.length >= TOD_DAY_MAX) {
+                  _todTruncated++;
+                  dbg('net', 'time-of-day: ' + region + ' ' + dt.toISOString().slice(0, 10)
+                    + ' hit the ' + TOD_DAY_MAX + '-row cap — that day is truncated');
+                }
+                // The FIRST sighting of each species that day. Paired here,
+                // where both ends exist together — the stored sample keeps
+                // only hours, so nothing downstream could ever work out
+                // which two belong to one day.
+                return ebirdBg(base + '&rank=create', work)
+                  .then(function (fr) {
+                    if (!Array.isArray(fr)) {
+                      throw new Error('eBird returned no first-sighting rows for ' + region);
+                    }
+                    var first = {};
+                    fr.forEach(function (o) {
+                      if (o && o.speciesCode && !first[o.speciesCode]) {
+                        first[o.speciesCode] = o.obsDt;
+                      }
+                    });
+                    r.forEach(function (o) {
+                      // `firstDt` rides ON the row rather than in a parallel
+                      // map, for the same reason the solar tag rides in the
+                      // stored number: two structures that must stay aligned
+                      // are a drift waiting to happen.
+                      if (o && o.speciesCode && first[o.speciesCode]) {
+                        o.firstDt = first[o.speciesCode];
+                      }
+                    });
+                    acc.push.apply(acc, r);
+                    return acc;
+                  });
+              });
           });
         }, Promise.resolve([]));
       }
       // Fetch historic-day samples for EVERY county of the report and merge,
       // so the sample scope matches report.section_time_of_day (its counties),
       // not the whole state. Progress is combined across counties x dates.
-      function todFetchCounties(codes, dates, onProg) {
+      function todFetchCounties(codes, dates, onProg, work) {
         var total = codes.length * dates.length, base = 0;
         return codes.reduce(function (p, code) {
           return p.then(function (acc) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             // Skip (county, day) pairs already accumulated — the background
             // prefetch usually has them, making an on-demand build instant.
             var need = dates.filter(function (d) { return !todHasDay(code, d); });
             base += dates.length - need.length;
             if (onProg) onProg(base, total);
-            return todFetchHistoric(code, need, function (i) { onProg(base + i, total); })
+            return todFetchHistoric(code, need, function (i) { onProg(base + i, total); }, work)
               .then(function (part) {
                 base += need.length;
                 need.forEach(function (d) { todMarkDay(code, d); });
@@ -21100,19 +21496,25 @@
         var btn = $('todBtn'), st = $('todStatus');
         if (!hasCounties()) { st.textContent = 'Not applicable to the ' + getReport().label + ' rarity tracker — pick a region report.'; renderTimeOfDay(); return; }
         var codes = countyCodes();
-        var missing = bgTodPending().length;
+        var work = navWork('Dawn and dusk history');
+        var missing = todPending().length;
         btn.disabled = true;
         st.textContent = missing
           ? 'Sampling recent checklists in ' + countyLabelStr() + '… ' + missing + ' county-days to go.'
-          : 'Using the history built in the background — refreshing rarity hours…';
-        todFetchCounties(codes, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; })
+          : 'Using the cached sample — refreshing rarity hours…';
+        todFetchCounties(codes, todDates(21), function (i, n) { st.textContent = 'Sampling recent checklists… ' + i + '/' + n; }, work)
           .then(function (all) {
             // Add each county's notable feed (rarity detection hours).
             return codes.reduce(function (p, code) {
               return p.then(function (acc) {
-                return ebird('data/obs/' + encodeURIComponent(code) + '/recent/notable?detail=full&back=30&maxResults=1000')
+                if (!workCurrent(work)) throw queueCancelledError(work);
+                return ebird('data/obs/' + encodeURIComponent(code) + '/recent/notable?detail=full&back=30&maxResults=1000',
+                  false, false, work)
                   .then(function (nb) { if (Array.isArray(nb)) acc.push.apply(acc, nb); return todDelay(acc, 200); })
-                  .catch(function () { return todDelay(acc, 200); });
+                  .catch(function (e) {
+                    if (e && e.queueCancelled) throw e;
+                    return todDelay(acc, 200);
+                  });
               });
             }, Promise.resolve(all));
           })
@@ -21174,12 +21576,13 @@
                    lat: r[4], lng: r[5], obsDt: r[6], subId: r[7] };
         });
       }
-      function easyFetch(codes, dates, onProg) {
+      function easyFetch(codes, dates, onProg, work) {
         var jobs = [];
         codes.forEach(function (c) { dates.forEach(function (d) { jobs.push([c, d]); }); });
         var acc = [], done = 0, failed = 0;
         return jobs.reduce(function (p, j) {
           return p.then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             var c = j[0], d = j[1], key = easyCacheKey(c, d);
             // ⚠️ F247. COMPRESSED, and read through the shared interface.
             // MEASURED 2026-08-29 against the live feed: a day-county entry is
@@ -21205,7 +21608,7 @@
               // to offer nearby spots; cat=species drops sp./slash/hybrid/domestic
               // server-side, which is what report._non_countable_codes strips.
               var path = 'data/obs/' + encodeURIComponent(c) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?detail=full&cat=species&maxResults=1000';
-              return ebirdBg(path)
+              return ebirdBg(path, work)
                 .then(function (r) {
                   if (!Array.isArray(r)) { failed++; return; }
                   var small = easyCompact(r);
@@ -21215,7 +21618,10 @@
                   // the sweep.
                   zcPut(key, small);
                 })
-                .catch(function () { failed++; })
+                .catch(function (e) {
+                  if (e && e.queueCancelled) throw e;
+                  failed++;
+                })
                 .then(function () { if (onProg) onProg(++done, jobs.length); });
             });
           });
@@ -21581,13 +21987,14 @@
         // new ones are ready; until then the old ones are the best answer
         // available, exactly as Hot patches treats its own last scan.
         var dates = todDates(EASY_MISS_DAYS);
+        var work = navWork('Nemesis-bird history');
         btn.disabled = true;
         var had = !!$('easyResults').querySelector('li');
         st.textContent = (had ? 'Refreshing — ' : '')
           + 'Sampling ' + EASY_MISS_DAYS + ' days of checklists in ' + countyLabelStr() + '…';
         return easyFetch(countyCodes(), dates, function (i, n) {
           st.textContent = 'Sampling recent days… ' + i + '/' + n;
-        }).then(function (all) {
+        }, work).then(function (all) {
           var sample = easySampleState(all);
           if (sample.allFailed) {
             throw new Error('No Nemesis day feeds could be read. Reopen this section to retry.');
@@ -23126,12 +23533,9 @@
         var yc = migYearCodes(), haveCodes = Object.keys(yc).length > 0;
         var html = '';
         if (!nSamples) {
-          var bg = bgHistoryStatus();
           html += '<div class="status">' + (fallback.length
             ? 'County history is not ready, so the forecast below uses the bundled state-wide GBIF table. Tap “Build migration history” for the more local model.'
-            : (bg
-              ? 'Building ~2 years of weekly checklist history in the background (' + bg.done + '/' + bg.total + ' weeks). It resumes across launches. Tap “Build migration history” to finish it now.'
-              : 'No county history yet — tap “Build migration history”. The one-time build is resumable.')) + '</div>';
+            : 'No county history yet — tap “Build migration history”. The one-time build is resumable and runs only when you ask for it.') + '</div>';
         }
         html += forecastSection('🛬 Expected soon (unseen targets)', plan.expected,
           'Nothing new expected in the next ' + MIG_WINDOW_WEEKS + ' weeks.');
@@ -23150,34 +23554,40 @@
       // Merge every county's species for one historic day into a single sample,
       // mirroring the report's per-date county-merged snapshot. One sample per
       // week keyed by report slug (so wa vs fort-casey don't collide).
-      function migFetchDate(codes, d, cache) {
+      function migFetchDate(codes, d, cache, work) {
         var set = {};
         return codes.reduce(function (p, code) {
           return p.then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             var path = 'data/obs/' + encodeURIComponent(code) + '/historic/' + d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '?cat=species&detail=simple&maxResults=500';
             // Background lane: same 1.2s spacing + 2**attempt backoff the
             // report's ebird.py uses, so building the cache can't exhaust the
             // shared key. No extra sleep needed — the limiter provides it.
-            return ebirdBg(path).then(function (recs) {
-              (Array.isArray(recs) ? recs : []).forEach(function (r) {
+            return ebirdBg(path, work).then(function (recs) {
+              if (!Array.isArray(recs)) {
+                throw new Error('eBird returned no migration rows for ' + code);
+              }
+              recs.forEach(function (r) {
                 if (r.speciesCode) { set[r.speciesCode] = 1; if (r.comName && !cache.names[r.speciesCode]) cache.names[r.speciesCode] = r.comName; }
               });
-            }).catch(function () {});
+            });
           });
         }, Promise.resolve()).then(function () {
           cache.samples[migSampleKey(d)] = Object.keys(set).sort();
         });
       }
-      function migRun(codes, dates, cache, onProg, done, total) {
+      function migRun(codes, dates, cache, onProg, done, total, work) {
         return dates.reduce(function (p, d, idx) {
           return p.then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             onProg(done + idx + 1, total);
-            return migFetchDate(codes, d, cache).then(function () {
+            return migFetchDate(codes, d, cache, work).then(function () {
               if ((idx + 1) % 5 === 0) { cache.updated = new Date().toISOString(); migSave(cache); }
             });
           });
         }, Promise.resolve());
       }
+      var _migrationManualRuns = 0;
       function migBootstrap() {
         if (!getKey()) { $('migStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('migBtn'), st = $('migStatus');
@@ -23185,6 +23595,8 @@
           $('migResults').innerHTML = '<div class="status">Migration outlook is built from the report\u2019s county history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
         }
+        _migrationManualRuns++;
+        var work = navWork('Migration history');
         var codes = countyCodes();
         var cache = migLoad(); cache.samples = cache.samples || {}; cache.names = cache.names || {};
         var all = migTargets();
@@ -23192,96 +23604,21 @@
         var done = all.length - pending.length, total = all.length;
         if (!pending.length) { renderMigration(); $('migStatus').textContent = 'History complete (' + total + ' weekly samples) · ' + nowTime(); return; }
         btn.disabled = true; st.textContent = 'Building migration history… ' + done + '/' + total;
-        migRun(codes, pending, cache, function (i, t) { $('migStatus').textContent = 'Building migration history… ' + i + '/' + t + ' weeks × ' + codes.length + ' counties'; }, done, total)
+        migRun(codes, pending, cache, function (i, t) { $('migStatus').textContent = 'Building migration history… ' + i + '/' + t + ' weeks × ' + codes.length + ' counties'; }, done, total, work)
           .then(function () { cache.updated = new Date().toISOString(); migSave(cache); renderMigration(); $('migStatus').textContent = 'History built (' + total + ' weekly samples) · ' + nowTime(); })
           .catch(function (e) { migSave(cache); $('migStatus').textContent = netErr(e); })
           .finally(function () { btn.disabled = false; });
       }
 
-      // --- Background history prefetch -------------------------------------
-      // Sections that need history (Migration outlook ~2y of weekly samples,
-      // Time of day 21 days × N counties) are expensive to build on demand —
-      // the report builds those caches offline, ahead of time. Do the same
-      // here: as soon as the app has a key and a county-scoped report, fill
-      // both caches in the background on the rate-limited lane, a slice at a
-      // time, so opening either section later is instant. Progress is
-      // persisted after every date, so it resumes across launches.
-      var BG_SLICE = 12, _bgRunning = false, _bgTimer = null;
-      function bgHistoryState() {
-        if (!getKey() || !hasCounties()) return null;
-        var cache = migLoad(); cache.samples = cache.samples || {}; cache.names = cache.names || {};
-        var all = migTargets();
-        var pending = all.filter(function (d) { return !cache.samples[migSampleKey(d)]; });
-        return { cache: cache, all: all, pending: pending };
-      }
-      // Time-of-day: the (county, day) pairs still missing from the store.
-      function bgTodPending() {
+      // Time-of-day stays on demand too. This only counts the resumable work
+      // for the status line; it schedules nothing.
+      function todPending() {
         if (!getKey() || !hasCounties()) return [];
         var out = [], dates = todDates(21);
         countyCodes().forEach(function (code) {
           dates.forEach(function (d) { if (!todHasDay(code, d)) out.push({ code: code, d: d }); });
         });
         return out;
-      }
-      function bgHistoryStatus() {
-        var s = bgHistoryState();
-        if (!s) return null;
-        return { done: s.all.length - s.pending.length, total: s.all.length, pending: s.pending.length };
-      }
-      function bgTodTick() {
-        var pending = bgTodPending();
-        if (!pending.length) { _bgRunning = false; dbg('net', 'background history complete'); return; }
-        _bgRunning = true;
-        var slice = pending.slice(0, BG_SLICE);
-        dbg('net', 'background time-of-day: ' + slice.length + ' of ' + pending.length + ' county-days pending');
-        slice.reduce(function (p, job) {
-          return p.then(function () {
-            return todFetchHistoric(job.code, [job.d]).then(function (obs) {
-              todAccumulate(obs);
-              todMarkDay(job.code, job.d);
-            });
-          });
-        }, Promise.resolve()).catch(function (e) {
-          dbg('warn', 'background time-of-day paused: ' + (e && e.message || e));
-        }).finally(function () {
-          _bgRunning = false;
-          if (bgTodPending().length) { clearTimeout(_bgTimer); _bgTimer = setTimeout(bgTodTick, 5000); }
-          else { try { renderTimeOfDay(); } catch (e) {} dbg('net', 'background history complete'); }
-        });
-      }
-      function bgHistoryTick() {
-        if (_bgRunning) return;
-        var s = bgHistoryState();
-        if (!s) return;
-        if (!s.pending.length) { bgTodTick(); return; }
-        _bgRunning = true;
-        var codes = countyCodes(), slice = s.pending.slice(0, BG_SLICE), cache = s.cache;
-        dbg('net', 'background history: ' + slice.length + ' of ' + s.pending.length + ' weeks pending');
-        slice.reduce(function (p, d) {
-          return p.then(function () {
-            return migFetchDate(codes, d, cache).then(function () {
-              cache.updated = new Date().toISOString(); migSave(cache);
-              var st = $('migStatus');
-              if (st && !$('migBtn').disabled) {
-                var left = bgHistoryStatus();
-                if (left) st.textContent = 'Building history in the background… ' + left.done + '/' + left.total + ' weeks cached.';
-              }
-            });
-          });
-        }, Promise.resolve()).catch(function (e) {
-          dbg('warn', 'background history paused: ' + (e && e.message || e));
-        }).finally(function () {
-          _bgRunning = false;
-          try { migSave(cache); } catch (e) {}
-          var left = bgHistoryStatus();
-          clearTimeout(_bgTimer);
-          if (left && left.pending) _bgTimer = setTimeout(bgHistoryTick, 5000);
-          else { try { renderMigration(); } catch (e) {} _bgTimer = setTimeout(bgTodTick, 5000); }
-        });
-      }
-      function startBackgroundHistory(delayMs) {
-        clearTimeout(_bgTimer);
-        _bgTimer = setTimeout(bgHistoryTick, delayMs == null ? 8000 : delayMs);
       }
 
       // --- Birder convoys (group routes from shared checklists) ---
@@ -27292,6 +27629,10 @@
           var _from = visibleSectionId();
           if (_from !== id) dbg('info', 'nav ' + _from + ' \u2192 ' + id + navWhy());
         } catch (e) {}
+        if (visibleSectionId() !== id) {
+          _navGeneration++;
+          fgCancelObsolete();
+        }
         // Leaving the section closes any sub-page it had open, or coming back
         // later lands you on a bird's profile with no memory of choosing it.
         if (_abaOpen) abaCloseBird();
@@ -27468,6 +27809,10 @@
         });
       }
       function showMenu() {
+        if (!menuVisible()) {
+          _navGeneration++;
+          fgCancelObsolete();
+        }
         _sections.forEach(function (s) { s.hidden = true; });
         var menu = $('menuPanel'); if (menu) menu.hidden = false;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
@@ -27481,6 +27826,20 @@
       }
       // Settings is now just another section in the Contents menu.
       function showSettings(show) { if (show) showSection('settingsPanel'); else showMenu(); }
+
+      function retryStalledSection() {
+        var stall = _fgStall;
+        if (!stall) return;
+        if (stall.path && _ebCache[stall.path]) delete _ebCache[stall.path];
+        fgCancelAll('Retrying after a stopped request');
+        var sec = stall.sectionId && $(stall.sectionId);
+        if (!sec || sec.hidden || !sec._loader || !sec._loader.fn) return;
+        _autoLoaded[sec.id] = false;
+        setTimeout(function () { autoLoad(sec); }, 0);
+      }
+      function cancelStalledWork() {
+        fgCancelAll('Cancelled by the reader');
+      }
 
       // --- swipe right to return to the Contents menu -----------------------
       // Mirrors the iOS interactive-pop gesture people expect from a pushed
@@ -27955,7 +28314,6 @@
         renderMenuList();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open && menuApplies({ needs: open._needs, enabled: open._enabled })) showSection(open.id); else showMenu();
-        startBackgroundHistory(3000);
       }
       function loadSettings() {
         populateReportSelect();
@@ -28598,6 +28956,8 @@
       });
       bindSwipeBack();
       bindZoomReset();
+      if ($('loadRetry')) $('loadRetry').addEventListener('click', retryStalledSection);
+      if ($('loadCancel')) $('loadCancel').addEventListener('click', cancelStalledWork);
       // F265. STARTUP, not a repaint. The header reads a rank cache whose
       // only writer was opening Top 100 — so on the first run of the day it
       // read a cache nobody had filled. Once per session, background lane.
@@ -29460,7 +29820,6 @@
           renderKeyBanner();
           _keySetupFromBanner = false;
           showSettings(false);
-          startBackgroundHistory(3000);
           if (!getKey()) $('status').textContent = 'Add your eBird API key in Settings to begin.';
         }
         // A malformed key is stored just as happily as a good one, and the
@@ -29563,6 +29922,11 @@
         beat: function (lastBeatAt) { _lastBeat = lastBeatAt; heartbeat(); },
         sleptMs: function () { return _sleptMs; },
         sleepReset: function () { _sleptMs = 0; _lastBeat = Date.now(); _wokeAt = 0; },
+        fgActiveRuntimeMs: fgActiveRuntimeMs,
+        fgCheckActiveStall: fgCheckActiveStall,
+        fgMarkStalled: fgMarkStalled,
+        fgStall: function () { return _fgStall; },
+        FG_ACTIVE_STALL_MS: FG_ACTIVE_STALL_MS,
         holdWhy: function () { return _fgHoldWhy; },
         setHoldWhy: function (w) { _fgHoldWhy = w; },
         fgTiming: fgTiming, fgTimingStr: fgTimingStr,
@@ -29603,6 +29967,7 @@
         // different samples, which no reading of the source reveals.
         todLoad: todLoad, todAccumulate: todAccumulate,
         todSpecialists: todSpecialists, todCoherence: todCoherence,
+        todFetchCounties: todFetchCounties, todHasDay: todHasDay,
         TOD_COHERENCE_MAX: TOD_COHERENCE_MAX,
         // Exported so a test fixture can stamp the CURRENT sampling version
         // instead of a literal. A test that hard-codes `v: 2` goes red on
@@ -29636,6 +30001,11 @@
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,
         chaseMaxMi: chaseMaxMi, chaseProfile: chaseProfile,
         loadTravelZones: loadTravelZones, ensureCountyCatalog: ensureCountyCatalog,
+        setCountySeed: function (value) {
+          _countySeedOverride = value === null ? null : (value || {});
+          _countySeedPromise = null;
+          _countyCatalogInflight = {};
+        },
         tripScopeProfile: tripScopeProfile, getTierChase: getTierChase,
         syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
@@ -29680,6 +30050,7 @@
         parseFirstYearBirdList: parseFirstYearBirdList,
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,
+        migFetchDate: migFetchDate, migSampleKey: migSampleKey,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
@@ -29781,7 +30152,12 @@
         PATCH_ROWS: PATCH_ROWS,
         scopeBadge: scopeBadge, scopeWhy: scopeWhy, loadScopeSites: loadScopeSites,
         gbifArrival: gbifArrival, sciNameFor: sciNameFor,
-        ebird: ebird, retryAfterMs: retryAfterMs,
+        ebird: ebird, ebirdBg: ebirdBg, rlPending: rlPending,
+        fgCancelObsolete: fgCancelObsolete, fgCancelAll: fgCancelAll,
+        navGeneration: function () { return _navGeneration; }, navWork: navWork,
+        retryStalledSection: retryStalledSection,
+        cancelStalledWork: cancelStalledWork,
+        retryAfterMs: retryAfterMs,
         costReport: costReport, costEnter: costEnter, costNote: costNote,
         ebRefGet: ebRefGet, ebRefPut: ebRefPut, ebRefPurge: ebRefPurge,
         packJson: packJson, unpackJson: unpackJson,
@@ -29807,7 +30183,9 @@
       progressDetail: progressDetail, progressEnd: progressEnd,
       feedLabel: feedLabel, fgSetNextAt: function (t) { _fgNextAt = t; },
       fgState: function () { return { gap: _fgGap, tokens: _fgTokens, done: _fgDone,
-                                      queued: _fgWaiters.length, queuedBg: _fgBgWaiters.length, active: _fgActive }; },
+                                      queued: _fgWaiters.length, queuedBg: _fgBgWaiters.length,
+                                      active: _fgActive, reservations: _fgStarts.length,
+                                      nextAt: _fgNextAt }; },
         hydrateBestPlaces: hydrateBestPlaces,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },
@@ -29840,6 +30218,7 @@
         _chaseInflight[slug] = promise;
       },
       chaseGeneration: function () { return _chaseGeneration; },
+      chasePhase2Max: chasePhase2Max, chasePhase2Codes: chasePhase2Codes,
       loadedSectionFor: loadedSectionFor, autoLoad: autoLoad,
       onChasePhaseOne: onChasePhaseOne,
       onChasePartial: onChasePartial,
@@ -29866,7 +30245,8 @@
         testApiKey: testApiKey, acceptWorkingKey: acceptWorkingKey,
         openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL,
         importCSV: importCSV, loadSeed: loadSeed, getSeenMeta: getSeenMeta,
-        usesBundledSeed: usesBundledSeed
+        usesBundledSeed: usesBundledSeed,
+        migrationManualRuns: function () { return _migrationManualRuns; }
       };
       migrateHomeKeys();
       buildNav();
@@ -29886,11 +30266,9 @@
           try { renderScout(sc, false); $('scoutClear').hidden = false; } catch (e) {}
         }
       })();
-      // The harvest is scheduled by refresh(), not from here — see
-      // scheduleOwnHarvest for why a boot-time timer was the wrong hook.
-      // Prefetch the multi-year history the Migration outlook needs, off the
-      // critical path, on the rate-limited lane.
-      startBackgroundHistory();
+      // History builders are deliberately NOT started at boot. Migration's
+      // multi-year walk is manual and resumable; first-run interactive
+      // sections own the eBird budget until the reader explicitly asks for it.
     })();
   </script>
 </body>

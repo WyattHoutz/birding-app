@@ -65,7 +65,7 @@ graph LR
   W1 --> TODAY["Today's rarities<br/>+0, ready first"]
   W1 --> RARE["Last 7-Days rarities<br/>+0, ready first"]
   W1 --> W2
-  W2 --> UNSEEN["All unseen<br/>+~39 species feeds"]
+  W2 --> UNSEEN["All unseen<br/>+up to 10 species feeds"]
   W2 --> CLOSEST["Closest spots<br/>+0"]
   W2 --> EASY["Easy misses<br/>+0"]
   W2 --> DEST["Top destinations<br/>+0"]
@@ -89,7 +89,7 @@ graph LR
 |---|---:|---|
 | Chase wave — group 1a (notable) | **3** | 2 counties + geo; completes both rarity sections on its own |
 | ↳ group 1b (recent) | **3** | completes phase 1 |
-| ↳ phase 2 | **~39** | one `recent/{species}` per bird you still need |
+| ↳ phase 2 | **0–10** | bounded enrichment for birds on the visible destination cards first |
 | Today's rarities | 0 | reads the wave — ready at group **1a** |
 | Last 7-Days rarities | 0 | reads the wave — ready at group **1a** |
 | Closest spots / Easy misses / All unseen | 0 | read the wave |
@@ -103,6 +103,7 @@ graph LR
 | Species lookup | **1–2** | spplist + one species feed |
 | Favourites | 1 per saved spot | one `{locId}/recent` each |
 | Time of day | 1 per county | |
+| Half-day / Full-day county metadata | **0 in Washington** | bundled county bounds replace the former list + 39 info calls |
 
 A same-day snapshot replaces the whole first column with **0**. See
 `QUERY-PLAN.md` §2.
@@ -142,7 +143,7 @@ because they all draw from one bucket on one key.
 ```js
 var FG_MAX_CONC = 1, FG_MIN_GAP_MS = 250;
 var FG_BUCKET = 10, FG_REFILL_PER_S = 0.37;
-var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 20;
+var FG_WINDOW_MS = 60000, FG_WINDOW_MAX = 22;
 ```
 
 This used to read `FG_BUCKET = 8, FG_REFILL_PER_S = 0.3`, budgeting for a
@@ -154,7 +155,7 @@ competitor that no longer exists:
 
 Every cron in `.github/workflows/` is commented out; the phone has the key to
 itself. The constants were raised to the measured solo ceiling, and a **rolling
-60-second window of 20 starts** was added alongside the token bucket — the
+60-second window of 22 starts** was added alongside the token bucket — the
 bucket alone let a burst through that the sustained limit then punished.
 
 The debug line reports both, which is how you tell which one is binding:
@@ -212,7 +213,7 @@ Ranked by how much they saved. The first four have shipped.
    by contrast, is `false` on all 400 — do not trust it.
 
 3. ✅ **Raise the pacing to the solo ceiling** — bucket 8→10, refill
-   0.3→0.37, plus the 20-per-60 s window the bucket alone was missing.
+   0.3→0.37, plus the 22-per-60 s window the bucket alone was missing.
 
 4. ✅ **Serve the stored snapshot first.** A same-day snapshot is painted
    immediately and refreshed behind; within 30 minutes it *is* the answer and
@@ -225,14 +226,29 @@ Ranked by how much they saved. The first four have shipped.
    whole sections on their own. They now run as their own group and those
    sections paint after 3 calls instead of 6. See `QUERY-PLAN.md` §3.
 
+6. ✅ **Bound and supersede first-run enrichment.** A zero-seen account used
+   the old 60-call safety ceiling in full. The automatic phase-two pass is now
+   capped at 10: the ten visible destination cards and the ten starts left by
+   the measured background window after six phase-one calls. Navigation
+   cancels the remaining plan instead of letting it follow the reader.
+
+7. ✅ **Remove the second eBird pump.** `ebirdBg()` now enters the same
+   0.37/s limiter as interactive work, on its lower-priority queue. Migration
+   and time-of-day history no longer start at boot, key save or report change.
+
+8. ✅ **Stop the county-info burst.** Washington's 39 static county bounds are
+   bundled, so Half-day and Full-day spend zero foreground metadata calls
+   instead of a list call followed by 39 `ref/region/info` calls. The fallback
+   for an unbundled state is batched, cached, cancellable and background-priority.
+
 Still open:
 
-6. **Do not re-derive what a snapshot already knows.** The chase wave's phase 2
+9. **Do not re-derive what a snapshot already knows.** The chase wave's phase 2
    already writes every unseen species' recent reports to a snapshot. Latest
    ticks then asks for many of the same species again through its own cache —
    at a different `back=` window, which is what stops them sharing.
 
-7. **Prefetch while the reader is reading.** The board paints from a leaderboard
+10. **Prefetch while the reader is reading.** The board paints from a leaderboard
    read in a second; the following two minutes are spent on rows nobody has
    scrolled to yet. Fetching in scroll order — or only what is on screen —
    would put the same information in front of the user far sooner.
