@@ -44,7 +44,7 @@ test('every menu section declares representative fixture data or an intentional 
 
   const allowed = new Set([
     'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
-    'spuh', 'hotspot-search', 'stakeout-species', 'patches',
+    'spuh', 'hotspot-search', 'stakeout-species', 'mega-index', 'patches',
     'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
@@ -274,10 +274,15 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     '#spLookupIdHelp .spuhtaxnav',
     '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
+    '#spLookupResults .megaevidence',
+    '#spLookupResults .megalatest',
+    '#spLookupResults .megareports',
     '#spLookupResults .spLookupPlaceList > .hscard-sm',
   ]);
-  assert.match(source, /await A\.lookupSpecies\('semsan', 'Semipalmated Sandpiper'\)/,
-    'Stakeout bird must run its real medium-card + places renderer');
+  assert.match(source, /fillMegaStakeout[\s\S]*#abaResults \.megajump[\s\S]*jump\.click\(\)/,
+    'the mandatory Stakeout shot must enter through a real Mega index click');
+  assert.match(source, /fillMegaStakeout[\s\S]*spLookupPlaceList/,
+    'the routed shot still exercises the real medium-card + places renderer');
   assert.doesNotMatch(source, /spLookupHero|details\.spuhshell|renderSpuhStakeoutShell/,
     'the release fixture must not preserve the removed duplicate hero or collapsed shell');
   assert.match(source, /detail\.querySelector\('details\.spuhtaxdetails'\)[\s\S]*path\.open = true/,
@@ -292,6 +297,16 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the exact 393px/402px release render does not guard the requested one-line controls');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
+
+  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
+  assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaResults li[data-mega-code][data-mega-view]',
+    '#abaResults .megaphoto',
+    '#abaResults .megajump',
+    '#abaResults .spdist',
+  ]);
+  assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
+    'the Mega release shot must use the production list renderer');
 });
 
 test('F268 On passage mockup exercises first reports and both forecast sources', () => {

@@ -32,6 +32,37 @@ const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const FIRST_YEAR_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-first-year.html'), 'utf8');
+const MEGA_STAKEOUT = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
+
+function megaAlertHtml(rows) {
+  return (rows || []).map((row, i) => `
+    <div id="obs-OBS${30400 + i}" class="Observation">
+      <a href="/species/${row.code}/aba" data-species-code="${row.code}">
+        <span class="Heading-main">${row.name}</span>
+      </a>
+      <a href="/checklist/${row.subId}" title="Checklist">${row.when}</a>
+      <a rel="noopener" title="Map: ${row.lat}, ${row.lng}">${row.place}, Washington, United States</a>
+      <span><span class="is-visuallyHidden">Number observed: </span>${row.count}</span>
+      <span class="is-visuallyHidden">Observer: </span><span>${row.observer}</span>
+      <strong>CONFIRMED</strong>
+    </div>`).join('');
+}
+
+async function settleMegaEntry(app, code) {
+  const A = app.window.__app;
+  for (let pass = 0; pass < 3; pass++) {
+    const view = A.megaViewState().view;
+    const entry = view && view.bySpecies && view.bySpecies[code];
+    if (!entry) return;
+    const pending = [
+      entry.statePromise, entry.widePromise, entry.historyPromise, entry.wikiPromise,
+      ...Object.values(entry.finderPromiseBySub || {}),
+    ].filter(Boolean);
+    await Promise.all(pending.map((p) => Promise.resolve(p).catch(() => null)));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 
 function recentFirstYearFixture(species) {
   const d = new Date();
@@ -1368,32 +1399,17 @@ test('Closest spots never lists a place the report would not go', async () => {
 
 // --- Rarity cards -----------------------------------------------------------
 
-test('a rarity card leads with a big photo, a headline name and the evidence', async () => {
+test('rarity evidence counts reports, people, places, days and ABA-wide spread', async () => {
   const app = await boot();
   const A = app.window.__app;
-  const li = A.birdCard({
-    code: 'tersan', name: 'Terek Sandpiper', badges: '<span class="needflag">X</span>',
-    sub: 'ABA Code 3+', stats: A.rarityStats([
-      { userDisplayName: 'a', obsDt: '2026-07-28 09:00', locId: 'L1' },
-      { userDisplayName: 'b', obsDt: '2026-07-28 10:00', locId: 'L1' },
-      { userDisplayName: 'b', obsDt: '2026-07-29 10:00', locId: 'L2' },
-    ], 'reports in Washington', [
-      { subnational1Code: 'US-WA' }, { subnational1Code: 'US-WA' }, { subnational1Code: 'US-OR' },
-    ]),
-    where: '<div class="meta">somewhere</div>',
-  });
-  // The photo has to be a HERO slot, not the 46px list thumb: the whole point
-  // of the card is that you can identify a bird you have never seen.
-  const hero = li.querySelector('.bchero[data-hero]');
-  assert.ok(hero, 'the card carries a hero photo slot');
-  assert.equal(hero.getAttribute('data-code'), 'tersan',
-    'and it is keyed by species code, so the bundled seed can back it up');
-  assert.ok(li.querySelector('.bcname'), 'the name is a headline, not a row label');
-  assert.match(li.querySelector('.bcname').textContent, /Terek Sandpiper/);
-  const stats = [...li.querySelectorAll('.bcstat')].map(
-    (s) => s.querySelector('b').textContent + ' ' + s.querySelector('small').textContent);
-  // "How rare" is the reason this section exists, so it is counted, not adjectival.
-  assert.deepEqual(stats, [
+  assert.deepEqual(arr(A.rarityStats([
+    { userDisplayName: 'a', obsDt: '2026-07-28 09:00', locId: 'L1' },
+    { userDisplayName: 'b', obsDt: '2026-07-28 10:00', locId: 'L1' },
+    { userDisplayName: 'b', obsDt: '2026-07-29 10:00', locId: 'L2' },
+  ], 'reports in Washington', [
+    { subnational1Code: 'US-WA' }, { subnational1Code: 'US-WA' },
+    { subnational1Code: 'US-OR' },
+  ]), (s) => `${s.n} ${s.label}`), [
     '3 reports in Washington',
     '2 observers',
     '2 locations',
@@ -1401,7 +1417,6 @@ test('a rarity card leads with a big photo, a headline name and the evidence', a
     '3 locations ABA-wide',
     '2 states/provinces',
   ]);
-  assert.ok(li.querySelector('.bcextract'), 'and a card back to fill with the blurb');
   app.window.close();
 });
 
@@ -1445,30 +1460,34 @@ test('every Wikimedia width the app asks for is on the served ladder', async () 
   app.window.close();
 });
 
-// These two sections answer DIFFERENT questions and now use different templates
-// on purpose, which is a change from when they shared birdCard().
+// These two sections answer DIFFERENT questions and now use different routes.
 //   Today's rarities = the DAY'S LIST, one row per checklist. SMALL card, so a
 //                      long day scans as evenly spaced lines; every field the
 //                      markdown table prints is kept, labelled, below the row.
-//   The ABA alert    = read about ONE continental rarity. Large card.
+//   Mega rarities    = a species index whose exact-code links open Stakeout,
+//                      where its evidence joins the one medium species card.
 // Rendering the day's list as 13 full-screen baseball cards buried the next
-// report under evidence nobody asked for. What must NOT drift is that the ABA
-// card keeps its evidence, and that today's list keeps the same columns the
+// report under evidence nobody asked for. What must NOT drift is that Mega
+// keeps its evidence after routing, and that today's list keeps the columns the
 // markdown table prints.
-test("today's rarities lists checklists; the ABA alert profiles one bird", () => {
+test("today's rarities lists checklists; Mega routes one bird to Stakeout", () => {
   const today = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
-  const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
-    HTML.indexOf('function birdcastSeason('));
-  assert.match(aba, /birdCard\(\{/, 'the ABA alert builds large cards');
-  assert.match(aba, /rarityStats\(/, 'and shows the rarity evidence');
-  // Hydration is LAZY now: the profiles are a sub-page, hidden until one is
-  // opened, and history/blurb/finder are a network call each — a dozen birds
-  // nobody has opened is a dozen calls nobody asked for.
-  const open = HTML.slice(HTML.indexOf('function abaOpenBird('),
-    HTML.indexOf('function abaCloseBird('));
-  assert.match(open, /hydrateCards\(card\)/, 'and the opened ABA card gets its blurb');
-  assert.match(open, /card\.dataset\.hydrated/, 'once, not on every open');
+  const index = HTML.slice(HTML.indexOf('function renderMegaIndex('),
+    HTML.indexOf('function renderAbaAlert('));
+  const evidence = HTML.slice(HTML.indexOf('function megaEvidenceHtml('),
+    HTML.indexOf('function megaHydrateFinder('));
+  const lookup = HTML.slice(HTML.indexOf('function lookupSpecies('),
+    HTML.indexOf('// ---- warming a region'));
+  assert.match(index, /SpeciesCards\.medium\(\{/,
+    'Mega remains a medium-card species index');
+  assert.match(index, /data-mega-code/, 'the index carries the exact eBird code');
+  assert.match(evidence, /megaLatestHtml|megaFinderHtml|megaStatsHtml|megaHistoryHtml/,
+    'the routed card composes every preserved Mega evidence block');
+  assert.match(lookup, /hydrateActiveMega\(mega, generation\)/,
+    'history, finder and Wikipedia hydrate only after one Mega bird is opened');
+  assert.doesNotMatch(index, /birdCard\(\{/,
+    'the index no longer constructs a hidden full profile per bird');
 
   assert.doesNotMatch(today, /birdCard\(\{/,
     "today's rarities is a list, not 13 profiles — the large card is the wrong template");
@@ -1571,12 +1590,14 @@ test('the map link that trails a place name is one unbreakable token', () => {
 // The label must therefore say locations, and this guard exists so it cannot
 // drift back into claiming reports.
 test('the ABA-wide stat counts locations, and says so', () => {
-  const aba = HTML.slice(HTML.indexOf('function renderAbaAlert('),
-    HTML.indexOf('function birdcastSeason('));
+  const aba = HTML.slice(HTML.indexOf('function megaStatsHtml('),
+    HTML.indexOf('function megaReportRowHtml('));
   assert.doesNotMatch(aba, /wideByCode/,
     'counting rows of a 500-capped alert reports the cap, not the bird');
-  assert.match(aba, /rarityStats\([\s\S]{0,160}_abaWide\[/,
-    'the ABA-wide stat must come from the species-scoped country feed');
+  assert.match(aba, /rarityStats\([\s\S]{0,220}entry\.wideRows/,
+    'the ABA-wide stat must come from this view/species country feed');
+  assert.doesNotMatch(HTML, /var _abaWide\s*=/,
+    'a global species-code bucket would leak one view into the next');
 
   const stats = HTML.slice(HTML.indexOf('function rarityStats('),
     HTML.indexOf('function firstReport('));
@@ -1685,7 +1706,7 @@ test('a capped ABA alert is stated, and measured before the state filter', () =>
   assert.match(render, /setAbaWarn\(abaAlertWarning\(/,
     'every repaint must refresh the warning, including the deepening pass');
   const setWarn = HTML.slice(HTML.indexOf('function setAbaWarn('),
-    HTML.indexOf('function hydrateFinders('));
+    HTML.indexOf('function abaWhereLabel('));
   assert.match(setWarn, /\$\('abaCapWarn'\)/, 'and it must write into that container');
   // The icon's PRESENCE is the signal. An always-visible ⚠ that is sometimes
   // inert is worse than none, so an empty warning must remove the button.
@@ -7974,10 +7995,12 @@ test('there are exactly three card templates and each one is really used', () =>
   assert.match(HTML, /speciesListHtml\(rows, \{ presorted: true, cls: 'favspp' \}\)/,
     'favorites use the small template via the one builder');
   assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
-  // The ABA list takes its class at render time, because the same <ul> holds a
-  // grouped card grid or a flat observation list depending on the region.
-  assert.match(HTML, /grouped \? 'cards' : 'obs'/,
-    'the ABA section uses the large template when it groups by species');
+  const mega = HTML.slice(HTML.indexOf('function renderMegaIndex('),
+    HTML.indexOf('function renderAbaAlert('));
+  assert.match(mega, /SpeciesCards\.medium\(\{/,
+    'the Mega species index uses the shared medium template');
+  assert.doesNotMatch(mega, /SpeciesCards\.large|birdCard\(/,
+    'Mega no longer owns a parallel large detail card');
   // index.html must not keep a second copy of any card rule — one definition
   // is the entire point of moving them out.
   for (const rule of ['.obs.card-sm .name {', '.obs.xl > li, .obs.card-md > li {',
@@ -10534,8 +10557,8 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
   assert.doesNotMatch(doc2.getElementById('spLookupResults').textContent,
     /eBird’s per-species feed returns|only the most recent report at each place/i,
     'the endpoint caveat moved to section help instead of leading every result');
-  assert.ok(doc2.getElementById('abaDetailCards').classList.contains('cards'),
-    'F282 still applies to the Mega-rarity profile container');
+  assert.equal(doc2.getElementById('abaDetailCards'), null,
+    'Stakeout has no parallel hidden Mega-profile container');
   app2.window.close();
 });
 
@@ -10785,7 +10808,7 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // the rest of the session. Asserted on the source rather than by driving a
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, noMemoryCache)');
   const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
@@ -13763,14 +13786,784 @@ test('docs/CARDS.md matches the code it documents', () => {
   }
 });
 
-// A dozen ABA megararities is a dozen full-screen profiles, and there was no
-// way to see WHICH birds the section held without scrolling every one of them.
-// The ABA section is the SPECIES LIST. Each profile is a full screen — latest
-// report, finder, every report we hold, state history — so a dozen
-// megararities was a dozen screens to scroll past before you knew which birds
-// were even in it. A bird opens as a SUB-PAGE over the list.
-test('the ABA alert shows a species list, and a bird opens as a sub-page', async () => {
+test('F304 routes a complete Mega inventory into one Stakeout card', async () => {
+  const f = MEGA_STAKEOUT;
+  const gbifCache = {};
+  gbifCache[`${f.species.sciName}|Washington`] = {
+    at: Date.now(),
+    v: {
+      records: f.gbif.records,
+      years: f.gbif.years,
+      first: f.gbif.first,
+      last: f.gbif.last,
+      wide: f.gbif.wide,
+      states: f.gbif.states,
+      topState: f.gbif.topState,
+      topPct: f.gbif.topPct,
+    },
+  };
+  gbifCache['edge|Washington'] = { at: Date.now(), v: f.gbif.edge };
+  const app = await boot({
+    storage: {
+      ebird_aba_sid: f.sid,
+      ebird_gbif_v1: JSON.stringify(gbifCache),
+      ebird_birdinfo_v2: JSON.stringify({
+        [f.species.name]: f.wikipedia,
+      }),
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  const D = app.document;
+  A.abaArchiveAdd(f.region, [f.sentinelArchiveRow, ...f.stateRows]);
+
+  let settleSightings;
+  const baseFetch = app.window.fetch;
+  const lazyCalls = [];
+  app.window.fetch = (url) => {
+    const u = String(url);
+    lazyCalls.push(u);
+    const response = (body) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+    if (/data\/obs\/US-WA\/recent\/whiwag/.test(u)) {
+      return new Promise((resolve) => {
+        settleSightings = () => resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve('[]'),
+          json: () => Promise.resolve([]),
+        });
+      });
+    }
+    if (/product\/checklist\/view\/S-FINDER/.test(u)) {
+      return response(f.finderChecklist);
+    }
+    return baseFetch(url);
+  };
+
+  A.renderAbaAlert(f.alertRows.concat([f.earliestHeld.rows[1]]),
+    `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
+      reportSlug: f.reportSlug,
+      region: f.region,
+      sid: f.sid,
+      scope: f.scope,
+      wideRowsByCode: { [f.species.code]: f.wideRows },
+    });
+  const megaRow = D.querySelector('#abaResults li[data-mega-code="whiwag"]');
+  assert.ok(megaRow, 'the real Mega renderer emits one species-index row');
+  assert.ok(megaRow.dataset.megaView, 'the row carries an opaque in-memory view key');
+  app.click(megaRow.querySelector('.megajump'));
+
+  assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1,
+    'Mega enters Stakeout with exactly one medium species card');
+  assert.equal(D.getElementById('abaDetail'), null,
+    'the hidden Mega detail host is gone after preservation was proved');
+  assert.equal(D.getElementById('sec-spLookupBtn').hidden, false,
+    'the real Mega click routes to Stakeout instead of a private sub-page');
+  const immediate = D.querySelector('#spLookupResults > li');
+  assert.ok(immediate.querySelector('.megaevidence'),
+    'Mega evidence paints before the ordinary sightings request settles');
+  const immediateText = immediate.textContent;
+  assert.match(immediateText, /Mega.*ABA Code 3\+/s);
+  assert.match(immediateText, /Latest mega report/i);
+  assert.match(immediateText, /Sep 3.*2:45 PM|9\/3.*2:45P/i);
+  assert.match(immediateText, /Cape Flattery overlook/);
+  assert.match(immediateText, /×3/);
+  assert.match(immediateText, /Latest Observer/);
+  assert.ok(immediate.querySelector('[data-href*="/checklist/S-LATEST"]'),
+    'the exact latest checklist survives the route');
+  assert.match(immediate.querySelector('.megalatest .evid').textContent, /📷/);
+  assert.match(immediate.querySelector('.megalatest .evid').textContent, /🎥/);
+  assert.deepEqual([...immediate.querySelectorAll('.bcstat')].map((stat) =>
+    `${stat.querySelector('b').textContent} ${stat.querySelector('small').textContent}`), [
+    '14 reports in Washington',
+    '5 observers',
+    '6 locations',
+    '14 days seen',
+    '4 locations ABA-wide',
+    '3 states/provinces',
+  ]);
+  assert.match(immediateText, /Every Mega report we hold/);
+  assert.match(immediateText, /Kept on this device since Jul 1/i);
+  const more = immediate.querySelector('details.ckmore > summary');
+  assert.match(more.textContent, /2 more reports/);
+  app.click(more);
+  assert.match(immediate.querySelector('.ckmorebody').textContent, /Neah Bay harbor/);
+
+  await waitFor(() => typeof settleSightings === 'function',
+    'the independently running active-region sightings request');
+  assert.ok(D.querySelector('#spLookupResults > li .megaevidence'),
+    'Mega evidence remains visible while the sightings promise is unresolved');
+  settleSightings();
+  await waitFor(() => /Finder Person/.test(D.getElementById('spLookupResults').textContent),
+    'lazy finder checklist hydration');
+  await waitFor(() => /white wagtail is a small passerine/i.test(
+    D.getElementById('spLookupResults').textContent), 'lazy Wikipedia hydration');
+  const settled = D.querySelector('#spLookupResults > li');
+  const settledText = settled.textContent;
+  assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1,
+    'an honestly empty active-region result retains the one Mega Stakeout card');
+  assert.match(D.getElementById('spLookupStatus').textContent, /No reports.*not being seen right now/i,
+    'the retained evidence does not turn an honestly empty current feed into a positive claim');
+  assert.match(settledText, /Found by.*Finder Person/s);
+  assert.match(settledText, /Best guess.*open the checklist before you credit anyone/s);
+  assert.match(settledText, /A guess, not a record.*true find is at or before this one/s);
+  assert.match(settled.querySelector('.megafinder .evid').textContent, /📷/);
+  assert.match(settled.querySelector('.megafinder .evid').textContent, /🔊/);
+  assert.match(settledText, /7 records in Washington.*1998–2023.*4 years with records/s);
+  assert.match(settledText, /Searched 2023 and earlier/);
+  assert.match(settledText, /125 records in the USA across 9 states.*most in Alaska \(44%\)/s);
+  assert.match(settledText, /The white wagtail is a small passerine bird/);
+  assert.ok(settled.querySelector('.megawiki [data-href*="wikipedia.org/wiki/White_wagtail"]'),
+    'the Wikipedia source survives with its extract');
+  assert.equal(lazyCalls.some((u) => /product\/checklist\/view\/S-OLD/.test(u)), false,
+    'an unopened Mega species does not hydrate its finder checklist');
+  assert.equal(lazyCalls.some((u) => /species\/match\?name=Xenus/.test(u)), false,
+    'an unopened Mega species does not start GBIF history');
+  assert.equal(lazyCalls.some((u) => /summary\/Terek_Sandpiper/.test(u)), false,
+    'an unopened Mega species does not fetch its Wikipedia extract');
+
+  const oldView = megaRow.dataset.megaView;
+  A.renderAbaAlert(f.earliestHeld.rows,
+    `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
+      reportSlug: f.reportSlug,
+      region: f.region,
+      sid: f.sid,
+      scope: f.scope,
+    });
+  const heldRow = D.querySelector('#abaResults li[data-mega-code="tersan"]');
+  assert.notEqual(heldRow.dataset.megaView, oldView,
+    'a new Mega load receives a new generation-scoped view key');
+  app.window.fetch = (url) => {
+    const u = String(url);
+    const body = /product\/checklist\/view\/S-OLD/.test(u)
+      ? f.earliestHeld.checklist
+      : [];
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+  };
+  app.click(heldRow.querySelector('.megajump'));
+  await waitFor(() => /Earliest Held Observer/.test(
+    D.getElementById('spLookupResults').textContent), 'earliest-held checklist hydration');
+  const heldCard = D.querySelector('#spLookupResults > li');
+  assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1);
+  assert.match(heldCard.textContent, /Earliest report we hold.*Earliest Held Observer/s);
+  assert.match(heldCard.textContent,
+    /Already present when our records start.*true finder is earlier/s);
+  assert.match(heldCard.querySelector('.megafinder .evid').textContent, /🎥/);
+  app.window.close();
+});
+
+test('F304 duplicate Mega rows enrich one another in memory and in the archive', async () => {
   const app = await boot();
+  const A = app.window.__app;
+  const alert = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-09-03 14:45', subId: 'S-DUP',
+    locName: 'Cape Flattery overlook',
+    userDisplayName: 'Alert Observer', obsReviewed: true, evidence: 'P',
+  };
+  const detailed = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-09-03 14:45', subId: 'S-DUP',
+    locName: 'Cape Flattery overlook', locId: 'L-CAPE',
+    sciName: 'Motacilla alba', evidence: 'AV', hasComments: true,
+    comments: 'Detailed feed comment survives enrichment.',
+  };
+  const merged = A.megaMergeRows([alert, detailed]);
+  assert.equal(merged.length, 1, 'one checklist remains one report');
+  assert.deepEqual({
+    observer: merged[0].userDisplayName,
+    reviewed: merged[0].obsReviewed,
+    locId: merged[0].locId,
+    sci: merged[0].sciName,
+    evidence: merged[0].evidence,
+    comments: merged[0].hasComments,
+    commentText: merged[0].comments,
+    snakeComments: merged[0].has_comments,
+  }, {
+    observer: 'Alert Observer',
+    reviewed: true,
+    locId: 'L-CAPE',
+    sci: 'Motacilla alba',
+    evidence: 'PVA',
+    comments: true,
+    commentText: 'Detailed feed comment survives enrichment.',
+    snakeComments: true,
+  }, 'the alert and detail=full halves both survive');
+
+  const corrected = A.megaMergeRows([merged[0], {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-09-04 06:30', subId: 'S-DUP',
+    locName: 'Revised latest location', locId: 'L-REVISED',
+    howMany: 4, comments: 'A newer corrected report tuple.',
+  }])[0];
+  assert.deepEqual({
+    date: corrected.obsDt,
+    place: corrected.locName,
+    locId: corrected.locId,
+    count: corrected.howMany,
+    observer: corrected.userDisplayName,
+    evidence: corrected.evidence,
+    comments: corrected.comments,
+  }, {
+    date: '2026-09-04 06:30',
+    place: 'Revised latest location',
+    locId: 'L-REVISED',
+    count: 4,
+    observer: 'Alert Observer',
+    evidence: 'PVA',
+    comments: 'A newer corrected report tuple.',
+  }, 'a corrected newer tuple wins without erasing complementary evidence');
+
+  A.abaArchiveAdd('US-WA', [alert]);
+  A.abaArchiveAdd('US-WA', [detailed]);
+  const archived = A.abaArchiveFor('US-WA', 'whiwag');
+  assert.equal(archived.length, 1, 'an archive enrichment does not duplicate the checklist');
+  for (const field of ['userDisplayName', 'obsReviewed', 'locId',
+                       'sciName', 'evidence', 'hasComments', 'comments']) {
+    assert.deepEqual(archived[0][field], merged[0][field],
+      `archive update lost ${field}`);
+  }
+  app.window.close();
+});
+
+test('F304 chooses the newest report independently of feed order', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\//.test(url)) return [];
+      if (/product\/checklist\/view\//.test(url)) return {};
+      if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  A.renderAbaAlert([
+    {
+      speciesCode: 'whiwag', comName: 'White Wagtail',
+      obsDt: '2026-08-20 06:15', locName: 'Older place',
+      locId: 'L-OLD', subId: 'S-OLD-FIRST', howMany: 1,
+      lat: 48.3, lng: -124.6,
+    },
+    {
+      speciesCode: 'whiwag', comName: 'White Wagtail',
+      obsDt: '2026-09-04 08:30', locName: 'Newest place',
+      locId: 'L-NEW', subId: 'S-NEW-SECOND', howMany: 4,
+      userDisplayName: 'Newest Observer', evidence: 'P',
+      lat: 48.38, lng: -124.71,
+    },
+  ], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
+  assert.match(app.document.querySelector('#abaResults li').textContent, /Sep 4/,
+    'the index summary uses the newest row even when it arrived second');
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  const latest = app.document.querySelector('#spLookupResults .megalatest');
+  assert.match(latest.textContent, /Newest place/);
+  assert.match(latest.textContent, /×4/);
+  assert.match(latest.textContent, /Newest Observer/);
+  assert.ok(latest.querySelector('[data-href*="/checklist/S-NEW-SECOND"]'));
+  await settleMegaEntry(app, 'whiwag');
+  app.window.close();
+});
+
+test('F304 scientific-name display does not gate internal GBIF matching', async () => {
+  const calls = [];
+  const app = await boot({
+    storage: { bc_scinames: 'off' },
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/data\/obs\/.*\/recent\/whiwag/.test(u)) return [];
+      if (/wikipedia\.org|api\.gbif\.org/.test(u)) return {};
+      return [];
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  A.renderAbaAlert([{
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+    locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S-SCI-OFF',
+    lat: 48.3861, lng: -124.7142,
+  }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
+  assert.equal(app.document.querySelector('#abaResults .sci'), null,
+    'the Mega index honours the scientific-name display setting');
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => calls.some((u) =>
+    /species\/match\?name=Motacilla%20alba/.test(u)),
+  'GBIF match while scientific names are hidden');
+  assert.equal(app.document.querySelector('#spLookupResults .sci'), null,
+    'Stakeout also keeps the scientific name visually hidden');
+  await settleMegaEntry(app, 'whiwag');
+  app.window.close();
+});
+
+test('F304 opens no per-species detail until one Mega row is selected', async () => {
+  const calls = [];
+  const alertHtml = megaAlertHtml([
+    {
+      code: 'whiwag', name: 'White Wagtail', subId: 'S30401',
+      when: 'Sep 4, 2026 08:00', place: 'Cape Flattery',
+      lat: 48.3861, lng: -124.7142, count: 1, observer: 'Observer One',
+    },
+    {
+      code: 'tersan', name: 'Terek Sandpiper', subId: 'S30402',
+      when: 'Sep 3, 2026 07:00', place: 'Stanwood',
+      lat: 48.2, lng: -122.3, count: 1, observer: 'Observer Two',
+    },
+  ]);
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/ebird\.org\/alert\/summary/.test(u)) return alertHtml;
+      if (/data\/obs\/US-WA\/recent\/whiwag/.test(u)) {
+        return [{
+          speciesCode: 'whiwag', comName: 'White Wagtail',
+          sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+          locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S30401',
+          lat: 48.3861, lng: -124.7142, howMany: 1,
+        }];
+      }
+      if (/data\/obs\/(US|CA)\/recent\/whiwag/.test(u)) return [];
+      if (/wikipedia\.org|api\.gbif\.org/.test(u)) return {};
+      return [];
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  await A.loadAbaAlert();
+  assert.deepEqual(calls.filter((u) => /data\/obs\/.*\/recent\/(whiwag|tersan)/.test(u)), [],
+    'opening the Mega list must not hydrate hidden species profiles');
+
+  app.click(app.document.querySelector('#abaResults [data-mega-code="whiwag"].megajump'));
+  await waitFor(() => calls.filter((u) => /data\/obs\/.*\/recent\/whiwag/.test(u)).length === 3,
+    'the selected species state and two-country location reads');
+  assert.equal(calls.filter((u) => /data\/obs\/US-WA\/recent\/whiwag/.test(u)).length, 1,
+    'Stakeout reuses the selected Mega state promise instead of issuing a second feed');
+  assert.equal(calls.some((u) => /data\/obs\/.*\/recent\/tersan/.test(u)), false,
+    'the unopened species starts no state or ABA-wide detail');
+  await settleMegaEntry(app, 'whiwag');
+  app.window.close();
+});
+
+test('F304 a failed selected-state read is an error, not a false empty answer', async () => {
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/data\/obs\/US-WA\/recent\/whiwag/.test(u)) {
+        return { __status: 401, __body: {} };
+      }
+      if (/data\/obs\/(US|CA)\/recent\/whiwag/.test(u)) return [];
+      if (/wikipedia\.org|api\.gbif\.org/.test(u)) return {};
+      return [];
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  A.renderAbaAlert([{
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+    locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S30403',
+    lat: 48.3861, lng: -124.7142,
+  }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => !/Looking up/i.test(app.$('spLookupStatus').textContent),
+    'the selected state-feed settlement');
+  assert.match(app.$('spLookupStatus').textContent,
+    /API key was rejected|Live eBird calls work only/i,
+    `the state-feed failure must remain visible; calls: ${app.state.fetches.join(' | ')}`);
+  assert.ok(app.document.querySelector('#spLookupResults .megaevidence'),
+    'already-held Mega evidence remains available after the live read fails');
+  assert.doesNotMatch(app.$('spLookupStatus').textContent,
+    /No reports.*real answer|not being seen right now/i,
+    'a failed request cannot be relabelled as an observed absence');
+  await settleMegaEntry(app, 'whiwag');
+  app.window.close();
+});
+
+test('F304 hydrates a finder first discovered by the lazy state feed', async () => {
+  const app = await boot();
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  let resolveState;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    const response = (body) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+    if (/data\/obs\/US-WA\/recent\/whiwag/.test(u)) {
+      return new Promise((resolve) => {
+        resolveState = () => resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify([
+            {
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+              locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S-LATEST',
+              lat: 48.3861, lng: -124.7142,
+            },
+            {
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-08-20 06:15',
+              locName: 'Finder marsh', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
+              lat: 48.3, lng: -124.6,
+            },
+          ])),
+          json: () => Promise.resolve([
+            {
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+              locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S-LATEST',
+              lat: 48.3861, lng: -124.7142,
+            },
+            {
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-08-20 06:15',
+              locName: 'Finder marsh', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
+              lat: 48.3, lng: -124.6,
+            },
+          ]),
+        });
+      });
+    }
+    if (/product\/checklist\/view\/S-FINDER-LAZY/.test(u)) {
+      return response({
+        userDisplayName: 'Late Finder',
+        comments: 'Checklist directions survive.',
+        obs: [{
+          speciesCode: 'whiwag',
+          mediaCounts: { P: 1 },
+          comments: 'Look behind the driftwood.',
+        }],
+      });
+    }
+    if (/data\/obs\/(US|CA)\/recent\/whiwag/.test(u)) return response([]);
+    if (/wikipedia\.org|api\.gbif\.org/.test(u)) return response({});
+    return response([]);
+  };
+  A.renderAbaAlert([{
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-09-04 08:00', locName: 'Cape Flattery',
+    subId: 'S-LATEST', lat: 48.3861, lng: -124.7142,
+  }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => resolveState, 'the selected species state request');
+  assert.equal(/Late Finder/.test(app.$('spLookupResults').textContent), false,
+    'the alert alone did not invent a finder');
+  resolveState();
+  await waitFor(() => /Late Finder/.test(app.$('spLookupResults').textContent),
+    'finder hydration after the state feed revealed the earlier checklist');
+  const marks = app.document.querySelector('.megafinder .evid');
+  assert.match(marks.textContent, /📷/);
+  assert.match(marks.title, /Look behind the driftwood/);
+  assert.match(marks.title, /Checklist: Checklist directions survive/);
+  await settleMegaEntry(app, 'whiwag');
+  app.window.close();
+});
+
+test('F304 no-memory Mega reads neither consume nor populate the shared memo', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const path = 'data/obs/US-WA/recent/f304cache?back=30&detail=full';
+  const first = A.ebird(path, false, false, true);
+  const second = A.ebird(path, false, false, true);
+  const ordinary = A.ebird(path);
+  assert.notEqual(first, second, 'view-scoped reads do not share a cross-view promise');
+  assert.notEqual(ordinary, second,
+    'a view-scoped promise is not published into the ordinary path cache');
+  first.catch(() => {});
+  second.catch(() => {});
+  ordinary.catch(() => {});
+  app.window.close();
+});
+
+test('F304 retries lazy GBIF history when detail=full supplies the scientific name', async () => {
+  const app = await boot();
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  let resolveState;
+  let matchCalls = 0;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    const response = (body) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+    if (/data\/obs\/US-WA\/recent\/f304bird/.test(u)) {
+      return new Promise((resolve) => {
+        resolveState = () => resolve({
+          ok: true, status: 200, headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify([{
+            speciesCode: 'f304bird', comName: 'F304 Test Bird',
+            sciName: 'Avis preservationis', obsDt: '2026-09-04 07:00',
+            locName: 'Scientific-name marsh', locId: 'L-SCI', subId: 'S-SCI',
+            lat: 47.7, lng: -122.2,
+          }])),
+          json: () => Promise.resolve([{
+            speciesCode: 'f304bird', comName: 'F304 Test Bird',
+            sciName: 'Avis preservationis', obsDt: '2026-09-04 07:00',
+            locName: 'Scientific-name marsh', locId: 'L-SCI', subId: 'S-SCI',
+            lat: 47.7, lng: -122.2,
+          }]),
+        });
+      });
+    }
+    if (/species\/match\?name=Avis%20preservationis/.test(u)) {
+      matchCalls++;
+      return response({ usageKey: 304 });
+    }
+    if (/api\.gbif\.org\/v1\/occurrence\/search/.test(u)) {
+      return response(/taxonKey=212/.test(u)
+        ? { count: 1, facets: [{ field: 'YEAR', counts: [
+          { name: '2023', count: 1 },
+        ] }] }
+        : { count: 0, facets: [{ field: 'YEAR', counts: [] },
+          { field: 'STATE_PROVINCE', counts: [] }] });
+    }
+    if (/wikipedia\.org/.test(u)) return response({});
+    if (/data\/obs\/(US|CA)\/recent\/f304bird/.test(u)) return response([]);
+    return response([]);
+  };
+  A.renderAbaAlert([{
+    speciesCode: 'f304bird', comName: 'F304 Test Bird',
+    obsDt: '2026-09-04 07:00', locName: 'Alert-only marsh',
+    subId: 'S-SCI', lat: 47.7, lng: -122.2,
+  }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => resolveState, 'the detail=full state request');
+  assert.equal(matchCalls, 0,
+    'GBIF does not guess from a common name while the scientific name is unavailable');
+  resolveState();
+  await waitFor(() => matchCalls === 1, 'GBIF retry after scientific-name enrichment');
+  await waitFor(() => /State records/.test(app.$('spLookupResults').textContent),
+    'the lazy history publication');
+  assert.match(app.$('spLookupResults').textContent, /No Washington record/);
+  app.window.close();
+});
+
+test('F304 stale Mega state and ABA-wide callbacks cannot repaint a newer view', async () => {
+  const app = await boot({ storage: { ebird_aba_sid: 'SNOLD' } });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  let stateCalls = 0;
+  let resolveOldState;
+  const resolveOldWide = [];
+  const calls = [];
+  app.window.fetch = (url) => {
+    const u = String(url);
+    calls.push(u);
+    const response = (body) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+    if (/data\/obs\/US-WA(?:\/|%2F)recent(?:\/|%2F)whiwag/i.test(u)) {
+      stateCalls++;
+      if (stateCalls === 1) {
+        return new Promise((resolve) => {
+          resolveOldState = () => resolve({
+            ok: true, status: 200, headers: { get: () => null },
+            text: () => Promise.resolve(JSON.stringify([{
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-09-03 12:00',
+              locName: 'STALE ASYNC STATE PLACE', locId: 'L-STALE',
+              subId: 'S-STALE', lat: 47, lng: -122,
+            }])),
+            json: () => Promise.resolve([{
+              speciesCode: 'whiwag', comName: 'White Wagtail',
+              sciName: 'Motacilla alba', obsDt: '2026-09-03 12:00',
+              locName: 'STALE ASYNC STATE PLACE', locId: 'L-STALE',
+              subId: 'S-STALE', lat: 47, lng: -122,
+            }]),
+          });
+        });
+      }
+      return response([]);
+    }
+    if (/data\/obs\/(US|CA)(?:\/|%2F)recent(?:\/|%2F)whiwag/i.test(u)) {
+      return new Promise((resolve) => {
+        resolveOldWide.push(() => resolve({
+          ok: true, status: 200, headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify([{
+            speciesCode: 'whiwag', locId: `STALE-${resolveOldWide.length}`,
+            locName: 'STALE ABA-WIDE PLACE', subnational1Code: 'US-AK',
+          }])),
+          json: () => Promise.resolve([{
+            speciesCode: 'whiwag', locId: `STALE-${resolveOldWide.length}`,
+            locName: 'STALE ABA-WIDE PLACE', subnational1Code: 'US-AK',
+          }]),
+        }));
+      });
+    }
+    if (/wikipedia\.org/.test(u)) return response({});
+    return response([]);
+  };
+
+  const oldRows = [{
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    sciName: 'Motacilla alba', obsDt: '2026-09-03 10:00',
+    locName: 'Old view place', locId: 'L-OLD', subId: 'S-OLD',
+    lat: 47.1, lng: -122.1,
+  }];
+  A.renderAbaAlert(oldRows, 'https://ebird.org/alert/summary?sid=SNOLD',
+    true, false, { reportSlug: 'wa', region: 'US-WA', sid: 'SNOLD', scope: 'state' });
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.ok(resolveOldState,
+    `the old state request did not start: ${calls.join(' | ')}`);
+
+  app.window.localStorage.setItem('ebird_aba_sid', 'SNNEW');
+  const freshRows = [{
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
+    locName: 'CURRENT VIEW PLACE', locId: 'L-CURRENT', subId: 'S-CURRENT',
+    lat: 48.1, lng: -124.1,
+  }];
+  A.renderAbaAlert(freshRows, 'https://ebird.org/alert/summary?sid=SNNEW',
+    true, false, {
+      reportSlug: 'wa', region: 'US-WA', sid: 'SNNEW', scope: 'state',
+      wideRowsByCode: {
+        whiwag: [{ locId: 'W-CURRENT', subnational1Code: 'US-WA' }],
+      },
+    });
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => /CURRENT VIEW PLACE/.test(app.$('spLookupResults').textContent),
+    'the newer Mega view');
+
+  resolveOldState();
+  await waitFor(() => resolveOldWide.length >= 1,
+    'the first stale country callback');
+  resolveOldWide[0]();
+  await waitFor(() => resolveOldWide.length === 2,
+    'the second stale country callback');
+  resolveOldWide[1]();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const current = app.$('spLookupResults').textContent;
+  assert.match(current, /CURRENT VIEW PLACE/);
+  assert.doesNotMatch(current, /STALE ASYNC STATE PLACE|STALE ABA-WIDE PLACE/,
+    'old callbacks cannot publish into the current species card');
+  assert.deepEqual([...app.document.querySelectorAll('#spLookupResults .bcstat')]
+    .map((stat) => `${stat.querySelector('b').textContent} ${stat.querySelector('small').textContent}`)
+    .filter((text) => /ABA-wide|states\/provinces/.test(text)), [
+    '1 locations ABA-wide',
+    '1 states/provinces',
+  ], 'the newer view keeps its own narrower ABA-wide context');
+  app.window.close();
+});
+
+test('F304 has one exact-code route and no hidden Mega detail architecture', () => {
+  for (const removed of [
+    'id="abaDetail"', 'id="abaBack"', 'id="abaDetailCards"',
+    'var _abaOpen', 'function abaOpenBird(', 'function abaCloseBird(',
+    'class="abajump',
+  ]) {
+    assert.ok(!HTML.includes(removed), `${removed} restored the deleted Mega sub-page`);
+  }
+  assert.equal((HTML.match(/function sciFor\(/g) || []).length, 1,
+    'the code/scientific-name accessor must not be hoist-overridden');
+  assert.match(HTML, /function sciForRows\(rs\)/,
+    'row-array scientific-name discovery has its own name');
+  const index = HTML.slice(HTML.indexOf('function renderMegaIndex('),
+    HTML.indexOf('function renderAbaAlert('));
+  assert.match(index, /data-mega-code/);
+  assert.match(index, /data-mega-view/);
+  assert.doesNotMatch(index, /birdCard\(|hidden\s*=\s*true/,
+    'the index must not prebuild hidden detail');
+  const route = HTML.slice(HTML.indexOf('function openMegaIndexRow('),
+    HTML.indexOf("$('dbgClear')"));
+  assert.match(route, /openStakeSpecies\(code,[\s\S]*viewKey: viewKey, code: code/,
+    'Mega rows must use the exact-code Stakeout seam');
+  assert.match(route,
+    /!jump && ev\.target\.closest\('a, button, input, select, textarea, summary'\)/,
+    'row dead-space routing must yield to every nested action');
+  const stakeout = HTML.slice(HTML.indexOf('function renderSpeciesLookup()'),
+    HTML.indexOf('var SP_ROWS_MAX'));
+  assert.match(stakeout, /megaEvidenceHtml\(mega\) \+ placesHtml/,
+    'the preserved evidence and ordinary places must share one medium card');
+  const registry = HTML.slice(HTML.indexOf('function megaViewId('),
+    HTML.indexOf('function loadAbaAlert('));
+  assert.doesNotMatch(registry, /localStorage|innerHTML\s*=\s*JSON/,
+    'raw Mega context and promises must remain in memory');
+});
+
+test('F304 clears Mega origin on ordinary lookup, Close, scope and report changes', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\//.test(url)) return [];
+      if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  const rows = [{
+    speciesCode: 'semsan', comName: 'Semipalmated Sandpiper',
+    sciName: 'Calidris pusilla', obsDt: '2026-09-03 08:00',
+    locName: 'Mega source', locId: 'L-MEGA', subId: 'S-MEGA',
+    lat: 47.7, lng: -122.2,
+  }];
+  function openMega() {
+    A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=SN10489',
+      true, false, { reportSlug: 'wa', region: 'US-WA', sid: 'SN10489', scope: 'state' });
+    app.click(app.document.querySelector('#abaResults .megajump'));
+    assert.ok(A.megaViewState().origin, 'fixture opened from Mega');
+  }
+
+  openMega();
+  await A.openStakeSpecies('solsan', 'Solitary Sandpiper');
+  assert.equal(A.megaViewState().origin, null,
+    'a generic species link cannot inherit Mega Back or evidence');
+  assert.equal(A.megaViewState().active, null);
+
+  openMega();
+  A.clearSpeciesLookup();
+  assert.equal(A.megaViewState().origin, null, 'Close clears the Mega origin');
+
+  openMega();
+  A.setAbaScope('aba');
+  assert.equal(A.megaViewState().view, null, 'scope change invalidates the view registry');
+  assert.equal(A.megaViewState().origin, null);
+  A.setAbaScope('state');
+
+  openMega();
+  A.setActiveReport('az');
+  assert.equal(A.megaViewState().view, null, 'report change invalidates Mega context');
+  assert.equal(A.megaViewState().origin, null);
+  app.window.close();
+});
+
+test('the Mega index routes every row target to exact-code Stakeout and Back', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\//.test(url)) return [];
+      if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
+      return null;
+    },
+  });
+  installSpuhFixture(app);
   const doc = app.window.document;
   const A = app.window.__app;
   const rows = [
@@ -13781,88 +14574,62 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
     { speciesCode: 'litgul', comName: 'Little Gull', obsDt: '2026-07-30 16:00',
       locName: 'Ocean Shores', lat: 46.9, lng: -124.1, subId: 'S3', howMany: 2 },
   ];
+  A.showSection('sec-abaBtn');
   A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true);
 
-  // 1. The section shows the LIST, and only the list.
   const list = doc.getElementById('abaResults');
-  const detail = doc.getElementById('abaDetail');
   assert.equal(list.hidden, false, 'the species list is what the section shows');
-  assert.equal(detail.hidden, true, 'and no profile is open');
-  // MEDIUM now: "this should show the larger photo like needs verification".
   const items = [...list.querySelectorAll('ul.obs.xl > li')];
   assert.equal(items.length, 3, 'one entry per species, not per report');
   assert.ok(list.querySelector('ul.obs.xl'), 'built from the shared medium species card');
-  // Every row carries BOTH ways in: the name, and a chevron at the RIGHT EDGE
-  // — a bare name does not look like it opens anything.
   items.forEach((li) => {
-    assert.ok(li.querySelector('.ntext a.abajump'), 'the name opens the profile');
-    // The chevron moved into the medium card's right-hand column when this
-    // list grew its larger photo; MEDIUM has no "right" slot, so it rides the
-    // same cell the distance uses. The affordance is what matters: a bare name
-    // does not look like it opens anything.
-    assert.ok(li.querySelector('.spdist'),
-      'and so does the chevron at the right edge of the row');
+    assert.ok(li.dataset.megaCode && li.dataset.megaView,
+      'the row carries an exact code and opaque view key');
+    assert.ok(li.querySelector('.megaphoto'), 'the photo is a Stakeout target');
+    assert.ok(li.querySelector('.ntext a.megajump'), 'the name is a Stakeout target');
+    assert.ok(li.querySelector('.spdist'), 'the chevron remains visible');
   });
-  const jumps = items.map((li) => li.querySelector('.ntext a.abajump'));
-  // Newest first — a list in a different order than the thing it indexes is
-  // worse than no list.
+  const jumps = items.map((li) => li.querySelector('.ntext a.megajump'));
   assert.deepEqual(JSON.stringify(jumps.map((a) => a.textContent)),
     JSON.stringify(['Terek Sandpiper', 'White Wagtail', 'Little Gull']),
     'newest first');
-  // The profiles exist but are put away.
-  const cards = doc.getElementById('abaDetailCards');
-  assert.equal(cards.children.length, 3, 'every profile is built');
-  [...cards.children].forEach((c) => assert.equal(c.hidden, true, 'and hidden'));
 
-  // 2. Tapping a name opens THAT bird, over the list.
-  const ev = new app.window.MouseEvent('click', { bubbles: true, cancelable: true });
-  jumps[1].dispatchEvent(ev);
-  assert.ok(ev.defaultPrevented, 'handled here, not by the browser — a hash '
-    + 'change would fight showSection()');
-  assert.equal(detail.hidden, false, 'the sub-page opens');
-  assert.equal(list.hidden, true, 'and the list goes away, rather than the '
-    + 'profile being the tenth thing you scroll past');
-  assert.equal(doc.getElementById('aba-whiwag').hidden, false, 'the bird you tapped');
-  assert.equal(doc.getElementById('aba-tersan').hidden, true, 'and only that one');
-  assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
-    'the navbar names where you are');
+  const qr = doc.createElement('button');
+  qr.className = 'qrbtn';
+  qr.setAttribute('data-qr-kind', 'species');
+  qr.setAttribute('data-qr-id', 'tersan');
+  items[0].appendChild(qr);
+  app.click(qr);
+  assert.equal(A.megaViewState().active, null,
+    'a nested QR/checklist/map/hotspot-style action is not stolen by row navigation');
+  qr.remove();
 
-  // 3. Back means UP ONE LEVEL, not all the way out.
-  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
-    /rarities list/i, 'and the back button says so');
-  // Entering the section first makes "back does not leave it" a real claim:
-  // from the menu, everything is hidden and the assertion would be vacuous.
-  A.showSection('sec-abaBtn');
-  A.abaOpenBird('whiwag');
-  assert.equal(doc.getElementById('menuPanel').hidden, true, 'we are in the section');
+  app.click(items[0].querySelector('.megaphoto'));
+  assert.equal(A.megaViewState().active.code, 'tersan', 'photo uses the exact row code');
+  assert.equal(doc.getElementById('sec-spLookupBtn').hidden, false);
+  assert.match(doc.getElementById('navBack').getAttribute('aria-label'), /Mega rarities/);
   A.navBack();
-  assert.equal(detail.hidden, true, 'back closes the sub-page');
-  assert.equal(list.hidden, false, 'and returns to the list');
-  assert.equal(doc.getElementById('menuPanel').hidden, true,
-    'without leaving the section entirely — back is UP ONE LEVEL, not all the way out');
+  assert.equal(doc.getElementById('sec-abaBtn').hidden, false,
+    'Back returns to the matching still-current Mega list');
+
+  app.click(items[1].querySelector('.ntext a.megajump'));
+  assert.equal(A.megaViewState().active.code, 'whiwag', 'name uses the exact row code');
+  A.navBack();
+
+  app.click(items[2].querySelector('.spdist'));
+  assert.equal(A.megaViewState().active.code, 'litgul', 'chevron dead space routes too');
+  A.navBack();
+
+  app.click(items[1].querySelector('.meta'));
+  assert.equal(A.megaViewState().active.code, 'whiwag', 'unclaimed row space routes too');
+  const oldOrigin = A.megaViewState().origin.viewKey;
+  A.renderAbaAlert([rows[0]], 'https://ebird.org/alert/summary?sid=X', true);
+  assert.notEqual(A.megaViewState().key, oldOrigin, 'a newer list invalidates the origin key');
   A.navBack();
   assert.equal(doc.getElementById('menuPanel').hidden, false,
-    'and a second back, with no sub-page open, does leave for Contents');
-  assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
-    /contents/i, 'and back now means Contents again');
-  app.window.close();
-});
-
-// Leaving the section must forget the sub-page, or coming back later lands you
-// on a bird's profile with no memory of having chosen it.
-test('navigating away closes the ABA sub-page', async () => {
-  const app = await boot();
-  const doc = app.window.document;
-  const A = app.window.__app;
-  A.renderAbaAlert([
-    { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-08-02 09:00',
-      locName: 'Stanwood', lat: 48.2, lng: -122.3, subId: 'S1', howMany: 1 },
-  ], 'https://ebird.org/alert/summary?sid=X', true);
-  assert.ok(A.abaOpenBird('tersan'), 'the bird opens');
-  assert.equal(doc.getElementById('abaDetail').hidden, false);
-  A.showSection('sec-refreshBtn');
-  assert.equal(doc.getElementById('abaDetail').hidden, true, 'and is put away on leaving');
-  assert.equal(doc.getElementById('abaResults').hidden, false, 'with the list restored');
+    'a stale Mega origin falls back to Contents instead of the wrong list');
+  assert.equal(doc.getElementById('abaDetail'), null);
+  assert.equal(doc.getElementById('abaDetailCards'), null);
   app.window.close();
 });
 
@@ -14276,23 +15043,14 @@ test('the medium cards centre the name and make the distance open maps', () => {
   assert.match(C.css, /a\.ckdist \{ margin-top: 0/, 'checklist distance keeps its position');
 });
 
-// The big picture on an ABA profile is a SLOT until something fills it, and
-// nothing ever asked — so every profile showed a grey box where the bird
-// should be. Same for the small icons in the list.
-test('the ABA section hydrates its photos', () => {
-  const open = HTML.slice(HTML.indexOf('function abaOpenBird('),
-    HTML.indexOf('function abaCloseBird('));
-  assert.match(open, /hydratePhotos\(card\)/, 'the profile photo is filled when opened');
-  // ⚠️ WAS `+ 5000`, and adding comments to the function pushed
-  // `hydratePhotos(el)` out of the window - the guard failed while the call it
-  // audits was still there and still correct. That is F197 exactly: a guard
-  // pinned to a POSITION is broken by a change nowhere near it. A byte count
-  // is not a property of the thing being checked, so slice to the END of the
-  // function instead, which is.
-  const _r0 = HTML.indexOf('function renderAbaAlert(');
-  const _r1 = HTML.indexOf('\n      function ', _r0 + 1);
-  const render = HTML.slice(_r0, _r1 > _r0 ? _r1 : HTML.length);
-  assert.match(render, /hydratePhotos\(el\)/, 'and the list icons when the list is built');
+test('the Mega index and routed Stakeout card hydrate their photos', () => {
+  const index = HTML.slice(HTML.indexOf('function renderMegaIndex('),
+    HTML.indexOf('function renderAbaAlert('));
+  const stakeout = HTML.slice(HTML.indexOf('function renderSpeciesLookup()'),
+    HTML.indexOf('var SP_ROWS_MAX'));
+  assert.match(index, /hydratePhotos\(el\)/, 'the index icons hydrate when the list is built');
+  assert.match(stakeout, /hydratePhotos\(out\)/,
+    'the one routed Stakeout species card hydrates its photo');
 });
 
 // --- performance: stop paying for answers that have not changed ------------
@@ -14370,7 +15128,7 @@ test('the debug log reports what each section cost', async () => {
     assert.ok(rep[i - 1].calls >= rep[i].calls, 'most expensive first');
   }
   // ebird() must actually feed it, or the ledger stays empty in real use.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache)');
+  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, noMemoryCache)');
   const ebirdEnd = HTML.indexOf('// --- Rate-limited background queue', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
