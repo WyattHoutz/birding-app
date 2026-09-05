@@ -141,12 +141,14 @@ test('Mega rarity mockups exercise the real scope and sort controls', () => {
     '#abaScopePick [data-abascope="aba"]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
-    '#abaResults .spdist',
+    '#abaResults .abadist',
   ]);
   const setup = source.slice(source.indexOf('function fillMegaHost('),
     source.indexOf('function hotspotRows(', source.indexOf('function fillMegaHost(')));
   assert.match(setup, /A\.renderAbaAlert\(/,
     'the gallery must drive the production Mega renderer, not hand-roll its rows');
+  assert.match(setup, /removeItem\(A\.ABA_ARCHIVE_KEY\)/,
+    'the Mega fixture must not inherit archive rows from an earlier gallery shot');
   assert.match(setup, /A\.setAbaScope\('state'\)/);
   assert.match(setup, /A\.setAbaSort\('date'\)/);
 });

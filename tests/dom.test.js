@@ -14068,6 +14068,9 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   assert.deepEqual(A.abaSortGroups(groups).map((g) => g.code),
     ['oldnear', 'newfar', 'unknown'],
     'Nearest uses distance, with unknown distance after every known one');
+  assert.equal(A.abaReportCount({ limsan: 1 }, [{ speciesCode: 'limsan' }],
+    'CA-BC', false, false), 1,
+  'an unscoped custom region counts the alert rows it actually renders');
 
   const rows = [
     { speciesCode: 'newfar', comName: 'New Far Bird',
@@ -14093,6 +14096,8 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
     ['Old Near Bird', 'New Far Bird'], 'the rendered list follows Nearest');
   assert.match(doc.getElementById('abaResults').textContent, /\d+\.\d mi/,
     'distance is visible on the rows whose order it explains');
+  assert.ok(doc.querySelector('#abaResults .abadist'),
+    'mileage has its own release-fixture marker rather than borrowing the chevron class');
   app.window.close();
 });
 

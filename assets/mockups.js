@@ -119,7 +119,7 @@ const STUB_SPEC = {
       '#abaScopePick [data-abascope="aba"]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
-      '#abaResults .spdist'] },
+      '#abaResults .abadist'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -415,6 +415,7 @@ const BOOTSTRAP = `
     markHost(host, label);
   }
   function fillMegaHost(host, A, window, label) {
+    window.localStorage.removeItem(A.ABA_ARCHIVE_KEY);
     A.setAbaScope('state');
     A.setAbaSort('date');
     A.renderAbaAlert([

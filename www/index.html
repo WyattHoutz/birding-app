@@ -20030,6 +20030,12 @@
           return String(a.code || '').localeCompare(String(b.code || ''));
         });
       }
+      function abaReportCount(species, rows, region, scoped, wide) {
+        if (!scoped || wide) return (rows || []).length;
+        return Object.keys(species || {}).reduce(function (t, c) {
+          return t + abaArchiveFor(region, c).length;
+        }, 0);
+      }
       // The narrow chip must NAME the state it belongs to, the same rule the
       // twitch scope control follows - "Statewide" on a section that can also
       // show a continent is ambiguous about which one you are looking at.
@@ -20162,9 +20168,7 @@
               var unseen = Object.keys(species)
                 .filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
               var whereLbl = wide ? 'the ABA area' : (getReport().label || 'this region');
-              var reports = wide ? rows.length : Object.keys(species).reduce(function (t, c) {
-                return t + abaArchiveFor(region, c).length;
-              }, 0);
+              var reports = abaReportCount(species, rows, region, scoped, wide);
               st.textContent = n
                 ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
                   + ' reports · ' + unseen + ' you still need · ' + fetchedAt)
@@ -20491,7 +20495,7 @@
                 sub: esc(fmtDate(g.latest.obsDt))
                   + (wide ? ' · ' + esc(abaWhereLabel(g.rs)) : '')
                   + (g.distMi != null && isFinite(g.distMi)
-                    ? ' · ' + g.distMi.toFixed(1) + ' mi' : '')
+                    ? ' <span class="abadist">· ' + g.distMi.toFixed(1) + ' mi</span>' : '')
                   + ' · ' + g.rs.length + ' report' + (g.rs.length === 1 ? '' : 's'),
                 // The chevron rides the medium card's RIGHT-HAND column,
                 // which is the distance slot — this list has no distance, and
@@ -29847,7 +29851,7 @@
         renderAbaAlert: renderAbaAlert, abaWhereLabel: abaWhereLabel,
         abaScope: abaScope, setAbaScope: setAbaScope, abaScopeControl: abaScopeControl,
         abaSort: abaSort, setAbaSort: setAbaSort, abaSortGroups: abaSortGroups,
-        abaGroupDistance: abaGroupDistance,
+        abaGroupDistance: abaGroupDistance, abaReportCount: abaReportCount,
         abaOpenBird: abaOpenBird, abaCloseBird: abaCloseBird, navBack: navBack,
         loadChoicePatches: loadChoicePatches, choicePatchData: choicePatchData,
         patchRowsFor: patchRowsFor, patchLeaders: patchLeaders,
