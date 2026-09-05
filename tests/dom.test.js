@@ -798,6 +798,59 @@ test('F268 eBird capture retries until the rendered bird-list rows exist', async
   app.window.close();
 });
 
+test('a stale WebView event cannot settle a capture before its own id is known', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const handlers = {};
+  const closed = [];
+  let resolveOpen;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView() {
+      return new Promise((resolve) => { resolveOpen = resolve; });
+    },
+    hide() {},
+    show() {},
+    close(arg) { closed.push(arg && arg.id); },
+    executeScript() { return Promise.resolve(); },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  const capture = A.captureEbird({
+    kind: 'aba',
+    url: 'https://ebird.org/alert/summary?sid=X',
+    buildInject: () => '/* fixture parser */',
+    timeout: 5000,
+  });
+  let settled = false;
+  capture.then(() => { settled = true; }, () => { settled = true; });
+  for (let i = 0; i < 20 && !handlers.messageFromWebview; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  handlers.messageFromWebview({
+    id: 'older-window',
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['old'] },
+  });
+  handlers.closeEvent({ id: 'older-window' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false,
+    'an older WebView cannot resolve or reject a capture whose id is still pending');
+
+  resolveOpen({ id: 'current-window' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  handlers.messageFromWebview({
+    id: 'current-window',
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['current'] },
+  });
+  assert.deepEqual(await capture, ['current']);
+  assert.deepEqual(closed, ['current-window'],
+    'only the capture-owned WebView is closed');
+  app.window.close();
+});
+
 test('app boots: Leaflet loads and the Contents menu is built', async () => {
   const app = await boot();
   assert.equal(typeof app.window.L, 'object', 'Leaflet global is present');
@@ -13950,6 +14003,18 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
     'the navbar names where you are');
 
+  // A state-history result can land after the reader opens a bird. Rebuilding
+  // the list must reopen the corresponding rebuilt detail rather than ejecting
+  // the reader to the list.
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+    () => {});
+  assert.equal(detail.hidden, false, 'a late repaint keeps the detail page open');
+  assert.equal(list.hidden, true, 'and does not expose the list underneath it');
+  assert.equal(doc.getElementById('aba-whiwag').hidden, false,
+    'the same species detail is reopened after rebuilding');
+  assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
+    'the navigation title remains on the open species');
+
   // 3. Back means UP ONE LEVEL, not all the way out.
   assert.match(doc.getElementById('navBack').getAttribute('aria-label') || '',
     /rarities list/i, 'and the back button says so');
@@ -14039,7 +14104,7 @@ test('F326 a late Mega repaint keeps the selected ABA scope', async () => {
   assert.doesNotMatch(paintSource, /nowTime\(\)/,
     'a local repaint cannot make stale alert data look newly fetched');
   assert.match(load,
-    /captureEbird\(\{[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
+    /captureEbird\(\{[\s\S]{0,180}kind: 'aba'[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
     'the browser fallback and its status updates belong to the current load');
   const terminalCatch = load.slice(load.lastIndexOf('.catch(function (e)'),
     load.lastIndexOf('.finally(function ()'));

@@ -17982,10 +17982,28 @@
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
           var id = null, done = false, timer = null, revealTimer = null;
-          var injectTimer = null, handles = [];
+          var injectTimer = null, handles = [], pendingEvents = [];
           function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
           function belongs(ev) {
-            return !(ev && ev.id && id && ev.id !== id);
+            return !!id && !(ev && ev.id && ev.id !== id);
+          }
+          function whenOwned(ev, fn) {
+            if (done) return;
+            // Plugin listeners are global. An older WebView can emit while the
+            // new openWebView promise is still resolving, when `id` is null and
+            // the old belongs() check accepted everything. Buffer identified
+            // events until this capture knows its own id; unidentifiable early
+            // events are dropped rather than allowed to claim a new capture.
+            if (!id) {
+              if (ev && ev.id) pendingEvents.push({ ev: ev, fn: fn });
+              return;
+            }
+            if (belongs(ev)) fn(ev);
+          }
+          function flushPending() {
+            var queued = pendingEvents;
+            pendingEvents = [];
+            queued.forEach(function (item) { whenOwned(item.ev, item.fn); });
           }
           function cleanup() {
             done = true;
@@ -18035,38 +18053,43 @@
             } catch (e) {}
           }
           addH('messageFromWebview', function (ev) {
-            if (done) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            var d = ev && ev.detail; if (!d || !d.__ebird) return;
-            if (opts.kind && d.kind !== opts.kind) return;
-            // Listeners are registered on the plugin, not on one window, so a
-            // leftover eBird window could otherwise resolve this capture with
-            // its own page. Ignore anything that names a different window.
-            if (d.ok) finish(null, d.data);
+            whenOwned(ev, function (owned) {
+              if (!alive()) { stopObsolete(); return; }
+              var d = owned && owned.detail; if (!d || !d.__ebird) return;
+              if (opts.kind && d.kind !== opts.kind) return;
+              // Listeners are registered on the plugin, not on one window, so a
+              // leftover eBird window could otherwise resolve this capture with
+              // its own page. Ignore anything that names a different window.
+              if (d.ok) finish(null, d.data);
+            });
           });
           addH('urlChangeEvent', function (ev) {
-            if (done) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            var u = (ev && ev.url) || '';
-            if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
+            whenOwned(ev, function (owned) {
+              if (!alive()) { stopObsolete(); return; }
+              var u = (owned && owned.url) || '';
+              if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
+            });
           });
           addH('browserPageLoaded', function (ev) {
-            if (done || !id) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            if (injectTimer) clearTimeout(injectTimer);
-            injectTimer = setTimeout(function () { inject(0); }, 500);
+            whenOwned(ev, function () {
+              if (!alive()) { stopObsolete(); return; }
+              if (injectTimer) clearTimeout(injectTimer);
+              injectTimer = setTimeout(function () { inject(0); }, 500);
+            });
           });
           addH('closeEvent', function (ev) {
-            if (!belongs(ev)) return;
-            finish(new Error('The eBird window was closed before it finished.'));
+            whenOwned(ev, function () {
+              finish(new Error('The eBird window was closed before it finished.'));
+            });
           });
           IB.openWebView({
             url: opts.url, showReloadButton: true, hidden: true
           }).then(function (r) {
             id = r && r.id;
+            if (!id) { finish(new Error('eBird did not return a browser window id.')); return; }
+            if (done) { try { IB.close({ id: id }); } catch (e) {} return; }
+            flushPending();
+            if (done) return;
             try { IB.hide({ id: id }); } catch (e) {}
             revealTimer = setTimeout(reveal, 6000);
             timer = setTimeout(function () { finish(new Error('Timed out waiting for eBird — try “View on eBird”.')); }, opts.timeout || 120000);
@@ -20105,7 +20128,7 @@
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
             return captureEbird({
-              url: url, buildInject: buildAlertInject, alive: stillCurrent,
+              kind: 'aba', url: url, buildInject: buildAlertInject, alive: stillCurrent,
               onStatus: function (m) { if (stillCurrent()) st.textContent = m; }
             });
           })
@@ -20378,6 +20401,7 @@
         return out.slice(0, 2).join(' · ') + ' +' + (out.length - 2) + ' more';
       }
       function renderAbaAlert(list, url, grouped, wide, repaint) {
+        var openCode = _abaOpen;
         // ⚠️ THE SCOPE IS DERIVED HERE, NOT TRUSTED FROM THE CALLER.
         //
         // Reported from the device: tapping "ABA area" showed all 53 species
@@ -20626,7 +20650,7 @@
           // history, blurb and finder are a network call each — a dozen birds
           // nobody has opened is a dozen calls nobody asked for. abaOpenBird()
           // hydrates the one card it shows, once.
-          abaCloseBird();
+          if (!(openCode && abaOpenBird(openCode))) abaCloseBird();
         } else {
           list.slice().sort(function (a, b) {
             var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
