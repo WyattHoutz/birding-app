@@ -166,7 +166,7 @@ are repainted when it advances. Everything else is listed with what it adds.
 | 🔖 Favourite hotspots | `{locId}/recent` per saved spot | 1 each | — |
 | ⏰ Time-of-day specialists | `{county}` feeds | 1 per county | — |
 | 🏆 eBird Rankings | leaderboard HTML + `ref/region/info` | 2–3 | `ebird_rank_cache_v2` |
-| 📅 My year | `ref/taxonomy` for newly harvested birds | 0–1 | stored with the bird |
+| 📅 My Ticks | `ref/taxonomy` for newly harvested birds | 0–1 | stored with the bird |
 | 🛬 Migration outlook | historic feeds | heavy, **manual only** | — |
 
 ### Not eBird at all

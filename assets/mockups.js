@@ -119,8 +119,13 @@ const STUB_SPEC = {
   refreshBtn:     { kind: 'bird',          host: 'results' },
   activeBtn:      { kind: 'bird',          host: 'activeResults' },
   abaBtn:         { kind: 'mega-index',    host: 'abaResults',
-    expects: ['#abaResults li[data-mega-code][data-mega-view]',
-      '#abaResults .megaphoto', '#abaResults .megajump', '#abaResults .spdist'] },
+    expects: ['#abaScopePick [data-abascope="state"]',
+      '#abaScopePick [data-abascope="aba"]',
+      '#abaSortPick [data-abasort="date"]',
+      '#abaSortPick [data-abasort="distance"]',
+      '#abaResults li[data-mega-code][data-mega-view]',
+      '#abaResults .megaphoto', '#abaResults .megajump',
+      '#abaResults .spdist', '#abaResults .abadist'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -277,6 +282,14 @@ const BOOTSTRAP = `
     localStorage.clear();
     localStorage.setItem('ebird_report', 'wa');
     localStorage.setItem('ebird_api_key', 'mockupmockup');
+    localStorage.setItem('ebird_seen_field', 'speciesCode');
+    localStorage.setItem('ebird_seen_meta', JSON.stringify({
+      source: 'seed',
+      count: WA_SEEN_STUB.speciesObserved,
+      rows: WA_SEEN_STUB.speciesObserved,
+      year: 2026,
+      yearCount: WA_SEEN_STUB.speciesObserved
+    }));
     // ⚠️ BLURRED TO 2 dp ON PURPOSE. This repo is PUBLIC, and the home-privacy
     // guard rejects any 4+ dp coordinate within 2 km of the real anchor — it
     // caught this file. A mockup needs a plausible home, not a real one.
@@ -563,12 +576,20 @@ const BOOTSTRAP = `
   }
   function fillMegaIndex(A, document, label, code, name, sci) {
     var f = megaFixture(code || 'nazboo1', name || 'Nazca Booby', sci || 'Sula granti');
+    var second = megaFixture('solsan', 'Solitary Sandpiper', 'Tringa solitaria');
+    localStorage.removeItem(A.ABA_ARCHIVE_KEY);
     seedMegaFixture(A, f);
-    A.renderAbaAlert(f.alertRows,
+    A.abaArchiveAdd(f.region, second.stateRows);
+    A.setAbaScope('state');
+    A.setAbaSort('date');
+    A.renderAbaAlert(f.alertRows.concat(second.alertRows),
       'https://ebird.org/alert/summary?sid=' + f.sid, true, false, {
         reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
         wideRowsByCode: (function () {
-          var out = {}; out[f.species.code] = f.wideRows; return out;
+          var out = {};
+          out[f.species.code] = f.wideRows;
+          out[second.species.code] = second.wideRows;
+          return out;
         }())
       });
     markHost(document.getElementById('abaResults'), label);

@@ -134,6 +134,27 @@ test('fixture families use shared card components and accessible state labels', 
     'the state also carries a non-colour border-style channel');
 });
 
+test('Mega rarity mockups exercise the real scope and sort controls', () => {
+  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
+  assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaScopePick [data-abascope="state"]',
+    '#abaScopePick [data-abascope="aba"]',
+    '#abaSortPick [data-abasort="date"]',
+    '#abaSortPick [data-abasort="distance"]',
+    '#abaResults li[data-mega-code][data-mega-view]',
+    '#abaResults .megaphoto',
+    '#abaResults .megajump',
+    '#abaResults .spdist',
+    '#abaResults .abadist',
+  ]);
+  const setup = source.slice(source.indexOf('function fillMegaIndex('),
+    source.indexOf('async function fillMegaStakeout('));
+  assert.match(setup, /A\.renderAbaAlert\(/,
+    'the gallery must drive the production Mega renderer, not hand-roll its rows');
+  assert.match(setup, /A\.setAbaScope\('state'\)/);
+  assert.match(setup, /A\.setAbaSort\('date'\)/);
+});
+
 test('fixture photos use the extension of the bundled icon they render', () => {
   assert.equal(mockups.fixtureIconPath('semsan'), 'assets/birds/semsan.png',
     'Semipalmated Sandpiper is a PNG and must not render a broken JPG');
@@ -168,6 +189,8 @@ test('Washington mock data follows the owner-provided September 2 seen snapshot'
     'the header count is still the obsolete invented total');
   assert.match(source, /Object\.defineProperty\(window, '__SEED_BIRDLIST__'/,
     'the fixture is not injected through the seed object production actually reads');
+  assert.match(source, /ebird_seen_meta[\s\S]*source:\s*'seed'/,
+    'release mockups must explicitly opt into sample data now that clean installs stay empty');
   assert.match(source, /Washington seen fixture did not reach getReportSeen/,
     'the renderer never behaviorally verifies seen/unseen state');
 });
@@ -300,10 +323,15 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
 
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaScopePick [data-abascope="state"]',
+    '#abaScopePick [data-abascope="aba"]',
+    '#abaSortPick [data-abasort="date"]',
+    '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
     '#abaResults .megaphoto',
     '#abaResults .megajump',
     '#abaResults .spdist',
+    '#abaResults .abadist',
   ]);
   assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
     'the Mega release shot must use the production list renderer');

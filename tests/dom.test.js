@@ -34,6 +34,8 @@ const FIRST_YEAR_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-first-year.html'), 'utf8');
 const MEGA_STAKEOUT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
+const SEED = JSON.parse(
+  fs.readFileSync(path.join(WWW, 'seed-birdlist.json'), 'utf8'));
 
 function megaAlertHtml(rows) {
   return (rows || []).map((row, i) => `
@@ -202,6 +204,19 @@ function boot(opts = {}) {
       window.localStorage.setItem('ebird_home_lat', '47.75');
       window.localStorage.setItem('ebird_home_lng', '-122.16');
       window.localStorage.setItem('ebird_report', opts.report || 'wa');
+      if (opts.sample !== false) {
+        const rep = SEED.seenByReport[opts.report || 'wa'] || {};
+        const seen = {};
+        SEED.codes.forEach((code) => { seen[String(code).toLowerCase()] = 1; });
+        window.localStorage.setItem('ebird_seen', JSON.stringify(seen));
+        window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+        window.localStorage.setItem('ebird_seen_meta', JSON.stringify({
+          source: 'seed',
+          count: SEED.codes.length,
+          year: SEED.year,
+          yearCount: (rep.yearList || []).length,
+        }));
+      }
       Object.entries(opts.storage || {}).forEach(([k, v]) => window.localStorage.setItem(k, v));
       window.fetch = function (url) {
         state.fetches.push(String(url));
@@ -5152,6 +5167,36 @@ test('every tile title and subtitle comes from the contract, and the report head
   }
 });
 
+test('F316 calls the seen-year surface My Ticks and explains its scope', async () => {
+  const entry = CONTRACT.menu.find((item) => item.at === 'myYearBody');
+  assert.ok(entry, 'the My Ticks contract entry exists');
+  assert.deepEqual(
+    { label: entry.label, sub: entry.sub, report: entry.report },
+    {
+      label: '📅 My Ticks',
+      sub: 'Your seen bird list this year',
+      report: '## 📅 My Ticks — Your seen bird list this year',
+    },
+    'F316 title and subtitle are the product wording, not aliases derived from code');
+
+  const app = await boot();
+  const headingEl = app.document.getElementById('myYearBody')
+    .closest('section').querySelector('h2');
+  const heading = [...headingEl.childNodes]
+    .filter((node) => node.nodeType === app.window.Node.TEXT_NODE)
+    .map((node) => node.textContent).join('').trim();
+  const tile = [...app.document.querySelectorAll('#menuList .toclink')]
+    .find((link) => link.getAttribute('data-at') === 'myYearBody');
+  assert.equal(heading, '📅 My Ticks', 'the section heading uses the F316 title');
+  assert.ok(tile, 'the My Ticks menu tile rendered');
+  assert.equal(tile.getAttribute('aria-label'), '📅 My Ticks',
+    'the accessible tile name uses the F316 title');
+  assert.equal(tile.querySelector('.tilesub').textContent.trim(),
+    'Your seen bird list this year',
+    'the visible tile subtitle states exactly what the list contains');
+  app.window.close();
+});
+
 // A subtitle is published in the REPORT now, not only rendered under a tile, so
 // it has to read as prose. These are the two ways it stops being prose.
 test('a subtitle reads as a sentence fragment, not as a UI hint', () => {
@@ -8845,7 +8890,7 @@ test('F13: with no key stored the Contents menu leads with a way to get one', as
 });
 
 test('F13: a stored key hides the banner', async () => {
-  const app = await boot();
+  const app = await boot({ storage: { ebird_display_name: 'Sample Birder' } });
   assert.equal(app.$('keyBanner').hidden, true,
     'once a key is stored the banner is noise and must get out of the way');
 });
@@ -8856,6 +8901,8 @@ test('F13: Settings offers get / paste / test beside the key field', async () =>
     assert.ok(app.$(id), id + ' must exist: a bare password box is where the old dead end was');
   });
   assert.ok(app.$('keyStatus'), 'and somewhere to report what happened');
+  assert.equal(app.$('keyTestBtn').textContent, 'Test & save',
+    'the successful action says it persists the key');
   assert.ok(/ebird\.org\/api\/keygen/.test(HTML),
     'the key request form is the destination and must be named in the app, not looked up');
   assert.equal(app.window.__app.EBIRD_KEYGEN_URL, 'https://ebird.org/api/keygen');
@@ -8867,9 +8914,13 @@ test('F13: an obviously wrong key is named and refused, never silently saved', a
   assert.match(wrong('https://ebird.org/api/keygen'), /URL/,
     'pasting the page URL instead of the key is the most likely mistake');
   assert.match(wrong('abc def'), /space/, 'a copied line of surrounding text carries whitespace');
-  assert.match(wrong('ab'), /characters/, 'a truncated copy is short');
-  assert.match(wrong('abcd-efgh-ijkl'), /punctuation/, 'eBird keys are alphanumeric');
+  assert.equal(wrong('ab'), '',
+    'length is not guessed locally — eBird itself decides whether a key works');
+  assert.equal(wrong('abcd-efgh-ijkl'), '',
+    'future punctuation is not rejected before eBird can test it');
   assert.equal(wrong('a1b2c3d4e5f6'), '', 'a real 12-character key passes');
+  assert.equal(wrong('a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6'), '',
+    'the working 36-character key reported from the iPhone passes');
 
   app.open(/Settings/);
   app.$('apiKey').value = 'https://ebird.org/api/keygen';
@@ -8889,6 +8940,78 @@ test('F13: testing a key asks eBird and reports what it said', async () => {
     'the check is a real call - claiming a key works without asking is how the old dead end felt');
   const empty = await app.window.__app.testApiKey('');
   assert.equal(empty.ok, false, 'nothing to test is not a pass');
+});
+
+test('F315: a working 36-character key saves and closes first-run setup', async () => {
+  const key = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6';
+  const app = await boot({
+    key: null,
+    fetch: (u) => (/ref\/region\/info/.test(u) ? { code: 'US-WA' } : null),
+  });
+  assert.equal(app.window.__app.usesBundledSeed(), true,
+    'the fixture begins in the migrated v1.72 sample-data state');
+  app.click(app.$('keyBannerBtn'));
+  app.$('apiKey').value = key;
+  app.click(app.$('keyTestBtn'));
+  await waitFor(() => app.window.localStorage.getItem('ebird_api_key') === key,
+    'the tested key to be saved');
+  assert.equal(app.$('settingsPanel').hidden, true,
+    'first-run setup closes after the key succeeds');
+  assert.equal(app.$('menuPanel').hidden, false, 'the user returns to Contents');
+  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/,
+    'the blocking key setup is replaced by a separate nonblocking identity step');
+  assert.ok(app.$('nameBannerBtn'), 'the name step has a direct action');
+  assert.equal(app.window.__app.getSeenMeta(), null,
+    'a migrated owner sample is removed when a new account completes setup');
+  assert.equal(app.window.__app.reportYearList().length, 0,
+    'the new account does not inherit the bundled Washington year list');
+});
+
+test('F315: the display-name follow-up opens the field without restarting key setup', async () => {
+  const app = await boot({ sample: false });
+  assert.match(app.$('keyBanner').textContent, /Add your eBird display name/);
+  app.click(app.$('nameBannerBtn'));
+  assert.equal(app.$('settingsPanel').hidden, false);
+  assert.equal(app.window.document.activeElement, app.$('ebirdName'),
+    'the follow-up lands on the name field rather than at the top of Settings');
+});
+
+test('F315: a clean install stays empty until sample data or a CSV is chosen', async () => {
+  const app = await boot({ key: null, sample: false });
+  const A = app.window.__app;
+  assert.equal(A.getSeenMeta(), null);
+  assert.equal(A.reportYearList().length, 0);
+  assert.equal(Object.keys(A.getReportSeen()).length, 0);
+  assert.doesNotMatch(app.$('hdrId').textContent, /209sp/,
+    'a new account cannot display the owner snapshot as its own');
+  assert.equal(A.loadSeed(true), true, 'sample data remains an explicit demo action');
+  assert.equal(A.usesBundledSeed(), true);
+  assert.ok(A.reportYearList().length > 0);
+});
+
+test('F315: CSV identity fills the display/profile name and replaces sample data', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const csv = [
+    'Common Name,Scientific Name,Date,First Name,Last Name',
+    'American Robin,Turdus migratorius,2026-09-04,Sample,Birder',
+  ].join('\n');
+  assert.equal(A.importCSV(csv), 1);
+  assert.equal(A.getDisplayName(), 'Sample Birder');
+  assert.equal(A.profileLabel(''), 'Sample Birder');
+  assert.equal(A.usesBundledSeed(), false,
+    'an imported account list, not the bundled owner sample, is authoritative');
+  assert.equal(A.reportYearList().length, 0,
+    'the private bundled per-report list is no longer rendered after import');
+  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), true,
+    'the imported account list still marks its own bird seen');
+  assert.equal(A.seenCodesForRows({
+    recent: [{ speciesCode: 'amerob', comName: 'American Robin' }],
+  }).amerob, 1,
+  'the chase algorithm receives species codes resolved from imported names');
+  A.renderMenuIdentity();
+  assert.match(app.$('hdrId').textContent, /Sample Birder.*1sp/s,
+    'the header uses imported identity and count instead of 209sp');
 });
 
 
@@ -14630,6 +14753,127 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
     'a stale Mega origin falls back to Contents instead of the wrong list');
   assert.equal(doc.getElementById('abaDetail'), null);
   assert.equal(doc.getElementById('abaDetailCards'), null);
+  app.window.close();
+});
+
+test('F326 a late Mega repaint keeps the selected ABA scope with F304 routing', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const allRows = [
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: '2026-09-04 12:00',
+      locName: 'Hoquiam', lat: 46.98, lng: -123.89, subId: 'S1',
+      subnational1Code: 'US-WA' },
+    { speciesCode: 'limsan', comName: 'Limpkin', obsDt: '2026-09-04 13:00',
+      locName: 'Florida', lat: 27.95, lng: -81.72, subId: 'S2',
+      subnational1Code: 'US-FL' },
+  ];
+  const stateRows = allRows.filter((row) => row.subnational1Code === 'US-WA');
+  let paints = 0;
+  function paint() {
+    paints++;
+    const wide = A.abaScope() === 'aba';
+    A.renderAbaAlert(wide ? allRows : stateRows,
+      'https://ebird.org/alert/summary?sid=X', true, wide, paint);
+  }
+
+  A.setAbaScope('state');
+  paint();
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
+    ['Ruff'], 'the state projection starts with Washington rows only');
+
+  doc.querySelector('#abaScopePick [data-abascope="aba"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(paints, 2, 'changing scope repaints locally instead of scraping again');
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
+    ['Limpkin', 'Ruff'], 'the ABA projection includes the out-of-state species');
+  assert.equal(
+    doc.querySelector('#abaScopePick [data-abascope="aba"]').getAttribute('aria-pressed'),
+    'true', 'the selected scope is explicit without relying on colour');
+
+  paint();
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
+    ['Limpkin', 'Ruff'], 'a late repaint cannot revert to the Washington list');
+
+  const load = HTML.slice(HTML.indexOf('function loadAbaAlert('),
+    HTML.indexOf('function renderAbaAlert('));
+  assert.match(load, /function paint\(\)[\s\S]*abaScope\(\) === 'aba'/,
+    'every async repaint derives scope at paint time');
+  assert.match(load, /scope: abaScope\(\)/,
+    'each F304 view key records the scope chosen for that repaint');
+  assert.doesNotMatch(load, /Promise\.all\(Object\.keys\(species/,
+    'scope repainting cannot restore eager hidden-species detail hydration');
+  assert.match(load, /var fetchedAt = nowTime\(\)/,
+    'the alert fetch captures one honest data timestamp');
+  const paintSource = load.slice(load.indexOf('function paint()'),
+    load.indexOf('var view = paint()'));
+  assert.match(paintSource, /\+ fetchedAt\)/,
+    'scope and sort repaints reuse the fetch timestamp');
+  assert.doesNotMatch(paintSource, /nowTime\(\)/,
+    'a local repaint cannot make stale alert data look newly fetched');
+  assert.match(load,
+    /captureEbird\(\{[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
+    'the browser fallback and its status updates belong to the current load');
+  const terminalCatch = load.slice(load.lastIndexOf('.catch(function (e)'),
+    load.lastIndexOf('.finally(function ()'));
+  assert.match(terminalCatch,
+    /\.catch\(function \(e\) \{\s*if \(!stillCurrent\(\) \|\| \(e && e\.abaSuperseded\)\) return;/,
+    'an obsolete browser close/error cannot replace a newer success');
+  app.window.close();
+});
+
+test('F327 Mega rarities sort by newest or nearest without another fetch', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const groups = [
+    { code: 'newfar', distMi: 80,
+      latest: { obsDt: '2026-09-04 18:00' } },
+    { code: 'oldnear', distMi: 5,
+      latest: { obsDt: '2026-09-03 18:00' } },
+    { code: 'unknown', distMi: null,
+      latest: { obsDt: '2026-09-05 18:00' } },
+  ];
+  A.setAbaSort('date');
+  assert.deepEqual(A.abaSortGroups(groups).map((g) => g.code),
+    ['unknown', 'newfar', 'oldnear'], 'Newest uses descending observation time');
+  A.setAbaSort('distance');
+  assert.deepEqual(A.abaSortGroups(groups).map((g) => g.code),
+    ['oldnear', 'newfar', 'unknown'],
+    'Nearest uses distance, with unknown distance after every known one');
+  assert.equal(A.abaReportCount({ limsan: 1 }, [{ speciesCode: 'limsan' }],
+    'CA-BC', false, false), 1,
+  'an unscoped custom region counts the alert rows it actually renders');
+
+  const rows = [
+    { speciesCode: 'newfar', comName: 'New Far Bird',
+      obsDt: '2026-09-04 18:00', locName: 'Far', lat: 46.6, lng: -124.1, subId: 'S1' },
+    { speciesCode: 'oldnear', comName: 'Old Near Bird',
+      obsDt: '2026-09-03 18:00', locName: 'Near', lat: 47.76, lng: -122.15, subId: 'S2' },
+  ];
+  let repaints = 0;
+  A.setAbaSort('date');
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+    () => { repaints++; });
+  const labels = [...doc.querySelectorAll('#abaSortPick button')].map((b) => b.textContent);
+  assert.deepEqual(labels, ['Newest', 'Nearest'], 'the sort choices are written out');
+  doc.querySelector('#abaSortPick [data-abasort="distance"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(A.abaSort(), 'distance', 'the selected order is stored');
+  assert.equal(repaints, 1, 'sorting repaints rows in hand instead of fetching the alert');
+
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+    () => {});
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
+    ['Old Near Bird', 'New Far Bird'], 'the rendered list follows Nearest');
+  assert.match(doc.getElementById('abaResults').textContent, /\d+\.\d mi/,
+    'distance is visible on the rows whose order it explains');
+  assert.ok(doc.querySelector('#abaResults .abadist'),
+    'mileage has its own release-fixture marker rather than borrowing the chevron class');
   app.window.close();
 });
 
@@ -24398,12 +24642,8 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   const chip = app.window.document.querySelector('.secprofile');
   assert.ok(chip, 'a test profile says so');
   assert.match(chip.textContent, /Test 2/, 'and names which one');
-  // THE MEASURED HAZARD, stated on screen: reportYearList() returns the SAME
-  // count in every profile, because the bundled seed is shipped CODE and not
-  // per-profile storage. A test profile therefore prints the main birder's
-  // species count as its own until it harvests its own list.
-  assert.match(chip.textContent, /seed is shared/,
-    'and warns that the species count is not its own yet');
+  assert.match(chip.textContent, /key, imported list and harvested ticks are separate/,
+    'and states the isolation rule rather than claiming the owner seed is shared');
   assert.ok(!/^\s*$/.test(chip.textContent));
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');

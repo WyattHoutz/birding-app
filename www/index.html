@@ -2526,7 +2526,7 @@
     </section>
 
     <section class="panel">
-      <h2>📅 My year</h2>
+      <h2>📅 My Ticks</h2>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
       <ul id="myYearList" class="obs"></ul>
     </section>
@@ -2753,7 +2753,7 @@
       <div class="keyrow">
         <button id="keyGetBtn" class="secondary" type="button">Get a key</button>
         <button id="keyPasteBtn" class="secondary" type="button">Paste</button>
-        <button id="keyTestBtn" class="secondary" type="button">Test</button>
+        <button id="keyTestBtn" class="secondary" type="button">Test &amp; save</button>
       </div>
       <p id="keyStatus" class="hint keystate"></p>
       <!-- F188: the profile sits beside the KEY it scopes, not fourteen
@@ -2769,6 +2769,11 @@
         rank history, so several accounts can be tested on one phone. Hotspot, GBIF and
         taxonomy caches are shared on purpose — they describe <i>places</i>, not you, and
         re-fetching them per profile would burn the API budget you are trying to test.</p>
+      <label for="ebirdName">eBird display name</label>
+      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your public eBird display name" />
+      <p class="hint">Used to find your row and your own checklists. An API key identifies
+        the app, not the account, so eBird does not return this name with the key. Importing
+        MyEBirdData.csv fills it when that export contains First Name and Last Name.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
@@ -2786,9 +2791,6 @@
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" readonly />
       <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
-      <label for="ebirdName">eBird display name</label>
-      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your eBird display name" />
-      <p class="hint">Used to find your row on eBird leaderboards. It's the public name on your eBird profile.</p>
       <label for="abaSid">ABA rare-bird alert code</label>
       <input id="abaSid" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="SN10489" />
       <p class="hint">eBird alert id for the “ABA Rarities” needs alert (default <code>SN10489</code>). Paste a regional RBA alert id to track a smaller area.</p>
@@ -3118,7 +3120,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.72.0';
+      var APP_VERSION = '1.74.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3853,6 +3855,10 @@
       function getSeen() { try { return JSON.parse(localStorage.getItem(K.seen) || '{}'); } catch (e) { return {}; } }
       function getSeenMeta() { try { return JSON.parse(localStorage.getItem(K.seenMeta) || 'null'); } catch (e) { return null; } }
       function getField() { return localStorage.getItem(K.field) || 'sciName'; }
+      function usesBundledSeed() {
+        var meta = getSeenMeta();
+        return !!(meta && meta.source === 'seed');
+      }
       // Seen-species set (eBird codes) the ACTIVE report chases against. Matches
       // the Markdown report exactly: each report subtracts its own region's year
       // list (bundled in seed-birdlist.js as seenByReport[slug]). Falls back to
@@ -3860,7 +3866,7 @@
       function getReportSeen() {
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
-        if (rep && rep.codes && rep.codes.length) {
+        if (usesBundledSeed() && rep && rep.codes && rep.codes.length) {
           var set = {};
           rep.codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
           // The bundled set already has the AUTHORED watchlist subtracted
@@ -4286,7 +4292,7 @@
         if (learned) {
           try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
         }
-        verdict('My year', how + ' read in ONE call: ' + rows.length
+        verdict('My Ticks', how + ' read in ONE call: ' + rows.length
           + ' species, ' + learned + ' new'
           + (unresolved ? ', ' + unresolved + ' unresolved to a code' : '')
           + ' · newest ' + lifelistNewest(rows)
@@ -4302,7 +4308,7 @@
             // SAY WHICH FAILURE IT WAS, and this one has four causes: not
             // signed in, an unrecognised header, HTML returned with a 200, or
             // an empty list. They need opposite fixes.
-            verdict('My year', 'lifelist CSV: ' + fmtInt(String(body || '').length)
+            verdict('My Ticks', 'lifelist CSV: ' + fmtInt(String(body || '').length)
               + ' B · ' + (/^\s*<(!doctype|html)/i.test(String(body || ''))
                             ? 'came back as HTML, not CSV'
                             : 'parsed ' + rows.length + ' rows')
@@ -4314,7 +4320,7 @@
             return absorbLifelistRows(res, 'lifelist CSV');
           });
         }).catch(function (e) {
-          verdict('My year', 'lifelist CSV unreachable (' + ((e && e.message) || e)
+          verdict('My Ticks', 'lifelist CSV unreachable (' + ((e && e.message) || e)
             + ') — trying the page instead');
           return 0;
         });
@@ -4331,7 +4337,7 @@
             // the first one for all three, which is the same defect as F184's
             // verdict and F187's pause message: a cause the code did not
             // observe. These four numbers settle it in ONE device run.
-            verdict('My year', 'lifelist page: ' + fmtInt(String(html || '').length)
+            verdict('My Ticks', 'lifelist page: ' + fmtInt(String(html || '').length)
               + ' B · title "' + lifelistTitle(html) + '" · '
               + (lifelistIsLogin(html) ? 'reads as a LOGIN page' : 'reads as a real page')
               + ' · parsed ' + rows.length + ' rows — falling back to the '
@@ -4348,12 +4354,12 @@
           if (learned) {
             try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
           }
-          verdict('My year', 'lifelist page read in ONE call: ' + rows.length
+          verdict('My Ticks', 'lifelist page read in ONE call: ' + rows.length
             + ' species, ' + learned + ' new · newest ' + lifelistNewest(rows)
             + ' — the 730-call walk was skipped');
           return rows.length;
         }).catch(function (e) {
-          verdict('My year', 'lifelist page unreachable (' + ((e && e.message) || e)
+          verdict('My Ticks', 'lifelist page unreachable (' + ((e && e.message) || e)
             + ') — falling back to the day-by-day walk');
           return 0;
         });
@@ -10983,10 +10989,23 @@
             ? url.replace(/([?&]dist=)\d+/, '$1*') : url;
         }).join('|');
       }
+      function seenCodesForRows(rowsByFile) {
+        var stored = getReportSeen();
+        if (getField() === 'speciesCode') return stored;
+        var out = {};
+        Object.keys(rowsByFile || {}).forEach(function (file) {
+          (rowsByFile[file] || []).forEach(function (row) {
+            var code = row && row.speciesCode;
+            if (code && isSpeciesSeen(code, row.comName || '')) out[code] = 1;
+          });
+        });
+        return out;
+      }
       function computeChaseRows(profile, slug, rowsByFile, codes) {
         return BL.computeChaseViews(profile, {
           rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
-          seen: getReportSeen(), ownName: getDisplayName(), snapshotDate: todayStr(),
+          seen: seenCodesForRows(rowsByFile),
+          ownName: getDisplayName(), snapshotDate: todayStr(),
           watch: watchCodes(),
           home: getHome(), dailyDriveMi: profile.dailyDriveMi,
           travelCfg: profile.travelCfg || null,
@@ -17461,8 +17480,10 @@
         if (idx < 0) throw new Error('no "Scientific Name" or "Common Name" column');
         var nameIdx = comIdx >= 0 ? comIdx : idx;
         var dateIdx = header.indexOf('date');
+        var firstNameIdx = header.indexOf('first name');
+        var lastNameIdx = header.indexOf('last name');
         var thisYear = String(new Date().getFullYear());
-        var set = {}, n = 0, life = {}, year = {};
+        var set = {}, n = 0, life = {}, year = {}, importedName = '';
         for (var r = 1; r < rows.length; r++) {
           var v = (rows[r][idx] || '').trim().toLowerCase();
           if (v && !set[v]) { set[v] = 1; n++; }
@@ -17472,15 +17493,40 @@
             if (!life[dk]) life[dk] = disp;
             if (dateIdx >= 0 && (rows[r][dateIdx] || '').slice(0, 4) === thisYear && !year[dk]) year[dk] = disp;
           }
+          if (!importedName && (firstNameIdx >= 0 || lastNameIdx >= 0)) {
+            importedName = [
+              firstNameIdx >= 0 ? (rows[r][firstNameIdx] || '').trim() : '',
+              lastNameIdx >= 0 ? (rows[r][lastNameIdx] || '').trim() : ''
+            ].filter(Boolean).join(' ');
+          }
         }
         var byName = function (a, b) { return a.localeCompare(b); };
         var lifeNames = Object.keys(life).map(function (k) { return life[k]; }).sort(byName);
         var yearNames = Object.keys(year).map(function (k) { return year[k]; }).sort(byName);
+        var countable = lifeNames.filter(function (name) {
+          return BL.taxonKind(name, '') === 'species';
+        }).length;
+        var yearCountable = yearNames.filter(function (name) {
+          return BL.taxonKind(name, '') === 'species';
+        }).length;
         localStorage.setItem(K.seen, JSON.stringify(set));
         localStorage.setItem(K.field, useSci ? 'sciName' : 'comName');
         localStorage.setItem('ebird_life_names', JSON.stringify(lifeNames));
         localStorage.setItem('ebird_year_names', JSON.stringify(yearNames));
-        localStorage.setItem(K.seenMeta, JSON.stringify({ count: n, rows: rows.length - 1, date: new Date().toISOString(), year: thisYear, yearCount: yearNames.length }));
+        localStorage.setItem('ebird_seed_dismissed', '1');
+        localStorage.setItem(K.seenMeta, JSON.stringify({
+          count: n, countableCount: countable,
+          rows: Math.max(0, rows.length - 1), date: new Date().toISOString(),
+          year: thisYear, yearCount: yearNames.length,
+          yearCountable: yearCountable, source: 'csv',
+          displayName: importedName
+        }));
+        if (importedName && !getDisplayName()) {
+          localStorage.setItem('ebird_display_name', importedName);
+          if (!profileNames()[String(bcProfile())]) {
+            setProfileName(bcProfile(), importedName);
+          }
+        }
         return n;
       }
 
@@ -17490,7 +17536,10 @@
         $('csvStatus').textContent = 'Reading ' + file.name + '…';
         var reader = new FileReader();
         reader.onload = function () {
-          try { importCSV(String(reader.result)); updateCsvStatus(); updateMyYear(); }
+          try {
+            importCSV(String(reader.result));
+            loadSettings(); updateCsvStatus(); updateMyYear(); renderMenuIdentity();
+          }
           catch (e) { $('csvStatus').textContent = 'Could not import CSV — ' + e.message + '.'; }
         };
         reader.onerror = function () { $('csvStatus').textContent = 'Could not read the file.'; };
@@ -17536,11 +17585,6 @@
         updateCsvStatus(); updateMyYear();
         return true;
       }
-      function maybeAutoSeed() {
-        if (getSeenMeta() || localStorage.getItem('ebird_seed_dismissed') === '1') return;
-        loadSeed(false);
-      }
-
       // --- eBird account (login-gated): rankings + ABA rare-bird alert -------
       // These eBird pages redirect to Cornell SSO, so the eBird REST key can't
       // reach them. We open the target page in an in-app browser (Capgo
@@ -17623,7 +17667,8 @@
           // fallback for reports that bundle no name list of their own.
           var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
           var rep = seed && seed.seenByReport && seed.seenByReport[slug];
-          var pool = (rep && rep.names && rep.names.length) ? rep.names
+          var pool = usesBundledSeed() && rep && rep.names && rep.names.length
+            ? rep.names
             : JSON.parse(localStorage.getItem('ebird_year_names') || '[]')
                 .concat(JSON.parse(localStorage.getItem('ebird_life_names') || '[]'));
           for (var i = 0; i < pool.length; i++) {
@@ -17786,18 +17831,14 @@
       // call, and the old Settings copy was a bare URL in a <code> block that
       // was not even tappable. This walks the user there and back.
       var EBIRD_KEYGEN_URL = 'https://ebird.org/api/keygen';
-      // eBird issues 12-character lowercase alphanumeric keys. Used only to
-      // catch an obvious paste error (a whole URL, a display name) BEFORE
-      // spending a network call - never to reject a key outright, because the
-      // format is eBird's to change and a false rejection is worse than a
-      // wasted request.
+      // Only reject content that cannot be one key (blank, a URL, or several
+      // whitespace-separated values). eBird changed from the old 12-character
+      // form to a working 36-character form; the network test is the authority.
       function keyLooksWrong(k) {
         k = (k || '').trim();
         if (!k) return 'empty';
         if (/\s/.test(k)) return 'contains a space, so part of something else was copied';
         if (/^https?:/i.test(k)) return 'looks like a URL, not a key';
-        if (k.length < 8 || k.length > 24) return 'is ' + k.length + ' characters; eBird keys are 12';
-        if (!/^[A-Za-z0-9]+$/.test(k)) return 'has punctuation in it; eBird keys are letters and digits only';
         return '';
       }
       // Open the key request form INSIDE the app rather than in the system
@@ -17839,18 +17880,74 @@
         el.textContent = msg || '';
         el.className = 'hint keystate' + (cls ? ' ' + cls : '');
       }
+      var _keySetupFromBanner = false;
+      function discardBundledSeedForAccount() {
+        if (!usesBundledSeed()) return false;
+        localStorage.removeItem(K.seen);
+        localStorage.removeItem(K.seenMeta);
+        localStorage.removeItem(K.field);
+        localStorage.removeItem('ebird_life_names');
+        localStorage.removeItem('ebird_year_names');
+        localStorage.setItem('ebird_seed_dismissed', '1');
+        return true;
+      }
+      function acceptWorkingKey(k) {
+        k = (k || '').trim();
+        localStorage.setItem(K.api, k);
+        var finishSetup = _keySetupFromBanner;
+        if (finishSetup) discardBundledSeedForAccount();
+        setKeyStatus('This key works and is saved.', 'ok');
+        renderKeyBanner();
+        updateCsvStatus();
+        updateMyYear();
+        renderMenuIdentity();
+        startBackgroundHistory(3000);
+        if (finishSetup) {
+          _keySetupFromBanner = false;
+          loadSettings();
+          showSettings(false);
+        }
+        return true;
+      }
       // One place that answers "can this app do anything right now?", shown on
       // the Contents menu so it is the first thing a first-run user reads
       // instead of discovering it one section at a time.
       function renderKeyBanner() {
         var el = $('keyBanner'); if (!el) return;
-        if (getKey()) { el.hidden = true; el.innerHTML = ''; return; }
+        if (getKey()) {
+          if (!getDisplayName()) {
+            el.hidden = false;
+            el.innerHTML = '<div class="kbtitle">👤 Add your eBird display name</div>'
+              + '<p>The API key identifies Bird Chaser, not your eBird account. '
+              + 'Add the public name on your eBird profile so the app can find '
+              + 'your checklists and leaderboard row.</p>'
+              + '<div class="keyrow"><button id="nameBannerBtn" type="button">'
+              + 'Add my name</button></div>';
+            var nb = $('nameBannerBtn');
+            if (nb) nb.addEventListener('click', function () {
+              showSettings(true);
+              var name = $('ebirdName');
+              if (name) {
+                try {
+                  if (name.scrollIntoView) name.scrollIntoView({ block: 'center' });
+                } catch (e) {}
+                try { name.focus(); } catch (e) {}
+              }
+            });
+            return;
+          }
+          el.hidden = true; el.innerHTML = ''; return;
+        }
         el.hidden = false;
         el.innerHTML = '<div class="kbtitle">🔑 Add your eBird API key to begin</div>' +
           '<p>Every section reads live eBird data from this device, so nothing can load until a key is stored. It is free and takes about a minute.</p>' +
           '<div class="keyrow"><button id="keyBannerBtn" type="button">Set up my key</button></div>';
         var b = $('keyBannerBtn');
-        if (b) b.addEventListener('click', function () { showSettings(true); var f = $('apiKey'); if (f) { try { f.focus(); } catch (e) {} } });
+        if (b) b.addEventListener('click', function () {
+          _keySetupFromBanner = true;
+          showSettings(true);
+          var f = $('apiKey'); if (f) { try { f.focus(); } catch (e) {} }
+        });
       }
       function bindKeyHelpers() {
         var get = $('keyGetBtn'), paste = $('keyPasteBtn'), test = $('keyTestBtn');
@@ -17871,7 +17968,10 @@
               var wrong = keyLooksWrong(txt);
               if (wrong) { setKeyStatus('Pasted, but it ' + wrong + '. Check it, then tap Test.', 'bad'); return; }
               setKeyStatus('Pasted. Checking it with eBird…', '');
-              testApiKey(txt).then(function (r) { setKeyStatus(r.why + (r.ok ? ' Tap Save to keep it.' : ''), r.ok ? 'ok' : 'bad'); });
+              testApiKey(txt).then(function (r) {
+                if (r.ok) acceptWorkingKey(txt);
+                else setKeyStatus(r.why, 'bad');
+              });
             }).catch(function () {
               setKeyStatus('This device would not hand over the clipboard. Long-press the field above and choose Paste.', 'bad');
             });
@@ -17884,7 +17984,10 @@
             var wrong = keyLooksWrong(k);
             if (wrong === 'empty') { setKeyStatus('Enter a key first, or tap Get a key.', 'bad'); return; }
             setKeyStatus('Checking with eBird…', '');
-            testApiKey(k).then(function (r) { setKeyStatus(r.why, r.ok ? 'ok' : 'bad'); });
+            testApiKey(k).then(function (r) {
+              if (r.ok) acceptWorkingKey(k);
+              else setKeyStatus(r.why, 'bad');
+            });
           });
         }
       }
@@ -19929,11 +20032,70 @@
         try { return localStorage.getItem(ABA_SCOPE_KEY) === 'aba' ? 'aba' : 'state'; }
         catch (e) { return 'state'; }
       }
-      function setAbaScope(v) {
+      function setAbaScope(v, keepCurrentLoad) {
         var next = v === 'aba' ? 'aba' : 'state';
         var changed = abaScope() !== next;
         try { localStorage.setItem(ABA_SCOPE_KEY, next); } catch (e) {}
-        if (changed) invalidateMegaViews();
+        if (changed && !keepCurrentLoad) invalidateMegaViews();
+      }
+      var ABA_SORT_KEY = 'ebird_aba_sort_v1';
+      function abaSort() {
+        try { return localStorage.getItem(ABA_SORT_KEY) === 'distance' ? 'distance' : 'date'; }
+        catch (e) { return 'date'; }
+      }
+      function setAbaSort(v) {
+        try { localStorage.setItem(ABA_SORT_KEY, v === 'distance' ? 'distance' : 'date'); } catch (e) {}
+      }
+      function abaSortControl(id) {
+        var m = abaSort();
+        return ToggleControls.group({
+          id: id,
+          label: 'Sort Mega rarities',
+          options: [
+            { label: 'Newest', data: { abasort: 'date' }, pressed: m === 'date' },
+            { label: 'Nearest', data: { abasort: 'distance' }, pressed: m === 'distance' }
+          ]
+        });
+      }
+      function wireAbaSort(id, repaint) {
+        var host = document.getElementById(id);
+        if (!host) return;
+        host.addEventListener('click', function (ev) {
+          var b = ev.target.closest ? ev.target.closest('[data-abasort]') : null;
+          if (!b) return;
+          setAbaSort(b.getAttribute('data-abasort'));
+          repaint();
+        });
+      }
+      function abaGroupDistance(rows, home) {
+        if (!home) return null;
+        var best = null;
+        (rows || []).forEach(function (r) {
+          if (!r || !isFinite(r.lat) || !isFinite(r.lng)) return;
+          var mi = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
+          if (isFinite(mi) && (best == null || mi < best)) best = mi;
+        });
+        return best;
+      }
+      function abaSortGroups(groups) {
+        var mode = abaSort();
+        return (groups || []).slice().sort(function (a, b) {
+          if (mode === 'distance') {
+            var da = a.distMi != null && isFinite(a.distMi) ? +a.distMi : Infinity;
+            var db = b.distMi != null && isFinite(b.distMi) ? +b.distMi : Infinity;
+            if (da !== db) return da - db;
+          }
+          var byDate = String(b.latest && b.latest.obsDt || '')
+            .localeCompare(String(a.latest && a.latest.obsDt || ''));
+          if (byDate) return byDate;
+          return String(a.code || '').localeCompare(String(b.code || ''));
+        });
+      }
+      function abaReportCount(species, rows, region, scoped, wide) {
+        if (!scoped || wide) return (rows || []).length;
+        return Object.keys(species || {}).reduce(function (t, c) {
+          return t + abaArchiveFor(region, c).length;
+        }, 0);
       }
       // The narrow chip must NAME the state it belongs to, the same rule the
       // twitch scope control follows - "Statewide" on a section that can also
@@ -19957,7 +20119,7 @@
         host.addEventListener('click', function (ev) {
           var b = ev.target.closest ? ev.target.closest('[data-abascope]') : null;
           if (!b) return;
-          setAbaScope(b.getAttribute('data-abascope'));
+          setAbaScope(b.getAttribute('data-abascope'), true);
           // Re-scoping is a LOCAL filter over rows already in hand. It must
           // never re-scrape: the alert page is one of the few reads this app
           // cannot rate-limit its way out of.
@@ -20358,12 +20520,11 @@
         var startRegion = getRegion();
         var startReport = getReport();
         var startSlug = startReport.slug;
-        var startScope = abaScope();
         var startScoped = !startReport.isRarityTracker && /^US-[A-Z]{2}$/.test(startRegion);
         function stillCurrent() {
-          return getAbaSid() === startSid && getRegion() === startRegion
-            && getReport().slug === startSlug && abaScope() === startScope
-            && loadGeneration === _abaLoadGeneration;
+          return loadGeneration === _abaLoadGeneration
+            && getAbaSid() === startSid && getRegion() === startRegion
+            && getReport().slug === startSlug;
         }
         function superseded() {
           var e = new Error('ABA alert request superseded by new settings');
@@ -20389,7 +20550,10 @@
             dbg('warn', 'ABA direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
-            return captureEbird({ url: url, buildInject: buildAlertInject, onStatus: function (m) { st.textContent = m; } });
+            return captureEbird({
+              url: url, buildInject: buildAlertInject, alive: stillCurrent,
+              onStatus: function (m) { if (stillCurrent()) st.textContent = m; }
+            });
           })
           .then(function (list) {
             if (!stillCurrent()) throw superseded();
@@ -20397,38 +20561,72 @@
             // report.py::section_state_aba_rarities filters the continent-wide
             // alert to the active report's state and groups by species. Rarity
             // trackers (lower48/aba) have no state, so they keep the full feed.
-            var region = startRegion, scoped = startScoped;            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
+            var region = startRegion, scoped = startScoped;
+            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
             // feature looked impossible: showing the continent meant losing
             // the species cards and falling back to the rarity-tracker's flat
             // feed. They answer different questions - "which rows" vs "which
             // layout" - so a state report now keeps its card list at BOTH
             // scopes and only the filter moves.
-            var wide = scoped && abaScope() === 'aba';
             // Taken on the UNSCOPED list on purpose. Filtering to a state first
             // is exactly what hid this for weeks: a 6-row Washington slice says
             // nothing about whether the continent-wide page it was cut from was
             // full, and the report's own snapshots stored 497 (a capped 500
             // minus 3 filtered territories) and read as healthy.
             _abaTruncated = list.length >= ABA_ALERT_MAX_ROWS;
-            var stateRows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;            var rows = wide ? list : stateRows;
-            // First paint carries the STATE evidence only. The unscoped alert
-            // used to double as a free "N ABA-wide across M states" yardstick,
-            // and that was wrong: the alert is capped at 500 observations
-            // continent-wide, so a species' row count there is its slice of a
-            // shared budget, not its report count. The real ABA-wide numbers
-            // arrive in the deepening pass below.
-            var viewMeta = {
-              generation: loadGeneration,
-              reportSlug: startSlug,
-              region: startRegion,
-              sid: startSid,
-              scope: startScope,
-              reportLabel: startReport.label || startRegion,
-              stateName: BL.stateNameFor(startReport),
-              country: String(startRegion).split('-')[0] || 'US',
-              stateRows: stateRows
-            };
-            var view = renderAbaAlert(rows, url, scoped, wide, viewMeta);
+            var stateRows = scoped
+              ? list.filter(function (o) { return o.subnational1Code === region; })
+              : list;
+            var fetchedAt = nowTime();
+            // Scope and sort are local projections over one alert response.
+            // Every repaint re-reads the selected controls, but receives the
+            // same fetch timestamp and load generation. The Mega registry key
+            // adds the current scope, so a late callback from the old
+            // projection cannot publish into the new one.
+            function paint() {
+              if (!stillCurrent()) throw superseded();
+              var wide = scoped && abaScope() === 'aba';
+              var rows = wide ? list : stateRows;
+              var view = renderAbaAlert(rows, url, scoped, wide, {
+                generation: loadGeneration,
+                reportSlug: startSlug,
+                region: startRegion,
+                sid: startSid,
+                scope: abaScope(),
+                reportLabel: startReport.label || startRegion,
+                stateName: BL.stateNameFor(startReport),
+                country: String(startRegion).split('-')[0] || 'US',
+                stateRows: stateRows
+              }, paint);
+              var species = {};
+              rows.forEach(function (o) {
+                if (o.speciesCode) species[o.speciesCode] = 1;
+              });
+              var n = Object.keys(species).length;
+              var unseen = Object.keys(species)
+                .filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
+              var whereLbl = wide ? 'the ABA area' : (startReport.label || 'this region');
+              var reports = abaReportCount(species, rows, region, scoped, wide);
+              st.textContent = n
+                ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
+                  + ' reports · ' + unseen + ' you still need · ' + fetchedAt)
+                : ('None — no ABA Code 3+ rarities currently reported in '
+                  + whereLbl + ' · ' + fetchedAt);
+              var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
+              verdict('Mega rarities',
+                list.length + ' alert rows'
+                + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
+                + ' · ' + (!scoped
+                  ? 'unfiltered — ' + (startReport.label || 'rarity tracker') + ' has no state'
+                  : wide
+                    ? 'ABA-WIDE view — ' + region + ' filter OFF (' + stateRows.length
+                      + ' would have survived it)'
+                    : stateRows.length + ' cleared the ' + region + ' filter')
+                + ' · ' + n + ' species, ' + unseen + ' unseen'
+                + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
+              return view;
+            }
+            var view = paint();
             // F160: hand the lane a snapshot, and NEVER let the lane fetch.
             //
             // The decisive evidence is a device report — "i opened the app and
@@ -20482,8 +20680,7 @@
             return view;
           })
           .catch(function (e) {
-            if (e && e.abaSuperseded) return;
-            if (!stillCurrent()) return;
+            if (!stillCurrent() || (e && e.abaSuperseded)) return;
             st.innerHTML = esc(e.message || 'Could not load the alert.') + ' '
               + extA(url, 'View on eBird');
           })
@@ -20581,22 +20778,25 @@
         if (out.length <= 2) return out.join(' · ');
         return out.slice(0, 2).join(' · ') + ' +' + (out.length - 2) + ' more';
       }
-      function renderMegaIndex(list, url, wide, meta) {
+      function renderMegaIndex(list, url, wide, meta, repaint) {
         var region = (meta && meta.region) || getRegion();
         if (!wide) abaArchiveAdd(region, list);
         var view = installMegaView(list, true, wide, url, meta);
+        var home = getHome();
         var entries = Object.keys(view.bySpecies).map(function (code) {
-          return view.bySpecies[code];
+          var entry = view.bySpecies[code];
+          entry.distMi = abaGroupDistance(
+            wide ? entry.alertRows : entry.stateRows, home);
+          return entry;
         }).filter(function (entry) {
           return (entry.alertRows || []).length;
-        }).sort(function (a, b) {
-          return String((b.latest && b.latest.obsDt) || '')
-            .localeCompare(String((a.latest && a.latest.obsDt) || ''));
         });
+        entries = abaSortGroups(entries);
         var el = $('abaResults');
         el.className = 'obs';
         el.innerHTML = '<div class="raritycontrolrow abascoperow">'
-          + abaScopeControl('abaScopePick') + '</div>'
+          + abaScopeControl('abaScopePick')
+          + abaSortControl('abaSortPick') + '</div>'
           + '<ul class="obs big xl">'
           + entries.map(function (entry) {
             var latest = entry.latest || {};
@@ -20617,6 +20817,8 @@
               tags: needTag(entry.code, entry.name),
               sub: esc(fmtDate(latest.obsDt))
                 + (wide ? ' · ' + esc(abaWhereLabel(entry.alertRows)) : '')
+                + (entry.distMi != null && isFinite(entry.distMi)
+                  ? ' <span class="abadist">· ' + entry.distMi.toFixed(1) + ' mi</span>' : '')
                 + ' · ' + count + ' report' + (count === 1 ? '' : 's'),
               lead: '\u203A'
             });
@@ -20629,18 +20831,23 @@
             + (row.getAttribute('data-mega-name') || row.getAttribute('data-mega-code')));
         });
         hydratePhotos(el);
-        wireAbaScope('abaScopePick', function () { loadAbaAlert(); });
+        var rerender = repaint || function () { loadAbaAlert(); };
+        wireAbaScope('abaScopePick', rerender);
+        wireAbaSort('abaSortPick', rerender);
         var foot = document.createElement('div');
         foot.className = 'status';
         foot.innerHTML = extA(url, 'View alert on eBird');
         el.appendChild(foot);
         return view;
       }
-      function renderAbaAlert(list, url, grouped, wide) {
-        var meta = arguments.length > 4 ? arguments[4] : null;
+      function renderAbaAlert(list, url, grouped, wide, meta, repaint) {
+        if (typeof meta === 'function') {
+          repaint = meta;
+          meta = null;
+        }
         if (wide == null) wide = grouped && abaScope() === 'aba';
         setAbaWarn(abaAlertWarning((list || []).length));
-        if (grouped) return renderMegaIndex(list || [], url, wide, meta);
+        if (grouped) return renderMegaIndex(list || [], url, wide, meta, repaint);
 
         // Rarity-tracker reports never had a Mega detail view. Preserve their
         // flat report semantics; the species name remains the ordinary generic
@@ -25319,7 +25526,10 @@
           return;
         }
         $('csvStatus').textContent = meta
-          ? (meta.count + ' species imported from ' + meta.rows + ' rows · ' + fmtDate(meta.date))
+          ? ((meta.countableCount != null ? meta.countableCount : meta.count)
+              + ' countable species imported from ' + meta.rows + ' rows · '
+              + fmtDate(meta.date)
+              + (meta.displayName ? ' · account ' + meta.displayName : ''))
           : 'No seen list yet. eBird → Download My Data → import MyEBirdData.csv.';
       }
 
@@ -25330,6 +25540,7 @@
       // from the SAME birdlist-<region>.md export the report parses, bundled at
       // build time into seed-birdlist.js as seenByReport[slug].yearList.
       function reportYearList() {
+        if (!usesBundledSeed()) return [];
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
         return (rep && Array.isArray(rep.yearList)) ? rep.yearList : [];
@@ -25711,7 +25922,7 @@
         migBtn:        'What’s arriving and leaving',
         bcBody:        'Nightly migration',
         todBtn:        'Time-of-day specialists',
-        myYearBody:    'Your list this year',
+        myYearBody:    'Your seen bird list this year',
         recordBody:    'Overdue megararities',
         settingsPanel: 'Region, text size, data',
         helpBody:      'What every button does'
@@ -25769,7 +25980,7 @@
         { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'myYearBody',    label: '📅 My year', group: 'My Bird List' },
+        { at: 'myYearBody',    label: '📅 My Ticks', group: 'My Bird List' },
         { at: 'nvResults',     label: '❓ Needs proof', group: 'My Bird List' },
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },
@@ -26780,7 +26991,12 @@
                     + ' in ' + rankRegionName(getRegion()));
         }
         var year = 0;
-        try { year = (reportYearList() || []).length; } catch (e) { year = 0; }
+        try {
+          var meta = getSeenMeta();
+          year = meta && meta.source !== 'seed'
+            ? +(meta.yearCountable != null ? meta.yearCountable : meta.yearCount || 0)
+            : (reportYearList() || []).length;
+        } catch (e) { year = 0; }
         if (year) {
           bits.push(year + 'sp');
           said.push(year + ' species this year');
@@ -27478,10 +27694,8 @@
             anchor.insertAdjacentElement('afterend', el);
           }
           el.textContent = '👤 ' + profileLabel(bcProfile())
-            + ' — a test profile. Its own key and harvested list are separate, '
-            + 'but the bundled year-list seed is shared, so any species count '
-            + 'you see here is the main profile\u2019s until this one harvests '
-            + 'its own.';
+            + ' — a test profile. Its key, imported list and harvested ticks '
+            + 'are separate from every other profile.';
         })();
         // F134: opening a section is what makes its news old. Placed AFTER
         // costEnter, because cost attribution must stay the first thing that
@@ -29478,6 +29692,7 @@
         var btn = this;
         function persist() {
           localStorage.setItem(K.api, $('apiKey').value.trim());
+          if (_keySetupFromBanner) discardBundledSeedForAccount();
           localStorage.setItem(K.report, getReportSlug());
           var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
           if (isFinite(hla) && isFinite(hlo)) {
@@ -29512,6 +29727,7 @@
           _autoLoaded = {};
           loadSettings();
           renderKeyBanner();
+          _keySetupFromBanner = false;
           showSettings(false);
           startBackgroundHistory(3000);
           if (!getKey()) $('status').textContent = 'Add your eBird API key in Settings to begin.';
@@ -29826,6 +30042,8 @@
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         renderAbaAlert: renderAbaAlert, abaWhereLabel: abaWhereLabel,
         abaScope: abaScope, setAbaScope: setAbaScope, abaScopeControl: abaScopeControl,
+        abaSort: abaSort, setAbaSort: setAbaSort, abaSortGroups: abaSortGroups,
+        abaGroupDistance: abaGroupDistance, abaReportCount: abaReportCount,
         megaRecordMerge: megaRecordMerge, megaMergeRows: megaMergeRows,
         megaViewState: function () {
           return { key: _megaViewKey, view: _megaViews[_megaViewKey] || null,
@@ -29891,6 +30109,7 @@
         },
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
+      seenCodesForRows: seenCodesForRows,
       chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
       setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },
       setChaseInflight: function (slug, promise, baseKey, km) {
@@ -29922,7 +30141,10 @@
         abaArchiveAdd: abaArchiveAdd, abaArchiveFor: abaArchiveFor,
         abaArchiveSince: abaArchiveSince, ABA_ARCHIVE_KEY: ABA_ARCHIVE_KEY,
         keyLooksWrong: keyLooksWrong, renderKeyBanner: renderKeyBanner,
-        testApiKey: testApiKey, openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL
+        testApiKey: testApiKey, acceptWorkingKey: acceptWorkingKey,
+        openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL,
+        importCSV: importCSV, loadSeed: loadSeed, getSeenMeta: getSeenMeta,
+        usesBundledSeed: usesBundledSeed
       };
       migrateHomeKeys();
       buildNav();
@@ -29930,7 +30152,6 @@
       initPullToRefresh();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       loadSettings();
-      maybeAutoSeed();
       updateCsvStatus();
       updateMyYear();
       renderFavs();

@@ -53,13 +53,13 @@ that this app is tested against.
 - **Your data stays on your phone.** The seen-list comes from an eBird
   *Download My Data* CSV that you import once and store locally. eBird's public
   API has no personal life/year/needs-list endpoint, so the CSV is how the app
-  knows what you've already seen. On first launch the app also loads a **bundled
-  sample list** (the owner's eBird 2026 year lists) so every panel has data to
-  work with immediately — importing your CSV replaces it, and *Clear* removes it.
+  knows what you've already seen. A fresh profile starts empty. The owner's
+  bundled snapshot is available only through **Load sample data** and is never
+  silently presented as the new account's list.
 
 ```
 Settings  → your eBird API key (stored on device)
-Seen list → bundled sample data on first run; import MyEBirdData.csv to replace
+Seen list → empty on first run; import MyEBirdData.csv or explicitly load sample data
 Live data → CapacitorHttp → eBird + NOAA APIs (no CORS, no server, no GitHub)
 Analysis  → on-device (JS)
 UI        → Notable / Targets / Destinations / Excursions / Trip / Birdiest /
@@ -111,15 +111,20 @@ package.json        "version": "X.Y.Z",
 
 ### Install on the phone
 
+For the complete illustrated first run—including Developer Mode, trusting the
+signing Apple ID, obtaining an eBird key, and importing a seen list—follow
+**[Bird Chaser first-time setup](docs/QUICKSTART.md)**.
+
 1. Grab `BirdChaser-unsigned.ipa` from the
    [latest Release](https://github.com/WyattHoutz/birding-app/releases)
    (or `gh release download vX.Y.Z --pattern "*.ipa"`). It is also uploaded as a
    build artifact on every run, which is what you want if the version did not
    change.
-2. Sideload it with [AltStore](https://altstore.io/) + AltServer on Windows,
-   signing with your free Apple ID.
-   - Free-Apple-ID limits: the app **expires every 7 days** (AltServer
-     auto-refreshes over Wi-Fi), max 3 sideloaded apps, no push notifications.
+2. Sideload it with [Sideloadly](https://sideloadly.io/) or
+   [AltStore](https://altstore.io/) + AltServer on Windows, signing with your
+   free Apple ID.
+   - Free-Apple-ID limits: the app **expires every 7 days** unless the signing
+     tool refreshes it, max 3 sideloaded apps, no push notifications.
 3. Confirm what is actually running — the footer reads
    `Bird Chaser · vX.Y.Z · tap 5× for 🐞 debug`.
 
