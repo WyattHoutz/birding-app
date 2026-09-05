@@ -43,7 +43,7 @@ test('every menu section declares representative fixture data or an intentional 
     'a new menu entry must choose a stub kind before the release gallery passes');
 
   const allowed = new Set([
-    'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
+    'birdgen', 'weather', 'bird', 'mega', 'ranking', 'hotspot', 'species-search',
     'spuh', 'hotspot-search', 'stakeout-species', 'patches',
     'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
@@ -132,6 +132,23 @@ test('fixture families use shared card components and accessible state labels', 
     'fixture states are written in words, not encoded by colour alone');
   assert.match(source, /border:2px dashed var\(--warn\)/,
     'the state also carries a non-colour border-style channel');
+});
+
+test('Mega rarity mockups exercise the real scope and sort controls', () => {
+  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega');
+  assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaScopePick [data-abascope="state"]',
+    '#abaScopePick [data-abascope="aba"]',
+    '#abaSortPick [data-abasort="date"]',
+    '#abaSortPick [data-abasort="distance"]',
+    '#abaResults .spdist',
+  ]);
+  const setup = source.slice(source.indexOf('function fillMegaHost('),
+    source.indexOf('function hotspotRows(', source.indexOf('function fillMegaHost(')));
+  assert.match(setup, /A\.renderAbaAlert\(/,
+    'the gallery must drive the production Mega renderer, not hand-roll its rows');
+  assert.match(setup, /A\.setAbaScope\('state'\)/);
+  assert.match(setup, /A\.setAbaSort\('date'\)/);
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

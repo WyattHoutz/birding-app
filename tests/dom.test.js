@@ -13971,6 +13971,112 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   app.window.close();
 });
 
+test('F326 a late Mega repaint keeps the selected ABA scope', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const allRows = [
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: '2026-09-04 12:00',
+      locName: 'Hoquiam', lat: 46.98, lng: -123.89, subId: 'S1',
+      subnational1Code: 'US-WA' },
+    { speciesCode: 'limsan', comName: 'Limpkin', obsDt: '2026-09-04 13:00',
+      locName: 'Florida', lat: 27.95, lng: -81.72, subId: 'S2',
+      subnational1Code: 'US-FL' },
+  ];
+  const stateRows = allRows.filter((row) => row.subnational1Code === 'US-WA');
+  let paints = 0;
+  function paint() {
+    paints++;
+    const wide = A.abaScope() === 'aba';
+    A.renderAbaAlert(wide ? allRows : stateRows,
+      'https://ebird.org/alert/summary?sid=X', true, wide, paint);
+  }
+
+  A.setAbaScope('state');
+  paint();
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.abajump')].map((a) => a.textContent),
+    ['Ruff'], 'the state projection starts with Washington rows only');
+
+  doc.querySelector('#abaScopePick [data-abascope="aba"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(paints, 2, 'changing scope repaints locally instead of scraping again');
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.abajump')].map((a) => a.textContent),
+    ['Limpkin', 'Ruff'], 'the ABA projection includes the out-of-state species');
+  assert.equal(
+    doc.querySelector('#abaScopePick [data-abascope="aba"]').getAttribute('aria-pressed'),
+    'true', 'the selected scope is explicit without relying on colour');
+
+  // This is the shape of the reported race: state history from the first paint
+  // finishes after the scope click. The callback must re-read the CURRENT
+  // preference rather than replaying the state-scoped arguments it captured.
+  paint();
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.abajump')].map((a) => a.textContent),
+    ['Limpkin', 'Ruff'], 'a late repaint cannot revert to the Washington list');
+
+  const load = HTML.slice(HTML.indexOf('function loadAbaAlert('),
+    HTML.indexOf('function renderAbaAlert('));
+  assert.match(load, /function paint\(\)[\s\S]*abaScope\(\) === 'aba'/,
+    'every async repaint derives scope at paint time');
+  const deepen = load.slice(load.indexOf('return Promise.all'));
+  assert.match(deepen,
+    /if \(!extra\.length && !Object\.keys\(_abaWide\)\.length\) return;\s*paint\(\);/,
+    'the delayed history pass re-enters the scope-aware painter');
+  assert.doesNotMatch(deepen,
+    /renderAbaAlert\((?:rows|stateRows),\s*url,\s*scoped,\s*(?:wide|false)/,
+    'the old callback cannot replay a captured state scope');
+  app.window.close();
+});
+
+test('F327 Mega rarities sort by newest or nearest without another fetch', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const A = app.window.__app;
+  const groups = [
+    { code: 'newfar', distMi: 80,
+      latest: { obsDt: '2026-09-04 18:00' } },
+    { code: 'oldnear', distMi: 5,
+      latest: { obsDt: '2026-09-03 18:00' } },
+    { code: 'unknown', distMi: null,
+      latest: { obsDt: '2026-09-05 18:00' } },
+  ];
+  A.setAbaSort('date');
+  assert.deepEqual(A.abaSortGroups(groups).map((g) => g.code),
+    ['unknown', 'newfar', 'oldnear'], 'Newest uses descending observation time');
+  A.setAbaSort('distance');
+  assert.deepEqual(A.abaSortGroups(groups).map((g) => g.code),
+    ['oldnear', 'newfar', 'unknown'],
+    'Nearest uses distance, with unknown distance after every known one');
+
+  const rows = [
+    { speciesCode: 'newfar', comName: 'New Far Bird',
+      obsDt: '2026-09-04 18:00', locName: 'Far', lat: 46.6, lng: -124.1, subId: 'S1' },
+    { speciesCode: 'oldnear', comName: 'Old Near Bird',
+      obsDt: '2026-09-03 18:00', locName: 'Near', lat: 47.76, lng: -122.15, subId: 'S2' },
+  ];
+  let repaints = 0;
+  A.setAbaSort('date');
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+    () => { repaints++; });
+  const labels = [...doc.querySelectorAll('#abaSortPick button')].map((b) => b.textContent);
+  assert.deepEqual(labels, ['Newest', 'Nearest'], 'the sort choices are written out');
+  doc.querySelector('#abaSortPick [data-abasort="distance"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(A.abaSort(), 'distance', 'the selected order is stored');
+  assert.equal(repaints, 1, 'sorting repaints rows in hand instead of fetching the alert');
+
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+    () => {});
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .ntext a.abajump')].map((a) => a.textContent),
+    ['Old Near Bird', 'New Far Bird'], 'the rendered list follows Nearest');
+  assert.match(doc.getElementById('abaResults').textContent, /\d+\.\d mi/,
+    'distance is visible on the rows whose order it explains');
+  app.window.close();
+});
+
 // Leaving the section must forget the sub-page, or coming back later lands you
 // on a bird's profile with no memory of having chosen it.
 test('navigating away closes the ABA sub-page', async () => {

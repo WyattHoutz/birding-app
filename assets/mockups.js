@@ -114,7 +114,12 @@ const STUB_SPEC = {
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
   refreshBtn:     { kind: 'bird',          host: 'results' },
   activeBtn:      { kind: 'bird',          host: 'activeResults' },
-  abaBtn:         { kind: 'bird',          host: 'abaResults' },
+  abaBtn:         { kind: 'mega',          host: 'abaResults',
+    expects: ['#abaScopePick [data-abascope="state"]',
+      '#abaScopePick [data-abascope="aba"]',
+      '#abaSortPick [data-abasort="date"]',
+      '#abaSortPick [data-abasort="distance"]',
+      '#abaResults .spdist'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -407,6 +412,21 @@ const BOOTSTRAP = `
     } else {
       host.innerHTML = window.SpeciesCards.list('medium', rows, 'mockfixture');
     }
+    markHost(host, label);
+  }
+  function fillMegaHost(host, A, window, label) {
+    A.setAbaScope('state');
+    A.setAbaSort('date');
+    A.renderAbaAlert([
+      { speciesCode: 'nazboo1', comName: 'Nazca Booby',
+        obsDt: '2026-09-04 18:00', locName: 'Smith Island',
+        lat: 48.32, lng: -122.84, subId: 'S-MEGA-1',
+        subnational1Code: 'US-WA', howMany: 1 },
+      { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+        obsDt: '2026-09-03 08:30', locName: 'Marymoor Park',
+        lat: 47.66, lng: -122.12, subId: 'S-MEGA-2',
+        subnational1Code: 'US-WA', howMany: 1 }
+    ], 'https://ebird.org/alert/summary?sid=STUB', true, false, function () {});
     markHost(host, label);
   }
   function hotspotRows(window, at) {
@@ -873,6 +893,8 @@ const BOOTSTRAP = `
           && /bundled GBIF/.test(forecastText);
       }, 'On passage first reports and both forecast sources');
       markHost(host, label);
+    } else if (spec.kind === 'mega') {
+      fillMegaHost(host, A, document.defaultView, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'hotspot' || spec.kind === 'hotspot-search') {

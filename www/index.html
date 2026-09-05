@@ -19977,6 +19977,59 @@
       function setAbaScope(v) {
         try { localStorage.setItem(ABA_SCOPE_KEY, v === 'aba' ? 'aba' : 'state'); } catch (e) {}
       }
+      var ABA_SORT_KEY = 'ebird_aba_sort_v1';
+      function abaSort() {
+        try { return localStorage.getItem(ABA_SORT_KEY) === 'distance' ? 'distance' : 'date'; }
+        catch (e) { return 'date'; }
+      }
+      function setAbaSort(v) {
+        try { localStorage.setItem(ABA_SORT_KEY, v === 'distance' ? 'distance' : 'date'); } catch (e) {}
+      }
+      function abaSortControl(id) {
+        var m = abaSort();
+        return ToggleControls.group({
+          id: id,
+          label: 'Sort Mega rarities',
+          options: [
+            { label: 'Newest', data: { abasort: 'date' }, pressed: m === 'date' },
+            { label: 'Nearest', data: { abasort: 'distance' }, pressed: m === 'distance' }
+          ]
+        });
+      }
+      function wireAbaSort(id, repaint) {
+        var host = document.getElementById(id);
+        if (!host) return;
+        host.addEventListener('click', function (ev) {
+          var b = ev.target.closest ? ev.target.closest('[data-abasort]') : null;
+          if (!b) return;
+          setAbaSort(b.getAttribute('data-abasort'));
+          repaint();
+        });
+      }
+      function abaGroupDistance(rows, home) {
+        if (!home) return null;
+        var best = null;
+        (rows || []).forEach(function (r) {
+          if (!r || !isFinite(r.lat) || !isFinite(r.lng)) return;
+          var mi = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
+          if (isFinite(mi) && (best == null || mi < best)) best = mi;
+        });
+        return best;
+      }
+      function abaSortGroups(groups) {
+        var mode = abaSort();
+        return (groups || []).slice().sort(function (a, b) {
+          if (mode === 'distance') {
+            var da = a.distMi != null && isFinite(a.distMi) ? +a.distMi : Infinity;
+            var db = b.distMi != null && isFinite(b.distMi) ? +b.distMi : Infinity;
+            if (da !== db) return da - db;
+          }
+          var byDate = String(b.latest && b.latest.obsDt || '')
+            .localeCompare(String(a.latest && a.latest.obsDt || ''));
+          if (byDate) return byDate;
+          return String(a.code || '').localeCompare(String(b.code || ''));
+        });
+      }
       // The narrow chip must NAME the state it belongs to, the same rule the
       // twitch scope control follows - "Statewide" on a section that can also
       // show a continent is ambiguous about which one you are looking at.
@@ -20006,16 +20059,19 @@
           reload();
         });
       }
+      var _abaLoadGeneration = 0;
       function loadAbaAlert() {
         // Newest first, the pair the reader quoted. This is the one alert URL the
         // app has a sid for, so it is the one place the exact form applies.
+        var loadGeneration = ++_abaLoadGeneration;
         var startSid = getAbaSid();
         var startRegion = getRegion();
         var startReport = getReport();
         var startSlug = startReport.slug;
         var startScoped = !startReport.isRarityTracker && /^US-[A-Z]{2}$/.test(startRegion);
         function stillCurrent() {
-          return getAbaSid() === startSid && getRegion() === startRegion
+          return loadGeneration === _abaLoadGeneration
+            && getAbaSid() === startSid && getRegion() === startRegion
             && getReport().slug === startSlug;
         }
         function superseded() {
@@ -20056,21 +20112,55 @@
             // feed. They answer different questions - "which rows" vs "which
             // layout" - so a state report now keeps its card list at BOTH
             // scopes and only the filter moves.
-            var wide = scoped && abaScope() === 'aba';
             // Taken on the UNSCOPED list on purpose. Filtering to a state first
             // is exactly what hid this for weeks: a 6-row Washington slice says
             // nothing about whether the continent-wide page it was cut from was
             // full, and the report's own snapshots stored 497 (a capped 500
             // minus 3 filtered territories) and read as healthy.
             _abaTruncated = list.length >= ABA_ALERT_MAX_ROWS;
-            var stateRows = scoped ? list.filter(function (o) { return o.subnational1Code === region; }) : list;            var rows = wide ? list : stateRows;
-            // First paint carries the STATE evidence only. The unscoped alert
-            // used to double as a free "N ABA-wide across M states" yardstick,
-            // and that was wrong: the alert is capped at 500 observations
-            // continent-wide, so a species' row count there is its slice of a
-            // shared budget, not its report count. The real ABA-wide numbers
-            // arrive in the deepening pass below.
-            renderAbaAlert(rows, url, scoped, wide);
+            var stateRows = scoped
+              ? list.filter(function (o) { return o.subnational1Code === region; })
+              : list;
+            // Scope and sort are local projections over the raw alert. The old
+            // scope click started a second scrape while the first load's state
+            // history was still running; that older callback then explicitly
+            // rendered `wide=false` and overwrote the ABA view while leaving
+            // its chip selected. Every repaint now comes through this closure,
+            // which re-reads both stored choices at the moment it paints.
+            function paint() {
+              if (!stillCurrent()) throw superseded();
+              var wide = scoped && abaScope() === 'aba';
+              var rows = wide ? list : stateRows;
+              renderAbaAlert(rows, url, scoped, wide, paint);
+              var species = {};
+              rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
+              var n = Object.keys(species).length;
+              var unseen = Object.keys(species)
+                .filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
+              var whereLbl = wide ? 'the ABA area' : (getReport().label || 'this region');
+              var reports = wide ? rows.length : Object.keys(species).reduce(function (t, c) {
+                return t + abaArchiveFor(region, c).length;
+              }, 0);
+              st.textContent = n
+                ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
+                  + ' reports · ' + unseen + ' you still need · ' + nowTime())
+                : ('None — no ABA Code 3+ rarities currently reported in '
+                  + whereLbl + ' · ' + nowTime());
+              var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
+              verdict('Mega rarities',
+                list.length + ' alert rows'
+                + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
+                + ' · ' + (!scoped
+                  ? 'unfiltered — ' + (getReport().label || 'rarity tracker') + ' has no state'
+                  : wide
+                    ? 'ABA-WIDE view — ' + region + ' filter OFF (' + stateRows.length
+                      + ' would have survived it)'
+                    : stateRows.length + ' cleared the ' + region + ' filter')
+                + ' · ' + n + ' species, ' + unseen + ' unseen'
+                + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
+              return { wide: wide, species: species, n: n };
+            }
+            var view = paint();
             // F160: hand the lane a snapshot, and NEVER let the lane fetch.
             //
             // The decisive evidence is a device report — "i opened the app and
@@ -20089,34 +20179,6 @@
             // snapshot outlives the view that wrote it, so this would have been
             // a bug that survives closing the section.
             saveMegaSnapshot(stateRows, scoped, startRegion, startSid);
-            var species = {}; rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
-            var n = Object.keys(species).length;
-            var unseen = Object.keys(species).filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
-            var whereLbl = wide ? 'the ABA area' : (getReport().label || 'this region');
-            st.textContent = n
-              ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + rows.length + ' reports · ' + unseen + ' you still need · ' + nowTime())
-              : ('None — no ABA Code 3+ rarities currently reported in ' + whereLbl + ' · ' + nowTime());
-            // F186: name the numbers that would be wrong if this were broken.
-            //
-            // "Only three patches in the list" and "no megas" look identical
-            // from outside, and this section has three places to lose rows —
-            // the scrape, the region filter, and the render — so an empty
-            // screen has never said WHICH. Every figure here is observed, not
-            // inferred: the rendered count is read back out of the DOM rather
-            // than assumed equal to the row count, because "we built rows" and
-            // "rows are on screen" are the two claims that differ when this
-            // fails. Never assert a cause the code cannot observe.
-            var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
-            verdict('Mega rarities',
-              list.length + ' alert rows'
-              + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
-              + ' · ' + (!scoped
-                ? 'unfiltered — ' + (getReport().label || 'rarity tracker') + ' has no state'
-                : wide
-                  ? 'ABA-WIDE view — ' + region + ' filter OFF (' + stateRows.length + ' would have survived it)'
-                  : stateRows.length + ' cleared the ' + region + ' filter')
-              + ' · ' + n + ' species, ' + unseen + ' unseen'
-              + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
             // Then deepen it. The alert gives the ABA-code filter but a
             // truncated report count, so pull each species' real state history
             // AND its real continent-wide history, then re-render. Rendering
@@ -20125,8 +20187,8 @@
             // State history deepens a STATE list. On the ABA-wide view it would
             // ask Washington how often a Florida bird has been seen and print
             // the answer under it, so it is skipped rather than mislabelled.
-            if (!scoped || wide || !n || !getKey()) return;
-            return Promise.all(Object.keys(species).map(function (c) {
+            if (!scoped || view.wide || !view.n || !getKey()) return;
+            return Promise.all(Object.keys(view.species).map(function (c) {
               return Promise.all([abaStateHistory(region, c), abaWideHistory(c)])
                 .then(function (pair) {
                   if (pair[1]) _abaWide[c] = pair[1];
@@ -20136,12 +20198,7 @@
               if (!stillCurrent()) throw superseded();
               var extra = [].concat.apply([], hist);
               if (!extra.length && !Object.keys(_abaWide).length) return;
-              renderAbaAlert(rows, url, scoped, wide);
-              st.textContent = n + ' ABA Code 3+ species · ' +
-                Object.keys(species).reduce(function (t, c) {
-                  return t + abaArchiveFor(region, c).length;
-                }, 0) + ' reports in ' + (getReport().label || 'this region') +
-                ' · ' + unseen + ' you still need · ' + nowTime();
+              paint();
             });
           })
           .catch(function (e) {
@@ -20149,7 +20206,9 @@
             st.innerHTML = esc(e.message || 'Could not load the alert.') + ' '
               + extA(url, 'View on eBird');
           })
-          .finally(function () { btn.disabled = false; });
+          .finally(function () {
+            if (loadGeneration === _abaLoadGeneration) btn.disabled = false;
+          });
       }
 
       // Mirrors report.py::section_state_aba_rarities — one card per species with
@@ -20306,7 +20365,7 @@
         if (out.length <= 2) return out.join(' · ');
         return out.slice(0, 2).join(' · ') + ' +' + (out.length - 2) + ' more';
       }
-      function renderAbaAlert(list, url, grouped, wide) {
+      function renderAbaAlert(list, url, grouped, wide, repaint) {
         // ⚠️ THE SCOPE IS DERIVED HERE, NOT TRUSTED FROM THE CALLER.
         //
         // Reported from the device: tapping "ABA area" showed all 53 species
@@ -20349,6 +20408,7 @@
           // ALERT ALONE, which is the honest thing for it to be: a live
           // continent-wide feed, not a local history.
           if (!wide) abaArchiveAdd(region, list);
+          var home = getHome();
           var groups = Object.keys(byCode).map(function (code) {
             // The state feed is the authority on how many reports there really
             // are; the alert supplies only the ABA-code filter. Union both, plus
@@ -20360,10 +20420,10 @@
               seen[k] = 1; rs.push(r);
             });
             var latest = rs.reduce(function (a, b) { return String(b.obsDt) > String(a.obsDt) ? b : a; }, rs[0]);
-            return { code: code, rs: rs, latest: latest };
-          }).sort(function (a, b) {
-            return String(b.latest.obsDt).localeCompare(String(a.latest.obsDt));
+            return { code: code, rs: rs, latest: latest,
+                     distMi: abaGroupDistance(rs, home) };
           });
+          groups = abaSortGroups(groups);
 
           // THE SECTION IS THE SPECIES LIST. Each profile below is a full
           // screen — latest report, finder, every report we hold, state
@@ -20391,7 +20451,8 @@
           // like every other scope control in the app instead of being a
           // second opinion about how a chip should look.
           el.innerHTML = (grouped ? '<div class="raritycontrolrow abascoperow">'
-              + abaScopeControl('abaScopePick') + '</div>' : '')
+              + abaScopeControl('abaScopePick')
+              + abaSortControl('abaSortPick') + '</div>' : '')
             + '<ul class="obs big xl">'
             + groups.map(function (g) {
               return SpeciesCards.medium({
@@ -20421,6 +20482,8 @@
                 // ("Washington US-WA") and needing no lookup table to be right.
                 sub: esc(fmtDate(g.latest.obsDt))
                   + (wide ? ' · ' + esc(abaWhereLabel(g.rs)) : '')
+                  + (g.distMi != null && isFinite(g.distMi)
+                    ? ' · ' + g.distMi.toFixed(1) + ' mi' : '')
                   + ' · ' + g.rs.length + ' report' + (g.rs.length === 1 ? '' : 's'),
                 // The chevron rides the medium card's RIGHT-HAND column,
                 // which is the distance slot — this list has no distance, and
@@ -20440,7 +20503,9 @@
           // re-wires. That is safe because the control is rebuilt with the
           // markup it is attached to - there is no listener left on a node
           // that no longer exists, and no second listener on one that does.
-          wireAbaScope('abaScopePick', function () { loadAbaAlert(); });
+          var rerender = repaint || function () { loadAbaAlert(); };
+          wireAbaScope('abaScopePick', rerender);
+          wireAbaSort('abaSortPick', rerender);
 
           groups.forEach(function (g) {
             var o = g.latest;
@@ -29773,6 +29838,8 @@
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         renderAbaAlert: renderAbaAlert, abaWhereLabel: abaWhereLabel,
         abaScope: abaScope, setAbaScope: setAbaScope, abaScopeControl: abaScopeControl,
+        abaSort: abaSort, setAbaSort: setAbaSort, abaSortGroups: abaSortGroups,
+        abaGroupDistance: abaGroupDistance,
         abaOpenBird: abaOpenBird, abaCloseBird: abaCloseBird, navBack: navBack,
         loadChoicePatches: loadChoicePatches, choicePatchData: choicePatchData,
         patchRowsFor: patchRowsFor, patchLeaders: patchLeaders,
