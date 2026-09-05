@@ -7681,6 +7681,60 @@ test('a seen-list change during phase two replans only the changed target set', 
   app.window.close();
 });
 
+test('F320 an unchanged phase-two replan never rereads the same cached species feed', async () => {
+  const regionalRow = {
+    obsId: 'A', speciesCode: 'ftspet', comName: 'Fork-tailed Storm-Petrel',
+    locId: 'L1', locName: 'Near One', lat: 47.70, lng: -122.20,
+    obsDt: '2026-09-02 08:00', subId: 'S1',
+  };
+  const app = await boot({
+    fetch(url) {
+      if (/\/recent\/notable/.test(url)) return [];
+      if (/data\/obs\//.test(url)) return [regionalRow];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+  A.setWatchlist([]);
+
+  const originalFetch = W.fetch;
+  let releaseSpecies;
+  let speciesCalls = 0;
+  W.fetch = (url) => {
+    const u = String(url);
+    if (/data\/obs\/US-WA\/recent\/ftspet/.test(u)) {
+      speciesCalls++;
+      return new Promise((resolve) => {
+        releaseSpecies = () => resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve([]),
+          text: () => Promise.resolve('[]'),
+        });
+      });
+    }
+    return originalFetch(url);
+  };
+
+  A.clearChaseCache(false);
+  await A.getChase();
+  const phaseTwo = A.chasePhase2();
+  assert.ok(phaseTwo, 'the fixture did not start detached phase two');
+  await waitFor(() => releaseSpecies, 'the first cached-species request');
+
+  // This advances the target generation while leaving the actual target set
+  // unchanged. The device failure repeated ftspet/foxsp2 cache reads thousands
+  // of times at this exact replan boundary.
+  A.setWatchlist([]);
+  releaseSpecies();
+  await phaseTwo;
+
+  assert.equal(speciesCalls, 1,
+    'an unchanged replan reread the same species feed instead of retaining the '
+    + 'per-wave attempted set');
+  app.window.close();
+});
+
 test('F274 keeps the newest cascade place, date and checklist in one tuple', async () => {
   const app = await boot();
   const A = app.window.__app;
