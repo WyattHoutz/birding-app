@@ -3145,7 +3145,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.76.0';
+      var APP_VERSION = '1.77.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3211,7 +3211,11 @@
       }
       var COUNTY_META_NS = 'bc_county_meta_v1:';
       var _countyCatalogInflight = {};
-      var _countySeedPromise = null, _countySeedOverride = null;
+      var COUNTY_SEED_FILES = {
+        'US-WA': 'county-bounds-wa.json',
+        'US-HI': 'county-bounds-hi.json'
+      };
+      var _countySeedPromises = {}, _countySeedOverride = null;
       var _travelZonesPromise = null;
 
       function loadTravelZones() {
@@ -3275,17 +3279,20 @@
       function loadCountySeed(parent) {
         parent = String(parent || '').trim().toUpperCase();
         if (_countySeedOverride) {
-          return Promise.resolve(parent === 'US-WA'
-            ? Object.keys(_countySeedOverride).map(function (code) {
-                return countyInfoRow(_countySeedOverride[code], {
-                  code: code, name: _countySeedOverride[code].name || code
+          var override = _countySeedOverride[parent]
+            || (parent === 'US-WA' ? _countySeedOverride : null);
+          return Promise.resolve(override
+            ? Object.keys(override).map(function (code) {
+                return countyInfoRow(override[code], {
+                  code: code, name: override[code].name || code
                 });
               }).filter(Boolean)
             : []);
         }
-        if (parent !== 'US-WA') return Promise.resolve([]);
-        if (!_countySeedPromise) {
-          _countySeedPromise = fetch('county-bounds-wa.json').then(function (r) {
+        var asset = COUNTY_SEED_FILES[parent];
+        if (!asset) return Promise.resolve([]);
+        if (!_countySeedPromises[parent]) {
+          _countySeedPromises[parent] = fetch(asset).then(function (r) {
             if (!r || !r.ok) throw new Error('Bundled county bounds are unavailable');
             return r.json();
           }).then(function (doc) {
@@ -3295,12 +3302,12 @@
               });
             }).filter(Boolean);
           }).catch(function (e) {
-            _countySeedPromise = null;
+            delete _countySeedPromises[parent];
             dbg('warn', 'county seed: ' + ((e && e.message) || e));
             return [];
           });
         }
-        return _countySeedPromise;
+        return _countySeedPromises[parent];
       }
 
       function ensureCountyCatalog(parent, onProgress, work) {
@@ -30080,7 +30087,7 @@
         loadTravelZones: loadTravelZones, ensureCountyCatalog: ensureCountyCatalog,
         setCountySeed: function (value) {
           _countySeedOverride = value === null ? null : (value || {});
-          _countySeedPromise = null;
+          _countySeedPromises = {};
           _countyCatalogInflight = {};
         },
         tripScopeProfile: tripScopeProfile, getTierChase: getTierChase,

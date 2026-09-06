@@ -25109,6 +25109,34 @@ test('F320 Washington Half-day uses bundled county bounds with zero metadata cal
   app.window.close();
 });
 
+test('F331 Hawaii destination tiers use bundled county bounds with zero metadata calls', async () => {
+  const app = await boot({
+    sample: false,
+    fetch: () => ({ __status: 401, __body: { error: 'unexpected network' } }),
+  });
+  const A = app.window.__app;
+  const bounds = JSON.parse(fs.readFileSync(
+    path.join(WWW, 'county-bounds-hi.json'), 'utf8'));
+  assert.deepEqual(Object.keys(bounds).sort(), [
+    'US-HI-001', 'US-HI-003', 'US-HI-005',
+    'US-HI-007', 'US-HI-009', 'US-HI-010',
+  ], 'the Hawaii seed does not cover every eBird county');
+  const washington = await A.tripScopeProfile('half');
+  assert.equal(arr(washington.tierCountyCodes).length, 15,
+    'the Washington seed was not loaded before switching reports');
+  app.window.localStorage.setItem('ebird_report', 'hi');
+  app.window.localStorage.setItem('ebird_home_lat:hi', '19.95');
+  app.window.localStorage.setItem('ebird_home_lng:hi', '-155.79');
+  const profile = await A.tripScopeProfile('full');
+  assert.deepEqual(arr(profile.tierCountyCodes), ['US-HI-001', 'US-HI-009'],
+    'the Hawaii full-day scope did not derive from the bundled county edges');
+  const metadata = app.state.fetches.filter((url) =>
+    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
+  assert.equal(metadata.length, 0,
+    'Hawaii destination tiers enqueued county metadata despite the bundled seed');
+  app.window.close();
+});
+
 test('F320 empty-account phase two is capped by visible value and rate headroom', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
