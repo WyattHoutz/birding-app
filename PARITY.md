@@ -569,7 +569,7 @@ keeps the whole day's windows; the app keeps only the ones you can still chase.
 
 
 
-The app ships all 9 reports. A **region picker sits in the Contents header and
+The app ships all 10 reports. A **region picker sits in the Contents header and
 in the section navbar** (v1.0.12), so you can switch without opening Settings;
 Settings → "Default report" is the same setting and stays in sync. The choice
 is persisted, so the app reopens on the last region you used.
@@ -621,7 +621,7 @@ and the app's JS `BirdLogic`, that they agree on 11 projections:
 An app-side glue test, [`assets/smoke-wiring.js`](assets/smoke-wiring.js),
 additionally proves `index.html`'s wired data layer (`getChase()`) reproduces
 the golden destinations / excursions, and that `planFeeds` file names match the
-`mergePlan` map keys for all 9 reports.
+`mergePlan` map keys for all 10 reports.
 
 ### A second deliberate asymmetry: regions you add yourself are app-only
 
@@ -629,7 +629,7 @@ the golden destinations / excursions, and that `planFeeds` file names match the
 invented on the phone can never appear in the Markdown report.** Like "near me"
 above, this is a real feature difference and not a presentation one.
 
-The report ships nine committed regions. The app shows those *plus* any the
+The report ships ten committed regions. The app shows those *plus* any the
 reader adds — a trip to Victoria BC, a week in Hawaii — each with its own home,
 its own chase radius, and its own cached feeds.
 

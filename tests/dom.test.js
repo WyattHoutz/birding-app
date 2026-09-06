@@ -15241,10 +15241,10 @@ test('the shared rarity distance filter bounds near rows and keeps wide as a sup
 //
 // The home coordinate has been per-report since v1.0.45 — "chasing from
 // Woodinville is meaningless on the Big Island" — but the RADIUS from that home
-// stayed global across all nine reports. regions.py has carried chase_max_mi on
+// stayed global across all ten reports. regions.py has carried chase_max_mi on
 // every Region since Regions existed and analyze.set_region() rebinds it, so
 // the Markdown report was already per-region while the app was not.
-test('the chase radius is per report, not one knob for all nine', async () => {
+test('the chase radius is per report, not one knob for all ten', async () => {
   const app = await boot();
   const A = app.window.__app, W = app.window;
 
@@ -15286,7 +15286,7 @@ test('a radius chosen before this migrates into the report it was chosen in', as
   assert.equal(W.localStorage.getItem('ebird_chase_mi'), null,
     'and the global key is gone, so it cannot shadow the per-report one later');
 
-  // It lands in the report that was open — NOT applied to all nine, which
+  // It lands in the report that was open — NOT applied to all ten, which
   // would be inventing a decision the reader never made.
   W.localStorage.setItem('ebird_report', 'aba');
   assert.equal(A.chaseMaxMi(), 35, 'other reports keep their own default');
@@ -20088,7 +20088,7 @@ test('Break a record can be scoped to a county, and really reads that file', asy
 // scope happened to be bundled. A guard that exercises one report cannot see a
 // missing asset in another, so this one walks them all.
 test('every report offers only record scopes that are actually bundled', async () => {
-  const reports = ['wa', 'mo', 'ks', 'az', 'ca', 'waikoloa'];
+  const reports = ['wa', 'mo', 'ks', 'az', 'ca', 'hi', 'waikoloa'];
   const missing = [];
   for (const slug of reports) {
     const app = await boot({ report: slug });

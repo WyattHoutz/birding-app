@@ -3858,7 +3858,7 @@
         }
         // The chase radius became per-report at the same time and for the same
         // reason. A value chosen while one report was open migrates into THAT
-        // report rather than being applied to all nine.
+        // report rather than being applied to all ten.
         var c = localStorage.getItem(CHASE_MI_KEY);
         if (c !== null) {
           if (localStorage.getItem(chaseMiKey()) === null) localStorage.setItem(chaseMiKey(), c);
@@ -18091,7 +18091,7 @@
         { key: 'ks', label: 'Kansas', region: 'US-KS', max: 500, activeFor: ['ks'], primaryFor: ['ks'] },
         { key: 'az', label: 'Arizona', region: 'US-AZ', max: 500, activeFor: ['az'], primaryFor: ['az'] },
         { key: 'ca', label: 'California', region: 'US-CA', max: 500, activeFor: ['ca'], primaryFor: ['ca'] },
-        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['waikoloa'], primaryFor: ['waikoloa'] },
+        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['hi', 'waikoloa'], primaryFor: ['hi', 'waikoloa'] },
         { key: 'lower48', label: 'Lower 48', region: 'lower48', max: 10000, activeFor: ['wa', 'lower48'], primaryFor: ['lower48'] },
         { key: 'aba', label: 'ABA Area', region: 'aba', max: 10000, activeFor: ['aba'], primaryFor: ['aba'] }
       ];
@@ -27906,7 +27906,7 @@
             .catch(function () { return ''; });
       }
       // --- region switcher ---------------------------------------------------
-      // The project publishes nine reports; the picker in the Contents header
+      // The project publishes ten reports; the picker in the Contents header
       // and in the section navbar is the same setting as Settings → "Default
       // report", so switching from anywhere sticks and is what the app opens
       // on next launch.
