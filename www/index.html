@@ -3145,7 +3145,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.77.0';
+      var APP_VERSION = '1.78.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -11207,6 +11207,10 @@
         });
         return ok ? want : '';
       }
+      function countyDisplayLabel(c) {
+        if (!c) return '';
+        return c.code === 'US-HI-001' ? 'Hawaii County (Big Island)' : c.label;
+      }
       function setCountyView(code) {
         try {
           if (code) localStorage.setItem(countyViewKey(), String(code));
@@ -11219,7 +11223,7 @@
         var hit = getCounties().filter(function (c) {
           return String(c.code || '').toLowerCase() === code.toLowerCase();
         })[0];
-        return hit ? hit.label : code;
+        return hit ? countyDisplayLabel(hit) : code;
       }
       function recInCounty(r, code) {
         return !!(r && String(r.county || '').toLowerCase() === String(code).toLowerCase());
@@ -27266,7 +27270,11 @@
       // duplicating it.
       function menuScopeHtml() {
         var coHtml = '';
-        if (getCounties().length > 1) {
+        // A single-county region still needs a view selector: "All counties"
+        // is the unfiltered state, and the county itself is the useful
+        // explicit view. Hawaii is the first built-in report where hiding the
+        // picker made the only county impossible to choose.
+        if (getCounties().length > 0) {
           coHtml = '<span class="countypick"><label for="menuCounty">County view</label>'
             + '<select id="menuCounty"></select></span>';
         }
@@ -27274,7 +27282,7 @@
           + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeCode())
           +   '</span><span class="scopechange">Change</span></summary>'
           + '<div class="scopebody">'
-          +   '<span class="regionpick"><label for="menuRegion">Report</label>'
+          +   '<span class="regionpick"><label for="menuRegion">Region</label>'
           +   '<select id="menuRegion"></select></span>'
           +   coHtml
           +   (coHtml
@@ -28345,7 +28353,7 @@
           // word I liked: an option has to say it NARROWS. Dropping it for
           // the code broke that guard, which was correct to fail - the two
           // facts are not in competition, so the option carries both.
-          o.value = c.code; o.textContent = c.label + ' only  ' + c.code;
+          o.value = c.code; o.textContent = countyDisplayLabel(c) + ' only  ' + c.code;
           sel.appendChild(o);
         });
         sel.value = getCountyView();
@@ -28395,6 +28403,10 @@
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         loadSettings();
+        // The scope controls are report-specific. Repaint them before the
+        // menu binder runs so a switch from Washington to Hawaii replaces
+        // King/Snohomish with the active report's view options.
+        renderMenuIdentity();
         renderMenuList();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open && menuApplies({ needs: open._needs, enabled: open._enabled })) showSection(open.id); else showMenu();

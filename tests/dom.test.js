@@ -21259,6 +21259,48 @@ test('the region and county pickers show the code the top bar displays', async (
   app.window.close();
 });
 
+test('Hawaii exposes its Big Island county view beside the region picker', async () => {
+  const app = await boot();
+  const doc = app.window.document, A = app.window.__app;
+
+  A.scopeOpen();
+  let scope = doc.getElementById('menuScope');
+  assert.ok(scope, 'the scope control is painted');
+  let region = scope.querySelector('#menuRegion');
+  assert.ok(region, 'the region selector remains available');
+  region.value = 'hi';
+  region.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  scope = doc.getElementById('menuScope');
+  region = scope.querySelector('#menuRegion');
+  A.scopeOpen();
+  assert.equal(region.value, 'hi', 'the Hawaii region is the active region');
+  assert.equal(scope.querySelector('label[for="menuRegion"]').textContent, 'Region',
+    'the first control is named for the region it selects');
+  assert.ok([...region.options].some((o) =>
+    o.value === 'hi' && /Hawaii\s+US-HI\b/.test(o.textContent)),
+  'the region selector identifies Hawaii by its eBird code');
+
+  const county = scope.querySelector('#menuCounty');
+  assert.ok(county, 'Hawaii must expose a county-view selector even with one county');
+  assert.equal(scope.querySelector('label[for="menuCounty"]').textContent, 'County view',
+    'the second control is explicitly the county view');
+  const options = [...county.options].map((o) => o.textContent);
+  assert.equal(options[0], 'All counties',
+    'the county selector keeps its explicit unfiltered state');
+  assert.ok(options.some((text) =>
+    /Hawaii County \(Big Island\).*only.*US-HI-001/.test(text)),
+  'the county selector offers Hawaii County / Big Island with its eBird code: '
+    + JSON.stringify(options));
+
+  county.value = 'US-HI-001';
+  county.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(A.getCountyView(), 'US-HI-001',
+    'choosing Big Island stores the Hawaii county view');
+  assert.equal(A.scopeCode(), 'US-HI-001',
+    'the top-bar scope code follows the selected county view');
+  app.window.close();
+});
+
 // F183. Reported for the third time as "font is too large" (26 -> 21 -> 19).
 // Shrinking the name alone kept failing because the name was not the only
 // thing wrong: the DISTANCE beside it was set at 24px/800 against a 19px name,
