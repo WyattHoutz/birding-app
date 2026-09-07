@@ -11625,7 +11625,7 @@
         });
         return out;
       }
-      function computeChaseRows(profile, slug, rowsByFile, codes) {
+      function computeChaseRows(profile, slug, rowsByFile, codes, fallbackRows) {
         return BL.computeChaseViews(profile, {
           rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
           seen: seenCodesForRows(rowsByFile),
@@ -11633,8 +11633,17 @@
           watch: watchCodes(),
           home: getHome(), dailyDriveMi: profile.dailyDriveMi,
           travelCfg: profile.travelCfg || null,
-          hotspots: cachedHotspots(profile)
+          hotspots: cachedHotspots(profile),
+          destinationFallbackRows: fallbackRows || []
         });
+      }
+      function destinationFallbackRows(profile) {
+        var p = profile || chaseProfile();
+        if (!p.stateCode) return Promise.resolve([]);
+        return ebird('data/obs/' + encodeURIComponent(p.stateCode)
+          + '/recent?back=30&detail=full&hotspot=true'
+          + '&includeProvisional=true&maxResults=10000')
+          .then(function (rows) { return Array.isArray(rows) ? rows : []; });
       }
       function projectChaseResult(res, profile, slug) {
         if (!res || !res.rows) return res;
@@ -15532,7 +15541,7 @@
           }).catch(function () {});
         });
       }
-      function renderDestinations(list, mapEl, listEl) {
+      function renderDestinations(list, mapEl, listEl, deferHydration) {
         // A hotspot with NO unseen birds is not a destination. The ranking is
         // by target count, so a zero lands at the bottom rather than being
         // excluded — but "0 targets" is a row that answers the section's own
@@ -15557,6 +15566,10 @@
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
             distMi: d.dist,
             facts: [
+              Number.isFinite(d.fallbackEvidenceDays)
+                ? 'Older evidence · last report ' + d.fallbackEvidenceDays
+                  + ' day' + (d.fallbackEvidenceDays === 1 ? '' : 's') + ' ago'
+                : '',
               d.travelNote || d.travelLabel || '',
               BL.yieldBand(d.score, _scores),
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
@@ -15565,6 +15578,7 @@
             species: d.species
           }));
         });
+        if (deferHydration) return;
         hydratePhotos(listEl);
         hydrateLocSpecies(listEl).then(function () { return hydrateHotspotChecklists(listEl); })
           .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
@@ -15599,6 +15613,9 @@
           }
         });
         list.sort(function (x, y) {
+          var xOlder = Number.isFinite(x.fallbackEvidenceDays);
+          var yOlder = Number.isFinite(y.fallbackEvidenceDays);
+          if (xOlder !== yOlder) return xOlder ? 1 : -1;
           var sx = x.score == null ? -1 : x.score, sy = y.score == null ? -1 : y.score;
           if (sx !== sy) return sy - sx;
           var dx = x.dist == null ? Infinity : x.dist, dy = y.dist == null ? Infinity : y.dist;
@@ -15668,7 +15685,7 @@
         return r || getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
       }
 
-      function destinationScopeDisclosure(rad, base) {
+      function destinationScopeDisclosure(rad, base, olderCount) {
         var todayDays = BL.CONST.CUTOFF_DAYS;
         var localDays = QUICK_LOC_SPECIES_DAYS || 30;
         var opening = rad > base
@@ -15678,7 +15695,14 @@
           : 'That is every <b>public-access</b> hotspot within <b>' + rad
             + ' mi</b> that has an unlogged bird reported in the last <b>'
             + todayDays + ' days</b>.';
+        var fallback = olderCount
+          ? ' Because fewer than ' + DEST_THIN_ROWS + ' fresh choices were '
+            + 'available, ' + olderCount + ' labelled '
+            + '<b>older-evidence</b> hotspot' + (olderCount === 1 ? ' was' : 's were')
+            + ' added from the bounded 30-day public-hotspot feed.'
+          : '';
         return '<div class="hint" id="destThin">' + opening
+          + fallback
           + ' <b>Find local patches</b> uses ' + localDays
           + ' days and may show older or restricted-access hotspots. '
           + 'Anywhere farther is in <b>🚗 Half-day patches</b>.</div>';
@@ -15688,32 +15712,45 @@
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
         btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
-        getChase(takeForce() ? 'obs' : false).then(function (c) {
+        return getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
-          var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
-          if (!dests.length) { st.textContent = 'No unlogged species reported recently in ' + label + '.'; return; }
-          st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
-            + fromHere() + ' · best first, not nearest' + coverageNote(dests)
-            + ' · updated ' + nowTime();
-          // A SHORT LIST HERE IS AN ANSWER, NOT A FAULT - but only if it says
-          // which question it answered. Reported as "top patches shows only two
-          // options": both rows were 11 mi out and the section stops at the
-          // daily-drive radius, so two really was everything within range
-          // today.
-          //
-          // Widening it would be the wrong fix, and that is worth writing down:
-          // beyond this radius IS "Worth the drive", which is already its own
-          // section, so a ladder here would just print that section twice. The
-          // honest fix is to name the radius and point at where the rest went.
-          var thin = $('destThin');
-          if (thin) thin.parentNode.removeChild(thin);
-          renderDestinations(dests, $('destMap'), $('destResults'));
-          if (dests.length < DEST_THIN_ROWS || destRadiusMi() > (getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI)) {
+          function paint(dests, deferHydration) {
+            var thin = $('destThin');
+            if (thin) thin.parentNode.removeChild(thin);
+            renderDestinations(dests, $('destMap'), $('destResults'), deferHydration);
             var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
             var rad = destRadiusMi();
-            $('destResults').insertAdjacentHTML('afterend',
-              destinationScopeDisclosure(rad, base));
+            var older = dests.filter(function (d) {
+              return Number.isFinite(d.fallbackEvidenceDays);
+            }).length;
+            if (dests.length < DEST_THIN_ROWS || rad > base || older) {
+              $('destResults').insertAdjacentHTML('afterend',
+                destinationScopeDisclosure(rad, base, older));
+            }
+            st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
+              + fromHere() + ' · best first, not nearest' + coverageNote(dests)
+              + ' · updated ' + nowTime();
           }
+          var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
+          var p = c.profile || chaseProfile();
+          var useFallback = p.stateCode === 'US-HI'
+            && dests.length < DEST_THIN_ROWS;
+          paint(dests, useFallback);
+          if (!useFallback) return;
+          st.textContent = (dests.length ? dests.length + ' fresh hotspot'
+            + (dests.length === 1 ? '' : 's') + ' found · ' : '')
+            + 'checking up to 30 days of older public-hotspot evidence…';
+          return destinationFallbackRows(p).then(function (fallback) {
+            var cv = computeChaseRows(
+              p, p.slug, c.rows || {}, c.speciesCodes || [], fallback);
+            paint(rerankFromAnchor(cv.destinations.map(toDest)), false);
+          }).catch(function (e) {
+            st.textContent = (dests.length
+              ? dests.length + ' fresh hotspot' + (dests.length === 1 ? '' : 's')
+                + ' shown · '
+              : '') + 'older public-hotspot evidence could not be loaded: '
+              + netErr(e);
+          });
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
@@ -15744,23 +15781,45 @@
             : ' · ⚠️ some county bounds failed; refresh to retry';
           var feedIssue = !!(c.feedFailed || c.partial || c.stale
             || c.feedComplete === false);
-          if (!rows.length) {
-            if (feedIssue) {
-              st.textContent = 'Incomplete ' + label.toLowerCase()
-                + ' answer — some observation feeds are unavailable'
-                + partial + '. Refresh to retry.';
+          function paint(finalRows, usedFallback) {
+            renderDestinations(finalRows, $(mapId), $(resultsId));
+            if (!finalRows.length) {
+              if (feedIssue) {
+                st.textContent = 'Incomplete ' + label.toLowerCase()
+                  + ' answer — some observation feeds are unavailable'
+                  + partial + '. Refresh to retry.';
+                return;
+              }
+              st.textContent = 'No target-rich ' + label.toLowerCase()
+                + ' hotspots are reported '
+                + (usedFallback ? 'in the bounded 30-day evidence' : 'right now')
+                + ' · ' + scope + partial + '.';
               return;
             }
-            st.textContent = 'No target-rich ' + label.toLowerCase()
-              + ' hotspots are reported right now · ' + scope + partial + '.';
+            st.textContent = finalRows.length + ' ' + label.toLowerCase() + ' option'
+              + (finalRows.length === 1 ? '' : 's') + fromHere()
+              + ' · ' + scope + partial
+              + (feedIssue ? ' · ⚠️ incomplete earlier data'
+                           : ' · updated ' + nowTime());
+          }
+          if (bandId !== 'full' || c.profile.stateCode !== 'US-HI'
+              || rows.length >= DEST_THIN_ROWS) {
+            paint(rows, false);
             return;
           }
-          st.textContent = rows.length + ' ' + label.toLowerCase() + ' option'
-            + (rows.length === 1 ? '' : 's') + fromHere()
-            + ' · ' + scope + partial
-            + (feedIssue ? ' · ⚠️ incomplete earlier data'
-                         : ' · updated ' + nowTime());
-          renderDestinations(rows, $(mapId), $(resultsId));
+          renderDestinations(rows, $(mapId), $(resultsId), true);
+          st.textContent = (rows.length ? rows.length + ' fresh full-day option'
+            + (rows.length === 1 ? '' : 's') + ' shown · ' : '')
+            + 'still checking up to 30 days of older public-hotspot evidence…';
+          return destinationFallbackRows(c.profile).then(function (fallback) {
+            var cv = computeChaseRows(c.profile, c.profile.slug,
+              c.rows || {}, c.speciesCodes || [], fallback);
+            var filled = rerankFromAnchor((cv.fullDay || []).map(toDest));
+            paint(filled, true);
+          }).catch(function (e) {
+            st.textContent = 'Incomplete full-day answer — older public-hotspot '
+              + 'evidence could not be loaded: ' + netErr(e);
+          });
         }).catch(function (e) {
           st.textContent = netErr(e);
         }).finally(function () {
@@ -31037,6 +31096,7 @@
         getCountyView: getCountyView, setCountyView: setCountyView,
         countyViewLabel: countyViewLabel, filterCvByCounty: filterCvByCounty,
         countyView: countyView, getCounties: getCounties,
+        loadDestinations: loadDestinations,
         loadExcursions: loadExcursions, loadFullDay: loadFullDay,
         getRankScope: getRankScope, setRankScope: setRankScope,
         rankScopeOptions: rankScopeOptions, rankRegionName: rankRegionName,
@@ -31230,6 +31290,8 @@
         },
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
+        computeChaseRows: computeChaseRows,
+        destinationFallbackRows: destinationFallbackRows,
       seenCodesForRows: seenCodesForRows,
       chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
       setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },

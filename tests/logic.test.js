@@ -492,6 +492,11 @@ function waSnapshot(rowsByFile) {
   BL.planFeeds(wa).forEach((f) => { map[f.file] = rowsByFile[f.file] || []; });
   return map;
 }
+function profileSnapshot(profile, rowsByFile) {
+  const map = {};
+  BL.planFeeds(profile).forEach((f) => { map[f.file] = rowsByFile[f.file] || []; });
+  return map;
+}
 const OBS = (o) => ({
   obsId: o.obsId, speciesCode: o.speciesCode, comName: o.comName || o.speciesCode,
   locId: o.locId || 'L1', locName: o.locName || 'Marymoor Park',
@@ -525,6 +530,106 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(rare.kind, 'Rarity', 'notable-feed obs flagged Rarity');
   const need = cv.merged.find((r) => r.obsId === 'o-need');
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
+});
+
+test('F341 sparse Hawaii patches fill fresh-first from bounded older public evidence', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-02';
+  const raw = (id, code, name, loc, lat, lng, dt, extra) => Object.assign(
+    OBS({ obsId: id, speciesCode: code, comName: name, locId: 'L-' + id,
+      locName: loc, lat, lng, obsDt: dt, subId: 'S-' + id }),
+    { subnational2Code: 'US-HI-001' }, extra || {});
+  const rowsToday = profileSnapshot(hi, {
+    'hawaii-recent.json': [
+      raw('fresh', 'hawgoo', 'Hawaiian Goose', 'Kealakehe WTP',
+        19.674, -156.001, SNAP + ' 08:00')
+    ]
+  });
+  const fallbackRows = [
+    raw('old1', 'hawhaw', 'Hawaiian Hawk', 'Waikoloa Village hotspot',
+      19.935, -155.827, '2026-08-30 10:00'),
+    raw('old2', 'apapan', 'Apapane', 'Holoholokai Beach Park',
+      19.955, -155.861, '2026-08-29 09:00'),
+    raw('old3', 'elepai', 'Hawaii Elepaio', 'Puako Petroglyph trail',
+      19.969, -155.844, '2026-08-28 08:00'),
+    raw('private', 'akepa1', 'Hawaii Akepa', 'Private ranch',
+      19.940, -155.840, '2026-08-30 08:00', { locationPrivate: true }),
+    raw('restricted', 'iiwi', 'Iiwi',
+      'Private Preserve (Restricted Access)', 19.940, -155.840,
+      '2026-08-30 08:00')
+  ];
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday, rowsPrior: profileSnapshot(hi, {}), seen: {},
+    ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+    destinationFallbackRows: fallbackRows, destinationFallbackTarget: 4
+  });
+
+  assert.equal(cv.destinations[0].loc, 'Kealakehe WTP',
+    'fresh evidence remains first even when an older place ranks closer');
+  assert.deepEqual(cv.destinations.slice(1).map((r) => r.loc).sort(), [
+    'Holoholokai Beach Park',
+    'Puako Petroglyph trail',
+    'Waikoloa Village hotspot'
+  ]);
+  assert.equal(cv.destinations[0].fallbackEvidenceDays, undefined);
+  assert.deepEqual(cv.destinations.slice(1)
+    .map((r) => r.fallbackEvidenceDays).sort(), [3, 4, 5]);
+  assert.ok(!cv.destinations.some((r) => /Private|Restricted/.test(r.loc)));
+});
+
+test('F341 four fresh destinations do not gain older fallback rows', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-02';
+  const raw = (id, dt) => Object.assign(
+    OBS({ obsId: id, speciesCode: 'code-' + id, comName: 'Bird ' + id,
+      locId: 'L-' + id, locName: 'Hotspot ' + id,
+      lat: 19.88 + Number(id) * 0.025, lng: -155.84, obsDt: dt,
+      subId: 'S-' + id }),
+    { subnational2Code: 'US-HI-001' });
+  const rowsToday = profileSnapshot(hi, {
+    'hawaii-recent.json': [0, 1, 2, 3].map((id) => raw(id, SNAP + ' 08:00'))
+  });
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday, rowsPrior: profileSnapshot(hi, {}), seen: {},
+    ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+    destinationFallbackRows: [raw(9, '2026-08-25 08:00')],
+    destinationFallbackTarget: 4
+  });
+
+  assert.equal(cv.destinations.length, 4);
+  assert.ok(cv.destinations.every((r) => r.fallbackEvidenceDays === undefined));
+});
+
+test('F343 Hawaii older evidence fills Full-day without crossing county scope', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-02';
+  const raw = (id, code, name, loc, lat, lng, county, dt) => Object.assign(
+    OBS({ obsId: id, speciesCode: code, comName: name, locId: 'L-' + id,
+      locName: loc, lat, lng, obsDt: dt, subId: 'S-' + id }),
+    { subnational2Code: county });
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday: profileSnapshot(hi, {}), rowsPrior: profileSnapshot(hi, {}),
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+    destinationFallbackTarget: 4,
+    destinationFallbackRows: [
+      raw('hilo', 'hawhaw', 'Hawaiian Hawk', 'Hilo gardens',
+        19.719, -155.083, 'US-HI-001', '2026-08-30 10:00'),
+      raw('volcano', 'apapan', 'Apapane', 'Volcano Steam Vents',
+        19.432, -155.261, 'US-HI-001', '2026-08-29 10:00'),
+      raw('maui', 'iiwi', 'Iiwi', 'Haleakala',
+        20.710, -156.250, 'US-HI-009', '2026-08-30 10:00')
+    ]
+  });
+
+  assert.deepEqual(cv.fullDay.map((r) => r.loc), [
+    'Hilo gardens',
+    'Volcano Steam Vents'
+  ]);
+  assert.ok(cv.fullDay.every((r) => r.fallbackEvidenceDays >= 3));
+  assert.ok(!cv.fullDay.some((r) => r.loc === 'Haleakala'));
 });
 
 test('computeChaseViews: the rarity view is a rolling 24 hours, one row per checklist', () => {
@@ -1151,6 +1256,25 @@ test('travel zones: real places land in the zone they belong to', () => {
       name + ' is drawn into the wrong zone — a boundary error is silent, it ' +
       'shows up as one town being mysteriously cheap');
   });
+});
+
+test('F343 measured Big Island road cost separates Half-day from Full-day', () => {
+  const waikoloa = [19.9476, -155.7907];
+  const laupahoehoe = [19.990, -155.236];
+  const hilo = [19.719, -155.083];
+  const volcano = [19.432, -155.261];
+  const effective = (place) => BL.travelEffectiveMi(
+    TZ, BL.haversineMi(waikoloa[0], waikoloa[1], place[0], place[1]),
+    waikoloa[0], waikoloa[1], place[0], place[1]);
+
+  assert.equal(BL.travelZoneOf(TZ, waikoloa[0], waikoloa[1]), 'big-island-west');
+  assert.equal(BL.travelZoneOf(TZ, hilo[0], hilo[1]), 'big-island-east');
+  assert.equal(BL.travelDayBand(TZ, effective(laupahoehoe)).id, 'half',
+    '84.7-minute Laupahoehoe remains a Half-day patch');
+  assert.equal(BL.travelDayBand(TZ, effective(hilo)).id, 'full',
+    '97.8-minute Hilo belongs in Full-day after the measured road cost');
+  assert.equal(BL.travelDayBand(TZ, effective(volcano)).id, 'full',
+    '134.5-minute Volcano belongs in Full-day after the measured road cost');
 });
 
 test('travel zones: Camano is free and Vashon is not, so no per-county table works', () => {

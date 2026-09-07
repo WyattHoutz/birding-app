@@ -26945,6 +26945,216 @@ test('F331/F338 Hawaii road tiers stay in the county containing Home', async () 
   app.window.close();
 });
 
+test('F341 Today patches paints fresh rows, then labels bounded older evidence', async () => {
+  const now = new Date();
+  const stamp = (daysAgo) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 8);
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('-') + ' 08:00';
+  };
+  const fallback = [
+    ['old1', 'hawhaw', 'Hawaiian Hawk', 'Waikoloa Village hotspot',
+      19.935, -155.827, 3],
+    ['old2', 'apapan', 'Apapane', 'Holoholokai Beach Park',
+      19.955, -155.861, 4],
+    ['old3', 'elepai', 'Hawaii Elepaio', 'Puako Petroglyph trail',
+      19.969, -155.844, 5],
+  ].map(([id, code, name, loc, lat, lng, days]) => ({
+    obsId: id, speciesCode: code, comName: name, locId: 'L-' + id,
+    locName: loc, lat, lng, obsDt: stamp(days), subId: 'S-' + id,
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  }));
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.9476',
+      'ebird_home_lng:hi': '-155.7907',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const profile = A.chaseProfile();
+  const fresh = {
+    obsId: 'fresh', speciesCode: 'hawgoo', comName: 'Hawaiian Goose',
+    locId: 'L-fresh', locName: 'Kealakehe WTP', lat: 19.674, lng: -156.001,
+    obsDt: stamp(0), subId: 'S-fresh',
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  };
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows: { 'hawaii-recent.json': [fresh] },
+    speciesCodes: ['hawgoo'],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  let releaseFallback;
+  app.window.fetch = (url) => {
+    const body = String(url).includes(
+      '/data/obs/US-HI/recent?back=30&detail=full&hotspot=true')
+      ? fallback : [];
+    return new Promise((resolve) => {
+      const release = () => resolve({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify(body)),
+        json: () => Promise.resolve(body),
+      });
+      if (body === fallback) releaseFallback = release;
+      else release();
+    });
+  };
+  A.fgSchedReset(Date.now());
+  const loading = A.loadDestinations();
+  await waitFor(() => releaseFallback, 'the bounded Hawaii fallback request');
+  assert.match(app.$('destStatus').textContent,
+    /checking up to 30 days of older public-hotspot evidence/i,
+    'a sparse fresh list looked final while fallback evidence was loading');
+  releaseFallback();
+  await loading;
+
+  const cards = arr(app.$('destResults').querySelectorAll('.hscard'));
+  assert.equal(cards.length, 4,
+    app.$('destStatus').textContent + ' :: ' + app.$('destResults').textContent);
+  assert.match(cards[0].textContent, /Kealakehe WTP/,
+    'an older row displaced the fresh hotspot from first place');
+  cards.slice(1).forEach((card) => {
+    assert.match(card.textContent, /Older evidence · last report \d+ days ago/,
+      'an appended older row is indistinguishable from a fresh report');
+  });
+  assert.match(app.$('destThin').textContent, /bounded 30-day public-hotspot feed/);
+  app.window.close();
+});
+
+test('F341 Today patches does not request older evidence when four fresh rows exist', async () => {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-') + ' 08:00';
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.9476',
+      'ebird_home_lng:hi': '-155.7907',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const profile = A.chaseProfile();
+  const fresh = [0, 1, 2, 3].map((n) => ({
+    obsId: 'fresh-' + n, speciesCode: 'fresh' + n,
+    comName: 'Fresh Bird ' + n, locId: 'L-fresh-' + n,
+    locName: 'Fresh hotspot ' + n, lat: 19.87 + n * 0.025, lng: -155.84,
+    obsDt: stamp, subId: 'S-fresh-' + n,
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  }));
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows: { 'hawaii-recent.json': fresh },
+    speciesCodes: fresh.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  await A.loadDestinations();
+  assert.equal(app.state.fetches.filter((url) =>
+    /data\/obs\/US-HI\/recent\?back=30&detail=full&hotspot=true/.test(url)).length, 0,
+  'a complete fresh list spent the fallback request anyway');
+  app.window.close();
+});
+
+test('F343 Hawaii Full-day stays searching, then paints only Big Island older evidence', async () => {
+  const now = new Date();
+  const stamp = (daysAgo) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 8);
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('-') + ' 08:00';
+  };
+  const fallback = [
+    {
+      obsId: 'hilo', speciesCode: 'hawhaw', comName: 'Hawaiian Hawk',
+      locId: 'L-hilo', locName: 'Hilo gardens', lat: 19.719, lng: -155.083,
+      obsDt: stamp(3), subId: 'S-hilo',
+      subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+    },
+    {
+      obsId: 'volcano', speciesCode: 'apapan', comName: 'Apapane',
+      locId: 'L-volcano', locName: 'Volcano Steam Vents',
+      lat: 19.432, lng: -155.261, obsDt: stamp(4), subId: 'S-volcano',
+      subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+    },
+    {
+      obsId: 'maui', speciesCode: 'iiwi', comName: 'Iiwi',
+      locId: 'L-maui', locName: 'Haleakala', lat: 20.710, lng: -156.250,
+      obsDt: stamp(3), subId: 'S-maui',
+      subnational2Code: 'US-HI-009', subnational2Name: 'Maui',
+    },
+  ];
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.9476',
+      'ebird_home_lng:hi': '-155.7907',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const profile = await A.tripScopeProfile('full');
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  let releaseFallback;
+  app.window.fetch = (url) => {
+    const body = String(url).includes(
+      '/data/obs/US-HI/recent?back=30&detail=full&hotspot=true')
+      ? fallback : [];
+    return new Promise((resolve) => {
+      const release = () => resolve({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify(body)),
+        json: () => Promise.resolve(body),
+      });
+      if (body === fallback) releaseFallback = release;
+      else release();
+    });
+  };
+  A.fgSchedReset(Date.now());
+  const loading = A.loadFullDay();
+  await waitFor(() => releaseFallback, 'the bounded Full-day fallback request');
+  assert.match(app.$('fullDayStatus').textContent,
+    /still checking up to 30 days/i);
+  assert.doesNotMatch(app.$('fullDayStatus').textContent, /No target-rich/i,
+    'an active fallback search was presented as a conclusive empty result');
+  releaseFallback();
+  await loading;
+
+  const text = app.$('fullDayResults').textContent;
+  assert.match(text, /Hilo gardens/);
+  assert.match(text, /Volcano Steam Vents/);
+  assert.doesNotMatch(text, /Haleakala/,
+    'the Full-day fallback crossed open ocean into another county');
+  assert.equal(app.$('fullDayResults').querySelectorAll('.hscard').length, 2);
+  assert.equal(app.$('fullDayResults').querySelectorAll('.hscard .meta').length, 2);
+  assert.match(text, /Older evidence · last report 3 days ago/);
+  app.window.close();
+});
+
 test('F320 empty-account phase two is capped by visible value and rate headroom', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;

@@ -424,15 +424,25 @@ const BOOTSTRAP = `
   function hotspotRows(window, at) {
     var HC = window.HotspotCards;
     var examples = {
+      destBtn: [
+        { name: 'Kealakehe WTP', distance: 23.0,
+          sub: 'fresh today · 1 target' },
+        { name: 'Waikoloa Village hotspot', distance: 2.5,
+          sub: 'Older evidence · last report 3 days ago · 2 targets' },
+        { name: 'Puako Petroglyph trail', distance: 4.1,
+          sub: 'Older evidence · last report 5 days ago · 1 target' },
+        { name: 'Holoholokai Beach Park', distance: 4.8,
+          sub: 'Older evidence · last report 4 days ago · 1 target' }
+      ],
       excBtn: [
         { name: 'Nisqually NWR', distance: 54.5, sub: 'half day · 18 targets' },
         { name: 'Snoqualmie Pass', distance: 41.5, sub: 'half day · 11 targets' }
       ],
       fullDayBtn: [
-        { name: 'Leavenworth — Waterfront Park', distance: 70.5,
-          sub: 'full day · 18 targets' },
-        { name: 'Government Meadows', distance: 58.2,
-          sub: 'full day · 11 targets' }
+        { name: 'Hilo gardens', distance: 49.4,
+          sub: 'full day · Older evidence · last report 3 days ago' },
+        { name: 'Volcano Steam Vents', distance: 49.4,
+          sub: 'full day · Older evidence · last report 4 days ago' }
       ]
     }[at];
     var facts = {

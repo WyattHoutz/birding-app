@@ -257,14 +257,17 @@
       "summary": "The places holding the most unseen birds, ranked by how many you would gain.",
       "inputs": [
         "county recent + notable feeds",
-        "geo feeds around home"
+        "geo feeds around home",
+        "in Hawaii only, one bounded 30-day public-hotspot feed when fewer than four fresh choices remain"
       ],
       "how": [
         "Reports are clustered to a single place, then scored on unseen species count with rarities weighted up.",
-        "Distance is measured from home, matching the report."
+        "Distance is measured from home, matching the report.",
+        "Fresh two-day evidence always stays first. In Hawaii, a sparse list is filled to four when possible from older public-hotspot evidence, and every appended card states the age of that evidence."
       ],
       "limits": [
-        "Ranked by birds, not by drive time — the top row can be an hour away."
+        "Ranked by birds, not by drive time — the top row can be an hour away.",
+        "Older evidence is a fallback, not a claim that the bird is still present; private and access-restricted places remain excluded."
       ]
     },
     "targetsBtn": {
@@ -338,18 +341,22 @@
       "inputs": [
         "the same API-derived county catalog as Half-day patches",
         "recent and notable observations from counties inside the full-day acquisition envelope",
-        "the shared travel-zone day bands"
+        "the shared travel-zone day bands",
+        "in Hawaii only, one bounded 30-day public-hotspot feed when fresh Full-day evidence is sparse"
       ],
       "how": [
         "The county envelope comes from the full-day band’s straight-line ceiling, not a Washington county list or a hand-picked destination list.",
         "Each hotspot must classify as full day from its own coordinates. Half-day options remain in Half-day; anything in the trip band is not offered as a day outing.",
+        "On Hawaii Island, a measured 30-minute west/east road cost keeps Laupahoehoe in Half-day, puts Hilo and Volcano in Full-day, and leaves Chain of Craters in the trip band.",
+        "Fresh rows remain first; older fallback cards are explicitly age-labelled, and the list keeps searching rather than claiming it is empty while that bounded request is active.",
         "This board ranks independently, so dense nearby parks cannot bury the long-drive options the section exists to compare.",
         "Every card states full day in words and keeps route friction such as a ferry or seasonal pass as an additional non-colour signal."
       ],
       "limits": [
         "County edge distance is a fetch envelope, not a driving-time promise.",
         "A first cold load may take several minutes because every selected county contributes recent and notable feeds. Cached bounds and in-session eBird responses make later opens cheaper.",
-        "The model still records known route-calibration gaps such as Port Townsend; it does not invent a routing API."
+        "The model uses measured fixed route friction rather than a live routing API.",
+        "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination."
       ]
     },
     "hotBtn": {

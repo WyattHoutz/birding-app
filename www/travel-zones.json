@@ -50,6 +50,52 @@
   "default_label": "mainland",
   "zones": [
     {
+      "id": "big-island-east",
+      "label": "Big Island east",
+      "_why": "Hilo and Volcano are reached from the Waikoloa home by crossing the island's mountain road network. Valhalla measured 97.8 minutes to Hilo and 134.5 minutes to Volcano Steam Vents, versus 84.7 minutes to Laupahoehoe north of this boundary. The 30-minute west/east hop is inside the stable 15-43 minute range that keeps Laupahoehoe Half-day, moves Hilo and Volcano to Full-day, and leaves Chain of Craters beyond a normal day outing.",
+      "poly": [
+        [
+          19.9,
+          -155.45
+        ],
+        [
+          19.9,
+          -154.75
+        ],
+        [
+          18.85,
+          -154.75
+        ],
+        [
+          18.85,
+          -155.75
+        ]
+      ]
+    },
+    {
+      "id": "big-island-west",
+      "label": "Big Island west",
+      "_why": "The containing polygon for Hawaii Island. It is ordered after big-island-east so Hilo and Volcano take the measured east-side road cost while Waikoloa, Kona, and Laupahoehoe remain in the west/north origin zone.",
+      "poly": [
+        [
+          18.85,
+          -156.15
+        ],
+        [
+          20.35,
+          -156.15
+        ],
+        [
+          20.35,
+          -154.75
+        ],
+        [
+          18.85,
+          -154.75
+        ]
+      ]
+    },
+    {
       "id": "olympic-west",
       "label": "Olympic W coast",
       "_why": "The outer Pacific coast, reached by driving US-101 south around through Olympia, Aberdeen and Forks - NO FERRY. Split from `olympic` on 2026-08-04 after scripts/zones_geojson.py showed 126 hotspots, including Third Beach, Toleak Point and Destruction Island, being told to catch a boat. Boundary from the DATA, not taste: the peninsula's hotspots are bimodal in longitude with a trough at -123.5 (3 hotspots) between clusters of 80 and 43, and -123.5 is also where US-101 turns from the north shore down the west side. The lat 47.85 edge keeps the north-west ferry corridor - Neah Bay, Forks, Third Beach are all faster via the ferry and Port Angeles - and is about the Hoh River, where the two routes cross over. 47.85, 47.80 and 47.75 all classify the nine named places identically, so this sits in a stable band rather than on a knife-edge.",
@@ -313,6 +359,13 @@
     }
   ],
   "hops": {
+    "big-island-east|big-island-west": {
+      "minutes": 30,
+      "via": "by Big Island mountain roads",
+      "gate": "road",
+      "measured_minutes": 30,
+      "queue_minutes": 0
+    },
     "mainland|kitsap": {
       "minutes": 60,
       "via": "⛴ Edmonds–Kingston ferry",

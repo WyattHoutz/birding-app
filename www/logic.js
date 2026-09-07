@@ -891,7 +891,7 @@
       var minDist = rs.reduce(function (m, r) {
         var d = (r.distMi == null ? Infinity : r.distMi); return d < m ? d : m;
       }, Infinity);
-      return {
+      var out = {
         score: sc.total,
         loc: rep.loc || '', lat: rep.lat, lon: rep.lon, locId: rep.locId || '',
         distMi: minDist,
@@ -899,6 +899,12 @@
         species: sc.species,
         records: rs
       };
+      var fallbackDays = rs.map(function (r) { return r.fallbackEvidenceDays; })
+        .filter(function (days) { return Number.isFinite(days); });
+      if (fallbackDays.length) {
+        out.fallbackEvidenceDays = Math.min.apply(Math, fallbackDays);
+      }
+      return out;
     });
     scored.sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
@@ -942,6 +948,7 @@
   // depends on float rounding would put a place in different sections in the
   // report and the app, and only sometimes.
   var DEST_MIN_ROWS = 4;
+  var DEST_FALLBACK_DAYS = 30;
   var DEST_RADIUS_STEPS = [1, 1.5, 2, 3];
 
   function destinationRadius(clusters, baseMi, capMi, minRows) {
@@ -2582,6 +2589,61 @@
       destOpts.radiusMi = profile.tierBaseRadiusMi;
     }
     var dest = destinations(nearRecentGo, destOpts);
+    var fallbackTarget = opts.destinationFallbackTarget == null
+      ? DEST_MIN_ROWS : opts.destinationFallbackTarget;
+    var fallbackRecs = [];
+    if (opts.destinationFallbackRows && opts.destinationFallbackRows.length) {
+      fallbackRecs = applyExclusions(mergeSnapshot([{
+        kind: 'recent',
+        src: 'DestinationFallback30d',
+        rows: opts.destinationFallbackRows
+      }]), profile);
+      annotateDistance(fallbackRecs, home);
+      fallbackRecs = computeUnseen(fallbackRecs, seen, {
+        excludeOwn: true,
+        ownName: ownName
+      }).filter(function (r) {
+        var t = recMs(r);
+        var oldest = snapMid
+          ? new Date(snapMid.getFullYear(), snapMid.getMonth(),
+              snapMid.getDate() - DEST_FALLBACK_DAYS).getTime()
+          : -Infinity;
+        if (!(t < cutoff && t >= oldest)) return false;
+        var d = parseObsDt(r.dateStr);
+        if (snapMid && d) {
+          var obsMid = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+          r.fallbackEvidenceDays = Math.round(
+            (snapMid.getTime() - obsMid.getTime()) / 86400000);
+        }
+        return true;
+      });
+    }
+    function sameDestination(a, b) {
+      if (a.locId && b.locId && a.locId === b.locId) return true;
+      return haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000 <= CONST.CLUSTER_RADIUS_M;
+    }
+    function fillFreshFirst(primary, older, target) {
+      var out = primary.slice();
+      out.radiusMi = primary.radiusMi;
+      for (var i = 0; i < older.length && out.length < target; i++) {
+        if (!out.some(function (fresh) {
+          return sameDestination(fresh, older[i]);
+        })) out.push(older[i]);
+      }
+      return out;
+    }
+    if (dest.length < fallbackTarget && fallbackRecs.length) {
+      var fallbackNearGo = fallbackRecs.filter(function (r) {
+        return inTargetCounties(r, countyLabels, countyCodes) &&
+          isChaseable(r, stakeout);
+      });
+      var fallbackDest = destinations(fallbackNearGo,
+        Object.assign({}, destOpts, {
+          radiusMi: dest.radiusMi,
+          top: CONST.TOP_DEST
+        }));
+      dest = fillFreshFirst(dest, fallbackDest, fallbackTarget);
+    }
     // The boundary destinations settled on, so excursions start exactly where
     // patches stop and no place can appear in both.
     var excursionOpts = {
@@ -2599,6 +2661,18 @@
       ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
           { bandIds: ['full'] }))
       : [];
+    if (opts.travelCfg && full.length < fallbackTarget && fallbackRecs.length) {
+      var fallbackExcursionGo = fallbackRecs.filter(function (r) {
+        return inExcursionPool(r, countyLabels, countyCodes) &&
+          isReachable(r, stakeout);
+      });
+      var fallbackFull = excursions(fallbackExcursionGo,
+        Object.assign({}, excursionOpts, {
+          bandIds: ['full'],
+          top: CONST.TOP_EXC
+        }));
+      full = fillFreshFirst(full, fallbackFull, fallbackTarget);
+    }
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
@@ -2619,7 +2693,7 @@
   // /species/{code} deep link, and code-based seen resolution, which is the only
   // one that follows the taxonomy parent chain.
   function toRenderDest(cluster) {
-    return {
+    var out = {
       locId: cluster.locId || '', locName: cluster.loc || 'Unknown location',
       lat: cluster.lat, lng: cluster.lon,
       travelBand: cluster.travelBand || '',
@@ -2649,6 +2723,10 @@
       score: cluster.score, rare: cluster.rareCount,
       dist: cluster.distMi == null || cluster.distMi === Infinity ? null : cluster.distMi
     };
+    if (Number.isFinite(cluster.fallbackEvidenceDays)) {
+      out.fallbackEvidenceDays = cluster.fallbackEvidenceDays;
+    }
+    return out;
   }
 
 
