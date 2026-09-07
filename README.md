@@ -223,7 +223,10 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
   login-gated report features: **My eBird rankings** (your Top-100 rank +
   species + checklists + top-25 leaderboard, scoped to your region / Lower 48 /
   ABA Area) and the **ABA rare-bird alert** (continent-wide megararities, each
-  flagged seen/need against your list). eBird pages redirect to Cornell SSO, so
+  flagged seen/need against your list). Mega is a species index: an exact-code
+  tap opens Stakeout bird, where the alert/archive evidence appears inside the
+  same medium card as current places, taxonomy, arrival and unwatched-place
+  lanes. eBird pages redirect to Cornell SSO, so
   the app opens them in an in-app browser, lets you log in once (cookie persists
   on device — no GitHub, no proxy), then injects HTML parsers ported 1:1 from
   the pipeline's `rankings.py` / `aba_rba.py` and posts back compact JSON.

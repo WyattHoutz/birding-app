@@ -18,6 +18,7 @@ const alertSource = fs.readFileSync(
   path.join(ROOT, 'assets', 'mockup-alertfeed.js'), 'utf8');
 const workflow = fs.readFileSync(
   path.join(ROOT, '.github', 'workflows', 'ios-build.yml'), 'utf8');
+const pkg = require(path.join(ROOT, 'package.json'));
 const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
@@ -43,8 +44,8 @@ test('every menu section declares representative fixture data or an intentional 
     'a new menu entry must choose a stub kind before the release gallery passes');
 
   const allowed = new Set([
-    'birdgen', 'weather', 'bird', 'mega', 'ranking', 'hotspot', 'species-search',
-    'spuh', 'hotspot-search', 'stakeout-species', 'patches',
+    'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
+    'spuh', 'hotspot-search', 'stakeout-species', 'mega-index', 'patches',
     'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
@@ -135,20 +136,22 @@ test('fixture families use shared card components and accessible state labels', 
 });
 
 test('Mega rarity mockups exercise the real scope and sort controls', () => {
-  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega');
+  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
     '#abaScopePick [data-abascope="state"]',
     '#abaScopePick [data-abascope="aba"]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
+    '#abaResults li[data-mega-code][data-mega-view]',
+    '#abaResults .megaphoto',
+    '#abaResults .megajump',
+    '#abaResults .spdist',
     '#abaResults .abadist',
   ]);
-  const setup = source.slice(source.indexOf('function fillMegaHost('),
-    source.indexOf('function hotspotRows(', source.indexOf('function fillMegaHost(')));
+  const setup = source.slice(source.indexOf('function fillMegaIndex('),
+    source.indexOf('async function fillMegaStakeout('));
   assert.match(setup, /A\.renderAbaAlert\(/,
     'the gallery must drive the production Mega renderer, not hand-roll its rows');
-  assert.match(setup, /removeItem\(A\.ABA_ARCHIVE_KEY\)/,
-    'the Mega fixture must not inherit archive rows from an earlier gallery shot');
   assert.match(setup, /A\.setAbaScope\('state'\)/);
   assert.match(setup, /A\.setAbaSort\('date'\)/);
 });
@@ -295,10 +298,15 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     '#spLookupIdHelp .spuhtaxnav',
     '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
+    '#spLookupResults .megaevidence',
+    '#spLookupResults .megalatest',
+    '#spLookupResults .megareports',
     '#spLookupResults .spLookupPlaceList > .hscard-sm',
   ]);
-  assert.match(source, /await A\.lookupSpecies\('semsan', 'Semipalmated Sandpiper'\)/,
-    'Stakeout bird must run its real medium-card + places renderer');
+  assert.match(source, /fillMegaStakeout[\s\S]*#abaResults \.megajump[\s\S]*jump\.click\(\)/,
+    'the mandatory Stakeout shot must enter through a real Mega index click');
+  assert.match(source, /fillMegaStakeout[\s\S]*spLookupPlaceList/,
+    'the routed shot still exercises the real medium-card + places renderer');
   assert.doesNotMatch(source, /spLookupHero|details\.spuhshell|renderSpuhStakeoutShell/,
     'the release fixture must not preserve the removed duplicate hero or collapsed shell');
   assert.match(source, /detail\.querySelector\('details\.spuhtaxdetails'\)[\s\S]*path\.open = true/,
@@ -313,6 +321,21 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the exact 393px/402px release render does not guard the requested one-line controls');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
+
+  assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
+  assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaScopePick [data-abascope="state"]',
+    '#abaScopePick [data-abascope="aba"]',
+    '#abaSortPick [data-abasort="date"]',
+    '#abaSortPick [data-abasort="distance"]',
+    '#abaResults li[data-mega-code][data-mega-view]',
+    '#abaResults .megaphoto',
+    '#abaResults .megajump',
+    '#abaResults .spdist',
+    '#abaResults .abadist',
+  ]);
+  assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
+    'the Mega release shot must use the production list renderer');
 });
 
 test('F268 On passage mockup exercises first reports and both forecast sources', () => {
@@ -341,27 +364,16 @@ test('F268 On passage mockup exercises first reports and both forecast sources',
     'the fixture must run the real F268 renderer rather than hand-roll cards');
 });
 
-test('the release workflow requires both mockup widths and attaches one combined archive', () => {
-  const start = workflow.indexOf('- name: Generate the UI mockups');
-  const end = workflow.indexOf('- name: Create the Release', start);
-  assert.ok(start > 0 && end > start,
-    'the mockup and release steps still bound this workflow section');
-  const step = workflow.slice(start, end);
-  assert.doesNotMatch(step, /continue-on-error:\s*true/,
-    'mockup failure must fail the release instead of becoming a warning');
-  assert.match(step, /node assets\/mockups\.js --width 393[\s\S]*--out [^\r\n]*393/,
-    'the release must render the exact 393px gallery into its own directory');
-  assert.match(step, /node assets\/mockups\.js --width 402[\s\S]*--out [^\r\n]*402/,
-    'the release must render the exact 402px gallery into its own directory');
-  assert.match(step, /zip -r BirdChaser-mockups\.zip mockups/,
-    'both galleries must be packed into one deterministic archive');
-
-  const create = workflow.slice(end);
-  assert.match(create, /gh release create[\s\S]{0,500}BirdChaser-mockups\.zip/,
-    'the combined mockup archive must be attached to the GitHub Release');
-  assert.doesNotMatch(create, /\bEXTRA=|\bMOCKUPS=/,
-    'a mandatory artifact must not be conditionally omitted');
+test('the release workflow leaves mockup rendering as an on-demand command', () => {
+  assert.equal(pkg.scripts.mockups, 'node assets/mockups.js',
+    'the explicit local mockup command was removed');
+  assert.doesNotMatch(workflow, /^\s{2}mockups:\s*$/m,
+    'a main push still starts the release mockup job');
   const release = workflow.slice(workflow.indexOf('\n  release:'));
+  assert.match(release, /^\s{4}needs:\s*build\s*$/m,
+    'the Release should wait for the IPA build only');
+  assert.doesNotMatch(release, /BirdChaser-mockups|needs:[^\r\n]*mockups/,
+    'the Release still downloads, requires or publishes mockup artifacts');
   const checkStart = release.indexOf('- name: Has this version already been released?');
   const checkEnd = release.indexOf('- name: Download the IPA this run built', checkStart);
   const releaseCheck = release.slice(checkStart, checkEnd);
@@ -371,8 +383,11 @@ test('the release workflow requires both mockup widths and attaches one combined
   assert.doesNotMatch(releaseCheck, /gh release view/,
     'the workflow still treats every Release lookup failure as an absent Release');
   assert.match(release,
-    /gh release upload[\s\S]{0,300}BirdChaser-unsigned\.ipa[\s\S]{0,200}BirdChaser-mockups\.zip[\s\S]{0,100}--clobber/,
-    'rerunning the tagged commit must repair both required assets');
+    /gh release upload[\s\S]{0,300}BirdChaser-unsigned\.ipa[\s\S]{0,100}--clobber/,
+    'rerunning the tagged commit must repair the required IPA');
+  assert.match(release,
+    /gh release create[\s\S]{0,500}BirdChaser-unsigned\.ipa/,
+    'a new Release must attach the IPA');
 });
 
 test('release state lookup fails closed except for an explicit HTTP 404', () => {
