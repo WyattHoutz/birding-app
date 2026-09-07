@@ -3126,7 +3126,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.80.0';
+      var APP_VERSION = '1.81.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -15687,7 +15687,7 @@
         }
         var feeds = BL.planConvoyFeeds(getReport());
         _listsCache = Promise.all(feeds.map(function (f) {
-          return ebird(BL.requestUrl(f), false, false, work)
+          return ebird(BL.requestUrl(f), false, false, false, work)
             .catch(function () { return []; });
         })).then(function (results) {
           var lists = [];
@@ -17074,7 +17074,7 @@
           return _cklView[sub];
         }
         _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub),
-          !!bg, false, work)
+          !!bg, false, false, work)
           .then(function (d) {
             var v = {
               userDisplayName: (d && d.userDisplayName) || '',
@@ -21941,7 +21941,7 @@
               return p.then(function (acc) {
                 if (!workCurrent(work)) throw queueCancelledError(work);
                 return ebird('data/obs/' + encodeURIComponent(code) + '/recent/notable?detail=full&back=30&maxResults=1000',
-                  false, false, work)
+                  false, false, false, work)
                   .then(function (nb) { if (Array.isArray(nb)) acc.push.apply(acc, nb); return todDelay(acc, 200); })
                   .catch(function (e) {
                     if (e && e.queueCancelled) throw e;

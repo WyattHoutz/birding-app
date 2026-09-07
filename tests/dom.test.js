@@ -14473,6 +14473,18 @@ test('F304 no-memory Mega reads neither consume nor populate the shared memo', a
   app.window.close();
 });
 
+test('F304 no-memory slot preserves navigation ownership on direct eBird reads', () => {
+  assert.match(HTML,
+    /return ebird\(BL\.requestUrl\(f\), false, false, false, work\)/,
+    'recent checklist lists pass work after the explicit no-memory slot');
+  assert.match(HTML,
+    /_cklView\[sub\] = ebird\('product\/checklist\/view\/'[\s\S]{0,120}!!bg, false, false, work\)/,
+    'owned checklist bodies pass work after the explicit no-memory slot');
+  assert.match(HTML,
+    /recent\/notable\?detail=full&back=30&maxResults=1000'[\s\S]{0,80}false, false, false, work\)/,
+    'Dawn and dusk notable reads pass work after the explicit no-memory slot');
+});
+
 test('F304 retries lazy GBIF history when detail=full supplies the scientific name', async () => {
   const app = await boot();
   installSpuhFixture(app);
@@ -26126,7 +26138,7 @@ test('F320 navigation aborts obsolete foreground work and removes its reservatio
   A.fgSchedReset(Date.now());
   A.fgSetNextAt(Date.now() + 500);
   const before = A.fgState().reservations;
-  const pending = A.ebird('probe/obsolete-foreground', false, false,
+  const pending = A.ebird('probe/obsolete-foreground', false, false, false,
     A.navWork('obsolete foreground'));
   await waitFor(() => A.fgState().reservations === before + 1,
     'the future request reservation to be recorded');
@@ -26136,7 +26148,7 @@ test('F320 navigation aborts obsolete foreground work and removes its reservatio
     'cancelling a pre-start request left a ghost rolling-window reservation');
 
   A.fgSetNextAt(0);
-  const active = A.ebird('probe/active-foreground', false, false,
+  const active = A.ebird('probe/active-foreground', false, false, false,
     A.navWork('active foreground'));
   await waitFor(() => signal, 'the active foreground request to start');
   A.showSection('sec-helpBody');
@@ -26376,9 +26388,9 @@ test('F320 a runtime-active stall exposes labelled retry and cancel controls', a
 test('F320 every long section-owned history plan carries one navigation token', () => {
   const county = HTML.slice(HTML.indexOf('function ensureCountyCatalog('),
     HTML.indexOf('function tripScopeProfile('));
-  assert.match(county, /ebird\(listPath, true, true, work\)/,
+  assert.match(county, /ebird\(listPath, true, true, false, work\)/,
     'the non-Washington county list still uses the foreground lane');
-  assert.match(county, /ebird\(path, true, true, work\)/,
+  assert.match(county, /ebird\(path, true, true, false, work\)/,
     'county-info reads do not share the cancellable background owner');
 
   const tod = HTML.slice(HTML.indexOf('function todFetchHistoric('),
@@ -26442,7 +26454,7 @@ test('F320 a completed request remains memoized after its section is left', asyn
   };
   A.fgSchedReset(Date.now());
   const owner = A.navWork('memo probe');
-  await A.ebird('probe/completed', false, false, owner);
+  await A.ebird('probe/completed', false, false, false, owner);
   A.showSection('settingsPanel');
   await A.ebird('probe/completed');
   assert.equal(calls, 1,
