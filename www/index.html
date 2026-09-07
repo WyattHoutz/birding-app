@@ -17983,7 +17983,18 @@
         return new Promise(function (resolve, reject) {
           var id = null, done = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [];
-          function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
+          function addH(name, fn) {
+            IB.addListener(name, fn).then(function (h) {
+              // Registration is asynchronous. A rejected open or an obsolete
+              // pre-ID capture can finish before this handle arrives; keeping
+              // it then leaks a global listener and its whole capture closure.
+              if (done) {
+                try { h && h.remove && h.remove(); } catch (e) {}
+              } else {
+                handles.push(h);
+              }
+            }).catch(function () {});
+          }
           function belongs(ev) {
             // These listeners belong to the PLUGIN, not one WebView. The
             // pinned plugin always gives managed openWebView events an id,
@@ -18022,6 +18033,7 @@
             if (injectTimer) clearTimeout(injectTimer);
             handles.forEach(function (h) { try { h && h.remove && h.remove(); } catch (e) {} });
             handles = [];
+            pendingEvents = [];
           }
           function finish(err, data) {
             if (done) return;
@@ -20481,8 +20493,20 @@
           // past before you knew which birds were even in it. The list is what
           // the section shows; a profile opens over it as a sub-page.
           var detail = $('abaDetail'), detailCards = $('abaDetailCards');
-          if (detailCards) { detailCards.innerHTML = ''; }
-          if (detail) { detail.hidden = true; }
+          if (detailCards) {
+            if (openCard && openCard.parentNode === detailCards) {
+              // Keep the active subtree connected. Detaching and re-appending
+              // the same node preserves its data but drops keyboard and
+              // assistive focus to BODY.
+              Array.prototype.slice.call(detailCards.children).forEach(function (card) {
+                if (card !== openCard) card.remove();
+              });
+            } else {
+              detailCards.innerHTML = '';
+              openCard = null;
+            }
+          }
+          if (detail && !openCard) { detail.hidden = true; }
           el.className = 'obs';
           // MEDIUM, not small — "this should show the larger photo like needs
           // verification". A mega is the rarest thing the app shows and it had
@@ -20658,7 +20682,6 @@
                 // disclosures and completed hydration — and hold the newly
                 // computed card until the reader returns to the list.
                 _abaPendingDetail = { code: g.code, card: card };
-                detailCards.appendChild(openCard);
                 preservedOpen = true;
               } else {
                 detailCards.appendChild(card);
@@ -20676,6 +20699,9 @@
           // history, blurb and finder are a network call each — a dozen birds
           // nobody has opened is a dozen calls nobody asked for. abaOpenBird()
           // hydrates the one card it shows, once.
+          if (openCard && !preservedOpen && openCard.parentNode) {
+            openCard.parentNode.removeChild(openCard);
+          }
           if (openCode && abaOpenBird(openCode, { keepScroll: preservedOpen })) {
             if (preservedOpen) {
               try { window.scrollTo(0, openScroll); } catch (e) {}
@@ -29270,7 +29296,9 @@
         if (!detail || !list || !cards) return false;
         var card = document.getElementById('aba-' + code);
         if (!card) return false;
-        Array.prototype.forEach.call(cards.children, function (c) { c.hidden = true; });
+        Array.prototype.forEach.call(cards.children, function (c) {
+          if (!(opts && opts.keepScroll && c === card)) c.hidden = true;
+        });
         card.hidden = false;
         // Hydrate ONCE, and only what is on screen. hydratePhotos is what
         // fills the big picture — heroSlot() emits an empty `.thumb` and

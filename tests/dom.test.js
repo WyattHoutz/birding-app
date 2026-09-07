@@ -864,6 +864,36 @@ test('a stale WebView event cannot settle a capture before its own id is known',
   app.window.close();
 });
 
+test('a finished eBird capture removes listener handles that resolve late', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const registrations = [];
+  let removed = 0;
+  const fake = {
+    addListener() {
+      return new Promise((resolve) => {
+        registrations.push(() => resolve({ remove() { removed++; } }));
+      });
+    },
+    openWebView() { return Promise.reject(new Error('fixture open failed')); },
+    close() {},
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  await assert.rejects(A.captureEbird({
+    kind: 'aba',
+    url: 'https://ebird.org/alert/summary?sid=X',
+    buildInject: () => '/* fixture parser */',
+    timeout: 5000,
+  }), /fixture open failed/);
+  assert.equal(registrations.length, 4, 'all global listeners began registration');
+  registrations.forEach((resolve) => resolve());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(removed, 4,
+    'every listener that arrives after cleanup removes itself immediately');
+  app.window.close();
+});
+
 test('app boots: Leaflet loads and the Contents menu is built', async () => {
   const app = await boot();
   assert.equal(typeof app.window.L, 'object', 'Leaflet global is present');
@@ -14022,6 +14052,12 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   readingState.open = true;
   readingState.innerHTML = '<summary>Every report</summary><span class="loaded-state">hydrated evidence</span>';
   openCard.appendChild(readingState);
+  const readingControl = doc.createElement('button');
+  readingControl.textContent = 'Open checklist';
+  openCard.appendChild(readingControl);
+  readingControl.focus();
+  assert.strictEqual(doc.activeElement, readingControl,
+    'the fixture begins with keyboard focus inside the open detail');
   const scrollCalls = [];
   app.window.scrollTo = (x, y) => { scrollCalls.push([x, y]); };
   Object.defineProperty(app.window, 'scrollY', {
@@ -14042,6 +14078,8 @@ test('the ABA alert shows a species list, and a bird opens as a sub-page', async
   assert.equal(readingState.open, true, 'the reader’s open disclosure stays open');
   assert.match(openCard.querySelector('.loaded-state').textContent, /hydrated evidence/,
     'completed detail hydration is retained');
+  assert.strictEqual(doc.activeElement, readingControl,
+    'keyboard and assistive focus stays on the same detail control');
   assert.deepEqual(scrollCalls, [[0, 417]],
     'the reading position is restored instead of scrolling to the top');
   assert.match(doc.getElementById('navTitle').textContent, /White Wagtail/,
