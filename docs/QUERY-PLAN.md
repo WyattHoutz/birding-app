@@ -269,3 +269,27 @@ at:
 
 That is one 47-call wave plus one hotspot call, not 48 calls of Quick outing.
 The ledger measures **when**, not **why**.
+
+For restart failures, the copied report also carries one bounded
+**PREVIOUS SESSION** block. It is profile-scoped and contains at most the
+newest 200 entries, with each message capped at 300 characters and credentials,
+account identifiers, email addresses and precise query-string coordinates
+scrubbed before storage. Persistence is batched over 750 ms and flushed on
+page hide; live Debug rendering is separately coalesced over 100 ms.
+
+The first-run device trace retained for F330 measured the scheduling cost the
+ledger otherwise hides:
+
+| milestone | measured from wave start |
+|---|---:|
+| first useful rarity paint | **0.747 s** |
+| full phase one | **0.898 s** |
+| phase two began | **1.182 s** |
+| largest successful queue wait | **35,294 ms** |
+| largest queue wait including cancelled work | **35,631 ms** |
+
+Those long calls spent only about 120–240 ms on the network; almost all of the
+time was queue delay. Outside the bounded phase-two path, the automatic
+My Ticks fallback still attempted the lifelist CSV, then the lifelist page,
+then one day-list request before navigation cancelled it. These figures prove
+the observed v1.75.0 device path, not a post-fix cold empty-profile run.

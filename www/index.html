@@ -18,17 +18,132 @@
        failures show up in the on-device 🐞 debug log (Settings → Debug log, or
        tap the footer version 5×). No external services; everything stays local. */
     (function () {
-      var MAX = 800, buf = [];
+      var MAX = 800, PERSIST_MAX = 200, PERSIST_MSG_MAX = 300;
+      var PERSIST_DELAY_MS = 750, LIVE_DELAY_MS = 100;
+      var buf = [], verdicts = {}, previous = null;
+      var persistTimer = null, liveTimer = null;
+      var persistWrites = 0, liveRenders = 0;
+      var captureEnabled = true, persistEnabled = true;
+      var startedAt = new Date().toISOString();
       function p2(n, w) { n = String(n); while (n.length < (w || 2)) n = '0' + n; return n; }
       function ts() { var d = new Date(); return p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) + '.' + p2(d.getMilliseconds(), 3); }
       function str(a) { try { if (a instanceof Error) return a.stack || (a.name + ': ' + a.message); if (typeof a === 'object') return JSON.stringify(a); return String(a); } catch (e) { return '' + a; } }
+      function storageKey() {
+        var profile = '';
+        try { profile = String(window.localStorage.getItem('bc_profile') || '').trim(); } catch (e) {}
+        return profile
+          ? 'bcp:' + profile + ':ebird_debug_previous_v1'
+          : 'ebird_debug_previous_v1';
+      }
+      function scrubText(value) {
+        var s = String(value == null ? '' : value);
+        s = s.replace(/\bBearer\s+[A-Za-z0-9._~+\/=-]+/gi, 'Bearer [redacted]');
+        s = s.replace(
+          /(["'](?:apiKey|api_key|token|accessToken|access_token|refreshToken|authorization|cookie|password|passcode|username|lat|lng)["']\s*:\s*)["'][^"']*["']/gi,
+          '$1"[redacted]"');
+        s = s.replace(
+          /(\b(?:apiKey|api_key|token|accessToken|access_token|refreshToken|authorization|cookie|password|passcode|username)\b\s*[:=]\s*)[^\s,;]+/gi,
+          '$1[redacted]');
+        s = s.replace(/([?&](?:api_?key|key|token|access_token|lat|lng)=)[^&#\s]*/gi,
+          '$1[redacted]');
+        s = s.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]');
+        return s;
+      }
+      function cleanEntry(entry) {
+        entry = entry || {};
+        return {
+          t: String(entry.t || '').slice(0, 16),
+          level: String(entry.level || 'info').slice(0, 16),
+          msg: scrubText(entry.msg).slice(0, PERSIST_MSG_MAX)
+        };
+      }
+      function readPrevious() {
+        try {
+          var parsed = JSON.parse(window.localStorage.getItem(storageKey()) || 'null');
+          if (!parsed || !Array.isArray(parsed.entries)) return null;
+          parsed.entries = parsed.entries.slice(-PERSIST_MAX).map(cleanEntry);
+          if (!parsed.verdicts || typeof parsed.verdicts !== 'object') parsed.verdicts = {};
+          return parsed;
+        } catch (e) { return null; }
+      }
+      previous = readPrevious();
+      function currentSnapshot() {
+        var savedVerdicts = {}, keys = Object.keys(verdicts).slice(-40);
+        for (var i = 0; i < keys.length; i++) {
+          var key = keys[i], row = verdicts[key] || {};
+          savedVerdicts[scrubText(key).slice(0, 80)] = {
+            t: String(row.t || '').slice(0, 16),
+            msg: scrubText(row.msg).slice(0, PERSIST_MSG_MAX)
+          };
+        }
+        return {
+          version: 1,
+          startedAt: startedAt,
+          savedAt: new Date().toISOString(),
+          entries: buf.slice(-PERSIST_MAX).map(cleanEntry),
+          verdicts: savedVerdicts
+        };
+      }
+      function persistNow() {
+        if (persistTimer) {
+          clearTimeout(persistTimer);
+          persistTimer = null;
+        }
+        if (!persistEnabled) return;
+        try {
+          window.localStorage.setItem(storageKey(), JSON.stringify(currentSnapshot()));
+          persistWrites++;
+        } catch (e) {}
+      }
+      function schedulePersist() {
+        if (!persistEnabled || persistTimer) return;
+        persistTimer = setTimeout(persistNow, PERSIST_DELAY_MS);
+      }
+      function scheduleLive() {
+        if (!window.__dbgLive || liveTimer) return;
+        liveTimer = setTimeout(function () {
+          liveTimer = null;
+          if (!window.__dbgLive) return;
+          liveRenders++;
+          try { window.__dbgLive(); } catch (e) {}
+        }, LIVE_DELAY_MS);
+      }
+      function clearDebug(disableCapture) {
+        buf.length = 0;
+        Object.keys(verdicts).forEach(function (key) { delete verdicts[key]; });
+        previous = null;
+        if (persistTimer) clearTimeout(persistTimer);
+        if (liveTimer) clearTimeout(liveTimer);
+        persistTimer = null;
+        liveTimer = null;
+        try { window.localStorage.removeItem(storageKey()); } catch (e) {}
+        if (disableCapture) {
+          captureEnabled = false;
+          persistEnabled = false;
+        }
+        if (window.__dbg) window.__dbg.previous = null;
+      }
       function push(level, parts) {
+        if (!captureEnabled) return;
         var m = []; for (var i = 0; i < parts.length; i++) m.push(str(parts[i]));
         buf.push({ t: ts(), level: level, msg: m.join(' ') });
         if (buf.length > MAX) buf.shift();
-        try { if (window.__dbgLive) window.__dbgLive(); } catch (e) {}
+        scheduleLive();
+        schedulePersist();
       }
-      window.__dbg = { buf: buf, push: push, verdicts: {} };
+      window.__dbg = {
+        buf: buf,
+        push: push,
+        verdicts: verdicts,
+        previous: previous,
+        flush: persistNow,
+        storageKey: storageKey,
+        scrubText: scrubText,
+        clear: function (opts) { clearDebug(!!(opts && opts.disableCapture)); },
+        metrics: function () {
+          return { persistWrites: persistWrites, liveRenders: liveRenders };
+        }
+      };
       /* ── WHAT THE LOG WAS MISSING: THE DECISION ──────────────────────────
          Every bug diagnosed from a device log on 2026-08-22 was in what the
          app CONCLUDED, not in what it fetched — and the log recorded only
@@ -52,7 +167,7 @@
          section concluded" instead of making a reader replay the traffic. */
       window.__dbg.verdict = function (section, msg) {
         try {
-          window.__dbg.verdicts[section] = { t: ts(), msg: String(msg) };
+          verdicts[section] = { t: ts(), msg: String(msg) };
           push('why', [section + ' — ' + msg]);
         } catch (e) {}
       };
@@ -94,6 +209,10 @@
           });
         };
       }
+      window.addEventListener('pagehide', persistNow);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') persistNow();
+      });
       push('info', ['debug capture ready']);
     })();
   </script>
@@ -3182,7 +3301,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.82.0';
+      var APP_VERSION = '1.83.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3632,6 +3751,11 @@
       try { localStorage.removeItem(keys[i]); n++; } catch (e) { /* quota/private mode */ }
     }
     if (scrubCurrentProfileName()) n++;
+    try {
+      if (window.__dbg && window.__dbg.clear) {
+        window.__dbg.clear({ disableCapture: true });
+      }
+    } catch (e) {}
     if ($('ebirdName')) {
       $('ebirdName').value = '';
       $('ebirdName').dataset.loadedValue = '';
@@ -4672,7 +4796,7 @@
         _backfillRunning = true;
         dbg('net', 'own-list backfill: ' + jobs.length + ' day-list(s), '
           + s.days + ' done');
-        return jobs.reduce(function (p, j) {
+        jobs.reduce(function (p, j) {
           return p.then(function () {
             if (!workCurrent(work)) throw queueCancelledError(work);
             var d = j.day.split('-');
@@ -29755,9 +29879,18 @@
       // the clipboard. Verdicts lead, because "what did each section decide"
       // is the question a log is opened to answer; the traffic is evidence for
       // it, not a substitute.
+      function dbgEntriesText(entries) {
+        return (entries || []).map(function (e) {
+          var mark = e.level === 'error' ? '✖'
+            : (e.level === 'warn' ? '!'
+              : (e.level === 'net' ? '↔' : (e.level === 'why' ? '?' : '·')));
+          return e.t + ' ' + mark + ' [' + e.level + '] ' + e.msg;
+        }).join('\n');
+      }
       function dbgText() {
         var buf = (window.__dbg && window.__dbg.buf) || [];
         var vd = (window.__dbg && window.__dbg.verdicts) || {};
+        var previous = (window.__dbg && window.__dbg.previous) || null;
         var keys = Object.keys(vd).sort();
         var head = '';
         if (keys.length) {
@@ -29765,13 +29898,16 @@
             return '  ' + vd[k].t + '  ' + k + ' — ' + vd[k].msg;
           }).join('\n') + '\n────────────────────────────\n';
         }
-        var body = buf.map(function (e) {
-          var mark = e.level === 'error' ? '✖'
-            : (e.level === 'warn' ? '!'
-              : (e.level === 'net' ? '↔' : (e.level === 'why' ? '?' : '·')));
-          return e.t + ' ' + mark + ' [' + e.level + '] ' + e.msg;
-        }).join('\n');
-        return dbgContext() + '\n────────────────────────────\n' + head + body + '\n';
+        var previousText = '';
+        if (previous && Array.isArray(previous.entries) && previous.entries.length) {
+          previousText = 'PREVIOUS SESSION (saved locally; secrets scrubbed)\n'
+            + '  started ' + (previous.startedAt || 'unknown')
+            + ' · saved ' + (previous.savedAt || 'unknown') + '\n'
+            + dbgEntriesText(previous.entries)
+            + '\n────────────────────────────\n';
+        }
+        return dbgContext() + '\n────────────────────────────\n'
+          + previousText + 'CURRENT SESSION\n' + head + dbgEntriesText(buf) + '\n';
       }
 
       function dbgRender() {
@@ -29780,7 +29916,14 @@
         // textContent, not value: this is a <pre> now. See the markup comment —
         // a textarea is focusable and focus raises the iOS keyboard.
         ta.textContent = dbgText();
-        var c = $('dbgCount'); if (c) c.textContent = buf.length + ' entries';
+        var c = $('dbgCount');
+        if (c) {
+          var previous = (window.__dbg && window.__dbg.previous) || null;
+          var previousCount = previous && Array.isArray(previous.entries)
+            ? previous.entries.length : 0;
+          c.textContent = buf.length + ' current'
+            + (previousCount ? ' · ' + previousCount + ' previous' : '');
+        }
         ta.scrollTop = ta.scrollHeight;
       }
       function openDebug(show) {
@@ -30406,7 +30549,10 @@
           ? ev.target : null;
         if (row) openMegaIndexRow(row, ev);
       });
-      $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
+      $('dbgClear').addEventListener('click', function () {
+        if (window.__dbg && window.__dbg.clear) window.__dbg.clear();
+        dbgRender();
+      });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
       (function () {

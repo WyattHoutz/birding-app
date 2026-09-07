@@ -160,6 +160,9 @@ test('the generated catalog has exact bidirectional section and sheet coverage',
 });
 
 test('the committed catalog is deterministic and works as a local searchable page', () => {
+  const attributes = fs.readFileSync(path.join(ROOT, '.gitattributes'), 'utf8');
+  assert.match(attributes, /^docs\/info-dialogs\.html text eol=lf$/m,
+    'the generated LF catalog is checked out as CRLF on Windows');
   const committed = fs.readFileSync(GENERATOR.OUTPUT_PATH, 'utf8');
   const generated = GENERATOR.buildCatalog();
   assert.equal(committed, generated,

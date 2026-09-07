@@ -135,7 +135,11 @@ to open the debug log and confirm:
 - `profile` is the intended account profile;
 - the seen-list source and imported row count match that account.
 
-Never share the API key itself in screenshots or logs.
+The copied report can include a **PREVIOUS SESSION** section recovered from the
+last launch. That local record is bounded and scrubbed before it is saved, but
+still review the report before sharing it. Never share the API key itself in
+screenshots or logs. **Clear** removes the current and previous Debug record;
+Settings → **Erase all my data** also removes it from the active profile.
 
 ## Refresh before the seven-day signing period ends
 

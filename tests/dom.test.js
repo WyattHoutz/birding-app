@@ -19,15 +19,29 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 
-const WWW = path.join(__dirname, '..', 'www');
-const HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+const DEFAULT_WWW = path.join(__dirname, '..', 'www');
+const WWW = process.env.BIRDCHASER_WWW
+  ? path.resolve(process.env.BIRDCHASER_WWW)
+  : DEFAULT_WWW;
+function wwwFixture(name) {
+  const candidate = path.join(WWW, name);
+  return fs.existsSync(candidate) ? candidate : path.join(DEFAULT_WWW, name);
+}
+let HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
+if (process.env.BIRDCHASER_HISTORY_PROBE
+    && !/setChasePhase2:/.test(HTML)) {
+  HTML = HTML.replace(
+    'getChase: getChase, clearChaseCache: clearChaseCache,',
+    'getChase: getChase, clearChaseCache: clearChaseCache,'
+      + ' setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },');
+}
 // The two card families live in their own files so they can be tweaked by
 // looking at the source. Guards that read card CSS must read it from THERE —
 // pointing them back at index.html is how a second definition creeps in.
-const CARDS_SPECIES = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
-const CARDS_HOTSPOT = fs.readFileSync(path.join(WWW, 'cards-hotspot.js'), 'utf8');
+const CARDS_SPECIES = fs.readFileSync(wwwFixture('cards-species.js'), 'utf8');
+const CARDS_HOTSPOT = fs.readFileSync(wwwFixture('cards-hotspot.js'), 'utf8');
 const INFO_DIALOGS_SOURCE = fs.readFileSync(
-  path.join(WWW, 'info-dialogs.js'), 'utf8');
+  wwwFixture('info-dialogs.js'), 'utf8');
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'report-contract.json'), 'utf8'));
 const FIRST_YEAR_HTML = fs.readFileSync(
@@ -40,8 +54,7 @@ const ACCOUNT_SIGNED_OUT_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-account-signed-out.html'), 'utf8');
 const MEGA_STAKEOUT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
-const SEED = JSON.parse(
-  fs.readFileSync(path.join(WWW, 'seed-birdlist.json'), 'utf8'));
+const SEED = JSON.parse(fs.readFileSync(wwwFixture('seed-birdlist.json'), 'utf8'));
 
 function megaAlertHtml(rows) {
   return (rows || []).map((row, i) => `
@@ -96,7 +109,7 @@ function recentFirstYearFixture(species) {
 const IOS_WF = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'ios-build.yml'), 'utf8');
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-const BL = require(path.join(WWW, 'logic.js'));
+const BL = require(wwwFixture('logic.js'));
 
 const MIME = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
@@ -22553,6 +22566,77 @@ test('the debug panel leads with Copy and folds its tools away', () => {
     'the seldom-used debug tools are no longer folded away by default');
 });
 
+test('F330 visible Debug rendering is coalesced across an event burst', async () => {
+  const app = await boot();
+  const D = app.window.__dbg;
+  assert.equal(typeof D.metrics, 'function',
+    'the early logger does not expose render/write frequency for a behavioural guard');
+
+  let renders = 0;
+  app.window.__dbgLive = () => { renders++; };
+  for (let i = 0; i < 120; i++) D.push('net', ['cached completion ' + i]);
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  app.window.__dbgLive = null;
+
+  assert.equal(renders, 1,
+    'one cached-completion burst rebuilt the entire visible Debug log per event');
+});
+
+test('F330 previous-session persistence batches writes instead of writing per event', async () => {
+  const app = await boot();
+  const D = app.window.__dbg;
+  assert.equal(typeof D.flush, 'function',
+    'the durable log has no explicit flush seam to prove its write bound');
+  const before = D.metrics().persistWrites;
+
+  for (let i = 0; i < 120; i++) D.push('net', ['queued completion ' + i]);
+  D.flush();
+
+  assert.equal(D.metrics().persistWrites - before, 1,
+    'a 120-event burst wrote localStorage more than once');
+});
+
+test('F330 the bounded scrubbed previous session survives restart and erase removes it', async () => {
+  const app = await boot({ storage: { bc_profile: 'p1' } });
+  const D = app.window.__dbg;
+  const key = D.storageKey();
+  assert.match(key, /^bcp:p1:/,
+    'the previous-session record is not scoped to the active Bird Chaser profile');
+  for (let i = 0; i < 230; i++) {
+    D.push('net', ['diagnostic row ' + i + ' https://example.test/feed?lat=47.75&lng=-122.16']);
+  }
+  D.push('error', [
+    'apiKey=SUPER-SECRET Authorization: Bearer TOKEN-123 user@example.test',
+  ]);
+  D.flush();
+
+  const saved = app.window.localStorage.getItem(key);
+  assert.ok(saved, 'the current session was not persisted for the next launch');
+  const parsed = JSON.parse(saved);
+  assert.ok(parsed.entries.length <= 200,
+    'the durable snapshot is unbounded and can grow with a cache loop');
+  assert.match(saved, /diagnostic row 229/,
+    'the bounded snapshot discarded the newest evidence instead of the oldest');
+  assert.doesNotMatch(saved, /SUPER-SECRET|TOKEN-123|user@example\.test|47\.75|-122\.16/,
+    'the durable snapshot persisted a key, token, account, or precise coordinate');
+
+  app.window.close();
+  const restarted = await boot({ storage: { bc_profile: 'p1', [key]: saved } });
+  restarted.$('openDebugBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.match(restarted.$('dbgLog').textContent,
+    /PREVIOUS SESSION[\s\S]*diagnostic row 229/,
+    'the prior launch is stored but never shown in the copied Debug report');
+  assert.ok(restarted.window.__app.scrubbableKeys().includes('ebird_debug_previous_v1'),
+    'Erase all my data cannot see the persisted diagnostic key');
+
+  restarted.window.__app.scrubPersonalData();
+  assert.equal(restarted.window.localStorage.getItem(key), null,
+    'Erase all my data left the previous-session diagnostic on the device');
+  assert.equal(restarted.window.__dbg.previous, null,
+    'Erase all my data removed storage but left the personal log in memory');
+});
+
 // ── "📍 Day N" MUST SURVIVE A DAY NOBODY REPORTED ─────────────────────────
 // "Id like a feature to review the tag for Day X, it seems to reset too
 //  easily." It did: the run ended on the first missing day, so the tag claimed
@@ -26472,7 +26556,6 @@ test('F267/F320: a caller during phase 2 gets phase one without starting a rival
   await new Promise((r) => setTimeout(r, 400));
   assert.ok(waves <= 3, `one wave's worth of alert feeds, not two: ${waves}`);
 
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const from = HTML.indexOf('function getChaseAll(');
   const to = HTML.indexOf('function anyRows(rows)', from);
   const gc = HTML.slice(from, to);
@@ -26504,6 +26587,43 @@ test('F267/F320: a caller during phase 2 gets phase one without starting a rival
     'the phase-2 guard clears itself, and identity-checked so a later wave '
     + 'is not deleted by an earlier one settling');
   app.window.close();
+});
+
+test('F330 a stale-snapshot caller neither waits for nor rivals detached phase two', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\//.test(String(url))) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const fresh = await A.getChase();
+  fresh.t = 0;
+  A.seedChase('wa', fresh);
+
+  let releasePhaseTwo;
+  const phaseTwo = new Promise((resolve) => { releasePhaseTwo = resolve; });
+  phaseTwo._fetchBaseKey = fresh.fetchBaseKey;
+  phaseTwo._geoNotableKm = fresh.geoNotableKm;
+  A.setChasePhase2('wa', phaseTwo);
+  const fetchesBefore = app.state.fetches.length;
+
+  let settled = false;
+  const caller = A.getChase().then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const settledBeforeEnrichment = settled;
+  const fetchesWhileEnrichmentHeld = app.state.fetches.length;
+  releasePhaseTwo(fresh);
+  await caller;
+
+  assert.equal(settledBeforeEnrichment, true,
+    'a caller with usable stale rows waited for detached enrichment from the '
+    + 'section it just left');
+  assert.equal(fetchesWhileEnrichmentHeld, fetchesBefore,
+    'returning stale phase-one rows started a rival chase wave');
 });
 
 

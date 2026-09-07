@@ -329,5 +329,20 @@ That is one 47-call wave plus one hotspot call. The ledger measures **when**,
 not **why**. (`2 served from cache` out of 50 is itself the signature of the
 snapshot write failing.)
 
+The copied report may also begin with **PREVIOUS SESSION**. The app keeps only
+the newest 200 entries from the prior launch, truncates each message to 300
+characters, scrubs credentials, account identifiers, email addresses and
+precise `lat`/`lng` values, and scopes the record to the active profile. Writes
+are coalesced over 750 ms and flushed when the page is hidden; the visible
+Debug panel is independently coalesced over 100 ms so a cache-completion burst
+does not rebuild the whole report once per event. **Clear** removes both
+sessions' Debug data, and **Erase all my data** removes the persisted record
+and disables further capture until reload.
+
+This is bounded recovery evidence, not a perfect audit trail. Messages are
+scrubbed and truncated before persistence, only one previous launch survives,
+and the section totals still describe where calls completed rather than which
+code path initiated them.
+
 See `QUERY-PLAN.md` for the full per-section plan and `BACKLOG.md` →
 **Optimise loading** for the tracked version of the open items.
