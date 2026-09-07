@@ -1259,7 +1259,7 @@ test('travel zones: real places land in the zone they belong to', () => {
 });
 
 test('F343 measured Big Island road cost separates Half-day from Full-day', () => {
-  const waikoloa = [19.9476, -155.7907];
+  const waikoloa = [19.95, -155.79];
   const laupahoehoe = [19.990, -155.236];
   const hilo = [19.719, -155.083];
   const volcano = [19.432, -155.261];

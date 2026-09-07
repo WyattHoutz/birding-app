@@ -38,7 +38,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['stakeoutreports'],
+    ['stakeoutreports', 'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
 });
 
@@ -159,6 +159,26 @@ test('Mega rarity mockups exercise the real scope and sort controls', () => {
     'the gallery must drive the production Mega renderer, not hand-roll its rows');
   assert.match(setup, /A\.setAbaScope\('state'\)/);
   assert.match(setup, /A\.setAbaSort\('date'\)/);
+  assert.match(setup,
+    /A\.renderAbaAlert\(alertRows, url, true, A\.abaScope\(\) === 'aba', meta, repaint\)/,
+    'scope and sort review states must repaint the same fixture without starting a fetch');
+  assert.match(setup,
+    /row\.obsDt = '2026-09-02 12:00'[\s\S]*row\.lat = 47\.66[\s\S]*row\.lng = -122\.12/,
+    'the Nearest review needs a genuinely closer, older row so its order visibly changes');
+});
+
+test('Hawaii patch fallback mockups render in the Hawaii report', () => {
+  assert.equal(mockups.STUB_SPEC.destBtn.report, 'hi');
+  assert.equal(mockups.STUB_SPEC.fullDayBtn.report, 'hi');
+  assert.equal(mockups.STUB_SPEC.excBtn.report, undefined,
+    'the Washington Half-day control remains a separate fixture');
+  for (const at of ['destBtn', 'fullDayBtn']) {
+    const shot = mockups.SECTION_SHOTS.find((item) => item.at === at);
+    assert.ok(shot, `${at} release shot is missing`);
+    assert.match(shot.prep,
+      /A\.setActiveReport\(\(spec && spec\.report\) \|\| 'wa'\)/,
+      `${at} paints Hawaii rows without switching the visible report`);
+  }
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

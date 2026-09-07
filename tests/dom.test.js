@@ -1728,7 +1728,11 @@ test('every section the report maps has a map container, wired to a renderer', a
     if (!wired && (m.at === 'excBtn' || m.at === 'fullDayBtn')) {
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
-      wired = tier.includes('renderDestinations(rows, $(mapId), $(resultsId))')
+      const finalPaintWired =
+        tier.includes('renderDestinations(finalRows, $(mapId), $(resultsId))');
+      const pendingPaintWired =
+        tier.includes('renderDestinations(rows, $(mapId), $(resultsId), true)');
+      wired = finalPaintWired && pendingPaintWired
         && HTML.includes("'" + m.map + "'");
     }
     assert.ok(wired, `#${m.map} exists but is never passed to a map renderer`);
@@ -20919,7 +20923,7 @@ test('a short Top patches list explains its time and access scope', async () => 
   const src = HTML.slice(at, HTML.indexOf('function loadDayTier', at));
   assert.ok(at > 0, 'loadDestinations not found');
   assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
-  assert.ok(/destinationScopeDisclosure\(rad,\s*base\)/.test(src),
+  assert.ok(/destinationScopeDisclosure\(rad,\s*base,\s*older\)/.test(src),
     'the short-list explanation is not wired to the rendered result');
   assert.ok(/destRadiusMi\(\)/.test(src),
     'the note does not name the radius, so it states a limit without saying what it is');
@@ -27067,8 +27071,8 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
     report: 'hi',
     sample: false,
     storage: {
-      'ebird_home_lat:hi': '19.9476',
-      'ebird_home_lng:hi': '-155.7907',
+      'ebird_home_lat:hi': '19.95',
+      'ebird_home_lng:hi': '-155.79',
     },
   });
   const A = app.window.__app;
@@ -27135,8 +27139,8 @@ test('F341 Today patches does not request older evidence when four fresh rows ex
     report: 'hi',
     sample: false,
     storage: {
-      'ebird_home_lat:hi': '19.9476',
-      'ebird_home_lng:hi': '-155.7907',
+      'ebird_home_lat:hi': '19.95',
+      'ebird_home_lng:hi': '-155.79',
     },
   });
   const A = app.window.__app;
@@ -27196,8 +27200,8 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
     report: 'hi',
     sample: false,
     storage: {
-      'ebird_home_lat:hi': '19.9476',
-      'ebird_home_lng:hi': '-155.7907',
+      'ebird_home_lat:hi': '19.95',
+      'ebird_home_lng:hi': '-155.79',
     },
   });
   const A = app.window.__app;

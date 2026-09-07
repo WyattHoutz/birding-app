@@ -97,9 +97,11 @@ const STUB_SPEC = {
   rankBtn:        { kind: 'ranking',       host: 'rankResults' },
   patchBtn:       { kind: 'patches',       host: 'patchResults',
     expects: ['#patchResults .hscard.hscard-md', '#patchResults .patchwho'] },
-  destBtn:        { kind: 'hotspot',       host: 'destResults', map: 'destMap' },
+  destBtn:        { kind: 'hotspot',       host: 'destResults', map: 'destMap',
+    report: 'hi' },
   excBtn:         { kind: 'hotspot',       host: 'excResults', map: 'excMap' },
-  fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap' },
+  fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap',
+    report: 'hi' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
   spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
@@ -156,12 +158,14 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     map: spec && spec.map,
     maxHostHeight: spec && spec.maxHostHeight,
     expects: (spec && spec.expects) || [],
-    prep: `FIX.before(${at}, A, document);
+    prep: `var spec = ${JSON.stringify(spec || null)};
+           A.setActiveReport((spec && spec.report) || 'wa');
+           FIX.before(${at}, A, document);
            var anchor = document.getElementById(${at});
            var sec = anchor && anchor.closest ? anchor.closest('section') : null;
            if (!sec) throw new Error('no section for ' + ${at});
            A.showSection(sec.id);
-           return FIX.prepare(${at}, ${JSON.stringify(spec || null)}, A, document, sec);`,
+           return FIX.prepare(${at}, spec, A, document, sec);`,
   };
 });
 
@@ -187,6 +191,30 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutReports(A, document, sec);` },
+  { id: 'megaaba', at: 'abaBtn',
+    title: 'Mega rarities — ABA area, Newest',
+    host: 'abaResults',
+    prep: `A.setActiveReport('wa');
+           FIX.before('abaBtn', A, document);
+           var spec = ${JSON.stringify(STUB_SPEC.abaBtn)};
+           var anchor = document.getElementById('abaBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('abaBtn', spec, A, document, sec);
+           document.querySelector('#abaScopePick [data-abascope="aba"]').click();
+           return true;` },
+  { id: 'meganearest', at: 'abaBtn',
+    title: 'Mega rarities — Washington, Nearest',
+    host: 'abaResults',
+    prep: `A.setActiveReport('wa');
+           FIX.before('abaBtn', A, document);
+           var spec = ${JSON.stringify(STUB_SPEC.abaBtn)};
+           var anchor = document.getElementById('abaBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('abaBtn', spec, A, document, sec);
+           document.querySelector('#abaSortPick [data-abasort="distance"]').click();
+           return true;` },
 ];
 
 const SHOTS = [
@@ -587,22 +615,32 @@ const BOOTSTRAP = `
   function fillMegaIndex(A, document, label, code, name, sci) {
     var f = megaFixture(code || 'nazboo1', name || 'Nazca Booby', sci || 'Sula granti');
     var second = megaFixture('solsan', 'Solitary Sandpiper', 'Tringa solitaria');
+    second.alertRows.concat(second.stateRows, second.wideRows).forEach(function (row) {
+      row.obsDt = '2026-09-02 12:00';
+      row.lat = 47.66;
+      row.lng = -122.12;
+    });
+    var alertRows = f.alertRows.concat(second.alertRows);
+    var url = 'https://ebird.org/alert/summary?sid=' + f.sid;
+    var meta = {
+      reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
+      wideRowsByCode: (function () {
+        var out = {};
+        out[f.species.code] = f.wideRows;
+        out[second.species.code] = second.wideRows;
+        return out;
+      }())
+    };
     localStorage.removeItem(A.ABA_ARCHIVE_KEY);
     seedMegaFixture(A, f);
     A.abaArchiveAdd(f.region, second.stateRows);
     A.setAbaScope('state');
     A.setAbaSort('date');
-    A.renderAbaAlert(f.alertRows.concat(second.alertRows),
-      'https://ebird.org/alert/summary?sid=' + f.sid, true, false, {
-        reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
-        wideRowsByCode: (function () {
-          var out = {};
-          out[f.species.code] = f.wideRows;
-          out[second.species.code] = second.wideRows;
-          return out;
-        }())
-      });
-    markHost(document.getElementById('abaResults'), label);
+    function repaint() {
+      A.renderAbaAlert(alertRows, url, true, A.abaScope() === 'aba', meta, repaint);
+      markHost(document.getElementById('abaResults'), label);
+    }
+    repaint();
     return f;
   }
   async function fillMegaStakeout(A, document, label) {
