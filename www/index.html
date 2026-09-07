@@ -3126,7 +3126,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.79.0';
+      var APP_VERSION = '1.80.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3436,7 +3436,12 @@
           }
           var cap = BL.travelBandMaxStraightMi(cfg, bandId);
           if (!(cap > 0)) throw new Error('No straight-line ceiling for ' + bandId);
-          var scope = BL.deriveCountyScope(home, catalog.rows, cap);
+          // Hawaii has no drivable connection between counties. A
+          // straight-line road tier must not turn 63 miles of
+          // ocean into a Full-day drive, so only the county containing Home is
+          // eligible. A zero edge distance means Home is inside its bounds.
+          var scope = BL.deriveCountyScope(home, catalog.rows,
+            parent === 'US-HI' ? 0 : cap);
           if (!scope.length) {
             throw new Error(catalog.complete
               ? 'No counties are inside this destination tier from Home'
@@ -4010,12 +4015,21 @@
         if (!me) return false;
         return String((row && row.userDisplayName) || '').trim().toLowerCase() === me;
       }
-      // Which of your checklists this feed knows about that we have not read.
+      // product/lists exposes no edit timestamp, but its numSpecies follows the
+      // current checklist body. Measured on an edited Hawaii row: 13 in the
+      // list, 13 in checklist/view, with lastEditedDt later than submission.
+      function ownListFingerprint(row) {
+        var n = parseInt(row && row.numSpecies, 10);
+        return isFinite(n) && n >= 0 ? 'n:' + n : 'read';
+      }
+      // Which of your checklists this feed knows about that we have not read,
+      // or whose species count changed since the last read.
       function ownNewSubs(lists) {
         var done = ownSeenMeta() || {}, seenSubs = done.subs || {}, out = [];
         (lists || []).forEach(function (r) {
           var sub = r && (r.subId || r.subID);
-          if (!sub || seenSubs[sub] || !isOwnRow(r)) return;
+          if (!sub || !isOwnRow(r)) return;
+          if (seenSubs[sub] === ownListFingerprint(r)) return;
           out.push(sub);
         });
         return out;
@@ -4121,35 +4135,53 @@
       // Fire and forget: nothing on screen waits for it, and a failure must
       // never be visible as anything other than a list that did not grow.
       var _ownHarvestStarted = false, _ownHarvestTimer = null;
+      var _ownHarvestScan = null, _ownHarvestInflight = null;
       var OWN_HARVEST_DELAY_MS = 6000;
-      function scheduleOwnHarvest(delayMs) {
+      function scheduleOwnHarvest(delayMs, force) {
         var work = navWork('own-checklist harvest');
         clearTimeout(_ownHarvestTimer);
-        _ownHarvestTimer = setTimeout(function () { ensureOwnHarvest(work); },
+        _ownHarvestTimer = setTimeout(function () { ensureOwnHarvest(work, force); },
           delayMs == null ? OWN_HARVEST_DELAY_MS : delayMs);
       }
-      function ensureOwnHarvest(work) {
+      function ensureOwnHarvest(work, force) {
+        work = work || navWork('own-checklist harvest');
         if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
-        if (_ownHarvestStarted) return Promise.resolve(0);
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+        if (_ownHarvestScan) return _ownHarvestScan;
+        if (_ownHarvestStarted && !force) return Promise.resolve(0);
+        if (force) {
+          resetListsCache(true);
+          fgCancelForExclusive(work);
+        }
         _ownHarvestStarted = true;
-        return recentLists().then(function () {
+        _ownHarvestScan = recentLists(true, work, !!force).then(function (lists) {
           if (!workCurrent(work)) throw queueCancelledError(work);
-          // recentLists() harvests internally; redraw so a bird learned just
-          // now appears without the reader having to do anything.
-          try { updateMyYear(); } catch (e) {}
-          // F8. The recent feeds only reach back as far as 200 checklists per
-          // county — measured at 2 days in King County — so they can never
-          // rebuild a YEAR. The backfill walks the rest, well behind this.
-          try { startOwnBackfill(undefined, work); } catch (e) {}
-          return 1;
+          return runOwnHarvest(lists, work, !!force);
         }).catch(function (e) {
           if (e && e.queueCancelled) {
             _ownHarvestStarted = false;
             throw e;
           }
           return 0;
+        }).finally(function () {
+          _ownHarvestScan = null;
         });
+        return _ownHarvestScan;
+      }
+      function runOwnHarvest(lists, work, urgent) {
+        if (_ownHarvestInflight) return _ownHarvestInflight;
+        _ownHarvestStarted = true;
+        _ownHarvestInflight = harvestOwnChecklists(lists, work, urgent).then(function (n) {
+          try { updateMyYear(); } catch (e) {}
+          // F8. The recent feeds only reach back as far as 200 checklists per
+          // county — measured at 2 days in King County — so they can never
+          // rebuild a YEAR. The backfill walks the rest, well behind this.
+          try { startOwnBackfill(undefined, work); } catch (e) {}
+          return n;
+        }).finally(function () {
+          _ownHarvestInflight = null;
+        });
+        return _ownHarvestInflight;
       }
 
       // ── F8, THE CHEAP PATH: ONE CALL INSTEAD OF SEVEN HUNDRED ────────────
@@ -4634,7 +4666,7 @@
           + '<b>Until it finishes this list may be short.</b></div>';
       }
 
-      function harvestOwnChecklists(lists) {        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+      function harvestOwnChecklists(lists, work, urgent) {        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         var subs = ownNewSubs(lists).slice(0, OWN_HARVEST_MAX);
         if (!subs.length) return Promise.resolve(0);
         var bySub = {};
@@ -4646,11 +4678,15 @@
         meta.subs = meta.subs || {};
         var learned = 0, fresh = [];
         return pool(subs, 2, function (sub) {
-          return checklistView(sub, true).then(function (d) {
+          var row = bySub[sub] || {};
+          // A selected row is new or changed. Either way, an older checklist
+          // body cached by another section cannot answer what eBird says now.
+          forgetChecklistView(sub);
+          return checklistView(sub, !urgent, work, urgent).then(function (d) {
             // Recorded even when empty, so a checklist with nothing readable
             // is not re-fetched every launch.
-            meta.subs[sub] = 1;
-            var row = bySub[sub] || {}, loc = row.loc || {};
+            meta.subs[sub] = ownListFingerprint(row);
+            var loc = row.loc || {};
             var when = ownListDate(row.isoObsDate || row.obsDt || (d && d.obsDt) || '');
             ((d && d.obs) || []).forEach(function (o) {
               var c = String(o.speciesCode || '').trim().toLowerCase();
@@ -5347,6 +5383,26 @@
             && _fgActiveAbort && _fgActiveAbort.job === active) {
           _fgActiveAbort.cancelled = true;
           try { _fgActiveAbort.controller.abort(); } catch (e) {}
+        }
+        fgProgressSync();
+      }
+      function fgCancelForExclusive(work) {
+        var isOther = function (job) { return job.work !== work; };
+        _fgWaiters = fgRejectQueued(_fgWaiters, isOther,
+          'Superseded by the section being refreshed');
+        _fgBgWaiters = fgRejectQueued(_fgBgWaiters, isOther,
+          'Superseded by the section being refreshed');
+        if (!_fgBgWaiters.length && _fgBgWake) {
+          clearTimeout(_fgBgWake);
+          _fgBgWake = null;
+        }
+        var active = _fgActiveJob;
+        if (active && !active.started && isOther(active)) {
+          if (active.timer) clearTimeout(active.timer);
+          fgRestoreReservation(active);
+          active.reject(queueCancelledError(active.work,
+            'Superseded by the section being refreshed'));
+          fgRelease(active);
         }
         fgProgressSync();
       }
@@ -15401,6 +15457,22 @@
         return r || getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
       }
 
+      function destinationScopeDisclosure(rad, base) {
+        var todayDays = BL.CONST.CUTOFF_DAYS;
+        var localDays = QUICK_LOC_SPECIES_DAYS || 30;
+        var opening = rad > base
+          ? 'Widened to <b>' + rad + ' mi</b> because too few public-access hotspots '
+            + 'within ' + base + ' mi had an unlogged bird in the last <b>'
+            + todayDays + ' days</b>.'
+          : 'That is every <b>public-access</b> hotspot within <b>' + rad
+            + ' mi</b> that has an unlogged bird reported in the last <b>'
+            + todayDays + ' days</b>.';
+        return '<div class="hint" id="destThin">' + opening
+          + ' <b>Find local patches</b> uses ' + localDays
+          + ' days and may show older or restricted-access hotspots. '
+          + 'Anywhere farther is in <b>🚗 Half-day patches</b>.</div>';
+      }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
@@ -15428,16 +15500,8 @@
           if (dests.length < DEST_THIN_ROWS || destRadiusMi() > (getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI)) {
             var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
             var rad = destRadiusMi();
-            // A boundary that MOVED has to say so, or it reads as a fixed
-            // setting the reader could go and change.
-            $('destResults').insertAdjacentHTML('afterend', rad > base
-              ? '<div class="hint" id="destThin">Widened to <b>' + rad + ' mi</b> — too '
-                + 'little was within ' + base + ' mi to be worth a list. '
-                + '<b>🚗 Half-day patches</b> starts where this stops, so nothing is in both.</div>'
-              : '<div class="hint" id="destThin">That is everything within <b>'
-                + rad + ' mi</b> — the radius this section covers, not '
-                + 'everything that is out there. Anywhere further is in '
-                + '<b>🚗 Half-day patches</b>.</div>');
+            $('destResults').insertAdjacentHTML('afterend',
+              destinationScopeDisclosure(rad, base));
           }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -15616,23 +15680,33 @@
       // product/lists reads Birdiest already pays for, so the two sections
       // share one cached promise.
       var _listsCache = null;
-      function recentLists() {
-        if (_listsCache) return _listsCache;
+      function recentLists(skipOwnHarvest, work, urgent) {
+        if (_listsCache) {
+          if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
+          return _listsCache;
+        }
         var feeds = BL.planConvoyFeeds(getReport());
         _listsCache = Promise.all(feeds.map(function (f) {
-          return ebird(BL.requestUrl(f)).catch(function () { return []; });
+          return ebird(BL.requestUrl(f), false, false, work)
+            .catch(function () { return []; });
         })).then(function (results) {
           var lists = [];
           results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
           // Your own checklists ride in on a feed already paid for. Fire and
           // forget: nothing here waits on it, and a failure must never break
           // the section that asked for the lists.
-          try { harvestOwnChecklists(lists); } catch (e) {}
           return lists;
         }).catch(function (e) { _listsCache = null; throw e; });
+        if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
         return _listsCache;
       }
-      function resetListsCache() { _listsCache = null; }
+      function resetListsCache(forceNetwork) {
+        _listsCache = null;
+        if (!forceNetwork) return;
+        BL.planConvoyFeeds(getReport()).forEach(function (f) {
+          delete _ebCache[BL.requestUrl(f)];
+        });
+      }
 
       // obsDt is a HUMAN date ("31 Jul 2026"), so sorting it lexicographically
       // puts 01 Aug before 31 Jul. isoObsDate is the sortable one, and it is
@@ -16962,7 +17036,13 @@
         return BirdLogic.checklistCacheFresh(cklEntry(CKL_NS + sub), todayStr());
       }
 
-      function checklistView(sub, bg) {
+      function forgetChecklistView(sub) {
+        if (!sub) return;
+        delete _cklView[sub];
+        try { localStorage.removeItem(CKL_NS + sub); } catch (e) {}
+      }
+
+      function checklistView(sub, bg, work, urgent) {
         if (!sub) return Promise.resolve(null);
         if (_cklView[sub]) return _cklView[sub];
         var o = cklEntry(CKL_NS + sub);
@@ -16993,7 +17073,8 @@
             : Promise.resolve(o.v);
           return _cklView[sub];
         }
-        _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), !!bg)
+        _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub),
+          !!bg, false, work)
           .then(function (d) {
             var v = {
               userDisplayName: (d && d.userDisplayName) || '',
@@ -26092,6 +26173,13 @@
         if (mo == null) return null;
         return new Date(+m[3], mo, +m[1]);
       }
+      function loadMyYear() {
+        updateMyYear();
+        // This is the one screen whose subject may have changed because an
+        // existing eBird checklist was edited. Re-read the cheap list rows
+        // immediately; unchanged fingerprints still cost no checklist body.
+        scheduleOwnHarvest(0, true);
+      }
       function updateMyYear() {
         var el = $('myYearBody'), list = $('myYearList');
         if (list) list.innerHTML = '';
@@ -26430,7 +26518,7 @@
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
-        myYearBody: { fn: updateMyYear },
+        myYearBody: { fn: loadMyYear },
         recordBody: { fn: loadStateRecords },
         migBtn:     { fn: loadMigration },
         helpBody:   { fn: loadHelp }
@@ -27589,6 +27677,10 @@
         // call, so the two can never disagree about which report is active.
         var host = $('menuScopeHost');
         if (host) host.innerHTML = menuScopeHtml();
+        // This render replaces both selects. It is also called alone when a
+        // lazy rank arrives, so binding only from renderMenuList leaves native
+        // arrows over empty controls after that background repaint.
+        bindRegionPickers();
         // F195(b): the header carries the same three facts, so it repaints on
         // the same trigger. Two copies that update from one call cannot drift.
         headerIdentityRefresh();
@@ -30377,6 +30469,7 @@
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
         loadHelp: loadHelp, renderMenuIdentity: renderMenuIdentity,
+        destinationScopeDisclosure: destinationScopeDisclosure,
         menuIdentityHtml: menuIdentityHtml, todayStr: todayStr,
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,

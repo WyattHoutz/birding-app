@@ -18,6 +18,7 @@ const alertSource = fs.readFileSync(
   path.join(ROOT, 'assets', 'mockup-alertfeed.js'), 'utf8');
 const workflow = fs.readFileSync(
   path.join(ROOT, '.github', 'workflows', 'ios-build.yml'), 'utf8');
+const pkg = require(path.join(ROOT, 'package.json'));
 const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
@@ -363,27 +364,16 @@ test('F268 On passage mockup exercises first reports and both forecast sources',
     'the fixture must run the real F268 renderer rather than hand-roll cards');
 });
 
-test('the release workflow requires both mockup widths and attaches one combined archive', () => {
-  const start = workflow.indexOf('- name: Generate the UI mockups');
-  const end = workflow.indexOf('- name: Create the Release', start);
-  assert.ok(start > 0 && end > start,
-    'the mockup and release steps still bound this workflow section');
-  const step = workflow.slice(start, end);
-  assert.doesNotMatch(step, /continue-on-error:\s*true/,
-    'mockup failure must fail the release instead of becoming a warning');
-  assert.match(step, /node assets\/mockups\.js --width 393[\s\S]*--out [^\r\n]*393/,
-    'the release must render the exact 393px gallery into its own directory');
-  assert.match(step, /node assets\/mockups\.js --width 402[\s\S]*--out [^\r\n]*402/,
-    'the release must render the exact 402px gallery into its own directory');
-  assert.match(step, /zip -r BirdChaser-mockups\.zip mockups/,
-    'both galleries must be packed into one deterministic archive');
-
-  const create = workflow.slice(end);
-  assert.match(create, /gh release create[\s\S]{0,500}BirdChaser-mockups\.zip/,
-    'the combined mockup archive must be attached to the GitHub Release');
-  assert.doesNotMatch(create, /\bEXTRA=|\bMOCKUPS=/,
-    'a mandatory artifact must not be conditionally omitted');
+test('the release workflow leaves mockup rendering as an on-demand command', () => {
+  assert.equal(pkg.scripts.mockups, 'node assets/mockups.js',
+    'the explicit local mockup command was removed');
+  assert.doesNotMatch(workflow, /^\s{2}mockups:\s*$/m,
+    'a main push still starts the release mockup job');
   const release = workflow.slice(workflow.indexOf('\n  release:'));
+  assert.match(release, /^\s{4}needs:\s*build\s*$/m,
+    'the Release should wait for the IPA build only');
+  assert.doesNotMatch(release, /BirdChaser-mockups|needs:[^\r\n]*mockups/,
+    'the Release still downloads, requires or publishes mockup artifacts');
   const checkStart = release.indexOf('- name: Has this version already been released?');
   const checkEnd = release.indexOf('- name: Download the IPA this run built', checkStart);
   const releaseCheck = release.slice(checkStart, checkEnd);
@@ -393,8 +383,11 @@ test('the release workflow requires both mockup widths and attaches one combined
   assert.doesNotMatch(releaseCheck, /gh release view/,
     'the workflow still treats every Release lookup failure as an absent Release');
   assert.match(release,
-    /gh release upload[\s\S]{0,300}BirdChaser-unsigned\.ipa[\s\S]{0,200}BirdChaser-mockups\.zip[\s\S]{0,100}--clobber/,
-    'rerunning the tagged commit must repair both required assets');
+    /gh release upload[\s\S]{0,300}BirdChaser-unsigned\.ipa[\s\S]{0,100}--clobber/,
+    'rerunning the tagged commit must repair the required IPA');
+  assert.match(release,
+    /gh release create[\s\S]{0,500}BirdChaser-unsigned\.ipa/,
+    'a new Release must attach the IPA');
 });
 
 test('release state lookup fails closed except for an explicit HTTP 404', () => {
