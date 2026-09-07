@@ -18,6 +18,11 @@ const alertSource = fs.readFileSync(
   path.join(ROOT, 'assets', 'mockup-alertfeed.js'), 'utf8');
 const workflow = fs.readFileSync(
   path.join(ROOT, '.github', 'workflows', 'ios-build.yml'), 'utf8');
+const postWorkflowPath = path.join(
+  ROOT, '.github', 'workflows', 'post-release.yml');
+const postWorkflow = fs.existsSync(postWorkflowPath)
+  ? fs.readFileSync(postWorkflowPath, 'utf8')
+  : '';
 const pkg = require(path.join(ROOT, 'package.json'));
 const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
@@ -364,16 +369,73 @@ test('F268 On passage mockup exercises first reports and both forecast sources',
     'the fixture must run the real F268 renderer rather than hand-roll cards');
 });
 
-test('the release workflow leaves mockup rendering as an on-demand command', () => {
+test('F340 mockups and artifact checks run after, never inside, the IPA release path', () => {
   assert.equal(pkg.scripts.mockups, 'node assets/mockups.js',
     'the explicit local mockup command was removed');
   assert.doesNotMatch(workflow, /^\s{2}mockups:\s*$/m,
-    'a main push still starts the release mockup job');
+    'mockups moved back into the IPA workflow');
+  const packageAt = workflow.indexOf('- name: Package .app into an unsigned .ipa');
+  const verifyAt = workflow.indexOf('- name: Verify packaged IPA contents');
+  const uploadAt = workflow.indexOf('- name: Upload IPA artifact');
+  assert.ok(packageAt >= 0 && verifyAt > packageAt && uploadAt > verifyAt,
+    'the built IPA is not contract-checked before it is uploaded');
+  const preflight = workflow.slice(verifyAt, uploadAt);
+  assert.match(preflight, /verify-release-bundle\.js/,
+    'the pre-upload check does not run the shared bundle contract');
+  assert.match(preflight, /require\('\.\/package\.json'\)\.version/,
+    'the pre-upload check does not use the release-driving package version');
+
   const release = workflow.slice(workflow.indexOf('\n  release:'));
   assert.match(release, /^\s{4}needs:\s*build\s*$/m,
     'the Release should wait for the IPA build only');
   assert.doesNotMatch(release, /BirdChaser-mockups|needs:[^\r\n]*mockups/,
-    'the Release still downloads, requires or publishes mockup artifacts');
+    'the installable Release waits for or publishes mockup artifacts');
+
+  assert.ok(fs.existsSync(postWorkflowPath),
+    'the independent post-release workflow is missing');
+  assert.match(postWorkflow,
+    /workflow_run:[\s\S]*workflows:\s*\["Build unsigned iOS IPA"\][\s\S]*types:\s*\[completed\]/,
+    'post-release checks are not triggered after the IPA workflow completes');
+  assert.match(postWorkflow,
+    /workflow_run\.conclusion\s*==\s*'success'[\s\S]*workflow_run\.event\s*==\s*'push'[\s\S]*workflow_run\.head_branch\s*==\s*'main'/,
+    'failed, manual, or non-main builds can publish release artifacts');
+  const checkoutCount = (postWorkflow.match(/uses:\s*actions\/checkout@v4/g) || []).length;
+  const exactCheckoutCount = (postWorkflow.match(
+    /uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha\s*\}\}/g
+  ) || []).length;
+  assert.equal(checkoutCount, 2,
+    'the post-release workflow should have one checkout in each job');
+  assert.equal(exactCheckoutCount, checkoutCount,
+    'every post-release checkout must use the exact released commit');
+  assert.match(postWorkflow,
+    /check-release-tag\.js[\s\S]*workflow_run\.head_sha/,
+    'the Release is not identity-checked against the triggering commit');
+  assert.match(postWorkflow,
+    /gh release download[\s\S]*BirdChaser-unsigned\.ipa[\s\S]*verify-release-assets\.js[\s\S]*verify-release-bundle\.js/,
+    'the published IPA is not re-downloaded and checked through both contracts');
+  assert.match(postWorkflow,
+    /EXPECTED=.*BirdChaser-unsigned\.ipa[\s\S]*ACTUAL=.*sha256sum published\/BirdChaser-unsigned\.ipa[\s\S]*test "\$ACTUAL" = "\$EXPECTED"/,
+    'the re-downloaded IPA bytes are not compared with GitHub\'s recorded digest');
+  assert.match(postWorkflow,
+    /^\s{2}mockups:[\s\S]*^\s{4}needs:\s*verify\s*$/m,
+    'mockups do not wait for the fast post-release integrity check');
+  assert.match(postWorkflow,
+    /mockups\.js --width 393[\s\S]*mockups\.js --width 402/,
+    'both exact release widths are not rendered');
+  assert.match(postWorkflow,
+    /SHOTS\.length[\s\S]*BirdChaser-mockups\.zip[\s\S]*gh release upload[\s\S]*--clobber/,
+    'the gallery count, archive, and idempotent Release attachment are incomplete');
+  assert.match(postWorkflow,
+    /verify-release-assets\.js[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-mockups\.zip[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-mockups\.zip/,
+    'the final Release inventory does not require exactly the IPA and mockup ZIP');
+  assert.match(postWorkflow,
+    /EXPECTED_DIGEST=.*BirdChaser-mockups\.zip[\s\S]*ACTUAL_DIGEST=.*sha256sum published\/BirdChaser-mockups\.zip[\s\S]*test "\$ACTUAL_DIGEST" = "\$EXPECTED_DIGEST"/,
+    'the re-downloaded gallery bytes are not compared with GitHub\'s recorded digest');
+  assert.doesNotMatch(postWorkflow, /continue-on-error:/,
+    'the independent workflow hides its own failures instead of reporting them');
+  assert.doesNotMatch(postWorkflow, /repository:\s*WyattHoutz\/birding(?:\s|$)/,
+    'the public workflow tries to read private source');
+
   const checkStart = release.indexOf('- name: Has this version already been released?');
   const checkEnd = release.indexOf('- name: Download the IPA this run built', checkStart);
   const releaseCheck = release.slice(checkStart, checkEnd);

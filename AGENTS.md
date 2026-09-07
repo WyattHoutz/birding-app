@@ -69,9 +69,12 @@ Expand-Archive BirdChaser-unsigned.ipa -DestinationPath x
 # grep the extracted www/index.html for your change
 ```
 
-Mockup galleries are **on demand only**. A normal push does not render or
-attach them. Run `npm run mockups -- --width <width> --out <folder>` when the
-owner explicitly requests a visual review.
+Mockup galleries are generated **after** a successful IPA workflow by the
+independent `post-release.yml` workflow. The installable Release exists before
+that workflow starts, so a gallery failure is visible and retryable without
+delaying or invalidating the `.ipa`. Run
+`npm run mockups -- --width <width> --out <folder>` when a local visual review
+is useful.
 
 ⚠️ **CORRECTED 2026-08-31 — this used to say "the tag triggers a macOS build".**
 It does not; `ios-build.yml` triggers on `push: branches: [main]` and has no tag

@@ -1,0 +1,193 @@
+name: Verify Release and publish mockups
+
+# The installable Release already exists before this workflow starts. A failure
+# here is visible and retryable, but cannot delay or invalidate the IPA build.
+on:
+  workflow_run:
+    workflows: ["Build unsigned iOS IPA"]
+    types: [completed]
+
+concurrency:
+  group: post-release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Re-download and verify the published IPA
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Read the released version
+        id: ver
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm the Release belongs to this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node assets/check-release-tag.js \
+            "${{ steps.ver.outputs.tag }}" \
+            "${{ github.event.workflow_run.head_sha }}"
+
+      - name: Require the completed IPA Release
+        run: |
+          set -euo pipefail
+          test "${{ steps.check.outputs.exists }}" = "true"
+
+      - name: Re-download and verify the published IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p published
+          gh release view "${{ steps.ver.outputs.tag }}" \
+            --json tagName,targetCommitish,assets > release.json
+          gh release download "${{ steps.ver.outputs.tag }}" \
+            --pattern BirdChaser-unsigned.ipa \
+            --dir published \
+            --clobber
+          node assets/verify-release-assets.js \
+            release.json \
+            "${{ steps.ver.outputs.tag }}" \
+            "${{ github.event.workflow_run.head_sha }}" \
+            BirdChaser-unsigned.ipa \
+            BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
+            > digests.json
+          EXPECTED="$(node -p "require('./digests.json')['BirdChaser-unsigned.ipa'].slice(7)")"
+          ACTUAL="$(sha256sum published/BirdChaser-unsigned.ipa | cut -d' ' -f1)"
+          echo "Published IPA SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          unzip -q published/BirdChaser-unsigned.ipa -d published/ipa
+          PUBLIC="$(find published/ipa/Payload -maxdepth 3 -type d -name public | head -n1)"
+          test -n "$PUBLIC"
+          node assets/verify-release-bundle.js \
+            "$PUBLIC" \
+            "${{ steps.ver.outputs.version }}"
+
+  mockups:
+    name: Render and attach 393px + 402px galleries
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Generate both exact-width galleries
+        run: |
+          set -euo pipefail
+          mkdir -p mockups/393 mockups/402
+          node assets/mockups.js --width 393 --out mockups/393 &
+          PID_393=$!
+          node assets/mockups.js --width 402 --out mockups/402 &
+          PID_402=$!
+
+          STATUS_393=0
+          STATUS_402=0
+          wait "$PID_393" || STATUS_393=$?
+          wait "$PID_402" || STATUS_402=$?
+          echo "393px renderer exit code: $STATUS_393"
+          echo "402px renderer exit code: $STATUS_402"
+          if [ "$STATUS_393" -ne 0 ] || [ "$STATUS_402" -ne 0 ]; then
+            echo "::error::Mockup rendering failed (393px=$STATUS_393, 402px=$STATUS_402)"
+            exit 1
+          fi
+
+      - name: Verify and package both galleries
+        run: |
+          set -euo pipefail
+          EXPECTED="$(node -p "require('./assets/mockups.js').SHOTS.length")"
+          for WIDTH in 393 402; do
+            test -f "mockups/$WIDTH/README.md"
+            ACTUAL="$(find "mockups/$WIDTH" -maxdepth 1 -type f -name '*.png' | wc -l)"
+            echo "${WIDTH}px gallery: $ACTUAL/$EXPECTED PNGs"
+            test "$ACTUAL" -eq "$EXPECTED"
+          done
+          zip -r BirdChaser-mockups.zip mockups
+          sha256sum BirdChaser-mockups.zip
+
+      - name: Preserve the gallery as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BirdChaser-mockups-${{ needs.verify.outputs.version }}
+          path: BirdChaser-mockups.zip
+          if-no-files-found: error
+
+      - name: Attach the gallery to the existing Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.verify.outputs.tag }}" \
+            BirdChaser-mockups.zip \
+            --clobber
+
+      - name: Re-download and verify the published gallery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf published
+          mkdir -p published
+          gh release view "${{ needs.verify.outputs.tag }}" \
+            --json tagName,targetCommitish,assets > release.json
+          gh release download "${{ needs.verify.outputs.tag }}" \
+            --pattern BirdChaser-mockups.zip \
+            --dir published \
+            --clobber
+          node assets/verify-release-assets.js \
+            release.json \
+            "${{ needs.verify.outputs.tag }}" \
+            "${{ github.event.workflow_run.head_sha }}" \
+            BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
+            BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
+            > digests.json
+          EXPECTED_DIGEST="$(node -p "require('./digests.json')['BirdChaser-mockups.zip'].slice(7)")"
+          ACTUAL_DIGEST="$(sha256sum published/BirdChaser-mockups.zip | cut -d' ' -f1)"
+          echo "Published mockup SHA-256: $ACTUAL_DIGEST"
+          test "$ACTUAL_DIGEST" = "$EXPECTED_DIGEST"
+          unzip -q published/BirdChaser-mockups.zip -d published/mockups
+          EXPECTED_COUNT="$(node -p "require('./assets/mockups.js').SHOTS.length")"
+          for WIDTH in 393 402; do
+            test -f "published/mockups/mockups/$WIDTH/README.md"
+            ACTUAL_COUNT="$(find "published/mockups/mockups/$WIDTH" \
+              -maxdepth 1 -type f -name '*.png' | wc -l)"
+            echo "Published ${WIDTH}px gallery: $ACTUAL_COUNT/$EXPECTED_COUNT PNGs"
+            test "$ACTUAL_COUNT" -eq "$EXPECTED_COUNT"
+          done

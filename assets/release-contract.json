@@ -1,0 +1,35 @@
+{
+  "requiredFiles": [
+    "index.html",
+    "logic.js",
+    "controls-toggle.js",
+    "cards-species.js",
+    "cards-hotspot.js",
+    "section-docs.json",
+    "info-dialogs.js"
+  ],
+  "forbiddenFiles": [
+    ".env",
+    ".env.local"
+  ],
+  "requiredText": {
+    "index.html": [
+      "APP_VERSION = '${version}'",
+      "<script src=\"controls-toggle.js\"></script>",
+      "parseEbirdAccountIdentity",
+      "openMegaIndexRow",
+      "PERSIST_DELAY_MS = 750",
+      "PREVIOUS SESSION (saved locally; secrets scrubbed)"
+    ],
+    "controls-toggle.js": [
+      "global.ToggleControls = api",
+      "aria-pressed="
+    ]
+  },
+  "forbiddenText": {
+    "index.html": [
+      "'bc_p:' + profile",
+      "id=\"abaDetail\""
+    ]
+  }
+}

@@ -91,13 +91,20 @@ nothing on anyone's phone. On `git push origin main`, `ios-build.yml` runs:
 | Order | Job | Runner | What it does |
 |---|---|---|---|
 | 1 | `test` | Ubuntu | `npm ci`, `npm test` (~670), `npm run test:layout` (real Chrome, 6 viewports) |
-| 2 | `build` | **macOS** | `npx cap add ios`, icons, `cap sync`, `xcodebuild`, zips `BirdChaser-unsigned.ipa` |
+| 2 | `build` | **macOS** | `npx cap add ios`, icons, `cap sync`, `xcodebuild`, zips `BirdChaser-unsigned.ipa`, then verifies its embedded version, required files, required markers and forbidden content |
 | 3 | `release` | Ubuntu | Reads `package.json` → if `vX.Y.Z` has no Release yet, **creates the tag and the Release**, attaching the `.ipa` this run built |
+| 4 | independent `post-release.yml` | Ubuntu | After the IPA workflow succeeds, checks out its exact SHA, re-downloads and verifies the published IPA, then renders 393px + 402px galleries and attaches `BirdChaser-mockups.zip` |
 
 So the version in `package.json` decides the tag name, and bumping it *is*
 cutting the release. The job is idempotent — safe on every push, including ones
 that don't touch the version. ⚠️ Push two version bumps at once and only the
 newest is ever released.
+
+The fourth stage is deliberately a separate `workflow_run`. The installable
+Release already exists before it starts, so a mockup failure cannot delay,
+fail, or invalidate the IPA. Its integrity failure is still visible and its
+failed jobs can be rerun. Both published assets are checked against GitHub's
+recorded SHA-256 digests.
 
 Bump **both** version fields together or `tests/version.test.js` fails:
 
@@ -146,7 +153,7 @@ needs the cloud Mac.
 npm install
 npm test                 # unit + syntax + DOM suites (jsdom)
 npm run test:layout      # six viewport/text combos in real Chrome
-npm run mockups          # static UI mockups (also attached to each Release)
+npm run mockups          # local static-UI preview; CI also attaches both release widths
 npm run info-catalog     # rebuild docs/info-dialogs.html from the app's prose sources
 # open www/index.html in a browser to preview the UI
 ```

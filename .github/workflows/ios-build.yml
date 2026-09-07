@@ -121,6 +121,16 @@ jobs:
           zip -r -y "$GITHUB_WORKSPACE/BirdChaser-unsigned.ipa" Payload
           ls -lh "$GITHUB_WORKSPACE/BirdChaser-unsigned.ipa"
 
+      - name: Verify packaged IPA contents
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          rm -rf release-check
+          unzip -q BirdChaser-unsigned.ipa -d release-check
+          PUBLIC="$(find release-check/Payload -maxdepth 3 -type d -name public | head -n1)"
+          test -n "$PUBLIC"
+          node assets/verify-release-bundle.js "$PUBLIC" "$VERSION"
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
