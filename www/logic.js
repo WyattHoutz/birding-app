@@ -313,6 +313,14 @@
       tzStdOffset: -8, tzObservesDst: true,
       activeFrom: '2026-06-28', activeTo: '2026-07-04'
     },
+    hi: {
+      slug: 'hi', label: 'Hawaii', kind: 'region', stateCode: 'US-HI',
+      counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
+      home: { lat: 19.95, lng: -155.79 }, homeLabel: 'Waikoloa, Big Island',
+      geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 35, tideStation: '1617433',
+      geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
+      tzStdOffset: -10, tzObservesDst: false
+    },
     waikoloa: {
       slug: 'waikoloa', label: 'Waikoloa / Big Island Trip', kind: 'trip', stateCode: 'US-HI',
       counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
@@ -325,7 +333,7 @@
   };
 
   // publish.py REGION_ORDER — drives the report selector order.
-  var REGION_ORDER = ['wa', 'mo', 'ks', 'az', 'ca', 'lower48', 'aba', 'fort-casey', 'waikoloa'];
+  var REGION_ORDER = ['wa', 'mo', 'ks', 'az', 'ca', 'lower48', 'aba', 'fort-casey', 'hi', 'waikoloa'];
 
   // Backwards-compatible alias (older callers referenced PROFILES['US-WA']).
   var PROFILES = REPORTS;

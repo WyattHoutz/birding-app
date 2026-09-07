@@ -95,7 +95,21 @@ test('registry: REGION_ORDER matches REPORTS keys (no orphans)', () => {
   const keys = Object.keys(BL.REPORTS).sort();
   const order = BL.REGION_ORDER.slice().sort();
   assert.deepEqual(order, keys, 'every ordered slug has a report and vice-versa');
-  assert.equal(BL.REGION_ORDER.length, 9, 'ships 9 reports');
+  assert.equal(BL.REGION_ORDER.length, 10, 'ships 10 reports');
+});
+
+test('registry: US-HI is a permanent Hawaii report, not only the Waikoloa trip', () => {
+  const hi = BL.profileFor('hi');
+  assert.equal(hi.slug, 'hi', 'the Hawaii report has its own slug');
+  assert.equal(hi.label, 'Hawaii');
+  assert.equal(hi.kind, 'region', 'Hawaii is a permanent region');
+  assert.equal(hi.stateCode, 'US-HI');
+  assert.deepEqual(hi.counties.map((c) => c.code), ['US-HI-001'],
+    'the built-in Hawaii report keeps the supported Hawaii County feed');
+  assert.equal(BL.profileFor('US-HI').slug, 'hi',
+    'the US-HI code resolves to the permanent report, not the trip');
+  assert.equal(BL.profileFor('waikoloa').kind, 'trip',
+    'the existing Waikoloa trip remains available separately');
 });
 
 test('registry: every profile carries the fields the app relies on', () => {

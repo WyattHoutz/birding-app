@@ -202,15 +202,23 @@
       "inputs": [
         "the ABA Rarities needs alert (SN10489)",
         "a rolling local archive of that alert",
-        "the region's own notable feed"
+        "the selected species' regional detail feed plus its US and Canada per-species location feeds",
+        "GBIF state/national history, Wikipedia, and the finder checklist only after that species is opened"
       ],
       "how": [
-        "Three complementary sources are UNIONED. The alert page caps at 500 observations continent-wide and is a shifting window, so a state bird can fall off it entirely; the archive supplies memory and the region feed supplies scope.",
+        "Mega is a species index. Its photo, name, chevron and otherwise-unclaimed row space all open Stakeout bird for that exact eBird species code.",
+        "Alert, detail-feed and device-archive duplicates merge field by field, so alert observer/review fields survive alongside detail-feed location ids, scientific names, evidence and comments.",
+        "A transient in-memory context is scoped by report, region, alert SID, ABA scope and load generation. Older state, ABA-wide or lazy callbacks cannot repaint a newer view, and no Mega rows or promises are serialized into storage or the DOM.",
+        "Washington/ABA scope and Newest/Nearest sort are local projections of the fetched alert. They repaint without another scrape; a scope change gets a distinct context key while a sort change reuses the current view.",
+        "The one Stakeout medium species card paints held Mega evidence immediately, before its ordinary current-place request settles: ABA Code 3+ context, exact latest report and device-held report history.",
+        "Regional detail, ABA-wide spread, finder-checklist detail, GBIF history and Wikipedia remain lazy for the selected species only. Stakeout reuses that selected view's one regional promise instead of issuing a second differently shaped request, and a failed regional read remains an error rather than becoming a false no-reports answer.",
         "Species are kept only if the ABA checklist codes them 3 or higher.",
-        "Because these are strange birds you may never have seen, each gets a full card: a large photo, the name at headline size, a description, and the rarity evidence — how many reports, observers, distinct places and days it has, which for a Code 3+ bird is often a single digit. The app also counts reports ABA-wide and how many states or provinces have it at all, because it holds the unfiltered alert; the report is already state-scoped and shows the local numbers only."
+        "Back returns to the matching Mega list only while that exact view is current; ordinary Stakeout searches, Close, report/SID/scope changes and newer Mega loads clear the origin."
       ],
       "limits": [
-        "Review status changes; a record shown here may later be reclassified."
+        "Review status changes; a record shown here may later be reclassified.",
+        "The public alert is capped at 500 observations in taxonomic order, so a full page can omit whole species. ABA-wide figures therefore come from the uncapped species feeds and are locations/states, not a claimed report total.",
+        "The report archive is device-held history, not an all-time census; the card states when this device began retaining it."
       ]
     },
     "lastNewBtn": {
@@ -293,10 +301,11 @@
         "Hotspots are scored on all-time species with a distance decay, so a 40-species puddle two minutes away does not beat a real site.",
         "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
         "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
-        "Hotspots birded in the last 10 days are penalised but not removed."
+        "Hotspots birded in the last 10 days are penalised but not removed.",
+        "In the app, a hotspot already present in Today's patches reuses that section's scored unseen rows; otherwise the card hydrates unseen and seen species from the place's last 30 days, with the wider local-history window labelled and each row keeping its report date."
       ],
       "limits": [
-        "This is about places, not birds — it does not know what is being seen there today.",
+        "The place ranking is about all-time richness, not a claim that every listed bird is present today. The app's species list is recent local evidence, not a live forecast.",
         "In the app the origin is yours to choose, so the rows can differ from the Markdown report, which can only ever rank from a fixed anchor."
       ]
     },
@@ -456,7 +465,8 @@
       "inputs": [
         "eBird product/spplist for the active region and, only after an empty match, each parent region in order",
         "data/obs/{region}/recent/{code}, the per-species observation feed",
-        "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the identification ladder"
+        "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the identification ladder",
+        "when opened from Mega rarities only, that current in-memory Mega view's raw reports, state/ABA-wide promises and evidence"
       ],
       "how": [
         "Typed text is matched against common and scientific names. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level.",
@@ -466,6 +476,9 @@
         "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
         "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
         "The first 25 places paint immediately. Show more appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
+        "A Mega-launched lookup still renders exactly one medium species card. Mega evidence is prepended inside that card while the ordinary place list, map, date/distance/iconic controls, arrival note and unwatched-place lane continue below it.",
+        "An honestly empty active-region sightings result keeps the Mega evidence visible rather than replacing it with an empty-state message.",
+        "Back returns to the source Mega list only if its report/region/SID/scope/generation key is still current; otherwise it returns to Contents.",
         "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
         "A compact Most specific spuh answer starts loading independently of the sightings request. It uses the minimal proven candidate set, keeps equivalent labels together, marks coverage-limited wording, and links every label into Spuh finder.",
         "The full class, order, family, genus and species Identification path is collapsed below that answer. Expanding it preserves every broad-to-specific level and the comparison tool without making the default lookup a full screen of taxonomy.",
@@ -476,6 +489,7 @@
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
         "The name lookup can identify a bird outside the region, but the sightings answer remains scoped to the active report. A fallback match may therefore lead to the honest answer that there are no local reports in the active window.",
         "The per-species feed returns only the most recent report at each place. One row per place is the endpoint's limit, not the bird's full history; repeated visits at the same place may be omitted.",
+        "Mega context is transient and exact-code only. Ordinary search and generic species links clear it, so rarity evidence cannot attach to a different bird.",
         "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
         "Seventy-nine labels are shown with a dashed Coverage limit warning and are never selected automatically: 73 parenthetical glosses whose narrower membership is not published (58 share coverage with another spuh and 15 are lone labels), five named subfamilies, and the mixed Buteo/eagle group."
       ]

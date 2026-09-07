@@ -1078,19 +1078,10 @@
                margin-left: 0.25em; line-height: 0;
                filter: drop-shadow(0 0.5px 1px rgba(0,0,0,.35)); }
     .perspin svg { width: 0.95em; height: 0.95em; display: block; }
-    /* ⚠️ `.abajump` HAD NO RULE AT ALL, so a Mega-rarities name rendered as a
-       BARE BROWSER LINK - blue and underlined - while every other card name is
-       app-styled. Reported 2026-08-27: "bird name isnt formated like other
-       templates". It is an <a> with a real href (the profile is a sub-page, so
-       the hash is meaningful), which is exactly why the UA stylesheet reached
-       it when the classed links elsewhere were never touched.
-       Colour and decoration only: the card family already normalises a title
-       link's SIZE and WEIGHT (see cards-species.js), so restating those here
-       would be the second definition of one shape this project keeps deleting. */
-    .abajump { color: var(--ink); text-decoration: none; }
-    .abajump:hover, .abajump:focus-visible { text-decoration: underline; }
-    /* The photo is a link now, but it must not gain link chrome or spacing. */
-    .abaphoto { display: contents; color: inherit; text-decoration: none; }
+    /* Mega rows are in-app Stakeout links, not browser-blue document anchors. */
+    .megajump { color: var(--ink); text-decoration: none; }
+    .megajump:hover, .megajump:focus-visible { text-decoration: underline; }
+    .megaphoto { display: contents; color: inherit; text-decoration: none; }
     .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     /* A checklist id is the one thing on its line you can actually open, and
        it was set at the size of the metadata around it. Raised to the tag
@@ -1244,6 +1235,12 @@
     .bcsince { font-size: calc(12px * var(--s)); color: var(--muted); margin-top: 3px; line-height: 1.35; }
     .bcwhere .lbl { font-size: calc(12px * var(--s)); font-weight: 800; color: var(--muted);
                     text-transform: uppercase; letter-spacing: .04em; }
+    .megaevidence { grid-column: 1 / -1; min-width: 0; margin-top: 4px; }
+    .megaorigin { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px;
+                  margin: 2px 0 8px; font-size: calc(13px * var(--s)); color: var(--muted); }
+    .megaorigin .stakeflag { margin: 0; white-space: nowrap; }
+    .megahistory:empty, .megawiki:empty { display: none; }
+    .megareports { margin-bottom: 12px; }
     .convoywrap { margin: 8px 0 14px; }
     .convoysppbox { font-size: calc(13px * var(--s)); margin-top: 4px; line-height: 1.45; }
     .convoyhead { font-size: calc(13px * var(--s)); font-weight: 800; margin: 10px 0 4px; }
@@ -1814,10 +1811,6 @@
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .seenflag, .needflag { display: inline-block; white-space: nowrap; }
-    /* The ABA rarities list, and the profile that opens over it. The list is
-       the section; a bird is a SUB-PAGE, so the profile gets the whole screen
-       rather than being the tenth thing you scroll past. */
-    #abaDetail { margin-top: 2px; }
     /* The convoy's already-seen birds, folded away: the unseen list above is
        the finding, and this is the context it is contrasted with — but at a
        busy convoy it was the longer of the two and buried the answer. */
@@ -2578,9 +2571,8 @@
       <!-- The per-birder SUB-PAGE, and the actual feature: the leaderboard is
            only a way in. One birder's full patch list runs to 138 hotspots, so
            a hundred of them inlined under a leaderboard would be a section you
-           scroll past rather than read. Same shape as the mega-rarity profile
-           above — the navbar back button returns to the list rather than to
-           Contents, because back means "up one level". -->
+           scroll past rather than read. The navbar back button returns to the
+           list rather than to Contents, because back means "up one level". -->
       <div id="patchDetail" hidden>
         <div class="row">
           <button id="patchBack" class="secondary" type="button">‹ All birders</button>
@@ -2607,17 +2599,6 @@
       <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
       <div id="abaCapWarn" hidden></div>
       <ul id="abaResults" class="obs"></ul>
-      <!-- The detail SUB-PAGE. Each bird here is a full profile — latest
-           report, finder, every report we hold, state history — so a dozen
-           megararities was a dozen screens to scroll past. The section shows
-           the species LIST; one bird's profile opens over it, with the navbar
-           back button returning to the list rather than to Contents. -->
-      <div id="abaDetail" hidden>
-        <div class="row">
-          <button id="abaBack" class="secondary" type="button">‹ All rarities</button>
-        </div>
-        <div id="abaDetailCards" class="cards"></div>
-      </div>
     </section>
 
     <section class="panel">
@@ -2796,9 +2777,10 @@
         re-fetching them per profile would burn the API budget you are trying to test.</p>
       <label for="ebirdName">eBird display name</label>
       <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your public eBird display name" />
-      <p class="hint">Used to find your row and your own checklists. An API key identifies
-        the app, not the account, so eBird does not return this name with the key. Importing
-        MyEBirdData.csv fills it when that export contains First Name and Last Name.</p>
+      <p class="hint" id="ebirdNameHint">Used to find your row and your own checklists.
+        Bird Chaser reads it from the signed-in account menu on the same eBird bird-list
+        page it already uses. The API key and public web key do not identify the account.
+        A manually entered name is never overwritten.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
@@ -3057,6 +3039,35 @@
         'bc_theme'                  // a look, not a list - shared like text size
       ];
       var _rawLS = window.localStorage;
+      var WEB_SESSION_BLOCK_KEY = 'bc_ebird_web_session_untrusted';
+      var _webSessionClearing = false;
+      var _webSessionReady = _rawLS.getItem(WEB_SESSION_BLOCK_KEY) !== '1';
+      function clearEbirdWebSession() {
+        _identityGeneration++;
+        _webSessionClearing = true;
+        _webSessionReady = false;
+        var IB = null, clearing = null;
+        try { IB = ib(); } catch (e) { IB = null; }
+        if (IB && typeof IB.clearAllBrowsingData === 'function') {
+          try { clearing = IB.clearAllBrowsingData(); }
+          catch (e) { clearing = Promise.reject(e); }
+        } else {
+          clearing = Promise.resolve();
+        }
+        return Promise.resolve(clearing).then(function () {
+          _webSessionClearing = false;
+          _webSessionReady = true;
+          try { _rawLS.removeItem(WEB_SESSION_BLOCK_KEY); } catch (e) {}
+          _identityGeneration++;
+          return true;
+        }).catch(function () {
+          _webSessionClearing = false;
+          _webSessionReady = false;
+          try { _rawLS.setItem(WEB_SESSION_BLOCK_KEY, '1'); } catch (e) {}
+          _identityGeneration++;
+          return false;
+        });
+      }
       function bcProfile() {
         try { return (_rawLS.getItem(PROFILE_PTR) || '').trim(); } catch (e) { return ''; }
       }
@@ -3103,8 +3114,31 @@
       // the chase snapshot are all built from the previous account; repainting
       // over them would show one birder's list under another's key.
       function bcSetProfile(p) {
-        try { _rawLS.setItem(PROFILE_PTR, String(p == null ? '' : p).trim()); } catch (e) {}
-        try { window.location.reload(); } catch (e) {}
+        var next = String(p == null ? '' : p).trim(), prev = bcProfile();
+        function finish() {
+          try { _rawLS.setItem(PROFILE_PTR, next); } catch (e) {}
+          try { window.location.reload(); } catch (e) {}
+        }
+        if (next === prev) { finish(); return; }
+
+        // WebKit's cookie jar is process-wide, while Bird Chaser profiles are
+        // localStorage namespaces. Carrying the old eBird login into a new
+        // profile would let its first bird-list capture silently name the new
+        // slot as the old account. Clear the shared browser session BEFORE the
+        // pointer moves; if clearing fails, do not switch into an ambiguous
+        // account context.
+        var IB = null;
+        try { IB = ib(); } catch (e) { IB = null; }
+        if (!(IB && typeof IB.clearAllBrowsingData === 'function')) {
+          finish();
+          return;
+        }
+        clearEbirdWebSession().then(function (cleared) {
+          if (cleared) finish();
+          else {
+            try { setKeyStatus('Could not clear the previous eBird browser session. Profile was not switched.', 'bad'); } catch (_) {}
+          }
+        });
       }
       // F188: A PROFILE NEEDS A NAME, not a slot number.
       //
@@ -3125,10 +3159,13 @@
         try { return JSON.parse(_rawLS.getItem(PROFILE_NAME_KEY) || '{}') || {}; }
         catch (e) { return {}; }
       }
+      function profileNameValue(name) {
+        return String(name || '').slice(0, 24);
+      }
       function setProfileName(slot, name) {
         var all = profileNames();
         var k = String(slot || '');
-        if (name) all[k] = String(name).slice(0, 24); else delete all[k];
+        if (name) all[k] = profileNameValue(name); else delete all[k];
         try { _rawLS.setItem(PROFILE_NAME_KEY, JSON.stringify(all)); } catch (e) {}
       }
       // The DEFAULT slot is "Main" and the others fall back to their slot
@@ -3145,7 +3182,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.74.0';
+      var APP_VERSION = '1.82.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -3211,7 +3248,11 @@
       }
       var COUNTY_META_NS = 'bc_county_meta_v1:';
       var _countyCatalogInflight = {};
-      var _countySeedPromise = null, _countySeedOverride = null;
+      var COUNTY_SEED_FILES = {
+        'US-WA': 'county-bounds-wa.json',
+        'US-HI': 'county-bounds-hi.json'
+      };
+      var _countySeedPromises = {}, _countySeedOverride = null;
       var _travelZonesPromise = null;
 
       function loadTravelZones() {
@@ -3275,17 +3316,20 @@
       function loadCountySeed(parent) {
         parent = String(parent || '').trim().toUpperCase();
         if (_countySeedOverride) {
-          return Promise.resolve(parent === 'US-WA'
-            ? Object.keys(_countySeedOverride).map(function (code) {
-                return countyInfoRow(_countySeedOverride[code], {
-                  code: code, name: _countySeedOverride[code].name || code
+          var override = _countySeedOverride[parent]
+            || (parent === 'US-WA' ? _countySeedOverride : null);
+          return Promise.resolve(override
+            ? Object.keys(override).map(function (code) {
+                return countyInfoRow(override[code], {
+                  code: code, name: override[code].name || code
                 });
               }).filter(Boolean)
             : []);
         }
-        if (parent !== 'US-WA') return Promise.resolve([]);
-        if (!_countySeedPromise) {
-          _countySeedPromise = fetch('county-bounds-wa.json').then(function (r) {
+        var asset = COUNTY_SEED_FILES[parent];
+        if (!asset) return Promise.resolve([]);
+        if (!_countySeedPromises[parent]) {
+          _countySeedPromises[parent] = fetch(asset).then(function (r) {
             if (!r || !r.ok) throw new Error('Bundled county bounds are unavailable');
             return r.json();
           }).then(function (doc) {
@@ -3295,12 +3339,12 @@
               });
             }).filter(Boolean);
           }).catch(function (e) {
-            _countySeedPromise = null;
+            delete _countySeedPromises[parent];
             dbg('warn', 'county seed: ' + ((e && e.message) || e));
             return [];
           });
         }
-        return _countySeedPromise;
+        return _countySeedPromises[parent];
       }
 
       function ensureCountyCatalog(parent, onProgress, work) {
@@ -3319,7 +3363,7 @@
             var rows = countyListRows(cached);
             if (rows.length) return rows;
             if (cached != null) forgetCountyValue(listKey, listPath);
-            return ebird(listPath, true, true, work).then(function (live) {
+            return ebird(listPath, true, true, false, work).then(function (live) {
               rows = countyListRows(live);
               if (!rows.length) {
                 forgetCountyValue(listKey, listPath);
@@ -3340,7 +3384,7 @@
             // Bounds are reference enrichment, not the answer the reader
             // tapped for. They share the one limiter and use its background
             // lane, so a new interactive section always goes first.
-            return ebird(path, true, true, work).then(function (live) {
+            return ebird(path, true, true, false, work).then(function (live) {
               row = countyInfoRow(live, item);
               if (!row) {
                 forgetCountyValue(key, path);
@@ -3448,7 +3492,12 @@
           }
           var cap = BL.travelBandMaxStraightMi(cfg, bandId);
           if (!(cap > 0)) throw new Error('No straight-line ceiling for ' + bandId);
-          var scope = BL.deriveCountyScope(home, catalog.rows, cap);
+          // Hawaii has no drivable connection between counties. A
+          // straight-line road tier must not turn 63 miles of
+          // ocean into a Full-day drive, so only the county containing Home is
+          // eligible. A zero edge distance means Home is inside its bounds.
+          var scope = BL.deriveCountyScope(home, catalog.rows,
+            parent === 'US-HI' ? 0 : cap);
           if (!scope.length) {
             throw new Error(catalog.complete
               ? 'No counties are inside this destination tier from Home'
@@ -3529,9 +3578,10 @@
 
   // -- Erasing everything this app knows about you -------------------------
   //
-  // Every key the app writes is namespaced `ebird_`, so the scrub enumerates
-  // localStorage and matches on that PREFIX rather than deleting a list of
-  // known names.
+  // Every personal key the app writes is namespaced `ebird_`, so the scrub
+  // enumerates localStorage and matches on that PREFIX rather than deleting a
+  // list of known names. The one shared profile-label MAP is handled entry by
+  // entry below so erasing one account does not erase the other account names.
   //
   // That is not defensive coding for its own sake. Three of the keys are
   // themselves prefixes with one entry per region — ebird_home_<slug>,
@@ -3546,21 +3596,51 @@
   // derived taxonomy model in IndexedDB; the erase handler clears that store
   // explicitly after this synchronous localStorage sweep.
   var SCRUB_PREFIX = 'ebird_';
+  var _scrubbedPendingReload = false;
 
   function scrubbableKeys() {
     var out = [];
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
-      if (k && k.indexOf(SCRUB_PREFIX) === 0) out.push(k);
+      // Profile labels live in one raw map so the picker can name inactive
+      // profiles. Erasing one profile must remove only that map entry, not
+      // every other account's label.
+      if (k && k !== PROFILE_NAME_KEY && k.indexOf(SCRUB_PREFIX) === 0) out.push(k);
     }
     return out;
   }
 
+  function scrubCurrentProfileName() {
+    var all = profileNames(), slot = String(bcProfile());
+    if (!Object.prototype.hasOwnProperty.call(all, slot)) return false;
+    delete all[slot];
+    try {
+      if (Object.keys(all).length) _rawLS.setItem(PROFILE_NAME_KEY, JSON.stringify(all));
+      else _rawLS.removeItem(PROFILE_NAME_KEY);
+      return true;
+    } catch (e) { return false; }
+  }
+
   function scrubPersonalData() {
+    // Immediate write barrier. Removing the persisted revision would otherwise
+    // make an old request that started at revision zero look current again.
+    // The in-memory generation can only move forward during this process.
+    _identityGeneration++;
+    _scrubbedPendingReload = true;
     var keys = scrubbableKeys(), n = 0;
     for (var i = 0; i < keys.length; i++) {
       try { localStorage.removeItem(keys[i]); n++; } catch (e) { /* quota/private mode */ }
     }
+    if (scrubCurrentProfileName()) n++;
+    if ($('ebirdName')) {
+      $('ebirdName').value = '';
+      $('ebirdName').dataset.loadedValue = '';
+    }
+    if ($('bcProfileName')) {
+      $('bcProfileName').value = '';
+      $('bcProfileName').dataset.loadedValue = '';
+    }
+    if ($('saveBtn')) $('saveBtn').disabled = true;
     // The bundled sample list is someone else's birding history. Having just
     // erased yours, silently repopulating the app with theirs on next load is
     // not a clean slate — so mark it dismissed. This is written AFTER the sweep
@@ -3931,7 +4011,7 @@
         }
         // The chase radius became per-report at the same time and for the same
         // reason. A value chosen while one report was open migrates into THAT
-        // report rather than being applied to all nine.
+        // report rather than being applied to all ten.
         var c = localStorage.getItem(CHASE_MI_KEY);
         if (c !== null) {
           if (localStorage.getItem(chaseMiKey()) === null) localStorage.setItem(chaseMiKey(), c);
@@ -4022,12 +4102,21 @@
         if (!me) return false;
         return String((row && row.userDisplayName) || '').trim().toLowerCase() === me;
       }
-      // Which of your checklists this feed knows about that we have not read.
+      // product/lists exposes no edit timestamp, but its numSpecies follows the
+      // current checklist body. Measured on an edited Hawaii row: 13 in the
+      // list, 13 in checklist/view, with lastEditedDt later than submission.
+      function ownListFingerprint(row) {
+        var n = parseInt(row && row.numSpecies, 10);
+        return isFinite(n) && n >= 0 ? 'n:' + n : 'read';
+      }
+      // Which of your checklists this feed knows about that we have not read,
+      // or whose species count changed since the last read.
       function ownNewSubs(lists) {
         var done = ownSeenMeta() || {}, seenSubs = done.subs || {}, out = [];
         (lists || []).forEach(function (r) {
           var sub = r && (r.subId || r.subID);
-          if (!sub || seenSubs[sub] || !isOwnRow(r)) return;
+          if (!sub || !isOwnRow(r)) return;
+          if (seenSubs[sub] === ownListFingerprint(r)) return;
           out.push(sub);
         });
         return out;
@@ -4133,47 +4222,53 @@
       // Fire and forget: nothing on screen waits for it, and a failure must
       // never be visible as anything other than a list that did not grow.
       var _ownHarvestStarted = false, _ownHarvestTimer = null;
+      var _ownHarvestScan = null, _ownHarvestInflight = null;
       var OWN_HARVEST_DELAY_MS = 6000;
-      function scheduleOwnHarvest(delayMs) {
+      function scheduleOwnHarvest(delayMs, force) {
         var work = navWork('own-checklist harvest');
         clearTimeout(_ownHarvestTimer);
-        _ownHarvestTimer = setTimeout(function () {
-          ensureOwnHarvest(work).catch(function (e) {
-            if (!(e && e.queueCancelled)) {
-              dbg('warn', 'own-checklist harvest stopped: ' + ((e && e.message) || e));
-            }
-          });
-        },
+        _ownHarvestTimer = setTimeout(function () { ensureOwnHarvest(work, force); },
           delayMs == null ? OWN_HARVEST_DELAY_MS : delayMs);
       }
-      function ensureOwnHarvest(work) {
+      function ensureOwnHarvest(work, force) {
+        work = work || navWork('own-checklist harvest');
         if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
-        if (_ownHarvestStarted) return Promise.resolve(0);
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+        if (_ownHarvestScan) return _ownHarvestScan;
+        if (_ownHarvestStarted && !force) return Promise.resolve(0);
+        if (force) {
+          resetListsCache(true);
+          fgCancelForExclusive(work);
+        }
         _ownHarvestStarted = true;
-        var feeds = BL.planConvoyFeeds(getReport());
-        return Promise.all(feeds.map(function (f) {
-          return ebird(BL.requestUrl(f), true, false, work);
-        })).then(function (results) {
+        _ownHarvestScan = recentLists(true, work, !!force).then(function (lists) {
           if (!workCurrent(work)) throw queueCancelledError(work);
-          var lists = [];
-          results.forEach(function (rows) {
-            if (Array.isArray(rows)) lists.push.apply(lists, rows);
-          });
-          try { harvestOwnChecklists(lists); } catch (e) {}
-          try { updateMyYear(); } catch (e) {}
-          // F8. The recent feeds only reach back as far as 200 checklists per
-          // county — measured at 2 days in King County — so they can never
-          // rebuild a YEAR. The backfill walks the rest, well behind this.
-          try { startOwnBackfill(undefined, work); } catch (e) {}
-          return 1;
+          return runOwnHarvest(lists, work, !!force);
         }).catch(function (e) {
           if (e && e.queueCancelled) {
             _ownHarvestStarted = false;
             throw e;
           }
           return 0;
+        }).finally(function () {
+          _ownHarvestScan = null;
         });
+        return _ownHarvestScan;
+      }
+      function runOwnHarvest(lists, work, urgent) {
+        if (_ownHarvestInflight) return _ownHarvestInflight;
+        _ownHarvestStarted = true;
+        _ownHarvestInflight = harvestOwnChecklists(lists, work, urgent).then(function (n) {
+          try { updateMyYear(); } catch (e) {}
+          // F8. The recent feeds only reach back as far as 200 checklists per
+          // county — measured at 2 days in King County — so they can never
+          // rebuild a YEAR. The backfill walks the rest, well behind this.
+          try { startOwnBackfill(undefined, work); } catch (e) {}
+          return n;
+        }).finally(function () {
+          _ownHarvestInflight = null;
+        });
+        return _ownHarvestInflight;
       }
 
       // ── F8, THE CHEAP PATH: ONE CALL INSTEAD OF SEVEN HUNDRED ────────────
@@ -4615,10 +4710,6 @@
             _backfillTimer = setTimeout(function () { backfillTick(work); },
               BACKFILL_GAP_MS);
           }
-        }).catch(function (e) {
-          if (!(e && e.queueCancelled)) {
-            dbg('warn', 'own-list backfill stopped: ' + ((e && e.message) || e));
-          }
         });
       }
       function startOwnBackfill(delayMs, workOverride) {
@@ -4662,7 +4753,7 @@
           + '<b>Until it finishes this list may be short.</b></div>';
       }
 
-      function harvestOwnChecklists(lists) {        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+      function harvestOwnChecklists(lists, work, urgent) {        if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         var subs = ownNewSubs(lists).slice(0, OWN_HARVEST_MAX);
         if (!subs.length) return Promise.resolve(0);
         var bySub = {};
@@ -4674,11 +4765,15 @@
         meta.subs = meta.subs || {};
         var learned = 0, fresh = [];
         return pool(subs, 2, function (sub) {
-          return checklistView(sub, true).then(function (d) {
+          var row = bySub[sub] || {};
+          // A selected row is new or changed. Either way, an older checklist
+          // body cached by another section cannot answer what eBird says now.
+          forgetChecklistView(sub);
+          return checklistView(sub, !urgent, work, urgent).then(function (d) {
             // Recorded even when empty, so a checklist with nothing readable
             // is not re-fetched every launch.
-            meta.subs[sub] = 1;
-            var row = bySub[sub] || {}, loc = row.loc || {};
+            meta.subs[sub] = ownListFingerprint(row);
+            var loc = row.loc || {};
             var when = ownListDate(row.isoObsDate || row.obsDt || (d && d.obsDt) || '');
             ((d && d.obs) || []).forEach(function (o) {
               var c = String(o.speciesCode || '').trim().toLowerCase();
@@ -5378,6 +5473,26 @@
         }
         fgProgressSync();
       }
+      function fgCancelForExclusive(work) {
+        var isOther = function (job) { return job.work !== work; };
+        _fgWaiters = fgRejectQueued(_fgWaiters, isOther,
+          'Superseded by the section being refreshed');
+        _fgBgWaiters = fgRejectQueued(_fgBgWaiters, isOther,
+          'Superseded by the section being refreshed');
+        if (!_fgBgWaiters.length && _fgBgWake) {
+          clearTimeout(_fgBgWake);
+          _fgBgWake = null;
+        }
+        var active = _fgActiveJob;
+        if (active && !active.started && isOther(active)) {
+          if (active.timer) clearTimeout(active.timer);
+          fgRestoreReservation(active);
+          active.reject(queueCancelledError(active.work,
+            'Superseded by the section being refreshed'));
+          fgRelease(active);
+        }
+        fgProgressSync();
+      }
       function fgCancelAll(message) {
         _workCancelGeneration++;
         _fgWaiters = fgRejectQueued(_fgWaiters, function () { return true; }, message);
@@ -5828,8 +5943,9 @@
       // `bg` marks a call nobody is waiting on — the detached phase-2 species
       // wave. It is only a QUEUE POSITION, never a different rate: both lanes
       // share the token bucket, the rolling window and the AIMD gap.
-      function ebird(path, bg, noRefCache, work) {
-        var hit = _ebCache[path];
+      function ebird(path, bg, noRefCache, noMemoryCache, work) {
+        noMemoryCache = !!noMemoryCache;
+        var hit = noMemoryCache ? null : _ebCache[path];
         if (hit && !workCurrent(hit.work)) {
           delete _ebCache[path];
           hit = null;
@@ -5910,10 +6026,14 @@
             var tm = fgTiming(stat, t0);
             dbg('error', 'failed after ' + fgTimingStr(tm) + ' · ' + path
               + ' · ' + ((e && e.message) || e));
-            if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
+            if (!noMemoryCache && _ebCache[path] && _ebCache[path].p === p) {
+              delete _ebCache[path];
+            }
             throw e;
           });
-        _ebCache[path] = { t: Date.now(), p: p, work: work || null };
+        if (!noMemoryCache) {
+          _ebCache[path] = { t: Date.now(), p: p, work: work || null };
+        }
         return p;
       }
       // One limiter, two priority lanes. The former `ebirdBg` implementation
@@ -5925,7 +6045,7 @@
       var RL_MAX_RETRY = 4, RL_RETRY_CODES = { 429: 1, 500: 1, 502: 1, 503: 1, 504: 1 };
       function rlSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
       function ebirdBg(path, work) {
-        return ebird(path, true, false, work);
+        return ebird(path, true, false, false, work);
       }
       function rlPending() {
         return _fgBgWaiters.length
@@ -6005,58 +6125,6 @@
           '|' + (isFinite(ln) ? ln.toFixed(4) : '0');
       }
 
-      // --- Baseball cards -----------------------------------------------------
-      // A rarity section holds a handful of birds you have most likely never
-      // seen, so a table row is the wrong shape: the questions are "what does it
-      // look like", "how rare is this really", and "what IS it" — in that order.
-      // Shared by the ABA Code 3+ section and Today's rarity reports so the two
-      // cannot drift apart.
-      function birdCard(o) {
-        var li = document.createElement('li');
-        li.className = 'bcard';
-        var stats = (o.stats || []).filter(function (s) { return s && s.n != null && s.n !== ''; })
-          .map(function (s) {
-            return '<div class="bcstat' + (s.hot ? ' hot' : '') + '"><b>' + esc(String(s.n)) +
-              '</b><small>' + esc(s.label) + '</small></div>';
-          }).join('');
-        li.innerHTML =
-          heroSlot(o.name, o.code) +
-          '<div class="bcbody">' +
-            '<h3 class="bcname">' + speciesLink(o.name || o.code || 'Unknown species', o.code) +
-              (o.badges || '') + '</h3>' +
-            (o.sub ? '<div class="bcsub">' + o.sub + '</div>' : '') +
-            // The current report is the only line on the card you act on, so it
-            // sits directly under the name at full size, ABOVE the evidence
-            // numbers and the archive. Everything below it is context.
-            (o.now ? '<div class="bcnow">' + o.now + '</div>' : '') +
-            (o.first ? '<div class="bcnow bcfirst">' + o.first + '</div>' : '') +
-            (o.hist || '') +
-            (stats ? '<div class="bcstats">' + stats + '</div>' : '') +
-            '<p class="bcextract" data-bird="' + esc(o.name || '') + '"></p>' +
-            (o.where ? '<div class="bcwhere">' + o.where + '</div>' : '') +
-          '</div>';
-        return li;
-      }
-      // Fills the card backs. Deliberately serial and lazy for the same reason
-      // photo hydration is: a rarity card's blurb is nice to have, and it must
-      // never compete with the feed reads that decide whether you drive.
-      function hydrateCards(root) {
-        if (!root || !root.querySelectorAll) return;
-        var slots = root.querySelectorAll('.bcextract[data-bird]:not([data-q])');
-        var list = [];
-        for (var i = 0; i < slots.length; i++) { slots[i].setAttribute('data-q', '1'); list.push(slots[i]); }
-        list.reduce(function (p, el) {
-          return p.then(function () {
-            return birdInfo(el.getAttribute('data-bird') || '').then(function (info) {
-              if (!info || !info.extract) { el.style.display = 'none'; return; }
-              el.innerHTML = esc(info.extract) +
-                '<span class="src">' + extA('https://en.wikipedia.org/wiki/' +
-                  encodeURIComponent(String(info.title).replace(/\s+/g, '_')),
-                  'Wikipedia: ' + info.title) + '</span>';
-            }).catch(function () { el.style.display = 'none'; });
-          });
-        }, Promise.resolve());
-      }
       // "How rare is this, really" as numbers rather than an adjective. Every
       // one is counted from feed data the section already holds — a Code 3+
       // bird often has a single-digit total, and that is the whole point.
@@ -7109,38 +7177,13 @@
           nat;
       }
       function fmtInt(n) { return String(n == null ? '' : n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-      // Filled after the cards paint, like the Wikipedia blurbs: history is
-      // context, and it must never delay the reports you drive on.
-      function hydrateHistory(root) {
-        if (!root || !root.querySelectorAll) return;
-        var slots = root.querySelectorAll('.bchist[data-sci]:not([data-q])');
-        var list = [];
-        for (var i = 0; i < slots.length; i++) { slots[i].setAttribute('data-q', '1'); list.push(slots[i]); }
-        list.reduce(function (p, el) {
-          return p.then(function () {
-            var st = el.getAttribute('data-state') || '';
-            return Promise.all([
-              gbifHistory(el.getAttribute('data-sci'), st, el.getAttribute('data-country') || 'US'),
-              gbifSnapshotYear(st, el.getAttribute('data-country') || 'US')
-            ])
-              .then(function (r) {
-                var h = r[0];
-                if (h && r[1]) h.edge = r[1];
-                var s = histLine(h, st);
-                if (!s) { el.style.display = 'none'; return; }
-                el.innerHTML = s;
-                if (h && !h.years) el.classList.add('mega');
-              }).catch(function () { el.style.display = 'none'; });
-          });
-        }, Promise.resolve());
-      }
-      // eBird ships sciName on every observation record, and the ABA card
-      // already holds the species-scoped state feed, so the name is there for
+      // eBird ships sciName on every observation record, and Mega's transient
+      // context already holds the species-scoped state feed, so the name is there for
       // free. The scraped alert carries only a common name — when that is all
       // there is, the block is SKIPPED rather than paying an extra eBird call
       // for it. GBIF cannot match a common name, so a lookup without a
       // scientific name would be a wasted request anyway.
-      function sciFor(rs) {
+      function sciForRows(rs) {
         for (var i = 0; i < (rs || []).length; i++) if (rs[i].sciName) return rs[i].sciName;
         return '';
       }
@@ -7345,10 +7388,9 @@
           return changed;
         });
       }
-      // Newest report per species, because the lane wants ONE line per bird —
-      // the full profile with hero photo, state history and rarity evidence is
-      // what the Rare birds section is for, and it survives precisely so this
-      // lane does not have to reproduce it.
+      // Newest report per species, because the lane wants ONE line per bird.
+      // Full rarity evidence belongs to the exact-code Stakeout route, so this
+      // lane does not reproduce it.
       function megaLane(anchors) {
         var s;
         try { s = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null'); }
@@ -7685,24 +7727,108 @@
         if (f.days === 1) return 'found yesterday';
         return 'found ' + f.days + ' days ago';
       }
+      function megaRecordTime(r) {
+        var t = Date.parse(String((r && r.obsDt) || '').replace(' ', 'T'));
+        return isFinite(t) ? t : -Infinity;
+      }
+      function megaHasValue(v) {
+        return v !== undefined && v !== null && v !== '';
+      }
+      function megaRecordMerge(a, b) {
+        var left = a || {}, right = b || {};
+        // eBird can revise a checklist after the alert/archive first saw it.
+        // When the same subId carries a later report tuple, that newer tuple is
+        // authoritative; fields absent from it are still enriched from the
+        // older copy. Equal-time duplicates retain the first source's values
+        // but fill every missing field from the other source.
+        var rightIsNewer = megaRecordTime(right) > megaRecordTime(left);
+        var primary = rightIsNewer ? right : left;
+        var secondary = rightIsNewer ? left : right;
+        var out = {};
+        Object.keys(primary).forEach(function (k) { out[k] = primary[k]; });
+        Object.keys(secondary).forEach(function (k) {
+          if (!megaHasValue(out[k]) && megaHasValue(secondary[k])) {
+            out[k] = secondary[k];
+          }
+        });
+
+        // Positive evidence from either source survives. The alert commonly
+        // owns observer/review state while detail=full owns location ids,
+        // scientific names, media and comments.
+        var evidence = String(left.evidence || '') + String(right.evidence || '');
+        var marks = ['P', 'V', 'A'].filter(function (mark) {
+          return evidence.indexOf(mark) >= 0;
+        }).join('');
+        if (marks) out.evidence = marks;
+        else if (left.evidence === 'None' || right.evidence === 'None') out.evidence = 'None';
+
+        var commentsKnown = Object.prototype.hasOwnProperty.call(left, 'hasComments')
+          || Object.prototype.hasOwnProperty.call(left, 'has_comments')
+          || Object.prototype.hasOwnProperty.call(right, 'hasComments')
+          || Object.prototype.hasOwnProperty.call(right, 'has_comments');
+        if (commentsKnown) {
+          var hasComments = !!(left.hasComments || left.has_comments
+            || right.hasComments || right.has_comments);
+          // Keep both spellings coherent because recordIcons accepts either
+          // but gives the snake-case feed field precedence when both exist.
+          out.hasComments = hasComments;
+          out.has_comments = hasComments;
+        }
+        if (left.comments && right.comments && left.comments !== right.comments
+            && megaRecordTime(left) === megaRecordTime(right)) {
+          out.comments = String(right.comments).length > String(left.comments).length
+            ? right.comments : left.comments;
+        }
+        if (left.obsReviewed != null || right.obsReviewed != null) {
+          out.obsReviewed = !!left.obsReviewed || !!right.obsReviewed;
+        }
+        // Invalid/provisional is the conservative answer when either source
+        // says so. Undefined remains fillable by the other source.
+        if (left.obsValid != null || right.obsValid != null) {
+          out.obsValid = (left.obsValid == null || !!left.obsValid)
+            && (right.obsValid == null || !!right.obsValid);
+        }
+        if (left.locationPrivate != null || right.locationPrivate != null) {
+          out.locationPrivate = !!left.locationPrivate || !!right.locationPrivate;
+        }
+        return out;
+      }
+      function megaMergeRows(rows) {
+        var byKey = {}, order = [];
+        (rows || []).filter(Boolean).forEach(function (r) {
+          var k = abaArchiveKey(r);
+          if (!Object.prototype.hasOwnProperty.call(byKey, k)) {
+            byKey[k] = r;
+            order.push(k);
+          } else {
+            byKey[k] = megaRecordMerge(byKey[k], r);
+          }
+        });
+        return order.map(function (k) { return byKey[k]; });
+      }
+      function megaArchiveRecord(r) {
+        var out = {};
+        [
+          'speciesCode', 'comName', 'sciName', 'obsDt', 'locName', 'locId',
+          'subId', 'userDisplayName', 'howMany', 'lat', 'lng', 'evidence',
+          'hasComments', 'has_comments', 'comments', 'obsReviewed', 'obsValid',
+          'locationPrivate', 'subnational1Code', 'country'
+        ].forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(r || {}, k)) out[k] = r[k];
+        });
+        return out;
+      }
       function abaArchiveAdd(region, records) {
         if (!region || !(records || []).length) return;
         var a = abaArchive(), bucket = a[region] || (a[region] = {});
         (records || []).forEach(function (r) {
           if (!r || !r.speciesCode) return;
           var k = abaArchiveKey(r);
-          if (bucket[k]) return;
-          bucket[k] = {
-            speciesCode: r.speciesCode, comName: r.comName || '', obsDt: r.obsDt || '',
-            locName: r.locName || '', locId: r.locId || '', subId: r.subId || '',
-            userDisplayName: r.userDisplayName || '', howMany: r.howMany != null ? r.howMany : '',
-            lat: r.lat, lng: r.lng,
-            // Evidence attached to the sighting, straight off the notable feed:
-            // 'P' photo, 'A' audio, 'V' video, 'None'. Costs nothing — the feed
-            // was already fetched — and carries the TYPE, which hasRichMedia
-            // (a bool) cannot. Kept here so the mark survives into the archive.
-            evidence: r.evidence || '', hasComments: !!r.hasComments,
-          };
+          // Keep every field the Mega detail consumes without copying the
+          // feed's unrelated payload into a 4,000-row localStorage archive.
+          // Alert and detail=full rows are complementary, so a duplicate
+          // checklist enriches the existing record rather than returning early.
+          bucket[k] = megaRecordMerge(bucket[k], megaArchiveRecord(r));
         });
         // A hard cap, oldest first: this is a convenience archive, not a
         // database, and localStorage failing to write would lose ALL of it.
@@ -7724,7 +7850,7 @@
       }
       // One species-scoped state feed per card, merged into the archive.
       // Failure is non-fatal: the card still renders from the alert records.
-      function abaStateHistory(region, code) {
+      function abaStateHistory(region, code, accept) {
         if (!/^[A-Z]{2}(-[A-Z0-9]+)*$/i.test(String(region || '')) || !code) return Promise.resolve([]);
         // detail=full is LOAD-BEARING, not a nicety. eBird's default
         // detail=simple collapses the feed to ONE observation per location and
@@ -7737,13 +7863,12 @@
         // maxResults defaults to 100, which a staked-out rarity blows through.
         return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
           encodeURIComponent(code) + '?back=' + ABA_HIST_BACK +
-          '&detail=full&includeProvisional=true&maxResults=10000')
+          '&detail=full&includeProvisional=true&maxResults=10000', false, false, true)
           .then(function (rows) {
             var list = Array.isArray(rows) ? rows : [];
-            abaArchiveAdd(region, list);
+            if (!accept || accept()) abaArchiveAdd(region, list);
             return list;
-          })
-          .catch(function () { return []; });
+          });
       }
 
       // The alert is the ABA-CODE FILTER, never a census. MEASURED against the
@@ -7766,7 +7891,8 @@
         if (!code) return Promise.resolve(null);
         return Promise.all(ABA_WIDE_COUNTRIES.map(function (c) {
           return ebird('data/obs/' + c + '/recent/' + encodeURIComponent(code) +
-            '?back=' + ABA_HIST_BACK + '&detail=full&includeProvisional=true&maxResults=10000')
+            '?back=' + ABA_HIST_BACK + '&detail=full&includeProvisional=true&maxResults=10000',
+            false, false, true)
             .catch(function () { return null; });
         })).then(function (res) {
           // A country that failed is not a country with no birds. Reporting a
@@ -8190,7 +8316,8 @@
               locationPrivate: canon.location_private,
               distMi: canon.distMi != null ? canon.distMi : rep.distMi,
               dateStr: rep.dateStr, subId: rep.subId, observer: rep.observer,
-              count: rep.count,
+              count: rep.count, evidence: rep.evidence || '',
+              hasComments: !!rep.hasComments,
               // Every checklist, not just the freshest. A hotspot with three
               // reports of the same bird is three pieces of evidence you may
               // want to open; keeping only the newest threw the other two away
@@ -8205,7 +8332,8 @@
                   // with no media marks.
                   return { subId: r.subId, dateStr: r.dateStr, count: r.count,
                            observer: r.observer, valid: r.valid,
-                           evidence: r.evidence || '' };
+                           evidence: r.evidence || '',
+                           hasComments: !!r.hasComments };
                 }),
               nReports: items.length, nObservers: Object.keys(obs).length,
               anyUnconfirmed: items.some(function (r) { return r.valid === false; })
@@ -8243,6 +8371,8 @@
             p.dateStr = c.dateStr; p.subId = c.subId; p.count = c.count;
             p.loc = c.loc; p.locId = c.locId; p.lat = c.lat; p.lon = c.lon;
             p.locationPrivate = c.locationPrivate; p.observer = c.observer;
+            p.evidence = c.evidence || p.evidence;
+            p.hasComments = c.hasComments || p.hasComments;
           }
           if (c.distMi != null && (p.distMi == null || c.distMi < p.distMi)) p.distMi = c.distMi;
         });
@@ -8510,7 +8640,7 @@
           });
         }).catch(function (e) {
           dbg('warn', 'spuh cache read: ' + ((e && e.message) || e));
-          return null;
+        return null;
         });
       }
 
@@ -9137,6 +9267,7 @@
       var _spLookupIconic = null;
       var _spLookupSeason = null;
       var _spLookupGeneration = 0;
+      var _spLookupLoading = false;
 
       function speciesLookupPath(region, code, back) {
         return 'data/obs/' + encodeURIComponent(region) + '/recent/'
@@ -9162,7 +9293,10 @@
             observer: r.userDisplayName || '',
             subId: r.subId || '',
             valid: r.obsValid == null ? true : !!r.obsValid,
-            location_private: !!r.locationPrivate
+            location_private: !!r.locationPrivate,
+            evidence: r.evidence || '',
+            hasComments: !!(r.hasComments || r.has_comments),
+            sciName: r.sciName || ''
           };
         });
       }
@@ -9195,11 +9329,13 @@
         clearMap($('spLookupMap'));
         _spLookupGroup = null;
         _spLookupIconic = null; _spLookupSeason = null;
+        _spLookupLoading = false;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
       }
 
       function clearSpeciesLookup() {
         _spLookupGeneration++;
+        clearMegaStakeContext();
         resetSpeciesLookupView();
         if ($('spLookup')) $('spLookup').value = '';
         if ($('spLookupClear')) $('spLookupClear').hidden = true;
@@ -9471,6 +9607,7 @@
         var q = ($('spLookup') || {}).value || '';
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
         if (!found || !st) return;
+        clearMegaStakeContext();
         var generation = ++_spLookupGeneration;
         var scopeSlug = getReportSlug();
         var scopeRegion = getObsRegion();
@@ -9525,12 +9662,18 @@
         });
       }
 
-      function lookupSpecies(code, name, generation, scopeSlug) {
+      function lookupSpecies(code, name, generation, scopeSlug, megaRef) {
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
         if (!out || !st) return Promise.resolve();
         if (generation == null) generation = ++_spLookupGeneration;
         scopeSlug = scopeSlug || getReportSlug();
         if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return Promise.resolve();
+        var mega = megaEntry(megaRef, code);
+        if (mega) {
+          _activeMega = { viewKey: mega.view.key, code: mega.code };
+        } else {
+          clearMegaStakeContext();
+        }
         var report = getReport();
         var reportLabel = report.label || getRegion();
         var region = BL.speciesFeedRegion(report) || getObsRegion();
@@ -9544,12 +9687,28 @@
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Looking up ' + name + ' across ' + reportLabel
           + ' (last ' + SP_LOOKUP_BACK + ' days)…';
-        return ebird(speciesLookupPath(region, code, SP_LOOKUP_BACK)).then(function (rows) {
+        _spLookupLoading = true;
+        if (mega) {
+          _spLookupGroup = {
+            code: code, name: name, places: [], nPlaces: 0, nReports: 0,
+            nObservers: 0, anyUnconfirmed: false, distMi: null,
+            emptyCurrent: false, loadError: ''
+          };
+          renderSpeciesLookup();
+        }
+        var sightings = mega
+          ? megaEnsureState(mega.view, mega)
+          : ebird(speciesLookupPath(region, code, SP_LOOKUP_BACK));
+        if (mega) hydrateActiveMega(mega, generation);
+        return sightings.then(function (rows) {
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+          _spLookupLoading = false;
+          if (_spLookupGroup) _spLookupGroup.loadError = '';
           var recs = speciesLookupRecords(rows, anchors);
           if (!recs.length) {
-            st.textContent = 'No reports of ' + name + ' in ' + region + ' in the last '
+            var emptyMessage = 'No reports of ' + name + ' in ' + region + ' in the last '
               + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+            st.textContent = emptyMessage;
             // ⚠️ F255. CLEAR THE MAP, or the previous search's pins stay on screen.
             //
             // Reported from the device: *"costa hummingbird is not found but there
@@ -9568,7 +9727,18 @@
             // empty feed used to end the conversation here, which had it
             // backwards: nobody reporting a bird is the situation where knowing
             // where it has always turned up is the only thing left to go on.
-            hydrateUnwatched(code, name, 'spLookupResults', [], generation);
+            if (mega) {
+              _spLookupGroup = {
+                code: code, name: name, places: [], nPlaces: 0, nReports: 0,
+                nObservers: 0, anyUnconfirmed: false, distMi: null,
+                emptyCurrent: true
+              };
+              renderSpeciesLookup();
+              st.textContent = emptyMessage;
+              hydrateUnwatched(code, name, 'spLookupUnwatched', [], generation);
+            } else {
+              hydrateUnwatched(code, name, 'spLookupResults', [], generation);
+            }
             return;
           }
           var g = buildAllUnseen(recs)[0];
@@ -9587,7 +9757,13 @@
             generation);
         }).catch(function (e) {
           if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
-            st.textContent = netErr(e);
+            _spLookupLoading = false;
+            if (mega && _spLookupGroup) {
+              _spLookupGroup.loadError = netErr(e);
+              renderSpeciesLookup();
+            } else {
+              st.textContent = netErr(e);
+            }
           }
         });
       }
@@ -10319,8 +10495,9 @@
         });
       }
 
-      // F234. The header card for a looked-up bird — the mega-rarity profile
-      // renderer, given what THIS section knows.
+      // F234/F304. The one card for a looked-up bird. An ordinary search fills
+      // it from current sightings; a Mega launch prepends the preserved rarity
+      // evidence without creating a second hero/profile card.
       //
       // The stats are counted from the group the lookup already holds, so the
       // header costs no extra network call: the two figures the status line
@@ -10335,18 +10512,38 @@
       // out by the list instead of by itself.
       function renderSpeciesLookup() {        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
+        var mega = _activeMega ? megaEntry(_activeMega, g.code) : null;
         var iconicMode = _spLookupSort === 'iconic';
         sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
         var seenIt = !!getReportSeen()[g.code];
-        st.textContent = g.name + ' · ' + g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's')
-          + ' · ' + g.nReports + ' report' + (g.nReports === 1 ? '' : 's')
-          + ' in the last ' + SP_LOOKUP_BACK + ' days'
-          + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
-          + ' · ' + (iconicMode ? 'iconic places'
-                     : _spLookupSort === 'dist' ? 'by distance' : 'by date')
-          + ' · ' + nowTime();
+        if (g.loadError) {
+          st.textContent = g.loadError;
+        } else if (g.emptyCurrent) {
+          st.textContent = 'No reports of ' + g.name + ' in '
+            + (BL.speciesFeedRegion(getReport()) || getObsRegion()) + ' in the last '
+            + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+        } else if (_spLookupLoading) {
+          st.textContent = (mega ? 'Mega evidence shown · ' : '')
+            + 'Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
+            + ' (last ' + SP_LOOKUP_BACK + ' days)…';
+        } else {
+          st.textContent = g.name + ' · ' + (g.nPlaces || 0) + ' place'
+            + (g.nPlaces === 1 ? '' : 's')
+            + ' · ' + (g.nReports || 0) + ' report' + (g.nReports === 1 ? '' : 's')
+            + ' in the last ' + SP_LOOKUP_BACK + ' days'
+            + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
+            + ' · ' + (iconicMode ? 'iconic places'
+                       : _spLookupSort === 'dist' ? 'by distance' : 'by date')
+            + ' · ' + nowTime();
+        }
+        var placesHtml = _spLookupLoading ? ''
+          : (iconicMode
+            ? (_spLookupIconic === null
+                ? '<div class="status">Looking for places with good history and no recent coverage…</div>'
+                : spLookupIconicHtml(g.name))
+            : spLookupPlacesHtml(g.places, g));
         out.innerHTML = SpeciesCards.medium({
-          sci: sciFor(g && g.code),
+          sci: mega ? sciFor(mega.sci || mega.code) : sciFor(g && g.code),
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           code: g.code,
@@ -10358,15 +10555,11 @@
           // answer; see below.
           distMi: g.distMi,
           sub: [
-            g.nPlaces + ' place' + (g.nPlaces === 1 ? '' : 's'),
-            g.nReports + ' report' + (g.nReports === 1 ? '' : 's'),
+            (g.nPlaces || 0) + ' place' + (g.nPlaces === 1 ? '' : 's'),
+            (g.nReports || 0) + ' report' + (g.nReports === 1 ? '' : 's'),
             seenIt ? 'already on your year list' : 'not on your year list'
           ].filter(Boolean).join(' · '),
-          below: iconicMode
-            ? (_spLookupIconic === null
-                ? '<div class="status">Looking for places with good history and no recent coverage…</div>'
-                : spLookupIconicHtml(g.name))
-            : spLookupPlacesHtml(g.places, g)
+          below: megaEvidenceHtml(mega) + placesHtml
         });
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -10379,7 +10572,8 @@
         if (more) more.addEventListener('click', function () {
           appendSpLookupPlaces(more, g);
         });
-        renderSpeciesLookupMap(g, iconicMode, SP_ROWS_MAX);
+        if ((g.places || []).length) renderSpeciesLookupMap(g, iconicMode, SP_ROWS_MAX);
+        else clearMap($('spLookupMap'));
         ['spLookupByDate', 'spLookupByDist', 'spLookupByIconic'].forEach(function (id) {
           var b = $(id);
           if (!b) return;
@@ -11216,6 +11410,10 @@
         });
         return ok ? want : '';
       }
+      function countyDisplayLabel(c) {
+        if (!c) return '';
+        return c.code === 'US-HI-001' ? 'Hawaii County (Big Island)' : c.label;
+      }
       function setCountyView(code) {
         try {
           if (code) localStorage.setItem(countyViewKey(), String(code));
@@ -11228,7 +11426,7 @@
         var hit = getCounties().filter(function (c) {
           return String(c.code || '').toLowerCase() === code.toLowerCase();
         })[0];
-        return hit ? hit.label : code;
+        return hit ? countyDisplayLabel(hit) : code;
       }
       function recInCounty(r, code) {
         return !!(r && String(r.county || '').toLowerCase() === String(code).toLowerCase());
@@ -11693,7 +11891,7 @@
         }
         function fetchAll(list, step, bg, work) {
           return Promise.all(list.map(function (f) {
-            return ebird(BL.requestUrl(f), bg, false, work)
+            return ebird(BL.requestUrl(f), bg, false, false, work)
               .then(function (rows) {
                 return { file: f.file, state: 'ok', rows: Array.isArray(rows) ? rows : [] };
               })
@@ -14496,6 +14694,20 @@
         d.rare = d.species.filter(function (s) { return s.rare; }).length;
         return d;
       }
+      // Quick outing and Today's patches can show the same hotspot through
+      // different candidate scans. Reuse Today's already-scored species when
+      // that chase result is warm, so the two cards share the same unseen
+      // evidence instead of making the local card relearn a narrower list.
+      function quickPatchSpeciesFromChase(chase, locId) {
+        if (!chase || !chase.cv || !Array.isArray(chase.cv.destinations) || !locId) return null;
+        for (var i = 0; i < chase.cv.destinations.length; i++) {
+          var cluster = chase.cv.destinations[i];
+          if (!cluster || String(cluster.locId || '') !== String(locId)) continue;
+          var projected = toDest(cluster);
+          return projected.species && projected.species.length ? projected.species : null;
+        }
+        return null;
+      }
       // ── THE HOTSPOT CARD ────────────────────────────────────────────────
       // Top destinations, Top excursions, Closest spots, Quick outing and the
       // Trip planner all answer the same two questions — WHERE do I go, and
@@ -14794,6 +15006,9 @@
                      count: (u.count == null ? null : u.count) };
           }).filter(function (u) { return u.code || u.name; })));
         } catch (e) { /* a card without this simply keeps the old behaviour */ }
+        if (o.speciesDays != null && isFinite(+o.speciesDays)) {
+          el.setAttribute('data-hsdays', String(Math.max(1, Math.floor(+o.speciesDays))));
+        }
         return el;
       }
 
@@ -14814,16 +15029,18 @@
       // because the shorter window is what keeps the answer honest — a
       // 30-day list at a migration hotspot is a brochure, not a forecast.
       var LOC_SPECIES_DAYS = 3, LOC_SPECIES_CONC = 3;
-      function locFeedKey(locId) {
-        return 'ebird_locsp_v1:' + locId + ':' + LOC_SPECIES_DAYS;
+      function locFeedKey(locId, days) {
+        days = days == null ? LOC_SPECIES_DAYS : days;
+        return 'ebird_locsp_v1:' + locId + ':' + days;
       }
-      function locRecentSpecies(locId) {
-        var key = locFeedKey(locId), today = todayStr();
+      function locRecentSpecies(locId, days) {
+        days = days == null ? LOC_SPECIES_DAYS : days;
+        var key = locFeedKey(locId, days), today = todayStr();
         try {
           var hit = JSON.parse(localStorage.getItem(key) || 'null');
           if (hit && hit.d === today && Array.isArray(hit.v)) return Promise.resolve(hit.v);
         } catch (e) {}
-        return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + LOC_SPECIES_DAYS)
+        return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + days)
           .then(function (rows) {
             var out = (Array.isArray(rows) ? rows : []).map(function (o) {
               // subId travels with the row now: the feed already carries it,
@@ -15051,11 +15268,11 @@
       // hotspot — "rich, but nobody has been lately" — and leaving the slot
       // blank made a minute of fetching look like a section that had not
       // loaded.
-      function markNoRecent(el) {
+      function markNoRecent(el, days) {
         var slot = el && el.querySelector('.hslists');
         if (!slot || slot.innerHTML.trim()) return;   // never overwrite real content
         slot.innerHTML = '<div class="meta dim">No reports in the last '
-          + LOC_SPECIES_DAYS + ' days.</div>';
+          + (days == null ? LOC_SPECIES_DAYS : days) + ' days.</div>';
       }
       function hydrateLocSpecies(root) {
         if (!root || !getKey()) return Promise.resolve();
@@ -15065,6 +15282,8 @@
         var isSeen = seenResolver();
         return pool(cards, LOC_SPECIES_CONC, function (el) {
           var lid = el.getAttribute('data-hsloc');
+          var days = parseInt(el.getAttribute('data-hsdays'), 10);
+          if (!isFinite(days) || days < 1) days = LOC_SPECIES_DAYS;
           // A CALL THAT CANNOT ANSWER IS NOT WORTH MAKING.
           //
           // "quick outing took about a minute to fetch all the data, and
@@ -15082,12 +15301,12 @@
           // already told us each hotspot's latest observation date, so the
           // answer is in hand before the call is made.
           var latest = el.getAttribute('data-hslatest');
-          if (latest && !withinDays(latest, LOC_SPECIES_DAYS)) {
-            markNoRecent(el);
+          if (latest && !withinDays(latest, days)) {
+            markNoRecent(el, days);
             return Promise.resolve();
           }
-          return locRecentSpecies(lid).then(function (rows) {
-            if (!rows.length) { markNoRecent(el); return; }
+          return locRecentSpecies(lid, days).then(function (rows) {
+            if (!rows.length) { markNoRecent(el, days); return; }
             var unseen = [], seen = [], dedupe = {};
             // Which birds eBird flags as notable AT THIS PLACE. The location
             // feed does not say, but the chase view already knows — it is the
@@ -15165,9 +15384,11 @@
             el.setAttribute('data-unseen-n', String(unseen.length));
             var slot = el.querySelector('.hslists');
             if (!slot) return;
+            var windowLabel = days > LOC_SPECIES_DAYS
+              ? ' · last ' + days + ' days' : '';
             slot.innerHTML = HotspotCards.splitLists({
               unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
-              unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍') : '',
+              unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍' + windowLabel) : '',
               seen: seen.length ? speciesListHtml(seen, { presorted: true }) : '',
               seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
             });
@@ -15181,7 +15402,7 @@
               // ref/hotspot/geo — a different, correct fact — and rewriting it
               // produced "N species in 3d all-time".
               meta.innerHTML = meta.innerHTML.replace(
-                /\d+ species(?! all-time)/, rows.length + ' species in ' + LOC_SPECIES_DAYS + 'd');
+                /\d+ species(?! all-time)/, rows.length + ' species in ' + days + 'd');
             }
             hydratePhotos(slot);
           }).catch(function () {});
@@ -15323,6 +15544,22 @@
         return r || getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
       }
 
+      function destinationScopeDisclosure(rad, base) {
+        var todayDays = BL.CONST.CUTOFF_DAYS;
+        var localDays = QUICK_LOC_SPECIES_DAYS || 30;
+        var opening = rad > base
+          ? 'Widened to <b>' + rad + ' mi</b> because too few public-access hotspots '
+            + 'within ' + base + ' mi had an unlogged bird in the last <b>'
+            + todayDays + ' days</b>.'
+          : 'That is every <b>public-access</b> hotspot within <b>' + rad
+            + ' mi</b> that has an unlogged bird reported in the last <b>'
+            + todayDays + ' days</b>.';
+        return '<div class="hint" id="destThin">' + opening
+          + ' <b>Find local patches</b> uses ' + localDays
+          + ' days and may show older or restricted-access hotspots. '
+          + 'Anywhere farther is in <b>🚗 Half-day patches</b>.</div>';
+      }
+
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
@@ -15350,16 +15587,8 @@
           if (dests.length < DEST_THIN_ROWS || destRadiusMi() > (getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI)) {
             var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
             var rad = destRadiusMi();
-            // A boundary that MOVED has to say so, or it reads as a fixed
-            // setting the reader could go and change.
-            $('destResults').insertAdjacentHTML('afterend', rad > base
-              ? '<div class="hint" id="destThin">Widened to <b>' + rad + ' mi</b> — too '
-                + 'little was within ' + base + ' mi to be worth a list. '
-                + '<b>🚗 Half-day patches</b> starts where this stops, so nothing is in both.</div>'
-              : '<div class="hint" id="destThin">That is everything within <b>'
-                + rad + ' mi</b> — the radius this section covers, not '
-                + 'everything that is out there. Anywhere further is in '
-                + '<b>🚗 Half-day patches</b>.</div>');
+            $('destResults').insertAdjacentHTML('afterend',
+              destinationScopeDisclosure(rad, base));
           }
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
@@ -15538,23 +15767,33 @@
       // product/lists reads Birdiest already pays for, so the two sections
       // share one cached promise.
       var _listsCache = null;
-      function recentLists() {
-        if (_listsCache) return _listsCache;
+      function recentLists(skipOwnHarvest, work, urgent) {
+        if (_listsCache) {
+          if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
+          return _listsCache;
+        }
         var feeds = BL.planConvoyFeeds(getReport());
         _listsCache = Promise.all(feeds.map(function (f) {
-          return ebird(BL.requestUrl(f)).catch(function () { return []; });
+          return ebird(BL.requestUrl(f), false, false, false, work)
+            .catch(function () { return []; });
         })).then(function (results) {
           var lists = [];
           results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
           // Your own checklists ride in on a feed already paid for. Fire and
           // forget: nothing here waits on it, and a failure must never break
           // the section that asked for the lists.
-          try { harvestOwnChecklists(lists); } catch (e) {}
           return lists;
         }).catch(function (e) { _listsCache = null; throw e; });
+        if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
         return _listsCache;
       }
-      function resetListsCache() { _listsCache = null; }
+      function resetListsCache(forceNetwork) {
+        _listsCache = null;
+        if (!forceNetwork) return;
+        BL.planConvoyFeeds(getReport()).forEach(function (f) {
+          delete _ebCache[BL.requestUrl(f)];
+        });
+      }
 
       // obsDt is a HUMAN date ("31 Jul 2026"), so sorting it lexicographically
       // puts 01 Aug before 31 Jul. isoObsDate is the sortable one, and it is
@@ -16884,7 +17123,13 @@
         return BirdLogic.checklistCacheFresh(cklEntry(CKL_NS + sub), todayStr());
       }
 
-      function checklistView(sub, bg) {
+      function forgetChecklistView(sub) {
+        if (!sub) return;
+        delete _cklView[sub];
+        try { localStorage.removeItem(CKL_NS + sub); } catch (e) {}
+      }
+
+      function checklistView(sub, bg, work, urgent) {
         if (!sub) return Promise.resolve(null);
         if (_cklView[sub]) return _cklView[sub];
         var o = cklEntry(CKL_NS + sub);
@@ -16915,7 +17160,8 @@
             : Promise.resolve(o.v);
           return _cklView[sub];
         }
-        _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub), !!bg)
+        _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub),
+          !!bg, false, false, work)
           .then(function (d) {
             var v = {
               userDisplayName: (d && d.userDisplayName) || '',
@@ -17475,6 +17721,11 @@
       // speeds) and the list READS closest-first. Quality still decides which
       // spots make the cut; it just no longer decides the order.
       var QUICK_OUTING_WIDEN_MI = [5, 10, 15], QUICK_OUTING_MIN_ROWS = 3, QUICK_OUTING_TOP = 10;
+      // Quick outing ranks all-time-rich hotspots, so its local evidence must
+      // be wider than the 3-day "what is here today" correction used by chase
+      // cards. The date stays on each species row, and the card labels this
+      // broader window explicitly rather than presenting old evidence as live.
+      var QUICK_LOC_SPECIES_DAYS = 30;
       function buildQuickOuting(hotspots, anchors) {
         // Nearest of home/work, not home alone. A hotspot two minutes from the
         // office is a real quick outing; measuring it from home buried it
@@ -17769,9 +18020,13 @@
           var el = $('quickResults'); el.innerHTML = '';
           renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), a, false);
           top.forEach(function (h, i) {
+            var scored = quickPatchSpeciesFromChase(_chase[getReport().slug], h.locId);
             el.appendChild(hotspotCard({
               n: i + 1, locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
               distMi: h.dist,
+              latest: h.latest,
+              species: scored,
+              speciesDays: scored ? LOC_SPECIES_DAYS : QUICK_LOC_SPECIES_DAYS,
               facts: [
                 h.n + ' species all-time',
                 h.latest ? 'latest ' + esc(fmtDate(h.latest)) : ''
@@ -17874,7 +18129,7 @@
           displayName: importedName
         }));
         if (importedName && !getDisplayName()) {
-          localStorage.setItem('ebird_display_name', importedName);
+          setDisplayNameValue(importedName, 'csv');
           if (!profileNames()[String(bcProfile())]) {
             setProfileName(bcProfile(), importedName);
           }
@@ -17955,7 +18210,129 @@
       // Every comparison site guards with `own && ...` (and logic.js does the
       // same in isOwn/convoyDetect), so an empty name degrades to "filter
       // nothing" — the safe direction. The rank loaders prompt for it instead.
+      var IDENTITY_META_KEY = 'ebird_identity_v1';
+      var IDENTITY_REV_KEY = 'ebird_identity_rev_v1';
+      var _identityGeneration = 0;
       function getDisplayName() { return (localStorage.getItem('ebird_display_name') || '').trim(); }
+      function identityRevision() {
+        var n = parseInt(localStorage.getItem(IDENTITY_REV_KEY) || '0', 10);
+        return isFinite(n) && n >= 0 ? n : 0;
+      }
+      function bumpIdentityRevision() {
+        var n = identityRevision() + 1;
+        localStorage.setItem(IDENTITY_REV_KEY, String(n));
+        return n;
+      }
+      function getIdentityMeta() {
+        try {
+          var meta = JSON.parse(localStorage.getItem(IDENTITY_META_KEY) || 'null');
+          return meta && typeof meta === 'object' ? meta : null;
+        } catch (e) { return null; }
+      }
+      // One writer for identity provenance. `ebird_display_name` remains the
+      // compatibility key read by every existing comparison, while this small
+      // sidecar records HOW it arrived without duplicating the name or storing
+      // the account-menu username. Both keys are profile-scoped by the F177
+      // localStorage shim and erased by the `ebird_` scrub prefix.
+      function setDisplayNameValue(name, source) {
+        name = String(name || '').replace(/\s+/g, ' ').trim();
+        localStorage.setItem('ebird_display_name', name);
+        bumpIdentityRevision();
+        if (!name) {
+          localStorage.removeItem(IDENTITY_META_KEY);
+          return '';
+        }
+        localStorage.setItem(IDENTITY_META_KEY, JSON.stringify({
+          source: source || 'manual',
+          observedAt: new Date().toISOString()
+        }));
+        return name;
+      }
+      // Manual, CSV and legacy values are explicit overrides. An earlier value
+      // fetched from this same account-menu source may be refreshed when the
+      // authenticated WebView account changes; otherwise signing out of one
+      // account and into another would leave ownership filters tied to the old
+      // account forever.
+      function applyCapturedIdentity(identity) {
+        identity = identity || {};
+        if (identity.status !== 'ok') {
+          return { applied: false, status: identity.status || 'missing' };
+        }
+        var found = String(identity.displayName || '').replace(/\s+/g, ' ').trim();
+        if (!found) return { applied: false, status: 'malformed' };
+        var field = $('ebirdName');
+        if (field) {
+          var loaded = String(field.dataset.loadedValue || '').trim();
+          var typed = String(field.value || '').replace(/\s+/g, ' ').trim();
+          if (typed !== loaded) {
+            return { applied: false, status: 'manual-override' };
+          }
+        }
+        var existing = getDisplayName(), meta = getIdentityMeta();
+        if (existing) {
+          if (existing === found) return { applied: false, status: 'already-set' };
+          if (!(meta && meta.source === 'ebird-bird-list')) {
+            return { applied: false, status: 'manual-override' };
+          }
+        }
+        var previous = existing;
+        setDisplayNameValue(found, 'ebird-bird-list');
+        var profileField = $('bcProfileName');
+        var profileUntouched = !profileField
+          || String(profileField.value || '') === String(profileField.dataset.loadedValue || '');
+        var savedProfileName = profileNames()[String(bcProfile())] || '';
+        var previousProfileName = profileNameValue(previous);
+        var nextProfileName = profileNameValue(found);
+        if (profileUntouched && (!savedProfileName || savedProfileName === previousProfileName)) {
+          setProfileName(bcProfile(), found);
+          if (profileField) {
+            profileField.value = nextProfileName;
+            profileField.dataset.loadedValue = nextProfileName;
+          }
+        }
+        if (field) {
+          field.value = found;
+          field.dataset.loadedValue = found;
+        }
+        try { refreshIdentityHint(); } catch (e) {}
+        try { renderKeyBanner(); } catch (e) {}
+        try { headerIdentityRefresh(); } catch (e) {}
+        try { renderMenuIdentity(); } catch (e) {}
+        return {
+          applied: true,
+          status: previous ? 'updated' : 'applied',
+          displayName: found
+        };
+      }
+      function identityResultMessage(result) {
+        var status = result && result.status;
+        if (status === 'applied') return 'Your signed-in eBird display name was found and saved.';
+        if (status === 'updated') return 'Your saved name was updated to the currently signed-in eBird account.';
+        if (status === 'already-set') return 'The signed-in eBird name matches the saved name.';
+        if (status === 'manual-override') return 'The signed-in eBird name was found; your manually saved name was kept.';
+        if (status === 'logged-out') return 'Sign in to eBird in the opened window, then try again.';
+        if (status === 'anonymous') return 'This eBird account is using Anonymous eBirder, which cannot identify your public rows.';
+        if (status === 'ambiguous') return 'eBird exposed more than one account name, so nothing was changed.';
+        if (status === 'malformed') return 'The eBird account label changed shape, so nothing was changed.';
+        return 'The signed-in eBird account name was not available. You can enter it manually.';
+      }
+      function refreshIdentityHint() {
+        var hint = $('ebirdNameHint');
+        if (!hint) return;
+        var meta = getIdentityMeta(), source = meta && meta.source;
+        var suffix = source === 'ebird-bird-list'
+          ? ' Current source: signed-in eBird bird-list account menu.'
+          : source === 'csv'
+            ? ' Current source: imported eBird CSV.'
+            : getDisplayName()
+              ? ' Current source: manual entry.'
+              : '';
+        hint.textContent = 'Used to find your row and your own checklists. '
+          + 'Bird Chaser reads it from the signed-in account menu on the same '
+          + 'eBird bird-list page it already uses. The API key and public web '
+          + 'key do not identify the account. A manually entered name is never overwritten.'
+          + suffix;
+      }
       function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
 
       // Follow the eBird taxonomy's reportAs chain to the terminal parent
@@ -18199,7 +18576,13 @@
       function openKeygen() {
         var IB = ib();
         if (IB && typeof IB.openWebView === 'function') {
-          try { IB.openWebView({ url: EBIRD_KEYGEN_URL, showReloadButton: true, title: 'eBird API key' }); return true; } catch (e) {}
+          try {
+            IB.openWebView({
+              url: EBIRD_KEYGEN_URL, showReloadButton: true,
+              title: 'eBird API key', persistWebViewData: true
+            });
+            return true;
+          } catch (e) {}
         }
         openExternal(EBIRD_KEYGEN_URL);
         return true;
@@ -18268,12 +18651,31 @@
         if (getKey()) {
           if (!getDisplayName()) {
             el.hidden = false;
-            el.innerHTML = '<div class="kbtitle">👤 Add your eBird display name</div>'
-              + '<p>The API key identifies Bird Chaser, not your eBird account. '
-              + 'Add the public name on your eBird profile so the app can find '
-              + 'your checklists and leaderboard row.</p>'
-              + '<div class="keyrow"><button id="nameBannerBtn" type="button">'
-              + 'Add my name</button></div>';
+            el.innerHTML = '<div class="kbtitle">👤 Fetch your eBird display name</div>'
+              + '<p>The API key and eBird web key do not identify an account. '
+              + 'Bird Chaser can read the name from the signed-in account menu '
+              + 'on the same eBird bird-list page it already uses.</p>'
+              + '<div class="keyrow"><button id="nameFetchBtn" type="button">'
+              + 'Fetch my name</button><button id="nameBannerBtn" class="secondary" '
+              + 'type="button">Enter manually</button></div>'
+              + '<p id="identityFetchStatus" class="hint"></p>';
+            var fb = $('nameFetchBtn');
+            if (fb) fb.addEventListener('click', function () {
+              var status = $('identityFetchStatus');
+              fb.disabled = true;
+              if (status) status.textContent = 'Opening the eBird bird list…';
+              fetchIdentityFromBirdList(function (message) {
+                if (status) status.textContent = message;
+              }).then(function (result) {
+                if (result && result.applied) return;
+                if (status) status.textContent = identityResultMessage(result);
+              }).catch(function (e) {
+                if (status) status.textContent = (e && e.message)
+                  ? e.message : 'Could not read the signed-in eBird account.';
+              }).finally(function () {
+                if ($('nameFetchBtn')) $('nameFetchBtn').disabled = false;
+              });
+            });
             var nb = $('nameBannerBtn');
             if (nb) nb.addEventListener('click', function () {
               showSettings(true);
@@ -18378,10 +18780,57 @@
           'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
           'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
           'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          parseEbirdAccountIdentity.toString() + ';' +
           parseFirstYearBirdList.toString() + ';' +
           'var R=parseFirstYearBirdList(H);' +
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:!!(onPage&&R&&R.valid),data:R}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+      function buildIdentityInject(expectRegion, attempt) {
+        return '(function(){try{if(!window.mobileApp)return;' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
+          'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
+          'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
+          'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          parseEbirdAccountIdentity.toString() + ';' +
+          'var I=parseEbirdAccountIdentity(H);' +
+          'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
+          'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
+          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+      }
+
+      function fetchIdentityFromBirdList(onStatus) {
+        if (_webSessionClearing) {
+          return Promise.reject(new Error('The previous eBird browser session is still being cleared.'));
+        }
+        if (!_webSessionReady) {
+          return clearEbirdWebSession().then(function (cleared) {
+            if (!cleared) {
+              throw new Error('The previous eBird browser session could not be cleared.');
+            }
+            return fetchIdentityFromBirdList(onStatus);
+          });
+        }
+        var region = getRegion(), startProfile = bcProfile(), startKey = getKey();
+        var startIdentityRevision = identityRevision();
+        var startIdentityGeneration = _identityGeneration;
+        function current() {
+          return bcProfile() === startProfile && getKey() === startKey
+            && identityRevision() === startIdentityRevision
+            && _identityGeneration === startIdentityGeneration;
+        }
+        return captureEbird({
+          kind: 'identity',
+          url: firstYearUrl(region),
+          alive: current,
+          buildInject: function (attempt) { return buildIdentityInject(region, attempt); },
+          onStatus: onStatus
+        }).then(function (identity) {
+          if (!current()) return { applied: false, status: 'superseded' };
+          return applyCapturedIdentity(identity);
+        });
       }
 
       // Open an eBird page, wait through the login redirect if needed, inject a
@@ -18390,7 +18839,7 @@
         var IB = ib();
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
-          var id = null, done = false, timer = null, revealTimer = null;
+          var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [];
           function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
           function belongs(ev) {
@@ -18417,8 +18866,9 @@
             finish(new Error('The eBird capture was superseded by a new report.'));
           }
           function reveal() {
-            if (done || !id) return;
+            if (done || !id || revealed) return;
             if (!alive()) { stopObsolete(); return; }
+            revealed = true;
             try { IB.show({ id: id }); } catch (e) {}
             if (opts.onStatus) opts.onStatus('Finish on eBird if prompted — this closes automatically.');
           }
@@ -18439,7 +18889,7 @@
             // Promise; scheduling afterward would turn one bridge hiccup into
             // a permanent one-shot capture.
             try {
-              var request = IB.executeScript({ id: id, code: opts.buildInject() });
+              var request = IB.executeScript({ id: id, code: opts.buildInject(attempt) });
               if (request && request.catch) request.catch(function () {});
             } catch (e) {}
           }
@@ -18449,6 +18899,7 @@
             if (!alive()) { stopObsolete(); return; }
             var d = ev && ev.detail; if (!d || !d.__ebird) return;
             if (opts.kind && d.kind !== opts.kind) return;
+            if (d.needsLogin) { reveal(); return; }
             // Listeners are registered on the plugin, not on one window, so a
             // leftover eBird window could otherwise resolve this capture with
             // its own page. Ignore anything that names a different window.
@@ -18473,7 +18924,8 @@
             finish(new Error('The eBird window was closed before it finished.'));
           });
           IB.openWebView({
-            url: opts.url, showReloadButton: true, hidden: true
+            url: opts.url, showReloadButton: true, hidden: true,
+            persistWebViewData: true
           }).then(function (r) {
             id = r && r.id;
             try { IB.hide({ id: id }); } catch (e) {}
@@ -18484,10 +18936,38 @@
       }
 
       function ebirdSignOut() {
-        var IB = ib();
-        if (IB && IB.clearAllBrowsingData) { try { IB.clearAllBrowsingData(); } catch (e) {} }
-        if ($('rankStatus')) $('rankStatus').textContent = 'Signed out of eBird on this device.';
-        if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
+        var meta = getIdentityMeta(), oldName = getDisplayName();
+        if (meta && meta.source === 'ebird-bird-list') {
+          setDisplayNameValue('', 'ebird-sign-out');
+          if (profileNames()[String(bcProfile())] === profileNameValue(oldName)) {
+            setProfileName(bcProfile(), '');
+          }
+          if ($('ebirdName')) {
+            $('ebirdName').value = '';
+            $('ebirdName').dataset.loadedValue = '';
+          }
+          if ($('bcProfileName')
+              && $('bcProfileName').value === profileNameValue(oldName)) {
+            $('bcProfileName').value = '';
+            $('bcProfileName').dataset.loadedValue = '';
+          }
+          refreshIdentityHint();
+          renderKeyBanner();
+          headerIdentityRefresh();
+          renderMenuIdentity();
+        }
+        if ($('rankStatus')) $('rankStatus').textContent = 'Signing out of eBird on this device…';
+        if ($('abaStatus')) $('abaStatus').textContent = 'Signing out…';
+        return clearEbirdWebSession().then(function (cleared) {
+          if (cleared) {
+            if ($('rankStatus')) $('rankStatus').textContent = 'Signed out of eBird on this device.';
+            if ($('abaStatus')) $('abaStatus').textContent = 'Signed out. Load again to log back in.';
+          } else {
+            if ($('rankStatus')) $('rankStatus').textContent = 'Could not clear the eBird browser session.';
+            if ($('abaStatus')) $('abaStatus').textContent = 'Sign-out failed. Restart the app before using another account.';
+          }
+          return cleared;
+        });
       }
 
       // Mirrors rankings.py::REGIONS. `activeFor` is what the report FETCHES
@@ -18500,7 +18980,7 @@
         { key: 'ks', label: 'Kansas', region: 'US-KS', max: 500, activeFor: ['ks'], primaryFor: ['ks'] },
         { key: 'az', label: 'Arizona', region: 'US-AZ', max: 500, activeFor: ['az'], primaryFor: ['az'] },
         { key: 'ca', label: 'California', region: 'US-CA', max: 500, activeFor: ['ca'], primaryFor: ['ca'] },
-        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['waikoloa'], primaryFor: ['waikoloa'] },
+        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['hi', 'waikoloa'], primaryFor: ['hi', 'waikoloa'] },
         { key: 'lower48', label: 'Lower 48', region: 'lower48', max: 10000, activeFor: ['wa', 'lower48'], primaryFor: ['lower48'] },
         { key: 'aba', label: 'ABA Area', region: 'aba', max: 10000, activeFor: ['aba'], primaryFor: ['aba'] }
       ];
@@ -19672,9 +20152,9 @@
           + patchCapped(cards, 'hotspot');
       }
 
-      // The per-birder SUB-PAGE. Same model as the mega-rarity profile: the
-      // list hides, the page shows, and the navbar back button is told where it
-      // is rather than a second back affordance being invented.
+      // The per-birder SUB-PAGE. The list hides, the page shows, and the navbar
+      // back button is told where it is rather than a second back affordance
+      // being invented.
       var _patchOpen = '';
       var PATCH_PARTS = ['patchLead', 'patchResults', 'patchUnplaced'];
       function patchOpenBirder(name) {
@@ -20383,8 +20863,11 @@
         try { return localStorage.getItem(ABA_SCOPE_KEY) === 'aba' ? 'aba' : 'state'; }
         catch (e) { return 'state'; }
       }
-      function setAbaScope(v) {
-        try { localStorage.setItem(ABA_SCOPE_KEY, v === 'aba' ? 'aba' : 'state'); } catch (e) {}
+      function setAbaScope(v, keepCurrentLoad) {
+        var next = v === 'aba' ? 'aba' : 'state';
+        var changed = abaScope() !== next;
+        try { localStorage.setItem(ABA_SCOPE_KEY, next); } catch (e) {}
+        if (changed && !keepCurrentLoad) invalidateMegaViews();
       }
       var ABA_SORT_KEY = 'ebird_aba_sort_v1';
       function abaSort() {
@@ -20467,18 +20950,403 @@
         host.addEventListener('click', function (ev) {
           var b = ev.target.closest ? ev.target.closest('[data-abascope]') : null;
           if (!b) return;
-          setAbaScope(b.getAttribute('data-abascope'));
+          setAbaScope(b.getAttribute('data-abascope'), true);
           // Re-scoping is a LOCAL filter over rows already in hand. It must
           // never re-scrape: the alert page is one of the few reads this app
           // cannot rate-limit its way out of.
           reload();
         });
       }
+
+      // F304. Mega is a species INDEX; Stakeout owns the species detail. The
+      // hand-off carries an opaque reference into this in-memory registry.
+      // Nothing is serialized into localStorage or the DOM: raw rows, merged
+      // fields and running promises stay as objects, while a list row exposes
+      // only {view key, exact eBird code}.
       var _abaLoadGeneration = 0;
+      var _megaViews = {};
+      var _megaViewKey = '';
+      var _activeMega = null;
+      var _stakeOrigin = null;
+
+      function megaViewId(meta) {
+        return [
+          meta.reportSlug, meta.region, meta.sid, meta.scope, meta.generation
+        ].map(function (v) { return encodeURIComponent(String(v == null ? '' : v)); }).join('|');
+      }
+      function clearMegaStakeContext() {
+        _activeMega = null;
+        _stakeOrigin = null;
+        var back = $('navBack');
+        if (back && visibleSectionId() === 'sec-spLookupBtn') {
+          back.setAttribute('aria-label', 'Back to Contents');
+        }
+      }
+      function invalidateMegaViews() {
+        _abaLoadGeneration++;
+        _megaViews = {};
+        _megaViewKey = '';
+        clearMegaStakeContext();
+      }
+      function megaViewCurrent(view) {
+        return !!(view && _megaViewKey === view.key && _megaViews[view.key] === view
+          && view.generation === _abaLoadGeneration
+          && view.reportSlug === getReportSlug()
+          && view.region === getRegion()
+          && view.sid === getAbaSid()
+          && view.scope === abaScope());
+      }
+      function megaActive(entry, generation) {
+        return !!(entry && generation === _spLookupGeneration
+          && _activeMega && _activeMega.viewKey === entry.view.key
+          && _activeMega.code === entry.code && megaViewCurrent(entry.view));
+      }
+      function megaEntry(ref, code) {
+        if (!ref) return null;
+        var key = typeof ref === 'string' ? ref : ref.viewKey;
+        var exact = String((typeof ref === 'object' && ref.code) || code || '');
+        var view = _megaViews[key];
+        var entry = view && view.bySpecies[exact];
+        return entry && megaViewCurrent(view) ? entry : null;
+      }
+      function megaRowsByCode(rows) {
+        var out = {};
+        (rows || []).forEach(function (r) {
+          if (!r || !r.speciesCode) return;
+          (out[r.speciesCode] || (out[r.speciesCode] = [])).push(r);
+        });
+        return out;
+      }
+      function megaLatest(rows) {
+        var list = (rows || []).filter(Boolean);
+        if (!list.length) return null;
+        return list.reduce(function (a, b) {
+          return String(b.obsDt || '') > String(a.obsDt || '') ? b : a;
+        }, list[0]);
+      }
+      function megaRefreshEntry(entry) {
+        var view = entry.view;
+        var archive = view.grouped ? abaArchiveFor(view.region, entry.code) : [];
+        var state = megaMergeRows([].concat(
+          entry.stateAlertRows || [], entry.stateFeedRows || [], archive));
+        // A custom/tracker view may not have a state slice. It never had Mega
+        // detail, but retaining the selected rows keeps this helper honest if
+        // an exact-code route is added later.
+        if (!state.length && !view.grouped) state = megaMergeRows(entry.alertRows || []);
+        entry.stateRows = state;
+        var newest = megaLatest(view.wide ? entry.alertRows : state);
+        if (!newest) newest = megaLatest(entry.alertRows);
+        // The selected alert row owns "latest", but a matching detail/archive
+        // row may enrich it with locId, sciName, evidence or comments.
+        if (newest) {
+          var nk = abaArchiveKey(newest);
+          state.forEach(function (r) {
+            if (abaArchiveKey(r) === nk) newest = megaRecordMerge(newest, r);
+          });
+        }
+        entry.latest = newest;
+        entry.name = (newest && newest.comName) || entry.name || entry.code;
+        // Keep the raw scientific name for GBIF even when the reader has
+        // switched scientific-name DISPLAY off. renderMegaIndex and Stakeout
+        // pass it through sciFor() only at the presentation boundary.
+        entry.sci = sciForRows(state.concat(entry.alertRows || []));
+        return entry;
+      }
+      function installMegaView(list, grouped, wide, url, meta) {
+        meta = meta || {};
+        var generation = meta.generation;
+        if (generation == null) generation = ++_abaLoadGeneration;
+        var report = getReport();
+        var viewMeta = {
+          reportSlug: meta.reportSlug || getReportSlug(),
+          region: meta.region || getRegion(),
+          sid: meta.sid || getAbaSid(),
+          scope: meta.scope || abaScope(),
+          generation: generation
+        };
+        var key = megaViewId(viewMeta);
+        var view = _megaViews[key];
+        if (!view) {
+          view = {
+            key: key,
+            reportSlug: viewMeta.reportSlug,
+            region: viewMeta.region,
+            sid: viewMeta.sid,
+            scope: viewMeta.scope,
+            generation: generation,
+            grouped: !!grouped,
+            wide: !!wide,
+            url: url || '',
+            reportLabel: meta.reportLabel || report.label || viewMeta.region,
+            stateName: meta.stateName || BL.stateNameFor(report),
+            country: meta.country || String(viewMeta.region).split('-')[0] || 'US',
+            bySpecies: {}
+          };
+          _megaViews[key] = view;
+        }
+        view.grouped = !!grouped;
+        view.wide = !!wide;
+        view.url = url || view.url;
+        view.rawRows = (list || []).slice();
+        var selected = megaRowsByCode(view.rawRows);
+        var stateRows = meta.stateRows || (wide
+          ? view.rawRows.filter(function (r) { return r.subnational1Code === view.region; })
+          : view.rawRows);
+        var state = megaRowsByCode(stateRows);
+        var wideByCode = meta.wideRowsByCode || {};
+        Object.keys(selected).forEach(function (code) {
+          var entry = view.bySpecies[code] || {
+            view: view, code: code, finderHydration: {},
+            historyHtml: '', wikiHtml: ''
+          };
+          entry.alertRows = megaMergeRows(selected[code]);
+          entry.stateAlertRows = megaMergeRows(state[code] || []);
+          if (Object.prototype.hasOwnProperty.call(wideByCode, code)) {
+            entry.wideRows = wideByCode[code];
+            entry.wideLoaded = true;
+          }
+          view.bySpecies[code] = entry;
+          megaRefreshEntry(entry);
+        });
+        _megaViewKey = key;
+        // The registry is deliberately tiny: a view becomes invalid on the
+        // next load, but retaining a few objects makes detached old callbacks
+        // harmless rather than making their references point at new data.
+        var keys = Object.keys(_megaViews);
+        if (keys.length > 4) {
+          keys.filter(function (k) { return k !== key; })
+            .slice(0, keys.length - 4).forEach(function (k) { delete _megaViews[k]; });
+        }
+        return view;
+      }
+      function megaEnsureState(view, entry) {
+        if (!view || !entry) return Promise.resolve([]);
+        if (entry.statePromise) return entry.statePromise;
+        entry.statePromise = abaStateHistory(view.region, entry.code, function () {
+          return megaViewCurrent(view);
+        }).then(function (rows) {
+          entry.stateLoaded = true;
+          entry.stateFeedRows = Array.isArray(rows) ? rows : [];
+          megaRefreshEntry(entry);
+          if (megaActive(entry, _spLookupGeneration)) {
+            renderSpeciesLookup();
+            // The scraped alert has no scientific name. If the bird was
+            // opened before detail=full supplied it, the first lazy GBIF
+            // attempt correctly stood down; retry now that the match key
+            // exists, still guarded by this view/code/generation.
+            megaHydrateHistory(entry, _spLookupGeneration);
+            // The alert may have held only the latest row. If detail=full
+            // reveals an earlier finder, hydrate that newly discovered
+            // checklist now rather than leaving its name/evidence blank.
+            megaHydrateFinder(entry, _spLookupGeneration);
+          }
+          return entry.stateFeedRows;
+        }).catch(function (e) {
+          entry.statePromise = null;
+          throw e;
+        });
+        return entry.statePromise;
+      }
+      function megaEnsureWide(view, entry) {
+        if (!view || !entry) return Promise.resolve(null);
+        if (entry.widePromise) return entry.widePromise;
+        if (entry.wideLoaded) return Promise.resolve(entry.wideRows);
+        entry.widePromise = abaWideHistory(entry.code).then(function (rows) {
+          entry.wideLoaded = true;
+          entry.wideRows = rows;
+          if (megaActive(entry, _spLookupGeneration)) renderSpeciesLookup();
+          return rows;
+        }).catch(function (e) {
+          entry.widePromise = null;
+          dbg('warn', 'Mega ABA-wide history failed for ' + entry.code + ': '
+            + ((e && e.message) || e));
+          return null;
+        });
+        return entry.widePromise;
+      }
+      function megaStatsHtml(entry) {
+        if (!entry) return '';
+        var stats = rarityStats(entry.stateRows,
+          'reports in ' + (entry.view.reportLabel || 'this region'),
+          entry.wideLoaded ? entry.wideRows : null);
+        return '<div class="bcstats">' + stats.map(function (s) {
+          return '<div class="bcstat' + (s.hot ? ' hot' : '') + '"><b>' + esc(String(s.n))
+            + '</b><small>' + esc(s.label) + '</small></div>';
+        }).join('') + '</div>';
+      }
+      function megaReportRowHtml(r) {
+        var marks = BirdLogic.recordIcons(r);
+        return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>'
+          + '<span class="howmany">' + (r.howMany != null && r.howMany !== ''
+            ? '×' + esc(r.howMany) : '') + '</span>'
+          + '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, '', true)
+          + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '')
+          + (marks ? ' <span class="evid">' + marks + '</span>' : '') + '</span>'
+          + (r.userDisplayName ? '<span class="who">' + esc(r.userDisplayName) + '</span>' : '')
+          + '</li>';
+      }
+      function megaLatestHtml(entry) {
+        var o = entry && entry.latest;
+        if (!o) return '';
+        var marks = BirdLogic.recordIcons(o);
+        return '<div class="bcnow megalatest"><span class="lbl">Latest mega report</span>'
+          + '<span class="when">' + esc(fmtDateTime(o.obsDt)) + '</span> · '
+          + locLink(o.locName || '', o.lat, o.lng, '', true)
+          + (o.howMany != null && o.howMany !== '' ? ' · ×' + esc(o.howMany) : '')
+          + (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '')
+          + (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : '')
+          + (marks ? ' <span class="evid">' + marks + '</span>' : '') + '</div>';
+      }
+      function megaFinderState(entry) {
+        var fr = firstReport(entry && entry.stateRows, coverageStart(entry.view.region));
+        if (!fr || (entry.latest && abaArchiveKey(fr.r) === abaArchiveKey(entry.latest))) return null;
+        return fr;
+      }
+      function megaFinderHtml(entry) {
+        var fr = megaFinderState(entry);
+        if (!fr) return '';
+        var r = fr.r, h = entry.finderHydration[r.subId] || {};
+        var who = r.userDisplayName || h.who || '';
+        var marks = BirdLogic.recordIcons(r) || h.marks || '';
+        var title = h.title ? ' title="' + esc(h.title) + '"' : '';
+        return '<div class="bcnow bcfirst megafinder"><span class="lbl">'
+          + (fr.found ? 'Found by' : 'Earliest report we hold') + '</span>'
+          + '<span class="when fbwho"' + (r.subId ? ' data-sub="' + esc(r.subId) + '"' : '')
+          + ' data-code="' + esc(entry.code) + '">' + esc(who) + '</span>'
+          + (who ? ' · ' : '') + esc(fmtDateTime(r.obsDt))
+          + ' · ' + locLink(r.locName || '', r.lat, r.lng, '', true)
+          + (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '')
+          + (marks ? ' <span class="evid"' + title + '>' + marks + '</span>' : '')
+          + '<span class="who">' + (fr.found
+            ? 'Best guess — open the checklist before you credit anyone'
+            : 'Already present when our records start — the true finder is earlier')
+          + '</span>'
+          + (fr.found ? '<span class="bcguess">A guess, not a record: eBird returns only the '
+            + 'most recent report per location, so an earlier checklist at the same place is '
+            + 'invisible here. The true find is at or before this one, never after.</span>' : '')
+          + '</div>';
+      }
+      function megaHistoryHtml(entry) {
+        var rows = (entry && entry.stateRows || []).slice().sort(function (a, b) {
+          return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
+        });
+        if (!rows.length) return '';
+        var shown = rows.slice(0, ABA_CARD_REPORTS).map(megaReportRowHtml).join('');
+        var more = moreDetails(rows.length - ABA_CARD_REPORTS,
+          { one: 'report', many: 'reports' }, function () {
+            return '<ul class="abareports">'
+              + rows.slice(ABA_CARD_REPORTS).map(megaReportRowHtml).join('') + '</ul>';
+          });
+        var since = abaArchiveSince(entry.view.region);
+        return '<div class="bcwhere megareports"><span class="lbl">Every Mega report we hold</span>'
+          + (since ? '<div class="bcsince">Kept on this device since ' + esc(fmtDate(since))
+            + ' — earlier sightings are not missing, they are simply before we started.</div>' : '')
+          + '<ul class="cklrows">' + shown + '</ul>' + more + '</div>';
+      }
+      function megaEvidenceHtml(entry) {
+        if (!entry) return '';
+        return '<div class="megaevidence" data-mega-view="' + esc(entry.view.key)
+          + '" data-mega-code="' + esc(entry.code) + '">'
+          + '<div class="megaorigin"><span class="stakeflag">🦅 Mega · ABA Code 3+</span>'
+          + '<span>Opened from Mega rarities; its report evidence is kept with the ordinary '
+          + 'Stakeout places below.</span></div>'
+          + megaLatestHtml(entry)
+          + megaFinderHtml(entry)
+          + megaStatsHtml(entry)
+          + '<div class="bcnow bchist megahistory'
+          + (entry.historyIsMega ? ' mega' : '') + '">' + (entry.historyHtml || '') + '</div>'
+          + '<p class="bcextract megawiki">' + (entry.wikiHtml || '') + '</p>'
+          + megaHistoryHtml(entry)
+          + '</div>';
+      }
+      function megaHydrateFinder(entry, generation) {
+        var fr = megaFinderState(entry);
+        if (!fr || !fr.r.subId || !getKey()) return Promise.resolve();
+        var sub = fr.r.subId;
+        if (entry.finderPromiseBySub && entry.finderPromiseBySub[sub]) {
+          return entry.finderPromiseBySub[sub];
+        }
+        if (!entry.finderPromiseBySub) entry.finderPromiseBySub = {};
+        entry.finderPromiseBySub[sub] = checklistView(sub, true).then(function (d) {
+          var ob = ((d && d.obs) || []).filter(function (o) {
+            return o && o.speciesCode === entry.code;
+          })[0];
+          var det = BirdLogic.checklistDetail(ob, null, d && d.comments);
+          var tip = [];
+          if (det.c) tip.push(det.c);
+          if (det.k) tip.push('Checklist: ' + det.k);
+          entry.finderHydration[sub] = {
+            who: (d && d.userDisplayName) || '',
+            marks: BirdLogic.checklistIcons(det),
+            title: tip.join('\n\n')
+          };
+          var richer = megaRecordMerge(fr.r, {
+            userDisplayName: (d && d.userDisplayName) || '',
+            evidence: det.m || '',
+            hasComments: !!(det.c || det.k)
+          });
+          entry.stateRows = entry.stateRows.map(function (r) {
+            return abaArchiveKey(r) === abaArchiveKey(fr.r) ? richer : r;
+          });
+          if (megaViewCurrent(entry.view)) abaArchiveAdd(entry.view.region, [richer]);
+          if (megaActive(entry, generation)) renderSpeciesLookup();
+        }).catch(function (e) {
+          dbg('warn', 'Mega finder checklist failed for ' + entry.code + ' / ' + sub
+            + ': ' + ((e && e.message) || e));
+        });
+        return entry.finderPromiseBySub[sub];
+      }
+      function megaHydrateHistory(entry, generation) {
+        if (!entry || !entry.sci || !entry.view.stateName) return Promise.resolve();
+        if (!entry.historyPromise) {
+          entry.historyPromise = Promise.all([
+            gbifHistory(entry.sci, entry.view.stateName, entry.view.country),
+            gbifSnapshotYear(entry.view.stateName, entry.view.country)
+          ]).then(function (r) {
+            var h = r[0];
+            if (h && r[1]) h.edge = r[1];
+            entry.historyHtml = histLine(h, entry.view.stateName);
+            entry.historyIsMega = !!(h && !h.years);
+          }).catch(function (e) {
+            dbg('warn', 'Mega GBIF history failed for ' + entry.code + ': '
+              + ((e && e.message) || e));
+          });
+        }
+        return entry.historyPromise.then(function () {
+          if (megaActive(entry, generation)) renderSpeciesLookup();
+        });
+      }
+      function megaHydrateWikipedia(entry, generation) {
+        if (!entry) return Promise.resolve();
+        if (!entry.wikiPromise) {
+          entry.wikiPromise = birdInfo(entry.name).then(function (info) {
+            if (!info || !info.extract) return;
+            entry.wikiHtml = esc(info.extract)
+              + '<span class="src">' + extA('https://en.wikipedia.org/wiki/'
+                + encodeURIComponent(String(info.title).replace(/\s+/g, '_')),
+                'Wikipedia: ' + info.title) + '</span>';
+          }).catch(function (e) {
+            dbg('warn', 'Mega Wikipedia summary failed for ' + entry.code + ': '
+              + ((e && e.message) || e));
+          });
+        }
+        return entry.wikiPromise.then(function () {
+          if (megaActive(entry, generation)) renderSpeciesLookup();
+        });
+      }
+      function hydrateActiveMega(entry, generation) {
+        if (!entry) return;
+        megaEnsureWide(entry.view, entry);
+        megaHydrateFinder(entry, generation);
+        megaHydrateHistory(entry, generation);
+        megaHydrateWikipedia(entry, generation);
+      }
+
       function loadAbaAlert() {
         // Newest first, the pair the reader quoted. This is the one alert URL the
         // app has a sid for, so it is the one place the exact form applies.
-        var loadGeneration = ++_abaLoadGeneration;
+        invalidateMegaViews();
+        var loadGeneration = _abaLoadGeneration;
         var startSid = getAbaSid();
         var startRegion = getRegion();
         var startReport = getReport();
@@ -20524,7 +21392,8 @@
             // report.py::section_state_aba_rarities filters the continent-wide
             // alert to the active report's state and groups by species. Rarity
             // trackers (lower48/aba) have no state, so they keep the full feed.
-            var region = startRegion, scoped = startScoped;            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
+            var region = startRegion, scoped = startScoped;
+            // `grouped` and `scoped` USED TO BE ONE FLAG, and that is why this
             // feature looked impossible: showing the continent meant losing
             // the species cards and falling back to the rarity-tracker's flat
             // feed. They answer different questions - "which rows" vs "which
@@ -20539,44 +21408,35 @@
             var stateRows = scoped
               ? list.filter(function (o) { return o.subnational1Code === region; })
               : list;
-            var fetchedAt = nowTime(), historyPromise = null;
-            function ensureStateHistory(species) {
-              if (historyPromise || !scoped || !getKey()
-                  || !Object.keys(species || {}).length) return historyPromise;
-              historyPromise = Promise.all(Object.keys(species).map(function (c) {
-                return Promise.all([abaStateHistory(region, c), abaWideHistory(c)])
-                  .then(function (pair) {
-                    if (pair[1]) _abaWide[c] = pair[1];
-                    return pair[0];
-                  });
-              })).then(function (hist) {
-                if (!stillCurrent()) throw superseded();
-                var extra = [].concat.apply([], hist);
-                if (!extra.length && !Object.keys(_abaWide).length) return;
-                paint();
-              }).catch(function (e) {
-                if (!stillCurrent() || (e && e.abaSuperseded)) return;
-                dbg('warn', 'ABA history deepening failed: ' + ((e && e.message) || e));
-              });
-              return historyPromise;
-            }
-            // Scope and sort are local projections over the raw alert. The old
-            // scope click started a second scrape while the first load's state
-            // history was still running; that older callback then explicitly
-            // rendered `wide=false` and overwrote the ABA view while leaving
-            // its chip selected. Every repaint now comes through this closure,
-            // which re-reads both stored choices at the moment it paints.
+            var fetchedAt = nowTime();
+            // Scope and sort are local projections over one alert response.
+            // Every repaint re-reads the selected controls, but receives the
+            // same fetch timestamp and load generation. The Mega registry key
+            // adds the current scope, so a late callback from the old
+            // projection cannot publish into the new one.
             function paint() {
               if (!stillCurrent()) throw superseded();
               var wide = scoped && abaScope() === 'aba';
               var rows = wide ? list : stateRows;
-              renderAbaAlert(rows, url, scoped, wide, paint);
+              var view = renderAbaAlert(rows, url, scoped, wide, {
+                generation: loadGeneration,
+                reportSlug: startSlug,
+                region: startRegion,
+                sid: startSid,
+                scope: abaScope(),
+                reportLabel: startReport.label || startRegion,
+                stateName: BL.stateNameFor(startReport),
+                country: String(startRegion).split('-')[0] || 'US',
+                stateRows: stateRows
+              }, paint);
               var species = {};
-              rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
+              rows.forEach(function (o) {
+                if (o.speciesCode) species[o.speciesCode] = 1;
+              });
               var n = Object.keys(species).length;
               var unseen = Object.keys(species)
                 .filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
-              var whereLbl = wide ? 'the ABA area' : (getReport().label || 'this region');
+              var whereLbl = wide ? 'the ABA area' : (startReport.label || 'this region');
               var reports = abaReportCount(species, rows, region, scoped, wide);
               st.textContent = n
                 ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
@@ -20588,15 +21448,14 @@
                 list.length + ' alert rows'
                 + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
                 + ' · ' + (!scoped
-                  ? 'unfiltered — ' + (getReport().label || 'rarity tracker') + ' has no state'
+                  ? 'unfiltered — ' + (startReport.label || 'rarity tracker') + ' has no state'
                   : wide
                     ? 'ABA-WIDE view — ' + region + ' filter OFF (' + stateRows.length
                       + ' would have survived it)'
                     : stateRows.length + ' cleared the ' + region + ' filter')
                 + ' · ' + n + ' species, ' + unseen + ' unseen'
                 + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
-              if (scoped && !wide) ensureStateHistory(species);
-              return { wide: wide, species: species, n: n };
+              return view;
             }
             var view = paint();
             // F160: hand the lane a snapshot, and NEVER let the lane fetch.
@@ -20617,10 +21476,39 @@
             // snapshot outlives the view that wrote it, so this would have been
             // a bug that survives closing the section.
             saveMegaSnapshot(stateRows, scoped, startRegion, startSid);
-            // State history deepens lazily the first time the State projection
-            // is painted. Opening on ABA therefore costs no Washington feeds,
-            // but switching to State still starts the authoritative deepening.
-            return historyPromise;
+            var species = {}; rows.forEach(function (o) { if (o.speciesCode) species[o.speciesCode] = 1; });
+            var n = Object.keys(species).length;
+            var unseen = Object.keys(species).filter(function (c) { return !isSpeciesSeen(c, ''); }).length;
+            var whereLbl = wide ? 'the ABA area' : (getReport().label || 'this region');
+            st.textContent = n
+              ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + rows.length + ' reports · ' + unseen + ' you still need · ' + nowTime())
+              : ('None — no ABA Code 3+ rarities currently reported in ' + whereLbl + ' · ' + nowTime());
+            // F186: name the numbers that would be wrong if this were broken.
+            //
+            // "Only three patches in the list" and "no megas" look identical
+            // from outside, and this section has three places to lose rows —
+            // the scrape, the region filter, and the render — so an empty
+            // screen has never said WHICH. Every figure here is observed, not
+            // inferred: the rendered count is read back out of the DOM rather
+            // than assumed equal to the row count, because "we built rows" and
+            // "rows are on screen" are the two claims that differ when this
+            // fails. Never assert a cause the code cannot observe.
+            var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
+            verdict('Mega rarities',
+              list.length + ' alert rows'
+              + (_abaTruncated ? ' (CAPPED at ' + ABA_ALERT_MAX_ROWS + ' continent-wide)' : '')
+              + ' · ' + (!scoped
+                ? 'unfiltered — ' + (getReport().label || 'rarity tracker') + ' has no state'
+                : wide
+                  ? 'ABA-WIDE view — ' + region + ' filter OFF (' + stateRows.length + ' would have survived it)'
+                  : stateRows.length + ' cleared the ' + region + ' filter')
+              + ' · ' + n + ' species, ' + unseen + ' unseen'
+              + ' · ' + (_abaUl ? _abaUl.children.length : 0) + ' rendered');
+            // The list is the answer until a species is selected. State,
+            // ABA-wide, finder, GBIF and Wikipedia detail all begin behind that
+            // exact-code Stakeout click; opening Mega must not build or fetch a
+            // hidden profile for every species.
+            return view;
           })
           .catch(function (e) {
             if (!stillCurrent() || (e && e.abaSuperseded)) return;
@@ -20638,11 +21526,6 @@
       // the ABA-wide report is hundreds of birds, and hundreds of cards is a
       // scroll, not a section.
       var ABA_CARD_REPORTS = 12;
-      // Real continent-wide history per species, filled by abaWideHistory. Kept
-      // out of the alert feed on purpose: an alert row count is capped at 500
-      // continent-wide, so mixing the two would put a measured number and a
-      // budget slice under the same label.
-      var _abaWide = {};
       // Mirrors aba_rba.ALERT_MAX_ROWS. The alert publishes no total, no
       // pagination and no truncation notice, so landing exactly on this number
       // is the only evidence available that species were dropped.
@@ -20712,66 +21595,6 @@
         // user's choice alone and only sync the button to it.
         if (btn) btn.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
       }
-      // Fills the "Found by" name when the species feed left it blank. Bounded
-      // and lazy: one checklist lookup per card, only for cards that actually
-      // lack a name, and a failure just leaves the slot empty rather than
-      // inventing a finder.
-      function hydrateFinders(root) {
-        if (!root || !root.querySelectorAll || !getKey()) return Promise.resolve();
-        var slots = [].slice.call(root.querySelectorAll('.fbwho[data-sub]'))
-          .filter(function (s) { return !s.textContent.trim(); });
-        if (!slots.length) return Promise.resolve();
-        return pool(slots, CONVOY_FETCH_CONC, function (slot) {
-          var sub = slot.getAttribute('data-sub');
-              // F224. BACKGROUND LANE. This is a hydration pass filling slots the
-              // reader can already SEE, so it must not compete for rate-limiter
-              // tokens with the feeds that decide WHAT is on screen. `bg` is the
-              // limiter's existing second queue - already used by the note and
-              // hotspot-media passes, and simply missed here. Same ordering
-              // lesson as the county reads that beat the location read and made
-              // a hotspot card fill in backwards.
-          return checklistView(sub, true)
-            .then(function (d) {
-              // The call was already being made for the name. mediaCounts and
-              // comments come back in the SAME response, so the evidence marks
-              // cost nothing extra — which was the condition for having them.
-              var code = slot.getAttribute('data-code') || '';
-              if (code) {
-                var ob = ((d && d.obs) || []).filter(function (o) {
-                  return o && o.speciesCode === code;
-                })[0];
-                // F222. The checklist's own note rides in the same response,
-                // so the 📋 mark costs nothing extra here either — the same
-                // condition the media marks had to meet.
-                var det = BirdLogic.checklistDetail(ob, null, d && d.comments);
-                var marks = BirdLogic.checklistIcons(det);
-                if (marks) {
-                  var span = document.createElement('span');
-                  span.className = 'evid';
-                  span.textContent = ' ' + marks;
-                  // The note itself, for a long-press/hover, because on a rare
-                  // bird the note IS the evidence. Both notes are offered when
-                  // both exist, LABELLED — an unlabelled concatenation would
-                  // read as one person saying two unrelated things.
-                  var tip = [];
-                  if (det.c) tip.push(det.c);
-                  if (det.k) tip.push('Checklist: ' + det.k);
-                  if (tip.length) span.title = tip.join('\n\n');
-                  slot.parentNode.insertBefore(span, slot.nextSibling);
-                }
-              }
-              var who = d && d.userDisplayName;
-              if (!who) return;
-              slot.textContent = who;
-              // The separator is only correct once there is a name to separate.
-              if (slot.nextSibling && slot.nextSibling.nodeType === 3 &&
-                  !/^\s*·/.test(slot.nextSibling.nodeValue || '')) {
-                slot.nextSibling.nodeValue = ' · ' + (slot.nextSibling.nodeValue || '');
-              }
-            })
-            .catch(function () {});
-        });
-      }
       // Two states is a bird on the move; six is a wave. Naming them all would
       // be a paragraph per row, so the count carries the rest - the same shape
       // "...and N more" uses everywhere else in this app.
@@ -20786,283 +21609,111 @@
         if (out.length <= 2) return out.join(' · ');
         return out.slice(0, 2).join(' · ') + ' +' + (out.length - 2) + ' more';
       }
-      function renderAbaAlert(list, url, grouped, wide, repaint) {
-        // ⚠️ THE SCOPE IS DERIVED HERE, NOT TRUSTED FROM THE CALLER.
-        //
-        // Reported from the device: tapping "ABA area" showed all 53 species
-        // and then reverted to the 3-species Washington list while the pill
-        // still read ABA area. The device log shows both renders and the WIDE
-        // one last, so the revert came from a repaint that reached this
-        // function WITHOUT the flag — and an omitted argument is `undefined`,
-        // which is falsy, which silently means "state".
-        //
-        // A parameter every caller must remember is a parameter someone will
-        // forget, and the failure is invisible: the view simply looks like it
-        // was never switched. The stored preference is the single source of
-        // truth, so a caller can no longer contradict it by omission. An
-        // explicit `false` is still honoured, because the archive and snapshot
-        // paths legitimately need the state view whatever the reader picked.
+      function renderMegaIndex(list, url, wide, meta, repaint) {
+        var region = (meta && meta.region) || getRegion();
+        if (!wide) abaArchiveAdd(region, list);
+        var view = installMegaView(list, true, wide, url, meta);
+        var home = getHome();
+        var entries = Object.keys(view.bySpecies).map(function (code) {
+          var entry = view.bySpecies[code];
+          entry.distMi = abaGroupDistance(
+            wide ? entry.alertRows : entry.stateRows, home);
+          return entry;
+        }).filter(function (entry) {
+          return (entry.alertRows || []).length;
+        });
+        entries = abaSortGroups(entries);
+        var el = $('abaResults');
+        el.className = 'obs';
+        el.innerHTML = '<div class="raritycontrolrow abascoperow">'
+          + abaScopeControl('abaScopePick')
+          + abaSortControl('abaSortPick') + '</div>'
+          + '<ul class="obs big xl">'
+          + entries.map(function (entry) {
+            var latest = entry.latest || {};
+            var count = wide ? entry.alertRows.length : entry.stateRows.length;
+            var ref = { 'mega-code': entry.code, 'mega-view': view.key,
+                        'mega-name': entry.name };
+            return SpeciesCards.medium({
+              data: ref,
+              icon: '<a class="megajump megaphoto" href="#" data-mega-code="'
+                + esc(entry.code) + '" data-mega-view="' + esc(view.key)
+                + '" aria-label="Stake out ' + esc(entry.name) + '">'
+                + photoSlot(entry.name, entry.code) + '</a>',
+              name: '<a class="megajump" href="#" data-mega-code="' + esc(entry.code)
+                + '" data-mega-view="' + esc(view.key) + '">' + esc(entry.name) + '</a>',
+              code: entry.code,
+              alpha: alphaFor(entry.code),
+              sci: sciFor(entry.sci),
+              tags: needTag(entry.code, entry.name),
+              sub: esc(fmtDate(latest.obsDt))
+                + (wide ? ' · ' + esc(abaWhereLabel(entry.alertRows)) : '')
+                + (entry.distMi != null && isFinite(entry.distMi)
+                  ? ' <span class="abadist">· ' + entry.distMi.toFixed(1) + ' mi</span>' : '')
+                + ' · ' + count + ' report' + (count === 1 ? '' : 's'),
+              lead: '\u203A'
+            });
+          }).join('')
+          + '</ul>';
+        [].slice.call(el.querySelectorAll('li[data-mega-code]')).forEach(function (row) {
+          row.tabIndex = 0;
+          row.setAttribute('role', 'link');
+          row.setAttribute('aria-label', 'Stake out '
+            + (row.getAttribute('data-mega-name') || row.getAttribute('data-mega-code')));
+        });
+        hydratePhotos(el);
+        var rerender = repaint || function () { loadAbaAlert(); };
+        wireAbaScope('abaScopePick', rerender);
+        wireAbaSort('abaSortPick', rerender);
+        var foot = document.createElement('div');
+        foot.className = 'status';
+        foot.innerHTML = extA(url, 'View alert on eBird');
+        el.appendChild(foot);
+        return view;
+      }
+      function renderAbaAlert(list, url, grouped, wide, meta, repaint) {
+        if (typeof meta === 'function') {
+          repaint = meta;
+          meta = null;
+        }
         if (wide == null) wide = grouped && abaScope() === 'aba';
         setAbaWarn(abaAlertWarning((list || []).length));
-        var el = $('abaResults'); el.innerHTML = '';
-        el.className = grouped ? 'cards' : 'obs';
-        if (grouped) {
-          var byCode = {};
-          list.forEach(function (o) {
-            if (!o.speciesCode) return;
-            (byCode[o.speciesCode] = byCode[o.speciesCode] || []).push(o);
-          });
-          var region = getRegion();
-          // GBIF filters on eBird's own text field, which is the state NAME,
-          // not the US-WA code. Verified better than GBIF's spatial join
-          // (gadmGid), which silently drops records with imprecise coordinates.
-          var stateName = BL.stateNameFor(getReport());
-          var gbifCountry = String(region).split('-')[0] || 'US';
-          // Merge what the alert holds into the archive BEFORE rendering, so a
-          // card always reflects everything this device has ever seen.
-          //
-          // THE ARCHIVE IS STATE-KEYED, so the ABA-wide view neither writes to
-          // it nor reads from it. Writing would file a Florida record as a
-          // Washington one - permanently, on device, where no later fix could
-          // tell the two apart. Reading would credit a bird that has never been
-          // here with this state's history. The wide view is therefore the
-          // ALERT ALONE, which is the honest thing for it to be: a live
-          // continent-wide feed, not a local history.
-          if (!wide) abaArchiveAdd(region, list);
-          var home = getHome();
-          var groups = Object.keys(byCode).map(function (code) {
-            // The state feed is the authority on how many reports there really
-            // are; the alert supplies only the ABA-code filter. Union both, plus
-            // the archive, deduped by checklist.
-            var seen = {}, rs = [];
-            [].concat(byCode[code], wide ? [] : abaArchiveFor(region, code)).forEach(function (r) {
-              var k = abaArchiveKey(r);
-              if (seen[k]) return;
-              seen[k] = 1; rs.push(r);
-            });
-            var latest = rs.reduce(function (a, b) { return String(b.obsDt) > String(a.obsDt) ? b : a; }, rs[0]);
-            return { code: code, rs: rs, latest: latest,
-                     distMi: abaGroupDistance(rs, home) };
-          });
-          groups = abaSortGroups(groups);
+        if (grouped) return renderMegaIndex(list || [], url, wide, meta, repaint);
 
-          // THE SECTION IS THE SPECIES LIST. Each profile below is a full
-          // screen — latest report, finder, every report we hold, state
-          // history — so a dozen megararities was a dozen screens to scroll
-          // past before you knew which birds were even in it. The list is what
-          // the section shows; a profile opens over it as a sub-page.
-          var detail = $('abaDetail'), detailCards = $('abaDetailCards');
-          if (detailCards) { detailCards.innerHTML = ''; }
-          if (detail) { detail.hidden = true; }
-          el.className = 'obs';
-          // MEDIUM, not small — "this should show the larger photo like needs
-          // verification". A mega is the rarest thing the app shows and it had
-          // the most compact row in the app; the photo is also the fastest way
-          // to recognise a bird you have never seen.
-          // The control sits ABOVE the list, where the twitch sections put
-          // theirs, because it changes what the list IS rather than merely how
-          // it is ordered - and a scope control you find after scrolling a
-          // continent is a scope control nobody finds.
-          // ⚠️ NOT `.modeswitch`, which was the first choice and was wrong.
-          // That class is a full-width segmented BAR with its own border, so
-          // the pair stretched edge to edge and read as a page-wide banner
-          // rather than a chip — reported from the device as "toggle shouldnt
-          // stretch across the screen". `.raritycontrolrow` is the row the
-          // twitch chips already sit in, so this pair is now sized exactly
-          // like every other scope control in the app instead of being a
-          // second opinion about how a chip should look.
-          el.innerHTML = (grouped ? '<div class="raritycontrolrow abascoperow">'
-              + abaScopeControl('abaScopePick')
-              + abaSortControl('abaSortPick') + '</div>' : '')
-            + '<ul class="obs big xl">'
-            + groups.map(function (g) {
-              return SpeciesCards.medium({
-                // THE PHOTO OPENS THE PROFILE TOO. Reported 2026-08-27:
-                // "clicking photo doesnt jump to detailed view". The name
-                // was the only target, and on a card whose picture is the
-                // biggest thing on the row that reads as a dead image.
-                // Wrapping the slot in the SAME anchor means the existing
-                // delegated `a.abajump` handler covers it with no new
-                // listener and no second code path to drift.
-                icon: '<a class="abajump abaphoto" href="#aba-' + esc(g.code)
-                  + '" aria-label="Open ' + esc(g.latest.comName || g.code) + '">'
-                  + photoSlot(g.latest.comName, g.code) + '</a>',
-                // The NAME is the link, not a separate "details" affordance:
-                // the name is what you are looking for in a list of names.
-                name: '<a class="abajump" href="#aba-' + esc(g.code) + '">'
-                  + esc(g.latest.comName || g.code) + '</a>',
-                code: g.code,
-                alpha: alphaFor(g.code),
-                sci: sciFor(g.code),
-                tags: needTag(g.code, g.latest.comName),
-                // ON THE WIDE VIEW THE PLACE IS THE POINT. A continent-wide list
-                // of bird names with no location cannot be acted on - the first
-                // question about a mega is "where", and at this scope the answer
-                // is no longer implied by the section itself. Codes rather than
-                // names, matching the picker convention the owner asked for
-                // ("Washington US-WA") and needing no lookup table to be right.
-                sub: esc(fmtDate(g.latest.obsDt))
-                  + (wide ? ' · ' + esc(abaWhereLabel(g.rs)) : '')
-                  + (g.distMi != null && isFinite(g.distMi)
-                    ? ' <span class="abadist">· ' + g.distMi.toFixed(1) + ' mi</span>' : '')
-                  + ' · ' + g.rs.length + ' report' + (g.rs.length === 1 ? '' : 's'),
-                // The chevron rides the medium card's RIGHT-HAND column,
-                // which is the distance slot — this list has no distance, and
-                // the affordance matters more: a bare name does not look like
-                // it opens anything. (MEDIUM has no `right` slot; that is a
-                // small-card feature, and passing one here silently dropped
-                // it.)
-                lead: '\u203A'
-              });
-            }).join('')
-            + '</ul>';
-          // The list icons are photo SLOTS until something fills them. This
-          // was never called for this section, which is why its pictures — the
-          // small ones here and the big one on every profile — stayed empty.
-          hydratePhotos(el);
-          // Re-scoping re-enters loadAbaAlert, which re-renders and therefore
-          // re-wires. That is safe because the control is rebuilt with the
-          // markup it is attached to - there is no listener left on a node
-          // that no longer exists, and no second listener on one that does.
-          var rerender = repaint || function () { loadAbaAlert(); };
-          wireAbaScope('abaScopePick', rerender);
-          wireAbaSort('abaSortPick', rerender);
-
-          groups.forEach(function (g) {
-            var o = g.latest;
-            // The report's own rows, one per line, so the card still carries
-            // every report the table cell would have listed.
-            var abaRow = function (r) {
-              return '<li><span class="when">' + esc(fmtDate(r.obsDt)) + '</span>' +
-                '<span class="howmany">' + (r.howMany != null ? '×' + esc(r.howMany) : '') + '</span>' +
-                '<span class="where">' + locLink(r.locName || '', r.lat, r.lng, '', true) +
-                (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</span>' +
-                (r.userDisplayName ? '<span class="who">' + esc(r.userDisplayName) + '</span>' : '') + '</li>';
-            };
-            var sorted = g.rs.slice().sort(function (a, b) {
-              return String(b.obsDt).localeCompare(String(a.obsDt));
-            });
-            var lines = sorted.slice(0, ABA_CARD_REPORTS).map(abaRow).join('');
-            var more = moreDetails(g.rs.length - ABA_CARD_REPORTS, { one: 'report', many: 'reports' }, function () {
-              return '<ul class="abareports">'
-                + sorted.slice(ABA_CARD_REPORTS).map(abaRow).join('') + '</ul>';
-            });
-            var since = abaArchiveSince(region);
-            var fr = firstReport(g.rs, coverageStart(region));
-            var stats = rarityStats(g.rs, 'reports in ' + (getReport().label || 'this region'),
-                                    _abaWide[g.code] || null);
-            var card = birdCard({
-              code: g.code, name: o.comName,              badges: needTag(g.code, o.comName),
-              // NOT "state history since <date>" — that date is when THIS
-              // DEVICE started keeping records, which said nothing about the
-              // bird and read as though the species arrived in the state that
-              // day. Real state history is the GBIF block below; the archive
-              // window belongs with the reports it actually bounds.
-              sub: 'ABA Code 3+',
-              // The one line you act on: where the bird was last seen, when, and
-              // by whom, at a size you can read while holding a steering wheel.
-              now: '<span class="lbl">Latest report</span>' +
-                '<span class="when">' + esc(fmtDateTime(o.obsDt)) + '</span> · ' +
-                locLink(o.locName || '', o.lat, o.lng, '', true) +
-                (o.howMany != null && o.howMany !== '' ? ' · ×' + esc(o.howMany) : '') +
-                (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') +
-                (o.userDisplayName ? '<span class="who">' + esc(o.userDisplayName) + '</span>' : '') +
-              (BirdLogic.recordIcons(o) ? ' <span class="evid">' + BirdLogic.recordIcons(o) + '</span>' : ''),
-              // Credit for the find, and the checklist to cite it from.
-              //
-              // This is a BEST GUESS and now says so, for two measured reasons
-              // that both push the same way — the real find is always at or
-              // before what we can see, never after:
-              //
-              //  1. The species feed returns ONE observation per LOCATION, so an
-              //     earlier checklist at a place we already hold is invisible to
-              //     us. White Wagtail, Neah Bay: we held 2026-07-02 16:24
-              //     (S367196525) while the actual find was 2026-07-02 13:11
-              //     (S366733185, Stefan Sremac) — same day, three hours earlier,
-              //     logged under a different location marker. Close enough to
-              //     look right, which is exactly what makes it worth labelling.
-              //  2. Coverage starts at the API's 30-day ceiling or the archive,
-              //     whichever is earlier, and `found` already tests that edge.
-              //
-              // The blank name is a SEPARATE gap: `recent/{speciesCode}` with
-              // detail=full returns userDisplayName EMPTY (verified on all six
-              // whiwag rows for US-WA), unlike the alert scrape which carries it.
-              // So the name is hydrated per card from the checklist itself.
-              first: fr && fr.r !== o ? '<span class="lbl">' +
-                (fr.found ? 'Found by' : 'Earliest report we hold') + '</span>' +
-                (fr.found
-                  ? '<span class="when fbwho"' +
-                      (fr.r.subId && !fr.r.userDisplayName ? ' data-sub="' + esc(fr.r.subId) + '"' : '') +
-                      (fr.r.subId ? ' data-code="' + esc(fr.r.speciesCode || o.speciesCode || '') + '"' : '') +
-                      '>' + (fr.r.userDisplayName ? esc(fr.r.userDisplayName) : '') + '</span>' +
-                    (fr.r.userDisplayName ? ' · ' : '') + esc(fmtDateTime(fr.r.obsDt))
-                  : '<span class="when">' + esc(fmtDateTime(fr.r.obsDt)) + '</span>' +
-                    (fr.r.userDisplayName ? ' · ' + esc(fr.r.userDisplayName) : '')) +
-                ' · ' + locLink(fr.r.locName || '', fr.r.lat, fr.r.lng, '', true) +
-                (fr.r.subId ? ' · ' + checklistLink(fr.r.subId, fr.r.subId) : '') +
-                '<span class="who">' + (fr.found
-                  ? 'Best guess — open the checklist before you credit anyone'
-                  : 'Already present when our records start — the true finder is earlier') +
-                '</span>' +
-                (fr.found ? '<span class="bcguess">A guess, not a record: eBird returns only the ' +
-                  'most recent report per location, so an earlier checklist at the same place is ' +
-                  'invisible here. The true find is at or before this one, never after.</span>' : '')
-                : '',
-              stats: stats,
-              hist: '<div class="bcnow bchist" data-code="' + esc(g.code) +
-                '" data-state="' + esc(stateName) + '" data-country="' + esc(gbifCountry) + '"></div>',
-              where: '<span class="lbl">Every report we hold</span>' +
-                (since ? '<div class="bcsince">Kept on this device since ' + esc(fmtDate(since)) +
-                  ' — earlier sightings are not missing, they are simply before we started.</div>' : '') +
-                '<ul class="cklrows">' + lines + '</ul>' + more
-            });
-            // The profile goes into the SUB-PAGE, hidden, one per bird. It is
-            // hydrated lazily when opened rather than here: history, blurbs
-            // and finder names are one network call each, and a dozen birds
-            // you have not opened is a dozen calls nobody asked for.
-            card.id = 'aba-' + g.code;
-            card.hidden = true;
-            if (detailCards) detailCards.appendChild(card);
-            // GBIF matches on scientific name only, so the slot stays inert
-            // unless one is already in hand — no lookup is worth an extra call.
-            var sci = sciFor(g.rs), slot = card.querySelector('.bchist');
-            if (slot) {
-              if (sci) { slot.setAttribute('data-sci', sci); }
-              else { slot.style.display = 'none'; }
-            }
-          });
-          // NOT hydrated here. The profiles are hidden until one is opened, and
-          // history, blurb and finder are a network call each — a dozen birds
-          // nobody has opened is a dozen calls nobody asked for. abaOpenBird()
-          // hydrates the one card it shows, once.
-          abaCloseBird();
-        } else {
-          list.slice().sort(function (a, b) {
-            var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0, sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
-            if (sa !== sb) return sa - sb;
-            return String(b.obsDt).localeCompare(String(a.obsDt));
-          }).forEach(function (o) {
-            var li = document.createElement('li');
-            var count = (o.howMany != null) ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
-            var conf = o.obsReviewed ? ' ✓' : '';
-            li.innerHTML = count +
-              '<div class="name">' + photoSlot(o.comName, o.speciesCode) +
-              speciesLink(o.comName || 'Unknown species', o.speciesCode) + needTag(o.speciesCode, o.comName) + conf + '</div>' +
-              '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, '', true) + ' · ' +
-              esc(fmtDate(o.obsDt)) + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '') +
-              // Evidence marks, from the feed row this card was built from — a
-              // photo, a recording or the observer's note. Free: no lookup.
-              (BirdLogic.recordIcons(o) ? ' ' + BirdLogic.recordIcons(o) : '') +
-              (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
-            el.appendChild(li);
-          });
-        }
-        var foot = document.createElement('li'); foot.style.borderTop = 'none';
+        // Rarity-tracker reports never had a Mega detail view. Preserve their
+        // flat report semantics; the species name remains the ordinary generic
+        // Stakeout link and no grouped/state evidence is invented here.
+        var el = $('abaResults');
+        el.innerHTML = '';
+        el.className = 'obs';
+        (list || []).slice().sort(function (a, b) {
+          var sa = isSpeciesSeen(a.speciesCode, a.comName) ? 1 : 0;
+          var sb = isSpeciesSeen(b.speciesCode, b.comName) ? 1 : 0;
+          if (sa !== sb) return sa - sb;
+          return String(b.obsDt).localeCompare(String(a.obsDt));
+        }).forEach(function (o) {
+          var li = document.createElement('li');
+          var count = (o.howMany != null)
+            ? '<span class="count">×' + esc(o.howMany) + '</span>' : '';
+          var conf = o.obsReviewed ? ' ✓' : '';
+          li.innerHTML = count
+            + '<div class="name">' + photoSlot(o.comName, o.speciesCode)
+            + speciesLink(o.comName || 'Unknown species', o.speciesCode)
+            + needTag(o.speciesCode, o.comName) + conf + '</div>'
+            + '<div class="meta">' + locLink(o.locName || '', o.lat, o.lng, '', true) + ' · '
+            + esc(fmtDate(o.obsDt))
+            + (o.userDisplayName ? ' · ' + esc(o.userDisplayName) : '')
+            + (BirdLogic.recordIcons(o) ? ' ' + BirdLogic.recordIcons(o) : '')
+            + (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '') + '</div>';
+          el.appendChild(li);
+        });
+        var foot = document.createElement('li');
+        foot.style.borderTop = 'none';
         foot.innerHTML = extA(url, 'View alert on eBird');
         el.appendChild(foot);
         hydratePhotos(el);
+        return null;
       }
-
       // --- P12: BirdCast nightly migration (season-aware deep link, no API) ---
       function birdcastSeason(d) {
         var y = d.getFullYear();
@@ -21602,7 +22253,7 @@
               return p.then(function (acc) {
                 if (!workCurrent(work)) throw queueCancelledError(work);
                 return ebird('data/obs/' + encodeURIComponent(code) + '/recent/notable?detail=full&back=30&maxResults=1000',
-                  false, false, work)
+                  false, false, false, work)
                   .then(function (nb) { if (Array.isArray(nb)) acc.push.apply(acc, nb); return todDelay(acc, 200); })
                   .catch(function (e) {
                     if (e && e.queueCancelled) throw e;
@@ -22727,13 +23378,21 @@
       // The search box is still filled in, so the reader can SEE what was
       // looked up and edit it — arriving at a result with an empty box reads
       // as though the app guessed.
-      function openStakeSpecies(code, name) {
+      function openStakeSpecies(code, name, megaRef) {
         if (!code) return;
+        var mega = megaEntry(megaRef, code);
+        if (!mega) clearMegaStakeContext();
         if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
+        if (mega) {
+          _stakeOrigin = { section: 'sec-abaBtn', viewKey: mega.view.key, code: mega.code };
+          var back = $('navBack');
+          if (back) back.setAttribute('aria-label', 'Back to Mega rarities');
+        }
         var inp = $('spLookup');
         if (inp) inp.value = name || code;
         if ($('spLookupFound')) $('spLookupFound').innerHTML = '';
-        return lookupSpecies(code, name || code);
+        return lookupSpecies(code, name || code, null, null,
+          mega ? { viewKey: mega.view.key, code: mega.code } : null);
       }
       function openStakeHotspot(locId, name) {
         if (!locId) return;
@@ -23185,13 +23844,101 @@
       // Only Native/Naturalized rows carry `.countable`, which is the boundary
       // this parser enforces. All 376 ordinary rows had date, checklist,
       // observer, and location text; 116 were private locations with no locId.
+      //
+      // F317, measured in the owner's authenticated browser 2026-09-04: this
+      // SAME page carries the signed-in account in the header's My Account
+      // accessibility label:
+      //
+      //     Birder <display name> (<username>)
+      //
+      // The username is deliberately used only to validate the shape. It is
+      // never returned, persisted, logged or put in a fixture. Scoping to an
+      // aria-label inside the page banner keeps a checklist observer, a Top
+      // 100 row or ordinary visible prose from becoming an account identity.
+      function parseEbirdAccountIdentity(input) {
+        var out = { status: 'missing', displayName: '', evidence: '' };
+        var doc = input && typeof input.querySelectorAll === 'function' ? input : null;
+        if (!doc) {
+          try { doc = new DOMParser().parseFromString(String(input || ''), 'text/html'); }
+          catch (e) { return out; }
+        }
+        if (!doc) return out;
+        if (doc.querySelector('input[type="password"], form[action*="/cassso/login"], form[action*="/login"]')
+            || /sign in/i.test(String(doc.title || ''))) {
+          out.status = 'logged-out';
+          return out;
+        }
+
+        var roots = doc.querySelectorAll('header, [role="banner"]');
+        for (var s = 0; s < roots.length; s++) {
+          var actions = roots[s].querySelectorAll('a[href], button, [role="button"]');
+          for (var a = 0; a < actions.length; a++) {
+            var actionText = String(actions[a].getAttribute('aria-label')
+              || actions[a].textContent || '').replace(/\s+/g, ' ').trim();
+            var actionHref = String(actions[a].getAttribute('href') || '');
+            if (/^sign in$/i.test(actionText)
+                && (!actionHref || /cassso|\/login/i.test(actionHref))) {
+              out.status = 'logged-out';
+              return out;
+            }
+          }
+        }
+        var names = {}, accounts = {}, sawBirder = false, malformed = false;
+        function inspect(el) {
+          if (!el || !el.getAttribute) return;
+          var label = String(el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+          if (!/^Birder\b/i.test(label)) return;
+          sawBirder = true;
+          // Greedy display-name capture is intentional: a display name may
+          // itself contain parentheses; only the FINAL pair is the username.
+          var m = /^Birder\s+(.+)\s+\(([^()]*)\)\s*$/i.exec(label);
+          var name = m ? String(m[1] || '').replace(/\s+/g, ' ').trim() : '';
+          var username = m ? String(m[2] || '').trim() : '';
+          var usernamePresent = !!username;
+          if (!name || !usernamePresent) { malformed = true; return; }
+          names[name] = 1;
+          accounts[name + '\n' + username] = 1;
+        }
+        for (var r = 0; r < roots.length; r++) {
+          inspect(roots[r]);
+          var labelled = roots[r].querySelectorAll('[aria-label]');
+          for (var i = 0; i < labelled.length; i++) inspect(labelled[i]);
+        }
+        var found = Object.keys(names);
+        if (Object.keys(accounts).length > 1 || found.length > 1) {
+          out.status = 'ambiguous';
+          return out;
+        }
+        if (malformed) {
+          out.status = 'malformed';
+          return out;
+        }
+        if (found.length === 1) {
+          if (found[0].toLowerCase() === 'anonymous ebirder') {
+            out.status = 'anonymous';
+            out.evidence = 'account-menu-aria-label';
+            return out;
+          }
+          out.status = 'ok';
+          out.displayName = found[0];
+          out.evidence = 'account-menu-aria-label';
+          return out;
+        }
+        out.status = sawBirder ? 'malformed' : 'missing';
+        return out;
+      }
+
       function parseFirstYearBirdList(html) {
-        var out = { valid: false, declared: 0, rows: [], title: '' };
+        var out = {
+          valid: false, declared: 0, rows: [], title: '',
+          identity: { status: 'missing', displayName: '', evidence: '' }
+        };
         var doc;
         try { doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); }
         catch (e) { return out; }
         if (!doc) return out;
         out.title = doc.title || '';
+        out.identity = parseEbirdAccountIdentity(doc);
 
         function clean(el) {
           return el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '';
@@ -23308,8 +24055,16 @@
       }
       function firstYearFetch(region, alive) {
         var url = firstYearUrl(region);
+        var startProfile = bcProfile(), startKey = getKey();
+        var startIdentityRevision = identityRevision();
+        var startIdentityGeneration = _identityGeneration;
         function current() {
-          try { return !alive || alive(); } catch (e) { return false; }
+          try {
+            return (!alive || alive())
+              && bcProfile() === startProfile
+              && getKey() === startKey
+              && _identityGeneration === startIdentityGeneration;
+          } catch (e) { return false; }
         }
         function status(message) {
           if (current() && $('migFirstStatus')) $('migFirstStatus').textContent = message;
@@ -23332,6 +24087,14 @@
             if (!page || !page.valid) throw new Error('Could not read eBird first reports');
             return page;
           });
+        }).then(function (page) {
+          if (!current()) throw new Error('The eBird load was superseded by a new account or report.');
+          if (page && page.identity
+              && identityRevision() === startIdentityRevision
+              && _webSessionReady && !_webSessionClearing) {
+            applyCapturedIdentity(page.identity);
+          }
+          return page;
         });
       }
       function firstYearAgeLabel(days) {
@@ -25826,6 +26589,13 @@
         if (mo == null) return null;
         return new Date(+m[3], mo, +m[1]);
       }
+      function loadMyYear() {
+        updateMyYear();
+        // This is the one screen whose subject may have changed because an
+        // existing eBird checklist was edited. Re-read the cheap list rows
+        // immediately; unchanged fingerprints still cost no checklist body.
+        scheduleOwnHarvest(0, true);
+      }
       function updateMyYear() {
         var el = $('myYearBody'), list = $('myYearList');
         if (list) list.innerHTML = '';
@@ -26164,7 +26934,7 @@
         nvResults:  { fn: renderWatch },
         bcBody:     { fn: renderBirdcast },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
-        myYearBody: { fn: updateMyYear },
+        myYearBody: { fn: loadMyYear },
         recordBody: { fn: loadStateRecords },
         migBtn:     { fn: loadMigration },
         helpBody:   { fn: loadHelp }
@@ -27275,7 +28045,11 @@
       // duplicating it.
       function menuScopeHtml() {
         var coHtml = '';
-        if (getCounties().length > 1) {
+        // A single-county region still needs a view selector: "All counties"
+        // is the unfiltered state, and the county itself is the useful
+        // explicit view. Hawaii is the first built-in report where hiding the
+        // picker made the only county impossible to choose.
+        if (getCounties().length > 0) {
           coHtml = '<span class="countypick"><label for="menuCounty">County view</label>'
             + '<select id="menuCounty"></select></span>';
         }
@@ -27283,7 +28057,7 @@
           + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeCode())
           +   '</span><span class="scopechange">Change</span></summary>'
           + '<div class="scopebody">'
-          +   '<span class="regionpick"><label for="menuRegion">Report</label>'
+          +   '<span class="regionpick"><label for="menuRegion">Region</label>'
           +   '<select id="menuRegion"></select></span>'
           +   coHtml
           +   (coHtml
@@ -27319,6 +28093,10 @@
         // call, so the two can never disagree about which report is active.
         var host = $('menuScopeHost');
         if (host) host.innerHTML = menuScopeHtml();
+        // This render replaces both selects. It is also called alone when a
+        // lazy rank arrives, so binding only from renderMenuList leaves native
+        // arrows over empty controls after that background repaint.
+        bindRegionPickers();
         // F195(b): the header carries the same three facts, so it repaints on
         // the same trigger. Two copies that update from one call cannot drift.
         headerIdentityRefresh();
@@ -27726,9 +28504,12 @@
           _navGeneration++;
           fgCancelObsolete();
         }
+        if (_from === 'sec-spLookupBtn' && id !== 'sec-spLookupBtn'
+            && id !== 'sec-abaBtn') {
+          clearMegaStakeContext();
+        }
         // Leaving the section closes any sub-page it had open, or coming back
-        // later lands you on a bird's profile with no memory of choosing it.
-        if (_abaOpen) abaCloseBird();
+        // later lands you on a stale child view with no memory of choosing it.
         if (_patchOpen) patchCloseBirder();
         // Everything fetched from here on is this section's cost, filed under
         // the section ID. `sec._label` is the menu's declared name and is the
@@ -28281,7 +29062,7 @@
             .catch(function () { return ''; });
       }
       // --- region switcher ---------------------------------------------------
-      // The project publishes nine reports; the picker in the Contents header
+      // The project publishes ten reports; the picker in the Contents header
       // and in the section navbar is the same setting as Settings → "Default
       // report", so switching from anywhere sticks and is what the app opens
       // on next launch.
@@ -28354,7 +29135,7 @@
           // word I liked: an option has to say it NARROWS. Dropping it for
           // the code broke that guard, which was correct to fail - the two
           // facts are not in competition, so the option carries both.
-          o.value = c.code; o.textContent = c.label + ' only  ' + c.code;
+          o.value = c.code; o.textContent = countyDisplayLabel(c) + ' only  ' + c.code;
           sel.appendChild(o);
         });
         sel.value = getCountyView();
@@ -28397,6 +29178,7 @@
         slug = (slug || 'wa').toLowerCase();
         if (slug === getReportSlug()) { syncRegionNav(); return; }
         localStorage.setItem(K.report, slug);
+        invalidateMegaViews();
         clearChaseCache();
         clearSpeciesLookup();
         resetSpCodes();
@@ -28404,6 +29186,10 @@
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         loadSettings();
+        // The scope controls are report-specific. Repaint them before the
+        // menu binder runs so a switch from Washington to Hawaii replaces
+        // King/Snohomish with the active report's view options.
+        renderMenuIdentity();
         renderMenuList();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open && menuApplies({ needs: open._needs, enabled: open._enabled })) showSection(open.id); else showMenu();
@@ -28426,7 +29212,10 @@
             _sel.appendChild(o);
           });
           _sel.value = _cur;
-          if ($('bcProfileName')) $('bcProfileName').value = profileNames()[String(_cur)] || '';
+          if ($('bcProfileName')) {
+            $('bcProfileName').value = profileNames()[String(_cur)] || '';
+            $('bcProfileName').dataset.loadedValue = $('bcProfileName').value;
+          }
         }
         if ($('uiScale')) $('uiScale').value = String(getUiScale());
         if ($('themeMode')) $('themeMode').value = getTheme();
@@ -28461,6 +29250,8 @@
         $('tideStation').value = localStorage.getItem(tideKey()) || '';
         if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('ebirdName').value = getDisplayName();
+        $('ebirdName').dataset.loadedValue = getDisplayName();
+        refreshIdentityHint();
         $('abaSid').value = getAbaSid();
         syncRankRegionUI();
         syncRegionNav();
@@ -29037,12 +29828,6 @@
       // from collapsing into the ↻ icon every other section already had.
       $('closeSettings').addEventListener('click', function () { showSettings(false); });
       $('navBack').addEventListener('click', function () { navBack(); });
-      // A back button INSIDE the sub-page as well as on the navbar. The navbar
-      // one is a 38px target in the corner; this one is where your thumb
-      // already is after reading the card, and it says where it goes.
-      if ($('abaBack')) $('abaBack').addEventListener('click', function () {
-        abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {}
-      });
       // Same pairing for the per-birder patch page, and for the same reason.
       if ($('patchBack')) $('patchBack').addEventListener('click', function () {
         patchCloseBirder(); try { window.scrollTo(0, 0); } catch (e) {}
@@ -29573,98 +30358,53 @@
         if (b.getAttribute('aria-pressed') === 'true' && to.indexOf('quick:') !== 0) return;
         routeMode(to);
       });
-      // --- ABA sub-page: the list, and one bird over it -------------------
-      //
-      // A THIRD level of navigation, and the only one in the app. It exists
-      // because a megararity profile is genuinely a page — latest report,
-      // finder, every report we hold, state history, a blurb — and a dozen of
-      // them stacked is a dozen screens you must scroll past to learn which
-      // birds the section even holds.
-      //
-      // The back button is the SAME button, told where it is. A second back
-      // affordance would be a second navigation model, and this app has one.
-      var _abaOpen = '';
-      function abaOpenBird(code) {
-        var detail = $('abaDetail'), list = $('abaResults');
-        var cards = $('abaDetailCards');
-        if (!detail || !list || !cards) return false;
-        var card = document.getElementById('aba-' + code);
-        if (!card) return false;
-        Array.prototype.forEach.call(cards.children, function (c) { c.hidden = true; });
-        card.hidden = false;
-        // Hydrate ONCE, and only what is on screen. hydratePhotos is what
-        // fills the big picture — heroSlot() emits an empty `.thumb` and
-        // nothing was ever asking for it to be filled, which is why every
-        // profile showed a grey box where the bird should be.
-        if (!card.dataset.hydrated) {
-          card.dataset.hydrated = '1';
-          try { hydratePhotos(card); hydrateHistory(card); hydrateCards(card); hydrateFinders(card); }
-          catch (e) { dbg('warn', 'aba detail hydrate: ' + (e && e.message || e)); }
-        }
-        detail.hidden = false;
-        list.hidden = true;
-        var st = $('abaStatus'); if (st) st.hidden = true;
-        var row = $('abaBtn') && $('abaBtn').closest('.row'); if (row) row.dataset.abaHid = '1';
-        _abaOpen = code;
-        // The navbar names where you ARE, so it names the bird.
-        var t = $('navTitle'), h = card.querySelector('.bcname, h3, .name');
-        if (t && h) t.textContent = h.textContent.trim();
-        var back = $('navBack');
-        if (back) back.setAttribute('aria-label', 'Back to the rarities list');
-        try { window.scrollTo(0, 0); } catch (e) {}
-        return true;
-      }
-      function abaCloseBird() {
-        var detail = $('abaDetail'), list = $('abaResults');
-        if (detail) { detail.hidden = true; }
-        if (list) list.hidden = false;
-        var st = $('abaStatus'); if (st) st.hidden = false;
-        _abaOpen = '';
-        var back = $('navBack');
-        if (back) back.setAttribute('aria-label', 'Back to Contents');
-        var sec = list && list.closest ? list.closest('section') : null;
-        var t = $('navTitle'), h = sec && sec.querySelector('h2');
-        if (t && h) t.textContent = h.textContent.trim();
-      }
-      // Back means "up one level", so it closes the sub-page before it leaves
-      // the section. Anything else strands the reader: tapping back from a
-      // bird would jump them all the way to Contents.
+      // Back from a Mega-launched Stakeout returns to the exact source view
+      // while that view is still current. Otherwise Back keeps its ordinary
+      // meaning and returns to Contents.
       function navBack() {
-        if (_abaOpen) { abaCloseBird(); try { window.scrollTo(0, 0); } catch (e) {} return; }
+        if (_stakeOrigin) {
+          var origin = _stakeOrigin;
+          var view = _megaViews[origin.viewKey];
+          var returnToMega = !!(view && megaViewCurrent(view)
+            && view.bySpecies[origin.code]);
+          clearSpeciesLookup();
+          if (returnToMega) {
+            showSection(origin.section);
+            try { window.scrollTo(0, 0); } catch (e) {}
+          } else {
+            showMenu();
+          }
+          return;
+        }
         if (_patchOpen) { patchCloseBirder(); try { window.scrollTo(0, 0); } catch (e) {} return; }
         showMenu();
       }
+      function openMegaIndexRow(row, ev) {
+        if (!row) return;
+        var code = row.getAttribute('data-mega-code') || '';
+        var viewKey = row.getAttribute('data-mega-view') || '';
+        if (!code || !viewKey) return;
+        if (ev) ev.preventDefault();
+        openStakeSpecies(code, row.getAttribute('data-mega-name') || code,
+          { viewKey: viewKey, code: code });
+      }
       document.addEventListener('click', function (ev) {
-        var a = ev.target.closest && ev.target.closest('a.abajump');
-        // THE CHEVRON IS PART OF THE ROW, and it was the one part of it that
-        // did nothing. Reported from the device: "clicking the arrow doesnt
-        // jump to detailed view but clicking the bird icon or name does".
-        //
-        // The `›` is passed as the card's `lead` slot and rendered inside
-        // `.spdist`, so it cannot simply be wrapped in the anchor — `distHtml`
-        // sanitises that slot through a whitelist and would strip any markup,
-        // which is the whole of F208. So the ROW resolves to its own anchor
-        // instead: a click anywhere on a mega card that is not already some
-        // other link opens the bird.
-        //
-        // That also fixes the dead space the report did not mention. A row
-        // whose glyph says "this opens" and whose body does not is teaching
-        // the reader something untrue about every other card in the app.
-        if (!a && ev.target.closest) {
-          var row = ev.target.closest('#abaResults li');
-          // Never steal a tap meant for something else — the QR button, a map
-          // pin, an external eBird link — all of which live on these cards.
-          if (row && !ev.target.closest('a, button')) {
-            a = row.querySelector('a.abajump');
-          }
-        }
-        if (!a) return;
-        // Handled here, not by the browser: a bare `#hash` would ask for a
-        // navigation this app does not do — navigation is showSection(), and a
-        // hash change would fight it.
-        ev.preventDefault();
-        var id = (a.getAttribute('href') || '').replace(/^#/, '');
-        abaOpenBird(id.replace(/^aba-/, ''));
+        if (!ev.target || !ev.target.closest) return;
+        var jump = ev.target.closest('.megajump[data-mega-code][data-mega-view]');
+        var row = jump ? jump.closest('li[data-mega-code][data-mega-view]')
+          : ev.target.closest('#abaResults li[data-mega-code][data-mega-view]');
+        if (!row) return;
+        // Dead row space and the chevron route to Stakeout, but a nested QR,
+        // checklist, map or hotspot action keeps its own navigation.
+        if (!jump && ev.target.closest('a, button, input, select, textarea, summary')) return;
+        openMegaIndexRow(row, ev);
+      });
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        var row = ev.target && ev.target.matches
+          && ev.target.matches('#abaResults li[data-mega-code][data-mega-view]')
+          ? ev.target : null;
+        if (row) openMegaIndexRow(row, ev);
       });
       $('dbgClear').addEventListener('click', function () { if (window.__dbg) window.__dbg.buf.length = 0; dbgRender(); });
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
@@ -29841,19 +30581,24 @@
 
       $('scrubBtn').addEventListener('click', function () {
         var n = scrubbableKeys().length;
+        if (Object.prototype.hasOwnProperty.call(profileNames(), String(bcProfile()))) n++;
         if (!confirmAction('erase-device-data',
           'Erase all your data from this device?\n\n' +
           'This removes your eBird API key, seen list, favourites, home locations '
           + 'and every cached panel (' + n + ' local item' + (n === 1 ? '' : 's')
-          + ' plus the on-device taxonomy model).\n\n'
+          + ' plus the on-device taxonomy model and signed-in eBird browser session).\n\n'
           + 'It cannot be undone, and you will need to re-enter your API key.')) return;
         var removed = scrubPersonalData();
         $('scrubStatus').textContent = 'Erased ' + removed + ' local item'
-          + (removed === 1 ? '' : 's') + '. Clearing the taxonomy model\u2026';
-        spuhCacheClear().then(function (cleared) {
-          if (!cleared) {
+          + (removed === 1 ? '' : 's')
+          + '. Clearing the taxonomy model and eBird browser session\u2026';
+        Promise.all([spuhCacheClear(), clearEbirdWebSession()]).then(function (cleared) {
+          if (!cleared[0] || !cleared[1]) {
+            var failed = [];
+            if (!cleared[0]) failed.push('taxonomy cache');
+            if (!cleared[1]) failed.push('eBird browser session');
             $('scrubStatus').textContent = 'The local items were erased, but the '
-              + 'taxonomy cache could not be cleared. The app was not reloaded.';
+              + failed.join(' and ') + ' could not be cleared. The app was not reloaded.';
             return;
           }
           $('scrubStatus').textContent = 'Everything stored by Bird Chaser was erased. '
@@ -29875,6 +30620,12 @@
       });
 
       $('saveBtn').addEventListener('click', function () {
+        if (_scrubbedPendingReload) {
+          if ($('scrubStatus')) {
+            $('scrubStatus').textContent = 'Your data was erased. Waiting for the app to reload…';
+          }
+          return;
+        }
         var btn = this;
         function persist() {
           localStorage.setItem(K.api, $('apiKey').value.trim());
@@ -29890,9 +30641,16 @@
           localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
           // Blank means blank. Falling back to a hardcoded name here would put
           // the author's identity back into storage the first time anyone
-          // pressed Save, undoing the default above.
-          localStorage.setItem('ebird_display_name', ($('ebirdName').value || '').trim());
+          // pressed Save, undoing the default above. Preserve fetched/CSV
+          // provenance when the field was merely viewed and saved unchanged;
+          // only an actual edit becomes the manual override F317 promises.
+          var enteredName = ($('ebirdName').value || '').trim();
+          var loadedName = $('ebirdName').dataset.loadedValue || '';
+          if (enteredName !== loadedName) setDisplayNameValue(enteredName, 'manual');
+          else localStorage.setItem('ebird_display_name', enteredName);
+          var oldAbaSid = getAbaSid();
           localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
+          if (getAbaSid() !== oldAbaSid) invalidateMegaViews();
           // F177: switching profile is the LAST thing Save does, because it
           // reloads. Everything above has to land in the profile being left,
           // not the one being entered — otherwise pressing Save while switching
@@ -29905,7 +30663,11 @@
           // above lands in the profile being left. Stored in the shared
           // namespace because the picker must be able to read the name of a
           // profile it is not standing in.
-          if ($('bcProfileName')) setProfileName(bcProfile(), ($('bcProfileName').value || '').trim());
+          if ($('bcProfileName')) {
+            var profileEntered = ($('bcProfileName').value || '').trim();
+            var profileLoaded = $('bcProfileName').dataset.loadedValue || '';
+            if (profileEntered !== profileLoaded) setProfileName(bcProfile(), profileEntered);
+          }
           if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
           clearChaseCache();
           _autoLoaded = {};
@@ -30051,6 +30813,11 @@
         MEGA_SNAP_KEY: MEGA_SNAP_KEY,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
+        getIdentityMeta: getIdentityMeta, setDisplayNameValue: setDisplayNameValue,
+        applyCapturedIdentity: applyCapturedIdentity,
+        identityResultMessage: identityResultMessage,
+        identityRevision: identityRevision,
+        IDENTITY_META_KEY: IDENTITY_META_KEY, IDENTITY_REV_KEY: IDENTITY_REV_KEY,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
         reviewFlag: reviewFlag,
@@ -30096,7 +30863,7 @@
         loadTravelZones: loadTravelZones, ensureCountyCatalog: ensureCountyCatalog,
         setCountySeed: function (value) {
           _countySeedOverride = value === null ? null : (value || {});
-          _countySeedPromise = null;
+          _countySeedPromises = {};
           _countyCatalogInflight = {};
         },
         tripScopeProfile: tripScopeProfile, getTierChase: getTierChase,
@@ -30139,15 +30906,20 @@
         getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, captureEbird: captureEbird,
+        fetchIdentityFromBirdList: fetchIdentityFromBirdList,
+        buildIdentityInject: buildIdentityInject, ebirdSignOut: ebirdSignOut,
         rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
+        parseEbirdAccountIdentity: parseEbirdAccountIdentity,
         parseFirstYearBirdList: parseFirstYearBirdList,
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
+        firstYearWrite: firstYearWrite, firstYearFetch: firstYearFetch,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,
         migFetchDate: migFetchDate, migSampleKey: migSampleKey,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
         loadHelp: loadHelp, renderMenuIdentity: renderMenuIdentity,
+        destinationScopeDisclosure: destinationScopeDisclosure,
         menuIdentityHtml: menuIdentityHtml, todayStr: todayStr,
         loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
@@ -30181,9 +30953,10 @@
         speciesMetaRow: speciesMetaRow,
         renderEasyMisses: renderEasyMisses,
         buildClosestSpots: buildClosestSpots,
-        birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
+        rarityStats: rarityStats, widenThumb: widenThumb,
         ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
+        quickPatchSpeciesFromChase: quickPatchSpeciesFromChase,
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
         setEasySort: setEasySort, easySortRows: easySortRows, renderEasyMisses: renderEasyMisses,
@@ -30239,7 +31012,13 @@
         abaScope: abaScope, setAbaScope: setAbaScope, abaScopeControl: abaScopeControl,
         abaSort: abaSort, setAbaSort: setAbaSort, abaSortGroups: abaSortGroups,
         abaGroupDistance: abaGroupDistance, abaReportCount: abaReportCount,
-        abaOpenBird: abaOpenBird, abaCloseBird: abaCloseBird, navBack: navBack,
+        megaRecordMerge: megaRecordMerge, megaMergeRows: megaMergeRows,
+        megaViewState: function () {
+          return { key: _megaViewKey, view: _megaViews[_megaViewKey] || null,
+                   active: _activeMega, origin: _stakeOrigin,
+                   generation: _abaLoadGeneration };
+        },
+        navBack: navBack,
         loadChoicePatches: loadChoicePatches, choicePatchData: choicePatchData,
         patchRowsFor: patchRowsFor, patchLeaders: patchLeaders,
         patchOpenBirder: patchOpenBirder, patchCloseBirder: patchCloseBirder,
@@ -30286,6 +31065,7 @@
         setScopeSites: function (m) { _scopeMap = m || {}; },
         fmtDateTime: fmtDateTime,
         runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
+        openStakeSpecies: openStakeSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
         speciesLookupRecords: speciesLookupRecords, sortSpeciesPlaces: sortSpeciesPlaces,
         speciesLookupPath: speciesLookupPath, speciesSearchScopes: speciesSearchScopes,

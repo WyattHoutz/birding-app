@@ -1,0 +1,337 @@
+{
+  "reportSlug": "wa",
+  "region": "US-WA",
+  "sid": "SNF304",
+  "scope": "state",
+  "species": {
+    "code": "whiwag",
+    "name": "White Wagtail",
+    "sciName": "Motacilla alba"
+  },
+  "sentinelArchiveRow": {
+    "speciesCode": "tersan",
+    "comName": "Terek Sandpiper",
+    "obsDt": "2026-07-01 05:00",
+    "locName": "Archive coverage sentinel",
+    "locId": "L-SENTINEL",
+    "subId": "S-SENTINEL"
+  },
+  "alertRows": [
+    {
+      "obsId": "OBS-LATEST",
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "obsDt": "2026-09-03 14:45",
+      "locName": "Cape Flattery overlook",
+      "subId": "S-LATEST",
+      "lat": 48.3861,
+      "lng": -124.7142,
+      "howMany": 3,
+      "obsReviewed": true,
+      "userDisplayName": "Latest Observer",
+      "subnational1Code": "US-WA",
+      "country": "US"
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "obsDt": "2026-08-12 06:15",
+      "locName": "Neah Bay harbor",
+      "subId": "S-FINDER",
+      "lat": 48.368,
+      "lng": -124.622,
+      "howMany": 1,
+      "subnational1Code": "US-WA",
+      "country": "US"
+    }
+  ],
+  "stateRows": [
+    {
+      "obsId": "OBS-LATEST",
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-09-03 14:45",
+      "locName": "Cape Flattery overlook",
+      "locId": "L-CAPE",
+      "subId": "S-LATEST",
+      "lat": 48.3861,
+      "lng": -124.7142,
+      "howMany": 3,
+      "evidence": "PV",
+      "hasComments": true,
+      "subnational1Code": "US-WA",
+      "country": "US"
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-12 06:15",
+      "locName": "Neah Bay harbor",
+      "locId": "L-FINDER",
+      "subId": "S-FINDER",
+      "lat": 48.368,
+      "lng": -124.622,
+      "howMany": 1,
+      "subnational1Code": "US-WA",
+      "country": "US"
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-15 07:01",
+      "locName": "Neah Bay harbor",
+      "locId": "L-FINDER",
+      "subId": "S-H03",
+      "userDisplayName": "Birder Two",
+      "lat": 48.368,
+      "lng": -124.622,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-17 08:02",
+      "locName": "Hobuck Beach",
+      "locId": "L-HOBUCK",
+      "subId": "S-H04",
+      "userDisplayName": "Birder Three",
+      "lat": 48.332,
+      "lng": -124.668,
+      "howMany": 2
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-19 09:03",
+      "locName": "Hobuck Beach",
+      "locId": "L-HOBUCK",
+      "subId": "S-H05",
+      "userDisplayName": "Birder Two",
+      "lat": 48.332,
+      "lng": -124.668,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-21 10:04",
+      "locName": "Waatch River",
+      "locId": "L-WAATCH",
+      "subId": "S-H06",
+      "userDisplayName": "Birder Four",
+      "lat": 48.301,
+      "lng": -124.633,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-23 11:05",
+      "locName": "Waatch River",
+      "locId": "L-WAATCH",
+      "subId": "S-H07",
+      "userDisplayName": "Birder Four",
+      "lat": 48.301,
+      "lng": -124.633,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-25 12:06",
+      "locName": "Bahokus Peak",
+      "locId": "L-BAHOKUS",
+      "subId": "S-H08",
+      "userDisplayName": "Birder Five",
+      "lat": 48.35,
+      "lng": -124.58,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-27 13:07",
+      "locName": "Bahokus Peak",
+      "locId": "L-BAHOKUS",
+      "subId": "S-H09",
+      "userDisplayName": "Birder Five",
+      "lat": 48.35,
+      "lng": -124.58,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-29 14:08",
+      "locName": "Cape Flattery overlook",
+      "locId": "L-CAPE",
+      "subId": "S-H10",
+      "userDisplayName": "Birder Two",
+      "lat": 48.3861,
+      "lng": -124.7142,
+      "howMany": 2
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-30 15:09",
+      "locName": "Neah Bay harbor",
+      "locId": "L-FINDER",
+      "subId": "S-H11",
+      "userDisplayName": "Birder Three",
+      "lat": 48.368,
+      "lng": -124.622,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-08-31 16:10",
+      "locName": "Sekiu overlook",
+      "locId": "L-SEKIU",
+      "subId": "S-H12",
+      "userDisplayName": "Birder Four",
+      "lat": 48.264,
+      "lng": -124.297,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-09-01 17:11",
+      "locName": "Sekiu overlook",
+      "locId": "L-SEKIU",
+      "subId": "S-H13",
+      "userDisplayName": "Birder Five",
+      "lat": 48.264,
+      "lng": -124.297,
+      "howMany": 1
+    },
+    {
+      "speciesCode": "whiwag",
+      "comName": "White Wagtail",
+      "sciName": "Motacilla alba",
+      "obsDt": "2026-09-02 18:12",
+      "locName": "Cape Flattery overlook",
+      "locId": "L-CAPE",
+      "subId": "S-H14",
+      "userDisplayName": "Birder Two",
+      "lat": 48.3861,
+      "lng": -124.7142,
+      "howMany": 2
+    }
+  ],
+  "wideRows": [
+    {
+      "speciesCode": "whiwag",
+      "locId": "W-WA",
+      "locName": "Washington coast",
+      "subnational1Code": "US-WA"
+    },
+    {
+      "speciesCode": "whiwag",
+      "locId": "W-OR",
+      "locName": "Oregon coast",
+      "subnational1Code": "US-OR"
+    },
+    {
+      "speciesCode": "whiwag",
+      "locId": "W-BC-1",
+      "locName": "Vancouver Island north",
+      "subnational1Code": "CA-BC"
+    },
+    {
+      "speciesCode": "whiwag",
+      "locId": "W-BC-2",
+      "locName": "Vancouver Island south",
+      "subnational1Code": "CA-BC"
+    }
+  ],
+  "finderChecklist": {
+    "userDisplayName": "Finder Person",
+    "comments": "Continuing rarity; original observer confirmed the first morning.",
+    "obs": [
+      {
+        "speciesCode": "whiwag",
+        "mediaCounts": {
+          "P": 2,
+          "A": 1
+        },
+        "comments": "Diagnostic white face and black breast band photographed and recorded."
+      }
+    ]
+  },
+  "gbif": {
+    "records": 7,
+    "years": 4,
+    "first": 1998,
+    "last": 2023,
+    "wide": 125,
+    "states": 9,
+    "topState": "Alaska",
+    "topPct": 44,
+    "edge": 2023
+  },
+  "wikipedia": {
+    "title": "White wagtail",
+    "extract": "The white wagtail is a small passerine bird in the wagtail family."
+  },
+  "earliestHeld": {
+    "code": "tersan",
+    "name": "Terek Sandpiper",
+    "sciName": "Xenus cinereus",
+    "rows": [
+      {
+        "speciesCode": "tersan",
+        "comName": "Terek Sandpiper",
+        "sciName": "Xenus cinereus",
+        "obsDt": "2026-07-01 05:00",
+        "locName": "Stanwood mudflat",
+        "locId": "L-OLD",
+        "subId": "S-OLD",
+        "lat": 48.2,
+        "lng": -122.3,
+        "howMany": 1
+      },
+      {
+        "speciesCode": "tersan",
+        "comName": "Terek Sandpiper",
+        "sciName": "Xenus cinereus",
+        "obsDt": "2026-07-03 07:30",
+        "locName": "Stanwood mudflat",
+        "locId": "L-OLD",
+        "subId": "S-OLD-2",
+        "lat": 48.2,
+        "lng": -122.3,
+        "howMany": 1,
+        "userDisplayName": "Later Observer"
+      }
+    ],
+    "checklist": {
+      "userDisplayName": "Earliest Held Observer",
+      "comments": "The bird was already present when this device began retaining records.",
+      "obs": [
+        {
+          "speciesCode": "tersan",
+          "mediaCounts": {
+            "V": 1
+          },
+          "comments": "Short video confirms the identification."
+        }
+      ]
+    }
+  }
+}

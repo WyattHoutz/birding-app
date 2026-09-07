@@ -72,15 +72,23 @@ length; eBird is the authority on whether a key is valid.
 
 ## 5. Set the account name
 
-An eBird API key identifies an application, not the signed-in person's public
-eBird profile. The API therefore cannot fill the display name from the key.
+An eBird API key and eBird's public web key identify applications, not the
+signed-in account. Bird Chaser gets the **eBird display name** from the
+authenticated account menu on the same regional eBird bird-list page it
+already reads.
 
-- After key setup, Contents shows a nonblocking **Add my name** prompt until a
-  display name is stored.
-- Importing `MyEBirdData.csv` fills the display/profile name when the export
-  contains **First Name** and **Last Name**.
-- Otherwise, enter the account's public eBird display name beside the API key
-  in Settings.
+- After key setup, Contents shows **Fetch my name** until a display name is
+  stored.
+- Tap it and sign in inside the eBird window if prompted. A Chrome or Safari
+  login is separate from the app's WKWebView session and does not transfer.
+- Switching Bird Chaser account profiles clears that shared in-app browser
+  session before the new profile opens, so one account cannot silently name
+  another profile.
+- Bird Chaser reads the account menu's display name and discards the private
+  username that appears beside it. Neither value is obtained from the API key.
+- A name entered manually is an override and is never silently replaced.
+- Importing `MyEBirdData.csv` remains a fallback when the export contains
+  **First Name** and **Last Name**.
 
 The exact display name matters: Bird Chaser uses it to identify your own
 checklists and your row on eBird leaderboards.

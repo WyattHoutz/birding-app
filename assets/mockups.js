@@ -43,6 +43,8 @@ const CONTRACT = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'tests', 'fixtures', 'report-contract.json'), 'utf8'));
 const WA_SEEN = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'), 'utf8'));
+const MEGA_STAKEOUT = JSON.parse(fs.readFileSync(
+  path.join(ROOT, 'tests', 'fixtures', 'mega-stakeout.json'), 'utf8'));
 const BIRD_ICON_DIR = path.join(WWW, 'assets', 'birds');
 const BUNDLED_ICON_EXTENSIONS = {};
 for (const ext of ['.jpg', '.png']) {
@@ -105,6 +107,8 @@ const STUB_SPEC = {
     expects: ['#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
       '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
+      '#spLookupResults .megaevidence', '#spLookupResults .megalatest',
+      '#spLookupResults .megareports',
       '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
   spuhBtn:        { kind: 'spuh',          host: 'spuhDetail',
     expects: ['#spuhDetail .spuhexplain', '#spuhDetail .spuhladder'] },
@@ -114,12 +118,14 @@ const STUB_SPEC = {
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
   refreshBtn:     { kind: 'bird',          host: 'results' },
   activeBtn:      { kind: 'bird',          host: 'activeResults' },
-  abaBtn:         { kind: 'mega',          host: 'abaResults',
+  abaBtn:         { kind: 'mega-index',    host: 'abaResults',
     expects: ['#abaScopePick [data-abascope="state"]',
       '#abaScopePick [data-abascope="aba"]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
-      '#abaResults .abadist'] },
+      '#abaResults li[data-mega-code][data-mega-view]',
+      '#abaResults .megaphoto', '#abaResults .megajump',
+      '#abaResults .spdist', '#abaResults .abadist'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -226,6 +232,7 @@ const BOOTSTRAP = `
 (function () {
   window.__BC_MOCKUP_MODE__ = true;
   var WA_SEEN_STUB = ${JSON.stringify(WA_SEEN)};
+  var MEGA_STAKEOUT = ${JSON.stringify(MEGA_STAKEOUT)};
   var BIRD_ICON_EXT = ${JSON.stringify(BUNDLED_ICON_EXTENSIONS)};
   var fixtureIconPath = ${fixtureIconPath.toString()};
   var RealDate = Date;
@@ -414,22 +421,6 @@ const BOOTSTRAP = `
     }
     markHost(host, label);
   }
-  function fillMegaHost(host, A, window, label) {
-    window.localStorage.removeItem(A.ABA_ARCHIVE_KEY);
-    A.setAbaScope('state');
-    A.setAbaSort('date');
-    A.renderAbaAlert([
-      { speciesCode: 'nazboo1', comName: 'Nazca Booby',
-        obsDt: '2026-09-04 18:00', locName: 'Smith Island',
-        lat: 48.32, lng: -122.84, subId: 'S-MEGA-1',
-        subnational1Code: 'US-WA', howMany: 1 },
-      { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
-        obsDt: '2026-09-03 08:30', locName: 'Marymoor Park',
-        lat: 47.66, lng: -122.12, subId: 'S-MEGA-2',
-        subnational1Code: 'US-WA', howMany: 1 }
-    ], 'https://ebird.org/alert/summary?sid=STUB', true, false, function () {});
-    markHost(host, label);
-  }
   function hotspotRows(window, at) {
     var HC = window.HotspotCards;
     var examples = {
@@ -539,6 +530,117 @@ const BOOTSTRAP = `
     try {
       await A.lookupSpecies('semsan', 'Semipalmated Sandpiper');
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
+    } finally {
+      W.fetch = previousFetch;
+    }
+    if (A.fgProgressReset) A.fgProgressReset();
+    markHost(document.getElementById('spLookupIdHelp'), label);
+  }
+  function megaFixture(code, name, sci) {
+    var f = JSON.parse(JSON.stringify(MEGA_STAKEOUT));
+    function convert(row) {
+      row.speciesCode = code;
+      row.comName = name;
+      if (row.sciName) row.sciName = sci;
+      return row;
+    }
+    f.species = { code: code, name: name, sciName: sci };
+    f.alertRows = f.alertRows.map(convert);
+    f.stateRows = f.stateRows.map(convert);
+    f.wideRows = f.wideRows.map(convert);
+    f.finderChecklist.obs = f.finderChecklist.obs.map(convert);
+    return f;
+  }
+  function seedMegaFixture(A, f) {
+    localStorage.setItem('ebird_aba_sid', f.sid);
+    var gbif = {};
+    gbif[f.species.sciName + '|Washington'] = {
+      at: Date.now(),
+      v: {
+        records: f.gbif.records, years: f.gbif.years,
+        first: f.gbif.first, last: f.gbif.last,
+        wide: f.gbif.wide, states: f.gbif.states,
+        topState: f.gbif.topState, topPct: f.gbif.topPct
+      }
+    };
+    gbif['edge|Washington'] = { at: Date.now(), v: f.gbif.edge };
+    localStorage.setItem('ebird_gbif_v1', JSON.stringify(gbif));
+    var wiki = {};
+    wiki[f.species.name] = {
+      title: f.species.name,
+      extract: f.wikipedia.extract.replace(/white wagtail/ig,
+        f.species.name.toLowerCase())
+    };
+    localStorage.setItem('ebird_birdinfo_v2', JSON.stringify(wiki));
+    A.abaArchiveAdd(f.region, [f.sentinelArchiveRow].concat(f.stateRows));
+  }
+  function fillMegaIndex(A, document, label, code, name, sci) {
+    var f = megaFixture(code || 'nazboo1', name || 'Nazca Booby', sci || 'Sula granti');
+    var second = megaFixture('solsan', 'Solitary Sandpiper', 'Tringa solitaria');
+    localStorage.removeItem(A.ABA_ARCHIVE_KEY);
+    seedMegaFixture(A, f);
+    A.abaArchiveAdd(f.region, second.stateRows);
+    A.setAbaScope('state');
+    A.setAbaSort('date');
+    A.renderAbaAlert(f.alertRows.concat(second.alertRows),
+      'https://ebird.org/alert/summary?sid=' + f.sid, true, false, {
+        reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
+        wideRowsByCode: (function () {
+          var out = {};
+          out[f.species.code] = f.wideRows;
+          out[second.species.code] = second.wideRows;
+          return out;
+        }())
+      });
+    markHost(document.getElementById('abaResults'), label);
+    return f;
+  }
+  async function fillMegaStakeout(A, document, label) {
+    var f = megaFixture('semsan', 'Semipalmated Sandpiper', 'Calidris pusilla');
+    seedMegaFixture(A, f);
+    var W = document.defaultView;
+    var previousFetch = W.fetch;
+    W.fetch = function (url) {
+      var u = String(url);
+      var body = [];
+      if (/data\\/obs\\/US-WA\\/recent\\/semsan/.test(u)) body = f.stateRows;
+      else if (/data\\/obs\\/(US|CA)\\/recent\\/semsan/.test(u)) {
+        body = f.wideRows.filter(function (row) {
+          return u.indexOf('/' + (row.subnational1Code || '').slice(0, 2) + '/') >= 0;
+        });
+      } else if (/product\\/checklist\\/view\\/S-FINDER/.test(u)) {
+        body = f.finderChecklist;
+      } else if (/wikipedia\\.org/.test(u)) {
+        body = {
+          type: 'standard', title: f.species.name,
+          description: 'Species of shorebird', extract: f.wikipedia.extract
+        };
+      } else if (/api\\.gbif\\.org/.test(u)) {
+        body = {};
+      }
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: function () { return null; } },
+        json: function () { return Promise.resolve(body); },
+        text: function () { return Promise.resolve(JSON.stringify(body)); }
+      });
+    };
+    try {
+      A.renderAbaAlert(f.alertRows,
+        'https://ebird.org/alert/summary?sid=' + f.sid, true, false, {
+          reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
+          wideRowsByCode: (function () {
+            var out = {}; out[f.species.code] = f.wideRows; return out;
+          }())
+        });
+      var jump = await waitFor(function () {
+        return document.querySelector('#abaResults .megajump[data-mega-code="semsan"]');
+      }, 'Mega species link');
+      jump.click();
+      await waitFor(function () {
+        return document.querySelector('#spLookupResults .megaevidence')
+          && document.querySelector('#spLookupResults .spLookupPlaceList > .hscard-sm')
+          && document.querySelector('#spLookupIdHelp .spuhtaxlevel[data-rank="species"]');
+      }, 'Mega-routed Stakeout card');
     } finally {
       W.fetch = previousFetch;
     }
@@ -842,8 +944,10 @@ const BOOTSTRAP = `
       A.loadChoicePatches();
       fixtureStatus(sec, label);
       markHost(host, label);
+    } else if (spec.kind === 'mega-index') {
+      fillMegaIndex(A, document, label);
     } else if (spec.kind === 'stakeout-species') {
-      await fillStakeoutSpecies(A, document, label);
+      await fillMegaStakeout(A, document, label);
     } else if (spec.kind === 'migration') {
       localStorage.setItem(A.firstYearKey('US-WA', 2026), JSON.stringify({
         day: A.todayStr(), region: 'US-WA', year: 2026, declared: 2,
@@ -894,8 +998,6 @@ const BOOTSTRAP = `
           && /bundled GBIF/.test(forecastText);
       }, 'On passage first reports and both forecast sources');
       markHost(host, label);
-    } else if (spec.kind === 'mega') {
-      fillMegaHost(host, A, document.defaultView, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'hotspot' || spec.kind === 'hotspot-search') {
