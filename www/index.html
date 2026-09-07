@@ -19023,10 +19023,49 @@
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
-          var injectTimer = null, handles = [];
-          function addH(name, fn) { IB.addListener(name, fn).then(function (h) { handles.push(h); }).catch(function () {}); }
+          var injectTimer = null, handles = [], pendingEvents = [];
+          function addH(name, fn) {
+            IB.addListener(name, fn).then(function (h) {
+              // Registration is asynchronous. A rejected open or an obsolete
+              // pre-ID capture can finish before this handle arrives; keeping
+              // it then leaks a global listener and its whole capture closure.
+              if (done) {
+                try { h && h.remove && h.remove(); } catch (e) {}
+              } else {
+                handles.push(h);
+              }
+            }).catch(function () {});
+          }
           function belongs(ev) {
-            return !(ev && ev.id && id && ev.id !== id);
+            // These listeners belong to the PLUGIN, not one WebView. The
+            // pinned plugin always gives managed openWebView events an id,
+            // while Safari/custom-tab events are intentionally id-less. An
+            // ambiguous global event therefore owns nothing: accepting it
+            // would let closing an unrelated external link abort this capture.
+            return !!id && !!(ev && ev.id) && ev.id === id;
+          }
+          function whenOwned(ev, fn) {
+            if (done) return;
+            // Obsolescence belongs to this CAPTURE, not to the event. Any
+            // plugin activity is a chance to retire a capture whose report
+            // generation has moved on, but only an exactly identified event
+            // may deliver data or close a still-current capture.
+            if (!alive()) { stopObsolete(); return; }
+            // Plugin listeners are global. An older WebView can emit while the
+            // new openWebView promise is still resolving, when `id` is null and
+            // the old belongs() check accepted everything. Buffer identified
+            // events until this capture knows its own id; unidentifiable early
+            // events are dropped rather than allowed to claim a new capture.
+            if (!id) {
+              if (ev && ev.id) pendingEvents.push({ ev: ev, fn: fn });
+              return;
+            }
+            if (belongs(ev)) fn(ev);
+          }
+          function flushPending() {
+            var queued = pendingEvents;
+            pendingEvents = [];
+            queued.forEach(function (item) { whenOwned(item.ev, item.fn); });
           }
           function cleanup() {
             done = true;
@@ -19035,6 +19074,7 @@
             if (injectTimer) clearTimeout(injectTimer);
             handles.forEach(function (h) { try { h && h.remove && h.remove(); } catch (e) {} });
             handles = [];
+            pendingEvents = [];
           }
           function finish(err, data) {
             if (done) return;
@@ -19077,40 +19117,45 @@
             } catch (e) {}
           }
           addH('messageFromWebview', function (ev) {
-            if (done) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            var d = ev && ev.detail; if (!d || !d.__ebird) return;
-            if (opts.kind && d.kind !== opts.kind) return;
-            if (d.needsLogin) { reveal(); return; }
-            // Listeners are registered on the plugin, not on one window, so a
-            // leftover eBird window could otherwise resolve this capture with
-            // its own page. Ignore anything that names a different window.
-            if (d.ok) finish(null, d.data);
+            whenOwned(ev, function (owned) {
+              if (!alive()) { stopObsolete(); return; }
+              var d = owned && owned.detail; if (!d || !d.__ebird) return;
+              if (opts.kind && d.kind !== opts.kind) return;
+              if (d.needsLogin) { reveal(); return; }
+              // Listeners are registered on the plugin, not on one window, so a
+              // leftover eBird window could otherwise resolve this capture with
+              // its own page. Ignore anything that names a different window.
+              if (d.ok) finish(null, d.data);
+            });
           });
           addH('urlChangeEvent', function (ev) {
-            if (done) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            var u = (ev && ev.url) || '';
-            if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
+            whenOwned(ev, function (owned) {
+              if (!alive()) { stopObsolete(); return; }
+              var u = (owned && owned.url) || '';
+              if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
+            });
           });
           addH('browserPageLoaded', function (ev) {
-            if (done || !id) return;
-            if (!belongs(ev)) return;
-            if (!alive()) { stopObsolete(); return; }
-            if (injectTimer) clearTimeout(injectTimer);
-            injectTimer = setTimeout(function () { inject(0); }, 500);
+            whenOwned(ev, function () {
+              if (!alive()) { stopObsolete(); return; }
+              if (injectTimer) clearTimeout(injectTimer);
+              injectTimer = setTimeout(function () { inject(0); }, 500);
+            });
           });
           addH('closeEvent', function (ev) {
-            if (!belongs(ev)) return;
-            finish(new Error('The eBird window was closed before it finished.'));
+            whenOwned(ev, function () {
+              finish(new Error('The eBird window was closed before it finished.'));
+            });
           });
           IB.openWebView({
             url: opts.url, showReloadButton: true, hidden: true,
             persistWebViewData: true
           }).then(function (r) {
             id = r && r.id;
+            if (!id) { finish(new Error('eBird did not return a browser window id.')); return; }
+            if (done) { try { IB.close({ id: id }); } catch (e) {} return; }
+            flushPending();
+            if (done) return;
             try { IB.hide({ id: id }); } catch (e) {}
             revealTimer = setTimeout(reveal, 6000);
             timer = setTimeout(function () { finish(new Error('Timed out waiting for eBird — try “View on eBird”.')); }, opts.timeout || 120000);
@@ -21565,7 +21610,7 @@
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
             return captureEbird({
-              url: url, buildInject: buildAlertInject, alive: stillCurrent,
+              kind: 'aba', url: url, buildInject: buildAlertInject, alive: stillCurrent,
               onStatus: function (m) { if (stillCurrent()) st.textContent = m; }
             });
           })

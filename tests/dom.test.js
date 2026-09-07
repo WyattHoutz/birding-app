@@ -1382,6 +1382,102 @@ test('F317 a separate identity success does not cancel pending first-year data',
   app.window.close();
 });
 
+test('a stale WebView event cannot settle a capture before its own id is known', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const handlers = {};
+  const closed = [];
+  let resolveOpen;
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView() {
+      return new Promise((resolve) => { resolveOpen = resolve; });
+    },
+    hide() {},
+    show() {},
+    close(arg) { closed.push(arg && arg.id); },
+    executeScript() { return Promise.resolve(); },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  const capture = A.captureEbird({
+    kind: 'aba',
+    url: 'https://ebird.org/alert/summary?sid=X',
+    buildInject: () => '/* fixture parser */',
+    timeout: 5000,
+  });
+  let settled = false;
+  capture.then(() => { settled = true; }, () => { settled = true; });
+  for (let i = 0; i < 20 && !handlers.messageFromWebview; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  handlers.messageFromWebview({
+    id: 'older-window',
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['old'] },
+  });
+  handlers.closeEvent({ id: 'older-window' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false,
+    'an older WebView cannot resolve or reject a capture whose id is still pending');
+
+  resolveOpen({ id: 'current-window' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  handlers.browserPageLoaded({});
+  handlers.urlChangeEvent({
+    url: 'https://secure.birds.cornell.edu/cassso/login',
+  });
+  handlers.messageFromWebview({
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['unowned'] },
+  });
+  handlers.closeEvent({ url: 'https://unrelated.example/' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false,
+    'an id-less event from an external browser cannot settle this WebView capture');
+  assert.deepEqual(closed, [],
+    'an id-less external close cannot close the capture-owned WebView');
+  handlers.messageFromWebview({
+    id: 'current-window',
+    detail: { __ebird: true, kind: 'aba', ok: true, data: ['current'] },
+  });
+  assert.deepEqual(await capture, ['current']);
+  assert.deepEqual(closed, ['current-window'],
+    'only the capture-owned WebView is closed');
+  app.window.close();
+});
+
+test('a finished eBird capture removes listener handles that resolve late', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const registrations = [];
+  let removed = 0;
+  const fake = {
+    addListener() {
+      return new Promise((resolve) => {
+        registrations.push(() => resolve({ remove() { removed++; } }));
+      });
+    },
+    openWebView() { return Promise.reject(new Error('fixture open failed')); },
+    close() {},
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  await assert.rejects(A.captureEbird({
+    kind: 'aba',
+    url: 'https://ebird.org/alert/summary?sid=X',
+    buildInject: () => '/* fixture parser */',
+    timeout: 5000,
+  }), /fixture open failed/);
+  assert.equal(registrations.length, 4, 'all global listeners began registration');
+  registrations.forEach((resolve) => resolve());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(removed, 4,
+    'every listener that arrives after cleanup removes itself immediately');
+  app.window.close();
+});
+
 test('app boots: Leaflet loads and the Contents menu is built', async () => {
   const app = await boot();
   assert.equal(typeof app.window.L, 'object', 'Leaflet global is present');
@@ -15455,7 +15551,7 @@ test('F326 a late Mega repaint keeps the selected ABA scope with F304 routing', 
   assert.doesNotMatch(paintSource, /nowTime\(\)/,
     'a local repaint cannot make stale alert data look newly fetched');
   assert.match(load,
-    /captureEbird\(\{[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
+    /captureEbird\(\{[\s\S]{0,180}kind: 'aba'[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
     'the browser fallback and its status updates belong to the current load');
   const terminalCatch = load.slice(load.lastIndexOf('.catch(function (e)'),
     load.lastIndexOf('.finally(function ()'));
