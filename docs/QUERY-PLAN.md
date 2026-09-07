@@ -24,7 +24,7 @@ stack on the *key*, not the URL:
 | limit | value | where it lives |
 |---|---|---|
 | burst | bucket of 10, refilling 0.37/s | `FG_BUCKET`, `FG_REFILL_PER_S` |
-| sustained | 20 starts per rolling 60 s | `FG_WINDOW_MAX`, `FG_WINDOW_MS` |
+| sustained | 22 starts per rolling 60 s | `FG_WINDOW_MAX`, `FG_WINDOW_MS` |
 | in flight | **1** | `FG_MAX_CONC` |
 | minimum spacing | 250 ms | `FG_MIN_GAP_MS` |
 
@@ -52,7 +52,7 @@ sequenceDiagram
     S-->>U: paint immediately (marked stale)
     U->>E: wave in the background
   else nothing
-    U->>E: wave · 6 + ~39 calls
+    U->>E: wave · 6 + at most 10 enrichment calls
   end
 ```
 
@@ -64,7 +64,7 @@ one, and it is worth more than any amount of prefetching:
 |---|---:|---:|
 | fresh (< `CHASE_TTL_MS`, 30 min) | **0** | instant |
 | stale, same day | 0 to paint, wave behind it | **instant**, then refreshed |
-| absent | 6, then 39 | ~21 s, then ~2 min |
+| absent | 6, then at most 10 | first useful paint after phase 1; enrichment follows |
 
 > A device log on v1.0.95 showed the third row on *every* open, because the
 > snapshot write was failing with `QuotaExceededError` and the app was
@@ -85,7 +85,7 @@ graph TD
   R --> RB["🚨 Last 7-day rarity reports"]
   A --> B["group 1b · recent feeds<br/>2 counties + geo = 3 calls"]
   B --> P{{"phase-1 view<br/>published to _chase"}}
-  P --> C["phase 2 · one recent/{species}<br/>per unseen bird — ~39 calls"]
+  P --> C["phase 2 · recent/{species}<br/>up to 10 high-value birds"]
   C --> Q{{"phase-2 view<br/>repaints fromChase sections"}}
   P --> D["🥇 Top destinations"]
   P --> E["📋 All unseen reports"]
@@ -127,10 +127,18 @@ species**. That is eBird's behaviour, not our filtering, and it is why a bird
 you need contributes exactly one location however many places it was reported
 from. `data/obs/{region}/recent/{species}` has no such collapse.
 
-So phase 2 is one call per unseen species — but *which* species is the output
-of phase 1's analysis. The fetch plan depends on the analysis result, which is
-the whole reason this is a second phase and not a bigger first one. Capped at
-`SPECIES_FEED_MAX = 60`.
+So phase 2 is one call per selected unseen species — but *which* species is the
+output of phase 1's analysis. The fetch plan depends on the analysis result,
+which is the whole reason this is a second phase and not a bigger first one.
+
+F320 bounds the automatic pass at **10**. That number is derived twice rather
+than guessed: the visible destination board has 10 cards, and a normal
+six-feed phase 1 leaves 10 starts in the background window
+(`22 - 6 interactive reserve - 6 phase-one feeds`). Birds attached to those
+visible destination cards are selected first. A clean empty account therefore
+does not turn every unseen bird into an automatic call. Leaving the initiating
+section cancels the remaining phase-two plan; the valid phase-one answer stays
+on screen and is saved.
 
 ---
 
@@ -168,6 +176,7 @@ are repainted when it advances. Everything else is listed with what it adds.
 | 🏆 eBird Rankings | leaderboard HTML + `ref/region/info` | 2–3 | `ebird_rank_cache_v2` |
 | 📅 My Ticks | `ref/taxonomy` for newly harvested birds | 0–1 | stored with the bird |
 | 🛬 Migration outlook | historic feeds | heavy, **manual only** | — |
+| 🚗/🛣️ Half-day / Full-day | bundled WA county bounds, then selected observation feeds | **0 county-metadata calls in WA** | bundled; non-WA fallback is cached and background-priority |
 
 ### Not eBird at all
 
@@ -194,11 +203,17 @@ anything extra delays the wave. It is **"what must land first"**.
 3. **The three `recent` feeds.** 3 calls, and they complete phase 1, which is
    what Top destinations, All unseen, Closest spots and Excursions render from.
 
-### Tier 2 — during phase 2, in the background lane
+### Tier 2 — after useful content, in the background lane
 
 4. **`product/lists/{county}` × 2.** Already fetched here. Feeds Happening now
    (the first item in the menu), Birdiest and convoys from **one** shared
    promise.
+
+There is only one limiter. `ebirdBg()` enters the same token bucket, rolling
+window and single in-flight gate as interactive calls; it merely uses the
+lower-priority queue. The former independent 1.2-second pump could consume the
+same key while the foreground lane was running despite comments claiming it
+yielded.
 
 ### Tier 3 — do NOT prefetch
 
@@ -206,6 +221,11 @@ Everything else. `ref/hotspot/geo`, favourites, rankings, easy misses and the
 hotspot scans are each one tap away and each one delays phase 2 by their own
 count ÷ 0.37/s. Prefetching a 20-call hotspot scan at launch would push Top
 destinations out by nearly a minute to save a tap that may never come.
+
+Migration history and time-of-day history are also **on demand only**. Saving
+an API key, changing reports and launching the app schedule none of their
+historic reads. Their caches remain resumable when the reader opens the
+section and asks to build/sample them.
 
 The one exception worth considering is `ref/hotspot/geo`, because it is a
 single call, it is *persisted* for 7 days as reference data, and it feeds both
