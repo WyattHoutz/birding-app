@@ -15979,6 +15979,47 @@ test('your own checklists top up the year list, for free', async () => {
   app.window.close();
 });
 
+test('an edited own checklist is reread when its species count changes', async () => {
+  let species = ['amerob'];
+  let bodyCalls = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S1/.test(String(url))) {
+        bodyCalls++;
+        return {
+          obsDt: '2026-09-06 08:00',
+          obs: species.map((speciesCode) => ({ speciesCode })),
+        };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  const row = {
+    subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 1,
+    isoObsDate: '2026-09-06 08:00',
+    loc: { locId: 'L1', name: 'Here', isHotspot: true },
+  };
+
+  assert.equal(await A.harvestOwnChecklists([row]), 1, 'the first body is read');
+  assert.equal(bodyCalls, 1);
+  assert.ok(A.ownSeenCodes().amerob, 'the original species is learned');
+
+  species = ['amerob', 'chispa'];
+  const edited = { ...row, numSpecies: 2 };
+  assert.equal(await A.harvestOwnChecklists([edited]), 1,
+    'the same submission is reconsidered when its list count changes');
+  assert.equal(bodyCalls, 2,
+    'the changed fingerprint bypasses the stale in-memory and durable body');
+  assert.ok(A.ownSeenCodes().chispa, 'the species added by the edit reaches My Ticks');
+
+  assert.equal(await A.harvestOwnChecklists([edited]), 0,
+    'an unchanged fingerprint remains free');
+  assert.equal(bodyCalls, 2, 'the stable edited checklist is not bought again');
+  app.window.close();
+});
+
 // The watchlist still wins. A tentative ID is deliberately HELD OFF the year
 // list so it keeps resurfacing as a target — and you filed a checklist for it,
 // which is exactly why it is tentative. Your own checklist must not tick it.
@@ -17319,6 +17360,87 @@ test('your own checklists are harvested without opening Birdiest or Convoys', as
   assert.ok(urls.some((u) => /product\/lists/.test(u)),
     'the harvest never reached product/lists, so it could not learn anything');
   app.window.close();
+});
+
+test('My Ticks can refresh edited checklists again in the same session', async () => {
+  let revision = 1;
+  let listCalls = 0;
+  let bodyCalls = 0;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/product\/lists\/US-WA-033/.test(u)) {
+        listCalls++;
+        return [{
+          subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: revision,
+          isoObsDate: '2026-09-06 08:00',
+          loc: { locId: 'L1', name: 'Here', isHotspot: true },
+        }];
+      }
+      if (/product\/lists\/US-WA-061/.test(u)) { listCalls++; return []; }
+      if (/product\/checklist\/view\/S1/.test(u)) {
+        bodyCalls++;
+        return { obs: revision === 1
+          ? [{ speciesCode: 'amerob' }]
+          : [{ speciesCode: 'amerob' }, { speciesCode: 'chispa' }] };
+      }
+      return null;
+    },
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const A = app.window.__app;
+  const bounded = async (promise, label) => {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(
+            label + ' timed out (list calls ' + listCalls
+            + ', checklist calls ' + bodyCalls + ')')), 20000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  try {
+    await bounded(A.ensureOwnHarvest(), 'first own-checklist scan');
+    assert.equal(listCalls, 2, 'the first scan reads both report counties');
+    assert.equal(bodyCalls, 1, 'the first checklist body is harvested');
+
+    revision = 2;
+    // Use the real navigation boundary. Opening My Ticks cancels obsolete
+    // chase requests before its forced list scan; calling the internal helper
+    // without that boundary left it behind the entire opening wave and made
+    // the first guard measure the queue instead of checklist refresh behavior.
+    A.showSection('sec-myYearBody');
+    await bounded(A.ensureOwnHarvest(A.navWork('My Ticks refresh'), true),
+      'forced own-checklist scan');
+    assert.equal(listCalls, 4,
+      'a My Ticks refresh bypasses the session-wide product/lists promise');
+    assert.equal(bodyCalls, 2,
+      'the changed checklist body is fetched again in the same app session');
+    assert.ok(A.ownSeenCodes().chispa, 'the edit reaches the list');
+  } finally {
+    // A failed assertion must still close the app. The first version leaked
+    // the background backfill timers, turning a useful red assertion into an
+    // apparent test hang with no reported cause.
+    app.window.close();
+  }
+});
+
+test('opening My Ticks requests an immediate fresh own-checklist scan', () => {
+  const start = HTML.indexOf('function loadMyYear()');
+  const fn = HTML.slice(start, start + 700);
+  assert.ok(start >= 0, 'My Ticks needs a loader that can do more than repaint local rows');
+  assert.match(fn, /updateMyYear\(\);/,
+    'the existing rows still paint immediately');
+  assert.match(fn, /scheduleOwnHarvest\(0,\s*true\);/,
+    'opening or reloading My Ticks bypasses the session list cache');
+  assert.match(HTML, /myYearBody:\s*\{\s*fn:\s*loadMyYear\s*\}/,
+    'the menu section is wired to the refreshing loader');
 });
 
 test('the harvest does not run when it cannot tell which checklists are yours', async () => {
@@ -19294,7 +19416,7 @@ test('a checklist row never leaves the count ambiguous', () => {
   assert.match(ChecklistCards.medium({ place: 'X', count: 1 }), /1 bird/);
 });
 
-test('a short Top patches list says which radius it covered', () => {
+test('a short Top patches list explains its time and access scope', async () => {
   // "top patches shows only two options" - and two was correct: both rows were
   // 11 mi out and the section stops at the daily-drive radius.
   //
@@ -19305,10 +19427,27 @@ test('a short Top patches list says which radius it covered', () => {
   const src = HTML.slice(at, HTML.indexOf('function loadDayTier', at));
   assert.ok(at > 0, 'loadDestinations not found');
   assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
-  assert.ok(/Half-day patches/.test(src),
-    'the note does not point at the section holding everything further out');
+  assert.ok(/destinationScopeDisclosure\(rad,\s*base\)/.test(src),
+    'the short-list explanation is not wired to the rendered result');
   assert.ok(/destRadiusMi\(\)/.test(src),
     'the note does not name the radius, so it states a limit without saying what it is');
+
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(typeof A.destinationScopeDisclosure, 'function',
+    'the short-list explanation cannot be checked independently of a live chase wave');
+  const host = app.document.createElement('div');
+  host.innerHTML = A.destinationScopeDisclosure(25, 25);
+  assert.match(host.textContent, /public-access/i,
+    'the note implies restricted-access hotspots were eligible');
+  assert.match(host.textContent,
+    new RegExp('last ' + BL.CONST.CUTOFF_DAYS + ' days', 'i'),
+    'the note hides the shorter evidence window');
+  assert.match(host.textContent, /Find local patches.*30 days/i,
+    'the note does not explain why Find local patches can show more places');
+  assert.match(host.textContent, /Half-day patches/i,
+    'the note does not point at the section holding everything further out');
+  app.window.close();
 
   // The threshold must not touch the DATA - it decides when a sentence is owed,
   // nothing else.
@@ -21399,6 +21538,29 @@ test('Hawaii exposes its Big Island county view beside the region picker', async
     'choosing Big Island stores the Hawaii county view');
   assert.equal(A.scopeCode(), 'US-HI-001',
     'the top-bar scope code follows the selected county view');
+  app.window.close();
+});
+
+test('identity-only repaints keep the region and county pickers populated', async () => {
+  const app = await boot();
+  const doc = app.window.document, A = app.window.__app;
+  assert.ok(doc.getElementById('menuRegion').options.length > 1,
+    'the boot render starts with populated regions');
+  assert.ok(doc.getElementById('menuCounty').options.length > 1,
+    'the boot render starts with populated county views');
+
+  // The lazy Top 100 result calls this without rebuilding the menu list.
+  // renderMenuIdentity replaces the scope HTML, so it must also bind the new
+  // selects rather than leaving two native arrows over empty controls.
+  A.renderMenuIdentity();
+  const region = doc.getElementById('menuRegion');
+  const county = doc.getElementById('menuCounty');
+  assert.equal(region.value, 'wa', 'the replacement region select keeps US-WA selected');
+  assert.ok([...region.options].some((o) => o.value === 'hi'),
+    'the replacement region select is repopulated');
+  assert.equal(county.value, '', 'the replacement county select keeps All counties selected');
+  assert.ok([...county.options].some((o) => o.value === 'US-WA-033'),
+    'the replacement county select is repopulated');
   app.window.close();
 });
 
@@ -25252,7 +25414,7 @@ test('F320 Washington Half-day uses bundled county bounds with zero metadata cal
   app.window.close();
 });
 
-test('F331 Hawaii destination tiers use bundled county bounds with zero metadata calls', async () => {
+test('F331/F338 Hawaii road tiers stay in the county containing Home', async () => {
   const app = await boot({
     sample: false,
     fetch: () => ({ __status: 401, __body: { error: 'unexpected network' } }),
@@ -25271,8 +25433,8 @@ test('F331 Hawaii destination tiers use bundled county bounds with zero metadata
   app.window.localStorage.setItem('ebird_home_lat:hi', '19.95');
   app.window.localStorage.setItem('ebird_home_lng:hi', '-155.79');
   const profile = await A.tripScopeProfile('full');
-  assert.deepEqual(arr(profile.tierCountyCodes), ['US-HI-001', 'US-HI-009'],
-    'the Hawaii full-day scope did not derive from the bundled county edges');
+  assert.deepEqual(arr(profile.tierCountyCodes), ['US-HI-001'],
+    'the Big Island road tier crossed open ocean into another county');
   const metadata = app.state.fetches.filter((url) =>
     /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
   assert.equal(metadata.length, 0,

@@ -69,6 +69,10 @@ Expand-Archive BirdChaser-unsigned.ipa -DestinationPath x
 # grep the extracted www/index.html for your change
 ```
 
+Mockup galleries are **on demand only**. A normal push does not render or
+attach them. Run `npm run mockups -- --width <width> --out <folder>` when the
+owner explicitly requests a visual review.
+
 ⚠️ **CORRECTED 2026-08-31 — this used to say "the tag triggers a macOS build".**
 It does not; `ios-build.yml` triggers on `push: branches: [main]` and has no tag
 trigger. A hand-made local tag ships **nothing**. Measured that day: `v1.63.0`

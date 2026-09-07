@@ -128,59 +128,6 @@ jobs:
           path: BirdChaser-unsigned.ipa
           if-no-files-found: error
 
-  mockups:
-    name: Render release mockups (393px + 402px)
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install JS dependencies
-        run: npm ci
-
-      - name: Generate the UI mockups
-        run: |
-          set -euo pipefail
-          mkdir -p mockups/393 mockups/402
-          node assets/mockups.js --width 393 --out mockups/393 &
-          PID_393=$!
-          node assets/mockups.js --width 402 --out mockups/402 &
-          PID_402=$!
-
-          STATUS_393=0
-          STATUS_402=0
-          wait "$PID_393" || STATUS_393=$?
-          wait "$PID_402" || STATUS_402=$?
-          echo "393px renderer exit code: $STATUS_393"
-          echo "402px renderer exit code: $STATUS_402"
-          if [ "$STATUS_393" -ne 0 ] || [ "$STATUS_402" -ne 0 ]; then
-            echo "::error::Mockup rendering failed (393px=$STATUS_393, 402px=$STATUS_402)"
-            exit 1
-          fi
-
-      - name: Package both mockup galleries
-        run: |
-          set -euo pipefail
-          test -f mockups/393/README.md
-          test -f mockups/402/README.md
-          zip -r BirdChaser-mockups.zip mockups
-          ls -lh BirdChaser-mockups.zip
-
-      - name: Upload all-menu mockup artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BirdChaser-mockups-all-menus
-          path: BirdChaser-mockups.zip
-          if-no-files-found: error
-
   # Publish a Release when package.json's version changes.
   #
   # v1.0.62 and v1.0.63 both shipped as commits and were never published: the
@@ -197,7 +144,7 @@ jobs:
   # binary provably matches the tag rather than being a later rebuild.
   release:
     name: Publish Release when the version changes
-    needs: [build, mockups]
+    needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -228,12 +175,6 @@ jobs:
         with:
           name: BirdChaser-unsigned-ipa
 
-      - name: Download the required all-menu mockups
-        uses: actions/download-artifact@v4
-        with:
-          name: BirdChaser-mockups-all-menus
-          path: .
-
       - name: Repair required assets on the existing Release
         if: steps.check.outputs.exists == 'true'
         env:
@@ -242,7 +183,6 @@ jobs:
           set -euo pipefail
           gh release upload "${{ steps.ver.outputs.tag }}" \
             BirdChaser-unsigned.ipa \
-            BirdChaser-mockups.zip \
             --clobber
           echo "Refreshed required assets on ${{ steps.ver.outputs.tag }}"
 
@@ -273,7 +213,6 @@ jobs:
           set -euo pipefail
           gh release create "${{ steps.ver.outputs.tag }}" \
             BirdChaser-unsigned.ipa \
-            BirdChaser-mockups.zip \
             --target "$GITHUB_SHA" \
             --title "$(cat .release-title)" \
             --notes-file .release-notes
