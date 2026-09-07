@@ -3145,7 +3145,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.78.0';
+      var APP_VERSION = '1.79.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8501,7 +8501,7 @@
           });
         }).catch(function (e) {
           dbg('warn', 'spuh cache read: ' + ((e && e.message) || e));
-          return null;
+        return null;
         });
       }
 
@@ -14491,6 +14491,20 @@
         d.rare = d.species.filter(function (s) { return s.rare; }).length;
         return d;
       }
+      // Quick outing and Today's patches can show the same hotspot through
+      // different candidate scans. Reuse Today's already-scored species when
+      // that chase result is warm, so the two cards share the same unseen
+      // evidence instead of making the local card relearn a narrower list.
+      function quickPatchSpeciesFromChase(chase, locId) {
+        if (!chase || !chase.cv || !Array.isArray(chase.cv.destinations) || !locId) return null;
+        for (var i = 0; i < chase.cv.destinations.length; i++) {
+          var cluster = chase.cv.destinations[i];
+          if (!cluster || String(cluster.locId || '') !== String(locId)) continue;
+          var projected = toDest(cluster);
+          return projected.species && projected.species.length ? projected.species : null;
+        }
+        return null;
+      }
       // ── THE HOTSPOT CARD ────────────────────────────────────────────────
       // Top destinations, Top excursions, Closest spots, Quick outing and the
       // Trip planner all answer the same two questions — WHERE do I go, and
@@ -14789,6 +14803,9 @@
                      count: (u.count == null ? null : u.count) };
           }).filter(function (u) { return u.code || u.name; })));
         } catch (e) { /* a card without this simply keeps the old behaviour */ }
+        if (o.speciesDays != null && isFinite(+o.speciesDays)) {
+          el.setAttribute('data-hsdays', String(Math.max(1, Math.floor(+o.speciesDays))));
+        }
         return el;
       }
 
@@ -14809,16 +14826,18 @@
       // because the shorter window is what keeps the answer honest — a
       // 30-day list at a migration hotspot is a brochure, not a forecast.
       var LOC_SPECIES_DAYS = 3, LOC_SPECIES_CONC = 3;
-      function locFeedKey(locId) {
-        return 'ebird_locsp_v1:' + locId + ':' + LOC_SPECIES_DAYS;
+      function locFeedKey(locId, days) {
+        days = days == null ? LOC_SPECIES_DAYS : days;
+        return 'ebird_locsp_v1:' + locId + ':' + days;
       }
-      function locRecentSpecies(locId) {
-        var key = locFeedKey(locId), today = todayStr();
+      function locRecentSpecies(locId, days) {
+        days = days == null ? LOC_SPECIES_DAYS : days;
+        var key = locFeedKey(locId, days), today = todayStr();
         try {
           var hit = JSON.parse(localStorage.getItem(key) || 'null');
           if (hit && hit.d === today && Array.isArray(hit.v)) return Promise.resolve(hit.v);
         } catch (e) {}
-        return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + LOC_SPECIES_DAYS)
+        return ebird('data/obs/' + encodeURIComponent(locId) + '/recent?back=' + days)
           .then(function (rows) {
             var out = (Array.isArray(rows) ? rows : []).map(function (o) {
               // subId travels with the row now: the feed already carries it,
@@ -15046,11 +15065,11 @@
       // hotspot — "rich, but nobody has been lately" — and leaving the slot
       // blank made a minute of fetching look like a section that had not
       // loaded.
-      function markNoRecent(el) {
+      function markNoRecent(el, days) {
         var slot = el && el.querySelector('.hslists');
         if (!slot || slot.innerHTML.trim()) return;   // never overwrite real content
         slot.innerHTML = '<div class="meta dim">No reports in the last '
-          + LOC_SPECIES_DAYS + ' days.</div>';
+          + (days == null ? LOC_SPECIES_DAYS : days) + ' days.</div>';
       }
       function hydrateLocSpecies(root) {
         if (!root || !getKey()) return Promise.resolve();
@@ -15060,6 +15079,8 @@
         var isSeen = seenResolver();
         return pool(cards, LOC_SPECIES_CONC, function (el) {
           var lid = el.getAttribute('data-hsloc');
+          var days = parseInt(el.getAttribute('data-hsdays'), 10);
+          if (!isFinite(days) || days < 1) days = LOC_SPECIES_DAYS;
           // A CALL THAT CANNOT ANSWER IS NOT WORTH MAKING.
           //
           // "quick outing took about a minute to fetch all the data, and
@@ -15077,12 +15098,12 @@
           // already told us each hotspot's latest observation date, so the
           // answer is in hand before the call is made.
           var latest = el.getAttribute('data-hslatest');
-          if (latest && !withinDays(latest, LOC_SPECIES_DAYS)) {
-            markNoRecent(el);
+          if (latest && !withinDays(latest, days)) {
+            markNoRecent(el, days);
             return Promise.resolve();
           }
-          return locRecentSpecies(lid).then(function (rows) {
-            if (!rows.length) { markNoRecent(el); return; }
+          return locRecentSpecies(lid, days).then(function (rows) {
+            if (!rows.length) { markNoRecent(el, days); return; }
             var unseen = [], seen = [], dedupe = {};
             // Which birds eBird flags as notable AT THIS PLACE. The location
             // feed does not say, but the chase view already knows — it is the
@@ -15160,9 +15181,11 @@
             el.setAttribute('data-unseen-n', String(unseen.length));
             var slot = el.querySelector('.hslists');
             if (!slot) return;
+            var windowLabel = days > LOC_SPECIES_DAYS
+              ? ' · last ' + days + ' days' : '';
             slot.innerHTML = HotspotCards.splitLists({
               unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
-              unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍') : '',
+              unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍' + windowLabel) : '',
               seen: seen.length ? speciesListHtml(seen, { presorted: true }) : '',
               seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
             });
@@ -15176,7 +15199,7 @@
               // ref/hotspot/geo — a different, correct fact — and rewriting it
               // produced "N species in 3d all-time".
               meta.innerHTML = meta.innerHTML.replace(
-                /\d+ species(?! all-time)/, rows.length + ' species in ' + LOC_SPECIES_DAYS + 'd');
+                /\d+ species(?! all-time)/, rows.length + ' species in ' + days + 'd');
             }
             hydratePhotos(slot);
           }).catch(function () {});
@@ -17470,6 +17493,11 @@
       // speeds) and the list READS closest-first. Quality still decides which
       // spots make the cut; it just no longer decides the order.
       var QUICK_OUTING_WIDEN_MI = [5, 10, 15], QUICK_OUTING_MIN_ROWS = 3, QUICK_OUTING_TOP = 10;
+      // Quick outing ranks all-time-rich hotspots, so its local evidence must
+      // be wider than the 3-day "what is here today" correction used by chase
+      // cards. The date stays on each species row, and the card labels this
+      // broader window explicitly rather than presenting old evidence as live.
+      var QUICK_LOC_SPECIES_DAYS = 30;
       function buildQuickOuting(hotspots, anchors) {
         // Nearest of home/work, not home alone. A hotspot two minutes from the
         // office is a real quick outing; measuring it from home buried it
@@ -17764,9 +17792,13 @@
           var el = $('quickResults'); el.innerHTML = '';
           renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), a, false);
           top.forEach(function (h, i) {
+            var scored = quickPatchSpeciesFromChase(_chase[getReport().slug], h.locId);
             el.appendChild(hotspotCard({
               n: i + 1, locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
               distMi: h.dist,
+              latest: h.latest,
+              species: scored,
+              speciesDays: scored ? LOC_SPECIES_DAYS : QUICK_LOC_SPECIES_DAYS,
               facts: [
                 h.n + ' species all-time',
                 h.latest ? 'latest ' + esc(fmtDate(h.latest)) : ''
@@ -30187,6 +30219,7 @@
         birdCard: birdCard, rarityStats: rarityStats, widenThumb: widenThumb,
         ladderWidth: ladderWidth, WIKI_THUMB_LADDER: WIKI_THUMB_LADDER, HERO_PX: HERO_PX,
         hotspotCard: hotspotCard, speciesListHtml: speciesListHtml,
+        quickPatchSpeciesFromChase: quickPatchSpeciesFromChase,
         locSpeciesSplit: locSpeciesSplit, locSpeciesIndex: locSpeciesIndex,
         computeHotspots: computeHotspots, splitHotspotBirds: splitHotspotBirds,
         setEasySort: setEasySort, easySortRows: easySortRows, renderEasyMisses: renderEasyMisses,

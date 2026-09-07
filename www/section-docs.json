@@ -293,10 +293,11 @@
         "Hotspots are scored on all-time species with a distance decay, so a 40-species puddle two minutes away does not beat a real site.",
         "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
         "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
-        "Hotspots birded in the last 10 days are penalised but not removed."
+        "Hotspots birded in the last 10 days are penalised but not removed.",
+        "In the app, a hotspot already present in Today's patches reuses that section's scored unseen rows; otherwise the card hydrates unseen and seen species from the place's last 30 days, with the wider local-history window labelled and each row keeping its report date."
       ],
       "limits": [
-        "This is about places, not birds — it does not know what is being seen there today.",
+        "The place ranking is about all-time richness, not a claim that every listed bird is present today. The app's species list is recent local evidence, not a live forecast.",
         "In the app the origin is yours to choose, so the rows can differ from the Markdown report, which can only ever rank from a fixed anchor."
       ]
     },

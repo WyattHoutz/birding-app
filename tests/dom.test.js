@@ -16875,6 +16875,107 @@ test('quick outing hydrates its cards like top destinations does', async () => {
   app.window.close();
 });
 
+// Quick outing ranks all-time-rich local hotspots, so the location card needs
+// the same broader unseen evidence that the other patch reports show. A
+// three-day read can contain only the newest checklist even when the hotspot
+// has several still-unseen species in its recent local history.
+test('quick outing keeps broader local unseen evidence', async () => {
+  const locUrls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/ref\/hotspot\/geo/.test(u)) {
+        return [{ locId: 'L30', locName: 'Waikoloa Hilton', lat: 19.92, lng: -155.88,
+                  numSpeciesAllTime: 42, latestObsDt: todayFixtureDate() + ' 08:27' }];
+      }
+      if (/data\/obs\/L30\/recent/.test(u)) {
+        locUrls.push(u);
+        return /back=30/.test(u)
+          ? [
+            { speciesCode: 'zzgoose', comName: 'Zed Hawaiian Goose',
+              subId: 'S30', obsDt: '2026-08-18 07:07' },
+            { speciesCode: 'zzfran', comName: 'Zed Gray Francolin',
+              subId: 'S30', obsDt: '2026-08-18 07:07' },
+          ]
+          : [
+            { speciesCode: 'zzgoose', comName: 'Zed Hawaiian Goose',
+              subId: 'S31', obsDt: todayFixtureDate() + ' 08:27' },
+          ];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app, W = app.window, D = W.document;
+  const rep = W.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  W.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  W.localStorage.setItem('ebird_seen', '{}');
+  W.localStorage.setItem('ebird_home_lat', '19.92');
+  W.localStorage.setItem('ebird_home_lng', '-155.88');
+
+  A.loadQuickOuting('home');
+  await waitFor(() => locUrls.length >= 1, 'the local hotspot species feed');
+  await waitFor(() => /Zed Gray Francolin/.test(
+    D.getElementById('quickResults').textContent), 'the broader unseen species');
+
+  assert.ok(locUrls.some((u) => /back=30/.test(u)),
+    'local patches request the broader local-history window');
+  const txt = D.getElementById('quickResults').textContent.replace(/\s+/g, ' ');
+  assert.match(txt, /Zed Hawaiian Goose/, 'the newest local target remains visible');
+  assert.match(txt, /Zed Gray Francolin/,
+    'an older local target shown by the patch reports is not dropped');
+  assert.match(txt, /2 unseen/,
+    'the local card count includes both unseen species');
+  app.window.close();
+});
+
+test('quick outing can reuse the matching Today patch species', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  app.window.localStorage.setItem('ebird_seen', '{}');
+
+  const species = A.quickPatchSpeciesFromChase({
+    cv: {
+      destinations: [{
+        locId: 'L_TODAY',
+        loc: 'Waikoloa Hilton',
+        species: [
+          { code: 'zzgoose', name: 'Zed Hawaiian Goose', kind: 'Sighting',
+            dateStr: todayFixtureDate() + ' 08:27', subId: 'S40' },
+          { code: 'zzfran', name: 'Zed Gray Francolin', kind: 'Sighting',
+            dateStr: '2026-08-18 07:07', subId: 'S41' },
+        ],
+      }],
+    },
+  }, 'L_TODAY');
+
+  assert.deepEqual(species.map((s) => s.comName),
+    ['Zed Hawaiian Goose', 'Zed Gray Francolin'],
+    'local cards reuse the same target rows Today’s patches scored');
+  assert.equal(A.quickPatchSpeciesFromChase({
+    cv: { destinations: [{ locId: 'OTHER', species: [] }] },
+  }, 'L_TODAY'), null, 'a different hotspot does not borrow its target rows');
+  app.window.close();
+});
+
+test('quick outing wires warm Today patch targets into its cards', () => {
+  const start = HTML.indexOf('function loadQuickOuting');
+  const end = HTML.indexOf('// --- CSV import', start);
+  const fn = HTML.slice(start, end);
+  assert.match(fn,
+    /quickPatchSpeciesFromChase\(_chase\[getReport\(\)\.slug\], h\.locId\)/,
+    'local cards look up the matching Today patch by hotspot');
+  assert.match(fn, /species:\s*scored,/,
+    'the matching target rows are passed through hotspotCard');
+  assert.match(fn,
+    /speciesDays:\s*scored \? LOC_SPECIES_DAYS : QUICK_LOC_SPECIES_DAYS/,
+    'warm Today cards keep the short correction while cold local cards use '
+    + 'the labelled broader fallback');
+});
+
 
 // "the bird photos in the aba alert large cards are getting cropped weird,
 // cutting off parts of the bird."
