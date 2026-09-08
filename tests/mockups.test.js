@@ -179,6 +179,10 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
       /A\.setActiveReport\(\(spec && spec\.report\) \|\| 'wa'\)/,
       `${at} paints Hawaii rows without switching the visible report`);
   }
+  const rows = source.slice(source.indexOf('destBtn: ['),
+    source.indexOf('excBtn: [', source.indexOf('destBtn: [')));
+  assert.equal((rows.match(/\{ name:/g) || []).length, 5,
+    'Today’s patches review still shows fewer than the five useful Hawaii choices');
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

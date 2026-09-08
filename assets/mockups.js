@@ -460,7 +460,9 @@ const BOOTSTRAP = `
         { name: 'Puako Petroglyph trail', distance: 4.1,
           sub: 'Older evidence · last report 5 days ago · 1 target' },
         { name: 'Holoholokai Beach Park', distance: 4.8,
-          sub: 'Older evidence · last report 4 days ago · 1 target' }
+          sub: 'Older evidence · last report 4 days ago · 1 target' },
+        { name: 'Puʻu Lāʻau / Palila Discovery Trail', distance: 19.0,
+          sub: 'Older evidence · last report 6 days ago · 1 target' }
       ],
       excBtn: [
         { name: 'Nisqually NWR', distance: 54.5, sub: 'half day · 18 targets' },

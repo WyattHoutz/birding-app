@@ -3301,7 +3301,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.85.0';
+      var APP_VERSION = '1.86.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -4349,13 +4349,13 @@
       var _ownHarvestScan = null, _ownHarvestInflight = null;
       var OWN_HARVEST_DELAY_MS = 6000;
       function scheduleOwnHarvest(delayMs, force) {
-        var work = navWork('own-checklist harvest');
+        var work = navWork('own-checklist harvest', 'sec-myYearBody');
         clearTimeout(_ownHarvestTimer);
         _ownHarvestTimer = setTimeout(function () { ensureOwnHarvest(work, force); },
           delayMs == null ? OWN_HARVEST_DELAY_MS : delayMs);
       }
       function ensureOwnHarvest(work, force) {
-        work = work || navWork('own-checklist harvest');
+        work = work || navWork('own-checklist harvest', 'sec-myYearBody');
         if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
         if (_ownHarvestScan) return _ownHarvestScan;
@@ -4768,7 +4768,8 @@
       }
 
       function backfillTick(workOverride) {
-        var work = workOverride || _backfillWork || cancellableWork('My Ticks backfill');
+        var work = workOverride || _backfillWork
+          || cancellableWork('My Ticks backfill', 'sec-myYearBody');
         _backfillWork = work;
         if (!workCurrent(work)) return;
         if (_backfillRunning) return;
@@ -4837,7 +4838,7 @@
         });
       }
       function startOwnBackfill(delayMs, workOverride) {
-        var work = workOverride || navWork('My Ticks backfill');
+        var work = workOverride || navWork('My Ticks backfill', 'sec-myYearBody');
         _backfillWork = work;
         clearTimeout(_backfillTimer);
         _backfillTimer = setTimeout(function () {
@@ -5229,17 +5230,19 @@
       var _fgBgWake = null;
       var _fgStall = null;
 
-      function navWork(label) {
+      function navWork(label, sectionId) {
         return {
           navGeneration: _navGeneration,
           cancelGeneration: _workCancelGeneration,
-          label: label || 'section work'
+          label: label || 'section work',
+          sectionId: sectionId || visibleSectionId()
         };
       }
-      function cancellableWork(label) {
+      function cancellableWork(label, sectionId) {
         return {
           cancelGeneration: _workCancelGeneration,
-          label: label || 'background work'
+          label: label || 'background work',
+          sectionId: sectionId || visibleSectionId()
         };
       }
       function workCurrent(work) {
@@ -5315,11 +5318,12 @@
         return Math.max(0, (now == null ? Date.now() : now) - startedAt
           - Math.max(0, _sleptMs - sleptAtStart));
       }
-      function fgMarkStalled(path, activeMs) {
+      function fgMarkStalled(path, activeMs, work) {
         _fgStall = {
           path: path,
           activeMs: Math.max(0, activeMs || 0),
-          sectionId: visibleSectionId()
+          sectionId: (work && work.sectionId) || visibleSectionId(),
+          workLabel: (work && work.label) || ''
         };
         dbg('error', 'active eBird request stopped after '
           + Math.round(_fgStall.activeMs / 1000) + 's runtime · ' + path);
@@ -5329,13 +5333,18 @@
         _fgStall = null;
         fgProgressSync();
       }
-      function fgCheckActiveStall(path, stat, startedAt, now) {
+      function fgVisibleStall() {
+        if (!_fgStall) return null;
+        return !_fgStall.sectionId || _fgStall.sectionId === visibleSectionId()
+          ? _fgStall : null;
+      }
+      function fgCheckActiveStall(path, stat, startedAt, now, work) {
         var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
         if (activeMs < FG_ACTIVE_STALL_MS) return false;
-        fgMarkStalled(path, activeMs);
+        fgMarkStalled(path, activeMs, work);
         return true;
       }
-      function fgWatchActive(path, stat, controller) {
+      function fgWatchActive(path, stat, controller, work) {
         var startedAt = Date.now(), timer = null, stopped = false;
         stat.activeSlept0 = _sleptMs;
         function check() {
@@ -5343,7 +5352,7 @@
           heartbeat();
           var now = Date.now();
           var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
-          if (fgCheckActiveStall(path, stat, startedAt, now)) {
+          if (fgCheckActiveStall(path, stat, startedAt, now, work)) {
             try { controller.abort(); } catch (e) {}
             return;
           }
@@ -5448,7 +5457,8 @@
       function fgProgressSync() {
         var busy = _fgWaiters.length + _fgBgWaiters.length + _fgActive;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        if (_stage || busy || _fgStall) {
+        var stall = fgVisibleStall();
+        if (_stage || busy || stall) {
           if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
         } else if (!_fgIdleTimer) {
           _fgIdleTimer = setTimeout(function () {
@@ -5459,11 +5469,11 @@
         var fill = document.getElementById('loadBarFill');
         var txt = document.getElementById('loadBarText');
         var actions = document.getElementById('loadBarActions');
-        if (_fgStall) {
+        if (stall) {
           el.hidden = false;
           if (fill) fill.style.width = '100%';
           if (txt) txt.textContent = 'Request stopped after '
-            + Math.round(_fgStall.activeMs / 1000)
+            + Math.round(stall.activeMs / 1000)
             + 's of active runtime. Retry this section or cancel queued work.';
           if (actions) actions.hidden = false;
           return;
@@ -5839,7 +5849,7 @@
           var controller = typeof AbortController === 'function'
             ? new AbortController() : null;
           var stopWatch = controller
-            ? fgWatchActive(path, stat || {}, controller)
+            ? fgWatchActive(path, stat || {}, controller, work)
             : function () {};
           _fgActiveAbort = controller
             ? { controller: controller, job: job, cancelled: false }
@@ -11640,10 +11650,25 @@
       function destinationFallbackRows(profile) {
         var p = profile || chaseProfile();
         if (!p.stateCode) return Promise.resolve([]);
-        return ebird('data/obs/' + encodeURIComponent(p.stateCode)
+        var counties = (p.counties || []).filter(function (county) {
+          return county && county.code;
+        });
+        var county = counties.length === 1 ? counties[0] : null;
+        var regionCode = county ? county.code : p.stateCode;
+        return ebird('data/obs/' + encodeURIComponent(regionCode)
           + '/recent?back=30&detail=full&hotspot=true'
           + '&includeProvisional=true&maxResults=10000')
-          .then(function (rows) { return Array.isArray(rows) ? rows : []; });
+          .then(function (rows) {
+            if (!Array.isArray(rows)) return [];
+            if (!county) return rows;
+            return rows.map(function (row) {
+              if (row.subnational2Code) return row;
+              return Object.assign({}, row, {
+                subnational2Code: county.code,
+                subnational2Name: county.label
+              });
+            });
+          });
       }
       function projectChaseResult(res, profile, slug) {
         if (!res || !res.rows) return res;
@@ -15675,7 +15700,7 @@
       // Below this a list reads as broken rather than as short, so it explains
       // itself. Not a threshold on the DATA - nothing is filtered by it - only
       // on when the section owes the reader a sentence.
-      var DEST_THIN_ROWS = 4;
+      var DEST_THIN_ROWS = BL.DEST_MIN_ROWS;
       // THE RADIUS THAT WAS ACTUALLY USED, not the configured one. The boundary
       // widens when little is nearby, so printing the config value would state
       // a limit the list did not obey.
@@ -15685,7 +15710,8 @@
         return r || getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
       }
 
-      function destinationScopeDisclosure(rad, base, olderCount) {
+      function destinationScopeDisclosure(rad, base, olderCount, minRows) {
+        minRows = minRows || DEST_THIN_ROWS;
         var todayDays = BL.CONST.CUTOFF_DAYS;
         var localDays = QUICK_LOC_SPECIES_DAYS || 30;
         var opening = rad > base
@@ -15696,7 +15722,7 @@
             + ' mi</b> that has an unlogged bird reported in the last <b>'
             + todayDays + ' days</b>.';
         var fallback = olderCount
-          ? ' Because fewer than ' + DEST_THIN_ROWS + ' fresh choices were '
+          ? ' Because fewer than ' + minRows + ' fresh choices were '
             + 'available, ' + olderCount + ' labelled '
             + '<b>older-evidence</b> hotspot' + (olderCount === 1 ? ' was' : 's were')
             + ' added from the bounded 30-day public-hotspot feed.'
@@ -15714,6 +15740,7 @@
         btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
         return getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
+          var minRows = (c.cv && c.cv.destinationMinRows) || DEST_THIN_ROWS;
           function paint(dests, deferHydration) {
             var thin = $('destThin');
             if (thin) thin.parentNode.removeChild(thin);
@@ -15723,9 +15750,9 @@
             var older = dests.filter(function (d) {
               return Number.isFinite(d.fallbackEvidenceDays);
             }).length;
-            if (dests.length < DEST_THIN_ROWS || rad > base || older) {
+            if (dests.length < minRows || rad > base || older) {
               $('destResults').insertAdjacentHTML('afterend',
-                destinationScopeDisclosure(rad, base, older));
+                destinationScopeDisclosure(rad, base, older, minRows));
             }
             st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
               + fromHere() + ' · best first, not nearest' + coverageNote(dests)
@@ -15734,7 +15761,7 @@
           var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           var p = c.profile || chaseProfile();
           var useFallback = p.stateCode === 'US-HI'
-            && dests.length < DEST_THIN_ROWS;
+            && dests.length < minRows;
           paint(dests, useFallback);
           if (!useFallback) return;
           st.textContent = (dests.length ? dests.length + ' fresh hotspot'
@@ -15774,6 +15801,7 @@
           if (c.rarity) { rarityRedirect(st); return; }
           var source = bandId === 'full' ? c.cv.fullDay : c.cv.excursions;
           var rows = rerankFromAnchor((source || []).map(toDest));
+          var minRows = (c.cv && c.cv.destinationMinRows) || DEST_THIN_ROWS;
           var scopeN = (c.profile.tierCountyCodes || []).length;
           var scope = scopeN + ' count' + (scopeN === 1 ? 'y' : 'ies')
             + ' selected from Home';
@@ -15803,7 +15831,7 @@
                            : ' · updated ' + nowTime());
           }
           if (bandId !== 'full' || c.profile.stateCode !== 'US-HI'
-              || rows.length >= DEST_THIN_ROWS) {
+              || rows.length >= minRows) {
             paint(rows, false);
             return;
           }
@@ -28837,6 +28865,7 @@
           }
         } catch (e) {}
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
+        fgProgressSync();
         var menu = $('menuPanel'); if (menu) menu.hidden = true;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
         var nav = $('navbar'); if (nav) nav.hidden = false;
@@ -28916,6 +28945,7 @@
           fgCancelObsolete();
         }
         _sections.forEach(function (s) { s.hidden = true; });
+        fgProgressSync();
         var menu = $('menuPanel'); if (menu) menu.hidden = false;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
         var nav = $('navbar'); if (nav) nav.hidden = true;

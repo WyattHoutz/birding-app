@@ -552,6 +552,8 @@ test('F341 sparse Hawaii patches fill fresh-first from bounded older public evid
       19.955, -155.861, '2026-08-29 09:00'),
     raw('old3', 'elepai', 'Hawaii Elepaio', 'Puako Petroglyph trail',
       19.969, -155.844, '2026-08-28 08:00'),
+    raw('old4', 'palila', 'Palila', 'Puʻu Lāʻau',
+      19.850, -155.610, '2026-08-27 08:00'),
     raw('private', 'akepa1', 'Hawaii Akepa', 'Private ranch',
       19.940, -155.840, '2026-08-30 08:00', { locationPrivate: true }),
     raw('restricted', 'iiwi', 'Iiwi',
@@ -562,23 +564,26 @@ test('F341 sparse Hawaii patches fill fresh-first from bounded older public evid
     rowsToday, rowsPrior: profileSnapshot(hi, {}), seen: {},
     ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
     dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
-    destinationFallbackRows: fallbackRows, destinationFallbackTarget: 4
+    destinationFallbackRows: fallbackRows
   });
 
+  assert.equal(cv.destinationMinRows, 5,
+    'Hawaii kept the four-row floor that the installed board proved too thin');
   assert.equal(cv.destinations[0].loc, 'Kealakehe WTP',
     'fresh evidence remains first even when an older place ranks closer');
   assert.deepEqual(cv.destinations.slice(1).map((r) => r.loc).sort(), [
     'Holoholokai Beach Park',
     'Puako Petroglyph trail',
+    'Puʻu Lāʻau',
     'Waikoloa Village hotspot'
   ]);
   assert.equal(cv.destinations[0].fallbackEvidenceDays, undefined);
   assert.deepEqual(cv.destinations.slice(1)
-    .map((r) => r.fallbackEvidenceDays).sort(), [3, 4, 5]);
+    .map((r) => r.fallbackEvidenceDays).sort(), [3, 4, 5, 6]);
   assert.ok(!cv.destinations.some((r) => /Private|Restricted/.test(r.loc)));
 });
 
-test('F341 four fresh destinations do not gain older fallback rows', () => {
+test('F346 five fresh Hawaii destinations do not gain older fallback rows', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-02';
   const raw = (id, dt) => Object.assign(
@@ -588,17 +593,16 @@ test('F341 four fresh destinations do not gain older fallback rows', () => {
       subId: 'S-' + id }),
     { subnational2Code: 'US-HI-001' });
   const rowsToday = profileSnapshot(hi, {
-    'hawaii-recent.json': [0, 1, 2, 3].map((id) => raw(id, SNAP + ' 08:00'))
+      'hawaii-recent.json': [0, 1, 2, 3, 4].map((id) => raw(id, SNAP + ' 08:00'))
   });
   const cv = BL.computeChaseViews(hi, {
     rowsToday, rowsPrior: profileSnapshot(hi, {}), seen: {},
     ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
     dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
-    destinationFallbackRows: [raw(9, '2026-08-25 08:00')],
-    destinationFallbackTarget: 4
+    destinationFallbackRows: [raw(9, '2026-08-25 08:00')]
   });
 
-  assert.equal(cv.destinations.length, 4);
+  assert.equal(cv.destinations.length, 5);
   assert.ok(cv.destinations.every((r) => r.fallbackEvidenceDays === undefined));
 });
 

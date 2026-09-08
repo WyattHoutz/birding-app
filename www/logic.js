@@ -951,6 +951,10 @@
   var DEST_FALLBACK_DAYS = 30;
   var DEST_RADIUS_STEPS = [1, 1.5, 2, 3];
 
+  function destinationMinRows(profile) {
+    return profile && profile.stateCode === 'US-HI' ? 5 : DEST_MIN_ROWS;
+  }
+
   function destinationRadius(clusters, baseMi, capMi, minRows) {
     var base = Math.round(Number(baseMi) || 0);
     var cap = Math.round(Number(capMi == null ? baseMi : capMi) || 0);
@@ -2583,14 +2587,15 @@
     var destOpts = {
       dailyDriveMi: dailyDriveMi,
       chaseMaxMi: profile.chaseMaxMi,
-      watch: watch
+      watch: watch,
+      minRows: destinationMinRows(profile)
     };
     if (profile.tierBaseRadiusMi != null) {
       destOpts.radiusMi = profile.tierBaseRadiusMi;
     }
     var dest = destinations(nearRecentGo, destOpts);
     var fallbackTarget = opts.destinationFallbackTarget == null
-      ? DEST_MIN_ROWS : opts.destinationFallbackTarget;
+      ? destOpts.minRows : opts.destinationFallbackTarget;
     var fallbackRecs = [];
     if (opts.destinationFallbackRows && opts.destinationFallbackRows.length) {
       fallbackRecs = applyExclusions(mergeSnapshot([{
@@ -2680,6 +2685,7 @@
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
       near: near, destinations: dest, excursions: exc, fullDay: full,
       destRadiusMi: dest.radiusMi,
+      destinationMinRows: destOpts.minRows,
       notableToday: notable
     };
   }

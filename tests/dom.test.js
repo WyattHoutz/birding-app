@@ -20923,7 +20923,7 @@ test('a short Top patches list explains its time and access scope', async () => 
   const src = HTML.slice(at, HTML.indexOf('function loadDayTier', at));
   assert.ok(at > 0, 'loadDestinations not found');
   assert.ok(/DEST_THIN_ROWS/.test(src), 'a short list explains nothing');
-  assert.ok(/destinationScopeDisclosure\(rad,\s*base,\s*older\)/.test(src),
+  assert.ok(/destinationScopeDisclosure\(rad,\s*base,\s*older,\s*minRows\)/.test(src),
     'the short-list explanation is not wired to the rendered result');
   assert.ok(/destRadiusMi\(\)/.test(src),
     'the note does not name the radius, so it states a limit without saying what it is');
@@ -20943,6 +20943,9 @@ test('a short Top patches list explains its time and access scope', async () => 
     'the note does not explain why Find local patches can show more places');
   assert.match(host.textContent, /Half-day patches/i,
     'the note does not point at the section holding everything further out');
+  host.innerHTML = A.destinationScopeDisclosure(25, 25, 2, 5);
+  assert.match(host.textContent, /fewer than 5 fresh choices/i,
+    'the Hawaii note still describes the global four-row floor');
   app.window.close();
 
   // The threshold must not touch the DATA - it decides when a sentence is owed,
@@ -27062,10 +27065,11 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
       19.955, -155.861, 4],
     ['old3', 'elepai', 'Hawaii Elepaio', 'Puako Petroglyph trail',
       19.969, -155.844, 5],
+    ['old4', 'palila', 'Palila', 'Puʻu Lāʻau',
+      19.850, -155.610, 6],
   ].map(([id, code, name, loc, lat, lng, days]) => ({
     obsId: id, speciesCode: code, comName: name, locId: 'L-' + id,
     locName: loc, lat, lng, obsDt: stamp(days), subId: 'S-' + id,
-    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
   }));
   const app = await boot({
     report: 'hi',
@@ -27091,9 +27095,10 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
   });
   let releaseFallback;
+  let requestedFallbackUrl = '';
   app.window.fetch = (url) => {
     const body = String(url).includes(
-      '/data/obs/US-HI/recent?back=30&detail=full&hotspot=true')
+      '/data/obs/US-HI-001/recent?back=30&detail=full&hotspot=true')
       ? fallback : [];
     return new Promise((resolve) => {
       const release = () => resolve({
@@ -27102,7 +27107,10 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
         text: () => Promise.resolve(JSON.stringify(body)),
         json: () => Promise.resolve(body),
       });
-      if (body === fallback) releaseFallback = release;
+      if (body === fallback) {
+        requestedFallbackUrl = String(url);
+        releaseFallback = release;
+      }
       else release();
     });
   };
@@ -27116,7 +27124,7 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
   await loading;
 
   const cards = arr(app.$('destResults').querySelectorAll('.hscard'));
-  assert.equal(cards.length, 4,
+  assert.equal(cards.length, 5,
     app.$('destStatus').textContent + ' :: ' + app.$('destResults').textContent);
   assert.match(cards[0].textContent, /Kealakehe WTP/,
     'an older row displaced the fresh hotspot from first place');
@@ -27125,10 +27133,12 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
       'an appended older row is indistinguishable from a fresh report');
   });
   assert.match(app.$('destThin').textContent, /bounded 30-day public-hotspot feed/);
+  assert.match(requestedFallbackUrl, /data\/obs\/US-HI-001\/recent/,
+    'the app requested the statewide species-collapsed feed instead of the owned county');
   app.window.close();
 });
 
-test('F341 Today patches does not request older evidence when four fresh rows exist', async () => {
+test('F346 Today patches does not request older evidence when five fresh rows exist', async () => {
   const now = new Date();
   const stamp = [
     now.getFullYear(),
@@ -27146,7 +27156,7 @@ test('F341 Today patches does not request older evidence when four fresh rows ex
   const A = app.window.__app;
   seedSeen(app, []);
   const profile = A.chaseProfile();
-  const fresh = [0, 1, 2, 3].map((n) => ({
+  const fresh = [0, 1, 2, 3, 4].map((n) => ({
     obsId: 'fresh-' + n, speciesCode: 'fresh' + n,
     comName: 'Fresh Bird ' + n, locId: 'L-fresh-' + n,
     locName: 'Fresh hotspot ' + n, lat: 19.87 + n * 0.025, lng: -155.84,
@@ -27161,7 +27171,7 @@ test('F341 Today patches does not request older evidence when four fresh rows ex
   });
   await A.loadDestinations();
   assert.equal(app.state.fetches.filter((url) =>
-    /data\/obs\/US-HI\/recent\?back=30&detail=full&hotspot=true/.test(url)).length, 0,
+    /data\/obs\/US-HI(?:-001)?\/recent\?back=30&detail=full&hotspot=true/.test(url)).length, 0,
   'a complete fresh list spent the fallback request anyway');
   app.window.close();
 });
@@ -27221,7 +27231,7 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
   let releaseFallback;
   app.window.fetch = (url) => {
     const body = String(url).includes(
-      '/data/obs/US-HI/recent?back=30&detail=full&hotspot=true')
+      '/data/obs/US-HI-001/recent?back=30&detail=full&hotspot=true')
       ? fallback : [];
     return new Promise((resolve) => {
       const release = () => resolve({
@@ -27434,6 +27444,57 @@ test('F320 a runtime-active stall exposes labelled retry and cancel controls', a
   app.click(app.$('loadCancel'));
   assert.equal(A.fgStall(), null);
   assert.equal(app.$('loadBarActions').hidden, true);
+  app.window.close();
+});
+
+test('F347 a My Ticks timeout never paints failure controls on Today’s patches', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  A.showSection('sec-myYearBody');
+  const work = {
+    label: 'My Ticks backfill',
+    sectionId: 'sec-myYearBody',
+  };
+
+  A.showSection('sec-destBtn');
+  A.sleepReset();
+  const start = 100000;
+  assert.equal(A.fgCheckActiveStall(
+    'product/lists/US-HI-001/2026/9/1?maxResults=200',
+    { activeSlept0: A.sleptMs() },
+    start, start + A.FG_ACTIVE_STALL_MS + 1, work), true);
+
+  assert.equal(A.fgStall().sectionId, 'sec-myYearBody',
+    'the failed request was attributed to the section visible at timeout');
+  assert.equal(app.$('loadBarActions').hidden, true,
+    'Today’s patches offered controls for a My Ticks failure');
+  assert.equal(app.$('loadBar').hidden, true,
+    'Today’s patches displayed My Ticks’ timeout banner');
+
+  A.showSection('sec-myYearBody');
+  assert.equal(app.$('loadBarActions').hidden, false,
+    'the owning My Ticks section did not recover its failure controls');
+  assert.match(app.$('loadBarText').textContent, /Request stopped/i);
+
+  A.showSection('sec-destBtn');
+  assert.equal(app.$('loadBarActions').hidden, true,
+    'leaving My Ticks did not hide its failure controls');
+  assert.equal(app.$('loadBar').hidden, true,
+    'leaving My Ticks did not hide its timeout banner');
+
+  const attempt = HTML.slice(HTML.indexOf('function fgAttempt('),
+    HTML.indexOf('function fgNoteOk('));
+  assert.match(attempt,
+    /fgWatchActive\(path, stat \|\| \{\}, controller, work\)/,
+    'the live request path did not carry its work owner into the watchdog');
+  const backfill = HTML.slice(HTML.indexOf('function scheduleOwnHarvest('),
+    HTML.indexOf('function backfillNote('));
+  assert.match(backfill,
+    /navWork\('own-checklist harvest', 'sec-myYearBody'\)/,
+    'the refresh-scheduled My Ticks work inherited whichever section was visible');
+  assert.match(backfill,
+    /cancellableWork\('My Ticks backfill', 'sec-myYearBody'\)/,
+    'the resumable My Ticks fallback has no stable section owner');
   app.window.close();
 });
 
