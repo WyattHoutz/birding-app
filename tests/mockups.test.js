@@ -38,7 +38,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['stakeoutreports', 'megaaba', 'meganearest'],
+    ['birdgenloading', 'favoritesregion', 'spuhdetail', 'stakeoutdetail',
+      'stakeoutreports', 'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
 });
 
@@ -323,15 +324,16 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'Pro patches must run its real loader instead of receiving a generic rank table');
 
   assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-species');
-  assert.ok(mockups.STUB_SPEC.spLookupBtn.maxHostHeight > 0
-      && mockups.STUB_SPEC.spLookupBtn.maxHostHeight <= 340,
-  'Stakeout keeps a measured default taxonomy-height ceiling');
+  assert.ok(mockups.STUB_SPEC.spLookupBtn.maxHostHeight > 340
+      && mockups.STUB_SPEC.spLookupBtn.maxHostHeight <= 500,
+  'Stakeout keeps the measured compact full-hierarchy height ceiling');
   assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'spLookupIdHelp',
     'the capture anchor is the visible taxonomy path, while component checks guard the card');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
     '#spLookupResults > li',
     '#spLookupIdHelp .spuhtaxnav',
-    '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
+    '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
+    '#spLookupIdHelp details.spuhdetails',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
     '#spLookupResults .megaevidence',
     '#spLookupResults .megalatest',
@@ -345,7 +347,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   assert.doesNotMatch(source, /spLookupHero|details\.spuhshell|renderSpuhStakeoutShell/,
     'the release fixture must not preserve the removed duplicate hero or collapsed shell');
   assert.match(source, /detail\.querySelector\('details\.spuhtaxdetails'\)[\s\S]*path\.open = true/,
-    'the comparison shot must deliberately expand the otherwise compact path');
+    'the comparison shot must deliberately expand the shared Detailed view');
   assert.match(source, /detail\.querySelector\('details\.spuhcompare'\)/,
     'the comparison shot opens the control inside the expanded navigator');
   assert.match(source, /prepareStakeoutReports[\s\S]*more\.click\(\)/,

@@ -106,15 +106,18 @@ const STUB_SPEC = {
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
   spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
-    maxHostHeight: 340,
+    scrollTo: '#spLookupIdHelp',
+    maxHostHeight: 500,
     expects: ['#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
-      '#spLookupIdHelp .spuhtaxmost .spuhtaxlink',
+      '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
+      '#spLookupIdHelp details.spuhdetails',
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
       '#spLookupResults .megaevidence', '#spLookupResults .megalatest',
       '#spLookupResults .megareports',
       '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
   spuhBtn:        { kind: 'spuh',          host: 'spuhDetail',
-    expects: ['#spuhDetail .spuhexplain', '#spuhDetail .spuhladder'] },
+    expects: ['#spuhDetail .spuhexplain', '#spuhDetail .spuhcompactpath',
+      '#spuhDetail details.spuhdetails'] },
   stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults' },
   iconicBtn:      { kind: 'hotspot',       host: 'iconicResults' },
   hotBtn:         { kind: 'hotspot',       host: 'hotResults', map: 'hotMap' },
@@ -157,6 +160,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     kind: spec && spec.kind,
     host: spec && spec.host,
     map: spec && spec.map,
+    scrollTo: spec && spec.scrollTo,
     maxHostHeight: spec && spec.maxHostHeight,
     expects: (spec && spec.expects) || [],
     prep: `var spec = ${JSON.stringify(spec || null)};
@@ -184,6 +188,72 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the mandatory 35-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'birdgenloading', at: 'surgeBtn',
+    title: 'Bird Gen — Mega source loading',
+    host: 'surgeResults',
+    prep: `FIX.before('surgeBtn', A, document);
+           var anchor = document.getElementById('surgeBtn');
+           var sec = anchor.closest('section');
+           localStorage.removeItem('ebird_api_key');
+           A.showSection(sec.id);
+           localStorage.removeItem('ebird_mega_snapshot_v1');
+           A.renderSurge([], [], [], [], [], {
+             mega: 'partial', observations: 'ok',
+             leaderboard: 'loading', hotspots: 'loading'
+           });
+           var host = document.getElementById('surgeResults');
+           host.setAttribute('data-mock-data', 'true');
+           host.setAttribute('aria-label', 'Representative stub data for Bird Gen loading');
+           sec.dataset.mockAt = 'surgeBtn';
+           sec.dataset.mockReady = 'true';
+           return true;` },
+  { id: 'favoritesregion', at: 'favResults',
+    title: 'Favorite patches — current region only',
+    host: 'favResults',
+    allowDisabled: ['.favup', '.favdown'],
+    prep: `FIX.before('favResults', A, document);
+           var spec = ${JSON.stringify(STUB_SPEC.favResults)};
+           var host = document.getElementById('favResults');
+           var sec = host.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('favResults', spec, A, document, sec);
+           A.setFavs([
+             { id: 'wa-1', locId: 'L-WA-1', locName: 'Marymoor Park — Bird Loop',
+               lat: 47.66, lng: -122.12, region: 'US-WA' },
+             { id: 'hi-1', locId: 'L-HI-1', locName: 'Hawaii Volcanoes NP',
+               lat: 19.42, lng: -155.29, region: 'US-HI' },
+             { id: 'wa-2', locId: 'L-WA-2', locName: 'Cedar River Mouth',
+               lat: 47.50, lng: -122.22, region: 'US-WA' }
+           ]);
+           A.renderFavs();
+           host.setAttribute('data-mock-data', 'true');
+           return true;` },
+  { id: 'spuhdetail', at: 'spuhBtn',
+    title: 'Spuh finder — Detailed view',
+    host: 'spuhDetail', scrollTo: '#spuhDetail',
+    prep: `FIX.before('spuhBtn', A, document);
+           var anchor = document.getElementById('spuhBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await A.renderSpuhNode('calidr');
+           var detail = document.querySelector('#spuhDetail details.spuhdetails');
+           if (!detail) throw new Error('missing Spuh Detailed view');
+           detail.open = true;
+           if (A.fgProgressReset) A.fgProgressReset();
+           document.getElementById('spuhDetail').setAttribute('data-mock-data', 'true');
+           return true;` },
+  { id: 'stakeoutdetail', at: 'spLookupBtn',
+    title: 'Stakeout bird — Detailed view',
+    host: 'spLookupIdHelp', scrollTo: '#spLookupIdHelp',
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('spLookupBtn', ${JSON.stringify(STUB_SPEC.spLookupBtn)}, A, document, sec);
+           var detail = document.querySelector('#spLookupIdHelp details.spuhdetails');
+           if (!detail) throw new Error('missing Stakeout Detailed view');
+           detail.open = true;
+           return true;` },
   { id: 'stakeoutreports', at: 'spLookupBtn',
     title: 'Stakeout bird — lazy-expanded recent hotspots',
     host: 'spLookupResults', scrollTo: '#spLookupResults',
@@ -1364,8 +1434,13 @@ async function main() {
                 && /^\\s*(loading|reading|ranking|sampling|scanning|collecting|finding|looking|refreshing)\\b/i
                   .test(el.textContent || '');
             }).map(function (el) { return (el.textContent || '').trim().slice(0, 80); });
+          var allowedDisabled = ${JSON.stringify(shot.allowDisabled || [])};
           var disabled = [].slice.call(sec.querySelectorAll('button:disabled'))
-            .filter(visible).map(function (el) { return el.id || el.textContent.trim(); });
+            .filter(function (el) {
+              return visible(el) && !allowedDisabled.some(function (selector) {
+                return el.matches(selector);
+              });
+            }).map(function (el) { return el.id || el.textContent.trim(); });
           var map = ${JSON.stringify(shot.map || '')}
             ? d.getElementById(${JSON.stringify(shot.map || '')}) : null;
           var expected = ${JSON.stringify(shot.expects || [])};

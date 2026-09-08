@@ -2488,6 +2488,120 @@ test('the hotspot list is fetched once per region per day, then searched offline
   app.window.close();
 });
 
+test('F351 Favorite patches renders and loads only the active report region', async () => {
+  const app = await boot({
+    key: null,
+    report: 'wa',
+    fetch(url) {
+      if (/\/recent\/LWA/.test(url)) return [];
+      if (/\/recent\/LHI/.test(url)) return [];
+      return null;
+    },
+    storage: {
+      ebird_favs: JSON.stringify([
+        {
+          id: 'hi', locId: 'LHI', locName: 'Hawaii Patch',
+          lat: 19.6, lng: -155.5, region: 'US-HI',
+        },
+        {
+          id: 'wa', locId: 'LWA', locName: 'Washington Patch',
+          lat: 47.6, lng: -122.3, region: 'US-WA',
+        },
+      ]),
+    },
+  });
+  const A = app.window.__app;
+
+  A.renderFavs();
+  assert.match(app.$('favResults').textContent, /Washington Patch/);
+  assert.doesNotMatch(app.$('favResults').textContent, /Hawaii Patch/,
+    'a favorite saved under another report leaked into the active region');
+  assert.match(String(A.loadFavs), /favoriteEntriesForRegion\(getRegion\(\)\)/,
+    'Favorite patches does not build its network plan from the active-region view');
+  app.window.close();
+});
+
+test('F351 Favorite patches stores, migrates, moves, and deletes by visible region', async () => {
+  const app = await boot({
+    report: 'wa',
+    storage: {
+      ebird_favs: JSON.stringify([
+        {
+          id: 'wa-1', locId: 'LWA1', locName: 'Washington One',
+          lat: 47.1, lng: -122.1, region: 'US-WA',
+        },
+        {
+          id: 'hi-1', locId: 'LHI1', locName: 'Hawaii One',
+          lat: 19.1, lng: -155.1, region: 'US-HI',
+        },
+        {
+          id: 'wa-2', locId: 'LWA2', locName: 'Washington Two',
+          lat: 47.2, lng: -122.2, region: 'US-WA',
+        },
+        {
+          id: 'legacy', locId: 'LLEGACY', locName: 'Legacy Washington',
+          lat: 47.3, lng: -122.3,
+        },
+        {
+          id: 'coordinate-only', locName: 'Unresolved old pin',
+          lat: 46.9, lng: -122.0,
+        },
+      ]),
+      'ebird_hotspots_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{
+          locId: 'LLEGACY', locName: 'Legacy Washington',
+          lat: 47.3, lng: -122.3,
+        }],
+      }),
+    },
+  });
+  const A = app.window.__app;
+
+  const visible = A.favoriteEntriesForRegion('US-WA');
+  assert.deepEqual(arr(visible, (entry) => entry.favorite.id),
+    ['wa-1', 'wa-2', 'legacy'],
+    'the active-region view did not include only proven Washington favorites');
+  assert.deepEqual(arr(visible, (entry) => entry.storageIndex), [0, 2, 3],
+    'visible controls lost the global storage indices they must update');
+  assert.equal(A.getFavs().find((favorite) => favorite.id === 'legacy').region, 'US-WA',
+    'a legacy hotspot id present in the cached active-region directory was not migrated');
+  assert.equal(A.getFavs().find((favorite) => favorite.id === 'coordinate-only').region, undefined,
+    'a coordinate-only legacy favorite was guessed into the active region');
+
+  A.moveFavoriteInRegion(0, 1, 'US-WA');
+  assert.deepEqual(arr(A.getFavs(), (favorite) => favorite.id),
+    ['wa-2', 'hi-1', 'wa-1', 'legacy', 'coordinate-only'],
+    'moving visible favorites disturbed or stopped at a hidden-region row');
+
+  A.deleteFavoriteInRegion(0, 'US-WA');
+  assert.deepEqual(arr(A.getFavs(), (favorite) => favorite.id),
+    ['hi-1', 'wa-1', 'legacy', 'coordinate-only'],
+    'deleting the first visible favorite removed another region');
+
+  A.addFav({
+    id: 'new', locId: 'LNEW', locName: 'New Washington',
+    lat: 47.4, lng: -122.4,
+  });
+  assert.equal(A.getFavs().find((favorite) => favorite.locId === 'LNEW').region, 'US-WA',
+    'new favorites do not persist the active report region');
+  A.toggleFav({
+    locId: 'LTOGGLE', locName: 'Saved from another list',
+    lat: 47.5, lng: -122.5,
+  });
+  assert.equal(A.getFavs().find((favorite) => favorite.locId === 'LTOGGLE').region, 'US-WA',
+    'hotspots saved from another report surface do not persist the active region');
+
+  A.setFavs([{
+    id: 'hi-only', locId: 'LHIONLY', locName: 'Hawaii only',
+    lat: 19.2, lng: -155.2, region: 'US-HI',
+  }]);
+  A.renderFavs();
+  assert.match(app.$('favStatus').textContent, /No favorite patches saved for Washington/i,
+    'the empty active-region message is indistinguishable from having no favorites anywhere');
+  app.window.close();
+});
+
 // --- Bird icons -------------------------------------------------------------
 
 // A `.thumb` is `float: left` by default. A float overhangs whatever follows it,
@@ -7718,8 +7832,11 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
   app.window.localStorage.removeItem('ebird_mega_snapshot_v1');
   A.renderSurge([], [], [], [], [], loadedSources);
   box = app.$('surgeResults');
+  assert.doesNotMatch(box.querySelector('.surgesourcewarn').textContent,
+    /open Mega rarities/i,
+    'Bird Gen told the user to open another section even though it owns the lazy refresh');
   assert.match(box.querySelector('.surgesourcewarn').textContent,
-    /Mega snapshot not loaded.*open Mega rarities once/i,
+    /Mega snapshot not loaded yet/i,
     'a missing mega snapshot is being reported as zero megas');
   assert.match(box.textContent, /No alerts are available from the sources that loaded/,
     'an incomplete empty feed does not state the limited claim it can support');
@@ -8557,6 +8674,63 @@ test('F309 refreshing Bird Gen preserves current cards while feeds update', asyn
   assert.equal(app.$('surgeFeed'), before,
     'refresh clears the useful feed before replacement data is ready');
   assert.match(app.$('surgeFeed').textContent, /Vesper Sparrow/);
+  app.window.close();
+});
+
+test('F350 Bird Gen starts one Mega refresh before optional sources and paints loading immediately', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  let resolveMega;
+  const calls = [];
+  const response = (body) => Promise.resolve({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
+    json: () => Promise.resolve(typeof body === 'string' ? JSON.parse(body) : body),
+  });
+  app.window.fetch = (url) => {
+    url = String(url);
+    calls.push(url);
+    if (/alert\/summary/.test(url)) {
+      return new Promise((resolve) => {
+        resolveMega = () => resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve('<html><body><div class="Observation"></div></body></html>'),
+          json: () => Promise.resolve({}),
+        });
+      });
+    }
+    if (/top100/.test(url)) return response('<html><body></body></html>');
+    return response([]);
+  };
+
+  A.loadSurge();
+  await waitFor(() => typeof resolveMega === 'function', 'the owned Mega refresh to start');
+
+  const megaIndex = calls.findIndex((url) => /alert\/summary/.test(url));
+  const optionalIndex = calls.findIndex((url) => /product\/lists/.test(url));
+  assert.ok(megaIndex >= 0, 'Bird Gen never started its one Mega summary request');
+  assert.ok(optionalIndex < 0 || megaIndex < optionalIndex,
+    'the Mega refresh waited behind optional leaderboard/hotspot work');
+  assert.equal(calls.filter((url) => /alert\/summary/.test(url)).length, 1,
+    'one Bird Gen load started duplicate Mega requests');
+
+  const box = app.$('surgeResults');
+  assert.equal(box.dataset.sourceMega, 'partial',
+    'the first useful paint did not immediately mark Mega as loading');
+  assert.match(box.textContent, /Mega snapshot loading/i);
+  assert.doesNotMatch(box.textContent, /open Mega rarities/i);
+  assert.match(box.querySelector('[data-surge-visible-count]').textContent,
+    /0 loaded alerts/i,
+    'pending source work was presented as a definitive zero-alert result');
+
+  resolveMega();
+  await waitFor(() => box.dataset.sourceMega === 'ok',
+    'the completed Mega snapshot to repaint Bird Gen');
+  assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
   app.window.close();
 });
 
@@ -10925,12 +11099,25 @@ test('Spuh finder explains a searched group and labels its example image honestl
     'peep is visible but its unpublished narrower membership is explicit');
   assert.match(detail.textContent, /Calidris sp\./,
     'the equal-coverage published genus is visible in the broader path');
-  const hierarchy = detail.querySelector('.spuhladder');
+  const hierarchy = detail.querySelector('.spuhhierarchy');
   const media = detail.querySelector('.spuhmedia');
   assert.ok(hierarchy && media
     && (hierarchy.compareDocumentPosition(media)
       & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
   'the hierarchy appears before the illustrative candidate image');
+  const compact = hierarchy.querySelector('.spuhcompactpath');
+  assert.ok(compact, 'Spuh Finder does not use the shared compact hierarchy');
+  assert.match(compact.textContent,
+    /bird sp\.[\s\S]*shorebird sp\.[\s\S]*Scolopacidae sp\.[\s\S]*Calidris sp\.[\s\S]*peep sp\./,
+    'the default view does not expose the complete broad-to-specific short path');
+  const detailToggle = hierarchy.querySelector('details.spuhdetails');
+  assert.ok(detailToggle && !detailToggle.open,
+    'the taxonomy explanation and candidates are expanded by default');
+  assert.equal(detailToggle.querySelector('summary').textContent.trim(), 'Detailed view');
+  assert.ok(detailToggle.querySelector('.spuhmedia'),
+    'candidate media is not owned by the shared Detailed view');
+  assert.match(compact.textContent, /Coverage limit · not auto-selected/,
+    'coverage-limited labels lost their redundant text marker in the compact path');
   const explain = detail.querySelector('.spuhexplain');
   assert.ok(explain, 'the selected spuh has an explicit information button');
   app.click(explain);
@@ -10964,7 +11151,7 @@ test('Spuh finder explains a searched group and labels its example image honestl
   app.window.close();
 });
 
-test('Stakeout leads with the most specific Spuh and collapses the ranked path', async () => {
+test('F352 Stakeout shares the compact full Spuh hierarchy after hotspot results', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) return [];
@@ -10974,35 +11161,43 @@ test('Stakeout leads with the most specific Spuh and collapses the ranked path',
   installSpuhFixture(app);
   const lookup = app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
 
-  const loading = app.document.querySelector('#spLookupIdHelp .spuhtaxmost');
-  assert.ok(loading, 'the compact taxonomy answer paints before sightings settle');
-  assert.match(loading.textContent, /Most specific spuh/);
+  const loading = app.document.querySelector('#spLookupIdHelp .spuhtaxstatus');
+  assert.ok(loading, 'the compact hierarchy paints a loading state before sightings settle');
   assert.match(loading.textContent, /Loading the eBird taxonomy/);
   await lookup;
   assert.match(app.$('spLookupStatus').textContent, /No reports|not being seen right now/,
     'the recent feed still reports the real empty answer');
 
   await waitFor(() => app.document.querySelector(
-    '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]'),
-  'the ranked taxonomy path');
+    '#spLookupIdHelp .spuhcompactpath'),
+  'the compact taxonomy path');
+  const results = app.$('spLookupResults');
+  const host = app.$('spLookupIdHelp');
+  assert.ok(results.compareDocumentPosition(host)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the Spuh hierarchy follows the hotspot result list');
   const nav = app.document.querySelector('#spLookupIdHelp .spuhtaxnav');
   assert.ok(nav && !nav.closest('details.spuhshell'),
     'the hierarchy is visible, not hidden behind the old disclosure');
-  const most = nav.querySelector('.spuhtaxmost');
+  const hierarchy = nav.querySelector('.spuhhierarchy');
   const path = nav.querySelector('details.spuhtaxdetails');
-  assert.ok(most && path
-    && (most.compareDocumentPosition(path)
-      & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
-  'the most-specific answer precedes the full identification path');
-  assert.equal(path.open, false, 'the full-screen rank ladder is collapsed by default');
-  assert.match(most.textContent, /Most specific spuh.*Calidris sp\..*peep sp\./s);
-  assert.match(most.textContent, /2 possible species/);
-  assert.doesNotMatch(most.textContent, /bird sp\.|shorebird sp\.|Scolopacidae sp\./,
-    'a broad parent cannot replace the minimal proven candidate set');
-  assert.equal(most.querySelectorAll('.spuhtaxlink').length, 2,
-    'equivalent labels for the minimal set remain available together');
-  assert.match(most.textContent, /COVERAGE LIMIT/,
+  const compact = nav.querySelector('.spuhcompactpath');
+  assert.ok(hierarchy && compact && path,
+    'lookup is missing the shared compact Spuh hierarchy and Detailed view');
+  assert.equal(nav.querySelector('.spuhtaxmost'), null,
+    'Stakeout still duplicates the hierarchy in a separate most-specific card');
+  assert.equal(path.open, false, 'the full-screen rank ladder is expanded by default');
+  assert.equal(path.querySelector('summary').textContent.trim(), 'Detailed view');
+  assert.match(compact.textContent,
+    /bird sp\.[\s\S]*shorebird sp\.[\s\S]*Scolopacidae sp\.[\s\S]*Calidris sp\.[\s\S]*Semipalmated Sandpiper/,
+    'the default view does not expose the complete broad-to-specific short path');
+  const compactGenus = [...compact.querySelectorAll('.spuhcompactlevel')]
+    .find((level) => /Calidris sp\./.test(level.textContent));
+  assert.equal(compactGenus.querySelectorAll('.spuhtaxlink').length, 2,
+    'equivalent labels for one coverage level are not grouped together');
+  assert.match(compactGenus.textContent, /coverage limit/i,
     'a limited equivalent remains labelled rather than becoming a silent recommendation');
+  assert.match(compactGenus.textContent, /2 possible species/);
   assert.deepEqual(
     [...path.querySelectorAll('.spuhtaxlevel')].map((level) => level.dataset.rank),
     ['class', 'order', 'family', 'genus', 'species'],
@@ -11096,8 +11291,8 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   assert.match(app.$('spLookupResults').textContent, /Marymoor Park/,
     'the sighting survives the independent taxonomy failure');
   assert.match(app.$('spLookupIdHelp').textContent,
-    /Most specific spuh.*Taxonomy unavailable.*new Stakeout bird lookup to retry/s,
-    'the failed compact answer remains visible and names the retry path');
+    /Taxonomy unavailable.*new Stakeout bird lookup to retry/s,
+    'the failed hierarchy state remains visible and names the retry path');
 
   A.setSpuhModel(good);
   await A.lookupSpecies('sem', 'Semipalmated Sandpiper');

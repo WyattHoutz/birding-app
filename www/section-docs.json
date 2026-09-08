@@ -25,7 +25,7 @@
       "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
       "summary": "One ranked feed of fresh megas, celebrity birds, crowd attention, leaderboard cascades, unusually busy hotspots and high-yield top patches.",
       "inputs": [
-        "the cached ABA Code 3+ snapshot last populated by Mega rarities",
+        "the region's ABA Code 3+ snapshot, refreshed lazily by Bird Gen after its first useful observation paint",
         "county recent + notable feeds",
         "the region's Top 100 board",
         "hotspot activity and the complete destination projection in the same feeds"
@@ -37,7 +37,7 @@
         "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
         "Seen status is resolved once after duplicate species and their reasons are merged. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
-        "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data. A complete stale chase snapshot can still supply TOP PATCH alerts while live data refreshes; partial and failed destination views cannot.",
+        "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Bird Gen starts its one coalesced Mega refresh immediately after the first useful observation paint, labels that source as loading without directing the reader to another section, and repaints when it settles. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data. A complete stale chase snapshot can still supply TOP PATCH alerts while live data refreshes; partial and failed destination views cannot.",
         "The whole headline strip - image, common name or hotspot, alert icon and age - is one keyboard-actionable route to Stakeout bird or Stakeout hotspot. Bird Gen displays no rarity R marker. The four-letter code begins line two flush with the name; xN, linked place and linked newest-checklist date follow. The category badge lives only in the full-width explanation row. Bird Gen does not show the eBird species code, mileage, a Notes toggle or category destination links. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
         "MEGA: newness is scoped to the species within a 4-mile locality cluster, so nearby personal-location labels remain one continuing bird while a distant new site can alert. A new locality inside the covered window is news at any distance. Nearby, multiple-report and single-locality qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
         "CELEBRITY: an unseen species eBird flags as notable here has 4 or more independent sightings at one hotspot or adjacent walkable hotspots, within chase distance and the last 24 hours plus the shared checklist-start grace.",
@@ -435,7 +435,9 @@
       ],
       "how": [
         "Search matches on word starts across the hotspot name, requires every term to match, and ranks by all-time species count.",
-        "Order is yours: each pin has up/down controls and is never re-sorted behind your back.",
+        "Each new pin stores the active eBird region. Only pins for the active report region are rendered or fetched; pins from other regions stay saved and return when that region is opened.",
+        "Legacy hotspot-id pins are assigned only when they match the already-cached active-region hotspot directory. Coordinate-only legacy pins remain unresolved rather than being guessed into a region.",
+        "Order is yours within the active region: each visible pin has up/down controls that skip preserved rows from other regions.",
         "Each pin lists only what would make you go: rarities (⭐), watchlist verifications (🔍), and species you have not logged this year — sorted in that order, newest first.",
         "Common birds you have already seen are dropped on purpose: a hotspot's own species list answers 'what lives here', not 'should I drive there today'.",
         "Your own checklists are excluded, so the list is what OTHERS are finding at your regular spots.",
@@ -443,8 +445,8 @@
       ],
       "limits": [
         "Stored on this device only — pins do not sync.",
-        "One hotspot feed per pin, loaded serially when the section opens; reordering or deleting a pin repaints from cache rather than refetching.",
-        "A hotspot saved by coordinates rather than an eBird hotspot ID has no feed to read, and says so."
+        "One hotspot feed per active-region pin, loaded serially when the section opens; reordering or deleting a pin repaints from cache rather than refetching.",
+        "An unresolved coordinate-only legacy favorite remains saved but hidden until it can be assigned safely; the app never infers a region from coordinates."
       ]
     },
     "allUnseenBtn": {
@@ -490,8 +492,8 @@
         "An honestly empty active-region sightings result keeps the Mega evidence visible rather than replacing it with an empty-state message.",
         "Back returns to the source Mega list only if its report/region/SID/scope/generation key is still current; otherwise it returns to Contents.",
         "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
-        "A compact Most specific spuh answer starts loading independently of the sightings request. It uses the minimal proven candidate set, keeps equivalent labels together, marks coverage-limited wording, and links every label into Spuh finder.",
-        "The full class, order, family, genus and species Identification path is collapsed below that answer. Expanding it preserves every broad-to-specific level and the comparison tool without making the default lookup a full screen of taxonomy.",
+        "The sightings list paints before taxonomy and remains independent of it. Beneath the hotspot list, the same compact broad-to-specific hierarchy used by Spuh finder shows the complete short path by default, keeps equivalent labels together, marks coverage-limited wording with text and a dashed border, and links every spuh label into Spuh finder.",
+        "Detailed view expands the full class, order, family, genus and species alignment plus the comparison tool without making the default lookup a full screen of taxonomy.",
         "Compare possible species finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
       ],
       "limits": [
@@ -515,7 +517,8 @@
         "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
         "Each spuh is resolved to its exact published candidate-species set. Genus, family and order lists are unions; twelve scientific species-list rows are parsed species by species rather than widened to their whole family.",
         "Labels with identical candidate sets share one coverage class. Minimal strict subset and superset relations form a DAG, because real groups overlap.",
-        "The hierarchy, candidate set and narrower groups lead the result. The information button holds the generated definition, source boundary and example-image source so repeat users do not have to scroll past explanatory prose.",
+        "The same compact hierarchy used by Stakeout bird shows the complete broad-to-specific short path by default, groups equivalent labels at one level, and marks the selected or most-specific level without relying on colour.",
+        "Detailed view owns the coverage explanation, narrower groups, candidate list, example candidate image and comparison. The information button holds the generated definition, source boundary and example-image source so repeat users do not have to scroll past explanatory prose.",
         "The example image is one possible candidate and says so in words; it is never called the spuh or the most common member.",
         "Compare possible species returns zero, one or several minimal published sets containing every selected bird."
       ],

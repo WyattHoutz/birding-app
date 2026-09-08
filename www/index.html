@@ -2219,6 +2219,44 @@
                  border-radius: 13px; padding: 11px; background: var(--card); }
     .spuhtaxnav h3 { margin: 0; font-size: calc(18px * var(--s)); }
     .spuhtaxnav > .hint { margin: 4px 0 10px; }
+    .spuhhierarchy > h4 { margin: 8px 0; font-size: calc(14px * var(--s));
+                 letter-spacing: .03em; text-transform: uppercase; }
+    .spuhcompactlegend { margin: -3px 0 4px; color: var(--muted);
+                 font-size: calc(10px * var(--s)); font-weight: 700;
+                 text-transform: uppercase; }
+    .spuhcompactpath { list-style: none; margin: 0; padding: 0; }
+    .spuhcompactlevel { position: relative; margin: 0; padding: 0 0 8px 18px; }
+    .spuhcompactlevel:last-child { padding-bottom: 5px; }
+    .spuhcompactlevel:not(:last-child)::before { content: ""; position: absolute;
+                 left: 6px; top: 20px; bottom: -2px; border-left: 2px solid var(--muted); }
+    .spuhcompactlevel::after { content: ""; position: absolute; left: 1px; top: 16px;
+                 width: 8px; height: 8px; border: 2px solid var(--ink);
+                 background: var(--card); border-radius: 50%; }
+    .spuhcompactlevel.selected::after { border-radius: 2px; border-width: 3px; }
+    .spuhcompactchoices { display: flex; flex-wrap: wrap; gap: 2px 5px;
+                 align-items: center; }
+    .spuhcompactlevel .spuhtaxlink { flex: 0 1 auto; min-width: 0;
+                 min-height: calc(44px * var(--s)); border: 0;
+                 border-bottom: 2px solid var(--link); border-radius: 0;
+                 background: none; padding: 2px 1px;
+                 font-size: calc(12px * var(--s)); }
+    .spuhcompactlevel .spuhtaxlink.limited { border: 2px dashed var(--warn);
+                 border-radius: 6px; padding: 2px 5px; background: var(--note-bg); }
+    .spuhcompactstate { margin-left: 3px; font-size: calc(8px * var(--s));
+                 font-weight: 800; letter-spacing: .02em; text-transform: uppercase;
+                 white-space: nowrap; }
+    .spuhcompactlevel .spuhtaxequiv { margin-bottom: 3px; }
+    .spuhcompactlevel > .spuhmeta { display: inline-block; margin: 2px 6px 0 0; }
+    .spuhcompactlimit { display: block; width: fit-content; margin-top: 4px;
+                 padding: 1px 5px; border: 2px dashed var(--warn);
+                 border-radius: 6px; background: var(--note-bg);
+                 font-size: calc(10px * var(--s)); font-weight: 800;
+                 letter-spacing: .03em; text-transform: uppercase; }
+    .spuhdetails { border-top: 1px solid var(--line); padding-top: 3px; }
+    .spuhdetails > summary { min-height: calc(44px * var(--s));
+                 display: flex; align-items: center; cursor: pointer;
+                 font-size: calc(15px * var(--s)); font-weight: 800; }
+    .spuhdetailsbody { padding-top: 6px; }
     .spuhtaxmost { margin-bottom: 10px; }
     .spuhtaxmost > .hint { margin: 6px 0 0; }
     .spuhtaxdetails { border-top: 1px solid var(--line); padding-top: 3px; }
@@ -2458,8 +2496,8 @@
         <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
       </div>
-      <div id="spLookupIdHelp"></div>
       <ul id="spLookupResults" class="obs big xl"></ul>
+      <div id="spLookupIdHelp"></div>
       <div id="spLookupBest"></div>
       <div id="spLookupUnwatched"></div>
     </section>
@@ -3301,7 +3339,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.87.0';
+      var APP_VERSION = '1.88.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -8953,6 +8991,54 @@
         return out;
       }
 
+      function spuhCompactCoverageLevel(coverage, selected, mostSpecific) {
+        var limited = coverage.nodes.some(function (node) { return !!node.limit; });
+        return '<li class="spuhcompactlevel' + (limited ? ' limited' : '')
+          + (selected ? ' selected' : '')
+          + '" data-coverage-id="' + coverage.id + '">'
+          + '<div class="spuhcompactchoices">'
+          + coverage.nodes.map(function (node) {
+              return '<button type="button" class="spuhtaxlink'
+                + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
+                + '"><span>' + esc(node.name) + '</span>'
+                + (node.limit
+                  ? '<span class="spuhcompactstate">⚠ limit</span>' : '')
+                + '</button>';
+            }).join('')
+          + '</div>'
+          + (selected || mostSpecific ? '<span class="spuhmeta">'
+            + coverage.species.length + ' possible species</span>' : '')
+          + (limited && (selected || mostSpecific) ? '<span class="spuhcompactlimit">'
+            + '⚠ Coverage limit · not auto-selected</span>' : '')
+          + '</li>';
+      }
+
+      function spuhCompactSpeciesLevel(species) {
+        return '<li class="spuhcompactlevel selected" data-rank="species">'
+          + '<div class="spuhtaxspecies"><strong>' + esc(species.name) + '</strong>'
+          + '<span class="spuhmeta"><i>' + esc(species.sci)
+          + '</i> · selected species</span></div></li>';
+      }
+
+      function spuhHierarchyHtml(levels, detailedHtml, detailClass) {
+        return '<div class="spuhhierarchy">'
+          + '<h4>Identification hierarchy</h4>'
+          + '<div class="spuhcompactlegend">✓ Published set · '
+          + '⚠ Coverage limit</div>'
+          + '<ol class="spuhcompactpath" aria-label="Identification hierarchy">'
+          + (levels || []).map(function (level) {
+              return level.species
+                ? spuhCompactSpeciesLevel(level.species)
+                : spuhCompactCoverageLevel(
+                    level.coverage, level.selected, level.mostSpecific);
+            }).join('')
+          + '</ol><details class="spuhdetails'
+          + (detailClass ? ' ' + detailClass : '') + '"><summary>Detailed view</summary>'
+          + '<div class="spuhdetailsbody spuhtaxdetailsbody">'
+          + (detailedHtml || '') + '</div>'
+          + '</details></div>';
+      }
+
       function spuhLimitCopy(node, coverage) {
         if (node.limit === 'same-group') {
           var proven = coverage.provenNodes[0];
@@ -9104,21 +9190,10 @@
           var ancestors = spuhAncestors(model, node);
           var narrower = model.narrower(node);
           var example = spuhExample(model, node);
-          detail.innerHTML = '<div class="spuhpanel">'
-            + '<div class="spuhhead"><h3>' + esc(node.name) + '</h3>'
-            + '<span class="spuhcount">' + coverage.species.length
-            + ' published candidates</span>'
-            + '<button type="button" class="lanehelp spuhexplain" aria-label="Explain '
-            + esc(node.name) + '">ℹ️</button></div>'
-            + '<div class="bcsub"><i>' + esc(node.sci) + '</i> · '
-            + esc(node.code) + '</div>'
-            + (node.limit ? '<div class="spuhlimit"><div class="spuheyebrow">'
+          var detailed = (node.limit ? '<div class="spuhlimit"><div class="spuheyebrow">'
               + '⚠ Coverage limit · not auto-selected</div><strong>'
               + esc(node.name) + '</strong><p>' + esc(spuhLimitCopy(node, coverage))
               + '</p></div>' : '')
-            + '<h4>Broader and equivalent groups</h4><ul class="spuhladder">'
-            + ancestors.map(function (c) { return spuhClassRows(c); }).join('')
-            + '</ul>'
             + (narrower.length
               ? '<details class="spuhnarrow"><summary><b>Narrower published groups · '
                 + narrower.length + '</b></summary><ul class="spuhladder">'
@@ -9140,7 +9215,19 @@
             + '<div class="row"><a class="ebirdlink" href="https://ebird.org/species/'
             + encodeURIComponent(node.code) + '" data-href="https://ebird.org/species/'
             + encodeURIComponent(node.code) + '" target="_blank" rel="noopener">Open '
-            + esc(node.name) + ' in eBird ↗</a></div></div>';
+            + esc(node.name) + ' in eBird ↗</a></div>';
+          detail.innerHTML = '<div class="spuhpanel">'
+            + '<div class="spuhhead"><h3>' + esc(node.name) + '</h3>'
+            + '<span class="spuhcount">' + coverage.species.length
+            + ' published candidates</span>'
+            + '<button type="button" class="lanehelp spuhexplain" aria-label="Explain '
+            + esc(node.name) + '">ℹ️</button></div>'
+            + '<div class="bcsub"><i>' + esc(node.sci) + '</i> · '
+            + esc(node.code) + '</div>'
+            + spuhHierarchyHtml(ancestors.map(function (c) {
+                return { coverage: c, selected: c.id === coverage.id };
+              }), detailed)
+            + '</div>';
           st.textContent = model.nodes.length + ' spuh labels · '
             + model.classes.length + ' exact candidate sets · '
             + model.nodes.filter(function (n) { return !!n.limit; }).length
@@ -9321,11 +9408,6 @@
         var narrowest = model.narrowestShared([species.code]).map(function (answer) {
           return answer.coverage;
         });
-        var mostSpecific = '<div class="spuhtaxmost">'
-          + '<span class="spuhtaxrank">Most specific spuh</span>'
-          + groupsHtml(narrowest)
-          + '<p class="hint">The narrowest proven eBird candidate set containing '
-          + 'this species. Tap a label to open it in Spuh finder.</p></div>';
         var levels = ranks.map(function (rank) {
           var taxon = spuhTaxon(rank, species);
           return '<li class="spuhtaxlevel" data-rank="' + rank + '">'
@@ -9339,16 +9421,27 @@
           + '<div class="spuhtaxspecies"><strong>' + esc(species.name) + '</strong>'
           + '<span class="spuhmeta">' + esc(species.sci) + '</span></div></li>';
 
-        return '<div class="spuhtaxnav" data-species="' + esc(species.code) + '">'
-          + mostSpecific
-          + '<details class="spuhtaxdetails"><summary>Identification path</summary>'
-          + '<div class="spuhtaxdetailsbody"><p class="hint">Broad to specific. '
-          + 'Buttons on the same row are '
+        var compactLevels = [];
+        if (narrowest.length) {
+          var compactCoverages = spuhAncestors(
+            model, narrowest[0].head || narrowest[0].nodes[0]);
+          compactCoverages.forEach(function (coverage, index) {
+              compactLevels.push({
+                coverage: coverage,
+                mostSpecific: index === compactCoverages.length - 1
+              });
+            });
+        }
+        compactLevels.push({ species: species });
+        var detailed = '<p class="hint">Broad to specific. Buttons on the same row are '
           + 'equivalent labels for one published candidate set; dashed labels have '
           + 'a coverage limit and are never automatic recommendations.</p>'
           + '<ol class="spuhtaxpath">' + levels + '</ol>'
           + '<details class="spuhcompare"><summary>Compare possible species</summary>'
-          + '<div class="spuhcomparebody"></div></details></div></details></div>';
+          + '<div class="spuhcomparebody"></div></details>';
+        return '<div class="spuhtaxnav" data-species="' + esc(species.code) + '">'
+          + spuhHierarchyHtml(compactLevels, detailed, 'spuhtaxdetails')
+          + '</div>';
       }
 
       function renderSpuhStakeoutNav(code, name, generation) {
@@ -9356,9 +9449,7 @@
         if (!host) return Promise.resolve(null);
         if (generation == null) generation = _spLookupGeneration;
         host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
-          + '<div class="spuhtaxmost"><span class="spuhtaxrank">'
-          + 'Most specific spuh</span>'
-          + '<div class="status">Loading the eBird taxonomy…</div></div></div>';
+          + '<div class="status spuhtaxstatus">Loading the eBird taxonomy…</div></div>';
         return loadSpuhModel().then(function (model) {
           if (generation !== _spLookupGeneration) return null;
           if (!model || typeof model.speciesRow !== 'function') {
@@ -9384,8 +9475,7 @@
         }).catch(function (e) {
           if (generation !== _spLookupGeneration) return null;
           host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
-            + '<div class="spuhtaxmost"><span class="spuhtaxrank">'
-            + 'Most specific spuh</span><div class="spuhlimit"><div class="spuheyebrow">'
+            + '<div class="spuhtaxstatus"><div class="spuhlimit"><div class="spuheyebrow">'
             + '⛔ Taxonomy unavailable</div><p>' + esc((e && e.message) || e)
             + '</p><p>Run a new Stakeout bird lookup to retry.</p></div></div></div>';
           return null;
@@ -14059,13 +14149,40 @@
       // --- Favorite hotspots (pinned locations) ---
       function getFavs() { try { return JSON.parse(localStorage.getItem('ebird_favs') || '[]'); } catch (e) { return []; } }
       function setFavs(a) { localStorage.setItem('ebird_favs', JSON.stringify(a)); }
+      function migrateFavoriteRegions(favs, region) {
+        var cached = null, changed = false, locIds = {};
+        try {
+          cached = JSON.parse(localStorage.getItem(hotspotCacheKey(region)) || 'null');
+        } catch (e) {}
+        if (!cached || !Array.isArray(cached.rows) || !cached.rows.length) return favs;
+        cached.rows.forEach(function (hotspot) {
+          if (hotspot && hotspot.locId) locIds[hotspot.locId] = true;
+        });
+        favs.forEach(function (favorite) {
+          if (!favorite.region && favorite.locId && locIds[favorite.locId]) {
+            favorite.region = region;
+            changed = true;
+          }
+        });
+        if (changed) setFavs(favs);
+        return favs;
+      }
+      function favoriteEntriesForRegion(region) {
+        region = region || getRegion();
+        return migrateFavoriteRegions(getFavs(), region).map(function (favorite, storageIndex) {
+          return { favorite: favorite, storageIndex: storageIndex };
+        }).filter(function (entry) {
+          return entry.favorite.region === region;
+        });
+      }
       function favId(o) { return (o.locId || '') || (o.lat + ',' + o.lng); }
       function isFav(id) { return getFavs().some(function (f) { return f.id === id; }); }
       function toggleFav(o) {
         var id = favId(o), favs = getFavs(), i = -1;
         for (var k = 0; k < favs.length; k++) { if (favs[k].id === id) { i = k; break; } }
         if (i > -1) { favs.splice(i, 1); setFavs(favs); return false; }
-        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '', lat: o.lat, lng: o.lng });
+        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '',
+                    lat: o.lat, lng: o.lng, region: getRegion() });
         setFavs(favs); return true;
       }
       function favLink(o) {
@@ -14172,7 +14289,10 @@
         if (!getKey()) return Promise.resolve();
         var el = $('favResults');
         if (!el) return Promise.resolve();
-        var favs = getFavs(), rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
+        var favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
+          return entry.favorite;
+        });
+        var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
         var chain = Promise.resolve();
         favs.forEach(function (f, i) {
           chain = chain.then(function () { return loadFavDetail(f, boxes[i], rc); });
@@ -14180,14 +14300,21 @@
         return chain;
       }
       function renderFavs() {
-        var favs = getFavs(), el = $('favResults'), st = $('favStatus');
+        var all = getFavs(), favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
+          return entry.favorite;
+        });
+        var el = $('favResults'), st = $('favStatus');
         if (!el) return;
         el.innerHTML = '';
         if (!favs.length) {
-          st.textContent = 'Search above, or save hotspots from the other lists to pin them here.';
+          st.textContent = all.length
+            ? 'No favorite patches saved for ' + (getReport().label || getRegion())
+              + '. Favorites in other regions are preserved.'
+            : 'Search above, or save hotspots from the other lists to pin them here.';
           return;
         }
-        st.textContent = favs.length + ' saved hotspot' + (favs.length === 1 ? '' : 's') +
+        st.textContent = favs.length + ' saved ' + (getReport().label || getRegion())
+          + ' hotspot' + (favs.length === 1 ? '' : 's') +
           ' · in your order, first to last. Showing last ' + FAV_BACK_DAYS +
           '-day reports there: rarities (⭐), watchlist verifications (🔍), and species ' +
           "you haven't logged this year — common birds you've already seen are skipped.";
@@ -14247,25 +14374,46 @@
         } catch (e) {}
         return out;
       }
-      // Order is stored, so a swap is the whole operation. Guarded at both ends
-      // rather than relying on the disabled attribute alone — a stale index from
-      // a list that re-rendered underneath must not silently rotate the list.
-      function moveFav(i, delta) {
-        var favs = getFavs(), j = i + delta;
-        if (i < 0 || i >= favs.length || j < 0 || j >= favs.length) return;
+      // Visible controls carry visible indices. Resolve those back to storage
+      // indices so moving Washington rows can skip over preserved Hawaii rows.
+      function moveFavoriteInRegion(from, to, region) {
+        var entries = favoriteEntriesForRegion(region), favs = getFavs();
+        if (from < 0 || from >= entries.length || to < 0 || to >= entries.length) return false;
+        var i = entries[from].storageIndex, j = entries[to].storageIndex;
         var tmp = favs[i]; favs[i] = favs[j]; favs[j] = tmp;
-        setFavs(favs); renderFavs();
+        setFavs(favs);
+        return true;
+      }
+      function moveFav(i, delta) {
+        if (moveFavoriteInRegion(i, i + delta, getRegion())) renderFavs();
+      }
+      function deleteFavoriteInRegion(i, region) {
+        var entries = favoriteEntriesForRegion(region), favs = getFavs();
+        if (i < 0 || i >= entries.length) return false;
+        favs.splice(entries[i].storageIndex, 1);
+        setFavs(favs);
+        return true;
       }
       function removeFavAt(i) {
-        var favs = getFavs();
-        if (i < 0 || i >= favs.length) return;
-        favs.splice(i, 1);
-        setFavs(favs); renderFavs();
+        if (deleteFavoriteInRegion(i, getRegion())) renderFavs();
       }
       function addFav(o) {
-        var id = favId(o), favs = getFavs();
-        if (favs.some(function (f) { return f.id === id; })) return false;
-        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '', lat: o.lat, lng: o.lng });
+        var id = favId(o), favs = getFavs(), existing = null;
+        favs.some(function (favorite) {
+          if (favorite.id !== id) return false;
+          existing = favorite;
+          return true;
+        });
+        if (existing) {
+          if (!existing.region) {
+            existing.region = getRegion();
+            setFavs(favs);
+          }
+          return false;
+        }
+        if (favoriteEntriesForRegion(getRegion()).length >= 5) return false;
+        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '',
+                    lat: o.lat, lng: o.lng, region: getRegion() });
         setFavs(favs); return true;
       }
 
@@ -25260,8 +25408,11 @@
           }
           if (state === 'notLoaded') {
             unavailable.push(key === 'mega'
-              ? label + ' not loaded — open Mega rarities once'
+              ? label + ' not loaded yet'
               : label + ' not loaded');
+          }
+          if (state === 'partial' && key === 'mega') {
+            unavailable[unavailable.length - 1] = label + ' loading';
           }
         });
         if (!unavailable.length) return '';
@@ -25270,6 +25421,8 @@
       }
 
       function markSurgeSourceStates(box, states) {
+        box.setAttribute('data-sources-complete',
+          surgeSourcesComplete(states) ? 'true' : 'false');
         Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
           box.setAttribute('data-source-' + key, states[key] || 'notLoaded');
         });
@@ -25608,7 +25761,11 @@
           if (Object.prototype.hasOwnProperty.call(counts, kind)) counts[kind]++;
         });
         var total = box.querySelector('[data-surge-visible-count]');
-        if (total) total.textContent = visible + ' alert' + (visible === 1 ? '' : 's');
+        if (total) {
+          var pending = box.getAttribute('data-sources-complete') !== 'true';
+          total.textContent = visible + (pending ? ' loaded alert' : ' alert')
+            + (visible === 1 ? '' : 's');
+        }
         var hidden = box.querySelector('[data-surge-hidden-count]');
         if (hidden) hidden.textContent = hiddenSeen
           ? ' · ' + hiddenSeen + ' seen hidden' : '';
@@ -25782,7 +25939,9 @@
           }, esc);
           box.innerHTML = surgeControls()
             + '<div class="surgefeedhead"><div class="surgefeedcount">'
-            + '<span data-surge-visible-count>0 alerts</span></div>'
+            + '<span data-surge-visible-count>'
+            + (surgeSourcesComplete(sourceStates) ? '0 alerts' : '0 loaded alerts')
+            + '</span></div>'
             + laneHelpBtn('feed') + '</div>'
             + sourceWarning + (surgeSourcesComplete(sourceStates)
             ? '<div class="status">Nothing you need has been reported within '
@@ -26065,23 +26224,58 @@
         // Every source returns rows AND state. A failed source is not an empty
         // source: successful rows still paint, and the UI names what is
         // unavailable instead of turning a partial answer into "nothing".
-        var _merged = [];
+        var _merged = [], surgeModel = null, megaRefreshStarted = false;
+        function paintSurgeModel() {
+          if (generation !== _surgeLoadGeneration || !surgeModel) return 0;
+          var states = {
+            mega: megaAlertSourceState(megaLane(getAnchors())),
+            observations: surgeModel.observed.state,
+            leaderboard: surgeModel.cascades.state,
+            hotspots: surgeModel.convergence.state
+          };
+          var n = renderSurge(
+            surgeModel.observed.events,
+            surgeModel.cascades.rows,
+            surgeModel.convergence.rows,
+            surgeModel.observed.needs,
+            _merged,
+            states,
+            surgeModel.observed.patches
+          );
+          var complete = surgeSourcesComplete(states);
+          st.textContent = (n
+            ? n + ' active alert' + (n === 1 ? '' : 's')
+              + (complete ? '' : ' · incomplete')
+            : (complete ? 'Nothing chasing right now' : 'Some alert sources are still loading'))
+            + ' · ' + nowTime();
+          st.hidden = true;
+          btn.disabled = false;
+          return n;
+        }
+        function beginMegaRefresh() {
+          if (megaRefreshStarted || !surgeModel) return;
+          megaRefreshStarted = true;
+          lazyRefreshMegaSnapshot(function () {
+            paintSurgeModel();
+          });
+          // lazyRefreshMegaSnapshot registers the in-flight request
+          // synchronously. Repaint now so "not loaded" becomes "loading"
+          // without waiting for that request to finish.
+          paintSurgeModel();
+        }
         function paintObserved(observed) {
           if (generation !== _surgeLoadGeneration) return observed;
           _merged = observed.merged || [];
-          var states = {
-            mega: megaAlertSourceState(megaLane(getAnchors())),
-            observations: observed.state,
-            leaderboard: 'loading',
-            hotspots: hasCounties() ? 'loading' : 'notApplicable'
+          surgeModel = {
+            observed: observed,
+            cascades: { state: 'loading', rows: [] },
+            convergence: {
+              state: hasCounties() ? 'loading' : 'notApplicable',
+              rows: []
+            }
           };
-          var n = renderSurge(observed.events, [], [], observed.needs,
-                              _merged, states, observed.patches);
-          st.textContent = (n ? n + ' active alert' + (n === 1 ? '' : 's')
-                              : 'Observation alerts are still loading')
-            + ' · other sources updating · ' + nowTime();
-          st.hidden = true;
-          btn.disabled = false;
+          paintSurgeModel();
+          beginMegaRefresh();
           return observed;
         }
         _surgeEarlyPaint = function (res) {
@@ -26196,37 +26390,8 @@
             });
         Promise.all([pObserved, pCascades, pConverge]).then(function (r) {
           if (generation !== _surgeLoadGeneration) return;
-          var states = {
-            mega: megaAlertSourceState(megaLane(getAnchors())),
-            observations: r[0].state,
-            leaderboard: r[1].state,
-            hotspots: r[2].state
-          };
-          var n = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
-                              _merged, states, r[0].patches);
-          // F263. AFTER THE PAINT, never before it. The rows on screen stay on
-          // screen; if a fresher snapshot lands, the lane repaints with it.
-          lazyRefreshMegaSnapshot(function () {
-            if (generation !== _surgeLoadGeneration) return;
-            if (visibleSectionId() !== 'sec-surgeBtn') return;
-            states.mega = megaAlertSourceState(megaLane(getAnchors()));
-            var refreshedN = renderSurge(r[0].events, r[1].rows, r[2].rows, r[0].needs,
-                                         _merged, states, r[0].patches);
-            var refreshedComplete = surgeSourcesComplete(states);
-            st.textContent = (refreshedN
-              ? refreshedN + ' active alert' + (refreshedN === 1 ? '' : 's')
-                + (refreshedComplete ? '' : ' · incomplete')
-              : (refreshedComplete ? 'Nothing chasing right now'
-                                   : 'Some alert sources are unavailable'))
-              + ' · ' + nowTime();
-            st.hidden = true;
-          });
-          var complete = surgeSourcesComplete(states);
-          st.textContent = (n
-            ? n + ' active alert' + (n === 1 ? '' : 's') + (complete ? '' : ' · incomplete')
-            : (complete ? 'Nothing chasing right now' : 'Some alert sources are unavailable'))
-            + ' · ' + nowTime();
-          st.hidden = true;
+          surgeModel = { observed: r[0], cascades: r[1], convergence: r[2] };
+          paintSurgeModel();
         }).catch(function (e) {
           if (generation === _surgeLoadGeneration) {
             st.hidden = false;
@@ -31387,7 +31552,10 @@
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
-        getFavs: getFavs, setFavs: setFavs, addFav: addFav,
+        getFavs: getFavs, setFavs: setFavs, addFav: addFav, toggleFav: toggleFav,
+        favoriteEntriesForRegion: favoriteEntriesForRegion,
+        moveFavoriteInRegion: moveFavoriteInRegion,
+        deleteFavoriteInRegion: deleteFavoriteInRegion,
         moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs, loadFavs: loadFavs,
         searchHotspots: searchHotspots, runFavSearch: runFavSearch,
         clearFavSearch: clearFavSearch,
