@@ -2666,11 +2666,25 @@
       ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
           { bandIds: ['full'] }))
       : [];
-    if (opts.travelCfg && full.length < fallbackTarget && fallbackRecs.length) {
-      var fallbackExcursionGo = fallbackRecs.filter(function (r) {
+    var fallbackExcursionGo = [];
+    if (opts.travelCfg && fallbackRecs.length &&
+        (exc.length < fallbackTarget || full.length < fallbackTarget)) {
+      fallbackExcursionGo = fallbackRecs.filter(function (r) {
         return inExcursionPool(r, countyLabels, countyCodes) &&
           isReachable(r, stakeout);
       });
+    }
+    if (opts.travelCfg && exc.length < fallbackTarget &&
+        fallbackExcursionGo.length) {
+      var fallbackHalf = excursions(fallbackExcursionGo,
+        Object.assign({}, excursionOpts, {
+          bandIds: ['quick', 'half'],
+          top: CONST.TOP_EXC
+        }));
+      exc = fillFreshFirst(exc, fallbackHalf, fallbackTarget);
+    }
+    if (opts.travelCfg && full.length < fallbackTarget &&
+        fallbackExcursionGo.length) {
       var fallbackFull = excursions(fallbackExcursionGo,
         Object.assign({}, excursionOpts, {
           bandIds: ['full'],

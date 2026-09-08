@@ -3301,7 +3301,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.86.0';
+      var APP_VERSION = '1.87.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
@@ -15830,22 +15830,24 @@
               + (feedIssue ? ' · ⚠️ incomplete earlier data'
                            : ' · updated ' + nowTime());
           }
-          if (bandId !== 'full' || c.profile.stateCode !== 'US-HI'
-              || rows.length >= minRows) {
+          if (c.profile.stateCode !== 'US-HI' || rows.length >= minRows) {
             paint(rows, false);
             return;
           }
           renderDestinations(rows, $(mapId), $(resultsId), true);
-          st.textContent = (rows.length ? rows.length + ' fresh full-day option'
+          st.textContent = (rows.length ? rows.length + ' fresh '
+            + label.toLowerCase() + ' option'
             + (rows.length === 1 ? '' : 's') + ' shown · ' : '')
             + 'still checking up to 30 days of older public-hotspot evidence…';
           return destinationFallbackRows(c.profile).then(function (fallback) {
             var cv = computeChaseRows(c.profile, c.profile.slug,
               c.rows || {}, c.speciesCodes || [], fallback);
-            var filled = rerankFromAnchor((cv.fullDay || []).map(toDest));
+            var filledSource = bandId === 'full' ? cv.fullDay : cv.excursions;
+            var filled = rerankFromAnchor((filledSource || []).map(toDest));
             paint(filled, true);
           }).catch(function (e) {
-            st.textContent = 'Incomplete full-day answer — older public-hotspot '
+            st.textContent = 'Incomplete ' + label.toLowerCase()
+              + ' answer — older public-hotspot '
               + 'evidence could not be loaded: ' + netErr(e);
           });
         }).catch(function (e) {

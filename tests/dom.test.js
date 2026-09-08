@@ -27265,6 +27265,167 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
   app.window.close();
 });
 
+test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its band', async () => {
+  const now = new Date();
+  const stamp = (daysAgo) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 8);
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('-') + ' 08:00';
+  };
+  const fresh = {
+    obsId: 'fresh-puu', speciesCode: 'iiwi', comName: 'Iiwi',
+    locId: 'L366605',
+    locName: "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",
+    lat: 19.6714434, lng: -155.3849602, obsDt: stamp(0), subId: 'S-fresh-puu',
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  };
+  const fallback = [
+    {
+      obsId: 'old-puu', speciesCode: 'akiapo', comName: 'Akiapolaau',
+      locId: 'L366605',
+      locName: "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",
+      lat: 19.6714434, lng: -155.3849602, obsDt: stamp(8), subId: 'S-old-puu',
+    },
+    {
+      obsId: 'laupahoehoe', speciesCode: 'wetshe',
+      comName: 'Wedge-tailed Shearwater', locId: 'L1124307',
+      locName: 'Laupahoehoe Point County Park',
+      lat: 19.992466, lng: -155.2411938, obsDt: stamp(8),
+      subId: 'S-laupahoehoe',
+    },
+    {
+      obsId: 'hilo', speciesCode: 'hawhaw', comName: 'Hawaiian Hawk',
+      locId: 'L-HILO', locName: 'Hilo gardens',
+      lat: 19.719, lng: -155.083, obsDt: stamp(8), subId: 'S-hilo',
+    },
+  ];
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.92222',
+      'ebird_home_lng:hi': '-155.88404',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false,
+    rows: { 'hawaii-recent.json': [fresh] },
+    speciesCodes: ['iiwi'],
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const profile = await A.tripScopeProfile('half');
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false,
+    rows: { 'us-hi-001-recent.json': [fresh] },
+    speciesCodes: ['iiwi'],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  let releaseFallback;
+  let requestedFallbackUrl = '';
+  app.window.fetch = (url) => {
+    const body = String(url).includes(
+      '/data/obs/US-HI-001/recent?back=30&detail=full&hotspot=true')
+      ? fallback : [];
+    return new Promise((resolve) => {
+      const release = () => resolve({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify(body)),
+        json: () => Promise.resolve(body),
+      });
+      if (body === fallback) {
+        requestedFallbackUrl = String(url);
+        releaseFallback = release;
+      }
+      else release();
+    });
+  };
+  A.fgSchedReset(Date.now());
+  const loading = A.loadExcursions();
+  await waitFor(() => releaseFallback, 'the bounded Half-day fallback request');
+  assert.match(app.$('excStatus').textContent,
+    /still checking up to 30 days/i);
+  assert.doesNotMatch(app.$('excStatus').textContent, /No target-rich/i,
+    'an active Half-day fallback search was presented as a final one-card answer');
+  releaseFallback();
+  await loading;
+
+  const cards = arr(app.$('excResults').querySelectorAll('.hscard'));
+  assert.equal(cards.length, 2,
+    app.$('excStatus').textContent + ' :: ' + app.$('excResults').textContent);
+  assert.match(cards[0].textContent, /Pu'u O'o Trail/,
+    'older evidence displaced the fresh Half-day option');
+  assert.match(cards[1].textContent, /Laupahoehoe Point County Park/);
+  assert.match(cards[1].textContent, /Older evidence · last report 8 days ago/);
+  assert.doesNotMatch(app.$('excResults').textContent, /Hilo gardens/,
+    'Full-day evidence crossed into Half-day');
+  assert.match(requestedFallbackUrl, /data\/obs\/US-HI-001\/recent/,
+    'Half-day did not reuse the authoritative county-scoped request');
+  app.window.close();
+});
+
+test('F349 five fresh Hawaii Half-day rows spend no fallback request', async () => {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-') + ' 08:00';
+  const fresh = [
+    [19.671, -155.385],
+    [19.681, -155.375],
+    [19.691, -155.365],
+    [19.701, -155.355],
+    [19.711, -155.345],
+  ].map(([lat, lng], n) => ({
+    obsId: 'fresh-half-' + n, speciesCode: 'half' + n,
+    comName: 'Half-day Bird ' + n, locId: 'L-half-' + n,
+    locName: 'Fresh half-day hotspot ' + n, lat, lng,
+    obsDt: stamp, subId: 'S-half-' + n,
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  }));
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.92222',
+      'ebird_home_lng:hi': '-155.88404',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false,
+    rows: { 'hawaii-recent.json': fresh },
+    speciesCodes: fresh.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const profile = await A.tripScopeProfile('half');
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false,
+    rows: { 'us-hi-001-recent.json': fresh },
+    speciesCodes: fresh.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  await A.loadExcursions();
+  assert.equal(app.$('excResults').querySelectorAll('.hscard').length, 5);
+  assert.equal(app.state.fetches.filter((url) =>
+    /data\/obs\/US-HI(?:-001)?\/recent\?back=30&detail=full&hotspot=true/.test(url)).length, 0,
+  'a complete fresh Half-day board spent the fallback request anyway');
+  app.window.close();
+});
+
 test('F320 empty-account phase two is capped by visible value and rate headroom', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;

@@ -319,19 +319,22 @@
       "inputs": [
         "the same clustered unseen reports as Today’s patches",
         "eBird’s county list and county bounding boxes for the active state",
-        "the shared travel-zone day bands"
+        "the shared travel-zone day bands",
+        "in Hawaii only, the same bounded 30-day public-hotspot feed used by the other patch boards when fresh Half-day evidence is sparse"
       ],
       "how": [
         "The first open loads county names and bounds from eBird and caches each valid result permanently. A failed or malformed county is not cached and is retried on refresh.",
         "County acquisition is derived from Home: include counties whose nearest bounding-box edge is inside the half-day band’s straight-line ceiling. Moving Home recomputes the selection from the same cached metadata.",
         "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction; quick and half-day bands stay here.",
         "The board starts beyond the exact adaptive boundary Today’s patches used, so one hotspot cannot appear in both.",
+        "Fresh rows remain first. In Hawaii, a sparse board reuses the county-scoped 30-day cache, deduplicates the same place, and visibly age-labels each older-evidence card.",
         "Rarities count ×3, needs-verification keeps its reduced weight, and distance decay makes a farther site earn the drive."
       ],
       "limits": [
         "A county box can include inaccessible terrain near Home, so scope deliberately overfetches. It never assigns a travel band to the whole county.",
         "The county scope is selected from Home. Here and Find may rerank loaded cards, but they do not silently acquire a different state-sized data set.",
-        "The first cold catalog is expensive, but it is paid only when Half-day or Full-day is opened and never again for valid county bounds."
+        "The first cold catalog is expensive, but it is paid only when Half-day or Full-day is opened and never again for valid county bounds.",
+        "The 30-day eBird endpoint is species-collapsed rather than a complete hotspot history. On September 7 it supported two Big Island Half-day localities, so the app must not invent a five-place result."
       ]
     },
     "fullDayBtn": {

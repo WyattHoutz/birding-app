@@ -99,7 +99,8 @@ const STUB_SPEC = {
     expects: ['#patchResults .hscard.hscard-md', '#patchResults .patchwho'] },
   destBtn:        { kind: 'hotspot',       host: 'destResults', map: 'destMap',
     report: 'hi' },
-  excBtn:         { kind: 'hotspot',       host: 'excResults', map: 'excMap' },
+  excBtn:         { kind: 'hotspot',       host: 'excResults', map: 'excMap',
+    report: 'hi' },
   fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap',
     report: 'hi' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
@@ -465,8 +466,10 @@ const BOOTSTRAP = `
           sub: 'Older evidence · last report 6 days ago · 1 target' }
       ],
       excBtn: [
-        { name: 'Nisqually NWR', distance: 54.5, sub: 'half day · 18 targets' },
-        { name: 'Snoqualmie Pass', distance: 41.5, sub: 'half day · 11 targets' }
+        { name: "Pu'u O'o Trail / Kipuka Ainahou", distance: 36.8,
+          sub: 'half day · fresh today · 10 targets' },
+        { name: 'Laupahoehoe Point County Park', distance: 42.0,
+          sub: 'half day · Older evidence · last report 8 days ago · 7 targets' }
       ],
       fullDayBtn: [
         { name: 'Hilo gardens', distance: 49.4,

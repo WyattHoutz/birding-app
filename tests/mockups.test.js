@@ -169,10 +169,9 @@ test('Mega rarity mockups exercise the real scope and sort controls', () => {
 
 test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   assert.equal(mockups.STUB_SPEC.destBtn.report, 'hi');
+  assert.equal(mockups.STUB_SPEC.excBtn.report, 'hi');
   assert.equal(mockups.STUB_SPEC.fullDayBtn.report, 'hi');
-  assert.equal(mockups.STUB_SPEC.excBtn.report, undefined,
-    'the Washington Half-day control remains a separate fixture');
-  for (const at of ['destBtn', 'fullDayBtn']) {
+  for (const at of ['destBtn', 'excBtn', 'fullDayBtn']) {
     const shot = mockups.SECTION_SHOTS.find((item) => item.at === at);
     assert.ok(shot, `${at} release shot is missing`);
     assert.match(shot.prep,
@@ -183,6 +182,13 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
     source.indexOf('excBtn: [', source.indexOf('destBtn: [')));
   assert.equal((rows.match(/\{ name:/g) || []).length, 5,
     'Today’s patches review still shows fewer than the five useful Hawaii choices');
+  const halfRows = source.slice(source.indexOf('excBtn: ['),
+    source.indexOf('fullDayBtn: [', source.indexOf('excBtn: [')));
+  assert.equal((halfRows.match(/\{ name:/g) || []).length, 2,
+    'Half-day review does not show the measured two-locality Hawaii result');
+  assert.match(halfRows, /Pu'u O'o Trail/);
+  assert.match(halfRows, /Laupahoehoe Point County Park/);
+  assert.match(halfRows, /Older evidence · last report 8 days ago/);
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

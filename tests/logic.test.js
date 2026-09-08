@@ -606,6 +606,50 @@ test('F346 five fresh Hawaii destinations do not gain older fallback rows', () =
   assert.ok(cv.destinations.every((r) => r.fallbackEvidenceDays === undefined));
 });
 
+test('F349 Hawaii older evidence fills Half-day without crossing county or travel bands', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-07';
+  const home = { lat: 19.92222, lng: -155.88404 };
+  const raw = (id, code, name, locId, loc, lat, lng, county, dt) => Object.assign(
+    OBS({ obsId: id, speciesCode: code, comName: name, locId,
+      locName: loc, lat, lng, obsDt: dt, subId: 'S-' + id }),
+    { subnational2Code: county });
+  const puu = raw('fresh-puu', 'iiwi', 'Iiwi', 'L366605',
+    "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",
+    19.6714434, -155.3849602, 'US-HI-001', SNAP + ' 08:18');
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday: profileSnapshot(hi, { 'hawaii-recent.json': [puu] }),
+    rowsPrior: profileSnapshot(hi, {}),
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+    destinationFallbackRows: [
+      raw('old-puu', 'akiapo', 'Akiapolaau', 'L366605',
+        "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",
+        19.6714434, -155.3849602, 'US-HI-001', '2026-08-28 08:23'),
+      raw('laupahoehoe', 'wetshe', 'Wedge-tailed Shearwater', 'L1124307',
+        'Laupahoehoe Point County Park',
+        19.992466, -155.2411938, 'US-HI-001', '2026-08-30 15:36'),
+      raw('hilo', 'hawhaw', 'Hawaiian Hawk', 'L-HILO',
+        'Hilo gardens', 19.719, -155.083, 'US-HI-001', '2026-08-30 10:00'),
+      raw('maui', 'iiwi', 'Iiwi', 'L-MAUI',
+        'Haleakala', 20.710, -156.250, 'US-HI-009', '2026-08-30 10:00')
+    ]
+  });
+
+  assert.deepEqual(cv.excursions.map((r) => r.loc), [
+    "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",
+    'Laupahoehoe Point County Park'
+  ]);
+  assert.equal(cv.excursions[0].fallbackEvidenceDays, undefined,
+    'older evidence displaced the fresh Half-day option');
+  assert.equal(cv.excursions[1].fallbackEvidenceDays, 8,
+    'the appended Half-day option lost its visible evidence age');
+  assert.ok(cv.excursions.every((r) => ['quick', 'half'].includes(r.travelBand)),
+    'Full-day evidence crossed into the Half-day board');
+  assert.ok(!cv.excursions.some((r) => r.loc === 'Haleakala'),
+    'the fallback crossed the authoritative Big Island county scope');
+});
+
 test('F343 Hawaii older evidence fills Full-day without crossing county scope', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-02';
