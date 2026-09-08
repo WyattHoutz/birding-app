@@ -1042,12 +1042,12 @@
 
   // ---- chaseability gates (mirror report._is_special_trip / _is_reachable /
   //      _is_chaseable / _compute_stakeout_locids) ---------------------------
-  // The report filters section inputs so ferry/pelagic/open-water sightings
-  // (a bird off a moving boat can't be refound) go to Excursions not the daily
-  // sections, and private/access-restricted spots are dropped unless they host
-  // an active stakeout. Both regexes are ported verbatim from report.py.
+  // The report filters section inputs so offshore/ferry/pelagic/open-water
+  // sightings (a bird off a moving boat can't be refound) go to Excursions not
+  // the daily sections, and private/access-restricted spots are dropped unless
+  // they host an active stakeout. Both regexes are ported verbatim from report.py.
   var _SPECIAL_TRIP_LOC_RE =
-    /\bpelagic\b|\bferry\b(?!\s*(?:terminal|landing|dock))|\bstrait\s+of\b|--\s*open\s+water\b/i;
+    /\boffshore\b|\bpelagic\b|\bferry\b(?!\s*(?:terminal|landing|dock))|\bstrait\s+of\b|--\s*open\s+water\b/i;
   var _COLD_SKIP_NAME_RE =
     /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
 

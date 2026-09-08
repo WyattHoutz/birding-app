@@ -185,11 +185,15 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
     'Today’s patches review still shows fewer than the five useful Hawaii choices');
   const halfRows = source.slice(source.indexOf('excBtn: ['),
     source.indexOf('fullDayBtn: [', source.indexOf('excBtn: [')));
-  assert.equal((halfRows.match(/\{ name:/g) || []).length, 2,
-    'Half-day review does not show the measured two-locality Hawaii result');
+  assert.equal((halfRows.match(/\{ name:/g) || []).length, 3,
+    'Half-day review does not show the two measured land localities plus the routed offshore trip');
+  assert.match(halfRows, /Offshore Honokōhau Marina/);
+  assert.match(halfRows, /half day · boat trip · fresh today/);
   assert.match(halfRows, /Pu'u O'o Trail/);
   assert.match(halfRows, /Laupahoehoe Point County Park/);
   assert.match(halfRows, /Older evidence · last report 8 days ago/);
+  assert.doesNotMatch(rows, /Offshore Honokōhau Marina/,
+    'the F353 boat-trip control leaked back into Today’s patches');
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

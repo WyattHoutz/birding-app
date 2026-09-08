@@ -263,6 +263,7 @@
       "how": [
         "Reports are clustered to a single place, then scored on unseen species count with rarities weighted up.",
         "Distance is measured from home, matching the report.",
+        "Locations whose names explicitly identify an offshore, pelagic, moving-ferry, open-water, or strait trip leave this daily-drive board and remain available on the matching trip board.",
         "Fresh two-day evidence always stays first. In Hawaii, a sparse list is filled to four when possible from older public-hotspot evidence, and every appended card states the age of that evidence."
       ],
       "limits": [
@@ -326,6 +327,7 @@
         "The first open loads county names and bounds from eBird and caches each valid result permanently. A failed or malformed county is not cached and is retried on refresh.",
         "County acquisition is derived from Home: include counties whose nearest bounding-box edge is inside the half-day band’s straight-line ceiling. Moving Home recomputes the selection from the same cached metadata.",
         "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction; quick and half-day bands stay here.",
+        "An explicitly offshore, pelagic, moving-ferry, open-water, or strait location is a special trip even when its straight-line distance falls inside Today’s boundary, so it routes here instead of being presented as drivable.",
         "The board starts beyond the exact adaptive boundary Today’s patches used, so one hotspot cannot appear in both.",
         "Fresh rows remain first. In Hawaii, a sparse board reuses the county-scoped 30-day cache, deduplicates the same place, and visibly age-labels each older-evidence card.",
         "Rarities count ×3, needs-verification keeps its reduced weight, and distance decay makes a farther site earn the drive."

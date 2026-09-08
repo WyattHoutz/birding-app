@@ -539,7 +539,9 @@ const BOOTSTRAP = `
         { name: "Pu'u O'o Trail / Kipuka Ainahou", distance: 36.8,
           sub: 'half day · fresh today · 10 targets' },
         { name: 'Laupahoehoe Point County Park', distance: 42.0,
-          sub: 'half day · Older evidence · last report 8 days ago · 7 targets' }
+          sub: 'half day · Older evidence · last report 8 days ago · 7 targets' },
+        { name: 'Offshore Honokōhau Marina', distance: 29.6,
+          sub: 'half day · boat trip · fresh today · 1 target' }
       ],
       fullDayBtn: [
         { name: 'Hilo gardens', distance: 49.4,

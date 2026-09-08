@@ -532,6 +532,47 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
 });
 
+test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today-eligible', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-08';
+  const offshore = Object.assign(OBS({
+    obsId: 'offshore-honokohau', speciesCode: 'lotjae',
+    comName: 'Long-tailed Jaeger', locId: 'L1662616',
+    locName: 'Offshore Honokōhau Marina', lat: 19.6719, lng: -156.1362,
+    obsDt: SNAP + ' 08:00', subId: 'S-offshore'
+  }), { subnational2Code: 'US-HI-001' });
+  const marina = Object.assign(OBS({
+    obsId: 'honokohau-harbor', speciesCode: 'brnboo',
+    comName: 'Brown Booby', locId: 'L-HONOKOHAU-HARBOR',
+    locName: 'Honokohau Small Boat Harbor', lat: 19.6700, lng: -156.0300,
+    obsDt: SNAP + ' 08:15', subId: 'S-harbor'
+  }), { subnational2Code: 'US-HI-001' });
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday: profileSnapshot(hi, {
+      'hawaii-recent.json': [offshore, marina]
+    }),
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ
+  });
+  const today = cv.destinations.map((r) => r.loc);
+  const halfDay = cv.excursions.map((r) => r.loc);
+
+  assert.equal(BL.isSpecialTrip({ loc: 'Offshore Honokōhau Marina' }), true,
+    'the real L1662616 label explicitly says Offshore and requires a boat trip');
+  assert.equal(BL.isChaseable({ loc: 'Offshore Honokōhau Marina' }, {}), false,
+    'an offshore sighting cannot be recommended as a drivable Today patch');
+  assert.equal(BL.isSpecialTrip({ loc: 'Honokohau Small Boat Harbor' }), false,
+    'an ordinary land-access marina is not reclassified just for being a marina');
+  assert.ok(!today.includes('Offshore Honokōhau Marina'),
+    'L1662616 must leave Today’s patches');
+  assert.ok(halfDay.includes('Offshore Honokōhau Marina'),
+    'L1662616 must remain available in Half-day rather than disappearing');
+  assert.ok(today.includes('Honokohau Small Boat Harbor'),
+    'the ordinary marina remains a drivable Today patch');
+  assert.ok(!cv.fullDay.some((r) => r.loc === 'Offshore Honokōhau Marina'),
+    'the 29.6-mile offshore trip belongs in Half-day, not Full-day');
+});
+
 test('F341 sparse Hawaii patches fill fresh-first from bounded older public evidence', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-02';
