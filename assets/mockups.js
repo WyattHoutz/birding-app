@@ -107,7 +107,7 @@ const STUB_SPEC = {
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
   spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
     scrollTo: '#spLookupIdHelp',
-    maxHostHeight: 500,
+    maxHostHeight: 520,
     expects: ['#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
       '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
       '#spLookupIdHelp details.spuhdetails',

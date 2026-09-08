@@ -324,9 +324,8 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'Pro patches must run its real loader instead of receiving a generic rank table');
 
   assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-species');
-  assert.ok(mockups.STUB_SPEC.spLookupBtn.maxHostHeight > 340
-      && mockups.STUB_SPEC.spLookupBtn.maxHostHeight <= 500,
-  'Stakeout keeps the measured compact full-hierarchy height ceiling');
+  assert.equal(mockups.STUB_SPEC.spLookupBtn.maxHostHeight, 520,
+    'Stakeout keeps the measured cross-platform compact hierarchy ceiling');
   assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'spLookupIdHelp',
     'the capture anchor is the visible taxonomy path, while component checks guard the card');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
