@@ -19241,18 +19241,21 @@ test('choosing Find lights Find, not Home', () => {
 // because renderDestinations ends with three calls Quick outing never made.
 test('quick outing hydrates its cards like top destinations does', async () => {
   const locCalls = [];
+  const fixtureDate = todayFixtureDate();
   const app = await boot({
     fetch(url) {
       const u = String(url);
       if (/ref\/hotspot\/geo/.test(u)) {
         return [{ locId: 'L1', locName: 'Yakima Sportsman SP', lat: 46.60, lng: -120.45,
-                  numSpeciesAllTime: 210, latestObsDt: '2026-08-10 07:00' }];
+                  numSpeciesAllTime: 210, latestObsDt: fixtureDate + ' 07:00' }];
       }
       if (/data\/obs\/(L\d+)\/recent/.test(u)) {
         locCalls.push(u.match(/data\/obs\/(L\d+)/)[1]);
         return [
-          { speciesCode: 'zztuft2', comName: 'Zed Test Puffin', subId: 'S1', obsDt: '2026-08-10 07:00' },
-          { speciesCode: 'amecro', comName: 'American Crow', subId: 'S1', obsDt: '2026-08-10 07:00' },
+          { speciesCode: 'zztuft2', comName: 'Zed Test Puffin', subId: 'S1',
+            obsDt: fixtureDate + ' 07:00' },
+          { speciesCode: 'amecro', comName: 'American Crow', subId: 'S1',
+            obsDt: fixtureDate + ' 07:00' },
         ];
       }
       return [];
@@ -19261,16 +19264,16 @@ test('quick outing hydrates its cards like top destinations does', async () => {
   const A = app.window.__app, W = app.window, D = W.document;
   W.localStorage.setItem('ebird_home_lat', '46.60');
   W.localStorage.setItem('ebird_home_lng', '-120.45');
-  A.loadQuickOuting('home');
+  A.seedChase(A.getReportSlug(), null);
+  const hydration = A.loadQuickOuting('home');
+  assert.ok(hydration && typeof hydration.then === 'function',
+    'Quick outing owns the complete hotspot hydration promise');
+  await hydration;
 
   const el = () => D.getElementById('quickResults');
-  // Wait for the CALL, not for .hslists — that slot is part of the card
-  // template and exists before anything hydrates it, so waiting on it returns
-  // immediately and measures nothing.
-  await waitFor(() => locCalls.length >= 1, 'the per-hotspot species feed');
-
   // The per-hotspot feed is data/obs/{locId}/recent — scoped to the LOCATION,
   // not to the report's counties, which is why this works from any anchor.
+  assert.ok(locCalls.length >= 1, 'the owned run reaches the per-hotspot species feed');
   assert.match(locCalls[0], /^L\d+$/, 'it asks each hotspot what has been reported there');
 
   const txt = () => el().textContent.replace(/\s+/g, ' ');

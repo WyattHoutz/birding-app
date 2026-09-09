@@ -18759,7 +18759,7 @@
         // ONE scan, centred on the chosen anchor. The old two-anchor union
         // existed only because both ranked at once; picking an origin makes the
         // second circle a fetch nobody reads.
-        ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
+        return ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
           var top = buildQuickOuting(hs || [], [{ name: a.name, lat: a.lat, lng: a.lng }]);
           if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of ' + a.label + '.'; return; }
           st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') +
@@ -18795,8 +18795,11 @@
           // parallel: the checklist pass consumes the unseen subIds the
           // species pass publishes.
           hydratePhotos(el);
-          hydrateLocSpecies(el).then(function () { return hydrateHotspotChecklists(el); })
-            .catch(function (e) { dbg('warn', 'quick outing hotspots: ' + ((e && e.message) || e)); });
+          return hydrateLocSpecies(el)
+            .then(function () { return hydrateHotspotChecklists(el); })
+            .catch(function (e) {
+              dbg('warn', 'quick outing hotspots: ' + ((e && e.message) || e));
+            });
         }).catch(function (e) { st.textContent = netErr(e); })
           .finally(function () { btns.forEach(function (b) { if (b) b.disabled = false; }); });
       }
