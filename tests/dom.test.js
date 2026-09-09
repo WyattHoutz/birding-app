@@ -220,9 +220,11 @@ function boot(opts = {}) {
     virtualConsole,
     beforeParse(window) {
       if (opts.key !== null) window.localStorage.setItem('ebird_api_key', opts.key || 'TESTKEY');
-      window.localStorage.setItem('ebird_home_lat', '47.75');
-      window.localStorage.setItem('ebird_home_lng', '-122.16');
-      window.localStorage.setItem('ebird_report', opts.report || 'wa');
+      if (opts.home !== false) {
+        window.localStorage.setItem('ebird_home_lat', '47.75');
+        window.localStorage.setItem('ebird_home_lng', '-122.16');
+      }
+      if (opts.report !== null) window.localStorage.setItem('ebird_report', opts.report || 'wa');
       if (opts.sample !== false) {
         const rep = SEED.seenByReport[opts.report || 'wa'] || {};
         const seen = {};
@@ -237,6 +239,25 @@ function boot(opts = {}) {
         }));
       }
       Object.entries(opts.storage || {}).forEach(([k, v]) => window.localStorage.setItem(k, v));
+      if (Object.hasOwn(opts, 'location')) {
+        Object.defineProperty(window.navigator, 'geolocation', {
+          configurable: true,
+          value: {
+            getCurrentPosition(ok, fail) {
+              setTimeout(() => {
+                if (opts.location instanceof Error) {
+                  fail({ code: opts.location.code || 2, message: opts.location.message });
+                  return;
+                }
+                ok({ coords: {
+                  latitude: opts.location.lat,
+                  longitude: opts.location.lng,
+                } });
+              }, 0);
+            },
+          },
+        });
+      }
       window.fetch = function (url) {
         state.fetches.push(String(url));
         // Bundled assets are part of the app, not the network: a relative path
@@ -652,6 +673,7 @@ test('F268 On passage loads first-year data by default and caches one region-yea
     'a second load on the same local day reuses the region-year cache');
   const key = A.firstYearKey('US-WA', new Date().getFullYear());
   assert.ok(app.window.localStorage.getItem(key), 'the valid page is cached');
+  app.window.localStorage.setItem('bcp:2:ebird_report', 'wa');
   A.bcSetProfile('2');
   await A.loadMigration();
   assert.equal(calls.filter((url) => /\/bird-list\?/.test(url)).length, 1,
@@ -2836,6 +2858,393 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   app.window.close();
 });
 
+test('F318: a clean profile has no implicit Washington region or request', async () => {
+  const app = await boot({
+    report: null,
+    home: false,
+    sample: false,
+    storage: { ebird_display_name: 'Configured Birder' },
+  });
+  const A = app.window.__app;
+
+  assert.equal(A.getReportSlug(), '',
+    'an absent region choice must remain absent instead of becoming Washington');
+  assert.equal(A.getReport().unselected, true,
+    'startup exposes a safe unselected profile rather than a real report');
+  assert.equal(A.getHome(), null,
+    'an unselected profile cannot inherit the bundled Washington Home');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), null,
+    'reading startup state must not persist Washington as if the reader chose it');
+  assert.equal(app.state.fetches.some((url) =>
+    /api\.ebird\.org\/.*(?:US-WA|\/wa(?:[/?]|$))/i.test(url)), false,
+  'clean startup must not spend a Washington request');
+  assert.match(app.$('keyBanner').textContent, /Choose a region/i,
+    'the first actionable step names the missing region');
+  assert.ok(app.$('regionChooseBtn'), 'bundled and saved regions remain directly selectable');
+  assert.ok(app.$('regionFindBtn'), 'a place-search fallback remains available');
+  app.window.close();
+});
+
+test('F207: only profile-scoped stored coordinates count as Home', async () => {
+  const app = await boot({ report: 'wa', home: false });
+  const A = app.window.__app;
+
+  assert.equal(A.getHome(), null,
+    'Washington must not expose the report author’s bundled coordinate as Home');
+  assert.equal(A.hasRealHome(), false);
+  assert.match(app.$('keyBanner').textContent, /Set Home/i,
+    'the ordered setup resumes at Home when the region is already known');
+
+  app.window.localStorage.setItem('ebird_home_lat:wa', '47.61234');
+  app.window.localStorage.setItem('ebird_home_lng:wa', '-122.24567');
+  assert.equal(JSON.stringify(A.getHome()),
+    JSON.stringify({ lat: 47.61234, lng: -122.24567 }),
+  'an existing owned Home remains authoritative');
+
+  A.setActiveReport('hi');
+  assert.equal(A.getHome(), null,
+    'another report without stored coordinates remains unset rather than inheriting its bundled Home');
+  app.window.close();
+});
+
+test('F318: current location selects a confidently resolved bundled region before key setup', async () => {
+  const app = await boot({
+    report: null,
+    home: false,
+    key: null,
+    sample: false,
+    location: { lat: 47.6062, lng: -122.3321 },
+    fetch: (url) => /photon\.komoot\.io\/reverse/.test(url) ? {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {
+          state: 'WA',
+          country: 'United States',
+          countrycode: 'US',
+        },
+        geometry: { type: 'Point', coordinates: [-122.3321, 47.6062] },
+      }],
+    } : null,
+  });
+
+  await waitFor(() => app.window.localStorage.getItem('ebird_report') === 'wa',
+    'current location to select Washington');
+  assert.equal(app.window.__app.getReportSlug(), 'wa');
+  assert.equal(app.window.__app.getCountyView(), '',
+    'automatic state selection starts at All counties');
+  assert.match(app.$('keyBanner').textContent, /Set Home/i,
+    'the state machine advances to Home rather than skipping ahead to the API key');
+  assert.equal(app.state.fetches.some((url) => /api\.ebird\.org/i.test(url)), false,
+    'region discovery before key setup is genuinely keyless');
+  app.window.close();
+});
+
+test('F318: a confidently resolved unbundled region is persisted without becoming Home', async () => {
+  const app = await boot({
+    report: null,
+    home: false,
+    key: null,
+    sample: false,
+    location: { lat: 45.5152, lng: -122.6784 },
+    fetch: (url) => /photon\.komoot\.io\/reverse/.test(url) ? {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {
+          state: 'OR',
+          country: 'United States',
+          countrycode: 'US',
+        },
+        geometry: { type: 'Point', coordinates: [-122.6784, 45.5152] },
+      }],
+    } : null,
+  });
+
+  await waitFor(() => /^u-/.test(app.window.localStorage.getItem('ebird_report') || ''),
+    'current location to create the Oregon runtime region');
+  const A = app.window.__app;
+  const slug = A.getReportSlug();
+  const rec = A.getCustomRegions().find((row) => row.slug === slug);
+  assert.equal(rec.stateCode, 'US-OR');
+  assert.equal(A.getReport().stateCode, 'US-OR');
+  assert.equal(A.getHome(), null,
+    'the coordinate used to identify a region is not silently claimed as Home');
+  assert.equal(app.window.localStorage.getItem(A.homeKey('lat')), null);
+  assert.equal(app.window.localStorage.getItem(A.homeKey('lng')), null);
+  assert.match(app.$('keyBanner').textContent, /Set Home/i);
+  app.window.close();
+});
+
+test('F318: denied or malformed location leaves one usable chooser and stores no region', async () => {
+  for (const specimen of [
+    {
+      name: 'denied',
+      location: Object.assign(new Error('permission denied'), { code: 1 }),
+      fetch: () => null,
+    },
+    {
+      name: 'malformed',
+      location: { lat: 47.6062, lng: -122.3321 },
+      fetch: (url) => /photon\.komoot\.io\/reverse/.test(url)
+        ? { type: 'FeatureCollection', features: [{ properties: {}, geometry: {} }] }
+        : null,
+    },
+    {
+      name: 'ambiguous',
+      location: { lat: 45.7, lng: -122.8 },
+      fetch: (url) => /photon\.komoot\.io\/reverse/.test(url)
+        ? {
+          type: 'FeatureCollection',
+          features: [
+            { properties: { state: 'WA', countrycode: 'US' } },
+            { properties: { state: 'OR', countrycode: 'US' } },
+          ],
+        }
+        : null,
+    },
+    {
+      name: 'offline',
+      location: { lat: 47.6062, lng: -122.3321 },
+      fetch: (url) => /photon\.komoot\.io\/reverse/.test(url)
+        ? { __status: 503, __body: { error: 'offline' } }
+        : null,
+    },
+  ]) {
+    const app = await boot({
+      report: null,
+      home: false,
+      key: null,
+      sample: false,
+      location: specimen.location,
+      fetch: specimen.fetch,
+    });
+    await waitFor(() => !!app.$('regionChooseBtn'),
+      specimen.name + ' setup to expose the chooser');
+    assert.equal(app.window.localStorage.getItem('ebird_report'), null,
+      specimen.name + ' discovery must not store a guessed region');
+    assert.equal(app.window.__app.getCustomRegions().length, 0,
+      specimen.name + ' discovery must not create a partial runtime region');
+    assert.ok(app.$('regionFindBtn'), specimen.name + ' setup keeps Find a region usable');
+    app.window.close();
+  }
+});
+
+test('F318: Find a region uses the same runtime-region path and survives restart', async () => {
+  const custom = (state = 'Oregon') => ({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {
+        name: 'Portland',
+        state,
+        country: 'United States',
+        countrycode: 'US',
+      },
+      geometry: { type: 'Point', coordinates: [-122.6784, 45.5152] },
+    }],
+  });
+  const app = await boot({
+    report: null,
+    home: false,
+    key: null,
+    sample: false,
+    location: Object.assign(new Error('permission denied'), { code: 1 }),
+    fetch: (url) => /photon\.komoot\.io\/(?:api|reverse)/.test(url)
+      ? custom() : null,
+  });
+  await waitFor(() => !!app.$('regionFindBtn'), 'the fallback region finder');
+  app.$('regionFindPlace').value = 'Portland, Oregon';
+  app.click(app.$('regionFindBtn'));
+  await waitFor(() => /^u-/.test(app.window.localStorage.getItem('ebird_report') || ''),
+    'Find a region to create and select Oregon');
+
+  const slug = app.window.__app.getReportSlug();
+  const savedRegions = app.window.localStorage.getItem('ebird_custom_regions');
+  assert.equal(app.window.__app.getReport().stateCode, 'US-OR');
+  assert.equal(app.window.__app.getCustomRegions().length, 1,
+    'Find creates one runtime region rather than a parallel region type');
+  const source = HTML.slice(HTML.indexOf('function beginRegionDetection('),
+    HTML.indexOf('function renderRegionOnboarding('));
+  assert.equal((source.match(/\.then\(finishRegionSelection\)/g) || []).length, 2,
+    'automatic and Find-based discovery converge on the same selection helper');
+
+  const restarted = await boot({
+    report: null,
+    home: false,
+    key: null,
+    sample: false,
+    storage: {
+      ebird_report: slug,
+      ebird_custom_regions: savedRegions,
+    },
+  });
+  assert.equal(restarted.window.__app.getReportSlug(), slug);
+  assert.equal(restarted.window.__app.getReport().stateCode, 'US-OR',
+    'the same runtime registry resolves the saved region on the next launch');
+  restarted.window.close();
+  app.window.close();
+});
+
+test('F318: onboarding resumes in region, Home, key, identity, seen-list order', async () => {
+  const home = {
+    'ebird_home_lat:wa': '47.61',
+    'ebird_home_lng:wa': '-122.24',
+  };
+  const cases = [
+    {
+      name: 'region',
+      opts: { report: null, home: false, key: null, sample: false },
+      expected: /Choose a region/i,
+    },
+    {
+      name: 'Home',
+      opts: { report: 'wa', home: false, key: null, sample: false },
+      expected: /Set Home/i,
+    },
+    {
+      name: 'API key',
+      opts: { report: 'wa', home: false, key: null, sample: false, storage: home },
+      expected: /API key/i,
+    },
+    {
+      name: 'identity',
+      opts: { report: 'wa', home: false, sample: false, storage: home },
+      expected: /display name/i,
+    },
+    {
+      name: 'seen list',
+      opts: {
+        report: 'wa', home: false, sample: false,
+        storage: { ...home, ebird_display_name: 'Sample Birder' },
+      },
+      expected: /seen list/i,
+    },
+  ];
+  for (const specimen of cases) {
+    const app = await boot(specimen.opts);
+    assert.match(app.$('keyBanner').textContent, specimen.expected,
+      specimen.name + ' is the first incomplete prerequisite');
+    if (specimen.name === 'seen list') {
+      app.click(app.$('seenSkipBtn'));
+      assert.equal(app.$('keyBanner').hidden, true,
+        'an explicit seen-list skip completes setup without inventing seen birds');
+      assert.equal(app.window.__app.getSeenMeta(), null);
+    }
+    app.window.close();
+  }
+});
+
+test('F207: Use my location becomes Home only after the explicit tap', async () => {
+  const app = await boot({
+    report: 'wa',
+    home: false,
+    key: null,
+    sample: false,
+    location: { lat: 47.6205, lng: -122.3493 },
+  });
+  const A = app.window.__app;
+  assert.equal(A.getHome(), null,
+    'having location permission does not silently make the current position Home');
+  assert.ok(app.$('homeHereBtn'));
+  app.click(app.$('homeHereBtn'));
+  await waitFor(() => !!A.getHome(), 'the explicit Home location choice to persist');
+  assert.equal(JSON.stringify(A.getHome()),
+    JSON.stringify({ lat: 47.6205, lng: -122.3493 }));
+  assert.match(app.$('keyBanner').textContent, /API key/i,
+    'after Home is owned, onboarding resumes at the next prerequisite');
+  app.window.close();
+});
+
+test('F207: Home-dependent sections expose one Set Home route', async () => {
+  const app = await boot({ report: 'wa', home: false });
+  app.open(/Twitch weather/);
+  const action = app.$('wxStatus').querySelector('.sethome-inline');
+  assert.ok(action, 'Conditions renders a visible Set Home action');
+  assert.equal(action.textContent, 'Set Home');
+  app.click(action);
+  assert.equal(app.$('settingsPanel').hidden, false);
+  assert.equal(app.window.document.activeElement, app.$('homePlace'),
+    'the shared Home route lands on the one owned Home field');
+
+  app.window.__app.showSection('iconicPanel');
+  const second = app.$('iconicStatus').querySelector('.sethome-inline');
+  assert.ok(second, 'another Home-dependent loader uses the same visible action');
+  assert.match(app.$('quickBtn').textContent, /Set Home/,
+    'the reusable Home anchor names the missing action directly');
+  app.window.close();
+});
+
+test('F318: runtime county discovery loads references only and persists All/county scope', async () => {
+  const region = {
+    slug: 'u-oregon',
+    label: 'Oregon',
+    place: 'Oregon',
+    lat: 44.0,
+    lng: -120.5,
+    stateCode: 'US-OR',
+    tideStation: '',
+    tzStdOffset: -8,
+    tzObservesDst: true,
+  };
+  const app = await boot({
+    report: 'u-oregon',
+    home: false,
+    storage: {
+      ebird_custom_regions: JSON.stringify([region]),
+      'ebird_home_lat:u-oregon': '45.52',
+      'ebird_home_lng:u-oregon': '-122.68',
+    },
+    fetch: (url) => {
+      if (/ref\/region\/list\/subnational2\/US-OR/.test(url)) {
+        return [
+          { code: 'US-OR-051', name: 'Multnomah' },
+          { code: 'US-OR-067', name: 'Washington' },
+        ];
+      }
+      if (/ref\/region\/info\/US-OR-051/.test(url)) {
+        return { bounds: { minX: -123, maxX: -122, minY: 45, maxY: 46 } };
+      }
+      if (/ref\/region\/info\/US-OR-067/.test(url)) {
+        return { bounds: { minX: -123.2, maxX: -122.5, minY: 45.3, maxY: 46 } };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(A.getCountyView(), '', 'runtime regions begin at All counties');
+  A.scopeOpen();
+  await waitFor(() => A.getCountyChoices().length === 2,
+    'the runtime county reference catalog');
+  assert.equal(app.state.fetches.some((url) => /\/data\/obs\//.test(url)), false,
+    'opening county choices must not fan out into observation feeds');
+  assert.ok(app.state.fetches.every((url) =>
+    !/api\.ebird\.org/.test(url)
+      || /\/ref\/region\/(?:list\/subnational2|info)\//.test(url)),
+  'the only live eBird calls are county reference metadata');
+
+  const picker = app.$('menuCounty');
+  assert.equal(picker.options[0].textContent, 'All counties');
+  assert.ok([...picker.options].some((option) =>
+    option.value === 'US-OR-051' && /Multnomah.*US-OR-051/.test(option.textContent)));
+  picker.value = 'US-OR-051';
+  picker.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(A.getCountyView(), 'US-OR-051');
+  assert.equal(A.scopeCode(), 'US-OR-051');
+  assert.equal(JSON.stringify(A.getCounties().map((county) => county.code)),
+    JSON.stringify(['US-OR-051']),
+  'a runtime county view acquires only that county, never the whole catalog');
+  assert.equal(app.window.localStorage.getItem('ebird_county_view:u-oregon'), 'US-OR-051');
+
+  A.setCountyView('');
+  assert.equal(A.getCountyView(), '');
+  assert.equal(A.getCounties().length, 0,
+    'All counties returns to the bounded runtime-region geo scope');
+  assert.equal(A.scopeCode(), 'US-OR',
+    'returning to All counties restores the state/province scope');
+  app.window.close();
+});
+
 test('retired built-in trips are absent and stored trip choices migrate', async () => {
   for (const [retired, replacement] of [
     ['fort-casey', 'wa'],
@@ -2866,10 +3275,9 @@ test('each region keeps its own home location', async () => {
   assert.equal(wa.lng, -122.16);
   app.window.localStorage.setItem('ebird_report', 'hi');
   const hi = A.getHome();
-  assert.notEqual(hi.lat, 47.75,
-    'a home saved for Washington must not be used to chase birds on the Big Island');
-  assert.ok(hi.lat > 15 && hi.lat < 25,
-    'the Hawaii report falls back to its own regions.py home');
+  assert.equal(hi, null,
+    'a home saved for Washington must not be used to chase birds on the Big Island, '
+    + 'and the bundled Hawaii coordinate is not an owned Home');
   assert.equal(A.homeKey('lat'), 'ebird_home_lat:hi', 'storage is keyed per report');
   app.window.close();
 });
@@ -12371,7 +12779,7 @@ test('tapping a species in the match list runs the lookup', async () => {
  * phone can never reach the Markdown report. That makes this app-only BY FORCE,
  * and the tests below guard the parts that bite rather than the happy path.
  */
-test('a user region is geo-only, starts unseen, and never touches logic.js', async () => {
+test('a user region separates its center from Home and never touches logic.js', async () => {
   const app = await boot();
   const A = app.window.__app;
   const rec = { slug: 'u-victoria-bc', label: 'Victoria BC', place: 'Victoria, BC',
@@ -12385,7 +12793,14 @@ test('a user region is geo-only, starts unseen, and never touches logic.js', asy
   // and deepEqual compares prototypes.
   assert.equal(JSON.stringify(p.counties), '[]', 'a user region has no county feeds');
   assert.equal(p.geoFeed, true, 'it gathers from its own map circle instead');
-  const jobs = app.window.BirdLogic.planFeeds(p);
+  assert.equal(p.home, null, 'the region center is not exposed as the reader’s Home');
+  assert.equal(JSON.stringify(p.regionCenter),
+    JSON.stringify({ lat: 48.4284, lng: -123.3656 }),
+  'the separate center remains available to the bounded geo feed');
+  const jobs = app.window.BirdLogic.planFeeds({
+    ...p,
+    home: p.regionCenter,
+  });
   assert.ok(jobs.length > 0, 'and that still produces a usable feed plan');
   assert.ok(jobs.every((j) => !/US-|CA-/.test(j.file || '') || /geo/.test(j.file || '')),
     'every job is a geo job — there is no county lane to scope');
@@ -12455,7 +12870,7 @@ test('deleting a region sweeps every per-region key it left behind', async () =>
   assert.equal(JSON.stringify(A.getCustomRegions()), '[]', 'and the region itself is gone');
 });
 
-test('deleting the region you are looking at falls back to a built-in', async () => {
+test('deleting the region you are looking at returns to explicit region setup', async () => {
   const app = await boot();
   const A = app.window.__app;
   const w = app.window;
@@ -12467,12 +12882,12 @@ test('deleting the region you are looking at falls back to a built-in', async ()
   assert.equal(A.getReport().label, 'A trip', 'and resolves to its own profile');
 
   A.deleteCustomRegion('u-trip');
-  assert.equal(A.getReportSlug(), 'wa',
-    'deleting the active region must not leave the app on a slug that cannot resolve');
+  assert.equal(A.getReportSlug(), '',
+    'deleting the active region must not silently choose Washington');
 
   // The same must hold for a stored slug that was never valid.
   w.localStorage.setItem('ebird_report', 'u-does-not-exist');
-  assert.equal(A.getReportSlug(), 'wa', 'an unknown slug falls back rather than throwing');
+  assert.equal(A.getReportSlug(), '', 'an unknown slug returns to setup rather than throwing');
 });
 
 test('the region pickers offer user regions alongside the built-ins', async () => {
@@ -17124,7 +17539,15 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
 
   let restartedCalls = 0;
   const restarted = await boot({
-    storage: { ...persisted, bc_profile: 'other' },
+    report: null,
+    home: false,
+    storage: {
+      ...persisted,
+      bc_profile: 'other',
+      'bcp:other:ebird_report': 'wa',
+      'bcp:other:ebird_home_lat:wa': '47.75',
+      'bcp:other:ebird_home_lng:wa': '-122.16',
+    },
     fetch(url) {
       if (/ref\/region\//.test(url)) {
         restartedCalls++;

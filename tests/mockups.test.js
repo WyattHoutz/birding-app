@@ -46,7 +46,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['birdgenloading', 'favoritesregion', 'spuhcompact', 'birdspcompact',
+    ['onboardingregion', 'onboardinghome',
+      'birdgenloading', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail', 'stakeoutreports',
       'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
@@ -77,6 +78,17 @@ test('every menu section declares representative fixture data or an intentional 
     .filter((shot) => shot.kind === 'static').map((shot) => shot.at).sort();
   assert.deepEqual(staticAts, ['settingsPanel'],
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
+});
+
+test('F207/F318 review mockups render the actual missing-region and missing-Home steps', () => {
+  const region = mockups.REVIEW_SHOTS.find((shot) => shot.id === 'onboardingregion');
+  const home = mockups.REVIEW_SHOTS.find((shot) => shot.id === 'onboardinghome');
+  assert.equal(region.menuState, true,
+    'a legitimate sparse first-run menu uses the explicit menu-state threshold');
+  assert.match(region.prep, /A\.setActiveReport\(''\)/);
+  assert.match(region.prep, /regionChooseBtn/);
+  assert.match(home.prep, /A\.homeKey\('lat'\)/);
+  assert.match(home.prep, /homeHereBtn/);
 });
 
 test('blank detection inspects the active section and requires its data marker', () => {
@@ -146,7 +158,7 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
 
   assert.match(source, /shotReadinessProblems\(ready\)/,
     'the generator does not use the readiness decision the guard drives');
-  assert.match(source, /shotLooksBlank\(seen, !!shot\.at\)/,
+  assert.match(source, /shotLooksBlank\(seen, !!shot\.at \|\| !!shot\.menuState\)/,
     'the generator does not use the blank-pixel decision the guard drives');
 });
 

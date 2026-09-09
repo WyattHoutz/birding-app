@@ -185,6 +185,35 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the mandatory 34-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'onboardingregion', menuState: true,
+    title: 'First run — choose or find a region',
+    prep: `localStorage.removeItem('ebird_display_name');
+           localStorage.removeItem('ebird_api_key');
+           localStorage.setItem('ebird_region_setup_v1', JSON.stringify({
+             status: 'denied',
+             message: 'Location permission is off.'
+           }));
+           A.setActiveReport('');
+           A.renderKeyBanner();
+           if (!document.getElementById('regionChooseBtn')) {
+             throw new Error('missing region chooser');
+           }
+           return true;` },
+  { id: 'onboardinghome',
+    title: 'First run — set an owned Home',
+    prep: `A.setActiveReport('wa');
+           localStorage.removeItem(A.homeKey('lat'));
+           localStorage.removeItem(A.homeKey('lng'));
+           localStorage.removeItem(A.homeKey('place'));
+           localStorage.removeItem('ebird_display_name');
+           localStorage.removeItem('ebird_api_key');
+           localStorage.removeItem('ebird_region_setup_v1');
+           A.renderMenuIdentity();
+           A.renderKeyBanner();
+           if (!document.getElementById('homeHereBtn')) {
+             throw new Error('missing owned-Home setup');
+           }
+           return true;` },
   { id: 'birdgenloading', at: 'surgeBtn',
     title: 'Bird Gen — Mega source loading',
     host: 'surgeResults',
@@ -1904,7 +1933,7 @@ async function main() {
     const seen = JSON.parse(probe.result.value || '{}');
     // The menu is a large grid; a section may intentionally be compact. The
     // stricter per-host readiness check above carries the data guarantee.
-    if (shotLooksBlank(seen, !!shot.at)) {
+    if (shotLooksBlank(seen, !!shot.at || !!shot.menuState)) {
       console.error('  !! ' + shot.id + ': BLANK — only ' + (seen.text || 0)
         + ' chars and ' + (seen.nodes || 0) + ' elements painted. The shot was '
         + 'NOT written; fix the prep rather than shipping a white rectangle.'

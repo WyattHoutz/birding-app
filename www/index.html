@@ -3080,7 +3080,7 @@
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
-      <p class="hint">Pick which birding report to chase. Every section below matches that report's counties, home base, and seen-species list exactly.</p>
+      <p class="hint">Pick which birding region to chase. County view and Home are separate choices.</p>
       <label for="tripName">My regions</label>
       <div id="myRegions"></div>
       <div class="row">
@@ -3101,7 +3101,7 @@
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
       <p class="hint">Rankings and the ABA alert need an eBird login. The in-app browser keeps you signed in on this device until you sign out.</p>
-      <label for="homePlace">Home location (optional) <span id="homeRegionLabel"></span></label>
+      <label for="homePlace">Home location <span id="homeRegionLabel"></span></label>
       <div class="row">
         <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
@@ -3111,7 +3111,7 @@
         <div><input id="homeLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.75" /></div>
         <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
       </div>
-      <p class="hint">Adds distances and a home marker to Top destinations. Also drives the Conditions forecast (US only).</p>
+      <p class="hint">Required for distances and nearby rankings. Also drives the Conditions forecast (US only). Bird Chaser never substitutes the bundled report author's location.</p>
       <label for="tideStation">NOAA tide station ID (optional)</label>
       <input id="tideStation" type="text" inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="e.g. 9447130" />
       <p class="hint">For coastal tides in Conditions. Find yours at <code>tidesandcurrents.noaa.gov</code>. Leave blank inland.</p>
@@ -3479,7 +3479,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.90.0';
+      var APP_VERSION = '1.91.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -3532,16 +3532,24 @@
         var p = getReport();
         var mi = chaseMaxMi();
         var home = getHome();
+        var counties = getCounties();
         if (!p || !isFinite(mi) || mi <= 0) return p;
-        var sameHome = (!home && !p.home)
-          || (home && p.home && +home.lat === +p.home.lat && +home.lng === +p.home.lng);
-        if (mi === p.chaseMaxMi && sameHome) return p;
+        var feedHome = home || (p.custom && p.regionCenter) || null;
+        var sameHome = (!feedHome && !p.home)
+          || (feedHome && p.home && +feedHome.lat === +p.home.lat
+              && +feedHome.lng === +p.home.lng);
+        var sameCounties = counties.length === (p.counties || []).length
+          && counties.every(function (county, i) {
+            return county.code === p.counties[i].code;
+          });
+        if (mi === p.chaseMaxMi && sameHome && sameCounties) return p;
         var out = {};
         for (var k in p) {
           if (Object.prototype.hasOwnProperty.call(p, k)) out[k] = p[k];
         }
         out.chaseMaxMi = mi;
-        out.home = home;
+        out.home = feedHome;
+        out.counties = counties.slice();
         return out;
       }
       var COUNTY_META_NS = 'bc_county_meta_v1:';
@@ -4165,6 +4173,7 @@
       // this layer, on top of BirdLogic, and logic.js never learns about them.
       var CUSTOM_KEY = 'ebird_custom_regions';
       var CUSTOM_PREFIX = 'u-';   // namespaced so it can never collide with a built-in
+      var _runtimeCounties = {};
 
       function getCustomRegions() {
         var out = [];
@@ -4210,8 +4219,9 @@
             slug: rec.slug, label: rec.label, kind: 'region',
             stateCode: rec.stateCode || '',
             counties: [],
-            home: { lat: rec.lat, lng: rec.lng },
-            homeLabel: rec.place || rec.label,
+            home: null,
+            homeLabel: '',
+            regionCenter: { lat: rec.lat, lng: rec.lng },
             geoDistKm: 50, dailyDriveMi: (BL && BL.CONST && BL.CONST.DAILY_DRIVE_MI) || 12,
             tideStation: rec.tideStation || '',
             geoFeed: true, isRarityTracker: false,
@@ -4234,8 +4244,10 @@
       // them all. Without this, storage grows after every deleted region - and
       // the compressed chase snapshot is the big one.
       function deleteCustomRegion(slug) {
+        var wasActive = localStorage.getItem(K.report) === slug;
         var list = getCustomRegions().filter(function (r) { return r.slug !== slug; });
         saveCustomRegions(list);
+        delete _runtimeCounties[slug];
         var doomed = [];
         for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i);
@@ -4251,10 +4263,7 @@
         doomed.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
         // Deleting the region you are LOOKING AT must not leave the app
         // pointed at a slug that no longer resolves.
-        if (getReportSlug() === slug || localStorage.getItem(K.report) === slug) {
-            localStorage.setItem(K.report, 'wa');
-            setActiveReport('wa');
-        }
+        if (wasActive) setActiveReport('');
         return doomed.length;
       }
 
@@ -4289,10 +4298,24 @@
         }
         if (BL && BL.REPORTS && BL.REPORTS[s]) return s;
         if (s && isCustomSlug(s)) return s;
-        return 'wa';
+        if (s) {
+          try { localStorage.removeItem(K.report); } catch (e) {}
+        }
+        return '';
+      }
+      function emptyReport() {
+        return {
+          slug: '', label: 'Choose a region', kind: 'region', stateCode: '',
+          counties: [], home: null, homeLabel: '', regionCenter: null,
+          geoDistKm: 50, dailyDriveMi: CHASE_DEFAULT_MI, chaseMaxMi: CHASE_DEFAULT_MI,
+          tideStation: '', geoFeed: false, isRarityTracker: false,
+          birdlistSlug: '', seenFromRegion: '', tzStdOffset: 0,
+          tzObservesDst: true, unselected: true
+        };
       }
       function getReport() {
         var s = getReportSlug();
+        if (!s) return emptyReport();
         var mine = getCustomRegions().filter(function (r) { return r.slug === s; })[0];
         return mine ? customProfile(mine) : BL.profileFor(s);
       }
@@ -4304,6 +4327,7 @@
       function homeKey(field) { return 'ebird_home_' + field + ':' + getReportSlug(); }
       function tideKey() { return 'ebird_tide_station:' + getReportSlug(); }
       function migrateHomeKeys() {
+        if (!getReportSlug()) return;
         ['lat', 'lng', 'place'].forEach(function (f) {
           var v = localStorage.getItem('ebird_home_' + f);
           if (v === null) return;
@@ -4326,7 +4350,7 @@
       }
       // eBird region code for the active report (US-WA, lower48, aba, …), used by
       // the state-wide feeds (notable, rankings, hotspots, migration, convoys).
-      function getRegion() { return (getReport().stateCode || 'US-WA').toString(); }
+      function getRegion() { return (getReport().stateCode || '').toString(); }
       // eBird region code valid for /data/obs/<r>/... calls. Rarity trackers use
       // the national US feed (their stateCode 'lower48'/'aba' isn't a feed code).
       function getObsRegion() { var p = getReport(); return p.isRarityTracker ? 'US' : getRegion(); }
@@ -5186,7 +5210,27 @@
       // (the two rarity-tracker reports). getRegion()'s state code is NOT used
       // for these anymore, so non-WA reports match the report's county scope
       // and custom reports sharing one eBird scope no longer collide on cache keys.
-      function getCounties() { var c = getReport().counties; return Array.isArray(c) ? c : []; }
+      function baseCounties() {
+        var c = getReport().counties;
+        return Array.isArray(c) ? c : [];
+      }
+      function getCountyChoices() {
+        var dynamic = _runtimeCounties[getReportSlug()];
+        return dynamic && dynamic.length ? dynamic : baseCounties();
+      }
+      function getCounties() {
+        var report = getReport();
+        var selected = getCountyView();
+        if (!selected) return report.custom ? [] : baseCounties();
+        var chosen = getCountyChoices().filter(function (county) {
+          return String(county.code || '').toUpperCase() === selected.toUpperCase();
+        })[0];
+        if (!chosen) return report.custom ? [] : baseCounties();
+        var alreadyGathered = baseCounties().some(function (county) {
+          return String(county.code || '').toUpperCase() === selected.toUpperCase();
+        });
+        return report.custom || !alreadyGathered ? [chosen] : baseCounties();
+      }
       function countyCodes() { return getCounties().map(function (c) { return c.code; }); }
       function countyLabelStr() {
         var c = getCounties();
@@ -12015,7 +12059,7 @@
         if (!want) return '';
         // A stored county that is not one of THIS report's counties is a miss,
         // not an instruction to show nothing.
-        var ok = getCounties().some(function (c) {
+        var ok = getCountyChoices().some(function (c) {
           return String(c.code || '').toLowerCase() === want.toLowerCase();
         });
         return ok ? want : '';
@@ -12025,15 +12069,27 @@
         return c.code === 'US-HI-001' ? 'Hawaii County (Big Island)' : c.label;
       }
       function setCountyView(code) {
+        var old = getCountyView();
+        var base = baseCounties();
+        function changesAcquisition(value) {
+          if (!value) return getReport().custom;
+          return getReport().custom || !base.some(function (county) {
+            return String(county.code || '').toUpperCase() === String(value).toUpperCase();
+          });
+        }
         try {
           if (code) localStorage.setItem(countyViewKey(), String(code));
           else localStorage.removeItem(countyViewKey());
         } catch (e) {}
+        if (old !== String(code || '')
+            && (changesAcquisition(old) || changesAcquisition(code))) {
+          clearChaseCache();
+        }
       }
       function countyViewLabel() {
         var code = getCountyView();
         if (!code) return '';
-        var hit = getCounties().filter(function (c) {
+        var hit = getCountyChoices().filter(function (c) {
           return String(c.code || '').toLowerCase() === code.toLowerCase();
         })[0];
         return hit ? countyDisplayLabel(hit) : code;
@@ -13085,23 +13141,11 @@
       function getHome() {
         var la = parseFloat(localStorage.getItem(homeKey('lat'))), lo = parseFloat(localStorage.getItem(homeKey('lng')));
         if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
-        // Default to the active report's home (regions.py home coord) so chase
-        // distances match the Markdown report even before the user sets one.
-        var h = getReport().home;
-        return (h && isFinite(h.lat) && isFinite(h.lng)) ? { lat: +h.lat, lng: +h.lng } : null;
+        return null;
       }
 
-      // getHome() deliberately falls back to the report's built-in coordinate so
-      // distance math matches the Markdown report before the user configures
-      // anything. That fallback is wrong for Conditions: weather, tides and
-      // sun/moon are questions about where you actually ARE, and the rarity
-      // trackers' coordinate is a placeholder in the middle of Kansas. So they
-      // ask a stricter question than "do we have a number to subtract".
       function hasRealHome() {
-        var la = parseFloat(localStorage.getItem(homeKey('lat'))), lo = parseFloat(localStorage.getItem(homeKey('lng')));
-        if (isFinite(la) && isFinite(lo)) return true;
-        var p = getReport();
-        return !!(p.home && isFinite(p.home.lat) && isFinite(p.home.lng) && !p.homeIsPlaceholder);
+        return !!getHome();
       }
 
       // The anchors in report.py's iteration order, so a tie goes to home
@@ -16190,8 +16234,7 @@
       function anchorLabel() {
         var a = quickAnchor(quickOrigin);
         if (a && a.label) return a.label;
-        var h = getHome();
-        return (h && h.place) || getReport().homeLabel || 'home';
+        return (localStorage.getItem(homeKey('place')) || '').trim() || 'Home';
       }
       function fromHere() { return ' · from ' + anchorLabel(); }
 
@@ -16317,6 +16360,10 @@
 
       function loadDayTier(bandId, btnId, statusId, mapId, resultsId) {
         var label = bandId === 'full' ? 'Full-day' : 'Half-day';
+        if (!requireOwnedHome(statusId,
+          'Set Home before loading ' + label.toLowerCase() + ' destination tiers.', true)) {
+          return Promise.resolve(null);
+        }
         if (!getKey()) {
           $(statusId).textContent = 'Add your eBird API key in Settings first.';
           showSettings(true);
@@ -18547,7 +18594,7 @@
       function syncQuickButtons() {
         var hb = $('quickBtn'), eb = $('quickHereBtn');
         if (!hb || !eb) return;
-        hb.textContent = getHome() ? '\uD83C\uDFE0 Home' : '\uD83C\uDFE0 Set home';
+        hb.textContent = getHome() ? '\uD83C\uDFE0 Home' : '\uD83C\uDFE0 Set Home';
         eb.textContent = quickHere ? '\uD83D\uDCCD Here' : '\uD83D\uDCCD Current location';
         [['home', hb], ['here', eb]].forEach(function (p) {
           p[1].classList.toggle('secondary', p[0] !== quickOrigin);
@@ -18730,7 +18777,6 @@
 
       function loadQuickOuting(which) {
         var st = $('quickStatus');
-        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         which = QUICK_ORIGINS[which] ? which : quickOrigin;
         var a = quickAnchor(which);
         if (!a) {
@@ -18740,10 +18786,10 @@
             quickAskPlace('Type a city, address, or "lat, lng" to search near.');
             return;
           }
-          st.textContent = 'Set a Home location in Settings to find hotspots near you.';
-          showSettings(true);
+          showHomeRequired(st, 'Set Home to find hotspots near it.', true);
           return;
         }
+        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         quickOrigin = which;
         syncQuickButtons();
         syncModePick('sec-quickBtn');
@@ -18871,6 +18917,7 @@
         localStorage.setItem('ebird_life_names', JSON.stringify(lifeNames));
         localStorage.setItem('ebird_year_names', JSON.stringify(yearNames));
         localStorage.setItem('ebird_seed_dismissed', '1');
+        localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
         localStorage.setItem(K.seenMeta, JSON.stringify({
           count: n, countableCount: countable,
           rows: Math.max(0, rows.length - 1), date: new Date().toISOString(),
@@ -18908,7 +18955,8 @@
         localStorage.removeItem(K.seen); localStorage.removeItem(K.seenMeta); localStorage.removeItem(K.field);
         localStorage.removeItem('ebird_life_names'); localStorage.removeItem('ebird_year_names');
         localStorage.setItem('ebird_seed_dismissed', '1');
-        updateCsvStatus(); updateMyYear();
+        localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
+        updateCsvStatus(); updateMyYear(); renderKeyBanner();
       }
 
       // --- bundled sample data (owner's eBird 2026 year lists) -------------
@@ -18938,8 +18986,9 @@
         var seed = window.__SEED_BIRDLIST__;
         if (!seed || !seed.codes) { $('csvStatus').textContent = 'Sample data is unavailable in this build.'; return false; }
         if (force) localStorage.removeItem('ebird_seed_dismissed');
+        localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
         applySeed(seed);
-        updateCsvStatus(); updateMyYear();
+        updateCsvStatus(); updateMyYear(); renderKeyBanner();
         return true;
       }
       // --- eBird account (login-gated): rankings + ABA rare-bird alert -------
@@ -19393,11 +19442,200 @@
         }
         return true;
       }
+      var REGION_SETUP_KEY = 'ebird_region_setup_v1';
+      var SEEN_SETUP_SKIP_KEY = 'ebird_seen_setup_skipped';
+      var _regionDiscoveryStarted = false;
+      function regionSetupState() {
+        try {
+          var state = JSON.parse(localStorage.getItem(REGION_SETUP_KEY) || 'null');
+          return state && typeof state === 'object' ? state : null;
+        } catch (e) { return null; }
+      }
+      function rememberRegionSetup(status, message) {
+        try {
+          localStorage.setItem(REGION_SETUP_KEY, JSON.stringify({
+            status: status, message: String(message || '')
+          }));
+        } catch (e) {}
+      }
+      function clearRegionSetup() {
+        try { localStorage.removeItem(REGION_SETUP_KEY); } catch (e) {}
+      }
+      function finishRegionSelection(result) {
+        return selectResolvedRegion(result).then(function (selected) {
+          clearRegionSetup();
+          _regionDiscoveryStarted = false;
+          renderKeyBanner();
+          return selected;
+        });
+      }
+      function regionFailure(error) {
+        var status = (error && error.regionStatus)
+          || (/Location is off|denied|permission/i.test((error && error.message) || '')
+              ? 'denied' : 'unavailable');
+        var message = (error && error.message)
+          || 'Your region could not be determined from this location.';
+        rememberRegionSetup(status, message);
+        _regionDiscoveryStarted = false;
+        renderKeyBanner();
+      }
+      function beginRegionDetection(force) {
+        if (_regionDiscoveryStarted) return;
+        if (force) clearRegionSetup();
+        _regionDiscoveryStarted = true;
+        var status = $('regionSetupStatus');
+        if (status) status.textContent = 'Using this device’s location to find its state or province…';
+        getDeviceLocation()
+          .then(function (point) { return deriveRegionCode(point.lat, point.lng); })
+          .then(finishRegionSelection)
+          .catch(regionFailure);
+      }
+      function findOnboardingRegion(query) {
+        var status = $('regionSetupStatus');
+        if (status) status.textContent = 'Finding “' + query + '”…';
+        return geocodePlace(query)
+          .then(function (place) {
+            if (status) status.textContent = 'Finding the state or province for ' + place.label + '…';
+            return deriveRegionCode(place.lat, place.lng);
+          })
+          .then(finishRegionSelection)
+          .catch(regionFailure);
+      }
+      function renderRegionOnboarding(el) {
+        var state = regionSetupState();
+        if (!state && !_regionDiscoveryStarted) {
+          el.hidden = false;
+          el.innerHTML = '<div class="kbtitle">📍 Finding your region</div>'
+            + '<p id="regionSetupStatus">Asking for this device’s location…</p>';
+          setTimeout(function () { beginRegionDetection(false); }, 0);
+          return;
+        }
+        var why = state && state.message
+          ? '<p id="regionSetupStatus">' + esc(state.message)
+            + ' Choose a saved region or find one by place.</p>'
+          : '<p id="regionSetupStatus">Choose a saved region or find one by place.</p>';
+        el.hidden = false;
+        el.innerHTML = '<div class="kbtitle">🌎 Choose a region</div>'
+          + why
+          + '<div class="keyrow"><select id="onboardRegionSelect" '
+          + 'aria-label="Choose a region"></select>'
+          + '<button id="regionChooseBtn" type="button">Choose region</button></div>'
+          + '<div class="keyrow"><input id="regionFindPlace" type="text" '
+          + 'autocapitalize="words" autocorrect="off" spellcheck="false" '
+          + 'placeholder="city, address, or lat, lng">'
+          + '<button id="regionFindBtn" class="secondary" type="button">Find a region</button></div>'
+          + '<div class="keyrow"><button id="regionLocateBtn" class="secondary" '
+          + 'type="button">Try current location</button></div>';
+        fillRegionSelect($('onboardRegionSelect'));
+        var choose = $('regionChooseBtn');
+        if (choose) choose.addEventListener('click', function () {
+          var select = $('onboardRegionSelect');
+          var slug = select && select.value;
+          if (!slug) {
+            $('regionSetupStatus').textContent = 'Choose a region from the list first.';
+            return;
+          }
+          clearRegionSetup();
+          setActiveReport(slug);
+        });
+        var find = $('regionFindBtn');
+        if (find) find.addEventListener('click', function () {
+          var field = $('regionFindPlace');
+          var query = String((field && field.value) || '').trim();
+          if (!query) {
+            $('regionSetupStatus').textContent = 'Type a city, address, or “lat, lng” first.';
+            return;
+          }
+          find.disabled = true;
+          findOnboardingRegion(query).finally(function () {
+            var current = $('regionFindBtn');
+            if (current) current.disabled = false;
+          });
+        });
+        var locate = $('regionLocateBtn');
+        if (locate) locate.addEventListener('click', function () {
+          beginRegionDetection(true);
+        });
+      }
+      function saveOwnedHome(point, label) {
+        if (!getReportSlug()) return false;
+        var lat = Number(point && point.lat), lng = Number(point && point.lng);
+        if (!isFinite(lat) || !isFinite(lng)) return false;
+        localStorage.setItem(homeKey('lat'), String(lat));
+        localStorage.setItem(homeKey('lng'), String(lng));
+        if (label) localStorage.setItem(homeKey('place'), String(label));
+        clearChaseCache();
+        loadSettings();
+        renderKeyBanner();
+        return true;
+      }
+      function openHomeSetup() {
+        showSettings(true);
+        var field = $('homePlace');
+        if (field) {
+          try {
+            if (field.scrollIntoView) field.scrollIntoView({ block: 'center' });
+          } catch (e) {}
+          try { field.focus(); } catch (e) {}
+        }
+        return false;
+      }
+      function showHomeRequired(target, detail, redirect) {
+        var el = typeof target === 'string' ? $(target) : target;
+        if (el) {
+          el.innerHTML = '<button type="button" class="secondary sethome-inline">Set Home</button>'
+            + '<span> ' + esc(detail || 'Choose the location used for distance and nearby results.') + '</span>';
+          var button = el.querySelector('.sethome-inline');
+          if (button) button.addEventListener('click', openHomeSetup);
+        }
+        if (redirect) openHomeSetup();
+        return null;
+      }
+      function requireOwnedHome(target, detail, redirect) {
+        return getHome() || showHomeRequired(target, detail, redirect);
+      }
+      function renderHomeOnboarding(el) {
+        el.hidden = false;
+        el.innerHTML = '<div class="kbtitle">🏠 Set Home</div>'
+          + '<p>Home belongs to you, not to the bundled region. It sets distances, '
+          + 'weather and nearby birding choices for ' + esc(getReport().label) + '.</p>'
+          + '<div class="keyrow"><button id="homeHereBtn" type="button">Use my location</button>'
+          + '<button id="homeSetupBtn" class="secondary" type="button">Enter Home</button></div>'
+          + '<p id="homeSetupStatus" class="hint"></p>';
+        var here = $('homeHereBtn');
+        if (here) here.addEventListener('click', function () {
+          here.disabled = true;
+          $('homeSetupStatus').textContent = 'Asking for your location…';
+          getDeviceLocation().then(function (point) {
+            saveOwnedHome(point, 'Current location');
+          }).catch(function (error) {
+            var status = $('homeSetupStatus');
+            if (status) status.textContent = (error && error.message)
+              || 'Location is unavailable. Enter Home instead.';
+          }).finally(function () {
+            var current = $('homeHereBtn');
+            if (current) current.disabled = false;
+          });
+        });
+        var setup = $('homeSetupBtn');
+        if (setup) setup.addEventListener('click', openHomeSetup);
+      }
+      function seenSetupComplete() {
+        return !!getSeenMeta() || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === '1';
+      }
       // One place that answers "can this app do anything right now?", shown on
       // the Contents menu so it is the first thing a first-run user reads
       // instead of discovering it one section at a time.
       function renderKeyBanner() {
         var el = $('keyBanner'); if (!el) return;
+        if (!getReportSlug()) {
+          renderRegionOnboarding(el);
+          return;
+        }
+        if (!getHome()) {
+          renderHomeOnboarding(el);
+          return;
+        }
         if (getKey()) {
           if (!getDisplayName()) {
             el.hidden = false;
@@ -19436,6 +19674,29 @@
                 } catch (e) {}
                 try { name.focus(); } catch (e) {}
               }
+            });
+            return;
+          }
+          if (!seenSetupComplete()) {
+            el.hidden = false;
+            el.innerHTML = '<div class="kbtitle">📋 Add your seen list</div>'
+              + '<p>Import your eBird CSV so Bird Chaser can separate seen birds '
+              + 'from targets. You can skip this and add it later.</p>'
+              + '<div class="keyrow"><button id="seenBannerBtn" type="button">'
+              + 'Import seen list</button><button id="seenSkipBtn" class="secondary" '
+              + 'type="button">Skip for now</button></div>';
+            var importBtn = $('seenBannerBtn');
+            if (importBtn) importBtn.addEventListener('click', function () {
+              showSettings(true);
+              var label = document.querySelector('label[for="csvFile"]');
+              if (label && label.scrollIntoView) {
+                try { label.scrollIntoView({ block: 'center' }); } catch (e) {}
+              }
+            });
+            var skip = $('seenSkipBtn');
+            if (skip) skip.addEventListener('click', function () {
+              localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
+              renderKeyBanner();
             });
             return;
           }
@@ -23893,9 +24154,14 @@
       function runHotspotScan(opts) {
         opts = opts || {};
         var hotSt = $('hotStatus'), coldSt = $('coldStatus');
-        if (!getKey()) { var m = 'Add your eBird API key in Settings first.'; if (hotSt) hotSt.textContent = m; if (coldSt) coldSt.textContent = m; if (opts.redirect) showSettings(true); return; }
         var home = getHome();
-        if (!home) { var m2 = 'Set your Home location in Settings to rank nearby hotspots.'; if (hotSt) hotSt.textContent = m2; if (coldSt) coldSt.textContent = m2; if (opts.redirect) showSettings(true); return; }
+        if (!home) {
+          showHomeRequired(hotSt, 'Set Home before ranking nearby hotspots.', false);
+          showHomeRequired(coldSt, 'Set Home before ranking nearby hotspots.', false);
+          if (opts.redirect) openHomeSetup();
+          return;
+        }
+        if (!getKey()) { var m = 'Add your eBird API key in Settings first.'; if (hotSt) hotSt.textContent = m; if (coldSt) coldSt.textContent = m; if (opts.redirect) showSettings(true); return; }
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + countyLabelStr();
         if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + countyLabelStr();
         if (!hasCounties()) {
@@ -24464,10 +24730,9 @@
 
       function loadIconicSpots() {
         var btn = $('iconicBtn'), st = $('iconicStatus'), box = $('iconicResults');
-        var home = getHome();
-        if (!home || home.lat == null) {
-          st.textContent = 'Set your Home location in Settings first.'; showSettings(true); return;
-        }
+        var home = requireOwnedHome(st,
+          'Set Home before finding iconic birding places near it.', true);
+        if (!home) return;
         if ($('iconicRegionLabel')) $('iconicRegionLabel').textContent = '\u00b7 ' + getReport().label;
         btn.disabled = true; box.innerHTML = '';
         st.textContent = 'Finding hotspots near you\u2026';
@@ -24991,6 +25256,12 @@
       }
       function loadMigration() {
         var ctx = firstYearContext(), context = ctx.region + '|' + ctx.year;
+        if (!ctx.region) {
+          if ($('migFirstStatus')) {
+            $('migFirstStatus').textContent = 'Choose a region before loading first reports.';
+          }
+          return Promise.resolve(null);
+        }
         var run = ++_firstYearRun;
         function alive() {
           var active = firstYearContext();
@@ -27192,11 +27463,9 @@
       function loadConditions() {
         // Weather, tides and sun/moon are all "where am I" questions, so a
         // placeholder region centroid is not an acceptable stand-in for a home.
-        if (!hasRealHome()) {
-          $('wxStatus').textContent = 'Set your Home location in Settings — weather, tides and sun times are all measured from it.';
-          showSettings(true); return;
-        }
-        var home = getHome();
+        var home = requireOwnedHome('wxStatus',
+          'Set Home before loading weather, tides and sun times.', true);
+        if (!home) return;
         var btn = $('wxBtn'), st = $('wxStatus');
         btn.disabled = true; st.textContent = 'Loading conditions…';
         renderSunMoon(home);
@@ -27693,6 +27962,9 @@
         // deletion. Used for Trip planner, which works but predates the
         // measured travel model it ought to be built on.
         if (m.enabled === false) return false;
+        if (!getReportSlug()) {
+          return m.at === 'settingsPanel' || m.at === 'helpBody';
+        }
         if (m.needs === 'county') return hasCounties();
         if (m.needs === 'geo') return !getReport().isRarityTracker;
         return true;
@@ -27818,8 +28090,12 @@
           return;
         }
         try {
+          if (spec.needsHome && !getHome()) {
+            showHomeRequired(sec.querySelector('.status'),
+              'Set Home before this section can rank or load nearby results.', false);
+            return;
+          }
           if (spec.needsKey && !getKey()) return;
-          if (spec.needsHome && !getHome()) return;
         } catch (e) { return; }
         _autoLoaded[sec.id] = true;
         // F228. A section loading for the FIRST time is what makes its calls
@@ -28859,13 +29135,16 @@
       // duplicating it.
       function menuScopeHtml() {
         var coHtml = '';
+        var canDiscover = EBIRD_REGION_RE.test(getRegion())
+          && !getReport().isRarityTracker;
         // A single-county region still needs a view selector: "All counties"
         // is the unfiltered state, and the county itself is the useful
         // explicit view. Hawaii is the first built-in report where hiding the
         // picker made the only county impossible to choose.
-        if (getCounties().length > 0) {
+        if (getCountyChoices().length > 0 || canDiscover) {
           coHtml = '<span class="countypick"><label for="menuCounty">County view</label>'
-            + '<select id="menuCounty"></select></span>';
+            + '<select id="menuCounty"></select>'
+            + '<span id="countyLoadStatus" class="countystatus"></span></span>';
         }
         return '<details class="scopepick" id="menuScope">'
           + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeCode())
@@ -28892,7 +29171,7 @@
         try {
           var cv = getCountyView();
           if (cv) {
-            getCounties().forEach(function (c) {
+            getCountyChoices().forEach(function (c) {
               if (c && c.code === cv) code = c.code;
             });
           }
@@ -28948,6 +29227,7 @@
       var _rankLazyDone = false;
       function lazyFetchRankMe() {
         if (_rankLazyDone) return;
+        if (!getReportSlug()) return;
         if (!getDisplayName()) return;              // nothing to look up
         if (cachedRankMe(getRegion())) return;      // already have today's
         var rr = null;
@@ -28986,6 +29266,7 @@
         var det = $('menuScope');
         if (!det) return;
         det.open = true;
+        ensureActiveCountyCatalog();
         if (det.scrollIntoView) {
           try { det.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
           catch (e) { det.scrollIntoView(); }
@@ -29011,7 +29292,7 @@
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
         var shown = _sections.filter(function (sec) {
-          return menuApplies({ needs: sec._needs, enabled: sec._enabled });
+          return menuApplies({ at: sec._at, needs: sec._needs, enabled: sec._enabled });
         });
         MENU_GROUPS.forEach(function (group) {
           var members = shown.filter(function (s) { return s._group === group; });
@@ -29858,24 +30139,166 @@
         });
       }
 
-      // eBird has no reverse-geocode, but ref/hotspot/geo returns hotspots
-      // carrying subnational1Code, so the state/province is DERIVED from the
-      // coordinate rather than typed. The modal value wins, because a point
-      // near a border legitimately returns both sides.
+      // First-run region discovery has to run BEFORE the eBird key exists.
+      // Measured 2026-09-09: eBird's hotspot and region-reference endpoints
+      // return HTTP 403 without X-eBirdApiToken. Photon is already the app's
+      // keyless place provider, so its reverse result supplies the containing
+      // state/province instead of quietly making Washington the answer.
+      var CA_SUBNATIONAL1 = {
+        'alberta': 'AB', 'british columbia': 'BC', 'manitoba': 'MB',
+        'new brunswick': 'NB', 'newfoundland and labrador': 'NL',
+        'northwest territories': 'NT', 'nova scotia': 'NS', 'nunavut': 'NU',
+        'ontario': 'ON', 'prince edward island': 'PE', 'quebec': 'QC',
+        'saskatchewan': 'SK', 'yukon': 'YT'
+      };
+      var AU_SUBNATIONAL1 = {
+        'australian capital territory': 'ACT', 'new south wales': 'NSW',
+        'northern territory': 'NT', 'queensland': 'QLD',
+        'south australia': 'SA', 'tasmania': 'TAS',
+        'victoria': 'VIC', 'western australia': 'WA'
+      };
+      function regionNameFromCode(code) {
+        code = String(code || '').toUpperCase();
+        if (BL && BL.US_STATES && BL.US_STATES[code]) return BL.US_STATES[code];
+        var country = code.slice(0, 2), sub = code.slice(3);
+        var maps = { CA: CA_SUBNATIONAL1, AU: AU_SUBNATIONAL1 };
+        var map = maps[country] || {};
+        var names = Object.keys(map);
+        for (var i = 0; i < names.length; i++) {
+          if (map[names[i]] === sub) {
+            return names[i].replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+          }
+        }
+        return code;
+      }
+      function photonRegionCode(properties) {
+        var p = properties || {};
+        var country = String(p.countrycode || '').trim().toUpperCase();
+        var state = String(p.state || '').trim();
+        if (!/^[A-Z]{2}$/.test(country) || !state) return '';
+        if (country === 'US') {
+          var direct = state.toUpperCase();
+          if (/^[A-Z]{2}$/.test(direct)
+              && BL && BL.US_STATES && BL.US_STATES['US-' + direct]) {
+            return 'US-' + direct;
+          }
+          var wanted = state.toLowerCase();
+          var us = (BL && BL.US_STATES) || {};
+          for (var code in us) {
+            if (String(us[code]).toLowerCase() === wanted) return code;
+          }
+          return '';
+        }
+        var maps = { CA: CA_SUBNATIONAL1, AU: AU_SUBNATIONAL1 };
+        var map = maps[country];
+        if (!map) return '';
+        var sub = /^[A-Z]{2,3}$/.test(state.toUpperCase())
+          ? state.toUpperCase() : map[state.toLowerCase()];
+        return sub ? country + '-' + sub : '';
+      }
+      function regionResolutionError(status, message) {
+        var error = new Error(message);
+        error.regionStatus = status;
+        return error;
+      }
       function deriveRegionCode(lat, lng) {
-        return ebird('ref/hotspot/geo?lat=' + lat.toFixed(4) + '&lng=' + lng.toFixed(4) +
-                     '&dist=30&back=30&fmt=json')
-            .then(function (hs) {
-                var tally = {}, best = '', n = 0;
-                (hs || []).forEach(function (h) {
-                    var c = h && h.subnational1Code;
-                    if (!c) return;
-                    tally[c] = (tally[c] || 0) + 1;
-                    if (tally[c] > n) { n = tally[c]; best = c; }
-                });
-                return best;
-            })
-            .catch(function () { return ''; });
+        lat = Number(lat); lng = Number(lng);
+        if (!isFinite(lat) || !isFinite(lng)
+            || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          return Promise.reject(regionResolutionError(
+            'malformed', 'The location did not contain valid coordinates.'));
+        }
+        var url = 'https://' + GEOCODER_HOST + '/reverse?lat='
+          + lat.toFixed(5) + '&lon=' + lng.toFixed(5);
+        return fetch(url, { headers: { Accept: 'application/json' } })
+          .then(function (response) {
+            if (!response || !response.ok) {
+              throw regionResolutionError('offline',
+                'Region lookup returned HTTP ' + ((response && response.status) || 'error') + '.');
+            }
+            return response.json();
+          })
+          .then(function (doc) {
+            var candidates = {};
+            ((doc && doc.features) || []).forEach(function (feature) {
+              var p = (feature && feature.properties) || {};
+              var code = photonRegionCode(p);
+              if (!EBIRD_REGION_RE.test(code)) return;
+              if (!candidates[code]) {
+                candidates[code] = {
+                  code: code,
+                  label: regionNameFromCode(code),
+                  country: String(p.country || ''),
+                };
+              }
+            });
+            var codes = Object.keys(candidates);
+            if (!codes.length) {
+              throw regionResolutionError('malformed',
+                'The location service did not identify one state or province.');
+            }
+            if (codes.length !== 1) {
+              throw regionResolutionError('ambiguous',
+                'The location is near more than one state or province.');
+            }
+            var result = candidates[codes[0]];
+            result.status = 'ok';
+            result.lat = lat;
+            result.lng = lng;
+            return result;
+          })
+          .catch(function (error) {
+            if (error && error.regionStatus) throw error;
+            throw regionResolutionError('offline',
+              'The region lookup is unavailable. Check the connection and try again.');
+          });
+      }
+      function bundledRegionForCode(code) {
+        return (BL.reports() || []).filter(function (report) {
+          return !report.isRarityTracker
+            && String(report.stateCode || '').toUpperCase() === String(code || '').toUpperCase();
+        })[0] || null;
+      }
+      function selectResolvedRegion(result) {
+        if (!result || result.status !== 'ok'
+            || !EBIRD_REGION_RE.test(String(result.code || ''))) {
+          return Promise.reject(regionResolutionError(
+            'malformed', 'No valid state or province was resolved.'));
+        }
+        var built = bundledRegionForCode(result.code);
+        if (built) {
+          setActiveReport(built.slug);
+          setCountyView('');
+          return Promise.resolve({ slug: built.slug, created: false });
+        }
+        var existing = getCustomRegions().filter(function (region) {
+          return String(region.stateCode || '').toUpperCase()
+            === String(result.code || '').toUpperCase();
+        })[0];
+        if (existing) {
+          setActiveReport(existing.slug);
+          setCountyView('');
+          return Promise.resolve({ slug: existing.slug, created: false });
+        }
+        var tz = tzFromLng(result.lng);
+        var rec = {
+          slug: slugifyRegion(result.label || result.code),
+          label: result.label || result.code,
+          place: result.label || result.code,
+          lat: Number(result.lat), lng: Number(result.lng),
+          stateCode: String(result.code).toUpperCase(), tideStation: '',
+          tzStdOffset: tz.tzStdOffset, tzObservesDst: tz.tzObservesDst
+        };
+        if (!isFinite(rec.lat) || !isFinite(rec.lng)) {
+          return Promise.reject(regionResolutionError(
+            'malformed', 'The resolved region had no usable center.'));
+        }
+        var list = getCustomRegions();
+        list.push(rec);
+        saveCustomRegions(list);
+        setActiveReport(rec.slug);
+        setCountyView('');
+        return Promise.resolve({ slug: rec.slug, created: true });
       }
       // --- region switcher ---------------------------------------------------
       // The project publishes ten reports; the picker in the Contents header
@@ -29889,8 +30312,14 @@
         if (!sel) return;
         // Rebuilt rather than filled-once: adding or deleting a region has to
         // show up in every picker immediately, not after a restart.
-        var cur = sel.value;
+        var cur = sel.value || getReportSlug();
         sel.innerHTML = '';
+        if (!getReportSlug()) {
+          var prompt = document.createElement('option');
+          prompt.value = '';
+          prompt.textContent = 'Choose a region';
+          sel.appendChild(prompt);
+        }
         (allReportsList() || []).forEach(function (r) {
           var o = document.createElement('option');
           o.value = r.slug;
@@ -29912,7 +30341,7 @@
             + (r.isRarityTracker ? ' — rarities' : '');
           sel.appendChild(o);
         });
-        if (cur) sel.value = cur;
+        sel.value = cur || '';
         sel.dataset.filled = '1';
       }
       function bindRegionPickers() {
@@ -29923,15 +30352,21 @@
           sel.dataset.bound = '1';
         });
         bindCountyPicker();
+        var scope = $('menuScope');
+        if (scope && !scope.dataset.countyBound) {
+          scope.dataset.countyBound = '1';
+          scope.addEventListener('toggle', function () {
+            if (scope.open) ensureActiveCountyCatalog();
+          });
+        }
         syncRegionNav();
       }
       // F152. Rebuilt with the identity cell, so it binds here for the same
       // reason the region picker does: a listener attached once at boot is
       // thrown away the first time the menu re-renders, which is the exact
       // shape of the bug that hid the rankings scope for a whole release.
-      function bindCountyPicker() {
-        var sel = $('menuCounty');
-        if (!sel || sel.dataset.bound) return;
+      function fillCountyPicker(sel) {
+        if (!sel) return;
         sel.innerHTML = '';
         var all = document.createElement('option');
         all.value = '';
@@ -29941,7 +30376,7 @@
         // which is.
         all.textContent = 'All counties';
         sel.appendChild(all);
-        getCounties().forEach(function (c) {
+        getCountyChoices().forEach(function (c) {
           if (!c || !c.code) return;
           var o = document.createElement('option');
           // Same reason as the region option above: the chip reads US-WA-033,
@@ -29955,6 +30390,74 @@
           sel.appendChild(o);
         });
         sel.value = getCountyView();
+      }
+      function activeCountyChoiceRows(catalog) {
+        return ((catalog && catalog.rows) || []).map(function (row) {
+          var code = String((row && row.code) || '').trim().toUpperCase();
+          var label = String((row && row.name) || code).trim();
+          if (!/^[A-Z]{2}-[A-Z0-9]{2,3}-[A-Z0-9]{3}$/.test(code)) return null;
+          return {
+            code: code,
+            label: label,
+            slug: code.split('-').pop().toLowerCase()
+          };
+        }).filter(Boolean).sort(function (a, b) {
+          return a.label.localeCompare(b.label);
+        });
+      }
+      function ensureActiveCountyCatalog() {
+        var slug = getReportSlug(), parent = countyParentCode(getReport());
+        var status = $('countyLoadStatus');
+        function liveElement(id) {
+          try {
+            return window.document ? window.document.getElementById(id) : null;
+          } catch (e) { return null; }
+        }
+        if (!slug || !parent) return Promise.resolve([]);
+        if (_runtimeCounties[slug] && _runtimeCounties[slug].length) {
+          fillCountyPicker($('menuCounty'));
+          if (status) status.textContent = '';
+          return Promise.resolve(_runtimeCounties[slug]);
+        }
+        if (!getKey() && !COUNTY_SEED_FILES[parent]) {
+          if (status) status.textContent = 'Add your eBird API key to load county choices.';
+          return Promise.resolve([]);
+        }
+        if (status) status.textContent = 'Loading county choices…';
+        var work = navWork('county choices');
+        return ensureCountyCatalog(parent, function (done, total) {
+          var live = liveElement('countyLoadStatus');
+          if (live) live.textContent = 'Loading county choices ' + done + ' of ' + total + '…';
+        }, work).then(function (catalog) {
+          if (!window.document || slug !== getReportSlug()) return [];
+          var rows = activeCountyChoiceRows(catalog);
+          if (!rows.length) throw new Error('eBird returned no usable county choices.');
+          _runtimeCounties[slug] = rows;
+          fillCountyPicker(liveElement('menuCounty'));
+          var liveStatus = liveElement('countyLoadStatus');
+          if (liveStatus) {
+            liveStatus.textContent = rows.length + ' county choice'
+              + (rows.length === 1 ? '' : 's') + ' loaded.';
+          }
+          headerScopeRefresh();
+          renderMenuList();
+          return rows;
+        }).catch(function (error) {
+          if (error && error.queueCancelled) return [];
+          var liveStatus = liveElement('countyLoadStatus');
+          if (liveStatus) {
+            liveStatus.innerHTML = 'County choices could not be loaded. '
+              + '<button type="button" class="secondary" id="countyRetryBtn">Retry</button>';
+            var retry = liveElement('countyRetryBtn');
+            if (retry) retry.addEventListener('click', ensureActiveCountyCatalog);
+          }
+          return [];
+        });
+      }
+      function bindCountyPicker() {
+        var sel = $('menuCounty');
+        if (!sel || sel.dataset.bound) return;
+        fillCountyPicker(sel);
         sel.addEventListener('change', function () {
           setCountyView(this.value);
           applyCountyView();
@@ -29971,6 +30474,7 @@
       function applyCountyView() {
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         _autoLoaded = {};
+        renderMenuList();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open) showSection(open.id);
       }
@@ -29991,9 +30495,14 @@
         'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults',
         'migFirstResults'];
       function setActiveReport(slug) {
-        slug = (slug || 'wa').toLowerCase();
-        if (slug === getReportSlug()) { syncRegionNav(); return; }
-        localStorage.setItem(K.report, slug);
+        slug = String(slug || '').trim().toLowerCase();
+        var valid = !!(slug && ((BL && BL.REPORTS && BL.REPORTS[slug])
+          || isCustomSlug(slug)));
+        if (!valid) slug = '';
+        if (slug && slug === getReportSlug()) { syncRegionNav(); return; }
+        if (slug) localStorage.setItem(K.report, slug);
+        else localStorage.removeItem(K.report);
+        migrateHomeKeys();
         invalidateMegaViews();
         clearChaseCache();
         clearSpeciesLookup();
@@ -30007,8 +30516,11 @@
         // King/Snohomish with the active report's view options.
         renderMenuIdentity();
         renderMenuList();
+        renderKeyBanner();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
-        if (open && menuApplies({ needs: open._needs, enabled: open._enabled })) showSection(open.id); else showMenu();
+        if (open && menuApplies({
+          at: open._at, needs: open._needs, enabled: open._enabled
+        })) showSection(open.id); else showMenu();
       }
       function loadSettings() {
         populateReportSelect();
@@ -30687,29 +31199,22 @@
         st.textContent = 'Looking up \u201c' + place + '\u201d\u2026';
         geocodePlace(place).then(function (res) {
           st.textContent = 'Found ' + res.label + ' \u2014 working out the eBird region\u2026';
-          // The region code is derived, never typed. A failure here is not fatal:
-          // the region still works from its geo feeds, it just has no
-          // state-scoped species/notable lane until it is set.
-          return deriveRegionCode(res.lat, res.lng).then(function (code) {
+          return deriveRegionCode(res.lat, res.lng).then(function (region) {
             var tz = tzFromLng(res.lng);
             var rec = {
               slug: slugifyRegion(label), label: label, place: res.label,
-              lat: res.lat, lng: res.lng, stateCode: code, tideStation: '',
+              lat: res.lat, lng: res.lng, stateCode: region.code, tideStation: '',
               tzStdOffset: tz.tzStdOffset, tzObservesDst: tz.tzObservesDst
             };
             var list = getCustomRegions();
             list.push(rec);
             saveCustomRegions(list);
             $('tripName').value = ''; $('tripPlace').value = '';
+            setActiveReport(rec.slug);
             renderMyRegions();
-            ['menuRegion', 'navRegion', 'reportSelect'].forEach(function (id) {
-              if ($(id)) fillRegionSelect($(id));
-            });
-            if ($('reportSelect')) $('reportSelect').value = getReportSlug();
-            var where = code ? ' in ' + code
-              : ' (no eBird region resolved \u2014 it will chase from its own map circle)';
+            var where = ' in ' + region.code;
             st.textContent = 'Added \u201c' + label + '\u201d' + where
-              + '. Getting its species list and arrival history ready\u2026';
+              + '. Set Home next; the region center is not used as your Home.';
             // Warm it now, while nobody is waiting. GBIF has no per-key budget
             // and the species index is ~7 cached calls, so this costs the
             // rarity feeds nothing. Deliberately not awaited: adding a region
@@ -30724,7 +31229,7 @@
                 + (r.species ? r.species + ' species' : 'No species list yet')
                 + (r.arrivals ? ' \u00b7 ' + r.arrivals + ' arrival dates read from GBIF'
                               : ' \u00b7 arrival history already covered')
-                + '. Pick it in Default report to start chasing there.';
+                + '. Set Home before opening location-ranked sections.';
             });
           });
         }).catch(function (e) {
@@ -31733,6 +32238,8 @@
         getCountyView: getCountyView, setCountyView: setCountyView,
         countyViewLabel: countyViewLabel, filterCvByCounty: filterCvByCounty,
         countyView: countyView, getCounties: getCounties,
+        getCountyChoices: getCountyChoices,
+        ensureActiveCountyCatalog: ensureActiveCountyCatalog,
         loadDestinations: loadDestinations,
         loadExcursions: loadExcursions, loadFullDay: loadFullDay,
         getRankScope: getRankScope, setRankScope: setRankScope,
@@ -31744,9 +32251,12 @@
         migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
-        getHome: getHome, homeKey: homeKey, tideKey: tideKey,
+        getHome: getHome, hasRealHome: hasRealHome,
+        homeKey: homeKey, tideKey: tideKey,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
         getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
+        deriveRegionCode: deriveRegionCode, selectResolvedRegion: selectResolvedRegion,
+        findOnboardingRegion: findOnboardingRegion, openHomeSetup: openHomeSetup,
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         fetchRank: fetchRank, captureEbird: captureEbird,
         fetchIdentityFromBirdList: fetchIdentityFromBirdList,
