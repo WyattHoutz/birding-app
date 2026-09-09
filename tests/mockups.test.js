@@ -342,6 +342,22 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
     'the mockup suite still carries a second Notes state that no longer exists');
 });
 
+test('F366/F369 Stakeout mockups pin the representative and presence evidence', () => {
+  assert.match(source,
+    /if \(A\.setSpuhRandom\) A\.setSpuhRandom\(function \(\) \{ return 0; \}\);/,
+    'release mockups leave the random spuh representative nondeterministic');
+  const start = source.indexOf(
+    'async function prepareBirdSp(A, document, sec, nodeCode)');
+  const end = source.indexOf('window.FIX =', start);
+  const fixture = source.slice(start, end);
+  assert.match(fixture,
+    /var commonness = examples\.map\(function \(row\) \{\s*return \{ speciesCode: row\[0\] \};/,
+    'the regional snapshot fixture still manufactures report frequencies');
+  assert.match(fixture,
+    /Stakeout candidate presence became a false report count/,
+    'the release renderer does not reject invented candidate report counts');
+});
+
 test('fixture specs point at real hosts and maps in index.html', () => {
   const html = fs.readFileSync(path.join(ROOT, 'www', 'index.html'), 'utf8');
   for (const [at, spec] of Object.entries(mockups.STUB_SPEC)) {

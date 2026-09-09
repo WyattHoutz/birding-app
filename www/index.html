@@ -2501,6 +2501,11 @@
     .spuhcandidateheading { margin: 9px 0 2px; font-size: calc(14px * var(--s)); }
     .spuhcandidatestatus { margin: 0 0 5px; color: var(--muted);
                  font-size: calc(12px * var(--s)); line-height: 1.35; }
+    .spuhcandidategroup + .spuhcandidategroup { margin-top: 10px; }
+    .spuhcandidategroup h4 { margin: 0 0 2px; font-size: calc(13px * var(--s)); }
+    .spuhcandidategroup > p { margin: 0 0 5px; color: var(--muted);
+                 font-size: calc(12px * var(--s)); line-height: 1.35; }
+    .spuhcandidateevidence { font-weight: 800; }
     .spuhcandidateprogressive > .progressive-more { margin-top: 4px; }
     .spuhcandidatecards > li { cursor: pointer; }
     .spuhcandidatecards > li:focus-visible { outline: 3px solid var(--focus);
@@ -2646,7 +2651,7 @@
            Iconic Birds, so the word carries the concept across from something
            the reader has already seen rather than inventing a synonym for it. -->
       <div class="row" id="spLookupSortRow" hidden>
-        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by date">📅 Date</button>
+        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort reachable places first, newest within each group">🧭 Reachable</button>
         <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
       </div>
@@ -3479,7 +3484,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.91.0';
+      var APP_VERSION = '1.92.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6147,6 +6152,7 @@
                 stalled.ebirdStalled = true;
                 throw stalled;
               }
+              if (e && typeof e === 'object') e.ebirdTransport = true;
               throw e;
             });
         }).then(function (r) {
@@ -9196,15 +9202,18 @@
 
       function spuhCandidateCard(row) {
         if (!row || !row.code) return '';
-        var count = Number(row.regionReports) || 0;
+        var evidence = row.regionRecent
+          ? '<span class="spuhcandidateevidence">RECENT</span> · reported in '
+            + esc(row.regionLabel) + ' in the last 30 days'
+          : '<span class="spuhcandidateevidence">REGIONAL LIST</span> · no row '
+            + 'in the current 30-day regional snapshot';
         return SpeciesCards.small({
           cls: 'splink spuhcandidatecard',
           data: { sp: row.code, spname: row.name },
           icon: photoSlot(row.name, row.code),
           name: '<span class="spuhcandidatecardname">' + esc(row.name) + '</span>',
           sub: (row.sci ? '<i>' + esc(row.sci) + '</i>' : '')
-            + (count ? (row.sci ? ' · ' : '') + count + ' recent report'
-              + (count === 1 ? '' : 's') : ''),
+            + (row.sci ? ' · ' : '') + evidence,
           right: '<span class="spgo" aria-hidden="true">›</span>'
         });
       }
@@ -9242,49 +9251,77 @@
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
             return null;
           }
-          var commonness = parts[1] || {};
-          var anyCounts = Object.keys(commonness).some(function (code) {
-            return Number(commonness[code]) > 0;
+          var recentPresence = parts[1] || {};
+          var anyRecent = Object.keys(recentPresence).some(function (code) {
+            return Number(recentPresence[code]) > 0;
           });
           var rows = (parts[0] || []).map(function (regional) {
             var row = byCode[regional.code];
             if (!row) return null;
             row = Object.assign({}, row);
-            row.regionReports = Number(commonness[row.code]) || 0;
+            row.regionRecent = Number(recentPresence[row.code]) > 0;
+            row.regionLabel = regionLabel;
             return row;
           }).filter(Boolean);
           rows.sort(function (a, b) {
-            return b.regionReports - a.regionReports
+            return Number(b.regionRecent) - Number(a.regionRecent)
               || (Number(a.taxonOrder) || Infinity) - (Number(b.taxonOrder) || Infinity)
               || String(a.name).localeCompare(String(b.name));
           });
-          var status = host.closest('.spuhcandidatelane')
-            .querySelector('.spuhcandidatestatus');
+          var lane = host.closest('.spuhcandidatelane');
+          var heading = lane.querySelector('.spuhcandidateheading');
+          var status = lane.querySelector('.spuhcandidatestatus');
+          var recentRows = rows.filter(function (row) { return row.regionRecent; });
+          var regionalOnlyRows = rows.filter(function (row) { return !row.regionRecent; });
+          if (heading) {
+            heading.textContent = recentRows.length
+              ? 'Recently reported birds under ' + node.name
+              : 'Birds under ' + node.name;
+          }
           status.textContent = rows.length
-            ? (anyCounts
-              ? 'Most reported in ' + regionLabel + ' in the last 30 days.'
+            ? (anyRecent
+              ? 'Reported in ' + regionLabel + ' in the last 30 days; '
+                + 'other regional candidates follow separately.'
               : 'Birds on ' + regionLabel
-                + '\u2019s regional list; recent commonness is unavailable.')
+                + '\u2019s regional list; no candidate has a row in the '
+                + 'current 30-day regional snapshot.')
             : 'No birds under ' + node.name + ' are on '
               + regionLabel + '\u2019s current regional list.';
           if (!rows.length) {
             host.innerHTML = '';
             return [];
           }
-          ProgressiveList.mount({
-            host: host,
-            items: rows,
-            batchSize: 25,
-            listClass: 'obs card-sm spuhcandidatecards',
-            buttonClass: 'spuhcandidatemore',
-            noun: 'birds',
-            isCurrent: function () {
-              return generation === _spLookupGeneration
-                && scopeSlug === getReportSlug();
-            },
-            renderItem: spuhCandidateCard,
-            afterAppend: wireSpuhCandidateCards
-          });
+          host.innerHTML = '';
+          function mountGroup(groupRows, title, detailText, className) {
+            if (!groupRows.length) return;
+            var section = document.createElement('section');
+            section.className = 'spuhcandidategroup ' + className;
+            section.innerHTML = '<h4>' + esc(title) + '</h4><p>'
+              + esc(detailText) + '</p><div class="spuhcandidategrouplist"></div>';
+            host.appendChild(section);
+            ProgressiveList.mount({
+              host: section.querySelector('.spuhcandidategrouplist'),
+              items: groupRows,
+              batchSize: 25,
+              listClass: 'obs card-sm spuhcandidatecards',
+              buttonClass: 'spuhcandidatemore',
+              noun: 'birds',
+              isCurrent: function () {
+                return generation === _spLookupGeneration
+                  && scopeSlug === getReportSlug();
+              },
+              renderItem: spuhCandidateCard,
+              afterAppend: wireSpuhCandidateCards
+            });
+          }
+          mountGroup(recentRows,
+            'Recently reported in ' + regionLabel,
+            'Present in eBird\u2019s regional snapshot for the last 30 days.',
+            'spuhcandidaterecent');
+          mountGroup(regionalOnlyRows,
+            'Other regional candidates',
+            'On the regional species list, with no row in the current snapshot.',
+            'spuhcandidateregional');
           hydratePhotos(host);
           return rows;
         }).catch(function (e) {
@@ -9484,14 +9521,42 @@
         });
       }
 
-      function spuhExample(model, node) {
+      var _spuhRandom = Math.random;
+      function spuhExample(model, node, regionalRows) {
         var candidates = model.candidates(node), preferred = {
           calidr: 'wessan',
           shoreb1: 'wessan'
         };
+        if (regionalRows) {
+          var recent = regionalRows.filter(function (row) {
+            return row.regionRecent;
+          });
+          var pool = recent.length ? recent : regionalRows;
+          if (pool.length) {
+            var roll = Number(_spuhRandom());
+            if (!isFinite(roll)) roll = 0;
+            roll = Math.max(0, Math.min(0.999999999, roll));
+            return pool[Math.floor(roll * pool.length)];
+          }
+        }
         var want = preferred[node.code], choice = null;
         if (want) choice = candidates.filter(function (s) { return s.code === want; })[0];
         return choice || candidates[0] || null;
+      }
+
+      function updateSpuhRepresentative(detail, example) {
+        if (!detail || !example) return;
+        var card = detail.querySelector('.spuhresultcard');
+        if (!card) return;
+        var oldThumb = card.querySelector(':scope > .name > .thumb');
+        if (oldThumb) {
+          var holder = document.createElement('div');
+          holder.innerHTML = photoSlot(example.name, example.code);
+          if (holder.firstElementChild) oldThumb.replaceWith(holder.firstElementChild);
+        }
+        var name = card.querySelector('.spuhrepresentativename');
+        if (name) name.textContent = example.name;
+        hydratePhotos(card);
       }
 
       function spuhPublishedSci(node) {
@@ -9605,9 +9670,9 @@
           var coverage = model.coverage(node);
           var example = spuhExample(model, node);
           var quickCandidateHtml = '<div class="spuhcandidatelane">'
-            + '<h3 class="spuhcandidateheading">Common birds under '
+            + '<h3 class="spuhcandidateheading">Birds under '
             + esc(node.name) + '</h3>'
-            + '<p class="spuhcandidatestatus">Finding common birds in '
+            + '<p class="spuhcandidatestatus">Finding recent birds in '
             + esc(getReport().label || getObsRegion()) + '…</p>'
             + '<div class="spuhcandidateprogressive"></div></div>';
           var hierarchyLevels = spuhHierarchyProjection(model, node);
@@ -9622,7 +9687,9 @@
                 code: node.code,
                 sci: spuhPublishedSci(node),
                 sub: coverage.species.length + ' possible birds'
-                  + (example ? ' · Representative candidate: ' + esc(example.name) : ''),
+                  + (example ? ' · Representative candidate: '
+                    + '<span class="spuhrepresentativename">'
+                    + esc(example.name) + '</span>' : ''),
                 below: spuhResultHierarchyHtml(hierarchyLevels)
                   + quickCandidateHtml
               })], 'spuhresulthero')
@@ -9671,7 +9738,11 @@
           return populateSpuhRegionalCandidates(
             detail.querySelector('.spuhcandidateprogressive'),
             model, node, generation, getReportSlug()
-          ).then(function () { return node; });
+          ).then(function (rows) {
+            if (generation !== _spLookupGeneration) return null;
+            updateSpuhRepresentative(detail, spuhExample(model, node, rows || []));
+            return node;
+          });
         }).catch(function (e) {
           if (generation !== _spLookupGeneration) return null;
           detail.innerHTML = '';
@@ -9700,6 +9771,36 @@
         }
       }
 
+      function normalizeSpuhIntent(value) {
+        return String(value || '').trim().toLowerCase()
+          .replace(/\s+/g, ' ')
+          .replace(/\bsp\.?$/, 'sp.');
+      }
+
+      function spuhShapedQuery(value) {
+        return /\bsp\.?\s*$/i.test(String(value || '').trim());
+      }
+
+      function appendSpuhChoices(found, model, hits, heading, detailText) {
+        if (!found || !hits || !hits.length) return;
+        var old = found.querySelectorAll(
+          ':scope > .spuhscope, :scope > .spuhchoice');
+        [].slice.call(old).forEach(function (node) { node.remove(); });
+        var head = document.createElement('li');
+        head.className = 'spscope spuhscope';
+        head.innerHTML = '<strong>' + esc(heading || 'Matching spuhs') + '</strong>'
+          + (detailText ? '<span class="pmeta">' + esc(detailText) + '</span>' : '');
+        found.appendChild(head);
+        hits.forEach(function (node) {
+          var li = document.createElement('li');
+          li.className = 'spuhchoice';
+          var coverage = model.coverage(node);
+          li.innerHTML = spuhNodeButton(node, coverage,
+            coverage.species.length + ' published candidates');
+          found.appendChild(li);
+        });
+      }
+
       function runSpuhSearch(generation, scopeSlug) {
         var q = (($('spLookup') || {}).value || '').trim();
         var st = $('spLookupStatus'), found = $('spLookupFound'),
@@ -9720,10 +9821,12 @@
               || scopeSlug !== getReportSlug()) return null;
           var hits = model.searchSpuh(q, model.nodes.length);
           var exact = hits.filter(function (node) {
-            var n = q.toLowerCase();
-            return node.name.toLowerCase() === n || node.code.toLowerCase() === n;
+            var n = normalizeSpuhIntent(q);
+            return normalizeSpuhIntent(node.name) === n
+              || node.code.toLowerCase() === String(q).trim().toLowerCase();
           });
           if (exact.length === 1) return renderSpuhNode(exact[0].code, generation);
+          if (hits.length === 1) return renderSpuhNode(hits[0].code, generation);
           if (!hits.length) {
             var speciesHits = searchSpecies((model && model.species) || [], q);
             if (!speciesHits.length) {
@@ -10253,59 +10356,145 @@
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
         if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
-        if (_spuhModel) {
-          var exactSpuh = _spuhModel.searchSpuh(q, _spuhModel.nodes.length)
-            .filter(function (node) {
-              var normalized = String(q).trim().toLowerCase();
-              return node.name.toLowerCase() === normalized
-                || node.code.toLowerCase() === normalized;
-            });
-          if (exactSpuh.length === 1) {
-            return renderSpuhNode(exactSpuh[0].code, generation);
-          }
-        }
+        // A query that explicitly says "sp" is already disambiguated by the
+        // user. Consult the compact taxonomy first instead of making it wait
+        // behind regional and parent-country species indexes.
+        if (spuhShapedQuery(q)) return runSpuhSearch(generation, scopeSlug);
+
         var scopes = speciesSearchScopes(scopeRegion, scopeLabel);
-        function searchAt(index) {
+        function current() {
+          return generation === _spLookupGeneration && scopeSlug === getReportSlug();
+        }
+        function mixedStatus(speciesCount, spuhCount, pending) {
+          if (!current()) return;
+          var parts = [];
+          if (speciesCount) {
+            parts.push(speciesCount + ' bird species');
+          }
+          if (spuhCount) {
+            parts.push(spuhCount + ' matching spuh' + (spuhCount === 1 ? '' : 's'));
+          }
+          st.textContent = parts.length
+            ? parts.join(' · ') + (pending ? ' · checking the remaining source…'
+              : ' · tap one to continue.')
+            : (pending ? 'Searching bird species and spuhs…' : '');
+        }
+        function loadMixedSpuhs(appendSingle) {
+          return loadSpuhModel().then(function (model) {
+            if (!current()) return { model: model, hits: [] };
+            var hits = model.searchSpuh(q, model.nodes.length);
+            if (hits.length > 1 || (appendSingle && hits.length === 1)) {
+              appendSpuhChoices(found, model, hits, 'Matching spuhs',
+                'Published uncertain-identification labels matching this search.');
+            }
+            return { model: model, hits: hits };
+          }).catch(function (e) {
+            if (current() && !found.children.length) st.textContent = netErr(e);
+            return { model: null, hits: [] };
+          });
+        }
+        function searchParentAt(index) {
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
-            return Promise.resolve();
+            return Promise.resolve([]);
           }
-          if (index >= scopes.length) {
-            return runSpuhSearch(generation, scopeSlug);
-          }
+          if (index >= scopes.length) return Promise.resolve([]);
           var scope = scopes[index];
-          st.textContent = index
-            ? 'No match in ' + scopes[index - 1].label + '. Searching ' + scope.label + '…'
-            : 'Finding species recorded in ' + scope.label + '…';
+          st.textContent = 'No local bird match. Searching ' + scope.label
+            + ' while matching spuhs load…';
           return loadSpeciesIndex(scope.code).then(function (rows) {
-            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+            if (!current()) return [];
             var hits = searchSpecies(rows, q);
-            if (!hits.length) return searchAt(index + 1);
-            // One LOCAL match is an answer, not a menu — go straight to the
-            // bird. A parent match always stays behind its visible scope
-            // boundary so it cannot be mistaken for a local record.
-            if (scope.local && hits.length === 1) {
-              return lookupSpecies(hits[0].code, hits[0].name, generation, scopeSlug);
-            }
-            if (scope.local) {
-              st.textContent = hits.length + ' matches · tap one to see where it has been reported.';
-              appendSpeciesChoices(found, hits);
-              return;
-            }
+            if (!hits.length) return searchParentAt(index + 1);
             appendSpeciesChoices(found, hits, {
               heading: 'Outside ' + scopeLabel + ' — ' + scope.label,
               detail: 'The active regional list had no match; this is the first parent region that did.',
               rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
             });
-            st.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es')
-              + ' outside ' + scopeLabel + ' in ' + scope.label
-              + ' · tap one to check the active report anyway.';
+            return hits;
           });
         }
-        return searchAt(0).catch(function (e) {
+        st.textContent = 'Finding species recorded in ' + scopeLabel + '…';
+        return loadSpeciesIndex(scopes[0].code).then(function (rows) {
+          if (!current()) return null;
+          var localHits = searchSpecies(rows, q);
+          if (localHits.length === 1) {
+            return lookupSpecies(localHits[0].code, localHits[0].name,
+              generation, scopeSlug);
+          }
+          if (localHits.length) {
+            appendSpeciesChoices(found, localHits, {
+              heading: 'Bird species in ' + scopeLabel,
+              detail: 'Recorded on the active regional species list.'
+            });
+            mixedStatus(localHits.length, 0, true);
+            return loadMixedSpuhs(true).then(function (spuhResult) {
+              if (!current()) return null;
+              mixedStatus(localHits.length, spuhResult.hits.length, false);
+              return { species: localHits, spuhs: spuhResult.hits };
+            });
+          }
+
+          var spuhPromise = loadMixedSpuhs(false);
+          var parentPromise = searchParentAt(1);
+          return Promise.all([spuhPromise, parentPromise]).then(function (parts) {
+            if (!current()) return null;
+            var spuhResult = parts[0], parentHits = parts[1] || [];
+            if (!parentHits.length && spuhResult.hits.length === 1) {
+              return renderSpuhNode(spuhResult.hits[0].code, generation);
+            }
+            if (spuhResult.hits.length === 1) {
+              appendSpuhChoices(found, spuhResult.model, spuhResult.hits,
+                'Matching spuhs',
+                'Published uncertain-identification labels matching this search.');
+            }
+            if (!parentHits.length && !spuhResult.hits.length && spuhResult.model) {
+              var taxonomyHits = searchSpecies(spuhResult.model.species || [], q);
+              if (taxonomyHits.length) {
+                appendSpeciesChoices(found, taxonomyHits, {
+                  heading: 'Full eBird taxonomy — outside ' + scopeLabel,
+                  detail: 'These birds are valid eBird species, but not on the active regional list.',
+                  rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
+                });
+                parentHits = taxonomyHits;
+              }
+            }
+            if (!parentHits.length && !spuhResult.hits.length) {
+              st.textContent = 'No bird or spuh matches “' + q + '”.';
+              return null;
+            }
+            mixedStatus(parentHits.length, spuhResult.hits.length, false);
+            return { species: parentHits, spuhs: spuhResult.hits };
+          });
+        }).catch(function (e) {
           if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
             st.textContent = netErr(e);
           }
         });
+      }
+
+      function isSpeciesSightingsTransportError(error) {
+        return !!error
+          && error.ebirdTransport
+          && !error.ebirdStalled
+          && !error.ebirdCancelled;
+      }
+
+      function loadSpeciesSightings(region, code, generation, scopeSlug) {
+        var path = speciesLookupPath(region, code, SP_LOOKUP_BACK);
+        function attempt(number) {
+          return ebird(path).catch(function (error) {
+            if (number === 0 && isSpeciesSightingsTransportError(error)
+                && generation === _spLookupGeneration
+                && scopeSlug === getReportSlug()) {
+              var status = $('spLookupStatus');
+              if (status) status.textContent =
+                'The sightings connection failed; retrying once…';
+              return attempt(1);
+            }
+            throw error;
+          });
+        }
+        return attempt(0);
       }
 
       function lookupSpecies(code, name, generation, scopeSlug, megaRef, finderContext) {
@@ -10341,17 +10530,15 @@
         st.textContent = 'Looking up ' + name + ' across ' + reportLabel
           + ' (last ' + SP_LOOKUP_BACK + ' days)…';
         _spLookupLoading = true;
-        if (mega) {
-          _spLookupGroup = {
-            code: code, name: name, places: [], nPlaces: 0, nReports: 0,
-            nObservers: 0, anyUnconfirmed: false, distMi: null,
-            emptyCurrent: false, loadError: ''
-          };
-          renderSpeciesLookup();
-        }
+        _spLookupGroup = {
+          code: code, name: name, places: [], nPlaces: 0, nReports: 0,
+          nObservers: 0, anyUnconfirmed: false, distMi: null,
+          emptyCurrent: false, loadError: ''
+        };
+        renderSpeciesLookup();
         var sightings = mega
           ? megaEnsureState(mega.view, mega)
-          : ebird(speciesLookupPath(region, code, SP_LOOKUP_BACK));
+          : loadSpeciesSightings(region, code, generation, scopeSlug);
         if (mega) hydrateActiveMega(mega, generation);
         return sightings.then(function (rows) {
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
@@ -10411,8 +10598,8 @@
         }).catch(function (e) {
           if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
             _spLookupLoading = false;
-            if (mega && _spLookupGroup) {
-              _spLookupGroup.loadError = netErr(e);
+            if (_spLookupGroup) {
+              _spLookupGroup.loadError = (e && e.message) || String(e);
               renderSpeciesLookup();
             } else {
               st.textContent = netErr(e);
@@ -11168,11 +11355,19 @@
         var mega = _activeMega ? megaEntry(_activeMega, g.code) : null;
         var iconicMode = _spLookupSort === 'iconic';
         var lookupSummary = '';
+        var sightingsFailure = '';
         sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
         var seenIt = !!getReportSeen()[g.code];
         st.hidden = false;
         if (g.loadError) {
-          st.textContent = g.loadError;
+          st.textContent = '';
+          st.hidden = true;
+          sightingsFailure = '<div class="status splookuperror">'
+            + '<strong>Sightings could not load.</strong> '
+            + esc(g.loadError)
+            + ' <button type="button" class="secondary spLookupRetrySightings" '
+            + 'data-code="' + esc(g.code) + '" data-name="' + esc(g.name)
+            + '">Retry sightings</button></div>';
         } else if (g.emptyCurrent) {
           st.textContent = 'No reports of ' + g.name + ' in '
             + (BL.speciesFeedRegion(getReport()) || getObsRegion()) + ' in the last '
@@ -11188,7 +11383,8 @@
             + ' in the last ' + SP_LOOKUP_BACK + ' days'
             + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
             + ' · ' + (iconicMode ? 'iconic places'
-                       : _spLookupSort === 'dist' ? 'by distance' : 'by date')
+                       : _spLookupSort === 'dist' ? 'by distance'
+                       : 'reachable first, newest within each group')
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
@@ -11214,7 +11410,7 @@
           sub: seenIt ? 'already on your year list' : 'not on your year list',
           below: (lookupSummary
             ? '<div class="status splookupsummary">' + esc(lookupSummary) + '</div>'
-            : '') + megaEvidenceHtml(mega) + placesHtml
+            : '') + megaEvidenceHtml(mega) + sightingsFailure + placesHtml
         });
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -11226,6 +11422,11 @@
         var more = out.querySelector('.spLookupMore');
         if (more) more.addEventListener('click', function () {
           appendSpLookupPlaces(more, g);
+        });
+        var retrySightings = out.querySelector('.spLookupRetrySightings');
+        if (retrySightings) retrySightings.addEventListener('click', function () {
+          lookupSpecies(retrySightings.getAttribute('data-code') || g.code,
+            retrySightings.getAttribute('data-name') || g.name);
         });
         if ((g.places || []).length) renderSpeciesLookupMap(g, iconicMode, SP_ROWS_MAX);
         else clearMap($('spLookupMap'));
@@ -11349,7 +11550,7 @@
         if (!(left > 0)) return '';
         return '<button type="button" class="secondary spLookupMore" data-start="'
           + start + '" data-generation="' + _spLookupGeneration + '">Show '
-          + left + ' more report' + (left === 1 ? '' : 's') + '</button>';
+          + left + ' more place' + (left === 1 ? '' : 's') + '</button>';
       }
 
       function appendSpLookupPlaces(button, bird) {
@@ -11368,7 +11569,7 @@
         var at = start + next.length, left = all.length - at;
         if (left > 0) {
           button.setAttribute('data-start', at);
-          button.textContent = 'Show ' + left + ' more report' + (left === 1 ? '' : 's');
+          button.textContent = 'Show ' + left + ' more place' + (left === 1 ? '' : 's');
         } else {
           button.remove();
         }
@@ -31792,7 +31993,10 @@
         // was built to answer for it, rather than leaving for ebird.org. Both
         // go through showSection for the same reason .seclink does: navigation
         // here is showSection(), not a URL.
-        var spuh = ev.target.closest('.spuhlink[data-spuh], .spuhtaxlink[data-spuh]');
+        var spuh = ev.target.closest(
+          '.spuhlink[data-spuh], .spuhtaxlink[data-spuh], '
+          + '.spuhpathchip[data-spuh], .spuhtaxmarked[data-spuh], '
+          + '.spuhtaxbackbone[data-spuh]');
         if (spuh) {
           ev.preventDefault();
           openSpuhFinder(spuh.getAttribute('data-spuh') || '');
@@ -32427,6 +32631,9 @@
         renderSpuhNode: renderSpuhNode, renderSpuhStakeoutNav: renderSpuhStakeoutNav,
         openSpuhFinder: openSpuhFinder,
         clearSpuhFinder: clearSpuhFinder, spuhCacheClear: spuhCacheClear,
+        setSpuhRandom: function (fn) {
+          _spuhRandom = typeof fn === 'function' ? fn : Math.random;
+        },
         setSpuhModel: function (model) {
           _spuhModel = model || null;
           _spuhModelPromise = model ? Promise.resolve(model) : null;

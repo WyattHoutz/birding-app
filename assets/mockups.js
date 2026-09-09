@@ -920,6 +920,7 @@ const BOOTSTRAP = `
   function fixtureBefore(at, A, document) {
     if (at === 'spLookupBtn') {
       A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(window.FIX.spuhRows));
+      if (A.setSpuhRandom) A.setSpuhRandom(function () { return 0; });
     }
     if (at === 'surgeBtn') {
       var speciesSeed = localStorage.getItem('ebird_species_v2:US-WA');
@@ -1473,12 +1474,8 @@ const BOOTSTRAP = `
         return { code: row[0], name: row[1], sci: row[2] };
       })
     }));
-    var commonness = [];
-    examples.forEach(function (row, index) {
-      var reports = 60 - index;
-      for (var i = 0; i < reports; i++) {
-        commonness.push({ speciesCode: row[0] });
-      }
+    var commonness = examples.map(function (row) {
+      return { speciesCode: row[0] };
     });
     var oldFetch = document.defaultView.fetch;
     document.defaultView.fetch = function (url) {
@@ -1507,6 +1504,9 @@ const BOOTSTRAP = `
     if (!list || list.children.length !== expectedRows) {
       throw new Error((nodeCode === 'calidr' ? 'peep sp.' : 'bird sp.')
         + ' did not paint its regional bird list');
+    }
+    if (/\b\d+ recent reports?\b|Most reported/i.test(host.textContent)) {
+      throw new Error('Stakeout candidate presence became a false report count');
     }
     if (nodeCode === 'calidr' ? !!more
         : (!more || more.textContent.trim() !== 'Show 5 more of 30 birds')) {

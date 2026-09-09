@@ -11501,9 +11501,17 @@ function installSpuhFixture(app, fullCounts = false) {
       familyComName: 'Ducks, Geese, and Waterfowl', taxonOrder: 7,
     },
   ];
+  const measuredPeepCandidates = [
+    ['ruff', 'Ruff', 'Calidris pugnax'],
+    ['sander', 'Sanderling', 'Calidris alba'],
+    ['least', 'Least Sandpiper', 'Calidris minutilla'],
+    ['baird', "Baird's Sandpiper", 'Calidris bairdii'],
+  ];
   for (let i = 0; i < 22; i++) {
-    rows.push(s(`cal${i}`, `Calidris fixture ${i + 1}`,
-      `Calidris fixture${i + 1}`, 10 + i,
+    const fixture = measuredPeepCandidates[i];
+    rows.push(s(fixture ? fixture[0] : `cal${i}`,
+      fixture ? fixture[1] : `Calidris fixture ${i + 1}`,
+      fixture ? fixture[2] : `Calidris fixture${i + 1}`, 10 + i,
       'Scolopacidae', 'Sandpipers and Allies'));
   }
   if (fullCounts) {
@@ -11538,11 +11546,334 @@ function installSpuhFixture(app, fullCounts = false) {
     u('peep', 'peep sp.', 'Calidris sp. (peep sp.)', 105, 'Scolopacidae'),
     u('trin', 'Tringa sp.', 'Tringa sp.', 106, 'Scolopacidae'),
     u('lar', 'Larus sp.', 'Larus sp.', 107, 'Laridae'),
+    u('gull', 'gull sp.', 'Larus sp. (gull sp.)', 108, 'Laridae'),
+    u('gulltern', 'gull/tern sp.', 'Laridae sp. (gull/tern sp.)', 109, 'Laridae'),
+    u('wwgull', 'white-winged gull sp.',
+      'Larus sp. (white-winged gull sp.)', 110, 'Laridae'),
   );
   const model = app.window.Spuh.createFromTaxonomy(rows);
   app.window.__app.setSpuhModel(model);
   return model;
 }
+
+test('F364 first spuh intent bypasses parent species indexes and normalizes sp punctuation', async (t) => {
+  const requests = [];
+  const app = await boot({
+    fetch(url) {
+      requests.push(String(url));
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      if (/product\/spplist\/US-WA/.test(url)) return ['sem', 'wes'];
+      if (/product\/spplist\//.test(url)) return [];
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  const model = installSpuhFixture(app);
+  const A = app.window.__app;
+  A.setSpuhModelPromise(Promise.resolve(model));
+  app.$('spLookup').value = 'peep sp';
+  await A.runSpeciesLookup();
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname'),
+  'the punctuation-normalized peep result');
+  assert.equal(app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname').textContent, 'peep sp.');
+  assert.equal(app.document.querySelectorAll('#spLookupFound [data-spuh]').length, 0,
+    'a unique exact spuh still stops at a redundant choice menu');
+  assert.equal(requests.filter((url) =>
+    /product\/spplist\/US(?:\?|$)/.test(url)).length, 0,
+  'an exact spuh search warmed the parent-country species index first');
+
+  app.$('spLookup').value = 'gull sp';
+  await A.runSpeciesLookup();
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname'),
+  'the punctuation-normalized gull result');
+  assert.equal(app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname').textContent, 'gull sp.',
+  'omitting the terminal period widened an exact gull spuh into fuzzy choices');
+  app.window.close();
+});
+
+test('F365 condensed and detailed spuh hierarchy controls navigate in-app', async (t) => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+  const A = app.window.__app;
+
+  await A.renderSpuhNode('peep');
+  const condensedBird = app.document.querySelector(
+    '#spLookupQueryHelp .spuhresultpath [data-spuh="bird1"]');
+  assert.ok(condensedBird, 'the real condensed bird-spuh route is missing');
+  app.click(condensedBird);
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname')?.textContent === 'bird sp.',
+  'the condensed hierarchy destination');
+
+  await A.renderSpuhNode('peep');
+  const syntheticOrder = app.document.querySelector(
+    '#spLookupQueryHelp .spuhresultpath [data-compact-label="Charadriiformes"]');
+  assert.ok(syntheticOrder && syntheticOrder.tagName === 'SPAN'
+    && !syntheticOrder.hasAttribute('data-spuh'),
+  'the synthetic order label still promises a nonexistent destination');
+  app.click(app.document.querySelector(
+    '#spLookupQueryHelp [data-spuhview="detailed"]'));
+  const detailedShorebird = app.document.querySelector(
+    '#spLookupQueryHelp .spuhtaxmarked[data-spuh="shore"]');
+  assert.ok(detailedShorebird, 'the real detailed hierarchy route is missing');
+  app.click(detailedShorebird);
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname')?.textContent === 'shorebird sp.',
+  'the detailed hierarchy destination');
+  app.window.close();
+});
+
+test('F366 spuh representative is chosen from current regional birds with injectable randomness', async (t) => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        return [{ speciesCode: 'sem' }, { speciesCode: 'wes' }];
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+          { code: 'ruff', name: 'Ruff', sci: 'Calidris pugnax' },
+        ],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+  assert.equal(typeof app.window.__app.setSpuhRandom, 'function',
+    'tests cannot inject the representative choice');
+  app.window.__app.setSpuhRandom(() => 0.99);
+  await app.window.__app.renderSpuhNode('peep');
+  const hero = app.document.querySelector('#spLookupQueryHelp .spuhresultcard');
+  await waitFor(() => hero.querySelector(':scope > .name > .thumb')
+    ?.getAttribute('data-bird') === 'Western Sandpiper',
+  'the current-region representative');
+  assert.match(hero.querySelector(':scope > .meta').textContent,
+    /Representative candidate: Western Sandpiper/,
+  'the hero label and image do not use the same random recent candidate');
+  app.window.close();
+});
+
+test('F368 an ordinary query progressively merges species and matching spuh groups', async (t) => {
+  const requests = [];
+  const app = await boot({
+    fetch(url) {
+      requests.push(String(url));
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'rng', name: 'Ring-billed Gull', sci: 'Larus delawarensis' },
+          { code: 'cag', name: 'California Gull', sci: 'Larus californicus' },
+        ],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+  app.$('spLookup').value = 'gull';
+  await app.window.__app.runSpeciesLookup();
+  await waitFor(() => app.document.querySelector(
+    '#spLookupFound .spuhchoice [data-spuh]'),
+  'the matching spuh group');
+  const found = app.$('spLookupFound');
+  assert.match(found.textContent, /Bird species in Washington/);
+  assert.match(found.textContent, /Ring-billed Gull.*California Gull/s);
+  assert.match(found.textContent, /Matching spuhs.*gull sp\./s);
+  assert.equal(requests.filter((url) =>
+    /product\/spplist\/US(?:\?|$)/.test(url)).length, 0,
+  'local species hits still triggered the unnecessary parent-country index');
+  app.window.close();
+});
+
+test('F369 spuh candidates distinguish recent presence without inventing report counts', async (t) => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        return [{ speciesCode: 'wes' }];
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+  await app.window.__app.renderSpuhNode('peep');
+  const lane = app.document.querySelector('#spLookupQueryHelp .spuhcandidatelane');
+  assert.equal(lane.querySelector('.spuhcandidateheading').textContent,
+    'Recently reported birds under peep sp.');
+  assert.match(lane.textContent,
+    /Western Sandpiper.*RECENT.*reported in Washington in the last 30 days/s);
+  assert.match(lane.textContent,
+    /Other regional candidates.*Semipalmated Sandpiper.*REGIONAL LIST/s);
+  assert.doesNotMatch(lane.textContent, /\b1 recent report\b|Most reported/i,
+    'one-row regional presence is still presented as frequency');
+  app.window.close();
+});
+
+test('F367 a transport-only sightings failure retries once and keeps the selected bird', async (t) => {
+  let attempts = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        return [{ speciesCode: 'ruff' }];
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{ code: 'ruff', name: 'Ruff', sci: 'Calidris pugnax' }],
+      }),
+    },
+  });
+  t.after(() => app.window.close());
+  const baseFetch = app.window.fetch;
+  app.window.fetch = (url) => {
+    if (!/data\/obs\/.*\/recent\/ruff/.test(String(url))) return baseFetch(url);
+    attempts++;
+    if (attempts === 1) {
+      return Promise.reject(new app.window.TypeError('Load failed'));
+    }
+    const body = [{
+      speciesCode: 'ruff', comName: 'Ruff',
+      locName: 'Hoquiam STP', locId: 'L-HOQUIAM',
+      lat: 46.97, lng: -123.91,
+      obsDt: '2026-08-28 08:00', subId: 'S-RUFF', obsValid: true,
+    }];
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+  };
+  installSpuhFixture(app);
+  await app.window.__app.renderSpuhNode('peep');
+  const ruff = app.document.querySelector(
+    '#spLookupQueryHelp .spuhcandidatecard[data-sp="ruff"]');
+  assert.ok(ruff, 'Ruff is missing from the peep candidate controls');
+  app.click(ruff);
+  await waitFor(() => /Hoquiam STP/.test(app.$('spLookupResults').textContent),
+    'the automatically retried Ruff sightings');
+  assert.equal(attempts, 2, 'the transport failure did not receive exactly one retry');
+  assert.match(app.$('spLookupResults').textContent, /Ruff.*Hoquiam STP/s);
+  assert.match(app.$('spLookupIdHelp').textContent, /Ruff/,
+    'the selected bird hierarchy disappeared during the retry');
+  app.window.close();
+});
+
+test('F367 two transport failures retain a named manual sightings retry', async (t) => {
+  let attempts = 0;
+  const app = await boot();
+  t.after(() => app.window.close());
+  const baseFetch = app.window.fetch;
+  app.window.fetch = (url) => {
+    if (!/data\/obs\/.*\/recent\/ruff/.test(String(url))) return baseFetch(url);
+    attempts++;
+    if (attempts <= 2) {
+      return Promise.reject(new app.window.TypeError('Load failed'));
+    }
+    const body = [{
+      speciesCode: 'ruff', comName: 'Ruff',
+      locName: 'Hoquiam STP', locId: 'L-HOQUIAM',
+      lat: 46.97, lng: -123.91,
+      obsDt: '2026-08-28 08:00', subId: 'S-RUFF', obsValid: true,
+    }];
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    });
+  };
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('ruff', 'Ruff');
+  const card = app.document.querySelector('#spLookupResults > li');
+  const retry = card && card.querySelector('.spLookupRetrySightings');
+  assert.ok(card && retry, 'two transport failures replaced the selected bird with a dead end');
+  assert.match(card.textContent, /Sightings could not load.*Load failed/s);
+  assert.match(app.$('spLookupIdHelp').textContent, /Ruff/,
+    'the bird hierarchy was discarded with the failed sightings request');
+  assert.equal(attempts, 2, 'automatic retries were not bounded to one');
+  app.click(retry);
+  await waitFor(() => /Hoquiam STP/.test(app.$('spLookupResults').textContent),
+    'the manual sightings retry');
+  assert.equal(attempts, 3, 'manual retry did not issue only the failed sightings work');
+  app.window.close();
+});
+
+test('F367 an HTTP sightings error is not mistaken for a transport retry', async (t) => {
+  let attempts = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/ruff/.test(url)) {
+        attempts++;
+        return { __status: 400 };
+      }
+      return null;
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+
+  await app.window.__app.lookupSpecies('ruff', 'Ruff');
+  const card = app.document.querySelector('#spLookupResults > li');
+  assert.ok(card?.querySelector('.spLookupRetrySightings'),
+    'the HTTP failure did not retain the selected bird and manual retry');
+  assert.match(card.textContent, /eBird returned HTTP 400/);
+  assert.equal(attempts, 1,
+    'an HTTP response was retried as though no response had arrived');
+  app.window.close();
+});
 
 test('F358 Stakeout bird continues from a spuh into bird evidence', async () => {
   const app = await boot({
@@ -11577,6 +11908,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
     },
   });
   installSpuhFixture(app);
+  app.window.__app.setSpuhRandom(() => 0);
 
   const section = app.$('sec-spLookupBtn');
   assert.match(section.querySelector('h2').textContent, /Stakeout bird/i,
@@ -11689,7 +12021,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'Detailed view is not between the hierarchy and candidate birds');
   assert.equal(candidateHeading.textContent.trim(),
-    'Common birds under peep sp.',
+    'Recently reported birds under peep sp.',
   'the compact spuh card does not label the candidate list');
   const compactCandidates = heroCard.querySelector(
     ':scope > .spuhcandidatelane .spuhcandidatecards.obs.card-sm');
@@ -11701,8 +12033,8 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   'the candidate list does not expose one small card per possible bird');
   assert.deepEqual(candidateCards.map((card) =>
     card.querySelector('.spuhcandidatecardname').textContent.trim()),
-  ['Western Sandpiper', 'Semipalmated Sandpiper'],
-  'candidate birds are not ordered by current-region report frequency');
+  ['Semipalmated Sandpiper', 'Western Sandpiper'],
+  'recent candidate birds do not use stable taxonomy order');
   assert.ok(candidateCards.every((card) =>
     card.querySelector('.thumb[data-bird]') && card.getAttribute('role') === 'button'
       && card.tabIndex === 0),
@@ -11714,8 +12046,8 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.ok(fullView.querySelector('.spuhtaxsteps'),
     'Detailed view does not own the numbered taxonomic hierarchy');
   assert.match(heroCard.querySelector('.spuhcandidatelane').textContent,
-    /Western Sandpiper.*Semipalmated Sandpiper/s,
-    'the condensed view does not expose the ranked candidate birds');
+    /Semipalmated Sandpiper.*Western Sandpiper/s,
+    'the condensed view does not expose the stable recent candidate birds');
   assert.equal(app.$('sec-spLookupBtn').hidden, false,
     'the spuh result left Stakeout bird');
 
@@ -11740,7 +12072,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.match(stakeoutMeta && stakeoutMeta.textContent, /on your year list/,
     'the species card lost the year-list state above its sightings summary');
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
-    /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by date/,
+    /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · reachable first, newest within each group/,
   'the sightings summary is not inside the Western Sandpiper card');
   assert.ok(stakeoutMeta.compareDocumentPosition(stakeoutSummary)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
@@ -11853,15 +12185,15 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.equal(list.querySelectorAll(':scope > li.spuhcandidatecard').length, 25,
     'bird sp. does not start with exactly 25 small species cards');
   assert.equal(list.querySelector('.spuhcandidatecardname').textContent,
-    'Regional Bird 30',
-  'the region\'s most frequently reported candidate does not lead');
+    'Regional Bird 01',
+  'recent regional candidates do not keep stable taxonomy order');
   assert.doesNotMatch(list.textContent, /Outside Bird/,
     'a bird outside the active regional list entered the common-bird lane');
   assert.equal(host.querySelector('.spuhcandidatemore').textContent,
     'Show 5 more of 30 birds');
   assert.match(host.querySelector('.spuhcandidatestatus').textContent,
-    /Most reported in Washington in the last 30 days/,
-  'the list does not say what region and evidence ranked it');
+    /Reported in Washington in the last 30 days/,
+  'the list does not name its recent-presence evidence');
   const hero = host.querySelector('.spuhresultcard');
   const hierarchyBlock = hero.querySelector('.spuhhierarchyblock');
   const path = hierarchyBlock && hierarchyBlock.querySelector('.spuhresultpath');
@@ -12407,9 +12739,9 @@ test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint', asy
   app.window.close();
 });
 
-test('Stakeout recent reports append one small hotspot row per place into the same list', async () => {
+test('F370 Stakeout recent reports append one small hotspot row per place into the same list', async () => {
   let fetches = 0;
-  const rows = Array.from({ length: 30 }, (_, i) => ({
+  const rows = Array.from({ length: 55 }, (_, i) => ({
     speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
     locName: `Hotspot ${i + 1}`, locId: `L${i + 1}`,
     lat: 47.7 + i / 100, lng: -122.2,
@@ -12446,7 +12778,7 @@ test('Stakeout recent reports append one small hotspot row per place into the sa
   'the one hotspot row does not link its newest checklist');
 
   const more = card.querySelector('button.spLookupMore');
-  assert.match(more.textContent, /Show 5 more reports/);
+  assert.match(more.textContent, /Show 30 more places/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
   assert.equal(numberedPins(), 25,
@@ -12455,12 +12787,17 @@ test('Stakeout recent reports append one small hotspot row per place into the sa
   more.click();
   assert.strictEqual(card.querySelector('ul.spLookupPlaceList'), list,
     'Show more replaced the list instead of appending to it');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 30);
+  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 50);
   assert.equal(card.querySelectorAll('ul.spLookupPlaceList').length, 1);
   assert.equal(list.querySelectorAll('ul').length, 0,
     'expanded reports are still indented inside a second list');
-  assert.equal(numberedPins(), 30,
+  assert.equal(numberedPins(), 50,
     'Show more appended rows without appending their map pins');
+  assert.match(more.textContent, /Show 5 more places/,
+    'the remaining Show-more label switched back to reports');
+  more.click();
+  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 55);
+  assert.equal(numberedPins(), 55);
   assert.equal(fetches, beforeFetches, 'lazy expansion refetched the species feed');
   assert.equal(card.querySelector('button.spLookupMore'), null,
     'the exhausted Show-more control remains active');
@@ -12717,6 +13054,45 @@ test('species lookup sorts by date and by distance from one fetch', async () => 
   const withNull = { places: [{ loc: 'Unknown', distMi: null, dateStr: '2026-07-31' }, { loc: 'Known', distMi: 9, dateStr: '2026-07-01' }] };
   assert.equal(A.sortSpeciesPlaces(withNull, 'dist').places[0].loc, 'Known',
     'an unknown distance sorts last, not first');
+  app.window.close();
+});
+
+test('F371 reachable-first Stakeout order is labelled honestly instead of Date', async (t) => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) {
+        return [
+          {
+            speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+            locName: 'Older reachable place', locId: 'L-NEAR',
+            lat: 47.75, lng: -122.15,
+            obsDt: '2026-08-14 08:00', subId: 'S-NEAR', obsValid: true,
+          },
+          {
+            speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+            locName: 'Newer distant place', locId: 'L-FAR',
+            lat: 46.0, lng: -120.0,
+            obsDt: '2026-09-08 08:00', subId: 'S-FAR', obsValid: true,
+          },
+        ];
+      }
+      return null;
+    },
+  });
+  t.after(() => app.window.close());
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
+  const rows = [...app.document.querySelectorAll(
+    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+  assert.match(rows[0], /Older reachable place/,
+    'the F92 reachable-first behavior was removed instead of labelled');
+  assert.match(app.$('spLookupByDate').textContent, /Reachable/);
+  assert.equal(app.$('spLookupByDate').getAttribute('aria-label'),
+    'Sort reachable places first, newest within each group');
+  assert.match(app.document.querySelector(
+    '#spLookupResults .splookupsummary').textContent,
+  /reachable first, newest within each group/);
+  assert.doesNotMatch(app.$('spLookupByDate').textContent, /\bDate\b/);
   app.window.close();
 });
 
@@ -16319,14 +16695,18 @@ test('F304 a failed selected-state read is an error, not a false empty answer', 
     lat: 48.3861, lng: -124.7142,
   }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
   app.click(app.document.querySelector('#abaResults .megajump'));
-  await waitFor(() => !/Looking up/i.test(app.$('spLookupStatus').textContent),
+  await waitFor(() => app.document.querySelector(
+    '#spLookupResults .splookuperror'),
     'the selected state-feed settlement');
-  assert.match(app.$('spLookupStatus').textContent,
+  const card = app.document.querySelector('#spLookupResults > li');
+  assert.ok(card?.querySelector('.spLookupRetrySightings'),
+    'the failed state read replaced the selected bird with a dead end');
+  assert.match(card.textContent,
     /API key was rejected|Live eBird calls work only/i,
     `the state-feed failure must remain visible; calls: ${app.state.fetches.join(' | ')}`);
-  assert.ok(app.document.querySelector('#spLookupResults .megaevidence'),
+  assert.ok(card.querySelector('.megaevidence'),
     'already-held Mega evidence remains available after the live read fails');
-  assert.doesNotMatch(app.$('spLookupStatus').textContent,
+  assert.doesNotMatch(card.textContent + app.$('spLookupStatus').textContent,
     /No reports.*real answer|not being seen right now/i,
     'a failed request cannot be relabelled as an observed absence');
   await settleMegaEntry(app, 'whiwag');
@@ -16653,7 +17033,10 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
     'row dead-space routing must yield to every nested action');
   const stakeout = HTML.slice(HTML.indexOf('function renderSpeciesLookup()'),
     HTML.indexOf('var SP_ROWS_MAX'));
-  assert.match(stakeout, /megaEvidenceHtml\(mega\) \+ placesHtml/,
+  assert.equal((stakeout.match(/SpeciesCards\.medium\(/g) || []).length, 1,
+    'Stakeout rebuilt preserved and live evidence as separate species cards');
+  assert.match(stakeout,
+    /below:[\s\S]*megaEvidenceHtml\(mega\) \+ sightingsFailure \+ placesHtml/,
     'the preserved evidence and ordinary places must share one medium card');
   const registry = HTML.slice(HTML.indexOf('function megaViewId('),
     HTML.indexOf('function loadAbaAlert('));
