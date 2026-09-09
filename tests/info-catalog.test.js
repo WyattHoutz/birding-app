@@ -122,13 +122,19 @@ test('popup prose is read from separate shared sources', () => {
     'dynamic taxonomy prose is inserted without escaping');
   assert.match(spuh.bodyHtml, /&lt;script&gt;/,
     'dynamic taxonomy prose is visibly preserved after escaping');
+  assert.match(spuh.bodyHtml,
+    /italic name followed by \*.*does not publish its own set of birds/s,
+    'the catalogued sheet no longer explains marked spuh notation');
+  assert.match(spuh.bodyHtml,
+    /count on the taxonomic backbone.*not to the marked spuh/s,
+    'the catalogued sheet no longer assigns counts to the verified backbone');
 });
 
 test('the generated catalog has exact bidirectional section and sheet coverage', () => {
   const data = GENERATOR.inventory();
-  assert.equal(data.sections.length, 33, 'enabled section-information surfaces');
+  assert.equal(data.sections.length, 32, 'enabled section-information surfaces');
   assert.equal(data.dialogs.length, 2, 'informational bottom-sheet families');
-  assert.equal(data.sections.length + data.dialogs.length, 35,
+  assert.equal(data.sections.length + data.dialogs.length, 34,
     'total in-scope informational surfaces');
   assert.equal(data.excluded.length, 7, 'classified out-of-scope popup types');
   assert.deepEqual(data.inactiveDocs, ['scoutBtn', 'tripBtn'],
@@ -177,7 +183,7 @@ test('the committed catalog is deterministic and works as a local searchable pag
   const dom = new JSDOM(committed, { runScripts: 'dangerously' });
   const document = dom.window.document;
   const entries = [...document.querySelectorAll('.catalog-entry')];
-  assert.equal(entries.length, 35);
+  assert.equal(entries.length, 34);
   const input = document.getElementById('catalogSearch');
   input.value = 'cascade';
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -189,7 +195,7 @@ test('the committed catalog is deterministic and works as a local searchable pag
     assert.equal(entry.open, true, 'a search match opens for immediate review');
   });
   assert.match(document.getElementById('matchCount').textContent,
-    new RegExp(`Showing ${visible.length} of 35`));
+    new RegExp(`Showing ${visible.length} of 34`));
 
   document.getElementById('collapseAll').click();
   visible.forEach((entry) => assert.equal(entry.open, false));

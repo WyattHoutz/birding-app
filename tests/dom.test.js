@@ -793,10 +793,10 @@ test('F268 a completed first-report request repaints existing forecast context',
   app.window.close();
 });
 
-test('F268 first-report headings name the acquired eBird region, not a trip report', async () => {
+test('F268 first-report headings name the acquired eBird region, not the active report', async () => {
   const app = await boot();
   const A = app.window.__app;
-  A.setActiveReport('fort-casey');
+  A.setActiveReport('hi');
   const page = A.parseFirstYearBirdList(recentFirstYearFixture());
   A.renderFirstYear({
     day: A.todayStr(), region: 'US-WA', year: new Date().getFullYear(), rows: page.rows,
@@ -805,8 +805,8 @@ test('F268 first-report headings name the acquired eBird region, not a trip repo
   assert.match(app.$('migFirstResults').textContent,
     /First reported in Washington this year/);
   assert.doesNotMatch(app.$('migFirstResults').textContent,
-    /First reported in Fort Casey Camping Trip/,
-    'statewide evidence is not relabelled as trip-area evidence');
+    /First reported in Hawaii/,
+    'statewide evidence is not relabelled with the active report');
   app.window.close();
 });
 
@@ -2836,19 +2836,41 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   app.window.close();
 });
 
+test('retired built-in trips are absent and stored trip choices migrate', async () => {
+  for (const [retired, replacement] of [
+    ['fort-casey', 'wa'],
+    ['waikoloa', 'hi'],
+  ]) {
+    const app = await boot({ report: retired });
+    const A = app.window.__app;
+    assert.equal(A.getReportSlug(), replacement,
+      retired + ' migrates to its permanent regional replacement');
+    assert.equal(app.window.localStorage.getItem('ebird_report'), replacement,
+      retired + ' is removed from durable selection state');
+    for (const id of ['menuRegion', 'navRegion']) {
+      const values = [...app.$(id).options].map((option) => option.value);
+      assert.equal(values.includes('fort-casey'), false,
+        id + ' still offers the retired Fort Casey trip');
+      assert.equal(values.includes('waikoloa'), false,
+        id + ' still offers the retired Waikoloa trip');
+    }
+    app.window.close();
+  }
+});
+
 test('each region keeps its own home location', async () => {
   const app = await boot();
   const A = app.window.__app;
   const wa = A.getHome();
   assert.equal(wa.lat, 47.75, 'WA uses the saved home');
   assert.equal(wa.lng, -122.16);
-  app.window.localStorage.setItem('ebird_report', 'waikoloa');
+  app.window.localStorage.setItem('ebird_report', 'hi');
   const hi = A.getHome();
   assert.notEqual(hi.lat, 47.75,
     'a home saved for Washington must not be used to chase birds on the Big Island');
   assert.ok(hi.lat > 15 && hi.lat < 25,
-    'the trip report falls back to its own regions.py home');
-  assert.equal(A.homeKey('lat'), 'ebird_home_lat:waikoloa', 'storage is keyed per report');
+    'the Hawaii report falls back to its own regions.py home');
+  assert.equal(A.homeKey('lat'), 'ebird_home_lat:hi', 'storage is keyed per report');
   app.window.close();
 });
 
@@ -5601,7 +5623,8 @@ test('switching reports invalidates Stakeout bird results, code lists and in-fli
     'old map pins are cleared with the result list');
   assert.equal(D.getElementById('spLookup').value, '',
     'the old-region query is cleared instead of inviting a stale rerun');
-  assert.match(D.getElementById('spLookupStatus').textContent, /Look up ANY bird/,
+  assert.match(D.getElementById('spLookupStatus').textContent,
+    /Search for any bird or spuh/,
     'the new report starts from the neutral Stakeout state');
 
   resolveOld();
@@ -5669,7 +5692,7 @@ test('Stakeout search tries parent regions without claiming a parent bird is loc
   app.window.close();
 });
 
-test('full eBird taxonomy is an explicit last resort after every region misses', async () => {
+test('one Stakeout search shows full-taxonomy species after every region misses', async () => {
   const calls = [];
   const app = await boot({
     fetch(url) {
@@ -5691,18 +5714,13 @@ test('full eBird taxonomy is an explicit last resort after every region misses',
 
   doc.getElementById('spLookup').value = 'Common Ostrich';
   await A.runSpeciesLookup();
-  const action = doc.querySelector('#spLookupFound .sptaxaction button');
-  assert.ok(action, 'the world taxonomy is offered only after local and parent lists miss');
-  assert.equal(action.textContent, 'Search full eBird taxonomy');
-  assert.ok(!calls.some((u) => /ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)),
-    'the full taxonomy is not fetched before the user chooses the broader scope');
-
-  app.click(action);
   await waitFor(() => /Full eBird taxonomy — outside Washington/.test(
-    doc.getElementById('spLookupFound').textContent), 'the explicit taxonomy result');
+    doc.getElementById('spLookupFound').textContent), 'the unified taxonomy result');
   assert.match(doc.getElementById('spLookupFound').textContent,
     /Common Ostrich.*not on Washington’s regional list/s,
     'the world result keeps the same out-of-area warning');
+  assert.equal(doc.querySelector('#spLookupFound .sptaxaction'), null,
+    'a second full-taxonomy search action survived after the first search already used it');
   app.window.close();
 });
 
@@ -10231,6 +10249,23 @@ test('the layout audit cleans up the browsers it launches', () => {
     'three hung starts is still a failure — the retry must not swallow it');
 });
 
+test('the mockup renderer cleans up every Chrome carrying its run profile', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'mockups.js'), 'utf8');
+  const body = src.replace(/\r/g, '').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+
+  assert.match(body, /path\.basename\(profile\)/,
+    'the renderer does not own a profile-specific process kill');
+  assert.match(body, /Stop-Process -Id \$_.ProcessId/,
+    'Windows cleanup does not terminate each resolved test PID');
+  assert.match(body, /fs\.existsSync\(profile\)/,
+    'the renderer assumes its profile was released instead of verifying it');
+  assert.match(body, /process\.once\('exit', kill\)/,
+    'an exception before the normal footer can leak the renderer browser');
+  assert.match(body, /MOCKUP CHROME LEAK/,
+    'a surviving renderer profile is not reported');
+});
+
 test('F251 the layout audit measures the named viewport, not a scrollbar-narrowed one', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');
@@ -10682,7 +10717,7 @@ test('F180 distance labels follow the live radius and active region', async () =
     ['wa', 'Statewide'],
     ['lower48', 'Lower 48'],
     ['aba', 'ABA Area'],
-    ['waikoloa', 'Big Island'],
+    ['hi', 'Statewide'],
   ]) {
     W.localStorage.setItem('ebird_report', slug);
     assert.equal(A.rarityRegionName(), expected,
@@ -11025,7 +11060,7 @@ test('the tide table starts at now and says what the water is doing', async () =
 // "where can I find a Western Kingbird" — a question that stays valid when the
 // bird is already on your year list. If a lookup refused birds you have seen it
 // would just be All unseen reports with a search box.
-function installSpuhFixture(app) {
+function installSpuhFixture(app, fullCounts = false) {
   function s(code, name, sci, genusOrder, family, familyCom) {
     return {
       speciesCode: code, comName: name, sciName: sci, category: 'species',
@@ -11057,6 +11092,33 @@ function installSpuhFixture(app) {
       order: 'Anseriformes', familySciName: 'Anatidae',
       familyComName: 'Ducks, Geese, and Waterfowl', taxonOrder: 7,
     },
+  ];
+  for (let i = 0; i < 22; i++) {
+    rows.push(s(`cal${i}`, `Calidris fixture ${i + 1}`,
+      `Calidris fixture${i + 1}`, 10 + i,
+      'Scolopacidae', 'Sandpipers and Allies'));
+  }
+  if (fullCounts) {
+    for (let i = 0; i < 72; i++) {
+      rows.push(s(`sco${i}`, `Scolopacidae fixture ${i + 1}`,
+        `Fixturegenus${i} scolopacidae`, 100 + i,
+        'Scolopacidae', 'Sandpipers and Allies'));
+    }
+    for (let i = 0; i < 292; i++) {
+      rows.push(s(`cha${i}`, `Charadriiformes fixture ${i + 1}`,
+        `Orderfixture${i} charadriiformes`, 200 + i,
+        `Orderfamily${i}`, `Order family ${i + 1}`));
+    }
+    for (let i = 0; i < 10774; i++) {
+      rows.push({
+        speciesCode: `ave${i}`, comName: `Aves fixture ${i + 1}`,
+        sciName: `Avigenus${i} fixture`, category: 'species',
+        order: `Otherorder${i}`, familySciName: `Otherfamily${i}`,
+        familyComName: `Other family ${i + 1}`, taxonOrder: 1000 + i,
+      });
+    }
+  }
+  rows.push(
     u('bird1', 'bird sp.', 'Aves sp.', 100, ''),
     u('char', 'Charadriiformes sp.', 'Charadriiformes sp.', 101, ''),
     u('shore', 'shorebird sp.', 'Charadriiformes sp. (shorebird sp.)', 102, ''),
@@ -11068,56 +11130,597 @@ function installSpuhFixture(app) {
     u('peep', 'peep sp.', 'Calidris sp. (peep sp.)', 105, 'Scolopacidae'),
     u('trin', 'Tringa sp.', 'Tringa sp.', 106, 'Scolopacidae'),
     u('lar', 'Larus sp.', 'Larus sp.', 107, 'Laridae'),
-  ];
+  );
   const model = app.window.Spuh.createFromTaxonomy(rows);
   app.window.__app.setSpuhModel(model);
   return model;
 }
 
-test('Spuh finder explains a searched group and labels its example image honestly', async () => {
-  const app = await boot();
+test('F358 Stakeout bird continues from a spuh into bird evidence', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        return [
+          { speciesCode: 'wes' }, { speciesCode: 'wes' },
+          { speciesCode: 'sem' },
+        ];
+      }
+      if (/product\/spplist\//.test(url)) return ['sem', 'wes'];
+      if (/data\/obs\/.*\/recent\/wes/.test(url)) {
+        return [{
+          speciesCode: 'wes', comName: 'Western Sandpiper',
+          locName: 'Smith Island', locId: 'L-SMITH',
+          lat: 48.32, lng: -122.84,
+          obsDt: '2026-09-01 17:50', subId: 'S-WES', obsValid: true,
+        }];
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
   installSpuhFixture(app);
-  app.open(/Spuh finder/);
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(app.document.querySelector('#spuhDetail .spuhhead h3').textContent,
-    'bird sp.', 'the menu entry opens the browse root before any search');
-  app.$('spuhSearch').value = 'peep sp.';
-  app.click(app.$('spuhBtn'));
-  await new Promise((r) => setTimeout(r, 30));
 
-  const detail = app.$('spuhDetail');
+  const section = app.$('sec-spLookupBtn');
+  assert.match(section.querySelector('h2').textContent, /Stakeout bird/i,
+    'the surviving Stakeout section was renamed instead of absorbing Spuh search');
+  assert.equal(app.$('spuhSearch'), null,
+    'the standalone spuh search field still exists');
+  assert.equal(app.$('spuhBtn'), null,
+    'the standalone Spuh Finder search action still exists');
+  assert.equal(section.querySelectorAll(':scope input[type="search"]').length, 1,
+    'Stakeout bird has more than one primary query field');
+
+  app.open(/Stakeout bird/);
+  app.$('spLookup').value = 'peep sp.';
+  app.click(app.$('spLookupBtn'));
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname'),
+  'the spuh result in Stakeout bird');
+  assert.equal(app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname').textContent, 'peep sp.');
+  const compactPanel = app.document.querySelector('#spLookupQueryHelp .spuhpanel');
+  const heroCard = compactPanel.querySelector(
+    ':scope > .spuhresulthero.obs.big.xl > li.spuhresultcard');
+  assert.ok(heroCard, 'the peep result does not use the shared medium species card');
+  assert.equal(heroCard.querySelector('.spuhsummaryname').textContent, 'peep sp.',
+    'the shared medium card does not carry the searched spuh as its title');
+  assert.equal(heroCard.querySelector('.thumb').dataset.bird,
+    'Semipalmated Sandpiper',
+  'the peep card does not use one of its possible birds as the representative image');
+  assert.match(heroCard.querySelector(':scope > .meta').textContent,
+    /peep.*24 possible birds.*Representative candidate: Semipalmated Sandpiper/s,
+  'the peep card does not identify its set and representative image honestly');
+  assert.match(HTML,
+    /\.spuhpanel\s*\{[^}]*border:\s*0[^}]*padding:\s*0[^}]*background:\s*transparent/,
+  'the rejected enclosing border box still surrounds the peep result');
+  const fullView = heroCard.querySelector(
+    ':scope > .spuhhierarchyblock details.spuhresultdetails');
+  assert.ok(fullView && !fullView.open,
+    'the default spuh result is not a collapsed Detailed view');
+  assert.equal(app.window.getComputedStyle(
+    fullView.querySelector(':scope > summary')).display, 'none',
+  'the removed Detailed view text link still occupies a disclosure row');
+  const hierarchyBlock = heroCard.querySelector(':scope > .spuhhierarchyblock');
+  assert.ok(hierarchyBlock, 'the peep result omits its taxonomic hierarchy block');
+  const hierarchyHeading = hierarchyBlock.querySelector(
+    ':scope > .spuhhierarchyhead > h3');
+  const hierarchyInfo = hierarchyBlock.querySelector(
+    ':scope > .spuhhierarchyhead > .spuhhierarchyinfo');
+  const viewPick = hierarchyBlock.querySelector(
+    ':scope > .spuhhierarchytoggle > .spuhviewpick.sortpick');
+  assert.equal(hierarchyHeading && hierarchyHeading.textContent,
+    'TAXONOMIC HIERARCHY',
+  'the approved full-size hierarchy heading is missing');
+  assert.equal(hierarchyInfo && hierarchyInfo.getAttribute('aria-label'),
+    'About marked spuh names',
+  'the hierarchy has no named information control');
+  assert.ok(hierarchyHeading.compareDocumentPosition(viewPick)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the Condensed/Detailed control is not on the row below the heading');
+  assert.match(HTML,
+    /\.spuhhierarchyhead h3\s*\{[^}]*font-size:\s*calc\(18px[^}]*white-space:\s*nowrap/,
+  'the hierarchy heading is not full-size and protected from wrapping');
+  assert.match(HTML,
+    /\.spuhhierarchyinfo\s*\{[^}]*border-radius:\s*50%/,
+  'the hierarchy information control is not circular');
+  const compactSpuhPath = hierarchyBlock.querySelector(
+    ':scope > .spuhcompactpath.spuhresultpath');
+  assert.ok(compactSpuhPath,
+    'the peep result omits its compact clickable bird hierarchy');
+  assert.deepEqual(
+    [...compactSpuhPath.querySelectorAll(
+      ':scope > .spuhpathcontent > .spuhcompactlevel')]
+      .map((level) => [...level.querySelectorAll('[data-compact-label]')]
+        .map((item) => item.dataset.compactLabel)),
+    [
+      ['bird sp.'],
+      ['Charadriiformes', 'shorebird sp.*', 'large shorebird sp.*'],
+      ['Scolopacidae sp.'],
+      ['Calidris sp.', 'peep sp.*'],
+    ],
+    'the condensed hierarchy does not separate the backbone from marked spuh wording');
+  assert.equal([...compactSpuhPath.querySelectorAll('.spuhpatharrow')]
+    .map((arrow) => arrow.textContent).join(' '), '› › ›',
+  'the peep hierarchy does not use the candidate-card chevron');
+  const alternatives = [...compactSpuhPath.querySelectorAll(
+    '.spuhpathalternate')];
+  assert.equal(alternatives.map((separator) =>
+    separator.textContent.trim()).join(' '), '\\ \\ \\',
+  'the peep hierarchy does not use the approved backslash alternatives');
+  assert.ok(alternatives.every((separator) =>
+    separator.getAttribute('aria-label') === 'or'
+      && separator.getAttribute('role') === 'img'),
+  'the visible backslash does not expose its “or” meaning to assistive tech');
+  assert.equal(compactSpuhPath.querySelector('br'), null,
+    'the condensed hierarchy still forces level line breaks');
+  const syntheticOrder = compactSpuhPath.querySelector(
+    '[data-rank="order"] [data-compact-label="Charadriiformes"]');
+  assert.ok(syntheticOrder && syntheticOrder.tagName === 'SPAN'
+    && !syntheticOrder.hasAttribute('data-spuh'),
+  'the synthetic order label invents a nonexistent eBird spuh route');
+  assert.deepEqual(
+    [...compactSpuhPath.querySelectorAll('.spuhpathmarked[data-spuh]')]
+      .map((item) => item.getAttribute('data-spuh')),
+    ['shore', 'large-shore', 'peep'],
+  'the real starred spuh labels are not actionable buttons');
+  const candidateHeading = heroCard.querySelector('.spuhcandidateheading');
+  assert.ok(compactSpuhPath.compareDocumentPosition(fullView)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'Detailed view is not below the compact spuh hierarchy');
+  assert.ok(fullView.compareDocumentPosition(candidateHeading)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'Detailed view is not between the hierarchy and candidate birds');
+  assert.equal(candidateHeading.textContent.trim(),
+    'Common birds under peep sp.',
+  'the compact spuh card does not label the candidate list');
+  const compactCandidates = heroCard.querySelector(
+    ':scope > .spuhcandidatelane .spuhcandidatecards.obs.card-sm');
+  assert.ok(compactCandidates,
+    'the peep result does not use the shared small species-card list');
+  const candidateCards = [...compactCandidates.querySelectorAll(
+    ':scope > li.spuhcandidatecard.splink')];
+  assert.equal(candidateCards.length, 2,
+  'the candidate list does not expose one small card per possible bird');
+  assert.deepEqual(candidateCards.map((card) =>
+    card.querySelector('.spuhcandidatecardname').textContent.trim()),
+  ['Western Sandpiper', 'Semipalmated Sandpiper'],
+  'candidate birds are not ordered by current-region report frequency');
+  assert.ok(candidateCards.every((card) =>
+    card.querySelector('.thumb[data-bird]') && card.getAttribute('role') === 'button'
+      && card.tabIndex === 0),
+  'candidate small cards are not fully clickable keyboard controls with bird images');
+  assert.equal(heroCard.querySelector('.spuhcandidatequick'), null,
+    'the rejected link-only candidate row still remains');
+  assert.equal(heroCard.querySelector('.spuhcompare, .ebirdlink'), null,
+    'the approved app-only result still shows the old comparison or external-link footer');
+  assert.ok(fullView.querySelector('.spuhtaxsteps'),
+    'Detailed view does not own the numbered taxonomic hierarchy');
+  assert.match(heroCard.querySelector('.spuhcandidatelane').textContent,
+    /Western Sandpiper.*Semipalmated Sandpiper/s,
+    'the condensed view does not expose the ranked candidate birds');
+  assert.equal(app.$('sec-spLookupBtn').hidden, false,
+    'the spuh result left Stakeout bird');
+
+  const western = candidateCards.find((card) =>
+    card.getAttribute('data-sp') === 'wes');
+  assert.ok(western, 'the spuh result does not expose candidate birds');
+  app.click(western.querySelector('.thumb'));
+  await waitFor(() => /Smith Island/.test(app.$('spLookupResults').textContent),
+    'the selected candidate Stakeout evidence');
+  assert.equal(app.$('sec-spLookupBtn').hidden, false,
+    'candidate selection navigated away from Stakeout bird');
+  assert.equal(app.$('spLookup').value, 'Western Sandpiper',
+    'the selected result still looks like a peep sp. search');
+  assert.match(app.$('spLookupResults').textContent, /Western Sandpiper.*Smith Island/s,
+    'candidate selection did not continue into species evidence');
+  assert.equal(app.$('spLookupQueryHelp').textContent, '',
+    'the selected bird still carries the redundant peep sp. candidate panel');
+  const stakeoutCard = app.document.querySelector('#spLookupResults > li');
+  const stakeoutMeta = stakeoutCard && stakeoutCard.querySelector(':scope > .meta');
+  const stakeoutSummary = stakeoutCard
+    && stakeoutCard.querySelector(':scope > .splookupsummary');
+  assert.match(stakeoutMeta && stakeoutMeta.textContent, /on your year list/,
+    'the species card lost the year-list state above its sightings summary');
+  assert.match(stakeoutSummary && stakeoutSummary.textContent,
+    /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by date/,
+  'the sightings summary is not inside the Western Sandpiper card');
+  assert.ok(stakeoutMeta.compareDocumentPosition(stakeoutSummary)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the sightings summary is not after the year-list line');
+  assert.doesNotMatch(app.$('spLookupStatus').textContent,
+    /Western Sandpiper · 2 places · 2 reports/,
+  'the sightings summary still floats above the species card');
+  assert.match(app.$('spLookupIdHelp').textContent,
+    /Bird hierarchy.*Western Sandpiper/s,
+    'the selected species hierarchy did not continue below the group context');
+  assert.deepEqual(
+    [...app.document.querySelectorAll(
+      '#spLookupIdHelp .spuhcompactchain > .spuhcompactlevel')]
+      .map((level) => [...level.querySelectorAll('[data-compact-label]')]
+        .map((item) => item.dataset.compactLabel)),
+    [
+      ['bird sp.'],
+      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
+      ['Scolopacidae sp.'],
+      ['Calidris sp.', 'peep sp.'],
+      ['Western Sandpiper'],
+    ],
+    'the selected bird path does not separate rank siblings with one concise level');
+  assert.equal(app.document.querySelectorAll(
+    '#spLookupIdHelp .spuhcompactchain .spuhsiblingsep').length, 3,
+  'same-rank siblings are not visibly joined by “or”');
+  const peepChip = app.document.querySelector(
+    '#spLookupIdHelp .spuhpathchip[data-spuh="peep"]');
+  assert.ok(peepChip, 'the concise hierarchy has no route back to peep candidates');
+  app.click(peepChip);
+  await waitFor(() => app.document.querySelector(
+    '#spLookupQueryHelp .spuhcandidatecards .spuhcandidatecard'),
+  'the peep candidate picker reopened from its hierarchy chip');
+  assert.equal(app.$('spLookupResults').textContent, '',
+    'reopening the spuh left stale selected-bird evidence on screen');
+  app.window.close();
+});
+
+test('F360 progressive lists append region-ranked bird-sp candidates in place', async () => {
+  const progressivePath = wwwFixture('controls-progressive.js');
+  assert.ok(fs.existsSync(progressivePath),
+    'the reusable progressive-list navigation is missing');
+  const ProgressiveList = require(progressivePath);
+  const unitDom = new JSDOM('<div id="host"></div>');
+  const unitHost = unitDom.window.document.getElementById('host');
+  const unit = ProgressiveList.mount({
+    host: unitHost,
+    items: Array.from({ length: 55 }, (_, i) => i + 1),
+    batchSize: 25,
+    listClass: 'unit-list',
+    renderItem: (n) => `<li>${n}</li>`,
+    noun: 'birds',
+  });
+  const unitList = unit.list;
+  assert.equal(unitList.children.length, 25);
+  assert.equal(unit.button.textContent, 'Show 25 more of 55 birds');
+  assert.match(ProgressiveList.css,
+    /\.progressive-status\s*\{[^}]*position:\s*absolute[^}]*clip:/,
+    'the live list count remains visible as a second footer sentence');
+  unit.button.click();
+  assert.strictEqual(unit.list, unitList,
+    'the shared navigation replaced its list instead of appending');
+  assert.equal(unitList.children.length, 50);
+  assert.equal(unit.button.textContent, 'Show 5 more of 55 birds');
+  unit.button.click();
+  assert.equal(unitList.children.length, 55);
+  assert.equal(unit.button.isConnected, false);
+  unitDom.window.close();
+
+  const species = Array.from({ length: 31 }, (_, i) => ({
+    speciesCode: i === 30 ? 'outside' : `reg${String(i + 1).padStart(2, '0')}`,
+    comName: i === 30 ? 'Outside Bird' : `Regional Bird ${String(i + 1).padStart(2, '0')}`,
+    sciName: `Avis ${i + 1}`, category: 'species',
+    order: 'Passeriformes', familySciName: 'Avidae',
+    familyComName: 'Regional Birds', taxonOrder: i + 1,
+  }));
+  const regionalRows = species.slice(0, 30).map((row) => ({
+    code: row.speciesCode, name: row.comName, sci: row.sciName,
+  }));
+  const commonness = [];
+  regionalRows.forEach((row, i) => {
+    for (let j = 0; j <= i; j++) commonness.push({ speciesCode: row.code });
+  });
+  let commonnessFetches = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        commonnessFetches++;
+        return commonness;
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(), rows: regionalRows,
+      }),
+    },
+  });
+  app.window.__app.setSpuhModel(app.window.Spuh.createFromTaxonomy(
+    species.concat([{
+      speciesCode: 'bird1', comName: 'bird sp.', sciName: 'Aves sp.',
+      category: 'spuh', order: '', familySciName: '',
+      familyComName: '', taxonOrder: 1000,
+    }])
+  ));
+  await app.window.__app.renderSpuhNode('bird1');
+  const host = app.$('spLookupQueryHelp');
+  const list = host.querySelector('.spuhcandidatecards');
+  assert.ok(list, 'bird sp. has no progressive regional candidate list');
+  assert.equal(list.querySelectorAll(':scope > li.spuhcandidatecard').length, 25,
+    'bird sp. does not start with exactly 25 small species cards');
+  assert.equal(list.querySelector('.spuhcandidatecardname').textContent,
+    'Regional Bird 30',
+  'the region\'s most frequently reported candidate does not lead');
+  assert.doesNotMatch(list.textContent, /Outside Bird/,
+    'a bird outside the active regional list entered the common-bird lane');
+  assert.equal(host.querySelector('.spuhcandidatemore').textContent,
+    'Show 5 more of 30 birds');
+  assert.match(host.querySelector('.spuhcandidatestatus').textContent,
+    /Most reported in Washington in the last 30 days/,
+  'the list does not say what region and evidence ranked it');
+  const hero = host.querySelector('.spuhresultcard');
+  const hierarchyBlock = hero.querySelector('.spuhhierarchyblock');
+  const path = hierarchyBlock && hierarchyBlock.querySelector('.spuhresultpath');
+  const viewPick = hierarchyBlock && hierarchyBlock.querySelector(
+    '.spuhviewpick.sortpick');
+  const condensed = viewPick && viewPick.querySelector(
+    '[data-spuhview="condensed"]');
+  const detailed = viewPick && viewPick.querySelector(
+    '[data-spuhview="detailed"]');
+  const firstPathBird = path.querySelector('.spuhpathcontent .spuhpathchip');
+  assert.ok(viewPick && condensed && detailed,
+    'bird sp. does not use the shared two-state pill toggle');
+  assert.deepEqual([condensed.textContent, detailed.textContent],
+    ['Condensed', 'Detailed']);
+  assert.equal(condensed.getAttribute('aria-pressed'), 'true');
+  assert.equal(detailed.getAttribute('aria-pressed'), 'false');
+  assert.ok(hierarchyBlock.querySelector('.spuhhierarchyhead')
+    .compareDocumentPosition(viewPick)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the view toggle is not below the taxonomic hierarchy heading');
+  assert.ok(viewPick.compareDocumentPosition(firstPathBird)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the view toggle is not before the bird-sp hierarchy');
+  assert.doesNotMatch(path.textContent, /Detailed view/,
+    'the old Detailed view text link remains beside the new toggle');
+  detailed.click();
+  assert.equal(condensed.getAttribute('aria-pressed'), 'false');
+  assert.equal(detailed.getAttribute('aria-pressed'), 'true');
+  assert.equal(hero.querySelector('.spuhresultdetails').open, true);
+  assert.equal(hero.classList.contains('spuhdetailopen'), true);
+  const releasedHierarchy = hero.querySelector(
+    '.spuhresultdetails .spuhhierarchy');
+  assert.ok(releasedHierarchy
+    && releasedHierarchy.querySelector('.spuhtaxsteps')
+    && releasedHierarchy.querySelector('.spuhtaxstep'),
+  'Detailed does not render the numbered taxonomic backbone');
+  assert.match(releasedHierarchy.textContent,
+    /Class · Aves.*bird sp\..*\d+ birds in its published set/s);
+  assert.equal(releasedHierarchy.querySelector('.spuhcompactlevel'), null,
+    'Detailed still restores the rejected bubble hierarchy');
+  assert.equal(hero.querySelector('.spuhcandidatefull'), null,
+    'Detailed duplicates the bird list with the old link-only candidate block');
+  assert.strictEqual(hero.querySelector('.spuhcandidatecards'), list,
+    'Detailed replaced the ranked bird list instead of preserving it');
+  assert.equal(app.window.getComputedStyle(
+    hero.querySelector('.spuhcandidatelane')).display, 'block',
+  'Detailed hides the bird list instead of keeping it below the hierarchy');
+  condensed.click();
+  assert.equal(hero.querySelector('.spuhresultdetails').open, false);
+  assert.equal(hero.classList.contains('spuhdetailopen'), false);
+  const beforeFetches = commonnessFetches;
+  host.querySelector('.spuhcandidatemore').click();
+  assert.strictEqual(host.querySelector('.spuhcandidatecards'), list,
+    'Show more replaced the bird list instead of appending to it');
+  assert.equal(list.querySelectorAll(':scope > li.spuhcandidatecard').length, 30);
+  assert.equal(commonnessFetches, beforeFetches,
+    'Show more refetched regional commonness instead of using the ranked list');
+  assert.equal(host.querySelector('.spuhcandidatemore'), null,
+    'the exhausted bird-sp Show-more link remains active');
+  app.window.close();
+});
+
+test('F358 one generation rejects stale results across species and spuh queries', async () => {
+  const oldSpuhApp = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sol/.test(url)) return [];
+      return null;
+    },
+  });
+  const oldSpuhModel = installSpuhFixture(oldSpuhApp);
+  const oldSpuhA = oldSpuhApp.window.__app;
+  let resolveOldSpuh;
+  oldSpuhA.setSpuhModelPromise(new Promise((resolve) => {
+    resolveOldSpuh = resolve;
+  }));
+  oldSpuhApp.$('spLookup').value = 'peep sp.';
+  const staleSpuh = oldSpuhA.runSpuhSearch();
+  oldSpuhA.setSpuhModelPromise(Promise.resolve(oldSpuhModel));
+  await oldSpuhA.lookupSpecies('sol', 'Solitary Sandpiper');
+  resolveOldSpuh(oldSpuhModel);
+  await staleSpuh;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(oldSpuhApp.$('spLookupQueryHelp').textContent, '',
+    'an older spuh search repainted over a newer species lookup');
+  assert.match(oldSpuhApp.$('spLookupIdHelp').textContent, /Solitary Sandpiper/);
+  oldSpuhApp.window.close();
+
+  const oldSpeciesApp = await boot({
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
+  const oldSpeciesModel = installSpuhFixture(oldSpeciesApp);
+  const oldSpeciesA = oldSpeciesApp.window.__app;
+  const originalFetch = oldSpeciesApp.window.fetch;
+  let resolveOldSpecies;
+  const staleRows = [{
+    speciesCode: 'sem',
+    comName: 'Semipalmated Sandpiper',
+    locName: 'Marymoor Park',
+    locId: 'L-OLD',
+    lat: 47.7,
+    lng: -122.2,
+    obsDt: '2026-09-02 08:00',
+    subId: 'S-OLD',
+    obsValid: true,
+  }];
+  oldSpeciesApp.window.fetch = (url) => {
+    if (/data\/obs\/US-WA\/recent\/sem/.test(String(url))) {
+      return new Promise((resolve) => {
+        resolveOldSpecies = () => resolve({
+          ok: true, status: 200, headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify(staleRows)),
+          json: () => Promise.resolve(staleRows),
+        });
+      });
+    }
+    if (/data\/obs\/US-WA\/recent\?back=30&maxResults=10000/.test(String(url))) {
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: () => null },
+        text: () => Promise.resolve('[]'),
+        json: () => Promise.resolve([]),
+      });
+    }
+    if (/product\/spplist\/US-WA/.test(String(url))) {
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: () => null },
+        text: () => Promise.resolve('["sem","wes"]'),
+        json: () => Promise.resolve(['sem', 'wes']),
+      });
+    }
+    return originalFetch(url);
+  };
+  const staleSpecies = oldSpeciesA.lookupSpecies(
+    'sem', 'Semipalmated Sandpiper');
+  await waitFor(() => resolveOldSpecies, 'the older species request');
+  oldSpeciesA.setSpuhModel(oldSpeciesModel);
+  oldSpeciesApp.$('spLookup').value = 'peep sp.';
+  const newerSpuh = oldSpeciesA.runSpuhSearch();
+  await waitFor(() => oldSpeciesApp.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname'),
+  'the newer spuh result while the older species feed is pending');
+  resolveOldSpecies();
+  await Promise.all([newerSpuh, staleSpecies]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.match(oldSpeciesApp.$('spLookupQueryHelp').textContent, /peep sp\./);
+  assert.equal(oldSpeciesApp.$('spLookupResults').textContent, '',
+    'an older species response repainted over a newer spuh query');
+  assert.equal(oldSpeciesApp.$('spLookupIdHelp').textContent, '',
+    'the stale species taxonomy survived the newer spuh query');
+  oldSpeciesApp.window.close();
+});
+
+test('Stakeout bird renders the approved marked-spuh taxonomic hierarchy', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+        return [
+          { speciesCode: 'wes' }, { speciesCode: 'wes' },
+          { speciesCode: 'sem' },
+        ];
+      }
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
+  installSpuhFixture(app, true);
+  app.open(/Stakeout bird/);
+  app.$('spLookup').value = 'peep sp.';
+  await app.window.__app.runSpuhSearch();
+
+  const detail = app.$('spLookupQueryHelp');
+  const fullView = detail.querySelector('details.spuhresultdetails');
+  assert.ok(fullView && !fullView.open,
+    'the full spuh result is not collapsed by default');
   assert.equal(detail.querySelector('.spuhdefinition'), null,
     'the generated definition does not compete with the hierarchy');
-  assert.doesNotMatch(detail.textContent,
+  assert.doesNotMatch(fullView.querySelector('summary').textContent,
     /An unresolved peep identification|no taxonomy bundle ships/i,
     'definition and source-boundary prose stay out of the primary result');
-  assert.match(detail.textContent, /Example candidate image/,
-    'the photo is explicitly one example candidate');
-  assert.match(detail.textContent, /does not define the whole spuh/,
-    'and never presents one species as the spuh itself');
-  assert.match(detail.textContent, /Coverage limit · not auto-selected/,
-    'peep is visible but its unpublished narrower membership is explicit');
-  assert.match(detail.textContent, /Calidris sp\./,
-    'the equal-coverage published genus is visible in the broader path');
-  const hierarchy = detail.querySelector('.spuhhierarchy');
-  const media = detail.querySelector('.spuhmedia');
-  assert.ok(hierarchy && media
-    && (hierarchy.compareDocumentPosition(media)
-      & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
-  'the hierarchy appears before the illustrative candidate image');
-  const compact = hierarchy.querySelector('.spuhcompactpath');
-  assert.ok(compact, 'Spuh Finder does not use the shared compact hierarchy');
-  assert.match(compact.textContent,
-    /bird sp\.[\s\S]*shorebird sp\.[\s\S]*Scolopacidae sp\.[\s\S]*Calidris sp\.[\s\S]*peep sp\./,
-    'the default view does not expose the complete broad-to-specific short path');
-  const detailToggle = hierarchy.querySelector('details.spuhdetails');
-  assert.ok(detailToggle && !detailToggle.open,
-    'the taxonomy explanation and candidates are expanded by default');
-  assert.equal(detailToggle.querySelector('summary').textContent.trim(), 'Detailed view');
-  assert.ok(detailToggle.querySelector('.spuhmedia'),
-    'candidate media is not owned by the shared Detailed view');
-  assert.match(compact.textContent, /Coverage limit · not auto-selected/,
-    'coverage-limited labels lost their redundant text marker in the compact path');
+  const hero = detail.querySelector('.spuhresulthero > .spuhresultcard');
+  assert.ok(hero && hero.querySelector('.thumb[data-bird]'),
+    'the compact spuh card has no representative candidate image');
+  assert.match(hero.querySelector(':scope > .meta').textContent,
+    /Representative candidate:/,
+    'the photo is not explicitly labelled as one representative candidate');
+  assert.equal(detail.querySelector('.spuhmedia'), null,
+    'the representative image is duplicated inside Detailed view');
+  const hierarchy = fullView.querySelector('.spuhhierarchy');
+  assert.ok(hierarchy, 'Detailed view has no complete hierarchy');
+  assert.equal(hierarchy.querySelector(
+    ':scope > h4, .spuhcompactlegend, .spuhcompactlevel'), null,
+  'Detailed retains the rejected heading, legend, or bubble rows');
+  const steps = [...hierarchy.querySelectorAll(
+    ':scope > .spuhtaxsteps > .spuhtaxstep')];
+  assert.deepEqual(steps.map((step) => step.dataset.rank),
+    ['class', 'order', 'family', 'genus'],
+  'Detailed does not preserve the four verified backbone ranks');
+  assert.deepEqual(steps.map((step) =>
+    step.querySelector('.spuhtaxrank').textContent.trim()), [
+    'Class · Aves',
+    'Order · Charadriiformes',
+    'Family · Scolopacidae',
+    'Genus · Calidris',
+  ], 'Detailed does not name each verified taxonomic level');
+  assert.deepEqual(steps.map((step) =>
+    step.querySelector('.spuhtaxbackbone').textContent.trim()), [
+    'bird sp.',
+    'Charadriiformes',
+    'Scolopacidae sp.',
+    'Calidris sp.',
+  ], 'Detailed does not render the approved taxonomic backbone');
+  assert.deepEqual(steps.map((step) =>
+    step.querySelector('.spuhtaxcount').textContent.trim()), [
+    '11,167 birds in its published set.',
+    '392 birds in its published set.',
+    '98 birds in its published set.',
+    '24 birds in its published set.',
+  ], 'Detailed counts do not match the current eBird taxonomy');
+  assert.deepEqual([...hierarchy.querySelectorAll('.spuhtaxmarked')]
+    .map((marked) => marked.textContent.trim()), [
+    'shorebird sp.*',
+    'large shorebird sp.*',
+    'peep sp.*',
+  ], 'Detailed does not place marked spuh wording at its matching backbone level');
+  assert.ok([...hierarchy.querySelectorAll('.spuhtaxmarked')].every((marked) => {
+    const style = app.window.getComputedStyle(marked);
+    const backboneStyle = app.window.getComputedStyle(
+      marked.closest('.spuhtaxstep').querySelector('.spuhtaxbackbone'));
+    return marked.tagName === 'BUTTON'
+      && marked.querySelector('i')
+      && marked.querySelector('.spuhmark')
+      && style.fontStyle === 'italic'
+      && style.fontWeight === '400'
+      && style.fontSize === backboneStyle.fontSize
+      && !marked.querySelector('.spuhtaxcount');
+  }), 'marked spuhs are not regular italic, baseline-starred, count-free buttons');
+  assert.doesNotMatch(hierarchy.textContent,
+    /Coverage limit|Identification hierarchy/i,
+  'superseded hierarchy terminology remains visible');
+  const candidateList = hero.querySelector('.spuhcandidatecards');
+  const candidateCards = candidateList.querySelectorAll(
+    ':scope > .spuhcandidatecard');
+  fullView.open = true;
+  fullView.dispatchEvent(new app.window.Event('toggle'));
+  assert.equal(candidateCards.length, 2,
+    'the detailed hierarchy does not retain the same candidate-card list');
+  assert.strictEqual(hero.querySelector('.spuhcandidatecards'), candidateList,
+    'opening Detailed replaced the candidate-card list');
   const explain = detail.querySelector('.spuhexplain');
   assert.ok(explain, 'the selected spuh has an explicit information button');
   app.click(explain);
@@ -11129,25 +11732,26 @@ test('Spuh finder explains a searched group and labels its example image honestl
     /An unresolved peep identification/,
     'the generated definition remains available in the sheet');
   assert.match(sheet.querySelector('.sheetbody').textContent,
+    /italic name followed by \*.*does not publish its own set of birds/i,
+    'the sheet does not explain the marked spuh notation');
+  assert.match(sheet.querySelector('.sheetbody').textContent,
+    /count on the taxonomic backbone.*not.*marked spuh/i,
+    'the sheet does not separate backbone counts from marked spuh wording');
+  assert.match(sheet.querySelector('.sheetbody').textContent,
     /no taxonomy bundle ships in the public app/i,
     'the source boundary remains available in the sheet');
   assert.match(sheet.querySelector('.sheetbody').textContent,
     /Wikipedia|Wikimedia/,
     'the example-image source is in the sheet rather than the hierarchy');
-  const example = detail.querySelector('.spuhmedia button.splink');
-  assert.ok(example, 'the example candidate is a native in-app button');
-  assert.ok(example.tabIndex >= 0, 'the candidate can be reached from a keyboard');
-  const external = detail.querySelector('a.ebirdlink[href]');
-  assert.ok(external, 'the eBird action has a real href as well as delegated handling');
-  assert.match(external.href, /ebird\.org\/species\/peep/,
-    'keyboard activation and browser fallback reach the selected spuh page');
+  const example = detail.querySelector('.spuhcandidatecard.splink');
+  assert.ok(example, 'the representative set has no in-app candidate card');
+  assert.ok(example.tabIndex >= 0, 'the candidate card can be reached from a keyboard');
+  assert.equal(detail.querySelector('.spuhcompare, a.ebirdlink[href]'), null,
+    'the approved hierarchy card still carries the removed footer tools');
 
-  const candidates = detail.querySelector('.spuhcandidatedetails');
-  candidates.open = true;
-  candidates.dispatchEvent(new app.window.Event('toggle'));
-  assert.ok(detail.querySelectorAll('.spuhcandidatebody button.splink').length > 0,
-    'candidate species are native buttons rather than href-less anchors');
-  assert.equal(detail.querySelectorAll('.spuhcandidatebody a.splink').length, 0);
+  assert.ok([...candidateCards].every((card) =>
+    card.getAttribute('role') === 'button' && card.tabIndex === 0),
+  'candidate birds are not keyboard-operable shared cards');
   app.window.close();
 });
 
@@ -11173,68 +11777,131 @@ test('F352 Stakeout shares the compact full Spuh hierarchy after hotspot results
   'the compact taxonomy path');
   const results = app.$('spLookupResults');
   const host = app.$('spLookupIdHelp');
-  assert.ok(results.compareDocumentPosition(host)
+  const map = app.$('spLookupMap');
+  assert.ok(host.compareDocumentPosition(map)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the Spuh hierarchy follows the hotspot result list');
+  'the concise bird hierarchy is not at the top before the map and results');
   const nav = app.document.querySelector('#spLookupIdHelp .spuhtaxnav');
   assert.ok(nav && !nav.closest('details.spuhshell'),
     'the hierarchy is visible, not hidden behind the old disclosure');
   const hierarchy = nav.querySelector('.spuhhierarchy');
   const path = nav.querySelector('details.spuhtaxdetails');
-  const compact = nav.querySelector('.spuhcompactpath');
+  const compact = nav.querySelector('.spuhcompactpath.spuhcompactchain');
   assert.ok(hierarchy && compact && path,
     'lookup is missing the shared compact Spuh hierarchy and Detailed view');
   assert.equal(nav.querySelector('.spuhtaxmost'), null,
     'Stakeout still duplicates the hierarchy in a separate most-specific card');
   assert.equal(path.open, false, 'the full-screen rank ladder is expanded by default');
-  assert.equal(path.querySelector('summary').textContent.trim(), 'Detailed view');
+  assert.equal(path.querySelector('summary').textContent.trim(),
+    'Show Hierarchy Details');
+  assert.ok(path.querySelector('summary').classList.contains('spuhdetailslink'),
+    'the hierarchy disclosure is not presented as a named text link');
+  assert.ok(!path.querySelector('summary').classList.contains('spuhdetailsbutton'),
+    'the hierarchy disclosure still uses the rejected button treatment');
+  assert.match(HTML,
+    /\.spuhhierarchysentence\s*>\s*\.spuhtaxdetails\s*>\s*summary\.spuhdetailslink\s*\{[^}]*min-height:\s*calc\(44px/,
+  'the hierarchy details link does not have a 44px tap target');
+  assert.match(HTML,
+    /\.spuhhierarchysentence\s*>\s*\.spuhtaxdetails\s*>\s*summary\.spuhdetailslink\s*\{[^}]*text-decoration:\s*underline/,
+  'the hierarchy details control is not visibly styled as a text link');
+  const detailsLinkRule = HTML.match(
+    /\.spuhhierarchysentence\s*>\s*\.spuhtaxdetails\s*>\s*summary\.spuhdetailslink\s*\{([^}]*)\}/);
+  assert.ok(detailsLinkRule, 'the hierarchy details text-link rule is missing');
+  assert.doesNotMatch(detailsLinkRule[1], /\bborder(?:-[a-z]+)?\s*:/,
+    'the hierarchy details text link still has a button border');
+  assert.doesNotMatch(detailsLinkRule[1], /\bbackground\s*:/,
+    'the hierarchy details text link still has a button fill');
+  assert.equal(compact.tagName, 'P',
+    'the concise hierarchy is still a formatted card/list instead of one sentence');
+  assert.equal(nav.querySelector('h4, .spuhcompactlegend'), null,
+    'the concise sentence still carries a heading or legend block');
+  assert.equal([...compact.querySelectorAll('.spuhpatharrow')]
+    .map((arrow) => arrow.textContent).join(' '), '› › › ›',
+  'hierarchy levels are not separated by the approved chevrons');
+  assert.deepEqual(
+    [...compact.querySelectorAll(':scope > .spuhcompactlevel')]
+      .map((level) => [...level.querySelectorAll('[data-compact-label]')]
+        .map((item) => item.dataset.compactLabel)),
+    [
+      ['bird sp.'],
+      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
+      ['Scolopacidae sp.'],
+      ['Calidris sp.', 'peep sp.'],
+      ['Semipalmated Sandpiper'],
+    ],
+    'an ordinary bird lookup does not group same-rank siblings in the concise path');
   assert.match(compact.textContent,
-    /bird sp\.[\s\S]*shorebird sp\.[\s\S]*Scolopacidae sp\.[\s\S]*Calidris sp\.[\s\S]*Semipalmated Sandpiper/,
-    'the default view does not expose the complete broad-to-specific short path');
-  const compactGenus = [...compact.querySelectorAll('.spuhcompactlevel')]
-    .find((level) => /Calidris sp\./.test(level.textContent));
-  assert.equal(compactGenus.querySelectorAll('.spuhtaxlink').length, 2,
-    'equivalent labels for one coverage level are not grouped together');
-  assert.match(compactGenus.textContent, /coverage limit/i,
-    'a limited equivalent remains labelled rather than becoming a silent recommendation');
-  assert.match(compactGenus.textContent, /2 possible species/);
+    /Charadriiformes sp\.\s*\\\s*shorebird sp\.\s*⚠\s*\\\s*large shorebird sp\.\s*⚠/,
+    'order siblings are not joined by the approved backslash with coverage labels intact');
+  assert.ok([...compact.querySelectorAll('.spuhsiblingsep')].every((separator) =>
+    separator.textContent.trim() === '\\'
+      && separator.getAttribute('aria-label') === 'or'
+      && separator.getAttribute('role') === 'img'
+      &&
+    separator.parentElement.classList.contains('spuhsiblingpair')
+      && separator.nextElementSibling?.matches('[data-compact-label]')),
+  'a sibling backslash loses its “or” meaning or can wrap away from its label');
+  assert.match(HTML,
+    /\.spuhpathsentence \.spuhsiblingsep\s*\{[^}]*padding:\s*0 4px[^}]*color:\s*var\(--muted\)[^}]*font-size:\s*\.9em[^}]*font-weight:\s*900/,
+  'the approved slash is not smaller, bold, padded, and medium grey');
+  assert.match(HTML,
+    /\.spuhpathsentence \.spuhpatharrow\s*\{[^}]*color:\s*var\(--muted\)/,
+  'the approved hierarchy chevrons are not medium grey');
   assert.deepEqual(
     [...path.querySelectorAll('.spuhtaxlevel')].map((level) => level.dataset.rank),
     ['class', 'order', 'family', 'genus', 'species'],
-    'the collapsed path preserves every broad-to-specific rank');
-  assert.match(nav.querySelector('[data-rank="class"]').textContent, /Aves.*bird sp\./s);
-  assert.match(nav.querySelector('[data-rank="order"]').textContent,
+    'Detailed view preserves every broad-to-specific rank');
+  assert.match(path.querySelector('[data-rank="class"]').textContent, /Aves.*bird sp\./s);
+  assert.match(path.querySelector('[data-rank="order"]').textContent,
     /Charadriiformes.*shorebird sp\..*large shorebird sp\./s);
-  assert.match(nav.querySelector('[data-rank="family"]').textContent,
+  assert.match(path.querySelector('[data-rank="family"]').textContent,
     /Sandpipers and Allies.*Scolopacidae.*Scolopacidae sp\./s);
-  assert.match(nav.querySelector('[data-rank="genus"]').textContent,
+  assert.match(path.querySelector('[data-rank="genus"]').textContent,
     /Calidris.*Calidris sp\..*peep sp\./s);
-  assert.match(nav.querySelector('[data-rank="species"]').textContent,
+  assert.match(path.querySelector('[data-rank="species"]').textContent,
     /Semipalmated Sandpiper.*Calidris pusilla/s);
 
-  const orderGroup = [...nav.querySelectorAll('[data-rank="order"] .spuhtaxchoices')]
+  const orderGroup = [...path.querySelectorAll('[data-rank="order"] .spuhtaxchoices')]
     .find((group) => /shorebird sp\./.test(group.textContent));
   assert.ok(orderGroup, 'the order-level equivalent group exists');
   assert.equal(orderGroup.querySelectorAll('.spuhtaxlink').length, 3,
     'equivalent order labels are side by side in one coverage group');
-  const genusGroup = [...nav.querySelectorAll('[data-rank="genus"] .spuhtaxchoices')]
+  const genusGroup = [...path.querySelectorAll('[data-rank="genus"] .spuhtaxchoices')]
     .find((group) => /peep sp\./.test(group.textContent));
   assert.equal(genusGroup.querySelectorAll('.spuhtaxlink').length, 2,
     'Calidris sp. and peep sp. share one equivalent-label group');
   assert.match(genusGroup.textContent, /COVERAGE LIMIT/,
     'the limited equivalent remains explicitly labelled');
-  assert.ok([...nav.querySelectorAll('.spuhtaxlink[data-spuh]')]
+  assert.ok([...compact.querySelectorAll('.spuhtaxlink[data-spuh]')]
+    .every((link) => link.tagName === 'A' && link.hasAttribute('href')
+      && link.classList.contains('spuhpathchip')),
+  'the concise spuh names are not clickable MEGA-style sentence chips');
+  const badgeProbe = app.document.createElement('span');
+  badgeProbe.className = 'surgebadge';
+  badgeProbe.textContent = 'MEGA';
+  app.document.body.appendChild(badgeProbe);
+  const badgeStyle = app.window.getComputedStyle(badgeProbe);
+  const chipStyle = app.window.getComputedStyle(
+    compact.querySelector('.spuhpathchip'));
+  assert.equal(chipStyle.padding, badgeStyle.padding,
+    'hierarchy chips do not share the compact MEGA badge padding');
+  assert.equal(chipStyle.borderRadius, badgeStyle.borderRadius,
+    'hierarchy chips do not share the compact MEGA badge shape');
+  assert.doesNotMatch(compact.textContent, /->/,
+    'the compact sentence still exposes ASCII punctuation instead of arrow icons');
+  assert.ok([...path.querySelectorAll('.spuhtaxlink[data-spuh]')]
     .every((button) => button.tagName === 'BUTTON'),
-  'every spuh label is a native clickable control into Spuh finder');
+  'Detailed view lost its full-size native hierarchy controls');
 
   path.open = true;
   const peep = [...nav.querySelectorAll('.spuhtaxlink[data-spuh]')]
     .find((button) => /peep sp\./.test(button.textContent));
   app.click(peep);
-  await waitFor(() => app.document.querySelector('#spuhDetail .spuhhead h3'),
-    'the linked Spuh finder result');
-  assert.equal(app.document.querySelector('#spuhDetail .spuhhead h3').textContent,
-    'peep sp.', 'the path link opens the selected label in Spuh finder');
+  await waitFor(() => app.document.querySelector('#spLookupQueryHelp .spuhsummaryname'),
+    'the linked spuh result');
+  assert.equal(app.document.querySelector(
+    '#spLookupQueryHelp .spuhsummaryname').textContent,
+  'peep sp.', 'the path link opens the selected label in Stakeout bird');
   app.window.close();
 });
 
@@ -11291,7 +11958,7 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   assert.match(app.$('spLookupResults').textContent, /Marymoor Park/,
     'the sighting survives the independent taxonomy failure');
   assert.match(app.$('spLookupIdHelp').textContent,
-    /Taxonomy unavailable.*new Stakeout bird lookup to retry/s,
+    /Taxonomy unavailable.*new Stakeout bird search to retry/s,
     'the failed hierarchy state remains visible and names the retry path');
 
   A.setSpuhModel(good);
@@ -11424,48 +12091,66 @@ test('pending Spuh searches cannot repaint after Close or a newer query', async 
   const app = await boot();
   const model = installSpuhFixture(app);
   const A = app.window.__app;
-  app.open(/Spuh finder/);
+  app.open(/Stakeout bird/);
 
   let resolveFirst;
   A.setSpuhModelPromise(new Promise((resolve) => { resolveFirst = resolve; }));
-  app.$('spuhSearch').value = 'peep sp.';
+  app.$('spLookup').value = 'peep sp.';
   A.runSpuhSearch();
   A.clearSpuhFinder();
   resolveFirst(model);
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(app.$('spuhFound').textContent, '');
-  assert.equal(app.$('spuhDetail').textContent, '');
-  assert.match(app.$('spuhStatus').textContent, /Browse uncertain bird IDs/,
+  assert.equal(app.$('spLookupFound').textContent, '');
+  assert.equal(app.$('spLookupQueryHelp').textContent, '');
+  assert.match(app.$('spLookupStatus').textContent,
+    /Search for any bird or spuh/,
     'a model that arrives after Close cannot restore the cleared view');
 
   let resolveSecond;
   A.setSpuhModelPromise(new Promise((resolve) => { resolveSecond = resolve; }));
-  app.$('spuhSearch').value = 'peep sp.';
+  app.$('spLookup').value = 'peep sp.';
   A.runSpuhSearch();
-  app.$('spuhSearch').value = 'Calidris sp.';
+  app.$('spLookup').value = 'Calidris sp.';
   A.runSpuhSearch();
   resolveSecond(model);
   await new Promise((r) => setTimeout(r, 30));
-  const heading = app.document.querySelector('#spuhDetail .spuhhead h3');
+  const heading = app.document.querySelector('#spLookupQueryHelp .spuhsummaryname');
   assert.ok(heading, 'the newer exact search paints after the shared model resolves');
   assert.equal(heading.textContent, 'Calidris sp.',
     'the older peep callback cannot overwrite a newer Calidris search');
   app.window.close();
 });
 
-test('a cold Spuh deep link overrides the menu root autoload', async () => {
-  const app = await boot();
+test('a cold Spuh deep link opens its result inside Stakeout bird', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      if (/product\/spplist\//.test(url)) return ['sem', 'wes'];
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { code: 'sem', name: 'Semipalmated Sandpiper',
+            sci: 'Calidris pusilla' },
+          { code: 'wes', name: 'Western Sandpiper',
+            sci: 'Calidris mauri' },
+        ],
+      }),
+    },
+  });
   installSpuhFixture(app);
   await app.window.__app.openSpuhFinder('peep');
   await new Promise((r) => setTimeout(r, 20));
-  const heading = app.document.querySelector('#spuhDetail .spuhhead h3');
+  const heading = app.document.querySelector('#spLookupQueryHelp .spuhsummaryname');
   assert.ok(heading);
   assert.equal(heading.textContent, 'peep sp.',
     'the requested node wins over bird1 when the section opens for the first time');
   app.window.close();
 });
 
-test('broad Spuh browsing reports totals, pages search results, and keeps every child', async () => {
+test('broad Spuh browsing reports totals and pages every matching label', async () => {
   const app = await boot();
   const rows = [];
   function letters(i) {
@@ -11494,23 +12179,16 @@ test('broad Spuh browsing reports totals, pages search results, and keeps every 
   });
   const model = app.window.Spuh.createFromTaxonomy(rows);
   app.window.__app.setSpuhModel(model);
-  app.open(/Spuh finder/);
-  app.$('spuhSearch').value = 'sample group';
-  app.click(app.$('spuhBtn'));
+  app.open(/Stakeout bird/);
+  app.$('spLookup').value = 'sample group';
+  app.window.__app.runSpuhSearch();
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(app.document.querySelectorAll('#spuhFound [data-spuh]').length, 25);
-  assert.match(app.$('spuhStatus').textContent, /Showing 25 of 40 matches/);
+  assert.equal(app.document.querySelectorAll('#spLookupFound [data-spuh]').length, 25);
+  assert.match(app.$('spLookupStatus').textContent, /Showing 25 of 40 matches/);
   assert.equal(app.$('spuhMore').hidden, false, 'a visible control offers the rest');
   app.click(app.$('spuhMore'));
-  assert.equal(app.document.querySelectorAll('#spuhFound [data-spuh]').length, 40);
-  assert.match(app.$('spuhStatus').textContent, /Showing 40 of 40 matches/);
-
-  await app.window.__app.renderSpuhNode('bird');
-  const narrower = app.document.querySelector('#spuhDetail details.spuhnarrow');
-  assert.ok(narrower, 'a broad group folds its complete child list');
-  assert.match(narrower.querySelector('summary').textContent, /40/);
-  assert.equal(narrower.querySelectorAll('[data-spuh]').length, 40,
-    'no silent slice hides the 31st and later narrower groups');
+  assert.equal(app.document.querySelectorAll('#spLookupFound [data-spuh]').length, 40);
+  assert.match(app.$('spLookupStatus').textContent, /Showing 40 of 40 matches/);
   app.window.close();
 });
 
@@ -11585,13 +12263,14 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     'it asks eBird for THAT species, not the whole region feed filtered afterwards');
   assert.match(feeds[0], new RegExp(`back=${app2.window.__app.SP_LOOKUP_BACK}\\b`),
     'over a window wider than the chase feeds, because a lookup asks about birds that may not be here today');
-  const status = doc2.getElementById('spLookupStatus').textContent;
-  assert.match(status, new RegExp('Testable Kingbird'),
-    `a seen bird is answered, not refused: got "${status}"`);
-  // Asserted against the whole rendered panel rather than one element, because
-  // WHICH node carries the year-list fact is layout, not behaviour. What must
-  // never regress is that a bird you have already seen is still answered AND
-  // still marked as seen — the ✅ and the words, both.
+  const summary = doc2.querySelector(
+    '#spLookupResults > li > .splookupsummary');
+  assert.match(summary && summary.textContent, /Testable Kingbird/,
+    'a seen bird is answered inside its species card rather than refused');
+  assert.equal(doc2.getElementById('spLookupStatus').textContent, '',
+    'the loaded summary still floats above the species card');
+  // What must never regress is that a bird you have already seen is still
+  // answered AND still marked as seen — the ✅ and the words, both.
   const panel = doc2.getElementById('sec-spLookupBtn').textContent;
   assert.match(panel, /already on your year list/,
     'the answer says you have already seen it rather than staying silent');
@@ -11769,7 +12448,7 @@ test('deleting a region sweeps every per-region key it left behind', async () =>
    'ebird_tide_station:u-trip', 'ebird_chase_v1:u-trip:2026-08-02',
    'bc_snap:u-trip:2026-08-02'].forEach((k) => {
     assert.equal(w.localStorage.getItem(k), null,
-      k + ' must go with the region, or storage grows a dead trip every holiday');
+      k + ' must go with the region, or storage grows after every deletion');
   });
   assert.equal(w.localStorage.getItem('ebird_home_lat:wa'), '47.75',
     'another region must not be swept with it');
@@ -11807,7 +12486,7 @@ test('the region pickers offer user regions alongside the built-ins', async () =
   assert.equal(after.length, before + 1, 'the user region joins the list');
   const mine = after[after.length - 1];
   assert.equal(mine.slug, 'u-victoria-bc');
-  assert.equal(mine.kind, 'trip', 'and reads as a trip, like Fort Casey and Waikoloa');
+  assert.equal(mine.kind, 'region', 'and remains a region rather than reviving trip profiles');
 });
 
 test('the time zone is derived from longitude, which is right where it matters', async () => {
@@ -16112,7 +16791,7 @@ test('no section shows a bare Load button — every loader is the refresh icon',
     // being typed by hand: 🏞 Stake out a hotspot is the same shape — an
     // <input type="search"> with a Search button beside it — and was simply
     // absent from the old array, so nothing had ever asked about it.
-    if (id === 'spLookupBtn' || id === 'spuhBtn' || id === 'stakeHsBtn') {
+    if (id === 'spLookupBtn' || id === 'stakeHsBtn') {
       assert.ok(sec.querySelector('input[type="search"]'),
         id + ' claims to be a typed search, so it must actually carry a search box');
       assert.equal(row.hidden, false, 'the ' + id + ' search box stays on screen');
@@ -16274,7 +16953,7 @@ test('static reference feeds are cached across restarts, observation feeds are n
   const load = HTML.slice(loadAt, loadEnd);
   assert.match(load,
     /var taxonomyPath = 'ref\/taxonomy\/ebird\?fmt=json&locale=en'/,
-    'Spuh finder names the exact full-taxonomy path once');
+    'Stakeout bird names the exact full-taxonomy path once');
   assert.match(load, /ebird\(taxonomyPath, false, true\)/,
     'and routes that payload around localStorage to IndexedDB instead');
   A.ebRefPurge();
@@ -16312,7 +16991,8 @@ test('the debug log reports what each section cost', async () => {
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
   const eb = HTML.slice(ebirdAt, ebirdEnd);
-  assert.match(eb, /costNote\(path, true\)/, 'a cache hit is recorded as a saving');
+  assert.match(eb, /costNote\(path, true, costOwner\(work\)\)/,
+    'a cache hit is recorded as a saving under the request owner');
   assert.match(eb, /costNote\(path, false, section\)/, 'and a live call as a cost');
   // ...and showSection must name the section, or every call lands on 'startup'.
   // ⚠️ SLICED BY NAMED BOUNDARY, not by a byte count. This read
@@ -17018,9 +17698,9 @@ test('the chase radius is per report, not one knob for all ten', async () => {
     'Washington keeps its own radius — the whole reason this became per report');
 
   // Keys are namespaced by slug, exactly as homeKey and tideKey are.
-  W.localStorage.setItem('ebird_report', 'waikoloa');
+  W.localStorage.setItem('ebird_report', 'hi');
   assert.notEqual(A.chaseMiKey(), 'ebird_chase_mi', 'never the bare global key');
-  assert.ok(A.chaseMiKey().endsWith(':waikoloa'), 'one key per report');
+  assert.ok(A.chaseMiKey().endsWith(':hi'), 'one key per report');
   app.window.close();
 });
 
@@ -22082,7 +22762,7 @@ test('Break a record can be scoped to a county, and really reads that file', asy
 // scope happened to be bundled. A guard that exercises one report cannot see a
 // missing asset in another, so this one walks them all.
 test('every report offers only record scopes that are actually bundled', async () => {
-  const reports = ['wa', 'mo', 'ks', 'az', 'ca', 'hi', 'waikoloa'];
+  const reports = ['wa', 'mo', 'ks', 'az', 'ca', 'hi'];
   const missing = [];
   for (const slug of reports) {
     const app = await boot({ report: slug });
@@ -23195,22 +23875,29 @@ test('the Contents grid cannot crush a tile label', () => {
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
 
-test('F303 Show bird codes owns a measured row below Search and Close', async () => {
+test('F358 Show bird codes follows Close in the shared action row', async () => {
   const app = await boot();
   const codes = app.$('spCodesBtn');
   const search = app.$('spLookupBtn');
   const close = app.$('spLookupClear');
-  assert.notEqual(codes.closest('.row'), search.closest('.row'),
-    'Show bird codes shares the Search action row');
+  assert.equal(codes.closest('.row'), search.closest('.row'),
+    'Show bird codes is not in the Search action row');
   assert.equal(search.closest('.row'), close.closest('.row'),
     'Search and Close no longer share their action row');
+  assert.ok(close.compareDocumentPosition(codes)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'Show bird codes is not authored immediately after Close');
 
   const audit = fs.readFileSync(
     path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
-  assert.match(audit, /codesBtn\.parentElement === searchBtn\.parentElement/,
+  assert.match(audit, /codesBtn\.parentElement !== searchBtn\.parentElement/,
     'the browser audit does not verify the authored row identity');
-  assert.match(audit, /codesRect\.top < actionBottom - 0\.5/,
-    'the browser audit does not prove Show bird codes starts below both actions');
+  assert.match(audit, /Math\.abs\(codesCenter - closeCenter\) > 0\.5/,
+    'the browser audit does not prove the three normal-width actions share a line');
+  assert.match(audit, /var AUDIT_WIDTH = \$\{WIDTH\};[\s\S]*var AUDIT_SCALE = \$\{JSON\.stringify\(SCALE\)\};/,
+    'the browser audit references Node-only width variables inside the page');
+  assert.doesNotMatch(audit, /if \(WIDTH >= 393 && SCALE === '1'/,
+    'the injected browser audit still throws on undefined Node-side constants');
   assert.match(audit, /CODE CONTROL ROW/,
     'the browser audit does not report the failed row contract');
   assert.match(audit, /CODE CONTROL TARGET/,
@@ -25945,8 +26632,10 @@ test('F8: the CSV route is tried first, and the page route still carries codes',
   assert.match(src, /tryLifelistCsv\(\)/, 'CSV is attempted');
   assert.ok(src.indexOf('tryLifelistCsv()') < src.indexOf('tryLifelistPage()'),
     'and it is attempted FIRST');
-  assert.match(src, /LIFELIST_MIN_ROWS \? n : tryLifelistPage\(\)/,
-    'too few rows falls through to the page rather than accepting a thin answer');
+  assert.match(src,
+    /n === LIFELIST_COMPLETE_EMPTY \|\| n >= LIFELIST_MIN_ROWS[\s\S]*\? n : tryLifelistPage\(\)/,
+    'only a positively identified empty list or enough rows may skip the page; '
+    + 'one-to-four rows remain suspicious');
 
   // FRESHNESS IS UNMEASURED, and the verdict has to say so out loud rather
   // than the app implying same-day accuracy nobody has checked.
@@ -28014,5 +28703,142 @@ test('F320 deterministic empty-account probe reports the before/after plan', asy
     remainingPhaseTwoPlanAfterNavigation: { before: 60, after: 0 },
   });
   console.log('F320_MEASUREMENT ' + JSON.stringify(measurement));
+  app.window.close();
+});
+
+test('F354 My Ticks owns expected cancellation without advancing or rearming', async () => {
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Test Birder' },
+  });
+  const A = app.window.__app;
+  let finishFetch;
+  let starts = 0;
+  let current = true;
+  app.window.fetch = () => {
+    starts++;
+    return new Promise((resolve) => {
+      finishFetch = () => resolve({
+        ok: true, status: 200, headers: { get: () => null },
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve('[]'),
+      });
+    });
+  };
+  A.fgSchedReset(Date.now());
+
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const run = A.backfillTick({
+      current: () => current,
+      label: 'controlled My Ticks cancellation',
+      sectionId: 'sec-myYearBody',
+    });
+    await waitFor(() => starts === 1, 'the controlled backfill request to start');
+    current = false;
+    finishFetch();
+    if (run && typeof run.then === 'function') await run;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.ok(run && typeof run.then === 'function',
+      'backfillTick detached its promise, so its expected cancellation has no owner');
+    const state = A.backfillState();
+    assert.equal(state.days, 0, 'a cancelled day advanced the durable day count');
+    assert.equal(Object.keys(state.cursor).length, 0,
+      'a cancelled day advanced a county cursor');
+    const runtime = A.backfillRuntime();
+    assert.equal(runtime.running, false,
+      'cancelled work did not release its running flag');
+    assert.equal(runtime.timerPending, false,
+      'cancelled work rearmed its next timer');
+    assert.equal(unhandled.length, 0,
+      'expected queue cancellation reached the process as an unhandled rejection');
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled);
+    app.window.close();
+  }
+});
+
+test('F355 authoritative empty year lists complete the cheap path', async () => {
+  const emptyCsv = 'Common Name,Scientific Name,Date,Location\n';
+  const emptyPage = [
+    '<!doctype html><html><head><title>Hawaii 2026 Year List - eBird</title></head><body>',
+    '<h1>Hawaii 2026 Year List</h1><p>Species Total: 0</p>',
+    '</body></html>',
+  ].join('\n');
+  const unknownPage = [
+    '<!doctype html><html><head><title>Hawaii 2026 Year List - eBird</title></head><body>',
+    '<h1>Hawaii 2026 Year List</h1><p>The page layout changed.</p>',
+    '</body></html>',
+  ].join('\n');
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: { ebird_display_name: 'Test Birder' },
+    fetch: (url) => /fmt=csv/.test(url) ? emptyCsv : emptyPage,
+  });
+  const A = app.window.__app;
+
+  assert.equal(A.lifelistCsvIsEmpty(emptyCsv), true,
+    'a recognized header-only eBird export is not classified as an empty list');
+  assert.equal(A.lifelistCsvIsEmpty('Alpha,Beta,Gamma\n'), false,
+    'an unknown header must not be accepted as an authoritative empty list');
+  assert.equal(A.lifelistHTMLIsEmpty(emptyPage), true,
+    'the expected Year List title plus explicit zero-species marker was rejected');
+  assert.equal(A.lifelistHTMLIsEmpty(unknownPage), false,
+    'a real-looking page with unknown markup must remain suspicious');
+  assert.equal(A.lifelistHTMLIsEmpty(LIFELIST_LOGIN), false,
+    'a login page must never become an empty year list');
+
+  const result = await A.tryLifelistYear();
+  assert.equal(result, A.LIFELIST_COMPLETE_EMPTY,
+    'the authoritative empty CSV did not complete the one-call path');
+
+  A.startOwnBackfill(0, {
+    current: () => true,
+    label: 'empty Hawaii list',
+    sectionId: 'sec-myYearBody',
+  });
+  await waitFor(() => A.backfillState().done, 'the empty year list to complete');
+  const state = A.backfillState();
+  assert.equal(state.viaLifelist, true,
+    'the authoritative zero answer was not recorded as a completed life-list read');
+  assert.equal(state.days, 0, 'the zero answer started the day-by-day fallback');
+  assert.equal(app.state.fetches.filter((url) => /product\/lists\//.test(url)).length, 0,
+    'the legitimate zero answer spent day-list calls');
+  app.window.close();
+});
+
+test('F356 live and cached eBird cost follows the request owner after navigation', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200, headers: { get: () => null },
+    json: () => Promise.resolve([]),
+    text: () => Promise.resolve('[]'),
+  });
+  A.fgSchedReset(Date.now());
+
+  const work = {
+    current: () => true,
+    label: 'My Ticks backfill',
+    sectionId: 'sec-myYearBody',
+  };
+  A.costEnter('sec-myYearBody', 'My Ticks');
+  A.costEnter('sec-helpBody', 'About');
+  await A.ebird('probe/f356-owner', false, false, false, work);
+
+  A.costEnter('settingsPanel', 'Settings');
+  await A.ebird('probe/f356-owner', false, false, false, work);
+
+  const report = A.costReport();
+  const mine = report.find((row) => row.id === 'sec-myYearBody');
+  assert.ok(mine, 'the request owner received no cost row');
+  assert.equal(mine.calls, 1, 'the live request was charged to the visible section');
+  assert.equal(mine.cached, 1, 'the cached request was charged to the visible section');
+  assert.equal(report.some((row) => row.id === 'sec-helpBody' || row.id === 'settingsPanel'),
+    false, 'navigation created cost rows for work owned by My Ticks');
   app.window.close();
 });

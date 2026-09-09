@@ -210,6 +210,10 @@
       title: context.name || 'Spuh explanation',
       subtitle: 'What this spuh means',
       bodyHtml: '<p>' + escapeWith(esc, context.definition || '') + '</p>'
+        + '<h4>Marked spuh names</h4>'
+        + '<p>An italic name followed by * is a spuh for which eBird does not '
+        + 'publish its own set of birds. The count on the taxonomic backbone '
+        + 'belongs to that verified set, not to the marked spuh.</p>'
         + '<h4>Sources and boundary</h4>'
         + '<p>Generated on this device from the eBird taxonomy '
         + 'and eBird’s definition of a spuh; no taxonomy bundle ships in '

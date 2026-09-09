@@ -3,6 +3,7 @@
     "index.html",
     "logic.js",
     "controls-toggle.js",
+    "controls-progressive.js",
     "cards-species.js",
     "cards-hotspot.js",
     "section-docs.json",
@@ -16,6 +17,7 @@
     "index.html": [
       "APP_VERSION = '${version}'",
       "<script src=\"controls-toggle.js\"></script>",
+      "<script src=\"controls-progressive.js\"></script>",
       "parseEbirdAccountIdentity",
       "openMegaIndexRow",
       "PERSIST_DELAY_MS = 750",
@@ -24,6 +26,10 @@
     "controls-toggle.js": [
       "global.ToggleControls = api",
       "aria-pressed="
+    ],
+    "controls-progressive.js": [
+      "global.ProgressiveList = api",
+      "Show "
     ]
   },
   "forbiddenText": {

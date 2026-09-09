@@ -38,8 +38,7 @@ gets planned. A section that exists only in the app is simply ahead.
 
 | section | why it cannot be a report section |
 |---|---|
-| 🔎 Stakeout bird *(was Species lookup)* | a Markdown report cannot take a query, and printing every species' places for a region is a phone book, not a section |
-| 🌳 Spuh finder | F277. A Markdown report cannot take a spuh search or a set of possible species to compare. The app builds the candidate-set DAG on the device from the reader's direct eBird taxonomy call and caches the compact model in IndexedDB; no taxonomy bundle is redistributed in the public repository. |
+| 🔎 Stakeout bird *(includes Spuh finder)* | F358. A Markdown report cannot take a bird/spuh query, candidate selection or comparison set, and printing every bird's places and hierarchy paths for a region is a phone book, not a section. The app builds the candidate-set DAG on the device from the reader's direct eBird taxonomy call and caches the compact model in IndexedDB; no taxonomy bundle is redistributed in the public repository. |
 | 🏞 Stake out a hotspot | a Markdown report cannot take a query either, and this is the INVERSE of every place-finding section — those answer "which place should I go to", this starts from "I have chosen this place, tell me everything". It leads with the **pattern** (how often the place is birded, what a visit is typically worth, who the regulars are) rather than with today's rows, because eBird embargoes checklists for an hour and people submit hours later — measured 2026-08-22 at 10:10, three target species returned **zero** reports from that day statewide |
 | ⭐ Iconic spots near me (`iconicBtn`) | F156. Ranks how much a place STANDS OUT for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags — a Western Kingbird never trips the notable flag, yet there is one road in Sultan where it is the bird of the place. Cannot be a report section for two reasons: it is measured against YOUR home and YOUR chase radius, which a report generated hours earlier cannot ask for, and the scan is a live pass of keyless GBIF facets over the 12 nearest hotspots whose answer moves as the reader moves. Validated against eBird's own Iconic Birds panel: at Mann Rd, Sultan our ordering is eBird's exactly. |
 | 📆 Due back soon | the arrival sweep is hundreds of GBIF calls, resumable and cached on the device; the report is built once from a fixed snapshot, and "what arrives in the next three weeks" is a question whose answer moves every day |
@@ -740,8 +739,8 @@ thresholds, and — where shared — their math** match the report: convoys and
 time-of-day specialists run the parity-tested `BirdLogic.convoyDetect` /
 `todSpecialists`; BirdCast links and the tide station equal the report's; and
 hotspots / migration / birdiest use the report's per-county feeds and
-selection rules. (Cache keys are the report **slug**, so `wa` and `fort-casey`
-— both `US-WA` — no longer collide.)
+selection rules. Cache keys use the report **slug**, so a custom region that
+shares an eBird scope with a built-in region cannot collide with it.
 
 **Legend** — ✅ Done · 🟡 Partial · 🔜 Planned (feasible on eBird API) ·
 🧪 Planned (needs historical/stats data) · 🌦️ Planned (needs non-eBird source) ·

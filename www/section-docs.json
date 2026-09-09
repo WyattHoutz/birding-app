@@ -475,60 +475,44 @@
     },
     "spLookupBtn": {
       "report": null,
-      "summary": "Ask where ANY bird is being seen — including ones already on your year list.",
+      "summary": "Search for any bird or spuh, then continue from a spuh candidate into its recent places and checklists.",
       "inputs": [
         "eBird product/spplist for the active region and, only after an empty match, each parent region in order",
         "data/obs/{region}/recent/{code}, the per-species observation feed",
-        "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the identification ladder",
+        "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the bird hierarchy",
         "when opened from Mega rarities only, that current in-memory Mega view's raw reports, state/ABA-wide promises and evidence"
       ],
       "how": [
-        "Typed text is matched against common and scientific names. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level.",
+        "Typed text is matched against species common names, scientific names and codes. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level.",
         "A parent-region result stays under an Outside {active region} heading and each row says it is not on the active regional list. Opening it still asks the original report for sightings, so a taxonomy match can never masquerade as a local observation.",
-        "If every regional level misses, Search full eBird taxonomy is offered as an explicit action rather than silently changing the search to the whole world.",
+        "If every regional bird level misses, the same query is matched against eBird's spuh labels and full taxonomy. An exact spuh opens its bird hierarchy; several spuh matches stay as choices; full-taxonomy birds appear immediately under an explicit Outside {active region} boundary rather than requiring a second search.",
         "One active-region match goes straight to the bird rather than showing a menu of one; fallback matches keep their visible scope boundary even when there is only one.",
+        "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
+        "Each spuh resolves to its exact published candidate-species set. Labels with identical sets share one coverage class, and minimal subset/superset relations form a DAG because real groups overlap.",
+        "A spuh is treated as a bird-hierarchy entry, not a separate feature. Its result uses the same medium SpeciesCards shape as a selected bird, without a separate enclosing border: one possible bird supplies a clearly labelled representative image, the searched spuh is the large title, and its count and taxonomy identifiers sit on the card's metadata line.",
+        "Below the TAXONOMIC HIERARCHY heading, Condensed runs the verified backbone inline with the same › chevron as candidate cards between ancestry levels. Familiar spuh wording for which eBird publishes no separate bird set is regular italic with a baseline * and a small bold backslash announced as \"or\"; those real spuh labels remain buttons but receive no invented count.",
+        "Detailed replaces the inline row with numbered Class, Order, Family and Genus steps. Every backbone step names its verified taxon and exact published-set count; starred spuh wording stays at the matching level without being drawn as a parent or child. Switching views preserves the representative image and the same SpeciesCards.small candidate list.",
+        "The hierarchy information button explains the starred notation, preserves the selected spuh's generated definition, and keeps taxonomy and example-image source boundaries out of the primary result.",
+        "Selecting a candidate replaces the search field with that bird's name and removes the now-redundant spuh result before painting the bird's normal map, recent-hotspot evidence and bird hierarchy. Clicking the source-spuh chip in the concise hierarchy reopens the candidate result when a different bird is needed.",
         "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
-        "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'.",
+        "Sorted by date (most recent first) or by distance from home — the two different questions 'is it still around' and 'how far must I drive'. The loaded sightings summary sits inside the selected bird card immediately after its year-list state rather than floating above the hierarchy.",
         "The first 25 places paint immediately. Show more appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
         "A Mega-launched lookup still renders exactly one medium species card. Mega evidence is prepended inside that card while the ordinary place list, map, date/distance/iconic controls, arrival note and unwatched-place lane continue below it.",
         "An honestly empty active-region sightings result keeps the Mega evidence visible rather than replacing it with an empty-state message.",
         "Back returns to the source Mega list only if its report/region/SID/scope/generation key is still current; otherwise it returns to Contents.",
         "Looks back 30 days, wider than the chase feeds, because a lookup is asked about birds that may not be present today.",
-        "The sightings list paints before taxonomy and remains independent of it. Beneath the hotspot list, the same compact broad-to-specific hierarchy used by Spuh finder shows the complete short path by default, keeps equivalent labels together, marks coverage-limited wording with text and a dashed border, and links every spuh label into Spuh finder.",
-        "Detailed view expands the full class, order, family, genus and species alignment plus the comparison tool without making the default lookup a full screen of taxonomy.",
-        "Compare possible species finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
+        "The sightings list paints independently from taxonomy. Before the map, one plain sentence shows the bird hierarchy as compact MEGA-sized clickable chips: right-arrow icons (→) separate levels, the word 'or' joins same-rank spuh siblings, and the selected bird ends the sentence. Coverage-limited siblings retain a warning glyph and dashed chip border.",
+        "The underlined Show Hierarchy Details text link below that sentence keeps a 44px tap target and expands the full class, order, family, genus and species alignment, coverage explanation, narrower groups, complete candidate set and comparison tool without making the default lookup a full screen of taxonomy.",
+        "Compare possible birds finds the minimal published spuh set containing every selection. Because spuh sets overlap, it can return more than one equally narrow answer rather than forcing a false single-parent tree."
       ],
       "limits": [
-        "App-only: a Markdown report cannot take a query, and printing every species' places for a region would be a phone book, not a section.",
+        "App-only: a Markdown report cannot take a bird/spuh query or candidate selection, and printing every bird's places and hierarchy paths for a region would be a phone book, not a section.",
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
         "The name lookup can identify a bird outside the region, but the sightings answer remains scoped to the active report. A fallback match may therefore lead to the honest answer that there are no local reports in the active window.",
         "The per-species feed returns only the most recent report at each place. One row per place is the endpoint's limit, not the bird's full history; repeated visits at the same place may be omitted.",
         "Mega context is transient and exact-code only. Ordinary search and generic species links clear it, so rarity evidence cannot attach to a different bird.",
         "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
         "Seventy-nine labels are shown with a dashed Coverage limit warning and are never selected automatically: 73 parenthetical glosses whose narrower membership is not published (58 share coverage with another spuh and 15 are lone labels), five named subfamilies, and the mixed Buteo/eagle group."
-      ]
-    },
-    "spuhBtn": {
-      "report": null,
-      "summary": "Browse uncertain bird IDs, see what each one contains, and compare possible species without forcing overlapping groups into a false tree.",
-      "inputs": [
-        "eBird ref/taxonomy/ebird, called directly from the device with your API key",
-        "the app's existing attributed Wikipedia/Wikimedia photo pipeline, for a clearly labelled example candidate image"
-      ],
-      "how": [
-        "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
-        "Each spuh is resolved to its exact published candidate-species set. Genus, family and order lists are unions; twelve scientific species-list rows are parsed species by species rather than widened to their whole family.",
-        "Labels with identical candidate sets share one coverage class. Minimal strict subset and superset relations form a DAG, because real groups overlap.",
-        "The same compact hierarchy used by Stakeout bird shows the complete broad-to-specific short path by default, groups equivalent labels at one level, and marks the selected or most-specific level without relying on colour.",
-        "Detailed view owns the coverage explanation, narrower groups, candidate list, example candidate image and comparison. The information button holds the generated definition, source boundary and example-image source so repeat users do not have to scroll past explanatory prose.",
-        "The example image is one possible candidate and says so in words; it is never called the spuh or the most common member.",
-        "Compare possible species returns zero, one or several minimal published sets containing every selected bird."
-      ],
-      "limits": [
-        "App-only: the archived Markdown report cannot take a search or a set of candidate species.",
-        "The taxonomy tells you membership, not field evidence. A narrow shared group is not proof that the selected possibilities are complete.",
-        "Coverage-limited labels remain searchable and visible but are never automatic recommendations.",
-        "The first use needs an eBird API key and one full taxonomy call. Later opens use the 30-day on-device cache."
       ]
     },
     "iconicBtn": {
@@ -655,7 +639,7 @@
       "how": [
         "Everything here is stored on this device only.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
-        "You can add your own regions for trips. They live only in the app, because the Markdown report's regions are compiled into it, and a new one starts with an empty seen list — on a trip that is very nearly true."
+        "You can add your own regions. They live only in the app because the Markdown report's regions are compiled into it, and each new region starts with an empty seen list until its year list is imported."
       ],
       "limits": []
     },

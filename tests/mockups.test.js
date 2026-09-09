@@ -14,6 +14,7 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(ROOT, 'assets', 'mockups.js'), 'utf8');
+const indexSource = fs.readFileSync(path.join(ROOT, 'www', 'index.html'), 'utf8');
 const alertSource = fs.readFileSync(
   path.join(ROOT, 'assets', 'mockup-alertfeed.js'), 'utf8');
 const workflow = fs.readFileSync(
@@ -28,6 +29,13 @@ const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
 
+test('F359 mockup preparation timeout rejects a hung fixture by shot name', async () => {
+  await assert.rejects(
+    mockups.withTimeout(new Promise(() => {}), 5, 'section-spLookupBtn preparation'),
+    /section-spLookupBtn preparation timed out after 5ms/
+  );
+});
+
 test('release mockups include exactly one section shot per visible menu entry', () => {
   const expected = mockups.CONTRACT.menu.map((item) => item.at).sort();
   const actual = mockups.SECTION_SHOTS.map((shot) => shot.at).sort();
@@ -38,9 +46,13 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['birdgenloading', 'favoritesregion', 'spuhdetail', 'stakeoutdetail',
-      'stakeoutreports', 'megaaba', 'meganearest'],
+    ['birdgenloading', 'favoritesregion', 'spuhcompact', 'birdspcompact',
+      'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail', 'stakeoutreports',
+      'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
+  assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
+    .maxHostHeight, undefined,
+  'the approved medium-card peep result is still capped by the superseded layout');
 });
 
 test('every menu section declares representative fixture data or an intentional static surface', () => {
@@ -51,7 +63,7 @@ test('every menu section declares representative fixture data or an intentional 
 
   const allowed = new Set([
     'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
-    'spuh', 'hotspot-search', 'stakeout-species', 'mega-index', 'patches',
+    'hotspot-search', 'stakeout-merged', 'mega-index', 'patches',
     'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
@@ -78,6 +90,14 @@ test('blank detection inspects the active section and requires its data marker',
     'footer/navbar text cannot make an unmarked data section pass');
   assert.match(source, /problems\.push\('loading'\)/,
     'visible loading states fail the shot');
+  assert.match(source, /problems\.push\('global loading'\)/,
+    'the app-wide progress bar cannot remain visible in a finished shot');
+  const staticStart = source.indexOf("if (spec.kind === 'static')");
+  const staticEnd = source.indexOf('host.innerHTML', staticStart);
+  assert.ok(staticStart > 0 && staticEnd > staticStart,
+    'the static fixture branch is bracketed by stable setup statements');
+  assert.match(source.slice(staticStart, staticEnd), /A\.fgProgressReset\(\)/,
+    'the static Settings fixture does not clear work left by earlier gallery shots');
   assert.match(source, /problems\.push\('disabled controls'\)/,
     'visible disabled-loader states fail the shot');
   assert.match(source, /FIXTURE CHANGED AFTER READY/,
@@ -91,7 +111,7 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
     at: 'easyBtn', expectedAt: 'easyBtn', ready: true, isStatic: false,
     sectionVisible: true, hostVisible: true, data: true, text: 120,
     controls: 2, inCapture: true, loading: [], disabled: [], missing: [],
-    mapReady: true,
+    mapReady: true, globalLoading: false,
   };
   assert.deepEqual(mockups.shotReadinessProblems(ready), [],
     'a populated data section is ready');
@@ -101,6 +121,10 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
   assert.deepEqual(mockups.shotReadinessProblems({
     ...ready, loading: ['Loading recent reports…'],
   }), ['loading'], 'a visible loading state cannot be captured as finished');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, globalLoading: true,
+  }), ['global loading'],
+  'the app-wide eBird progress bar cannot be captured as finished');
   assert.deepEqual(mockups.shotReadinessProblems({
     ...ready, missing: ['#easyResults .hscard'],
   }), ['missing expected components'],
@@ -155,7 +179,7 @@ test('Mega rarity mockups exercise the real scope and sort controls', () => {
     '#abaResults .abadist',
   ]);
   const setup = source.slice(source.indexOf('function fillMegaIndex('),
-    source.indexOf('async function fillMegaStakeout('));
+    source.indexOf('function fillRankingHost('));
   assert.match(setup, /A\.renderAbaAlert\(/,
     'the gallery must drive the production Mega renderer, not hand-roll its rows');
   assert.match(setup, /A\.setAbaScope\('state'\)/);
@@ -240,7 +264,7 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
   const setup = source.slice(source.indexOf("if (at === 'surgeBtn')"),
     source.indexOf('\n  function wait(', source.indexOf("if (at === 'surgeBtn')")));
   const paint = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
-    source.indexOf("} else if (spec.kind === 'spuh')"));
+    source.indexOf("} else if (at === 'rankBtn')"));
   for (const fact of [
     'nazboo1', 'Smith Island', 'S388997009', '2026-08-25 15:00',
     'ruff', 'Hoquiam STP', 'S387782679',
@@ -327,26 +351,71 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   assert.match(source, /A\.loadChoicePatches\(\)/,
     'Pro patches must run its real loader instead of receiving a generic rank table');
 
-  assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-species');
-  assert.equal(mockups.STUB_SPEC.spLookupBtn.maxHostHeight, 520,
-    'Stakeout keeps the measured cross-platform compact hierarchy ceiling');
+  assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-merged');
+  assert.equal(mockups.STUB_SPEC.spuhBtn, undefined,
+    'the removed Spuh menu surface still owns a release fixture');
+  assert.equal(mockups.STUB_SPEC.spLookupBtn.maxHostHeight, 150,
+    'the release guard allows the hierarchy sentence to grow back into a card');
   assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'spLookupIdHelp',
-    'the capture anchor is the visible taxonomy path, while component checks guard the card');
+    'the release capture is not anchored to the selected bird hierarchy');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
+    '#spLookupQueryHelp:empty',
+    '#spLookupIdHelp .spuhpathsentence',
+    '#spLookupIdHelp .spuhpathchip[data-spuh]',
     '#spLookupResults > li',
     '#spLookupIdHelp .spuhtaxnav',
     '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
     '#spLookupIdHelp details.spuhdetails',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
-    '#spLookupResults .megaevidence',
-    '#spLookupResults .megalatest',
-    '#spLookupResults .megareports',
     '#spLookupResults .spLookupPlaceList > .hscard-sm',
   ]);
-  assert.match(source, /fillMegaStakeout[\s\S]*#abaResults \.megajump[\s\S]*jump\.click\(\)/,
-    'the mandatory Stakeout shot must enter through a real Mega index click');
-  assert.match(source, /fillMegaStakeout[\s\S]*spLookupPlaceList/,
-    'the routed shot still exercises the real medium-card + places renderer');
+  assert.match(source, /prepareBirdFinderMerged[\s\S]*fillStakeoutSpecies/,
+    'the release shot does not continue a spuh candidate into species evidence');
+  assert.match(source, /candidate species cards do not fit in the result/,
+    'the peep mock does not reject clipped shared species cards');
+  assert.match(source,
+    /spuhresulthero[\s\S]*spuhcandidatecards[\s\S]*spuhcandidatecard\[role="button"\]\[tabindex="0"\]/,
+  'the peep mock does not require the medium hero and keyboard-clickable small cards');
+  assert.match(indexSource,
+    /\.spuhresultcard\.spuhdetailopen \.spuhresultpath\s*\{[^}]*display:\s*none/,
+    'expanded Detailed view still duplicates the condensed hierarchy sentence');
+  assert.doesNotMatch(indexSource,
+    /\.spuhdetailopen[^{}]*\.spuhcandidatelane[^{}]*\{[^}]*display:\s*none/,
+    'expanded Detailed view hides the shared regional bird list');
+  assert.match(indexSource,
+    /ToggleControls\.group\(\{[\s\S]*id: 'spuhViewPick'[\s\S]*label: 'Condensed'[\s\S]*label: 'Detailed'/,
+    'bird sp. does not reuse the shared segmented-toggle template');
+  assert.match(source,
+    /id: 'birdspcompact'[\s\S]*id: 'birdspdetail'/,
+    'the focused review set does not render both hierarchy-view selections');
+  for (const id of ['spuhcompact', 'spuhdetail', 'birdspcompact', 'birdspdetail']) {
+    assert.match(source, new RegExp("id: '" + id + "'"),
+      id + ' is missing from the four-state hierarchy review set');
+  }
+  assert.match(source,
+    /assertDetailedHierarchyLayout[\s\S]*marker overlaps a label/,
+    'the detailed hierarchy mock does not reject a jumbled marker/label layout');
+  assert.match(source,
+    /spuhhierarchyhead > h3[\s\S]*spuhhierarchyinfo[\s\S]*spuhpathalternate/,
+    'the peep review does not require the heading, info control, and alternatives');
+  assert.match(source,
+    /spuhtaxsteps > \.spuhtaxstep\[data-rank="class"\][\s\S]*data-rank="genus"/,
+    'the detailed peep review does not require every numbered backbone level');
+  const birdSpFixtureStart = source.indexOf(
+    'async function prepareBirdSp(A, document, sec, nodeCode)');
+  const birdSpFixtureEnd = source.indexOf('window.FIX =', birdSpFixtureStart);
+  assert.ok(birdSpFixtureStart >= 0 && birdSpFixtureEnd > birdSpFixtureStart,
+    'the regional bird-sp fixture is missing');
+  const birdSpFixture = source.slice(birdSpFixtureStart, birdSpFixtureEnd);
+  assert.doesNotMatch(birdSpFixture, /fixtureStatus\(/,
+    'the bird-sp review mock still prints the redundant representative-stub sentence');
+  assert.match(birdSpFixture, /24 birds in its published set/,
+    'the peep review does not verify the measured Calidris backbone count');
+  assert.doesNotMatch(birdSpFixture,
+    /comName:\s*'Charadriiformes sp\.'/,
+    'the mock taxonomy invents a Charadriiformes sp. node absent from the live export');
+  assert.match(source, /fillStakeoutSpecies[\s\S]*A\.lookupSpecies/,
+    'the merged shot hand-rolls evidence instead of exercising the real lookup');
   assert.doesNotMatch(source, /spLookupHero|details\.spuhshell|renderSpuhStakeoutShell/,
     'the release fixture must not preserve the removed duplicate hero or collapsed shell');
   assert.match(source, /detail\.querySelector\('details\.spuhtaxdetails'\)[\s\S]*path\.open = true/,
@@ -355,12 +424,34 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the comparison shot opens the control inside the expanded navigator');
   assert.match(source, /prepareStakeoutReports[\s\S]*more\.click\(\)/,
     'the focused Stakeout review shot does not exercise the real lazy append');
+  const reportsStart = source.indexOf('async function prepareStakeoutReports');
+  const reportsEnd = source.indexOf(
+    'async function prepareBirdFinderMerged', reportsStart);
+  assert.ok(reportsStart > 0 && reportsEnd > reportsStart,
+    'the Stakeout reports fixture is bracketed by named functions');
+  assert.match(source.slice(reportsStart, reportsEnd), /A\.fgProgressReset\(\)/,
+    'the lazy-expanded Stakeout fixture leaves its app-wide loading bar visible');
   assert.match(source, /ready\.missing\.length/,
     'the capture must fail if a section-specific production shape is absent');
   assert.match(source, /Bird Gen toggle pairs wrapped at the exact mockup width/,
     'the exact 393px/402px release render does not guard the requested one-line controls');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
+  const mergedStart = source.indexOf('async function prepareBirdFinderMerged');
+  const mergedEnd = source.indexOf('async function prepareBirdSp', mergedStart);
+  assert.ok(mergedStart > 0 && mergedEnd > mergedStart,
+    'the merged Stakeout fixture is bracketed by named functions');
+  const mergedFixture = source.slice(mergedStart, mergedEnd);
+  assert.match(mergedFixture, /await prepareBirdSp\(A, document, sec, 'calidr'\)/,
+    'the release Stakeout state bypasses the fixture that owns regional '
+    + 'species/commonness data and can wait forever on the offline fetch stub');
+  assert.doesNotMatch(mergedFixture, /await A\.renderSpuhNode\('calidr'\)/,
+    'the release state calls the network-dependent spuh render directly');
+  assert.match(source, /function withTimeout\(promise, ms, label\)/,
+    'mockup preparation has no outer deadline when an in-page promise never settles');
+  assert.match(source,
+    /withTimeout\(\s*c\.send\('Runtime\.evaluate'[\s\S]*shot\.id \+ ' preparation'/,
+    'each CDP preparation is not bounded by the shared timeout helper');
 
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [

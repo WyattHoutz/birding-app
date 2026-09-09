@@ -91,14 +91,20 @@ test('F268 migration forecasts prefer county history over bundled GBIF per speci
 });
 
 // --- report registry -------------------------------------------------------
-test('registry: REGION_ORDER matches REPORTS keys (no orphans)', () => {
+test('registry: only recurring reports remain after retiring built-in trips', () => {
   const keys = Object.keys(BL.REPORTS).sort();
   const order = BL.REGION_ORDER.slice().sort();
   assert.deepEqual(order, keys, 'every ordered slug has a report and vice-versa');
-  assert.equal(BL.REGION_ORDER.length, 10, 'ships 10 reports');
+  assert.equal(BL.REGION_ORDER.length, 8, 'ships eight recurring reports');
+  assert.equal(BL.REPORTS['fort-casey'], undefined,
+    'the retired Fort Casey trip is not a hidden runtime profile');
+  assert.equal(BL.REPORTS.waikoloa, undefined,
+    'the retired Waikoloa trip is not a hidden runtime profile');
+  assert.ok(BL.reports().every((report) => report.kind === 'region'),
+    'the region selector contains no built-in trip profile');
 });
 
-test('registry: US-HI is a permanent Hawaii report, not only the Waikoloa trip', () => {
+test('registry: US-HI resolves to the permanent Hawaii report', () => {
   const hi = BL.profileFor('hi');
   assert.equal(hi.slug, 'hi', 'the Hawaii report has its own slug');
   assert.equal(hi.label, 'Hawaii');
@@ -107,9 +113,7 @@ test('registry: US-HI is a permanent Hawaii report, not only the Waikoloa trip',
   assert.deepEqual(hi.counties.map((c) => c.code), ['US-HI-001'],
     'the built-in Hawaii report keeps the supported Hawaii County feed');
   assert.equal(BL.profileFor('US-HI').slug, 'hi',
-    'the US-HI code resolves to the permanent report, not the trip');
-  assert.equal(BL.profileFor('waikoloa').kind, 'trip',
-    'the existing Waikoloa trip remains available separately');
+    'the US-HI code resolves to the permanent report');
 });
 
 test('registry: every profile carries the fields the app relies on', () => {
@@ -1424,8 +1428,7 @@ test('travel zones: the label is the shape of the day, not the mileage (F1 decis
     'Murden Cove was worth "an excursion"');
   assert.equal(BL.travelDayBand(TZ, effOcean).id, 'trip',
     'Ocean Shores is over two hours each way — "I would not do a day trip". '
-    + 'Anything beyond an excursion becomes a trip, which this project already '
-    + 'models (regions.Region.kind === "trip": Fort Casey, Waikoloa)');
+    +     'Anything beyond an excursion remains the travel model\'s open-ended trip band');
   assert.equal(BL.travelDayBand(TZ, 7).id, 'quick', 'Marymoor is a quick outing');
 
   const note = BL.travelNote(TZ, 17.3, HOME[0], HOME[1], MURDEN[0], MURDEN[1]);

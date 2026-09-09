@@ -105,19 +105,16 @@ const STUB_SPEC = {
     report: 'hi' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   targetsBtn:     { kind: 'hotspot',       host: 'targetResults', map: 'closeMap' },
-  spLookupBtn:    { kind: 'stakeout-species', host: 'spLookupIdHelp', map: 'spLookupMap',
-    scrollTo: '#spLookupIdHelp',
-    maxHostHeight: 520,
-    expects: ['#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
+  spLookupBtn:    { kind: 'stakeout-merged', host: 'spLookupIdHelp', map: 'spLookupMap',
+    maxHostHeight: 150,
+    expects: ['#spLookupQueryHelp:empty',
+      '#spLookupIdHelp .spuhpathsentence',
+      '#spLookupIdHelp .spuhpathchip[data-spuh]',
+      '#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
       '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
       '#spLookupIdHelp details.spuhdetails',
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
-      '#spLookupResults .megaevidence', '#spLookupResults .megalatest',
-      '#spLookupResults .megareports',
       '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
-  spuhBtn:        { kind: 'spuh',          host: 'spuhDetail',
-    expects: ['#spuhDetail .spuhexplain', '#spuhDetail .spuhcompactpath',
-      '#spuhDetail details.spuhdetails'] },
   stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults' },
   iconicBtn:      { kind: 'hotspot',       host: 'iconicResults' },
   hotBtn:         { kind: 'hotspot',       host: 'hotResults', map: 'hotMap' },
@@ -176,7 +173,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
 
 const EXTRA_SHOTS = [
   { id: 'spuhcompare', at: 'spLookupBtn',
-    title: 'Stakeout bird — compare possible species',
+    title: 'Stakeout bird — compare possible birds',
     host: 'spLookupIdHelp',
     prep: `FIX.before('spLookupBtn', A, document);
            var anchor = document.getElementById('spLookupBtn');
@@ -185,7 +182,7 @@ const EXTRA_SHOTS = [
            return FIX.prepareCompare(A, document, sec);` },
 ];
 
-// Review-only states do not increase the mandatory 35-shot release contract.
+// Review-only states do not increase the mandatory 34-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
   { id: 'birdgenloading', at: 'surgeBtn',
@@ -228,19 +225,127 @@ const REVIEW_SHOTS = [
            A.renderFavs();
            host.setAttribute('data-mock-data', 'true');
            return true;` },
-  { id: 'spuhdetail', at: 'spuhBtn',
-    title: 'Spuh finder — Detailed view',
-    host: 'spuhDetail', scrollTo: '#spuhDetail',
-    prep: `FIX.before('spuhBtn', A, document);
-           var anchor = document.getElementById('spuhBtn');
+  { id: 'spuhcompact', at: 'spLookupBtn',
+    title: 'Stakeout bird — peep sp. condensed',
+    host: 'spLookupQueryHelp', scrollTo: '#spLookupQueryHelp',
+    expects: ['#spLookupQueryHelp .spuhresulthero > .spuhresultcard',
+      '#spLookupQueryHelp .spuhresulthero .thumb[data-bird]',
+      '#spLookupQueryHelp .spuhhierarchyhead > h3',
+      '#spLookupQueryHelp .spuhhierarchyinfo',
+      '#spLookupQueryHelp .spuhresultpath .spuhpathchip[data-spuh]',
+      '#spLookupQueryHelp .spuhresultpath .spuhpatharrow',
+      '#spLookupQueryHelp .spuhresultpath .spuhpathalternate[aria-label="or"]',
+      '#spLookupQueryHelp .spuhresultpath .spuhpathmarked[data-spuh]',
+      '#spLookupQueryHelp .spuhcandidatecards > '
+        + '.spuhcandidatecard[role="button"][tabindex="0"]'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
-           await A.renderSpuhNode('calidr');
-           var detail = document.querySelector('#spuhDetail details.spuhdetails');
-           if (!detail) throw new Error('missing Spuh Detailed view');
-           detail.open = true;
+           await FIX.prepareBirdSp(A, document, sec, 'calidr');
+           var host = document.getElementById('spLookupQueryHelp');
+           if (!host.querySelector('.spuhcandidatecards .spuhcandidatecard')) {
+             throw new Error('missing peep sp. candidate species cards');
+           }
+           var list = host.querySelector('.spuhcandidatecards');
+           var bounds = list.getBoundingClientRect();
+           var candidates = [].slice.call(list.querySelectorAll('.spuhcandidatecard'));
+           if (candidates.some(function (card) {
+             var rect = card.getBoundingClientRect();
+             return rect.left < bounds.left - 0.5 || rect.right > bounds.right + 0.5
+               || card.scrollWidth > card.clientWidth + 0.5;
+           })) {
+             throw new Error('candidate species cards do not fit in the result');
+           }
            if (A.fgProgressReset) A.fgProgressReset();
-           document.getElementById('spuhDetail').setAttribute('data-mock-data', 'true');
+           host.setAttribute('data-mock-data', 'true');
+           sec.dataset.mockAt = 'spLookupBtn';
+           sec.dataset.mockReady = 'true';
+           return true;` },
+  { id: 'birdspcompact', at: 'spLookupBtn',
+    title: 'Stakeout bird — bird sp. condensed',
+    host: 'spLookupQueryHelp', scrollTo: '#spLookupQueryHelp',
+    expects: ['#spLookupQueryHelp .spuhsummaryname',
+      '#spLookupQueryHelp .spuhhierarchyhead > h3',
+      '#spLookupQueryHelp .spuhresultpath',
+      '#spLookupQueryHelp .spuhcandidatestatus',
+      '#spLookupQueryHelp .spuhcandidatecards > '
+        + '.spuhcandidatecard[role="button"][tabindex="0"]',
+      '#spLookupQueryHelp .spuhcandidatemore'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.setActiveReport('wa');
+           A.showSection(sec.id);
+           await FIX.prepareBirdSp(A, document, sec);
+           return true;` },
+  { id: 'birdspdetail', at: 'spLookupBtn',
+    title: 'Stakeout bird — bird sp. detailed',
+    host: 'spLookupQueryHelp', scrollTo: '#spLookupQueryHelp',
+    expects: ['#spLookupQueryHelp .spuhviewpick '
+        + '[data-spuhview="detailed"][aria-pressed="true"]',
+      '#spLookupQueryHelp .spuhresultdetails[open]',
+    '#spLookupQueryHelp .spuhhierarchy',
+    '#spLookupQueryHelp .spuhtaxsteps > .spuhtaxstep[data-rank="class"]'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.setActiveReport('wa');
+           A.showSection(sec.id);
+           await FIX.prepareBirdSp(A, document, sec);
+           document.querySelector(
+             '#spLookupQueryHelp [data-spuhview="detailed"]').click();
+           FIX.assertDetailedHierarchyLayout(document);
+           return true;` },
+  { id: 'spuhdetail', at: 'spLookupBtn',
+    title: 'Stakeout bird — peep sp. detailed',
+    host: 'spLookupQueryHelp', scrollTo: '#spLookupQueryHelp',
+    expects: ['#spLookupQueryHelp .spuhhierarchyhead > h3',
+      '#spLookupQueryHelp .spuhhierarchyinfo',
+      '#spLookupQueryHelp .spuhviewpick '
+        + '[data-spuhview="detailed"][aria-pressed="true"]',
+      '#spLookupQueryHelp .spuhresultdetails[open]',
+      '#spLookupQueryHelp .spuhtaxsteps > .spuhtaxstep[data-rank="class"]',
+      '#spLookupQueryHelp .spuhtaxsteps > .spuhtaxstep[data-rank="order"]',
+      '#spLookupQueryHelp .spuhtaxsteps > .spuhtaxstep[data-rank="family"]',
+      '#spLookupQueryHelp .spuhtaxsteps > .spuhtaxstep[data-rank="genus"]',
+      '#spLookupQueryHelp .spuhtaxmarked[data-spuh="shoreb1"]',
+      '#spLookupQueryHelp .spuhtaxmarked[data-spuh="largesh"]',
+      '#spLookupQueryHelp .spuhtaxmarked[data-spuh="calidr"]',
+      '#spLookupQueryHelp .spuhcandidatecards > '
+        + '.spuhcandidatecard[role="button"][tabindex="0"]'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepareBirdSp(A, document, sec, 'calidr');
+           document.querySelector(
+             '#spLookupQueryHelp [data-spuhview="detailed"]').click();
+           FIX.assertDetailedHierarchyLayout(document);
+           if (A.fgProgressReset) A.fgProgressReset();
+           document.getElementById('spLookupQueryHelp').setAttribute('data-mock-data', 'true');
+           sec.dataset.mockAt = 'spLookupBtn';
+           sec.dataset.mockReady = 'true';
+           return true;` },
+  { id: 'spuhinfo', at: 'spLookupBtn',
+    title: 'Stakeout bird — taxonomic hierarchy information',
+    host: 'appSheet',
+    expects: ['#appSheet:not([hidden]) .sheettitle',
+      '#appSheet:not([hidden]) .sheetsub',
+      '#appSheet:not([hidden]) .sheetbody h4',
+      '#appSheet:not([hidden]) .sheetbody p'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepareBirdSp(A, document, sec, 'calidr');
+           document.querySelector('#spLookupQueryHelp .spuhhierarchyinfo').click();
+           var host = document.getElementById('appSheet');
+           if (!host || host.hidden) throw new Error('hierarchy information sheet did not open');
+           if (A.fgProgressReset) A.fgProgressReset();
+           host.setAttribute('data-mock-data', 'true');
+           sec.dataset.mockAt = 'spLookupBtn';
+           sec.dataset.mockReady = 'true';
            return true;` },
   { id: 'stakeoutdetail', at: 'spLookupBtn',
     title: 'Stakeout bird — Detailed view',
@@ -305,6 +410,7 @@ function shotReadinessProblems(ready) {
     problems.push('oversized result host');
   }
   if (ready && ready.loading && ready.loading.length) problems.push('loading');
+  if (ready && ready.globalLoading) problems.push('global loading');
   if (ready && ready.disabled && ready.disabled.length) problems.push('disabled controls');
   if (ready && ready.missing && ready.missing.length) problems.push('missing expected components');
   if (ready && !ready.mapReady) problems.push('map not ready');
@@ -612,16 +718,19 @@ const BOOTSTRAP = `
     }
     markHost(host, label);
   }
-  async function fillStakeoutSpecies(A, document, label, placeCount) {
+  async function fillStakeoutSpecies(A, document, label, placeCount, options) {
+    options = options || {};
+    var code = options.code || 'semsan';
+    var name = options.name || 'Semipalmated Sandpiper';
     var W = document.defaultView;
     var previousFetch = W.fetch;
     W.fetch = function (url) {
-      if (/data\\/obs\\/US-WA\\/recent\\/semsan/.test(String(url))) {
+      if (String(url).indexOf('/data/obs/US-WA/recent/' + code) >= 0) {
         var n = placeCount || 2;
-        var names = ['Marymoor Park', 'Cedar River Mouth'];
+        var names = options.places || ['Marymoor Park', 'Cedar River Mouth'];
         var rows = Array.from({ length: n }, function (_, i) {
           return {
-            speciesCode: 'semsan', comName: 'Semipalmated Sandpiper',
+            speciesCode: code, comName: name,
             locId: 'L' + (i + 1),
             locName: names[i] || 'Representative hotspot ' + (i + 1),
             lat: 47.70 + i / 100, lng: -122.16,
@@ -643,7 +752,8 @@ const BOOTSTRAP = `
       });
     };
     try {
-      await A.lookupSpecies('semsan', 'Semipalmated Sandpiper');
+      await A.lookupSpecies(code, name, null, null, null,
+        options.finderContext || null);
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
     } finally {
       W.fetch = previousFetch;
@@ -720,58 +830,6 @@ const BOOTSTRAP = `
     repaint();
     return f;
   }
-  async function fillMegaStakeout(A, document, label) {
-    var f = megaFixture('semsan', 'Semipalmated Sandpiper', 'Calidris pusilla');
-    seedMegaFixture(A, f);
-    var W = document.defaultView;
-    var previousFetch = W.fetch;
-    W.fetch = function (url) {
-      var u = String(url);
-      var body = [];
-      if (/data\\/obs\\/US-WA\\/recent\\/semsan/.test(u)) body = f.stateRows;
-      else if (/data\\/obs\\/(US|CA)\\/recent\\/semsan/.test(u)) {
-        body = f.wideRows.filter(function (row) {
-          return u.indexOf('/' + (row.subnational1Code || '').slice(0, 2) + '/') >= 0;
-        });
-      } else if (/product\\/checklist\\/view\\/S-FINDER/.test(u)) {
-        body = f.finderChecklist;
-      } else if (/wikipedia\\.org/.test(u)) {
-        body = {
-          type: 'standard', title: f.species.name,
-          description: 'Species of shorebird', extract: f.wikipedia.extract
-        };
-      } else if (/api\\.gbif\\.org/.test(u)) {
-        body = {};
-      }
-      return Promise.resolve({
-        ok: true, status: 200, headers: { get: function () { return null; } },
-        json: function () { return Promise.resolve(body); },
-        text: function () { return Promise.resolve(JSON.stringify(body)); }
-      });
-    };
-    try {
-      A.renderAbaAlert(f.alertRows,
-        'https://ebird.org/alert/summary?sid=' + f.sid, true, false, {
-          reportSlug: f.reportSlug, region: f.region, sid: f.sid, scope: f.scope,
-          wideRowsByCode: (function () {
-            var out = {}; out[f.species.code] = f.wideRows; return out;
-          }())
-        });
-      var jump = await waitFor(function () {
-        return document.querySelector('#abaResults .megajump[data-mega-code="semsan"]');
-      }, 'Mega species link');
-      jump.click();
-      await waitFor(function () {
-        return document.querySelector('#spLookupResults .megaevidence')
-          && document.querySelector('#spLookupResults .spLookupPlaceList > .hscard-sm')
-          && document.querySelector('#spLookupIdHelp .spuhtaxlevel[data-rank="species"]');
-      }, 'Mega-routed Stakeout card');
-    } finally {
-      W.fetch = previousFetch;
-    }
-    if (A.fgProgressReset) A.fgProgressReset();
-    markHost(document.getElementById('spLookupIdHelp'), label);
-  }
   function fillRankingHost(host, label) {
     host.innerHTML = '<div class="ranktable mockfixture">'
       + '<div class="rankrow rankhdr"><span class="rk">#</span>'
@@ -831,7 +889,7 @@ const BOOTSTRAP = `
     markHost(host, label);
   }
   function fixtureBefore(at, A, document) {
-    if (at === 'spuhBtn' || at === 'spLookupBtn') {
+    if (at === 'spLookupBtn') {
       A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(window.FIX.spuhRows));
     }
     if (at === 'surgeBtn') {
@@ -915,6 +973,7 @@ const BOOTSTRAP = `
     host.removeAttribute('data-mock-data');
     fixtureStatus(sec, label);
     if (spec.kind === 'static') {
+      if (A.fgProgressReset) A.fgProgressReset();
       sec.dataset.mockReady = 'true';
       sec.dataset.mockStatic = 'true';
       return true;
@@ -1057,10 +1116,6 @@ const BOOTSTRAP = `
         throw new Error('Bird Gen bird code keeps inherited leading space');
       }
       markHost(host, label);
-    } else if (spec.kind === 'spuh') {
-      document.getElementById('spuhSearch').value = 'peep sp.';
-      await A.renderSpuhNode('calidr');
-      markHost(host, label);
     } else if (at === 'rankBtn') {
       A.renderRankings(window.FIX.rankings, 'US-WA',
         'https://ebird.org/top100', 'Sample Birder');
@@ -1071,8 +1126,8 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'mega-index') {
       fillMegaIndex(A, document, label);
-    } else if (spec.kind === 'stakeout-species') {
-      await fillMegaStakeout(A, document, label);
+    } else if (spec.kind === 'stakeout-merged') {
+      await prepareBirdFinderMerged(A, document, sec);
     } else if (spec.kind === 'migration') {
       localStorage.setItem(A.firstYearKey('US-WA', 2026), JSON.stringify({
         day: A.todayStr(), region: 'US-WA', year: 2026, declared: 2,
@@ -1195,17 +1250,288 @@ const BOOTSTRAP = `
       return document.querySelectorAll(
         '#spLookupResults .spLookupPlaceList > .hscard-sm').length === 30;
     }, 'expanded Stakeout hotspot rows');
+    if (A.fgProgressReset) A.fgProgressReset();
     var host = document.getElementById('spLookupResults');
     markHost(host, 'Stakeout bird recent hotspots');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
   }
+  async function prepareBirdFinderMerged(A, document, sec) {
+    ensureMockStyle(document);
+    fixtureStatus(sec, 'Stakeout bird merged proposal');
+    await prepareBirdSp(A, document, sec, 'calidr');
+    await fillStakeoutSpecies(A, document, 'Stakeout bird selected candidate', 2, {
+      code: 'wessan',
+      name: 'Western Sandpiper',
+      places: ['Smith Island', 'Crockett Lake'],
+      finderContext: {
+        query: 'peep sp.',
+        code: 'wessan',
+        name: 'Western Sandpiper'
+      }
+    });
+    if (document.getElementById('spLookup').value !== 'Western Sandpiper') {
+      throw new Error('selected Stakeout mock still shows the peep sp. query');
+    }
+    fillMapHost(document.getElementById('spLookupMap'),
+      'Western Sandpiper recent places');
+    markHost(document.getElementById('spLookupIdHelp'),
+      'Stakeout bird merged proposal');
+    sec.dataset.mockAt = 'spLookupBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
+  }
+  async function prepareBirdSp(A, document, sec, nodeCode) {
+    ensureMockStyle(document);
+    nodeCode = nodeCode || 'bird1';
+    var examples = [
+      ['amerob', 'American Robin', 'Turdus migratorius'],
+      ['amecro', 'American Crow', 'Corvus brachyrhynchos'],
+      ['mallar3', 'Mallard', 'Anas platyrhynchos'],
+      ['cangoo', 'Canada Goose', 'Branta canadensis'],
+      ['sonspa', 'Song Sparrow', 'Melospiza melodia'],
+      ['bkcchi', 'Black-capped Chickadee', 'Poecile atricapillus'],
+      ['eursta', 'European Starling', 'Sturnus vulgaris'],
+      ['glwgul', 'Glaucous-winged Gull', 'Larus glaucescens'],
+      ['spotow', 'Spotted Towhee', 'Pipilo maculatus'],
+      ['annhum', 'Anna\\'s Hummingbird', 'Calypte anna'],
+      ['norfli', 'Northern Flicker', 'Colaptes auratus'],
+      ['daejun', 'Dark-eyed Junco', 'Junco hyemalis'],
+      ['houfin', 'House Finch', 'Haemorhous mexicanus'],
+      ['bewwre', 'Bewick\\'s Wren', 'Thryomanes bewickii'],
+      ['amegfi', 'American Goldfinch', 'Spinus tristis'],
+      ['whcspa', 'White-crowned Sparrow', 'Zonotrichia leucophrys'],
+      ['killde', 'Killdeer', 'Charadrius vociferus'],
+      ['cedwax', 'Cedar Waxwing', 'Bombycilla cedrorum'],
+      ['baleag', 'Bald Eagle', 'Haliaeetus leucocephalus'],
+      ['osprey', 'Osprey', 'Pandion haliaetus'],
+      ['stejay', 'Steller\\'s Jay', 'Cyanocitta stelleri'],
+      ['bushti', 'Bushtit', 'Psaltriparus minimus'],
+      ['rethaw', 'Red-tailed Hawk', 'Buteo jamaicensis'],
+      ['calgul', 'California Gull', 'Larus californicus'],
+      ['ribgul', 'Ring-billed Gull', 'Larus delawarensis'],
+      ['wooduc', 'Wood Duck', 'Aix sponsa'],
+      ['wessan', 'Western Sandpiper', 'Calidris mauri'],
+      ['sposan', 'Spotted Sandpiper', 'Actitis macularius'],
+      ['norsho', 'Northern Shoveler', 'Spatula clypeata'],
+      ['semsan', 'Semipalmated Sandpiper', 'Calidris pusilla']
+    ];
+    var taxonomy = examples.map(function (row, index) {
+      var scolop = row[0] === 'wessan' || row[0] === 'semsan'
+        || row[0] === 'sposan';
+      var gull = row[0] === 'calgul' || row[0] === 'ribgul';
+      var plover = row[0] === 'killde';
+      var charadriiform = scolop || gull || plover;
+      return {
+        speciesCode: row[0], comName: row[1], sciName: row[2],
+        category: 'species',
+        order: charadriiform ? 'Charadriiformes' : 'Aves',
+        familySciName: scolop ? 'Scolopacidae'
+          : (gull ? 'Laridae' : (plover ? 'Charadriidae' : 'Aves')),
+        familyComName: scolop ? 'Sandpipers and Allies'
+          : (gull ? 'Gulls, Terns, and Skimmers'
+            : (plover ? 'Plovers and Lapwings' : 'Birds')),
+        taxonOrder: index + 1
+      };
+    });
+    var peepExtras = [
+      ['leasan', 'Least Sandpiper', 'Calidris minutilla'],
+      ['baisan', 'Baird\\'s Sandpiper', 'Calidris bairdii'],
+      ['whrsan', 'White-rumped Sandpiper', 'Calidris fuscicollis'],
+      ['pecsan', 'Pectoral Sandpiper', 'Calidris melanotos'],
+      ['shtsan', 'Sharp-tailed Sandpiper', 'Calidris acuminata'],
+      ['dunlin', 'Dunlin', 'Calidris alpina'],
+      ['sander', 'Sanderling', 'Calidris alba'],
+      ['cursan', 'Curlew Sandpiper', 'Calidris ferruginea'],
+      ['stisan', 'Stilt Sandpiper', 'Calidris himantopus'],
+      ['rocsan', 'Rock Sandpiper', 'Calidris ptilocnemis'],
+      ['pursan', 'Purple Sandpiper', 'Calidris maritima'],
+      ['bubsan', 'Buff-breasted Sandpiper', 'Calidris subruficollis'],
+      ['redkno', 'Red Knot', 'Calidris canutus'],
+      ['grekno', 'Great Knot', 'Calidris tenuirostris'],
+      ['brbsan', 'Broad-billed Sandpiper', 'Calidris falcinellus'],
+      ['litsti', 'Little Stint', 'Calidris minuta'],
+      ['temsti', 'Temminck\\'s Stint', 'Calidris temminckii'],
+      ['lotsti', 'Long-toed Stint', 'Calidris subminuta'],
+      ['rensti', 'Red-necked Stint', 'Calidris ruficollis'],
+      ['spbsan1', 'Spoon-billed Sandpiper', 'Calidris pygmaea'],
+      ['ruff', 'Ruff', 'Calidris pugnax'],
+      ['surfbi', 'Surfbird', 'Calidris virgata']
+    ];
+    taxonomy = taxonomy.concat(peepExtras.map(function (row, index) {
+      return {
+        speciesCode: row[0], comName: row[1], sciName: row[2],
+        category: 'species', order: 'Charadriiformes',
+        familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies',
+        taxonOrder: examples.length + index + 1
+      };
+    }));
+    for (var familyIndex = 0; familyIndex < 73; familyIndex++) {
+      taxonomy.push({
+        speciesCode: 'scofix' + familyIndex,
+        comName: 'Scolopacidae fixture ' + (familyIndex + 1),
+        sciName: 'Scolopfixture' + familyIndex + ' species',
+        category: 'species', order: 'Charadriiformes',
+        familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies',
+        taxonOrder: 2000 + familyIndex
+      });
+    }
+    for (var orderIndex = 0; orderIndex < 291; orderIndex++) {
+      taxonomy.push({
+        speciesCode: 'charfix' + orderIndex,
+        comName: 'Charadriiformes fixture ' + (orderIndex + 1),
+        sciName: 'Charfixture' + orderIndex + ' species',
+        category: 'species', order: 'Charadriiformes',
+        familySciName: 'Charfamily' + orderIndex,
+        familyComName: 'Charadriiformes family ' + (orderIndex + 1),
+        taxonOrder: 3000 + orderIndex
+      });
+    }
+    for (var avesIndex = 0; avesIndex < 10751; avesIndex++) {
+      taxonomy.push({
+        speciesCode: 'avesfix' + avesIndex,
+        comName: 'Aves fixture ' + (avesIndex + 1),
+        sciName: 'Avesfixture' + avesIndex + ' species',
+        category: 'species', order: 'Otherorder' + avesIndex,
+        familySciName: 'Otherfamily' + avesIndex,
+        familyComName: 'Other family ' + (avesIndex + 1),
+        taxonOrder: 4000 + avesIndex
+      });
+    }
+    taxonomy = taxonomy.concat([
+      {
+        speciesCode: 'bird1', comName: 'bird sp.', sciName: 'Aves sp.',
+        category: 'spuh', order: '', familySciName: '',
+        familyComName: '', taxonOrder: 1000
+      },
+      {
+        speciesCode: 'shoreb1', comName: 'shorebird sp.',
+        sciName: 'Charadriiformes sp. (shorebird sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: '',
+        familyComName: '', taxonOrder: 1002
+      },
+      {
+        speciesCode: 'largesh', comName: 'large shorebird sp.',
+        sciName: 'Charadriiformes sp. (large shorebird sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: '',
+        familyComName: '', taxonOrder: 1002.5
+      },
+      {
+        speciesCode: 'scolop2', comName: 'Scolopacidae sp.',
+        sciName: 'Scolopacidae sp.', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1003
+      },
+      {
+        speciesCode: 'calsp', comName: 'Calidris sp.',
+        sciName: 'Calidris sp.', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1004
+      },
+      {
+        speciesCode: 'calidr', comName: 'peep sp.',
+        sciName: 'Calidris sp. (peep sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1005
+      }
+    ]);
+    localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+      at: Date.now(),
+      rows: examples.map(function (row) {
+        return { code: row[0], name: row[1], sci: row[2] };
+      })
+    }));
+    var commonness = [];
+    examples.forEach(function (row, index) {
+      var reports = 60 - index;
+      for (var i = 0; i < reports; i++) {
+        commonness.push({ speciesCode: row[0] });
+      }
+    });
+    var oldFetch = document.defaultView.fetch;
+    document.defaultView.fetch = function (url) {
+      if (/data\\/obs\\/US-WA\\/recent\\?back=30&maxResults=10000/.test(String(url))) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          headers: { get: function () { return null; } },
+          json: function () { return Promise.resolve(commonness); },
+          text: function () { return Promise.resolve(JSON.stringify(commonness)); }
+        });
+      }
+      return oldFetch.apply(this, arguments);
+    };
+    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(taxonomy));
+    document.getElementById('spLookup').value =
+      nodeCode === 'calidr' ? 'peep sp.' : 'bird sp.';
+    try {
+      await A.renderSpuhNode(nodeCode);
+    } finally {
+      document.defaultView.fetch = oldFetch;
+    }
+    var host = document.getElementById('spLookupQueryHelp');
+    var list = host.querySelector('.spuhcandidatecards');
+    var more = host.querySelector('.spuhcandidatemore');
+    var expectedRows = nodeCode === 'calidr' ? 2 : 25;
+    if (!list || list.children.length !== expectedRows) {
+      throw new Error((nodeCode === 'calidr' ? 'peep sp.' : 'bird sp.')
+        + ' did not paint its regional bird list');
+    }
+    if (nodeCode === 'calidr' ? !!more
+        : (!more || more.textContent.trim() !== 'Show 5 more of 30 birds')) {
+      throw new Error((nodeCode === 'calidr' ? 'peep sp.' : 'bird sp.')
+        + ' has the wrong Show-more state');
+    }
+    if (nodeCode === 'calidr'
+        && !/11,167 birds in its published set[\\s\\S]*392 birds in its published set[\\s\\S]*98 birds in its published set[\\s\\S]*24 birds in its published set/.test(
+          host.querySelector('.spuhresultdetails').textContent)) {
+      throw new Error('peep sp. does not reproduce its measured taxonomic backbone');
+    }
+    markHost(host, 'Stakeout bird regional '
+      + (nodeCode === 'calidr' ? 'peep sp.' : 'bird sp.') + ' candidates');
+    sec.dataset.mockAt = 'spLookupBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
+  }
+  function assertDetailedHierarchyLayout(document) {
+    var root = document.querySelector(
+      '#spLookupQueryHelp .spuhresultdetails[open] .spuhtaxsteps');
+    var levels = root ? [].slice.call(root.querySelectorAll(
+      ':scope > .spuhtaxstep')) : [];
+    if (!levels.length) throw new Error('detailed hierarchy has no visible levels');
+    levels.forEach(function (level) {
+      var marker = level.querySelector(':scope > .spuhtaxmarker');
+      var content = level.querySelector(':scope > .spuhtaxstepbody');
+      if (!marker || !content) {
+        throw new Error('detailed hierarchy level is missing its marker or label');
+      }
+      var markerRect = marker.getBoundingClientRect();
+      var contentRect = content.getBoundingClientRect();
+      if (markerRect.right > contentRect.left - 5) {
+        throw new Error('detailed hierarchy marker overlaps a label: marker right '
+          + markerRect.right.toFixed(1) + ', label left '
+          + contentRect.left.toFixed(1));
+      }
+      if (content.scrollWidth > content.clientWidth + 0.5) {
+        throw new Error('detailed hierarchy label overflows its column');
+      }
+    });
+    var heading = document.querySelector('#spLookupQueryHelp .spuhhierarchyhead h3');
+    if (!heading || heading.scrollWidth > heading.clientWidth + 0.5
+        || heading.getClientRects().length > 1) {
+      throw new Error('taxonomic hierarchy heading wraps or clips');
+    }
+  }
   window.FIX = {
     before: fixtureBefore,
     prepare: fixturePrepare,
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
+    prepareBirdFinderMerged: prepareBirdFinderMerged,
+    prepareBirdSp: prepareBirdSp,
+    assertDetailedHierarchyLayout: assertDetailedHierarchyLayout,
     rankings: {
       rows: [
         { rank: 1, name: 'ada lovelace', species: 1204, checklists: 980, recent: 'Common Ringed Plover (Aug. 28, 2026)' },
@@ -1304,6 +1630,7 @@ function cdp(wsUrl) {
     console.error('mockups: needs the `ws` package (npm i -D ws)');
     process.exit(2);
   }
+
   const ws = new WebSocket(wsUrl);
   let id = 0; const waiting = new Map();
   ws.on('message', (m) => {
@@ -1322,6 +1649,16 @@ function cdp(wsUrl) {
   };
 }
 
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function main() {
   if (!CHROME) { console.error('mockups: no Chrome found (set CHROME_BIN)'); process.exit(2); }
   fs.mkdirSync(OUT, { recursive: true });
@@ -1336,13 +1673,37 @@ async function main() {
     '--window-size=' + (WIDTH + 420) + ',' + (HEIGHT + 200),
     'about:blank'], { stdio: ['ignore', 'ignore', 'ignore'] });
 
+  let cleaned = false;
   const kill = () => {
-    // Kill the TREE. Chrome forks renderers that outlive the parent; 492
-    // strays accumulated once because a cleanup only killed the parent.
+    if (cleaned) return;
     if (process.platform === 'win32') {
       try { spawnSync('taskkill', ['/PID', String(ch.pid), '/T', '/F'], { stdio: 'ignore' }); } catch (e) {}
-    } else { try { process.kill(-ch.pid, 'SIGKILL'); } catch (e) { try { ch.kill('SIGKILL'); } catch (e2) {} } }
+      try {
+        spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          + "Where-Object { $_.CommandLine -like '*" + path.basename(profile)
+          + "*' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force "
+          + "-ErrorAction Stop } catch {} }"], { stdio: 'ignore' });
+      } catch (e) {}
+    } else {
+      try { process.kill(-ch.pid, 'SIGKILL'); }
+      catch (e) { try { ch.kill('SIGKILL'); } catch (e2) {} }
+      try { spawnSync('pkill', ['-9', '-f', path.basename(profile)], { stdio: 'ignore' }); }
+      catch (e) {}
+    }
+    for (let i = 0; i < 10 && fs.existsSync(profile); i++) {
+      try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
+      if (fs.existsSync(profile)) {
+        const until = Date.now() + 200;
+        while (Date.now() < until) { /* wait for Windows file handles */ }
+      }
+    }
+    cleaned = !fs.existsSync(profile);
+    if (!cleaned) {
+      console.error('MOCKUP CHROME LEAK: profile still exists at ' + profile);
+    }
   };
+  process.once('exit', kill);
 
   // ⚠️ READ THE PORT FROM THE PROFILE, NOT FROM stderr.
   //
@@ -1404,9 +1765,13 @@ async function main() {
       }
       return 'ok';
     })()`;
-    const r = await c.send('Runtime.evaluate', {
-      expression: expr, returnByValue: true, awaitPromise: true
-    }, sessionId);
+    const r = await withTimeout(
+      c.send('Runtime.evaluate', {
+        expression: expr, returnByValue: true, awaitPromise: true
+      }, sessionId),
+      15000,
+      shot.id + ' preparation'
+    );
     const verdict = r.result && r.result.value;
     if (verdict !== 'ok') {
       console.error('  !! ' + shot.id + ': ' + verdict);
@@ -1430,6 +1795,7 @@ async function main() {
               && r.width > 0 && r.height > 0;
           }
           var hr = host.getBoundingClientRect();
+          var globalLoading = visible(d.getElementById('loadBar'));
           var loading = [].slice.call(sec.querySelectorAll(
             '.status,.hint,[aria-busy="true"]')).filter(function (el) {
               return visible(el)
@@ -1460,6 +1826,7 @@ async function main() {
             text: (host.innerText || '').replace(/\\s+/g, ' ').trim().length,
             controls: host.querySelectorAll('button,input,select,a[href],details').length,
             inCapture: hr.bottom > 0 && hr.top < ${HEIGHT},
+            globalLoading: globalLoading,
             loading: loading,
             disabled: disabled,
             missing: missing,
@@ -1577,7 +1944,7 @@ async function main() {
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  fixtureIconPath, shotReadinessProblems, shotLooksBlank
+  fixtureIconPath, shotReadinessProblems, shotLooksBlank, withTimeout
 };
 
 if (require.main === module) {

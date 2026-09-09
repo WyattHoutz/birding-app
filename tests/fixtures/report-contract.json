@@ -103,16 +103,8 @@
       "label": "🔎 Stakeout bird",
       "report": null,
       "map": "spLookupMap",
-      "why": "app-only: a Markdown report cannot take a query. The nearest report equivalent, All unseen reports, only covers birds you HAVEN'T seen, and the entire point of a lookup is asking about a bird you already have - 'where can I find a Western Kingbird' is a valid question with a complete year list. Printing every species' places for a whole region is not a section, it is a phone book.",
-      "sub": "Where to wait for it"
-    },
-    {
-      "at": "spuhBtn",
-      "label": "🌳 Spuh finder",
-      "report": null,
-      "map": null,
-      "why": "app-only (F277): a searchable uncertain-ID taxonomy is interactive and is built on the device from the user's direct eBird taxonomy call. The public app ships no taxonomy bundle, and the archived Markdown report cannot accept a spuh query or a set of possible species to compare.",
-      "sub": "Browse uncertain bird IDs"
+      "why": "app-only (F358): one interactive query accepts either a bird or a spuh. Birds continue into recent places and checklists; spuhs open their on-device bird hierarchy and candidates, and choosing one continues into that same evidence surface. A Markdown report cannot accept the query, comparison set, or candidate selection, and printing every bird and spuh path for a region would be a phone book.",
+      "sub": "Birds or spuhs"
     },
     {
       "at": "stakeHsBtn",

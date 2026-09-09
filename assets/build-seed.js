@@ -217,8 +217,8 @@ if (fs.existsSync(nvPath)) {
 // --- per-report seen set: seen = (seen_bl ∪ sc_wa) − watchlist --------------
 // Keyed by REPORT slug so the app looks the set up directly by selected report.
 // The seen source birdlist follows Region.seen_from_region (resolved in
-// BirdLogic.seenSlugFor: mo/ks/az/ca→lower48, fort-casey→wa, else own).
-function birdlistSlugToKey(slug) { return slug; } // birdlist files already keyed by slug ('hi' for waikoloa)
+// BirdLogic.seenSlugFor: mo/ks/az/ca→lower48, else own).
+function birdlistSlugToKey(slug) { return slug; }
 const seenByReport = Object.create(null);
 BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   const profile = BirdLogic.REPORTS[reportSlug];

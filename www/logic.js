@@ -299,20 +299,6 @@
       excludeSubnational1: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
       tzStdOffset: -8, tzObservesDst: true
     },
-    'fort-casey': {
-      slug: 'fort-casey', label: 'Fort Casey Camping Trip', kind: 'trip', stateCode: 'US-WA',
-      counties: [
-        { slug: 'island', code: 'US-WA-029', label: 'Island' },
-        { slug: 'jefferson', code: 'US-WA-031', label: 'Jefferson' }
-      ],
-      home: { lat: 48.1607, lng: -122.6776 }, homeLabel: 'Fort Casey, Whidbey Island',
-      geoDistKm: 40, dailyDriveMi: 15, chaseMaxMi: 35, tideStation: '9444900',
-      geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: 'wa',
-      excludeLocIds: ['L7706326', 'L34755635'],
-      excludeNameSubstrings: ['Smith Island', 'Partridge Bank'],
-      tzStdOffset: -8, tzObservesDst: true,
-      activeFrom: '2026-06-28', activeTo: '2026-07-04'
-    },
     hi: {
       slug: 'hi', label: 'Hawaii', kind: 'region', stateCode: 'US-HI',
       counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
@@ -320,20 +306,11 @@
       geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 35, tideStation: '1617433',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
       tzStdOffset: -10, tzObservesDst: false
-    },
-    waikoloa: {
-      slug: 'waikoloa', label: 'Waikoloa / Big Island Trip', kind: 'trip', stateCode: 'US-HI',
-      counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
-      home: { lat: 19.9223, lng: -155.8836 }, homeLabel: 'Vista Waikoloa, Big Island',
-      geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 35, tideStation: '1617433',
-      geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
-      tzStdOffset: -10, tzObservesDst: false,
-      activeFrom: '2026-08-27', activeTo: '2026-09-18'
     }
   };
 
   // publish.py REGION_ORDER — drives the report selector order.
-  var REGION_ORDER = ['wa', 'mo', 'ks', 'az', 'ca', 'lower48', 'aba', 'fort-casey', 'hi', 'waikoloa'];
+  var REGION_ORDER = ['wa', 'mo', 'ks', 'az', 'ca', 'lower48', 'aba', 'hi'];
 
   // Backwards-compatible alias (older callers referenced PROFILES['US-WA']).
   var PROFILES = REPORTS;
@@ -358,7 +335,7 @@
     var key = (region || '').toString().trim();
     if (!key) return REPORTS.wa;
     var low = key.toLowerCase();
-    if (REPORTS[low]) return REPORTS[low];                 // by slug: 'wa', 'mo', 'fort-casey'…
+    if (REPORTS[low]) return REPORTS[low];                 // by slug: 'wa', 'mo', 'hi'…
     var up = key.toUpperCase();
     for (var i = 0; i < REGION_ORDER.length; i++) {        // by eBird state code: 'US-WA', 'lower48', 'aba'
       var r = REPORTS[REGION_ORDER[i]];

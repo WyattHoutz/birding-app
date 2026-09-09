@@ -1114,6 +1114,9 @@
        rather than sitting flush against it. */
     .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
     #spCodesBtn { min-height: 44px; }
+    .spLookupActions { column-gap: 6px; }
+    .spLookupActions > button { padding-inline: 10px; }
+    .spLookupActions #spCodesBtn { font-size: calc(14px * var(--s)); }
     /* Condensed. Five chunky buttons wrapped onto three rows on a 402px
        phone and pushed the answer below the fold - the controls were taking
        more of the screen than the content they control.
@@ -1706,7 +1709,7 @@
                 white-space: nowrap; font-variant-numeric: tabular-nums; }
     .surgeage small { display: block; font-size: calc(11px * var(--s));
                       font-weight: 800; margin-top: 2px; }
-    .surgebadge { flex: 0 0 auto; display: inline-flex; align-items: center;
+    .surgebadge, .spuhpathchip { flex: 0 0 auto; display: inline-flex; align-items: center;
                   font-size: calc(10.5px * var(--s)); font-weight: 800;
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
@@ -2215,8 +2218,7 @@
        claiming one parent: the model is a DAG, not a forced tree. Proven and
        limited states differ by words, glyph and border style, so none of the
        meaning depends on telling two colours apart. */
-    .spuhtaxnav { margin: 12px 0; border: 2px solid var(--ink);
-                 border-radius: 13px; padding: 11px; background: var(--card); }
+    .spuhtaxnav { margin: 6px 0; }
     .spuhtaxnav h3 { margin: 0; font-size: calc(18px * var(--s)); }
     .spuhtaxnav > .hint { margin: 4px 0 10px; }
     .spuhhierarchy > h4 { margin: 8px 0; font-size: calc(14px * var(--s));
@@ -2242,6 +2244,42 @@
                  font-size: calc(12px * var(--s)); }
     .spuhcompactlevel .spuhtaxlink.limited { border: 2px dashed var(--warn);
                  border-radius: 6px; padding: 2px 5px; background: var(--note-bg); }
+    .spuhpathsentence { margin: 2px 0; font-size: calc(13px * var(--s));
+                 line-height: 1.8; }
+    .spuhpathsentence .spuhcompactlevel { display: inline; margin: 0; padding: 0; }
+    .spuhpathsentence .spuhcompactlevel::before,
+    .spuhpathsentence .spuhcompactlevel::after { display: none; }
+    .spuhpathsentence .spuhpathchip { min-width: 0; min-height: 0;
+                 border: 2px solid var(--safe-blue); background: var(--card);
+                 color: var(--link); text-decoration: none; cursor: pointer;
+                 vertical-align: middle; flex: 0 0 auto; padding: 2px 6px;
+                 border-radius: 6px; text-align: left; letter-spacing: .035em;
+                 font: 800 calc(10.5px * var(--s))/1.1 system-ui, sans-serif; }
+    .spuhpathsentence .spuhpathchip.limited { border-style: dashed;
+                 border-color: var(--warn); color: var(--note-ink);
+                 background: var(--note-bg); }
+    .spuhpathsentence .spuhpathselected { border-style: double;
+                 border-width: 3px; cursor: default; }
+    .spuhpathsentence .spuhcompactstate { margin-left: 3px;
+                 font-size: calc(9px * var(--s)); }
+    .spuhpathsentence .spuhsiblingsep { padding: 0 4px; color: var(--muted);
+                 font-size: .9em; font-weight: 900; line-height: 1;
+                 vertical-align: middle; }
+    .spuhpathsentence .spuhsiblingpair { white-space: nowrap; }
+    .spuhpathsentence .spuhpatharrow { color: var(--muted); }
+    .spuhpatharrow { padding: 0 3px; font-family: ui-monospace, monospace;
+                 font-weight: 900; white-space: nowrap; }
+    .spuhhierarchysentence > .spuhtaxdetails { margin: 0; border-top: 0;
+                 padding-top: 0; }
+    .spuhhierarchysentence > .spuhtaxdetails > summary.spuhdetailslink {
+                 min-height: calc(44px * var(--s)); display: inline-flex;
+                 align-items: center; padding: 7px 0;
+                 color: var(--link); font-size: calc(13px * var(--s));
+                 font-weight: 800; text-decoration: underline;
+                 text-underline-offset: 2px; cursor: pointer; }
+    .spuhhierarchysentence > .spuhtaxdetails > .spuhtaxdetailsbody {
+                 margin-top: 4px; border: 2px solid var(--ink);
+                 border-radius: 13px; padding: 11px; background: var(--card); }
     .spuhcompactstate { margin-left: 3px; font-size: calc(8px * var(--s));
                  font-weight: 800; letter-spacing: .02em; text-transform: uppercase;
                  white-space: nowrap; }
@@ -2293,13 +2331,20 @@
     .spuhtaxspecies { border: 3px double var(--link); border-radius: 10px;
                  padding: 8px 10px; font-size: calc(15px * var(--s)); font-weight: 800; }
     .spuhtaxspecies .spuhmeta { margin-top: 3px; }
-    .spuhpanel { margin: 12px 0; border: 2px solid var(--ink);
-                 border-radius: 13px; padding: 11px; background: var(--card); }
-    .spuhhead { display: flex; align-items: start; gap: 10px; }
-    .spuhhead h3 { margin: 0; font-size: calc(21px * var(--s));
-                   overflow-wrap: anywhere; }
-    .spuhcount { margin-left: auto; flex: 0 0 auto; font-size: calc(12px * var(--s));
-                 font-weight: 800; }
+    .spuhpanel { margin: 12px 0; border: 0; padding: 0; background: transparent; }
+    .spuhresulthero { margin: 0; }
+    .spuhresultcard .spuhsummaryname { font: inherit; white-space: normal; }
+    .spuhresultdetails { margin: 0; }
+    .spuhresultdetails > summary { display: none; }
+    .spuhsummaryname { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                 white-space: nowrap; font-size: calc(18px * var(--s));
+                 font-weight: 900; }
+    .spuhcount { flex: 0 0 auto; font-size: calc(11px * var(--s));
+                 font-weight: 800; white-space: nowrap; }
+    .spuhresultdetailsbody { border-top: 1px solid var(--line); padding-top: 8px; }
+    .spuhdetailintro { display: flex; align-items: center; gap: 8px; }
+    .spuhdetailintro .bcsub { min-width: 0; flex: 1 1 auto; }
+    .spuhdetailintro .spuhexplain { flex: 0 0 auto; }
     .spuhsource { margin-top: 7px; color: var(--muted);
                  font-size: calc(11px * var(--s)); line-height: 1.4; }
     .spuhmedia { display: grid; grid-template-columns: calc(104px * var(--s)) minmax(0, 1fr);
@@ -2346,15 +2391,122 @@
                  background: var(--card); }
     .spuhstate.limited { border: 2px dashed var(--warn); color: var(--note-ink);
                  background: var(--card); }
-    .spuhsearchhits button { width: 100%; text-align: left; border: 0;
+    .spuhsearchhits button.spuhlink { width: 100%; text-align: left; border: 0;
                  background: none; color: var(--ink); font: inherit; padding: 0; }
     .spuhcandidates { columns: 2; column-gap: 16px; margin-top: 8px;
                  font-size: calc(13px * var(--s)); }
     .spuhcandidates > div { break-inside: avoid; padding: 3px 0; }
+    .spuhcandidatequick { min-height: calc(44px * var(--s));
+                 display: flex; align-items: center; gap: 8px;
+                 border-top: 1px solid var(--line); overflow: hidden; }
+    .spuhcandidatequick.two { display: grid; grid-template-columns: minmax(0, 1fr);
+                 align-items: start; gap: 2px; padding-top: 6px; }
+    .spuhcandidatequick.two .spuhquicklist { width: 100%; display: grid;
+                 grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
+                 overflow: visible; }
+    .spuhcandidatequick.two .spuhspeciesbtn { width: 100%; min-width: 0;
+                 white-space: normal; overflow-wrap: normal;
+                 font-size: calc(13px * var(--s)); line-height: 1.2; }
+    .spuhhierarchyblock { margin-top: 9px; border-top: 1px solid var(--line);
+                 padding-top: 8px; }
+    .spuhhierarchyhead { display: flex; align-items: center;
+                 justify-content: space-between; gap: 10px; margin: 0 0 3px; }
+    .spuhhierarchyhead h3 { margin: 0; font-size: calc(18px * var(--s));
+                 line-height: 1.15; letter-spacing: .025em; white-space: nowrap; }
+    .spuhhierarchyinfo { flex: 0 0 auto; width: calc(40px * var(--s));
+                 height: calc(40px * var(--s)); display: inline-grid;
+                 place-items: center; border: 1px solid var(--line);
+                 border-radius: 50%; padding: 0; color: var(--ink);
+                 background: color-mix(in srgb, var(--card) 94%, var(--ink));
+                 font: 900 calc(20px * var(--s))/1 Georgia, serif; cursor: pointer; }
+    .spuhhierarchytoggle { display: flex; justify-content: flex-start;
+                 margin: 0 0 10px; }
+    .spuhresultpath { margin: 0 0 11px; padding: 0; border: 0;
+                 font-size: calc(14px * var(--s)); line-height: 2; }
+    .spuhresultpath .spuhpathcontent,
+    .spuhresultpath .spuhcompactlevel { display: inline; }
+    .spuhresultpath .spuhcompactlevel { position: static; margin: 0; padding: 0; }
+    .spuhresultpath .spuhcompactlevel::before,
+    .spuhresultpath .spuhcompactlevel::after { display: none; }
+    .spuhresultpath .spuhpathchip { display: inline-block; min-width: 0;
+                 min-height: 0; border: 2px solid var(--safe-blue);
+                 border-radius: 6px; padding: 2px 6px; color: var(--link);
+                 background: var(--card); vertical-align: middle;
+                 text-align: left; text-decoration: none; cursor: pointer;
+                 font-family: system-ui, sans-serif; font-size: inherit;
+                 font-weight: 850; line-height: 1.1; }
+    .spuhresultpath span.spuhpathchip { cursor: default; }
+    .spuhresultpath .spuhpathmarked { font-weight: 400; font-style: italic; }
+    .spuhmark { margin-left: 1px; font: inherit; font-style: normal;
+                 vertical-align: baseline; }
+    .spuhpathalternate { display: inline-block; margin: 0 4px;
+                 color: var(--muted); font-size: .9em; font-weight: 900;
+                 line-height: 1; vertical-align: middle; }
+    .spuhresultpath .spuhpatharrow { display: inline-block; padding: 0 3px;
+                 color: var(--muted); font: 900 calc(22px * var(--s))/1
+                 system-ui, sans-serif; vertical-align: middle; white-space: nowrap; }
+    .spuhresultcard.spuhdetailopen .spuhresultpath { display: none; }
+    .spuhresultdetailsbody { border-top: 0; padding-top: 0; }
+    .spuhtaxsteps { list-style: none; margin: 0 0 4px; padding: 0;
+                 counter-reset: spuh-level; }
+    .spuhresultcard .spuhtaxstep { position: relative; min-width: 0; margin: 0;
+                 padding: 0 0 calc(15px * var(--s)) calc(45px * var(--s));
+                 border-top: 0; overflow: visible; counter-increment: spuh-level; }
+    .spuhtaxstep:last-child { padding-bottom: 0; }
+    .spuhtaxstep:not(:last-child)::before { content: ""; position: absolute;
+                 left: calc(16px * var(--s)); top: calc(32px * var(--s));
+                 bottom: 1px; border-left: 3px solid var(--ink); }
+    .spuhtaxmarker { position: absolute; left: 0; top: 0;
+                 width: calc(34px * var(--s)); height: calc(34px * var(--s));
+                 display: grid; place-items: center; border: 2px solid var(--ink);
+                 border-radius: 50%; background: var(--card);
+                 font-size: calc(14px * var(--s)); font-weight: 900; }
+    .spuhtaxstepbody { min-width: 0; }
+    .spuhtaxstep .spuhtaxrank { margin: 0; font-size: calc(11px * var(--s)); }
+    .spuhtaxbackbone { display: block; width: fit-content; max-width: 100%;
+                 margin: 1px 0; border: 0; padding: 0; color: var(--link);
+                 background: none; text-align: left; overflow-wrap: anywhere;
+                 font-family: system-ui, sans-serif;
+                 font-size: calc(18px * var(--s)); font-style: normal;
+                 font-weight: 900; line-height: 1.3; }
+    button.spuhtaxbackbone { cursor: pointer; text-decoration: underline;
+                 text-decoration-thickness: 2px; text-underline-offset: 2px; }
+    .spuhtaxcount { color: var(--muted); font-size: calc(13px * var(--s)); }
+    .spuhtaxalternates { margin: 5px 0 0; padding: 0; }
+    .spuhtaxmarked { display: block; width: fit-content; max-width: 100%;
+                 min-height: calc(44px * var(--s)); margin: 0; border: 0;
+                 padding: 3px 0; color: var(--link); background: none;
+                 text-align: left; overflow-wrap: anywhere; cursor: pointer;
+                 text-decoration: underline; text-decoration-thickness: 2px;
+                 text-underline-offset: 2px;
+                 font-family: system-ui, sans-serif;
+                 font-size: calc(18px * var(--s)); font-style: italic;
+                 font-weight: 400; line-height: 1.4; }
+    .spuhquicklabel { flex: 0 0 auto; color: var(--muted);
+                 font-size: calc(11px * var(--s)); font-weight: 800;
+                 white-space: nowrap; }
+    .spuhquicklist { min-width: 0; display: flex; align-items: center;
+                 gap: 12px; overflow-x: auto; overscroll-behavior-inline: contain;
+                 scrollbar-width: thin; }
     .spuhspeciesbtn { border: 0; background: none; color: var(--link);
-                 padding: 0; margin: 0; font: inherit; text-align: left;
+                 min-height: calc(44px * var(--s)); padding: 0; margin: 0;
+                 font: inherit; text-align: left; white-space: nowrap;
                  text-decoration: underline; text-underline-offset: 2px;
                  cursor: pointer; }
+    .spuhcandidatequick .spuhspeciesbtn { border: 2px solid transparent;
+                 border-radius: var(--btn-radius); padding: 0 5px; }
+    .spuhcandidatequick .spuhspeciesbtn[aria-pressed="true"] {
+                 border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--ink);
+                 font-weight: 900; text-decoration-thickness: 3px; }
+    .spuhcandidateheading { margin: 9px 0 2px; font-size: calc(14px * var(--s)); }
+    .spuhcandidatestatus { margin: 0 0 5px; color: var(--muted);
+                 font-size: calc(12px * var(--s)); line-height: 1.35; }
+    .spuhcandidateprogressive > .progressive-more { margin-top: 4px; }
+    .spuhcandidatecards > li { cursor: pointer; }
+    .spuhcandidatecards > li:focus-visible { outline: 3px solid var(--focus);
+                 outline-offset: 2px; }
+    .spuhcandidatecards .spuhcandidatecardname { color: var(--link);
+                 text-decoration: underline; text-underline-offset: 2px; }
     .spuhcompare { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
     .spuhcompare > summary { cursor: pointer; font-weight: 800;
                  font-size: calc(14px * var(--s)); min-height: calc(40px * var(--s)); }
@@ -2461,12 +2613,11 @@
 
     <section class="panel">
       <h2>🔎 Stakeout bird <span class="dim" id="spLookupRegionLabel"></span></h2>
-      <div class="row">
-        <input id="spLookup" type="search" placeholder="Find a species by name…" autocomplete="off" />
+      <div class="row spLookupActions">
+        <input id="spLookup" type="search"
+               placeholder="Search for birds and spuhs…" autocomplete="off" />
         <button id="spLookupBtn" class="secondary">Search</button>
         <button id="spLookupClear" class="secondary" type="button" hidden>✕ Close</button>
-      </div>
-      <div class="row">
         <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">🔤 Show bird codes</button>
       </div>
       <div class="row" id="spCodesSortRow" hidden>
@@ -2477,8 +2628,11 @@
       </div>
       <div id="spCodesStatus" class="status" hidden></div>
       <ul id="spCodesList" class="obs picklist" hidden></ul>
-      <ul id="spLookupFound" class="obs picklist"></ul>
-      <div id="spLookupStatus" class="status">Look up ANY bird — including ones already on your year list — and see every place it has been reported in range, with the checklist, count, date and distance behind each one.</div>
+      <ul id="spLookupFound" class="obs picklist spuhsearchhits"></ul>
+      <div class="row"><button id="spuhMore" class="secondary" type="button" hidden>Show more matches</button></div>
+      <div id="spLookupStatus" class="status">Search for any bird or spuh. Birds open recent places and checklists; spuhs open their bird hierarchy and candidates on this same screen.</div>
+      <div id="spLookupQueryHelp"></div>
+      <div id="spLookupIdHelp"></div>
       <div id="spLookupMap"></div>
       <!-- The sort controls sit BELOW the map, not above it: they act on the
            list, and between the search box and the map they read as though they
@@ -2497,23 +2651,8 @@
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
       </div>
       <ul id="spLookupResults" class="obs big xl"></ul>
-      <div id="spLookupIdHelp"></div>
       <div id="spLookupBest"></div>
       <div id="spLookupUnwatched"></div>
-    </section>
-
-    <section class="panel">
-      <h2>🌳 Spuh finder</h2>
-      <div class="row">
-        <input id="spuhSearch" type="search"
-               placeholder="Find a spuh, e.g. peep or shorebird…" autocomplete="off" />
-        <button id="spuhBtn" class="secondary" type="button">Search</button>
-        <button id="spuhClear" class="secondary" type="button" hidden>✕ Close</button>
-      </div>
-      <div id="spuhStatus" class="status">Browse uncertain bird IDs from broad to specific. The taxonomy is fetched directly from eBird once, then its compact model is cached on this device.</div>
-      <ul id="spuhFound" class="obs picklist spuhsearchhits"></ul>
-      <div class="row"><button id="spuhMore" class="secondary" type="button" hidden>Show more matches</button></div>
-      <div id="spuhDetail"></div>
     </section>
 
     <!-- No menu tile any more: "i don't like that there are two menus for the
@@ -2942,16 +3081,16 @@
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
       <p class="hint">Pick which birding report to chase. Every section below matches that report's counties, home base, and seen-species list exactly.</p>
-      <label for="tripName">My regions &amp; trips</label>
+      <label for="tripName">My regions</label>
       <div id="myRegions"></div>
       <div class="row">
-        <div style="flex:1 1 auto"><input id="tripName" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Victoria BC — Thanksgiving" /></div>
+        <div style="flex:1 1 auto"><input id="tripName" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Victoria BC" /></div>
       </div>
       <div class="row">
-        <div style="flex:1 1 auto"><input id="tripPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Where you'll be staying" /></div>
+        <div style="flex:1 1 auto"><input id="tripPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Region center or home base" /></div>
         <button id="addTripBtn" class="secondary" type="button">Add</button>
       </div>
-      <p class="hint" id="tripStatus">Add your own region for a trip and chase from wherever you're staying. Type a name and the place you'll sleep &mdash; the coordinate, region code and time zone are worked out from it. A new region starts with an <strong>empty</strong> seen list, which on a trip is very nearly true, so every bird counts as one you still need.</p>
+      <p class="hint" id="tripStatus">Add your own region and chase from its center. Type a name and a place &mdash; the coordinate, region code and time zone are worked out from it. A new region starts with an <strong>empty</strong> seen list until its year list is imported.</p>
       <label for="region">Region code</label>
       <input id="region" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="US-WA" readonly />
       <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
@@ -3125,6 +3264,7 @@
   <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
   <script src="info-dialogs.js"></script>
+  <script src="controls-progressive.js"></script>
   <script src="qr.js"></script>
   <script src="controls-toggle.js"></script>
   <!-- The two card families. Pure layout: they receive already-escaped HTML
@@ -3339,8 +3479,9 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.89.0';
+      var APP_VERSION = '1.90.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
+      var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
       var BL = window.BirdLogic;
       // One definition of "how far will I drive for a bird", shared with
@@ -4062,12 +4203,11 @@
       // feeds either. When F1 step 4 lands and counties are derived from the
       // radius, these regions gain county feeds without changing here.
       //
-      // birdlistSlug is '' on purpose, so the seen list starts EMPTY. On a trip
-      // that is very nearly true, and it makes a new region useful the moment
-      // it is created rather than after an import.
+      // birdlistSlug is '' on purpose, so a new custom region starts empty
+      // rather than inheriting ticks from an unrelated built-in report.
       function customProfile(rec) {
         return {
-            slug: rec.slug, label: rec.label, kind: 'trip',
+            slug: rec.slug, label: rec.label, kind: 'region',
             stateCode: rec.stateCode || '',
             counties: [],
             home: { lat: rec.lat, lng: rec.lng },
@@ -4084,14 +4224,14 @@
       function allReportsList() {
         var built = (BL.reports() || []).slice();
         getCustomRegions().forEach(function (r) {
-            built.push({ slug: r.slug, label: r.label, kind: 'trip',
+            built.push({ slug: r.slug, label: r.label, kind: 'region',
                          isRarityTracker: false, stateCode: r.stateCode || '', custom: true });
         });
         return built;
       }
 
       // Every per-region key is slug-suffixed, so deleting a region has to sweep
-      // them all. Without this, storage grows a dead trip every holiday - and
+      // them all. Without this, storage grows after every deleted region - and
       // the compressed chase snapshot is the big one.
       function deleteCustomRegion(slug) {
         var list = getCustomRegions().filter(function (r) { return r.slug !== slug; });
@@ -4143,6 +4283,10 @@
       // Active report: a built-in slug, or one of the user's own regions.
       function getReportSlug() {
         var s = (localStorage.getItem(K.report) || '').trim().toLowerCase();
+        if (RETIRED_REPORT_REDIRECTS[s]) {
+          s = RETIRED_REPORT_REDIRECTS[s];
+          try { localStorage.setItem(K.report, s); } catch (e) {}
+        }
         if (BL && BL.REPORTS && BL.REPORTS[s]) return s;
         if (s && isCustomSlug(s)) return s;
         return 'wa';
@@ -4457,7 +4601,8 @@
       // nothing, fall through to the 730-call walk, which is slow but cannot be
       // locked out. A cheap path that MIGHT work plus an expensive path that
       // always does beats picking either alone.
-      var LIFELIST_MIN_ROWS = 5;   // fewer than this is a login page, not a list
+      var LIFELIST_MIN_ROWS = 5;   // 1-4 rows remain suspicious, not authoritative
+      var LIFELIST_COMPLETE_EMPTY = -1;
 
       function lifelistYearUrl() {
         var st = (getReport().stateCode || '').toUpperCase();
@@ -4499,6 +4644,14 @@
       function lifelistTitle(html) {
         var m = String(html || '').match(/<title[^>]*>([\s\S]{0,120}?)<\/title>/i);
         return m ? m[1].replace(/\s+/g, ' ').trim() : '(no title)';
+      }
+      function lifelistHTMLIsEmpty(html) {
+        var text = String(html || '');
+        if (!text || lifelistIsLogin(text)) return false;
+        if (!/(?:Life|Year) List - eBird$/i.test(lifelistTitle(text))) return false;
+        var plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        return /Species\s+Total\s*:\s*0\b/i.test(plain)
+          || /\b0\s+species\b/i.test(plain);
       }
       function parseLifelistHTML(html) {
         var out = [], seen = {};
@@ -4553,22 +4706,12 @@
         out.push(cur);
         return out;
       }
-      // HEADER-DRIVEN, never positional.
-      //
-      // The column order of this export has NOT been measured — no sample
-      // exists in either repo and F146's importer is not built — so pinning
-      // one would be asserting something nothing here has observed. Columns
-      // are found by NAME instead, and a header this cannot recognise yields
-      // nothing rather than a confident mis-parse, which drops cleanly to the
-      // HTML route.
-      function parseLifelistCSV(text) {
+      function lifelistCsvTable(text) {
         var t = String(text || '');
-        if (!t) return [];
-        // eBird answers a lost session with 200 + HTML, so status says nothing;
-        // shape does. A CSV never opens with a doctype.
-        if (/^\s*<(!doctype|html)/i.test(t) || lifelistIsLogin(t)) return [];
+        if (!t) return null;
+        if (/^\s*<(!doctype|html)/i.test(t) || lifelistIsLogin(t)) return null;
         var lines = t.split(/\r?\n/).filter(function (l) { return l.trim(); });
-        if (lines.length < 2) return [];
+        if (!lines.length) return null;
         var head = splitCsvLine(lines[0]).map(function (h) {
           return h.replace(/^\uFEFF/, '').trim().toLowerCase();
         });
@@ -4579,12 +4722,34 @@
           }
           return -1;
         }
-        var iCode = col(/^species\s*code$/, /speciescode/);
-        var iName = col(/^common\s*name$/, /common.*name/, /^species$/);
-        var iSci  = col(/^scientific\s*name$/, /scientific/);
-        var iDate = col(/^date$/, /\bdate\b/);
-        // Without something to identify the bird by, there is no row.
-        if (iCode < 0 && iName < 0 && iSci < 0) return [];
+        var table = {
+          lines: lines,
+          head: head,
+          code: col(/^species\s*code$/, /speciescode/),
+          name: col(/^common\s*name$/, /common.*name/, /^species$/),
+          sci: col(/^scientific\s*name$/, /scientific/),
+          date: col(/^date$/, /\bdate\b/)
+        };
+        return table.code < 0 && table.name < 0 && table.sci < 0 ? null : table;
+      }
+      function lifelistCsvIsEmpty(text) {
+        var table = lifelistCsvTable(text);
+        return !!table && table.lines.length === 1;
+      }
+      // HEADER-DRIVEN, never positional.
+      //
+      // The column order of this export has NOT been measured — no sample
+      // exists in either repo and F146's importer is not built — so pinning
+      // one would be asserting something nothing here has observed. Columns
+      // are found by NAME instead, and a header this cannot recognise yields
+      // nothing rather than a confident mis-parse, which drops cleanly to the
+      // HTML route.
+      function parseLifelistCSV(text) {
+        var table = lifelistCsvTable(text);
+        if (!table || table.lines.length < 2) return [];
+        var lines = table.lines, head = table.head;
+        var iCode = table.code, iName = table.name;
+        var iSci = table.sci, iDate = table.date;
         var out = [], seen = {};
         for (var r = 1; r < lines.length; r++) {
           var f = splitCsvLine(lines[r]);
@@ -4647,7 +4812,8 @@
         // step the HTML route does not — which is why it is tried first but
         // not trusted blindly: too few rows and it falls straight through.
         return tryLifelistCsv().then(function (n) {
-          return n >= LIFELIST_MIN_ROWS ? n : tryLifelistPage();
+          return n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS
+            ? n : tryLifelistPage();
         });
       }
       function absorbLifelistRows(rows, how, extra) {
@@ -4673,6 +4839,11 @@
         var url = lifelistCsvUrl();
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (body) {
+          if (lifelistCsvIsEmpty(body)) {
+            verdict('My Ticks', 'lifelist CSV read in ONE call: authoritative '
+              + 'empty species table — the 730-call walk was skipped');
+            return LIFELIST_COMPLETE_EMPTY;
+          }
           var rows = parseLifelistCSV(body);
           if (rows.length < LIFELIST_MIN_ROWS) {
             // SAY WHICH FAILURE IT WAS, and this one has four causes: not
@@ -4699,6 +4870,12 @@
         var url = lifelistYearUrl();
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (html) {
+          if (lifelistHTMLIsEmpty(html)) {
+            verdict('My Ticks', 'lifelist page: ' + fmtInt(String(html || '').length)
+              + ' B · title "' + lifelistTitle(html) + '" · explicit zero species '
+              + '— the 730-call walk was skipped');
+            return LIFELIST_COMPLETE_EMPTY;
+          }
           var rows = parseLifelistHTML(html);
           if (rows.length < LIFELIST_MIN_ROWS) {
             // SAY WHICH FAILURE IT WAS. "0 rows" has three quite different
@@ -4809,13 +4986,15 @@
         var work = workOverride || _backfillWork
           || cancellableWork('My Ticks backfill', 'sec-myYearBody');
         _backfillWork = work;
-        if (!workCurrent(work)) return;
-        if (_backfillRunning) return;
-        if (!getKey() || !getDisplayName()) return;
+        if (!workCurrent(work)) return Promise.resolve(false);
+        if (_backfillRunning) return Promise.resolve(false);
+        if (!getKey() || !getDisplayName()) return Promise.resolve(false);
         var s = backfillState();
-        if (s.done) return;
+        if (s.done) return Promise.resolve(false);
         var codes = countyCodes();
-        if (!codes.length) { s.done = true; backfillSave(s); return; }
+        if (!codes.length) {
+          s.done = true; backfillSave(s); return Promise.resolve(true);
+        }
 
         // One county's next day at a time, round-robin, so a two-county report
         // makes visible progress on both rather than finishing one first.
@@ -4829,13 +5008,13 @@
           dbg('net', 'own-list backfill complete: ' + s.days + ' day-lists, '
             + s.found + ' of your checklists found');
           try { updateMyYear(); } catch (e) {}
-          return;
+          return Promise.resolve(true);
         }
 
         _backfillRunning = true;
         dbg('net', 'own-list backfill: ' + jobs.length + ' day-list(s), '
           + s.days + ' done');
-        jobs.reduce(function (p, j) {
+        var run = jobs.reduce(function (p, j) {
           return p.then(function () {
             if (!workCurrent(work)) throw queueCancelledError(work);
             var d = j.day.split('-');
@@ -4852,7 +5031,8 @@
               })
               .catch(function (e) {
                 if (e && e.queueCancelled) throw e;
-                // A missing day is not a failure worth stopping for.
+                dbg('error', 'own-list day skipped: ' + j.county + ' ' + j.day
+                  + ' · ' + ((e && e.message) || e));
               })
               .then(function () {
                 if (!workCurrent(work)) throw queueCancelledError(work);
@@ -4864,16 +5044,25 @@
                 backfillSave(s);
               });
           });
-        }, Promise.resolve()).finally(function () {
+        }, Promise.resolve()).catch(function (e) {
+          if (e && e.queueCancelled) {
+            dbg('net', 'own-list backfill cancelled: ' + ((e && e.message) || e));
+            return false;
+          }
+          dbg('error', 'own-list backfill failed: ' + ((e && e.message) || e));
+          return false;
+        }).finally(function () {
           _backfillRunning = false;
           backfillSave(s);
           try { updateMyYear(); } catch (e) {}
           clearTimeout(_backfillTimer);
+          _backfillTimer = null;
           if (workCurrent(work)) {
             _backfillTimer = setTimeout(function () { backfillTick(work); },
               BACKFILL_GAP_MS);
           }
         });
+        return run;
       }
       function startOwnBackfill(delayMs, workOverride) {
         var work = workOverride || navWork('My Ticks backfill', 'sec-myYearBody');
@@ -4887,15 +5076,15 @@
           if (s.done) return;
           tryLifelistYear().then(function (n) {
             if (!workCurrent(work)) throw queueCancelledError(work);
-            if (n >= LIFELIST_MIN_ROWS) {
+            if (n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS) {
               s.done = true; s.viaLifelist = true; backfillSave(s);
               try { updateMyYear(); } catch (e) {}
-              return;
+              return true;
             }
-            backfillTick(work);
+            return backfillTick(work);
           }).catch(function (e) {
-            if (e && e.queueCancelled) return;
-            backfillTick(work);
+            if (e && e.queueCancelled) return false;
+            return backfillTick(work);
           });
         }, delayMs == null ? 20000 : delayMs);
       }
@@ -4996,7 +5185,7 @@
       // returns [] (skips the section) when analyze.REGION.counties is empty
       // (the two rarity-tracker reports). getRegion()'s state code is NOT used
       // for these anymore, so non-WA reports match the report's county scope
-      // and wa vs fort-casey (both US-WA) no longer collide on cache keys.
+      // and custom reports sharing one eBird scope no longer collide on cache keys.
       function getCounties() { var c = getReport().counties; return Array.isArray(c) ? c : []; }
       function countyCodes() { return getCounties().map(function (c) { return c.code; }); }
       function countyLabelStr() {
@@ -6112,6 +6301,9 @@
                    calls: _apiCost[k].calls, cached: _apiCost[k].cached };
         }).sort(function (a, b) { return b.calls - a.calls; });
       }
+      function costOwner(work) {
+        return (work && work.sectionId) || _costSection;
+      }
       // `bg` marks a call nobody is waiting on — the detached phase-2 species
       // wave. It is only a QUEUE POSITION, never a different rate: both lanes
       // share the token bucket, the rolling window and the AIMD gap.
@@ -6127,7 +6319,7 @@
           // dropped calls; "cached" is the difference between a bug and a
           // saving, and it is invisible unless it is printed.
           dbg('net', 'CACHED ' + path);
-          costNote(path, true);
+          costNote(path, true, costOwner(work));
           return hit.p;
         }
         // A reference directory survives app restarts, so check the durable
@@ -6139,13 +6331,13 @@
         var ref = noRefCache ? null : ebRefGet(path);
         if (ref != null) {
           dbg('net', 'CACHED(ref, up to 7d) ' + path);
-          costNote(path, true);
+          costNote(path, true, costOwner(work));
           var rp = Promise.resolve(ref);
           _ebCache[path] = { t: Date.now(), p: rp };
           return rp;
         }
         dbg('net', 'GET ' + path);
-        var section = _costSection;
+        var section = costOwner(work);
         costNote(path, false, section);
         _fgInFlight++; heartbeatStart();
         function release() {
@@ -8766,7 +8958,6 @@
       var SPUH_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
       var _spuhModel = null, _spuhModelPromise = null, _spuhCacheEpoch = 0;
       var _spuhSearchHits = [], _spuhSearchShown = 0;
-      var _spuhViewGeneration = 0;
 
       function spuhDbOpen() {
         if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -8888,7 +9079,7 @@
           if (!getKey()) {
             throw new Error('Add your eBird API key in Settings to load the taxonomy.');
           }
-          dbg('net', 'GET full eBird taxonomy for Spuh finder');
+          dbg('net', 'GET full eBird taxonomy for Stakeout bird');
           return ebird(taxonomyPath, false, true).then(function (rows) {
             if (epoch !== _spuhCacheEpoch) throw new Error('Spuh cache was cleared; retry.');
             var compact = Spuh.packTaxonomy(rows || []);
@@ -8955,22 +9146,112 @@
           + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
           + '">' + esc(node.name) + spuhStateHtml(node)
           + '<span class="spuhmeta">' + esc(meta || (
-              coverage.species.length + ' possible species'))
+              coverage.species.length + ' possible birds'))
           + '</span></button>';
       }
 
-      function spuhSpeciesButton(row) {
+      function spuhCandidateCard(row) {
         if (!row || !row.code) return '';
-        return '<button type="button" class="splink spuhspeciesbtn" data-sp="'
-          + esc(row.code) + '" data-spname="' + esc(row.name)
-          + '">' + esc(row.name) + '</button>';
+        var count = Number(row.regionReports) || 0;
+        return SpeciesCards.small({
+          cls: 'splink spuhcandidatecard',
+          data: { sp: row.code, spname: row.name },
+          icon: photoSlot(row.name, row.code),
+          name: '<span class="spuhcandidatecardname">' + esc(row.name) + '</span>',
+          sub: (row.sci ? '<i>' + esc(row.sci) + '</i>' : '')
+            + (count ? (row.sci ? ' · ' : '') + count + ' recent report'
+              + (count === 1 ? '' : 's') : ''),
+          right: '<span class="spgo" aria-hidden="true">›</span>'
+        });
       }
 
-      function spuhClassRows(coverage, meta) {
-        if (!coverage) return '';
-        return coverage.nodes.map(function (node) {
-          return '<li>' + spuhNodeButton(node, coverage, meta) + '</li>';
-        }).join('');
+      function wireSpuhCandidateCards(root) {
+        [].slice.call(root.querySelectorAll(
+          '.spuhcandidatecard:not([data-progressive-wired])')).forEach(
+          function (card) {
+            card.setAttribute('data-progressive-wired', '1');
+            card.setAttribute('role', 'button');
+            card.setAttribute('tabindex', '0');
+            card.setAttribute('aria-label',
+              'Stake out ' + (card.getAttribute('data-spname') || 'this bird'));
+            card.addEventListener('keydown', function (ev) {
+              if (ev.key !== 'Enter' && ev.key !== ' ') return;
+              ev.preventDefault();
+              card.click();
+            });
+          });
+      }
+
+      function populateSpuhRegionalCandidates(host, model, node, generation, scopeSlug) {
+        if (!host || !window.ProgressiveList) {
+          return Promise.reject(new Error('The progressive list control is unavailable.'));
+        }
+        var region = getObsRegion();
+        var regionLabel = getReport().label || region;
+        var candidates = model.candidates(node);
+        var byCode = {};
+        candidates.forEach(function (row) { byCode[row.code] = row; });
+        return Promise.all([
+          loadSpeciesIndex(region),
+          speciesCommonness(region)
+        ]).then(function (parts) {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
+            return null;
+          }
+          var commonness = parts[1] || {};
+          var anyCounts = Object.keys(commonness).some(function (code) {
+            return Number(commonness[code]) > 0;
+          });
+          var rows = (parts[0] || []).map(function (regional) {
+            var row = byCode[regional.code];
+            if (!row) return null;
+            row = Object.assign({}, row);
+            row.regionReports = Number(commonness[row.code]) || 0;
+            return row;
+          }).filter(Boolean);
+          rows.sort(function (a, b) {
+            return b.regionReports - a.regionReports
+              || (Number(a.taxonOrder) || Infinity) - (Number(b.taxonOrder) || Infinity)
+              || String(a.name).localeCompare(String(b.name));
+          });
+          var status = host.closest('.spuhcandidatelane')
+            .querySelector('.spuhcandidatestatus');
+          status.textContent = rows.length
+            ? (anyCounts
+              ? 'Most reported in ' + regionLabel + ' in the last 30 days.'
+              : 'Birds on ' + regionLabel
+                + '\u2019s regional list; recent commonness is unavailable.')
+            : 'No birds under ' + node.name + ' are on '
+              + regionLabel + '\u2019s current regional list.';
+          if (!rows.length) {
+            host.innerHTML = '';
+            return [];
+          }
+          ProgressiveList.mount({
+            host: host,
+            items: rows,
+            batchSize: 25,
+            listClass: 'obs card-sm spuhcandidatecards',
+            buttonClass: 'spuhcandidatemore',
+            noun: 'birds',
+            isCurrent: function () {
+              return generation === _spLookupGeneration
+                && scopeSlug === getReportSlug();
+            },
+            renderItem: spuhCandidateCard,
+            afterAppend: wireSpuhCandidateCards
+          });
+          hydratePhotos(host);
+          return rows;
+        }).catch(function (e) {
+          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
+            return null;
+          }
+          var status = host.closest('.spuhcandidatelane')
+            .querySelector('.spuhcandidatestatus');
+          status.textContent = netErr(e);
+          throw e;
+        });
       }
 
       function spuhAncestors(model, node) {
@@ -8991,70 +9272,172 @@
         return out;
       }
 
-      function spuhCompactCoverageLevel(coverage, selected, mostSpecific) {
-        var limited = coverage.nodes.some(function (node) { return !!node.limit; });
-        return '<li class="spuhcompactlevel' + (limited ? ' limited' : '')
-          + (selected ? ' selected' : '')
-          + '" data-coverage-id="' + coverage.id + '">'
-          + '<div class="spuhcompactchoices">'
-          + coverage.nodes.map(function (node) {
-              return '<button type="button" class="spuhtaxlink'
-                + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
-                + '"><span>' + esc(node.name) + '</span>'
-                + (node.limit
-                  ? '<span class="spuhcompactstate">⚠ limit</span>' : '')
-                + '</button>';
-            }).join('')
-          + '</div>'
-          + (selected || mostSpecific ? '<span class="spuhmeta">'
-            + coverage.species.length + ' possible species</span>' : '')
-          + (limited && (selected || mostSpecific) ? '<span class="spuhcompactlimit">'
-            + '⚠ Coverage limit · not auto-selected</span>' : '')
-          + '</li>';
+      function spuhHierarchyProjection(model, node) {
+        return spuhAncestors(model, node).map(function (coverage) {
+          var nodes = coverage.nodes || [];
+          var backboneNode = (coverage.provenNodes || []).filter(function (candidate) {
+            return !candidate.limit;
+          })[0] || null;
+          var reference = backboneNode || coverage.head || nodes[0] || {};
+          var rank = spuhTaxRank(reference);
+          var taxon = reference.group || '';
+          if (rank === 'class') taxon = 'Aves';
+          var orderBackbone = rank === 'order';
+          var backboneName = orderBackbone
+            ? taxon : (backboneNode ? backboneNode.name : taxon);
+          return {
+            rank: rank,
+            taxon: taxon,
+            backboneNode: orderBackbone ? null : backboneNode,
+            backboneName: backboneName || 'Published group',
+            count: coverage.species.length,
+            alternates: nodes.filter(function (candidate) {
+              return candidate !== backboneNode && (!orderBackbone || candidate.limit);
+            })
+          };
+        });
       }
 
-      function spuhCompactSpeciesLevel(species) {
-        return '<li class="spuhcompactlevel selected" data-rank="species">'
-          + '<div class="spuhtaxspecies"><strong>' + esc(species.name) + '</strong>'
-          + '<span class="spuhmeta"><i>' + esc(species.sci)
-          + '</i> · selected species</span></div></li>';
+      function spuhHierarchyRankName(rank) {
+        return {
+          'class': 'Class',
+          order: 'Order',
+          family: 'Family',
+          genus: 'Genus',
+          group: 'Group'
+        }[rank] || 'Group';
       }
 
-      function spuhHierarchyHtml(levels, detailedHtml, detailClass) {
-        return '<div class="spuhhierarchy">'
-          + '<h4>Identification hierarchy</h4>'
-          + '<div class="spuhcompactlegend">✓ Published set · '
-          + '⚠ Coverage limit</div>'
-          + '<ol class="spuhcompactpath" aria-label="Identification hierarchy">'
-          + (levels || []).map(function (level) {
-              return level.species
-                ? spuhCompactSpeciesLevel(level.species)
-                : spuhCompactCoverageLevel(
-                    level.coverage, level.selected, level.mostSpecific);
-            }).join('')
-          + '</ol><details class="spuhdetails'
-          + (detailClass ? ' ' + detailClass : '') + '"><summary>Detailed view</summary>'
-          + '<div class="spuhdetailsbody spuhtaxdetailsbody">'
-          + (detailedHtml || '') + '</div>'
-          + '</details></div>';
-      }
-
-      function spuhLimitCopy(node, coverage) {
-        if (node.limit === 'same-group') {
-          var proven = coverage.provenNodes[0];
-          return 'eBird publishes the same ' + coverage.species.length
-            + '-species set for this familiar wording'
-            + (proven ? ' and ' + proven.name : '')
-            + '. The narrower membership is not in the taxonomy export.';
+      function spuhHierarchyAction(node, label, className, compactLabel) {
+        var attrs = ' class="' + className + '"';
+        if (compactLabel) {
+          attrs += ' data-compact-label="' + esc(compactLabel) + '"';
         }
-        if (node.limit === 'subfamily') {
-          return 'The export names this subfamily but publishes only the broader '
-            + node.group + ' family membership. It is shown as field language, '
-            + 'never selected automatically.';
-        }
-        return 'eBird does not publish a candidate set for this mixed group name. '
-          + 'The app can show the wording, but automatic recommendations stop '
-          + 'at a group with published membership.';
+        if (!node) return '<span' + attrs + '>' + esc(label) + '</span>';
+        return '<button type="button"' + attrs + ' data-spuh="'
+          + esc(node.code) + '">' + esc(label) + '</button>';
+      }
+
+      function spuhMarkedAction(node, className, compact) {
+        var label = node.name + (node.limit ? '*' : '');
+        var attrs = ' class="' + className + '" data-spuh="' + esc(node.code) + '"';
+        if (compact) attrs += ' data-compact-label="' + esc(label) + '"';
+        return '<button type="button"' + attrs + '><i>' + esc(node.name)
+          + '</i>' + (node.limit ? '<span class="spuhmark">*</span>' : '')
+          + '</button>';
+      }
+
+      function spuhCondensedHierarchyHtml(levels) {
+        var path = (levels || []).map(function (level) {
+          var backbone = spuhHierarchyAction(
+            level.backboneNode, level.backboneName,
+            'spuhpathchip spuhpathbackbone', level.backboneName);
+          var alternatives = level.alternates.map(function (alternate) {
+            return '<span class="spuhpathalternate" role="img" aria-label="or">'
+              + '\\</span>' + spuhMarkedAction(
+                alternate, 'spuhpathchip spuhpathmarked', true);
+          }).join('');
+          return '<span class="spuhcompactlevel" data-rank="' + esc(level.rank)
+            + '">' + backbone + alternatives + '</span>';
+        }).join('<span class="spuhpatharrow" aria-hidden="true">›</span>');
+        return '<p class="spuhcompactpath spuhresultpath" '
+          + 'aria-label="Condensed taxonomic hierarchy"><span class="spuhpathcontent">'
+          + path + '</span></p>';
+      }
+
+      function spuhDetailedHierarchyHtml(levels) {
+        return '<ol class="spuhtaxsteps" aria-label="Detailed taxonomic hierarchy">'
+          + (levels || []).map(function (level, index) {
+              var backbone = spuhHierarchyAction(
+                level.backboneNode, level.backboneName, 'spuhtaxbackbone');
+              var alternatives = level.alternates.length
+                ? '<div class="spuhtaxalternates">'
+                  + level.alternates.map(function (alternate) {
+                      return spuhMarkedAction(
+                        alternate, 'spuhtaxmarked', false);
+                    }).join('') + '</div>'
+                : '';
+              return '<li class="spuhtaxstep" data-rank="' + esc(level.rank) + '">'
+                + '<span class="spuhtaxmarker" aria-hidden="true">'
+                + (index + 1) + '</span><div class="spuhtaxstepbody">'
+                + '<div class="spuhtaxrank">' + esc(spuhHierarchyRankName(level.rank))
+                + ' · ' + esc(level.taxon) + '</div>' + backbone
+                + '<div class="spuhtaxcount">'
+                + Number(level.count).toLocaleString('en-US')
+                + ' birds in its published set.</div>' + alternatives
+                + '</div></li>';
+            }).join('') + '</ol>';
+      }
+
+      function spuhResultHierarchyHtml(levels) {
+        return '<div class="spuhhierarchyblock">'
+          + '<div class="spuhhierarchyhead"><h3>TAXONOMIC HIERARCHY</h3>'
+          + '<button type="button" class="spuhhierarchyinfo spuhexplain" '
+          + 'aria-label="About marked spuh names">i</button></div>'
+          + '<div class="spuhhierarchytoggle">' + spuhViewToggleHtml() + '</div>'
+          + spuhCondensedHierarchyHtml(levels)
+          + '<details class="spuhresultdetails"><summary hidden>'
+          + 'Detailed taxonomic hierarchy</summary>'
+          + '<div class="spuhresultdetailsbody"><div class="spuhhierarchy">'
+          + spuhDetailedHierarchyHtml(levels)
+          + '</div></div></details></div>';
+      }
+
+      function spuhPathChip(node) {
+        return '<a class="spuhtaxlink spuhpathchip'
+          + (node.limit ? ' limited' : '') + '" href="https://ebird.org/species/'
+          + encodeURIComponent(node.code) + '" data-spuh="' + esc(node.code)
+          + '" data-compact-label="' + esc(node.name) + '"><span>'
+          + esc(node.name) + '</span>'
+          + (node.limit
+            ? '<span class="spuhcompactstate" aria-label="Coverage limit">⚠</span>' : '')
+          + '</a>';
+      }
+
+      function spuhPathSentenceHtml(levels, extraClass, viewControls) {
+        var path = (levels || []).map(function (level) {
+          if (level.species) {
+            return '<span class="spuhcompactlevel" data-rank="species">'
+              + '<span class="spuhpathchip spuhpathselected" data-compact-label="'
+              + esc(level.species.name) + '">' + esc(level.species.name) + '</span></span>';
+          }
+          return '<span class="spuhcompactlevel" data-rank="' + esc(level.rank) + '">'
+            + level.siblings.map(function (entry, index) {
+                var chip = spuhPathChip(entry.node);
+                return index
+                  ? '<span class="spuhsiblingpair"><span class="spuhsiblingsep" '
+                    + 'role="img" aria-label="or">\\</span>' + chip + '</span>'
+                  : chip;
+              }).join('')
+            + '</span>';
+        }).join('<span class="spuhpatharrow" aria-hidden="true">›</span>');
+        return '<p class="spuhcompactpath spuhcompactchain spuhpathsentence'
+          + (extraClass ? ' ' + extraClass : '') + '">'
+          + '<strong>Bird hierarchy:</strong>'
+          + (viewControls
+            ? viewControls + '<span class="spuhpathcontent"> ' + path + '.</span>'
+            : ' ' + path + '.')
+          + '</p>';
+      }
+
+      function spuhViewToggleHtml() {
+        return ToggleControls.group({
+          id: 'spuhViewPick',
+          cls: 'spuhviewpick',
+          label: 'Taxonomic hierarchy view',
+          options: [
+            {
+              label: 'Condensed',
+              pressed: true,
+              data: { spuhview: 'condensed' }
+            },
+            {
+              label: 'Detailed',
+              pressed: false,
+              data: { spuhview: 'detailed' }
+            }
+          ]
+        });
       }
 
       function spuhExample(model, node) {
@@ -9067,20 +9450,9 @@
         return choice || candidates[0] || null;
       }
 
-      function fillSpuhCandidates(details, model, node) {
-        if (!details || details.dataset.filled) return;
-        details.dataset.filled = '1';
-        var body = details.querySelector('.spuhcandidatebody');
-        if (!body) return;
-        var rows = model.candidates(node), shown = rows.slice(0, 60);
-        body.innerHTML = '<div class="spuhcandidates">'
-          + shown.map(function (s) {
-              return '<div>' + spuhSpeciesButton(s) + '</div>';
-            }).join('')
-          + '</div>'
-          + (rows.length > shown.length
-              ? '<p class="hint">' + (rows.length - shown.length)
-                + ' more candidates are in this published set.</p>' : '');
+      function spuhPublishedSci(node) {
+        return String((node && node.sci) || '')
+          .replace(/\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\s*$/, '');
       }
 
       function renderSpuhCompare(host, model, initialCodes) {
@@ -9093,11 +9465,11 @@
           }
         });
         host.innerHTML =
-          '<p class="hint">Select every species the bird might be. The result is safe '
+          '<p class="hint">Select every bird the sighting might be. The result is safe '
           + 'only when that possibility list is exhaustive.</p>'
           + '<div class="spuhchips"></div>'
           + '<div class="row"><input class="spuhcompareq" type="search" '
-          + 'placeholder="Add a possible species…" autocomplete="off">'
+          + 'placeholder="Add a possible bird…" autocomplete="off">'
           + '<button class="secondary spuhcompareadd" type="button">Add</button></div>'
           + '<ul class="spuhcomparehits"></ul>'
           + '<div class="spuhcompareresult"></div>';
@@ -9113,7 +9485,7 @@
               + esc(s.name) + ' · ×</button>';
           }).join('');
           if (!selected.length) {
-            result.innerHTML = '<p class="hint">Add at least one possible species.</p>';
+            result.innerHTML = '<p class="hint">Add at least one possible bird.</p>';
             return;
           }
           var answers = model.narrowestShared(selected.map(function (s) { return s.code; }));
@@ -9129,7 +9501,7 @@
               + (answers.length === 1 ? '' : 's')) + '</div>'
             + answers.map(function (answer) {
                 return spuhNodeButton(answer.node, answer.coverage,
-                  answer.coverage.species.length + ' possible species');
+                  answer.coverage.species.length + ' possible birds');
               }).join('')
             + '<p>This is a taxonomy containment answer, not evidence that the '
             + 'field identification is correct. Coverage-limited labels are never '
@@ -9174,68 +9546,70 @@
       }
 
       function renderSpuhNode(code, generation) {
-        var st = $('spuhStatus'), found = $('spuhFound'), detail = $('spuhDetail');
+        var st = $('spLookupStatus'), found = $('spLookupFound'),
+          detail = $('spLookupQueryHelp');
         if (!st || !detail) return Promise.resolve();
-        if (generation == null) generation = ++_spuhViewGeneration;
-        if (generation !== _spuhViewGeneration) return Promise.resolve(null);
-        if (found) found.innerHTML = '';
-        _spuhSearchHits = []; _spuhSearchShown = 0;
-        if ($('spuhMore')) $('spuhMore').hidden = true;
+        if (generation == null) generation = ++_spLookupGeneration;
+        if (generation !== _spLookupGeneration) return Promise.resolve(null);
+        resetSpeciesLookupView();
+        if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Loading the eBird taxonomy…';
         return loadSpuhModel().then(function (model) {
-          if (generation !== _spuhViewGeneration) return null;
+          if (generation !== _spLookupGeneration) return null;
           var node = model.node(code);
           if (!node) throw new Error('That spuh is not in the current eBird taxonomy.');
           var coverage = model.coverage(node);
-          var ancestors = spuhAncestors(model, node);
-          var narrower = model.narrower(node);
           var example = spuhExample(model, node);
-          var detailed = (node.limit ? '<div class="spuhlimit"><div class="spuheyebrow">'
-              + '⚠ Coverage limit · not auto-selected</div><strong>'
-              + esc(node.name) + '</strong><p>' + esc(spuhLimitCopy(node, coverage))
-              + '</p></div>' : '')
-            + (narrower.length
-              ? '<details class="spuhnarrow"><summary><b>Narrower published groups · '
-                + narrower.length + '</b></summary><ul class="spuhladder">'
-                + narrower.map(function (c) { return spuhClassRows(c); }).join('')
-                + '</ul></details>'
-              : '<h4>Narrower published groups</h4>'
-                + '<p class="hint">No narrower spuh set is published.</p>')
-            + '<details class="spuhcandidatedetails"><summary><b>Possible species · '
-            + coverage.species.length + '</b></summary>'
-            + '<div class="spuhcandidatebody"><p class="hint">Open to list candidate '
-            + 'species.</p></div></details>'
-            + (example ? '<div class="spuhmedia">' + photoSlot(example.name, example.code)
-              + '<div><div class="spuhmediaword">Example candidate image</div><strong>'
-              + spuhSpeciesButton(example) + '</strong><p>One possible '
-              + 'species inside this published set. The image illustrates a candidate; '
-              + 'it does not define the whole spuh.</p></div></div>' : '')
-            + '<details class="spuhcompare"><summary>Compare possible species</summary>'
-            + '<div class="spuhcomparebody"></div></details>'
-            + '<div class="row"><a class="ebirdlink" href="https://ebird.org/species/'
-            + encodeURIComponent(node.code) + '" data-href="https://ebird.org/species/'
-            + encodeURIComponent(node.code) + '" target="_blank" rel="noopener">Open '
-            + esc(node.name) + ' in eBird ↗</a></div>';
-          detail.innerHTML = '<div class="spuhpanel">'
-            + '<div class="spuhhead"><h3>' + esc(node.name) + '</h3>'
-            + '<span class="spuhcount">' + coverage.species.length
-            + ' published candidates</span>'
-            + '<button type="button" class="lanehelp spuhexplain" aria-label="Explain '
-            + esc(node.name) + '">ℹ️</button></div>'
-            + '<div class="bcsub"><i>' + esc(node.sci) + '</i> · '
-            + esc(node.code) + '</div>'
-            + spuhHierarchyHtml(ancestors.map(function (c) {
-                return { coverage: c, selected: c.id === coverage.id };
-              }), detailed)
+          var quickCandidateHtml = '<div class="spuhcandidatelane">'
+            + '<h3 class="spuhcandidateheading">Common birds under '
+            + esc(node.name) + '</h3>'
+            + '<p class="spuhcandidatestatus">Finding common birds in '
+            + esc(getReport().label || getObsRegion()) + '…</p>'
+            + '<div class="spuhcandidateprogressive"></div></div>';
+          var hierarchyLevels = spuhHierarchyProjection(model, node);
+          detail.innerHTML = '<div class="spuhpanel" data-spuh="' + esc(node.code) + '">'
+            + SpeciesCards.list('medium', [SpeciesCards.medium({
+                cls: 'spuhresultcard',
+                icon: example ? photoSlot(example.name, example.code) : '',
+                name: '<span class="spuhsummaryname" role="heading" aria-level="3">'
+                  + esc(node.name) + '</span>',
+                tags: ' <span class="spuhcount">' + coverage.species.length
+                  + ' birds</span>',
+                code: node.code,
+                sci: spuhPublishedSci(node),
+                sub: coverage.species.length + ' possible birds'
+                  + (example ? ' · Representative candidate: ' + esc(example.name) : ''),
+                below: spuhResultHierarchyHtml(hierarchyLevels)
+                  + quickCandidateHtml
+              })], 'spuhresulthero')
             + '</div>';
-          st.textContent = model.nodes.length + ' spuh labels · '
-            + model.classes.length + ' exact candidate sets · '
-            + model.nodes.filter(function (n) { return !!n.limit; }).length
-            + ' coverage-limited labels are never auto-selected.';
-          var candidates = detail.querySelector('.spuhcandidatedetails');
-          if (candidates) candidates.addEventListener('toggle', function () {
-            if (candidates.open) fillSpuhCandidates(candidates, model, node);
-          });
+          if ($('spLookup')) $('spLookup').value = node.name;
+          st.textContent = '';
+          var resultDetails = detail.querySelector('.spuhresultdetails');
+          if (resultDetails) {
+            var resultCard = resultDetails.closest('.spuhresultcard');
+            var viewPick = resultCard && resultCard.querySelector('.spuhviewpick');
+            var syncSpuhView = function () {
+              var detailedView = resultDetails.open;
+              if (resultCard) {
+                resultCard.classList.toggle('spuhdetailopen', detailedView);
+                [].slice.call(resultCard.querySelectorAll('[data-spuhview]'))
+                  .forEach(function (button) {
+                    button.setAttribute('aria-pressed',
+                      String(button.getAttribute('data-spuhview')
+                        === (detailedView ? 'detailed' : 'condensed')));
+                  });
+              }
+            };
+            resultDetails.addEventListener('toggle', syncSpuhView);
+            if (viewPick) viewPick.addEventListener('click', function (ev) {
+              var button = ev.target.closest && ev.target.closest('[data-spuhview]');
+              if (!button) return;
+              resultDetails.open = button.getAttribute('data-spuhview') === 'detailed';
+              syncSpuhView();
+            });
+            syncSpuhView();
+          }
           var compare = detail.querySelector('.spuhcompare');
           if (compare) compare.addEventListener('toggle', function () {
             if (!compare.open || compare.dataset.filled) return;
@@ -9250,9 +9624,12 @@
             });
           });
           hydratePhotos(detail);
-          return node;
+          return populateSpuhRegionalCandidates(
+            detail.querySelector('.spuhcandidateprogressive'),
+            model, node, generation, getReportSlug()
+          ).then(function () { return node; });
         }).catch(function (e) {
-          if (generation !== _spuhViewGeneration) return null;
+          if (generation !== _spLookupGeneration) return null;
           detail.innerHTML = '';
           st.textContent = (e && e.message) || String(e);
           throw e;
@@ -9260,7 +9637,7 @@
       }
 
       function paintSpuhSearchHits() {
-        var found = $('spuhFound'), st = $('spuhStatus'), more = $('spuhMore');
+        var found = $('spLookupFound'), st = $('spLookupStatus'), more = $('spuhMore');
         if (!found || !st || !_spuhModel) return;
         var shown = _spuhSearchHits.slice(0, _spuhSearchShown);
         found.innerHTML = shown.map(function (node) {
@@ -9279,23 +9656,24 @@
         }
       }
 
-      function loadSpuhRoot() {
-        return renderSpuhNode('bird1');
-      }
-
-      function runSpuhSearch() {
-        var q = (($('spuhSearch') || {}).value || '').trim();
-        var st = $('spuhStatus'), found = $('spuhFound'), detail = $('spuhDetail');
+      function runSpuhSearch(generation, scopeSlug) {
+        var q = (($('spLookup') || {}).value || '').trim();
+        var st = $('spLookupStatus'), found = $('spLookupFound'),
+          detail = $('spLookupIdHelp');
         if (!st || !found || !detail) return;
-        var generation = ++_spuhViewGeneration;
-        found.innerHTML = ''; detail.innerHTML = '';
-        _spuhSearchHits = []; _spuhSearchShown = 0;
-        if ($('spuhMore')) $('spuhMore').hidden = true;
+        if (generation == null) {
+          generation = ++_spLookupGeneration;
+          scopeSlug = getReportSlug();
+          resetSpeciesLookupView();
+        }
+        if (generation !== _spLookupGeneration
+            || scopeSlug !== getReportSlug()) return Promise.resolve(null);
         if (q.length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
-        if ($('spuhClear')) $('spuhClear').hidden = false;
+        if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Loading the eBird taxonomy…';
-        loadSpuhModel().then(function (model) {
-          if (generation !== _spuhViewGeneration) return;
+        return loadSpuhModel().then(function (model) {
+          if (generation !== _spLookupGeneration
+              || scopeSlug !== getReportSlug()) return null;
           var hits = model.searchSpuh(q, model.nodes.length);
           var exact = hits.filter(function (node) {
             var n = q.toLowerCase();
@@ -9303,39 +9681,46 @@
           });
           if (exact.length === 1) return renderSpuhNode(exact[0].code, generation);
           if (!hits.length) {
-            st.textContent = 'No spuh matches “' + q + '”.';
-            return;
+            var speciesHits = searchSpecies((model && model.species) || [], q);
+            if (!speciesHits.length) {
+              st.textContent = 'No bird or spuh matches “' + q + '”.';
+              return null;
+            }
+            appendSpeciesChoices(found, speciesHits, {
+              heading: 'Full eBird taxonomy — outside '
+                + (getReport().label || getObsRegion()),
+              detail: 'These birds are valid eBird species, but not on the active regional list.',
+              rowNote: 'not on ' + (getReport().label || getObsRegion())
+                + '\u2019s regional list'
+            });
+            st.textContent = speciesHits.length + ' taxonomy match'
+              + (speciesHits.length === 1 ? '' : 'es') + ' outside '
+              + (getReport().label || getObsRegion())
+              + ' · tap one to check the active report anyway.';
+            return speciesHits;
           }
           _spuhSearchHits = hits;
           _spuhSearchShown = Math.min(25, hits.length);
           paintSpuhSearchHits();
+          return hits;
         }).catch(function (e) {
-          if (generation === _spuhViewGeneration) {
+          if (generation === _spLookupGeneration
+              && scopeSlug === getReportSlug()) {
             st.textContent = (e && e.message) || String(e);
           }
+          return null;
         });
       }
 
       function clearSpuhFinder() {
-        _spuhViewGeneration++;
-        if ($('spuhSearch')) $('spuhSearch').value = '';
-        if ($('spuhFound')) $('spuhFound').innerHTML = '';
-        if ($('spuhDetail')) $('spuhDetail').innerHTML = '';
-        if ($('spuhClear')) $('spuhClear').hidden = true;
-        if ($('spuhMore')) $('spuhMore').hidden = true;
-        _spuhSearchHits = []; _spuhSearchShown = 0;
-        if ($('spuhStatus')) $('spuhStatus').textContent =
-          'Browse uncertain bird IDs from broad to specific. The taxonomy is '
-          + 'fetched directly from eBird once, then its compact model is cached '
-          + 'on this device.';
+        clearSpeciesLookup();
       }
 
       function openSpuhFinder(code) {
-        if ($('sec-spuhBtn')) showSection('sec-spuhBtn');
-        var generation = ++_spuhViewGeneration;
-        if ($('spuhSearch')) $('spuhSearch').value = '';
-        if ($('spuhClear')) $('spuhClear').hidden = false;
-        renderSpuhNode(code, generation).catch(function () {});
+        if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
+        var generation = ++_spLookupGeneration;
+        if ($('spLookup')) $('spLookup').value = code;
+        return renderSpuhNode(code, generation).catch(function () {});
       }
 
       function spuhTaxRank(node) {
@@ -9366,10 +9751,10 @@
           + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
           + '"><span>' + esc(node.name) + '</span>' + spuhStateHtml(node)
           + '<span class="spuhmeta">' + coverage.species.length
-          + ' possible species</span></button>';
+          + ' possible birds</span></button>';
       }
 
-      function spuhTaxNavigatorHtml(model, species) {
+      function spuhTaxNavigatorHtml(model, species, sourceSpuhCode) {
         var buckets = { 'class': [], order: [], family: [], genus: [], group: [] };
         model.relatedForSpecies(species.code).forEach(function (coverage) {
           var node = coverage.head || coverage.nodes[0];
@@ -9405,9 +9790,6 @@
         };
         var ranks = ['class', 'order', 'family', 'genus'];
         if (buckets.group.length) ranks.push('group');
-        var narrowest = model.narrowestShared([species.code]).map(function (answer) {
-          return answer.coverage;
-        });
         var levels = ranks.map(function (rank) {
           var taxon = spuhTaxon(rank, species);
           return '<li class="spuhtaxlevel" data-rank="' + rank + '">'
@@ -9421,30 +9803,45 @@
           + '<div class="spuhtaxspecies"><strong>' + esc(species.name) + '</strong>'
           + '<span class="spuhmeta">' + esc(species.sci) + '</span></div></li>';
 
-        var compactLevels = [];
-        if (narrowest.length) {
-          var compactCoverages = spuhAncestors(
-            model, narrowest[0].head || narrowest[0].nodes[0]);
-          compactCoverages.forEach(function (coverage, index) {
-              compactLevels.push({
-                coverage: coverage,
-                mostSpecific: index === compactCoverages.length - 1
-              });
+        function compactSiblings(rank) {
+          var seen = {}, siblings = [];
+          (buckets[rank] || []).forEach(function (coverage) {
+            coverage.nodes.forEach(function (node) {
+              if (seen[node.code]) return;
+              seen[node.code] = 1;
+              siblings.push({ node: node, coverage: coverage });
             });
+          });
+          return siblings;
+        }
+        var compactLevels = [];
+        ['class', 'order', 'family', 'genus'].forEach(function (rank) {
+          var siblings = compactSiblings(rank);
+          if (siblings.length) compactLevels.push({ rank: rank, siblings: siblings });
+        });
+        var sourceGroup = compactSiblings('group').filter(function (entry) {
+          return entry.node.code === sourceSpuhCode;
+        });
+        if (sourceGroup.length) {
+          compactLevels.push({ rank: 'group', siblings: sourceGroup });
         }
         compactLevels.push({ species: species });
         var detailed = '<p class="hint">Broad to specific. Buttons on the same row are '
           + 'equivalent labels for one published candidate set; dashed labels have '
           + 'a coverage limit and are never automatic recommendations.</p>'
           + '<ol class="spuhtaxpath">' + levels + '</ol>'
-          + '<details class="spuhcompare"><summary>Compare possible species</summary>'
+          + '<details class="spuhcompare"><summary>Compare possible birds</summary>'
           + '<div class="spuhcomparebody"></div></details>';
         return '<div class="spuhtaxnav" data-species="' + esc(species.code) + '">'
-          + spuhHierarchyHtml(compactLevels, detailed, 'spuhtaxdetails')
-          + '</div>';
+          + '<div class="spuhhierarchy spuhhierarchysentence">'
+          + spuhPathSentenceHtml(compactLevels)
+          + '<details class="spuhdetails spuhtaxdetails">'
+          + '<summary class="spuhdetailslink">Show Hierarchy Details</summary>'
+          + '<div class="spuhdetailsbody spuhtaxdetailsbody">' + detailed
+          + '</div></details></div></div>';
       }
 
-      function renderSpuhStakeoutNav(code, name, generation) {
+      function renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode) {
         var host = $('spLookupIdHelp');
         if (!host) return Promise.resolve(null);
         if (generation == null) generation = _spLookupGeneration;
@@ -9463,7 +9860,7 @@
           }
           if (!species) throw new Error('This species is not in the current eBird taxonomy.');
           if (generation !== _spLookupGeneration) return null;
-          host.innerHTML = spuhTaxNavigatorHtml(model, species);
+          host.innerHTML = spuhTaxNavigatorHtml(model, species, sourceSpuhCode);
           var compare = host.querySelector('.spuhcompare');
           if (compare) compare.addEventListener('toggle', function () {
             if (!compare.open || compare.dataset.filled) return;
@@ -9477,7 +9874,7 @@
           host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
             + '<div class="spuhtaxstatus"><div class="spuhlimit"><div class="spuheyebrow">'
             + '⛔ Taxonomy unavailable</div><p>' + esc((e && e.message) || e)
-            + '</p><p>Run a new Stakeout bird lookup to retry.</p></div></div></div>';
+            + '</p><p>Run a new Stakeout bird search to retry.</p></div></div></div>';
           return null;
         });
       }
@@ -9544,13 +9941,19 @@
         return g;
       }
 
-      function resetSpeciesLookupView() {
+      function resetSpeciesLookupView(options) {
+        options = options || {};
         ['spLookupFound', 'spLookupResults', 'spLookupIdHelp',
          'spLookupBest', 'spLookupUnwatched'].forEach(function (id) {
           var el = $(id);
           if (el) el.innerHTML = '';
         });
+        if (!options.preserveQueryHelp && $('spLookupQueryHelp')) {
+          $('spLookupQueryHelp').innerHTML = '';
+        }
         clearMap($('spLookupMap'));
+        _spuhSearchHits = []; _spuhSearchShown = 0;
+        if ($('spuhMore')) $('spuhMore').hidden = true;
         _spLookupGroup = null;
         _spLookupIconic = null; _spLookupSeason = null;
         _spLookupLoading = false;
@@ -9564,9 +9967,9 @@
         if ($('spLookup')) $('spLookup').value = '';
         if ($('spLookupClear')) $('spLookupClear').hidden = true;
         if ($('spLookupStatus')) {
-          $('spLookupStatus').textContent = 'Look up ANY bird — including ones already on your '
-            + 'year list — and see every place it has been reported in range, with the '
-            + 'checklist, count, date and distance behind each one.';
+          $('spLookupStatus').textContent = 'Search for any bird or spuh. '
+            + 'Birds open recent places and checklists; spuhs open their bird '
+            + 'hierarchy and candidates on this same screen.';
         }
       }
 
@@ -9792,41 +10195,6 @@
         hydratePhotos(found);
       }
 
-      function offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug) {
-        st.textContent = 'No species recorded in ' + scopeLabel
-          + ' or its parent regions matches “' + q + '”.';
-        var action = document.createElement('li');
-        action.className = 'sptaxaction';
-        action.innerHTML = '<button class="secondary" type="button">Search full eBird taxonomy</button>';
-        found.appendChild(action);
-        action.querySelector('button').addEventListener('click', function () {
-          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
-          action.querySelector('button').disabled = true;
-          st.textContent = 'Searching the full eBird taxonomy…';
-          loadSpuhModel().then(function (model) {
-            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
-            var hits = searchSpecies((model && model.species) || [], q);
-            found.innerHTML = '';
-            if (!hits.length) {
-              st.textContent = 'No species in the full eBird taxonomy matches “' + q + '”.';
-              return;
-            }
-            appendSpeciesChoices(found, hits, {
-              heading: 'Full eBird taxonomy — outside ' + scopeLabel,
-              detail: 'These birds are valid eBird species, but not on the active regional list.',
-              rowNote: 'not on ' + scopeLabel + '\u2019s regional list'
-            });
-            st.textContent = hits.length + ' taxonomy match' + (hits.length === 1 ? '' : 'es')
-              + ' outside ' + scopeLabel + ' · tap one to check the active report anyway.';
-          }).catch(function (e) {
-            if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
-              st.textContent = netErr(e);
-              action.querySelector('button').disabled = false;
-            }
-          });
-        });
-      }
-
       function runSpeciesLookup() {
         var q = ($('spLookup') || {}).value || '';
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
@@ -9841,14 +10209,24 @@
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to look up a species.'; showSettings(true); return; }
         if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
+        if (_spuhModel) {
+          var exactSpuh = _spuhModel.searchSpuh(q, _spuhModel.nodes.length)
+            .filter(function (node) {
+              var normalized = String(q).trim().toLowerCase();
+              return node.name.toLowerCase() === normalized
+                || node.code.toLowerCase() === normalized;
+            });
+          if (exactSpuh.length === 1) {
+            return renderSpuhNode(exactSpuh[0].code, generation);
+          }
+        }
         var scopes = speciesSearchScopes(scopeRegion, scopeLabel);
         function searchAt(index) {
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) {
             return Promise.resolve();
           }
           if (index >= scopes.length) {
-            offerFullTaxonomySearch(found, st, q, scopeLabel, generation, scopeSlug);
-            return Promise.resolve();
+            return runSpuhSearch(generation, scopeSlug);
           }
           var scope = scopes[index];
           st.textContent = index
@@ -9886,7 +10264,7 @@
         });
       }
 
-      function lookupSpecies(code, name, generation, scopeSlug, megaRef) {
+      function lookupSpecies(code, name, generation, scopeSlug, megaRef, finderContext) {
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
         if (!out || !st) return Promise.resolve();
         if (generation == null) generation = ++_spLookupGeneration;
@@ -9904,10 +10282,17 @@
         var anchors = getAnchors().map(function (a) {
           return { name: a.name, lat: a.lat, lng: a.lng };
         });
+        var sourceSpuhCode = '';
+        if (finderContext && $('spLookupQueryHelp')) {
+          var sourcePanel = $('spLookupQueryHelp').querySelector('.spuhpanel[data-spuh]');
+          sourceSpuhCode = (finderContext.spuhCode
+            || (sourcePanel && sourcePanel.getAttribute('data-spuh')) || '');
+        }
+        if (finderContext && $('spLookup')) $('spLookup').value = name;
         resetSpeciesLookupView();
         // Taxonomy and sightings have separate data owners. Start the visible
         // path without awaiting it, so taxonomy failure cannot block sightings.
-        renderSpuhStakeoutNav(code, name, generation);
+        renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Looking up ' + name + ' across ' + reportLabel
           + ' (last ' + SP_LOOKUP_BACK + ' days)…';
@@ -10738,8 +11123,10 @@
         if (!out || !g) return;
         var mega = _activeMega ? megaEntry(_activeMega, g.code) : null;
         var iconicMode = _spLookupSort === 'iconic';
+        var lookupSummary = '';
         sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
         var seenIt = !!getReportSeen()[g.code];
+        st.hidden = false;
         if (g.loadError) {
           st.textContent = g.loadError;
         } else if (g.emptyCurrent) {
@@ -10751,7 +11138,7 @@
             + 'Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
             + ' (last ' + SP_LOOKUP_BACK + ' days)…';
         } else {
-          st.textContent = g.name + ' · ' + (g.nPlaces || 0) + ' place'
+          lookupSummary = g.name + ' · ' + (g.nPlaces || 0) + ' place'
             + (g.nPlaces === 1 ? '' : 's')
             + ' · ' + (g.nReports || 0) + ' report' + (g.nReports === 1 ? '' : 's')
             + ' in the last ' + SP_LOOKUP_BACK + ' days'
@@ -10759,6 +11146,8 @@
             + ' · ' + (iconicMode ? 'iconic places'
                        : _spLookupSort === 'dist' ? 'by distance' : 'by date')
             + ' · ' + nowTime();
+          st.textContent = '';
+          st.hidden = true;
         }
         var placesHtml = _spLookupLoading ? ''
           : (iconicMode
@@ -10778,12 +11167,10 @@
           // answer, however far. What IS filtered is the DEFAULT VIEW of that
           // answer; see below.
           distMi: g.distMi,
-          sub: [
-            (g.nPlaces || 0) + ' place' + (g.nPlaces === 1 ? '' : 's'),
-            (g.nReports || 0) + ' report' + (g.nReports === 1 ? '' : 's'),
-            seenIt ? 'already on your year list' : 'not on your year list'
-          ].filter(Boolean).join(' · '),
-          below: megaEvidenceHtml(mega) + placesHtml
+          sub: seenIt ? 'already on your year list' : 'not on your year list',
+          below: (lookupSummary
+            ? '<div class="status splookupsummary">' + esc(lookupSummary) + '</div>'
+            : '') + megaEvidenceHtml(mega) + placesHtml
         });
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -11345,12 +11732,11 @@
         return next;
       }
       // The wide chip must name the region it actually belongs to. "Statewide"
-      // is right for a state report and false for the continent trackers and
-      // the Big Island trip, so start with the same resolver the leaderboard
+      // is right for a state report and false for the continent trackers, so
+      // start with the same resolver the leaderboard
       // header uses and then shorten only the labels this control needs.
       function rarityRegionName() {
         var p = getReport() || {};
-        if (p.slug === 'waikoloa' || /Big Island/i.test(p.label || '')) return 'Big Island';
         var named = rankRegionName(p.stateCode || '');
         if (named === 'Lower 48' || named === 'ABA Area') return named;
         if (p.kind === 'region' && /^US-[A-Z]{2}$/i.test(p.stateCode || '')) return 'Statewide';
@@ -14558,7 +14944,7 @@
           var c = e && (e.code || e);
           if (c) year[String(c).toLowerCase()] = 1;
         });
-        // No year list at all (an empty stub region like waikoloa) means we
+        // No year list at all (such as a new custom region) means we
         // cannot tell "dropped" from "never recorded", so we say nothing
         // rather than accusing a reviewer of deleting the whole list.
         if (!Object.keys(year).length) return [];
@@ -19381,12 +19767,12 @@
       // US"); `primaryFor` is the one board a report is actually about and the
       // only one this section renders.
       var RANK_REGIONS = [
-        { key: 'wa', label: 'Washington', region: 'US-WA', max: 500, activeFor: ['wa', 'fort-casey'], primaryFor: ['wa', 'fort-casey'] },
+        { key: 'wa', label: 'Washington', region: 'US-WA', max: 500, activeFor: ['wa'], primaryFor: ['wa'] },
         { key: 'mo', label: 'Missouri', region: 'US-MO', max: 500, activeFor: ['mo'], primaryFor: ['mo'] },
         { key: 'ks', label: 'Kansas', region: 'US-KS', max: 500, activeFor: ['ks'], primaryFor: ['ks'] },
         { key: 'az', label: 'Arizona', region: 'US-AZ', max: 500, activeFor: ['az'], primaryFor: ['az'] },
         { key: 'ca', label: 'California', region: 'US-CA', max: 500, activeFor: ['ca'], primaryFor: ['ca'] },
-        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['hi', 'waikoloa'], primaryFor: ['hi', 'waikoloa'] },
+        { key: 'hi', label: 'Hawaii', region: 'US-HI', max: 500, activeFor: ['hi'], primaryFor: ['hi'] },
         { key: 'lower48', label: 'Lower 48', region: 'lower48', max: 10000, activeFor: ['wa', 'lower48'], primaryFor: ['lower48'] },
         { key: 'aba', label: 'ABA Area', region: 'aba', max: 10000, activeFor: ['aba'], primaryFor: ['aba'] }
       ];
@@ -23784,7 +24170,7 @@
       // The search box is still filled in, so the reader can SEE what was
       // looked up and edit it — arriving at a result with an empty box reads
       // as though the app guessed.
-      function openStakeSpecies(code, name, megaRef) {
+      function openStakeSpecies(code, name, megaRef, finderContext) {
         if (!code) return;
         var mega = megaEntry(megaRef, code);
         if (!mega) clearMegaStakeContext();
@@ -23795,10 +24181,15 @@
           if (back) back.setAttribute('aria-label', 'Back to Mega rarities');
         }
         var inp = $('spLookup');
-        if (inp) inp.value = name || code;
+        if (inp && !finderContext) inp.value = name || code;
         if ($('spLookupFound')) $('spLookupFound').innerHTML = '';
         return lookupSpecies(code, name || code, null, null,
-          mega ? { viewKey: mega.view.key, code: mega.code } : null);
+          mega ? { viewKey: mega.view.key, code: mega.code } : null,
+          finderContext ? {
+            query: finderContext.query || (inp && inp.value) || '',
+            code: code,
+            name: name || code
+          } : null);
       }
       function openStakeHotspot(locId, name) {
         if (!locId) return;
@@ -24815,7 +25206,7 @@
       function migSampleKey(d) { return getReportSlug() + '|' + migIsoDate(d); }
       // Merge every county's species for one historic day into a single sample,
       // mirroring the report's per-date county-merged snapshot. One sample per
-      // week keyed by report slug (so wa vs fort-casey don't collide).
+      // week keyed by report slug, so custom regions sharing a state stay separate.
       function migFetchDate(codes, d, cache, work) {
         var set = {};
         return codes.reduce(function (p, code) {
@@ -27212,7 +27603,7 @@
         fullDayBtn:    'Top full-day hotspots',
         quickBtn:      'Local hotspots',
         targetsBtn:    'Nearest place with a bird you need',
-        spLookupBtn:   'Where to wait for it',
+        spLookupBtn:   'Birds or spuhs',
         iconicBtn:     'Hotspot specialities',
         stakeHsBtn:    'Everything about one place',
         refreshBtn:    'Rarities today',
@@ -27221,7 +27612,6 @@
         lastNewBtn:    'Newest on the board',
         hotBtn:        'Hotspots with recent surges',
         coldBtn:       'Overlooked gems nobody watches',
-        spuhBtn:       'Browse uncertain bird IDs',
         cklBtn:        'Biggest day lists',
         convoyBtn:     'Groups birding together',
         favResults:    'Saved hotspots',
@@ -27260,7 +27650,6 @@
         { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
         { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Stakeouts - Birding tools' },
-        { at: 'spuhBtn',       label: '🌳 Spuh finder', group: 'Stakeouts - Birding tools' },
         { at: 'stakeHsBtn',    label: '🏞 Stake out a hotspot', group: 'Stakeouts - Birding tools' },
         { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Stakeouts - Birding tools' },
         { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Stakeouts - Birding tools' },
@@ -27329,7 +27718,6 @@
         // search against an empty box on every open would spend a call to say
         // "type something".
         stakeHsBtn:   { needsKey: true },
-        spuhBtn:      { fn: loadSpuhRoot },
         allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, fromChase: true, countyView: true },
         surgeBtn:   { fn: loadSurge,        needsKey: true, countyView: true },
         wxBtn:      { fn: loadConditions,   needsHome: true },
@@ -29518,7 +29906,7 @@
           // trackers show a name alone: they span many regions and have no
           // single code the chip could ever display.
           o.textContent = r.label + (EBIRD_REGION_RE.test(r.stateCode || '') ? '  ' + r.stateCode : '')
-            + (r.kind === 'trip' ? ' (trip)' : '') + (r.isRarityTracker ? ' — rarities' : '');
+            + (r.isRarityTracker ? ' — rarities' : '');
           sel.appendChild(o);
         });
         if (cur) sel.value = cur;
@@ -30589,15 +30977,10 @@
       if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
-      $('spuhBtn').addEventListener('click', runSpuhSearch);
-      $('spuhSearch').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); runSpuhSearch(); }
-      });
       $('spuhMore').addEventListener('click', function () {
         _spuhSearchShown = Math.min(_spuhSearchHits.length, _spuhSearchShown + 25);
         paintSpuhSearchHits();
       });
-      $('spuhClear').addEventListener('click', clearSpuhFinder);
       // F159. Enter searches, because a search box that ignores Enter is a
       // search box people think is broken.
       $('stakeHsBtn').addEventListener('click', stakeHsSearch);
@@ -30910,8 +31293,10 @@
         var spl = ev.target.closest('.splink');
         if (spl) {
           ev.preventDefault();
+          var finderHost = spl.closest('#spLookupQueryHelp');
           openStakeSpecies(spl.getAttribute('data-sp') || '',
-                           spl.getAttribute('data-spname') || '');
+                           spl.getAttribute('data-spname') || '', null,
+                           finderHost ? { query: ($('spLookup') || {}).value || '' } : null);
           return;
         }
         var hsl = ev.target.closest('.hslink');
@@ -31296,13 +31681,20 @@
         myYearIsNew: myYearIsNew, MY_YEAR_NEW_DAYS: MY_YEAR_NEW_DAYS,
         backfillState: backfillState, backfillNextDay: backfillNextDay,
         backfillProgress: backfillProgress, backfillTick: backfillTick,
+        backfillRuntime: function () {
+          return { running: _backfillRunning, timerPending: _backfillTimer != null };
+        },
         parseLifelistHTML: parseLifelistHTML, lifelistYearUrl: lifelistYearUrl,
         lifelistIsLogin: lifelistIsLogin, lifelistTitle: lifelistTitle,
+        lifelistHTMLIsEmpty: lifelistHTMLIsEmpty,
         parseLifelistCSV: parseLifelistCSV, lifelistCsvUrl: lifelistCsvUrl,
+        lifelistCsvIsEmpty: lifelistCsvIsEmpty,
         splitCsvLine: splitCsvLine, lifelistNewest: lifelistNewest,
         lifelistResolveCodes: lifelistResolveCodes,
         tryLifelistCsv: tryLifelistCsv, tryLifelistPage: tryLifelistPage,
+        tryLifelistYear: tryLifelistYear,
         LIFELIST_MIN_ROWS: LIFELIST_MIN_ROWS,
+        LIFELIST_COMPLETE_EMPTY: LIFELIST_COMPLETE_EMPTY,
         startOwnBackfill: startOwnBackfill, yearListExtras: yearListExtras,
         boardMoveHTML: boardMoveHTML,
         personalPin: personalPin, cachedHotspots: cachedHotspots, locLink: locLink,

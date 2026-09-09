@@ -137,6 +137,8 @@ const BOOTSTRAP = `<script>
 
 const AUDIT = `<script>
 (function () {
+  var AUDIT_WIDTH = ${WIDTH};
+  var AUDIT_SCALE = ${JSON.stringify(SCALE)};
   function sel(el) {
     if (!el || el === document.body) return 'body';
     var s = el.tagName.toLowerCase();
@@ -214,30 +216,31 @@ const AUDIT = `<script>
         }
       }
     }
-    // F303. The bird-code control has its OWN authored row below the Search /
-    // Close actions. A flex wrap that happens to put it there at one width is
-    // not the same property: widen the phone and it jumps back beside Search.
-    // This runs at EVERY viewport; the 44px checks above remain Easy-read-only
-    // for ordinary controls, while this named control is part of the contract.
+    // F358. The owner moved Bird codes into the Search / Close action row.
+    // Authored row identity is checked at every viewport. At normal release
+    // widths the three buttons must also share one visual line in that order;
+    // narrow large-text layouts may wrap rather than crushing their targets.
     var controlRows = [];
     var searchBtn = document.getElementById('spLookupBtn');
     var closeBtn = document.getElementById('spLookupClear');
     var codesBtn = document.getElementById('spCodesBtn');
     if (searchBtn && closeBtn && codesBtn) {
-      if (codesBtn.parentElement === searchBtn.parentElement
-          || codesBtn.parentElement === closeBtn.parentElement) {
-        controlRows.push({ kind: 'same-authored-row' });
+      if (codesBtn.parentElement !== searchBtn.parentElement
+          || codesBtn.parentElement !== closeBtn.parentElement) {
+        controlRows.push({ kind: 'separate-authored-row' });
       }
       var searchRect = searchBtn.getBoundingClientRect();
       var closeRect = closeBtn.getBoundingClientRect();
       var codesRect = codesBtn.getBoundingClientRect();
       if (searchRect.width && codesRect.width) {
-        var actionBottom = Math.max(searchRect.bottom, closeRect.bottom);
-        if (codesRect.top < actionBottom - 0.5) {
+        var codesCenter = (codesRect.top + codesRect.bottom) / 2;
+        var closeCenter = (closeRect.top + closeRect.bottom) / 2;
+        if (AUDIT_WIDTH >= 393 && AUDIT_SCALE === '1'
+            && Math.abs(codesCenter - closeCenter) > 0.5) {
           controlRows.push({
-            kind: 'not-below',
-            top: +codesRect.top.toFixed(1),
-            actionBottom: +actionBottom.toFixed(1)
+            kind: 'not-same-line',
+            center: +codesCenter.toFixed(1),
+            actionCenter: +closeCenter.toFixed(1)
           });
         }
         if (codesRect.width < 43.5 || codesRect.height < 43.5) {
@@ -759,13 +762,13 @@ server.listen(0, '127.0.0.1', () => {
           if (it.kind === 'too-small') {
             console.log('   CODE CONTROL TARGET ' + it.w + 'x' + it.h
               + ' < 44px  #spCodesBtn');
-          } else if (it.kind === 'same-authored-row') {
-            console.log('   CODE CONTROL ROW #spCodesBtn shares the authored '
+          } else if (it.kind === 'separate-authored-row') {
+            console.log('   CODE CONTROL ROW #spCodesBtn must share the authored '
               + 'Search / Close row');
           } else {
-            console.log('   CODE CONTROL ROW top=' + it.top
-              + ' overlaps action bottom=' + it.actionBottom
-              + '  #spCodesBtn must start below Search and Close');
+            console.log('   CODE CONTROL ROW center=' + it.center
+              + ' differs from action center=' + it.actionCenter
+              + '  #spCodesBtn must follow Close on the same normal-width line');
           }
         });
       }

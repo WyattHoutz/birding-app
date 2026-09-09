@@ -24,10 +24,9 @@
  * birding/tests/parity/test_arrivals.py.
  *
  * KEYED BY STATE, NOT BY REGION. GBIF's stateProvince is what the numbers were
- * gathered for, and two report regions can share one state -- `wa` and
- * `fort-casey` are both Washington, and harvesting Washington twice to file it
- * under two names would be a straight duplicate of 38 KB on a device that has
- * about five megabytes for everything.
+ * gathered for, and custom regions can share a state with a built-in report.
+ * Harvesting one state twice under two names would be a straight duplicate of
+ * 38 KB on a device that has about five megabytes for everything.
  */
 'use strict';
 const fs = require('fs');
