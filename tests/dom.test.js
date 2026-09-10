@@ -14695,6 +14695,304 @@ test('the hotspot scan reuses cached day lists and pays nothing (F253)', async (
   app.window.close();
 });
 
+test('F266 Hot patches owns a seven-day day-list floor without opening Nemesis birds', async () => {
+  let historicCalls = 0;
+  function rows(locId, locName, prefix) {
+    return Array.from({ length: 5 }, (_, i) => ({
+      locId, locName,
+      speciesCode: `${prefix}${i}`,
+      comName: `${prefix.toUpperCase()} bird ${i}`,
+      lat: 47.72, lng: -122.18,
+      obsDt: `2026-09-0${Math.max(1, 8 - i)} 08:00`,
+      subId: `${prefix.toUpperCase()}S${i}`,
+    }));
+  }
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+    fetch(url) {
+      if (/\/recent\?back=30.*hotspot=true/.test(url)) {
+        return /US-WA-033/.test(url) ? rows('LBASE', 'Collapsed-feed Park', 'b') : [];
+      }
+      if (/ref\/hotspot\/US-WA-033/.test(url)) {
+        return [
+          { locId: 'LBASE', locName: 'Collapsed-feed Park', lat: 47.72, lng: -122.18,
+            numSpeciesAllTime: 150, latestObsDt: '2026-09-08 08:00' },
+          { locId: 'LOWNED', locName: 'Day-list-owned Marsh', lat: 47.71, lng: -122.17,
+            numSpeciesAllTime: 180, latestObsDt: '2026-09-08 07:00' },
+        ];
+      }
+      if (/ref\/hotspot\/US-WA-061/.test(url)) return [];
+      if (/\/historic\//.test(url)) {
+        historicCalls++;
+        return /US-WA-033/.test(url)
+          ? rows('LOWNED', 'Day-list-owned Marsh', 'o')
+          : [];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  // Drive the real limiter with a synthetic clock. This guard owns the
+  // acquisition/publication contract; the limiter's separate guards own the
+  // measured wall-clock pacing.
+  let limiterNow = Date.now();
+  app.window.Date.now = () => (limiterNow += 3000);
+  A.fgWindowReset();
+  A.fgSchedReset(limiterNow);
+  await A.runHotspotScan({ force: true });
+  assert.match(doc.getElementById('hotResults').textContent, /Collapsed-feed Park/,
+    'the ordinary four-call hotspot answer did not paint before background ownership');
+  assert.doesNotMatch(doc.getElementById('hotResults').textContent, /Day-list-owned Marsh/,
+    'the day-list result painted before its background feeds completed');
+
+  await waitFor(
+    () => historicCalls === 14
+      && /Day-list-owned Marsh/.test(doc.getElementById('hotResults').textContent),
+    'seven owned day lists per Washington county to enrich the visible hotspot scan',
+    15000,
+  );
+  const ownership = A.hotspotOwnershipState();
+  assert.equal(ownership.days, 7,
+    'the measured seven-day ownership floor drifted');
+  assert.equal(ownership.fetched, 14,
+    'the owner did not fetch exactly seven missing days per two-county report');
+  assert.doesNotMatch(doc.body.textContent, /open Nemesis birds/i,
+    'the cache reader told the user to warm another section instead of owning its input');
+  app.window.close();
+});
+
+test('F266 an old ordinary hotspot scan cannot paint or launch ownership in a new report', async () => {
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+  });
+  const A = app.window.__app;
+  let releaseRecent;
+  let historicCalls = 0;
+  function response(body) {
+    return {
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    };
+  }
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    locId: 'LOLDREPORT', locName: 'Old-report Park',
+    speciesCode: `oldreport${i}`, comName: `Old-report bird ${i}`,
+    lat: 47.72, lng: -122.18,
+    obsDt: '2026-09-08 08:00', subId: `OLDREPORT${i}`,
+  }));
+  app.window.fetch = (url) => {
+    const text = String(url);
+    if (/\/recent\?back=30.*hotspot=true/.test(text) && /US-WA-033/.test(text)) {
+      return new Promise((resolve) => { releaseRecent = () => resolve(response(rows)); });
+    }
+    if (/ref\/hotspot\/US-WA-033/.test(text)) {
+      return Promise.resolve(response([{
+        locId: 'LOLDREPORT', locName: 'Old-report Park',
+        lat: 47.72, lng: -122.18, numSpeciesAllTime: 180,
+        latestObsDt: '2026-09-08 08:00',
+      }]));
+    }
+    if (/\/historic\//.test(text)) historicCalls++;
+    return Promise.resolve(response([]));
+  };
+  let limiterNow = Date.now();
+  app.window.Date.now = () => (limiterNow += 3000);
+  A.fgWindowReset();
+  A.fgSchedReset(limiterNow);
+
+  const pending = A.runHotspotScan({ force: true });
+  await waitFor(() => typeof releaseRecent === 'function',
+    'the old ordinary Washington hotspot scan to start');
+  A.setActiveReport('hi');
+  releaseRecent();
+  const result = await pending;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(result, null,
+    'the obsolete ordinary scan published a result after the report changed');
+  assert.doesNotMatch(app.$('hotResults').textContent, /Old-report Park/,
+    'the obsolete ordinary scan repainted after Hawaiʻi became active');
+  assert.equal(historicCalls, 0,
+    'the obsolete ordinary scan launched its detached ownership wave');
+  app.window.close();
+});
+
+test('F266 an old report ownership wave cannot write cache keys or repaint the new report', async () => {
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const home = A.getHome();
+  const anchors = A.getAnchors();
+  const codes = ['US-WA-033', 'US-WA-061'];
+  let historicCalls = 0;
+  let releaseFirst;
+  function response(body) {
+    return {
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    };
+  }
+  function staleRows() {
+    return Array.from({ length: 5 }, (_, i) => ({
+      locId: 'LSTALE', locName: 'Old Washington Marsh',
+      speciesCode: `stale${i}`, comName: `Stale bird ${i}`,
+      lat: 47.72, lng: -122.18,
+      obsDt: '2026-09-08 08:00', subId: `STALE${i}`,
+    }));
+  }
+  app.window.fetch = (url) => {
+    if (/\/historic\//.test(String(url))) {
+      historicCalls++;
+      if (historicCalls === 1) {
+        return new Promise((resolve) => { releaseFirst = () => resolve(response(staleRows())); });
+      }
+      return Promise.resolve(response(staleRows()));
+    }
+    return Promise.resolve(response([]));
+  };
+
+  const input = {
+    recent: [],
+    meta: [{
+      locId: 'LSTALE', locName: 'Old Washington Marsh',
+      lat: 47.72, lng: -122.18, numSpeciesAllTime: 180,
+      latestObsDt: '2026-09-08 08:00',
+    }],
+    codes,
+    home,
+    anchors,
+    context: A.hotspotContextKey(codes, home, anchors),
+    cacheKey: 'f266-stale-test',
+    reportSlug: 'wa',
+    force: true,
+  };
+  const pending = A.startHotspotOwnership(input);
+  await waitFor(() => typeof releaseFirst === 'function',
+    'the old Washington ownership request to start');
+  A.setActiveReport('hi');
+  releaseFirst();
+  await pending;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(historicCalls, 1,
+    'the obsolete Washington wave continued issuing day-list calls under Hawaiʻi');
+  assert.doesNotMatch(doc.getElementById('hotResults').textContent, /Old Washington Marsh/,
+    'the obsolete Washington wave repainted after Hawaiʻi became active');
+  const keys = Array.from({ length: app.window.localStorage.length }, (_, i) =>
+    app.window.localStorage.key(i));
+  assert.ok(!keys.some((key) => /^easymiss_v1:hi:US-WA-033/.test(key || '')),
+    'a Washington day list was stored under the new Hawaiʻi report slug');
+  app.window.close();
+});
+
+test('F266 a Home change cancels the old hotspot ownership context', async () => {
+  const app = await boot({
+    storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
+  });
+  const A = app.window.__app;
+  const home = A.getHome();
+  const anchors = A.getAnchors();
+  const codes = ['US-WA-033', 'US-WA-061'];
+  let historicCalls = 0;
+  let releaseFirst;
+  function response(body) {
+    return {
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify(body)),
+      json: () => Promise.resolve(body),
+    };
+  }
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    locId: 'LOLDHOME', locName: 'Old-home Marsh',
+    speciesCode: `oldhome${i}`, comName: `Old-home bird ${i}`,
+    lat: 47.72, lng: -122.18,
+    obsDt: '2026-09-08 08:00', subId: `OLDHOME${i}`,
+  }));
+  app.window.fetch = (url) => {
+    if (/\/historic\//.test(String(url))) {
+      historicCalls++;
+      if (historicCalls === 1) {
+        return new Promise((resolve) => { releaseFirst = () => resolve(response(rows)); });
+      }
+      return Promise.resolve(response(rows));
+    }
+    return Promise.resolve(response([]));
+  };
+
+  const pending = A.startHotspotOwnership({
+    recent: [],
+    meta: [{
+      locId: 'LOLDHOME', locName: 'Old-home Marsh',
+      lat: 47.72, lng: -122.18, numSpeciesAllTime: 180,
+      latestObsDt: '2026-09-08 08:00',
+    }],
+    codes,
+    home,
+    anchors,
+    context: A.hotspotContextKey(codes, home, anchors),
+    cacheKey: 'f266-old-home-test',
+    reportSlug: 'wa',
+    force: true,
+  });
+  await waitFor(() => typeof releaseFirst === 'function',
+    'the old-Home ownership request to start');
+  app.window.localStorage.setItem(A.homeKey('lat'), '48.50000');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-122.50000');
+  A.clearChaseCache(false);
+  releaseFirst();
+  await pending;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(historicCalls, 1,
+    'the ownership wave continued after the report Home changed');
+  assert.doesNotMatch(app.$('hotResults').textContent, /Old-home Marsh/,
+    'the old-Home ownership wave repainted into the new Home context');
+  app.window.close();
+});
+
+test('F322 BirdCast is link-only, region-local, and explicit about unsupported Hawaiʻi', async () => {
+  const instant = new Date('2026-11-16T07:30:00Z');
+  const app = await boot({ report: 'wa' });
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  assert.equal(A.birdcastSeason(instant, A.getReport()).active, true,
+    'Washington local time was still Nov 15, but the device/UTC date ended the season early');
+  A.renderBirdcast(instant);
+  const text = doc.getElementById('bcBody').textContent.replace(/\s+/g, ' ').trim();
+  const hrefs = [...doc.querySelectorAll('#bcBody [data-href]')]
+    .map((node) => node.getAttribute('data-href'));
+  assert.match(text, /forecast maps/i);
+  assert.match(text, /live migration maps/i);
+  assert.match(text, /separate/i,
+    'forecast and live radar are still presented as one live forecast');
+  assert.match(text, /no documented public data API/i);
+  assert.doesNotMatch(text, /forecast is live|radar forecast|birds\/km/i);
+  assert.ok(hrefs.some((href) => /migration-forecast-maps\/$/.test(href)));
+  assert.ok(hrefs.some((href) => /live-migration-maps\/$/.test(href)));
+  assert.ok(hrefs.some((href) => /local-migration-alerts\/$/.test(href)));
+  assert.ok(hrefs.some((href) => /dashboard\.birdcast\.org\/region\/US-WA-033/.test(href)));
+  app.window.close();
+
+  const hawaii = await boot({ report: 'hi' });
+  hawaii.window.__app.renderBirdcast(instant);
+  const hiBody = hawaii.window.document.getElementById('bcBody');
+  assert.match(hiBody.textContent, /contiguous United States/i);
+  assert.match(hiBody.textContent, /Hawaiʻi is outside that coverage/i);
+  assert.equal(hiBody.querySelectorAll('[data-href]').length, 0,
+    'Hawaiʻi was offered mainland radar tools as though the coverage applied');
+  hawaii.window.close();
+});
+
 test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
   // Owner, 2026-08-29: "very few hotspots are showing up... I frequently get
   // hotspots to the north and south and west, but not much to the east."

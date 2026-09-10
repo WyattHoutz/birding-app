@@ -940,13 +940,13 @@ const BOOTSTRAP = `
       + 'GOOD WINDOW · daylight and incoming tide overlap</div></div>';
     markHost(host, label);
   }
-  function fillBirdcast(host, label) {
-    host.innerHTML = '<div class="mockfixture"><div class="mocklabel">'
-      + 'REPRESENTATIVE STUB DATA · ' + label + '</div>'
-      + '<div class="mockrow"><b>🌙 18,400 birds/km · HIGH migration</b>'
-      + 'Peak movement around 1:00 AM · northwest winds 7 mph</div>'
-      + '<div class="mockrow"><b>Best first-light window</b>'
-      + '6:00–7:30 AM · sheltered edges and shoreline vegetation</div></div>';
+  function fillBirdcast(host, label, A) {
+    A.renderBirdcast(new Date('2026-09-09T19:00:00Z'));
+    var note = host.ownerDocument.createElement('div');
+    note.className = 'mocklabel';
+    note.textContent = 'REPRESENTATIVE LINK-ONLY VIEW · ' + label
+      + ' · no BirdCast data is fetched';
+    host.insertBefore(note, host.firstChild);
     markHost(host, label);
   }
   function fillHelp(host, label) {
@@ -1281,7 +1281,7 @@ const BOOTSTRAP = `
     } else if (spec.kind === 'weather') {
       fillWeather(document, host, label);
     } else if (spec.kind === 'birdcast') {
-      fillBirdcast(host, label);
+      fillBirdcast(host, label, A);
     } else if (spec.kind === 'help') {
       fillHelp(host, label);
     } else {

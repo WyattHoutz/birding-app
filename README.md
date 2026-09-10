@@ -238,10 +238,12 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
   on device — no GitHub, no proxy), then injects HTML parsers ported 1:1 from
   the pipeline's `rankings.py` / `aba_rba.py` and posts back compact JSON.
   Display name + alert `sid` + *Sign out* live in Settings. ✅
-- **P12** — Nightly migration: a season-aware BirdCast panel that deep-links your
-  region's live radar dashboard and knows the live-forecast windows (spring
-  Mar 1–Jun 15, fall Aug 1–Nov 15), showing the next active date between seasons.
-  Pure logic ported from the report's `section_birdcast`; BirdCast has no API. ✅
+- **P12** — Nightly migration: a season-aware, link-only BirdCast panel that
+  keeps forecast maps and live migration maps distinct, links official alerts
+  and supported local dashboards, and uses the report region's date for the
+  spring (Mar 1–Jun 15) and fall (Aug 1–Nov 15) windows. BirdCast has no
+  documented public data API for app ingestion, so Bird Chaser fetches and
+  restates no BirdCast data. ✅
 - **P13** — Time-of-day specialists: samples recent checklist observation times
   (backfilled from `historic/{y}/{m}/{d}` daily snapshots, plus passive
   accumulation from the Notable/Targets fetches) into a per-region localStorage

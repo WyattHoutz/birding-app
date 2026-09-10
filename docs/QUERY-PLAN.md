@@ -183,7 +183,7 @@ are repainted when it advances. Everything else is listed with what it adds.
 | Section | Host | Notes |
 |---|---|---|
 | 🌤 Conditions | `api.weather.gov`, `api.tidesandcurrents.noaa.gov` | no key, no eBird budget |
-| 🌙 Nightly migration | `birdcast.info` | |
+| 🌙 Nightly migration | `birdcast.org`, `dashboard.birdcast.org` | official links only; no BirdCast data fetch |
 | photos / blurbs | `en.wikipedia.org`, `api.gbif.org` | URLs in localStorage, bytes in IndexedDB |
 | place search | `photon.komoot.io` | Nominatim sends **no** CORS header — it cannot be used from a webview |
 

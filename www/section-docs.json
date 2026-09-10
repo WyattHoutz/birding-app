@@ -601,15 +601,18 @@
     },
     "bcBody": {
       "report": "## 🌙 BirdCast — Nightly migration",
-      "summary": "Tonight's predicted migration intensity from BirdCast.",
+      "summary": "Official BirdCast forecast, live-map, alert and local-dashboard links without invented in-app values.",
       "inputs": [
-        "BirdCast forecast maps, per county"
+        "The active report's local date and supported county codes; Bird Chaser fetches no BirdCast data."
       ],
       "how": [
-        "Links straight to the per-county radar forecast rather than re-hosting an interpretation of it."
+        "Keeps forecast maps and live migration maps visibly separate: forecasts help plan before sunset; live radar shows what is moving after dark.",
+        "Links to BirdCast's official forecast maps, live migration maps, migration alerts and each supported county dashboard.",
+        "Uses the report region's local date for season boundaries rather than the device's time zone."
       ],
       "limits": [
-        "US only; BirdCast runs seasonally."
+        "BirdCast's radar products cover the contiguous United States; Hawaiʻi is explicitly unsupported.",
+        "BirdCast has no documented public data API for app ingestion, so Bird Chaser does not scrape or restate dashboard values."
       ]
     },
     "todBtn": {

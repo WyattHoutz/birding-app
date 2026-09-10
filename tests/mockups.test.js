@@ -15,6 +15,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(ROOT, 'assets', 'mockups.js'), 'utf8');
 const indexSource = fs.readFileSync(path.join(ROOT, 'www', 'index.html'), 'utf8');
+const sectionsSource = fs.readFileSync(path.join(ROOT, 'www', 'sections.html'), 'utf8');
 const alertSource = fs.readFileSync(
   path.join(ROOT, 'assets', 'mockup-alertfeed.js'), 'utf8');
 const workflow = fs.readFileSync(
@@ -79,6 +80,18 @@ test('every menu section declares representative fixture data or an intentional 
     .filter((shot) => shot.kind === 'static').map((shot) => shot.at).sort();
   assert.deepEqual(staticAts, ['settingsPanel'],
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
+});
+
+test('F322 BirdCast mockups disclose a link-only surface and invent no migration values', () => {
+  assert.doesNotMatch(source, /18,400 birds\/km|HIGH migration|northwest winds 7 mph/,
+    'the release gallery still fabricates BirdCast values the app never fetched');
+  assert.doesNotMatch(sectionsSource, /42,000 birds\/km|Peak 01:00|mostly NNE/,
+    'the section catalog still claims numeric BirdCast data that does not exist');
+  assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\)\)/,
+    'the mockup does not render the production link-only BirdCast surface');
+  assert.match(indexSource, /Forecast maps/);
+  assert.match(indexSource, /Live migration maps/);
+  assert.match(source, /no BirdCast data is fetched/i);
 });
 
 test('F207/F318 review mockups render the actual missing-region and missing-Home steps', () => {
