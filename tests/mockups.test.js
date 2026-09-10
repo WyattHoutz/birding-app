@@ -544,12 +544,13 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the Mega release shot must use the production list renderer');
 });
 
-test('F268 On passage mockup exercises first reports and both forecast sources', () => {
+test('F268/F269 On passage mockup exercises event, first-report, and forecast lanes', () => {
   const spec = mockups.STUB_SPEC.migBtn;
   assert.equal(spec.kind, 'migration',
     'On passage cannot use the generic one-card bird fixture');
   assert.equal(spec.host, 'migFirstResults');
   assert.deepEqual(spec.expects, [
+    '#migEvent [data-event-id="october-big-day-2026"]',
     '#migFirstResults .obs.big.xl.icon-sm > li',
     '#migFirstResults .spdist',
     '#migResults .obs.big.xl.icon-sm > li',
@@ -568,6 +569,11 @@ test('F268 On passage mockup exercises first reports and both forecast sources',
   }
   assert.match(fixture, /A\.loadMigration\(\)/,
     'the fixture must run the real F268 renderer rather than hand-roll cards');
+  assert.match(fixture,
+    /A\.renderMigrationEvent\(new Date\('2026-09-10T19:00:00Z'\)\)/,
+    'the release fixture pins the production F269 countdown to a stable instant');
+  assert.match(fixture, /October Big Day/,
+    'the release fixture waits for the next exact published event');
 });
 
 test('F340 mockups and artifact checks run after, never inside, the IPA release path', () => {

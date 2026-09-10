@@ -2,6 +2,7 @@
   "requiredFiles": [
     "index.html",
     "logic.js",
+    "ebird-events.js",
     "controls-toggle.js",
     "controls-progressive.js",
     "cards-species.js",
@@ -16,6 +17,7 @@
   "requiredText": {
     "index.html": [
       "APP_VERSION = '${version}'",
+      "<script src=\"ebird-events.js\"></script>",
       "<script src=\"controls-toggle.js\"></script>",
       "<script src=\"controls-progressive.js\"></script>",
       "parseEbirdAccountIdentity",
@@ -26,6 +28,12 @@
     "controls-toggle.js": [
       "global.ToggleControls = api",
       "aria-pressed="
+    ],
+    "ebird-events.js": [
+      "global.EbirdEvents = api",
+      "october-big-day-2026",
+      "2027-02-12",
+      "2027-02-15"
     ],
     "controls-progressive.js": [
       "global.ProgressiveList = api",

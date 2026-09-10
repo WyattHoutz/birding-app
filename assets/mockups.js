@@ -137,7 +137,8 @@ const STUB_SPEC = {
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults' },
   migBtn:         { kind: 'migration',     host: 'migFirstResults',
-    expects: ['#migFirstResults .obs.big.xl.icon-sm > li', '#migFirstResults .spdist',
+    expects: ['#migEvent [data-event-id="october-big-day-2026"]',
+      '#migFirstResults .obs.big.xl.icon-sm > li', '#migFirstResults .spdist',
       '#migResults .obs.big.xl.icon-sm > li', '#migResults .spdist'] },
   bcBody:         { kind: 'birdcast',      host: 'bcBody' },
   todBtn:         { kind: 'bird',          host: 'todResults' },
@@ -1267,6 +1268,11 @@ const BOOTSTRAP = `
           && /county history/.test(forecastText)
           && /bundled GBIF/.test(forecastText);
       }, 'On passage first reports and both forecast sources');
+      A.renderMigrationEvent(new Date('2026-09-10T19:00:00Z'));
+      await waitFor(function () {
+        var eventText = document.getElementById('migEvent').textContent;
+        return /October Big Day/.test(eventText) && /in 30 days/.test(eventText);
+      }, 'On passage exact event countdown');
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);

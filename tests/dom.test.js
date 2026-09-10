@@ -637,6 +637,76 @@ test('F302 complete stale chase views retain TOP PATCH eligibility', async () =>
   app.window.close();
 });
 
+test('F269 bundled eBird events use exact published dates and never extrapolate', () => {
+  const Events = require(wwwFixture('ebird-events.js'));
+  assert.equal(Events.CALENDAR_UPDATED, '2026-09-10');
+  assert.deepEqual(
+    Events.CALENDAR.map((event) => [event.id, event.start, event.end]),
+    [
+      ['gbbc-2026', '2026-02-13', '2026-02-16'],
+      ['global-big-day-2026', '2026-05-09', '2026-05-09'],
+      ['october-big-day-2026', '2026-10-10', '2026-10-10'],
+      ['gbbc-2027', '2027-02-12', '2027-02-15'],
+    ],
+    'the bundle carries the dates the official event pages published');
+
+  const upcoming = Events.nextEvent('2026-09-10');
+  assert.equal(upcoming.event.id, 'october-big-day-2026');
+  assert.equal(upcoming.phase, 'upcoming');
+  assert.equal(upcoming.daysUntil, 30);
+
+  const oneDay = Events.nextEvent('2026-10-10');
+  assert.equal(oneDay.phase, 'active');
+  assert.equal(oneDay.dayNumber, 1);
+  assert.equal(oneDay.totalDays, 1);
+
+  const range = Events.nextEvent('2027-02-13');
+  assert.equal(range.event.id, 'gbbc-2027');
+  assert.equal(range.phase, 'active');
+  assert.equal(range.dayNumber, 2);
+  assert.equal(range.totalDays, 4);
+
+  assert.equal(Events.nextEvent('2027-02-16'), null,
+    'after the final published date the app stops instead of deriving another event');
+});
+
+test('F269 On passage renders a report-local zero-call event countdown', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  let fetches = 0;
+  app.window.fetch = () => {
+    fetches++;
+    return new Promise(() => {});
+  };
+
+  A.renderMigrationEvent(new Date('2026-10-10T06:30:00Z'));
+  let event = app.$('migEvent');
+  assert.match(event.textContent, /Next eBird event/);
+  assert.match(event.textContent, /October Big Day/);
+  assert.match(event.textContent, /Oct 10, 2026/);
+  assert.match(event.textContent, /tomorrow/i,
+    '23:30 Washington time is still October 9 even after UTC reaches October 10');
+  assert.equal(event.querySelector('[data-event-id="october-big-day-2026"]')
+    .getAttribute('data-href'), 'https://ebird.org/octoberbigday');
+  assert.match(event.textContent, /exact published date/i);
+  assert.match(event.textContent, /no API call/i);
+  assert.equal(fetches, 0, 'rendering the bundled countdown performs no request');
+
+  A.renderMigrationEvent(new Date('2026-10-10T07:30:00Z'));
+  assert.match(event.textContent, /today/i,
+    '00:30 Washington time has crossed to the official event day');
+
+  A.renderMigrationEvent(new Date('2027-02-13T20:00:00Z'));
+  assert.match(event.textContent, /day 2 of 4/i,
+    'a multi-day event names the current day inside its exact published range');
+
+  A.renderMigrationEvent(new Date('2027-02-16T20:00:00Z'));
+  assert.match(event.textContent, /No later eBird event date is published/i);
+  assert.match(event.textContent, /does not guess/i);
+  assert.equal(fetches, 0);
+  app.window.close();
+});
+
 test('F268 On passage loads first-year data by default and caches one region-year daily', async () => {
   const app = await boot();
   const A = app.window.__app;

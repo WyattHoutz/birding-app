@@ -260,7 +260,10 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
   weekly `historic/{y}/{m}/{d}` checklists for your region into localStorage,
   then derives per-species weekly phenology and predicts which species should
   **arrive** (unseen targets due within 2 weeks) or **depart** (year-list species
-  leaving soon). Ports `migration.py`'s `_detect_run` / `expected_soon`. ✅
+  leaving soon). The same section also shows the next officially published
+  Global Big Day, October Big Day or GBBC date from a bundled zero-call
+  calendar; it never derives a future event from a weekday rule. Ports
+  `migration.py`'s `_detect_run` / `expected_soon`. ✅
 - **P16** — Birder convoys: scans the region's recent checklists (`product/lists`,
   last 7 days), dedupes by `subId`, skips your own, and groups by shared hotspot +
   exact submitted time (eBird's shared-checklist signature) to surface birding

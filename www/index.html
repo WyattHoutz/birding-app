@@ -2985,6 +2985,7 @@
       <div class="row">
         <button id="migBtn">Build migration history</button>
       </div>
+      <div id="migEvent"></div>
       <div id="migFirstStatus" class="status">First reports load automatically from eBird when you open this section.</div>
       <div id="migFirstResults"></div>
       <div id="migStatus" class="status">County history predicts which species should arrive or depart in the next 2 weeks. The one-time build is resumable.</div>
@@ -3270,6 +3271,7 @@
 
   <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
+  <script src="ebird-events.js"></script>
   <script src="info-dialogs.js"></script>
   <script src="controls-progressive.js"></script>
   <script src="qr.js"></script>
@@ -3486,7 +3488,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.94.0';
+      var APP_VERSION = '1.95.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -23063,7 +23065,7 @@
         return null;
       }
       // --- P12 / F322: BirdCast links, without invented BirdCast data -------
-      function birdcastLocalParts(now, report) {
+      function reportLocalParts(now, report) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         report = report || getReport();
         var ms = now.getTime();
@@ -23079,6 +23081,9 @@
           day: wall.getUTCDate(),
           hour: wall.getUTCHours()
         };
+      }
+      function birdcastLocalParts(now, report) {
+        return reportLocalParts(now, report);
       }
       function birdcastSeason(now, report) {
         var p = birdcastLocalParts(now, report);
@@ -25909,15 +25914,59 @@
           coveredCodes: Object.keys(phen)
         };
       }
+      function renderMigrationEvent(now) {
+        var el = $('migEvent'); if (!el) return;
+        var Events = window.EbirdEvents;
+        if (!Events || typeof Events.nextEvent !== 'function') {
+          el.innerHTML = '<div class="status"><b>Bundled eBird event calendar unavailable.</b></div>';
+          return;
+        }
+        var local = reportLocalParts(now == null ? new Date() : now, getReport());
+        var localYmd = local.year + '-' + migPad(local.month) + '-' + migPad(local.day);
+        var next = Events.nextEvent(localYmd);
+        var updated = Events.formatDate(Events.CALENDAR_UPDATED);
+        var html = '<div class="rankhead"><b>\ud83d\udcc5 Next eBird event</b></div>';
+        if (!next) {
+          html += '<div class="status"><b>No later eBird event date is published '
+            + 'in this bundled calendar.</b></div>'
+            + '<div class="hint">Calendar checked ' + esc(updated)
+            + ' \u00b7 Bird Chaser does not guess future event dates \u00b7 '
+            + '<a class="extlink" data-href="https://ebird.org/news">Check eBird news \u2192</a>'
+            + '</div>';
+          el.innerHTML = html;
+          return;
+        }
+        var countdown;
+        if (next.phase === 'active') {
+          countdown = next.totalDays === 1
+            ? 'today'
+            : 'day ' + next.dayNumber + ' of ' + next.totalDays;
+        } else if (next.daysUntil === 1) {
+          countdown = 'tomorrow';
+        } else {
+          countdown = 'in ' + next.daysUntil + ' days';
+        }
+        html += '<div class="status">'
+          + '<a class="extlink" data-event-id="' + esc(next.event.id)
+          + '" data-href="' + esc(next.event.url) + '"><b>'
+          + esc(next.event.name) + '</b> \u2192</a><br>'
+          + '<b>' + esc(countdown) + '</b> \u00b7 '
+          + esc(Events.formatRange(next.event))
+          + '</div><div class="hint">Exact published date \u00b7 bundled calendar '
+          + 'updated ' + esc(updated) + ' \u00b7 no API call.</div>';
+        el.innerHTML = html;
+      }
       function renderMigration() {
         var el = $('migResults'); if (!el) return;
+        var now = new Date();
+        renderMigrationEvent(now);
         renderCachedFirstYear();
         if ($('migRegionLabel')) $('migRegionLabel').textContent = '· ' + countyLabelStr();
         if (!hasCounties()) {
           el.innerHTML = '<div class="status">Migration outlook is built from the report\u2019s county history — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           return;
         }
-        var now = new Date(), ctx = firstYearContext();
+        var ctx = firstYearContext();
         var cache = migLoad(), nSamples = Object.keys(cache.samples || {}).length;
         var out = nSamples
           ? migExpectedSoon(cache, now, migYearCodes())
@@ -32844,6 +32893,7 @@
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
         firstYearWrite: firstYearWrite, firstYearFetch: firstYearFetch,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,
+        renderMigrationEvent: renderMigrationEvent,
         migFetchDate: migFetchDate, migSampleKey: migSampleKey,
         renderRankings: renderRankings, buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
