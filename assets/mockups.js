@@ -233,6 +233,52 @@ const REVIEW_SHOTS = [
            sec.dataset.mockAt = 'surgeBtn';
            sec.dataset.mockReady = 'true';
            return true;` },
+  { id: 'hawaiiemptybirdgen', at: 'surgeBtn',
+    title: 'Bird Gen — empty Hawaii seen list',
+    host: 'surgeResults',
+    prep: `A.setActiveReport('hi');
+           var anchor = document.getElementById('surgeBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           A.renderSurge([], [], [], [{
+             code: 'sposan', name: 'Spotted Sandpiper',
+             sightings: 3, nPlaces: 1,
+             latestLocName: 'Pololu Valley',
+             latestLocId: 'L-HI-SPOSAN',
+             latestStr: '2026-08-22 15:20',
+             latest: Date.parse('2026-08-22T15:20:00'),
+             latestSubId: 'S-HI-SPOSAN'
+           }], [], {
+             mega: 'ok', observations: 'ok',
+             leaderboard: 'ok', hotspots: 'ok'
+           }, []);
+           var host = document.getElementById('surgeResults');
+           var spotted = host.querySelector('[data-species-code="sposan"]');
+           if (!spotted || spotted.hidden || spotted.dataset.surgeSeen !== 'unseen') {
+             throw new Error('empty Hawaii list did not keep Spotted Sandpiper unseen');
+           }
+           host.setAttribute('data-mock-data', 'true');
+           host.setAttribute('aria-label', 'Empty Hawaii year-list Bird Gen control');
+           sec.dataset.mockAt = 'surgeBtn';
+           sec.dataset.mockReady = 'true';
+           return true;` },
+  { id: 'hawaiiemptyticks', at: 'myYearBody',
+    title: 'My Ticks — empty Hawaii year list',
+    host: 'myYearBody',
+    prep: `A.setActiveReport('hi');
+           var host = document.getElementById('myYearBody');
+           var sec = host.closest('section');
+           A.showSection(sec.id);
+           A.updateMyYear();
+           if (!/0 species in 2026/i.test(host.textContent)
+               || /species logged/i.test(host.textContent)) {
+             throw new Error('empty Hawaii list fell back to the combined sample total');
+           }
+           host.setAttribute('data-mock-data', 'true');
+           host.setAttribute('aria-label', 'Empty Hawaii year-list My Ticks control');
+           sec.dataset.mockAt = 'myYearBody';
+           sec.dataset.mockReady = 'true';
+           return true;` },
   { id: 'favoritesregion', at: 'favResults',
     title: 'Favorite patches — current region only',
     host: 'favResults',
@@ -618,8 +664,8 @@ const BOOTSTRAP = `
         'ARRIVING', 'Rising this week · expected peak Sep 12'],
       todBtn: ['Solitary Sandpiper', 'solsan', 'Tringa solitaria',
         'DAWN SPECIALIST', '63% of records before 8 AM'],
-      myYearBody: ['Long-billed Curlew', 'lobcur', 'Numenius americanus',
-        'SEEN', 'Year bird #215 · added Aug 30'],
+      myYearBody: ["Lewis's Woodpecker", 'lewwoo', 'Melanerpes lewis',
+        'RECENT CHECKLIST', 'Year bird #216 · included in the completed first paint'],
       recordBody: ['Nazca Booby', 'nazboo1', 'Sula granti',
         'OVERDUE RECORD', 'Best historical window: late Aug–Sep'],
       spLookupBtn: ['Solitary Sandpiper', 'solsan', 'Tringa solitaria',
@@ -1147,8 +1193,22 @@ const BOOTSTRAP = `
       }
       markHost(host, label);
     } else if (at === 'rankBtn') {
+      localStorage.setItem('ebird_rankhist:US-WA', JSON.stringify([
+        { d: '2026-08-20', rank: 170, species: 206 },
+        { d: '2026-08-28', rank: 170, species: 208 },
+        { d: '2026-09-02', rank: 178, species: 209 }
+      ]));
       A.renderRankings(window.FIX.rankings, 'US-WA',
         'https://ebird.org/top100', 'Sample Birder');
+      var seasonBest = document.querySelector('#rankSummary .rankbest');
+      if (!seasonBest
+          || seasonBest.textContent.replace(/\\s+/g, ' ').trim()
+            !== 'Season best #170 · first reached Aug 20') {
+        throw new Error('Top 100 release fixture lost the first season-best date: '
+          + (seasonBest
+            ? seasonBest.textContent.replace(/\\s+/g, ' ').trim()
+            : 'missing'));
+      }
       markHost(host, label);
     } else if (spec.kind === 'patches') {
       A.loadChoicePatches();
@@ -1226,6 +1286,13 @@ const BOOTSTRAP = `
       fillHelp(host, label);
     } else {
       throw new Error('unsupported fixture kind ' + spec.kind + ' for ' + at);
+    }
+    if (at === 'fullDayBtn') {
+      sec.querySelector('.status').textContent =
+        '2 full-day options · 18 counties · all 36 recent/notable feeds checked';
+    } else if (at === 'myYearBody') {
+      sec.querySelector('.status').textContent =
+        'Recent checklist check complete · newly harvested birds included';
     }
     fillMapHost(spec.map ? document.getElementById(spec.map) : null, label);
     if (A.fgProgressReset) A.fgProgressReset();

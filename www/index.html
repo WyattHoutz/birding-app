@@ -1990,6 +1990,8 @@
     .ranktrend b.down { color: #D55E00; }
     .ranktrend b.rankwin { font-size: calc(12px * var(--s)); letter-spacing: .2px;
                            white-space: nowrap; }
+    .ranktrend b.rankbest { margin-top: 3px; font-size: calc(13px * var(--s));
+                            color: var(--ink); }
     .ranktrend b.dim { font-weight: 600; font-size: calc(12px * var(--s)); color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
     .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
     .rankcap { font-size: calc(13px * var(--s)); font-weight: 700; margin: 18px 0 2px; }
@@ -3173,7 +3175,7 @@
           <dt>Migration — <a href="https://birdcast.info/" target="_blank" rel="noopener">BirdCast</a></dt>
           <dd>Cornell Lab of Ornithology / Colorado State University.</dd>
           <dt>Maps — OpenStreetMap</dt>
-          <dd>&#169; OpenStreetMap contributors, &#169; CARTO. Geocoding via Photon (OpenStreetMap data).</dd>
+          <dd>&#169; OpenStreetMap contributors. Geocoding via Photon (OpenStreetMap data).</dd>
         </dl>
         <p>This app is free and non-commercial, is not affiliated with or endorsed by the
           Cornell Lab of Ornithology, and stores everything only on your device.</p>
@@ -3484,7 +3486,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.92.0';
+      var APP_VERSION = '1.93.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4373,7 +4375,7 @@
       function getReportSeen() {
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
-        if (usesBundledSeed() && rep && rep.codes && rep.codes.length) {
+        if (usesBundledSeed() && rep && Array.isArray(rep.codes)) {
           var set = {};
           rep.codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
           // The bundled set already has the AUTHORED watchlist subtracted
@@ -4576,11 +4578,15 @@
           fgCancelForExclusive(work);
         }
         _ownHarvestStarted = true;
-        _ownHarvestScan = recentLists(true, work, !!force).then(function (lists) {
+        _ownHarvestScan = recentLists(true, work, !!force, !!force).then(function (lists) {
           if (!workCurrent(work)) throw queueCancelledError(work);
           return runOwnHarvest(lists, work, !!force);
         }).catch(function (e) {
           if (e && e.queueCancelled) {
+            _ownHarvestStarted = false;
+            throw e;
+          }
+          if (force) {
             _ownHarvestStarted = false;
             throw e;
           }
@@ -5173,7 +5179,9 @@
               fresh.push(c);
               learned++;
             });
-          }).catch(function () {});
+          }).catch(function (e) {
+            if (urgent) throw e;
+          });
         }).then(function () {
           meta.at = Date.now();
           try {
@@ -12507,7 +12515,7 @@
         // lookup and tomorrow's "new since" all still see everything fetched.
         return getChaseAll(force).then(countyView);
       }
-      function getChaseAll(force, profileOverride, workOverride) {
+      function getChaseAll(force, profileOverride, workOverride, onPartial) {
         var profile = profileOverride || chaseProfile(), slug = profile.slug;
         var wantKm = BL.geoNotableDistKm(profile);
         var wantBaseKey = chaseFetchBaseKey(profile);
@@ -12780,7 +12788,7 @@
           _chase[slug] = res;
           return res;
         }
-        function fetchAll(list, step, bg, work) {
+        function fetchAll(list, step, bg, work, onResult) {
           return Promise.all(list.map(function (f) {
             return ebird(BL.requestUrl(f), bg, false, false, work)
               .then(function (rows) {
@@ -12800,6 +12808,7 @@
               // what turns a bare 3-of-8 into a description of the work.
               .then(function (r) {
                 if (step && chaseCurrent()) progressStep(1, feedLabel(f));
+                if (typeof onResult === 'function') onResult(r, f);
                 return r;
               });
           }));
@@ -12858,9 +12867,36 @@
           var early = [], rest = [];
           feeds.forEach(function (f) { (f.kind === 'notable' ? early : rest).push(f); });
           if (!early.length || !rest.length) { early = feeds; rest = []; }
-          return fetchAll(early, true, false, waveWork).then(function (rs) {
+          var feedDone = 0;
+          var incremental = typeof onPartial === 'function'
+            ? function (result, feed) {
+                applyFetchResults([result]);
+                feedDone++;
+                var partial = {
+                  t: Date.now(),
+                  profile: profile,
+                  cv: compute(null),
+                  rarity: false,
+                  geoNotableKm: gatheredKm,
+                  fetchBaseKey: wantBaseKey,
+                  rows: rowsByFile,
+                  speciesCodes: null
+                };
+                var meta = chaseFeedMeta(true, usingSnapshot);
+                Object.keys(meta).forEach(function (key) { partial[key] = meta[key]; });
+                try {
+                  onPartial(partial, feedDone, feeds.length, feedLabel(feed));
+                } catch (e) {
+                  try {
+                    dbg('error', 'incremental chase paint failed · '
+                      + ((e && e.message) || e));
+                  } catch (_) {}
+                }
+              }
+            : null;
+          return fetchAll(early, true, false, waveWork, incremental).then(function (rs) {
             requireCurrentChase();
-            applyFetchResults(rs);
+            if (!incremental) applyFetchResults(rs);
             if (rest.length && anyRows(rowsByFile)) {
               // NOT into _chase. A view built from notable feeds alone is
               // complete for rarities and badly incomplete for everything
@@ -12876,10 +12912,10 @@
                 + 's · ' + early.length + ' of ' + feeds.length + ' feeds');
               try { onRarityEarly(slug); } catch (e) {}
             }
-            return fetchAll(rest, true, false, waveWork);
+            return fetchAll(rest, true, false, waveWork, incremental);
           }).then(function (results) {
             requireCurrentChase();
-            applyFetchResults(results);
+            if (!incremental) applyFetchResults(results);
             delete _chaseRarity[slug];
             dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
 
@@ -13116,7 +13152,7 @@
         });
         return run;
       }
-      function getTierChase(bandId, force, onProgress) {
+      function getTierChase(bandId, force, onProgress, onPartial) {
         var work = navWork((bandId === 'full' ? 'Full-day' : 'Half-day')
           + ' planning');
         return Promise.all([
@@ -13134,7 +13170,7 @@
               delete _ebCache[BL.requestUrl(feed)];
             });
           }
-          return getChaseAll(false, profile, work);
+          return getChaseAll(false, profile, work, onPartial);
         });
       }
       function anyRows(rows) {
@@ -13250,7 +13286,7 @@
         return s + '</svg>';
       }
 
-      // Real slippy map (Leaflet + keyless CARTO/OSM raster tiles). Markers are
+      // Real slippy map (Leaflet + keyless OpenStreetMap raster tiles). Markers are
       // numbered bubbles matching the list ranks; home shows as a green "H".
       // Falls back to the abstract SVG scatter if Leaflet fails to load.
       var _leafletMaps = {};
@@ -13307,8 +13343,9 @@
         try { map = L.map(el, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }); }
         catch (e) { dbg('error', 'leaflet init: ' + (e && e.message || e)); setSVG(el, mapSVG(points, h, connect)); return; }
         _leafletMaps[el.id] = map;
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          subdomains: 'abcd', maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO'
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
         }).addTo(map);
         var latlngs = [];
         if (connect) {
@@ -16559,6 +16596,17 @@
         }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
       }
 
+      function dayTierContextKey(bandId) {
+        var home = getHome() || {};
+        var lat = Number(home.lat), lng = Number(home.lng);
+        return [
+          getReportSlug(),
+          bandId,
+          isFinite(lat) ? lat.toFixed(5) : '',
+          isFinite(lng) ? lng.toFixed(5) : ''
+        ].join('|');
+      }
+
       function loadDayTier(bandId, btnId, statusId, mapId, resultsId) {
         var label = bandId === 'full' ? 'Full-day' : 'Half-day';
         if (!requireOwnedHome(statusId,
@@ -16571,15 +16619,44 @@
           return Promise.resolve(null);
         }
         var btn = $(btnId), st = $(statusId);
+        var results = $(resultsId), map = $(mapId);
+        var contextKey = dayTierContextKey(bandId);
+        var preserve = results.getAttribute('data-tier-context') === contextKey
+          && !!results.querySelector('.hscard');
         btn.disabled = true;
-        $(resultsId).innerHTML = '';
-        $(mapId).innerHTML = '';
-        st.textContent = 'Loading ' + label.toLowerCase() + ' county scope from Home…';
+        if (!preserve) {
+          results.innerHTML = '';
+          map.innerHTML = '';
+        }
+        st.textContent = preserve
+          ? 'Refreshing ' + label.toLowerCase()
+            + ' county feeds… current options remain visible.'
+          : 'Loading ' + label.toLowerCase() + ' county scope from Home…';
+        var partialSignature = '';
+        function partialPaint(c, done, total, county) {
+          if (!c || c.rarity || !c.cv) return;
+          var source = bandId === 'full' ? c.cv.fullDay : c.cv.excursions;
+          var rows = rerankFromAnchor((source || []).map(toDest));
+          var signature = rows.map(function (row) {
+            return String(row.locId || row.loc || '') + ':' + String(row.score || '');
+          }).join('|');
+          if (rows.length && signature !== partialSignature) {
+            renderDestinations(rows, map, results, true);
+            results.setAttribute('data-tier-context', contextKey);
+            partialSignature = signature;
+          }
+          var count = rows.length
+            ? rows.length + ' ' + label.toLowerCase() + ' option'
+              + (rows.length === 1 ? '' : 's') + ' so far · '
+            : '';
+          st.textContent = count + 'still checking county feed ' + done + ' of ' + total
+            + (county ? ' · ' + county : '') + '…';
+        }
         return getTierChase(bandId, takeForce() ? 'obs' : false,
           function (done, total, county) {
             st.textContent = 'Mapping counties ' + done + ' of ' + total
               + (county ? ' · ' + county : '') + '…';
-          }).then(function (c) {
+          }, partialPaint).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var source = bandId === 'full' ? c.cv.fullDay : c.cv.excursions;
           var rows = rerankFromAnchor((source || []).map(toDest));
@@ -16592,7 +16669,8 @@
           var feedIssue = !!(c.feedFailed || c.partial || c.stale
             || c.feedComplete === false);
           function paint(finalRows, usedFallback) {
-            renderDestinations(finalRows, $(mapId), $(resultsId));
+            renderDestinations(finalRows, map, results);
+            results.setAttribute('data-tier-context', contextKey);
             if (!finalRows.length) {
               if (feedIssue) {
                 st.textContent = 'Incomplete ' + label.toLowerCase()
@@ -16616,7 +16694,8 @@
             paint(rows, false);
             return;
           }
-          renderDestinations(rows, $(mapId), $(resultsId), true);
+          renderDestinations(rows, map, results, true);
+          results.setAttribute('data-tier-context', contextKey);
           st.textContent = (rows.length ? rows.length + ' fresh '
             + label.toLowerCase() + ' option'
             + (rows.length === 1 ? '' : 's') + ' shown · ' : '')
@@ -16762,7 +16841,7 @@
       // product/lists reads Birdiest already pays for, so the two sections
       // share one cached promise.
       var _listsCache = null;
-      function recentLists(skipOwnHarvest, work, urgent) {
+      function recentLists(skipOwnHarvest, work, urgent, strict) {
         if (_listsCache) {
           if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
           return _listsCache;
@@ -16770,7 +16849,10 @@
         var feeds = BL.planConvoyFeeds(getReport());
         _listsCache = Promise.all(feeds.map(function (f) {
           return ebird(BL.requestUrl(f), false, false, false, work)
-            .catch(function () { return []; });
+            .catch(function (e) {
+              if (strict) throw e;
+              return [];
+            });
         })).then(function (results) {
           var lists = [];
           results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
@@ -20867,10 +20949,18 @@
       }
       // A rank TREND is inverted: rank 211 -> 208 is an improvement, so the
       // arrow follows the species line, not the raw delta.
+      function rankBestHTML(hist) {
+        var best = BL.rankSeasonBest(hist);
+        if (!best) return '';
+        return '<b class="rankbest">Season best #' + esc(rankNum(best.rank))
+          + ' · first reached ' + esc(fmtDate(best.date)) + '</b>';
+      }
       function rankTrendHTML(hist) {
+        var bestHtml = rankBestHTML(hist);
         if (!hist || hist.length < 2) {
           return '<div class="ranktrend"><span>Trend</span><b class="dim">recording from today — ' +
-            'eBird publishes no historical board, so this fills in as you open the app</b></div>';
+            'eBird publishes no historical board, so this fills in as you open the app</b>'
+            + bestHtml + '</div>';
         }
         var first = hist[0], last = hist[hist.length - 1];
         var dRank = first.rank - last.rank;
@@ -20906,7 +20996,8 @@
         var recentHtml = recent.length
           ? '<b class="dim rankwin">' + esc(recent.join(' · ')) + '</b>' : '';
         return '<div class="ranktrend"><span>Since ' + esc(fmtDate(first.d)) + ' · ' + hist.length + ' snapshots</span>' +
-          '<b class="' + cls + '">' + esc(bits.join(' · ')) + '</b>' + recentHtml + rankSparkHTML(hist) + '</div>';
+          '<b class="' + cls + '">' + esc(bits.join(' · ')) + '</b>' + recentHtml
+          + bestHtml + rankSparkHTML(hist) + '</div>';
       }
       // Inline sparkline of your rank over time. Y is inverted (lower rank =
       // higher on the chart) because "up" must read as "better".
@@ -27842,6 +27933,7 @@
       // "19 Jul 2026" (eBird export) → Date, for the "added this week" window.
       var _MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
       var _myYearNaming = false;
+      var _myYearRefreshState = 'idle';
       // The window "NEW" means, named once so the guard and the card cannot
       // disagree about it.
       var MY_YEAR_NEW_DAYS = 7;
@@ -27876,12 +27968,45 @@
         if (mo == null) return null;
         return new Date(+m[3], mo, +m[1]);
       }
+      function myYearFreshnessHtml() {
+        if (_myYearRefreshState === 'checking') {
+          return '<div class="hint" id="myYearFreshness"><b>Still updating.</b> '
+            + 'Checking your recent eBird checklists now; the rows already shown '
+            + 'remain available while that finishes.</div>';
+        }
+        if (_myYearRefreshState === 'failed') {
+          return '<div class="hint" id="myYearFreshness"><b>Recent checklist check '
+            + 'did not finish.</b> Use Refresh to try again; the last known list '
+            + 'remains below.</div>';
+        }
+        return '';
+      }
       function loadMyYear() {
+        var work = navWork('My Ticks refresh', 'sec-myYearBody');
+        _myYearRefreshState = 'checking';
         updateMyYear();
         // This is the one screen whose subject may have changed because an
         // existing eBird checklist was edited. Re-read the cheap list rows
         // immediately; unchanged fingerprints still cost no checklist body.
-        scheduleOwnHarvest(0, true);
+        return ensureOwnHarvest(work, true).then(function (n) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          // A harvested code is already a valid tick, but this screen needs
+          // the name before it can paint the row. Keep the updating disclosure
+          // until that last shared taxonomy read settles.
+          return nameOwnCodes().then(function () { return n; });
+        }).then(function (n) {
+          if (!workCurrent(work)) return n;
+          _myYearRefreshState = 'idle';
+          updateMyYear();
+          return n;
+        }).catch(function (e) {
+          if (e && e.queueCancelled) return 0;
+          if (workCurrent(work)) {
+            _myYearRefreshState = 'failed';
+            updateMyYear();
+          }
+          return 0;
+        });
       }
       function updateMyYear() {
         var el = $('myYearBody'), list = $('myYearList');
@@ -27889,8 +28014,13 @@
         var entries = mergedYearList(), meta = getSeenMeta();
         var nOwn = entries.filter(function (e) { return e.own; }).length;
         var year = seedYear(), label = getReport().label || '';
+        var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
+        var reportSeed = seed && seed.seenByReport && seed.seenByReport[slug];
+        var hasBundledReportList = usesBundledSeed()
+          && reportSeed && Array.isArray(reportSeed.yearList);
         if (!entries.length && !meta) {
-          el.innerHTML = 'Import your eBird CSV in Settings to see your totals.';
+          el.innerHTML = 'Import your eBird CSV in Settings to see your totals.'
+            + myYearFreshnessHtml();
           return;
         }
         var html = '';
@@ -27914,7 +28044,11 @@
         } else {
           var yc = meta.yearCount != null ? meta.yearCount : 0;
           var isSeed = meta.source === 'seed';
-          html = yc
+          html = isSeed && hasBundledReportList
+            ? '<div class="bignum">0 <small>species in ' + esc(meta.year || year) + '</small></div>'
+              + '<div class="meta">' + esc(label)
+              + ' · bundled sample data · no species recorded in this region yet</div>'
+            : yc
             ? '<div class="bignum">' + esc(yc) + ' <small>species in ' + esc(meta.year || year) + '</small></div>' +
               '<div class="meta">' + (isSeed ? 'bundled sample data · import your eBird CSV to use your own list'
                 : esc(meta.count) + ' all-time · ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date))) + '</div>'
@@ -27922,6 +28056,7 @@
               '<div class="meta">' + (isSeed ? 'bundled sample data' : 'from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date))) + '</div>';
         }
         el.innerHTML = html;
+        el.innerHTML += myYearFreshnessHtml();
         // The harvest cannot identify your checklists without your eBird
         // display name, and until now it returned 0 and said nothing — so a
         // list that never grew looked exactly like a list with nothing to add.

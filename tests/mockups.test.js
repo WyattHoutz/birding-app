@@ -47,9 +47,10 @@ test('release mockups include exactly one section shot per visible menu entry', 
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['onboardingregion', 'onboardinghome',
-      'birdgenloading', 'favoritesregion', 'spuhcompact', 'birdspcompact',
-      'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail', 'stakeoutreports',
-      'megaaba', 'meganearest'],
+      'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
+      'favoritesregion', 'spuhcompact', 'birdspcompact', 'birdspdetail',
+      'spuhdetail', 'spuhinfo', 'stakeoutdetail', 'stakeoutreports', 'megaaba',
+      'meganearest'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
@@ -230,6 +231,39 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   assert.match(halfRows, /Older evidence · last report 8 days ago/);
   assert.doesNotMatch(rows, /Offshore Honokōhau Marina/,
     'the F353 boat-trip control leaked back into Today’s patches');
+});
+
+test('F329/F342/F345 release mockups show the completed new facts', () => {
+  const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("} else if (spec.kind === 'patches')"));
+  assert.match(rank, /ebird_rankhist:US-WA/);
+  assert.match(rank, /rank:\s*170/);
+  assert.match(rank, /Season best #170 · first reached Aug 20/,
+    'the Top 100 release shot does not prove the earliest tied best date');
+
+  const year = source.slice(source.indexOf('myYearBody: ['),
+    source.indexOf('recordBody: ['));
+  assert.match(year, /Lewis's Woodpecker/);
+  assert.match(year, /included in the completed first paint/);
+  assert.match(source, /Recent checklist check complete · newly harvested birds included/,
+    'the My Ticks shot can still look like a silently stale first paint');
+
+  assert.match(source,
+    /2 full-day options · 18 counties · all 36 recent\/notable feeds checked/,
+    'the Full-day release shot does not identify the measured completed cold plan');
+});
+
+test('F372 review mockups prove empty Hawaii stays empty on both reported surfaces', () => {
+  const birdGen = mockups.REVIEW_SHOTS.find((item) => item.id === 'hawaiiemptybirdgen');
+  const ticks = mockups.REVIEW_SHOTS.find((item) => item.id === 'hawaiiemptyticks');
+  assert.ok(birdGen, 'the empty-Hawaii Bird Gen review shot is missing');
+  assert.ok(ticks, 'the empty-Hawaii My Ticks review shot is missing');
+  assert.match(birdGen.prep, /A\.setActiveReport\('hi'\)/);
+  assert.match(birdGen.prep, /dataset\.surgeSeen !== 'unseen'/);
+  assert.match(birdGen.prep, /spotted\.hidden/);
+  assert.match(ticks.prep, /A\.setActiveReport\('hi'\)/);
+  assert.match(ticks.prep, /0 species in 2026/);
+  assert.match(ticks.prep, /species logged/);
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

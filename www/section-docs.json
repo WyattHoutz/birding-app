@@ -35,7 +35,7 @@
         "Buzz is the default: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
         "Every alert is one always-visible three-line card. The name cell contains two lines: the name alone, then a flush-left four-letter code, xN, linked place and linked compact date. The category badge begins a separate full-width explanation row below the headline cell, followed by the bold reason without a repeated written category prefix. The alert icon and relative age remain at the right.",
         "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
-        "Seen status is resolved once after duplicate species and their reasons are merged. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
+        "Seen status is resolved once after duplicate species and their reasons are merged. An explicitly empty per-report year list is authoritative: birds seen in another region do not become seen here. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
         "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. Bird Gen starts its one coalesced Mega refresh immediately after the first useful observation paint, labels that source as loading without directing the reader to another section, and repaints when it settles. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data. A complete stale chase snapshot can still supply TOP PATCH alerts while live data refreshes; partial and failed destination views cannot.",
         "The whole headline strip - image, common name or hotspot, alert icon and age - is one keyboard-actionable route to Stakeout bird or Stakeout hotspot. Bird Gen displays no rarity R marker. The four-letter code begins line two flush with the name; xN, linked place and linked newest-checklist date follow. The category badge lives only in the full-width explanation row. Bird Gen does not show the eBird species code, mileage, a Notes toggle or category destination links. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
@@ -136,7 +136,9 @@
         "The board is fetched for the report's primary region only — one report, one region, one board.",
         "eBird's default top100 ordering is already by species, so no explicit sort is requested.",
         "The page self-identifies its region in a canonical link; a board that does not match is rejected and refetched rather than rendered under the wrong heading.",
-        "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle."
+        "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle.",
+        "The app records one successful owner-rank snapshot per region per day because eBird cannot re-serve a past board.",
+        "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached."
       ],
       "limits": [
         "eBird runs a proof-of-work bot filter on some region pages. When the token cannot be resolved the field size is omitted rather than failing the section — so a missing \"of N\" means degraded, not zero.",
@@ -354,12 +356,14 @@
         "Each hotspot must classify as full day from its own coordinates. Half-day options remain in Half-day; anything in the trip band is not offered as a day outing.",
         "On Hawaii Island, a measured 30-minute west/east road cost keeps Laupahoehoe in Half-day, puts Hilo and Volcano in Full-day, and leaves Chain of Craters in the trip band.",
         "Fresh rows remain first; older fallback cards are explicitly age-labelled, and the list keeps searching rather than claiming it is empty while that bounded request is active.",
+        "From the Woodinville Home, the measured Washington Full-day envelope is 18 counties: 18 recent feeds plus 18 notable feeds, 36 calls total and no county-metadata calls because the bounds are bundled.",
+        "A useful county paints as soon as its feed lands. The status keeps saying so far and still checking until all selected feeds settle, and reopening the same report and Home leaves the valid cached cards visible while the owned cache is checked.",
         "This board ranks independently, so dense nearby parks cannot bury the long-drive options the section exists to compare.",
         "Every card states full day in words and keeps route friction such as a ferry or seasonal pass as an additional non-colour signal."
       ],
       "limits": [
         "County edge distance is a fetch envelope, not a driving-time promise.",
-        "A first cold load may take several minutes because every selected county contributes recent and notable feeds. Cached bounds and in-session eBird responses make later opens cheaper.",
+        "Completing a first cold load may take several minutes because every selected county contributes recent and notable feeds, but the screen no longer waits for the last feed before showing an eligible result. Cached bounds and in-session eBird responses make later opens cheaper.",
         "The model uses measured fixed route friction rather than a live routing API.",
         "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination."
       ]
@@ -625,13 +629,19 @@
       "report": "## 📅 My Ticks — Your seen bird list this year",
       "summary": "Your seen bird list this year.",
       "inputs": [
-        "your eBird year-list export for this region"
+        "your eBird year-list export for this region",
+        "recent product/lists feeds for the report's counties",
+        "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes"
       ],
       "how": [
-        "Oldest is numbered 1; newest is listed first. Each entry links its species page, its checklist, and its location."
+        "Oldest is numbered 1; newest is listed first. Each entry links its species page, its checklist, and its location.",
+        "Opening My Ticks paints the last known rows immediately and labels them Still updating while it forces a fresh recent-checklist scan.",
+        "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
+        "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total."
       ],
       "limits": [
-        "Pasted from an eBird export, so it is as current as the last export — it does not update itself."
+        "The export remains the year-wide baseline. Automatic updates can see only your public checklists in the counties this report scans.",
+        "eBird's list feed identifies an observer by display name rather than user id, so the exact eBird display name must be set in Settings."
       ]
     },
     "settingsPanel": {

@@ -4161,6 +4161,21 @@
     return out;
   }
 
+  function rankSeasonBest(hist) {
+    var best = null;
+    (hist || []).forEach(function (row) {
+      var date = String((row && row.d) || '').trim();
+      var rank = Number(row && row.rank);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)
+          || !isFinite(Date.parse(date + 'T00:00:00'))
+          || !isFinite(rank) || rank <= 0) return;
+      if (!best || rank < best.rank || (rank === best.rank && date < best.date)) {
+        best = { rank: rank, date: date };
+      }
+    });
+    return best;
+  }
+
 
   //
   // "alerts on unseen birds in chase area... for example the spotted sandpiper
@@ -4637,6 +4652,7 @@
     chaseConfidence: chaseConfidence,
     confidenceNote: confidenceNote,
     rankDeltas: rankDeltas,
+    rankSeasonBest: rankSeasonBest,
     RANK_WINDOWS: RANK_WINDOWS,
     JARGON: JARGON,
     CONF_FRESH_H: CONF_FRESH_H,

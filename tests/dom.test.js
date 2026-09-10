@@ -1751,10 +1751,12 @@ test('every section the report maps has a map container, wired to a renderer', a
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
       const finalPaintWired =
-        tier.includes('renderDestinations(finalRows, $(mapId), $(resultsId))');
+        tier.includes('renderDestinations(finalRows, map, results)');
       const pendingPaintWired =
-        tier.includes('renderDestinations(rows, $(mapId), $(resultsId), true)');
-      wired = finalPaintWired && pendingPaintWired
+        tier.includes('renderDestinations(rows, map, results, true)');
+      const genericContainers =
+        tier.includes('var results = $(resultsId), map = $(mapId)');
+      wired = finalPaintWired && pendingPaintWired && genericContainers
         && HTML.includes("'" + m.map + "'");
     }
     assert.ok(wired, `#${m.map} exists but is never passed to a map renderer`);
@@ -3451,6 +3453,42 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   assert.equal(after[0].rank, 208, 'and it is the latest read of the day');
   assert.ok(app.document.querySelector('.ranktrend'),
     'the standing card shows the trend that history feeds');
+  app.window.close();
+});
+
+test('F329 rankings show the best season rank and the first date it was reached', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const hist = [
+    { d: '2026-08-01', rank: 14 },
+    { d: '2026-08-03', rank: 8 },
+    { d: '2026-08-09', rank: 'not-a-rank' },
+    { d: '2026-08-12', rank: 11 },
+    { d: '2026-08-19', rank: 8 },
+    { d: '', rank: 2 },
+  ];
+
+  const best = app.window.BirdLogic.rankSeasonBest(hist);
+  assert.deepEqual({ rank: best.rank, date: best.date },
+    { rank: 8, date: '2026-08-03' },
+    'the later tie or an invalid snapshot replaced the first real season best');
+
+  app.window.localStorage.setItem('ebird_rankhist:US-WA', JSON.stringify(hist));
+  A.renderRankings({
+    rows: [],
+    me: { name: 'Birder Wyatt', rank: 10, species: 250, checklists: 120 },
+  }, 'US-WA', 'https://ebird.org/top100', 'Birder Wyatt');
+  const label = app.document.querySelector('.rankbest');
+  assert.ok(label, 'the owner card did not render the season-best fact');
+  assert.match(label.textContent, /Season best #8/i);
+  assert.match(label.textContent, /first reached Aug 3/i,
+    'the card does not identify the earliest date of the tied best rank');
+
+  assert.equal(app.window.BirdLogic.rankSeasonBest([
+    { d: '', rank: 4 },
+    { d: '2026-08-01', rank: null },
+    { d: 'bad-date', rank: 3 },
+  ]), null, 'invalid history invented a season best');
   app.window.close();
 });
 
@@ -8097,6 +8135,21 @@ test('map pins scale in lockstep with the text-size setting', () => {
     'a hard-coded iconSize desyncs from the CSS the moment the scale changes');
 });
 
+test('F348 maps use a keyless OpenStreetMap tile source with complete attribution', () => {
+  const start = HTML.indexOf('function renderMap(');
+  const end = HTML.indexOf('function refreshVisibleMaps(', start);
+  assert.ok(start >= 0 && end > start, 'the guard found the complete map renderer');
+  const body = HTML.slice(start, end);
+  assert.match(body, /https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png/,
+    'the map still requests a provider endpoint that watermarks anonymous tiles');
+  assert.doesNotMatch(body, /cartocdn|CARTO/i,
+    'the retired credentialed CARTO source or attribution remains in the renderer');
+  assert.match(body, /OpenStreetMap contributors/,
+    'the replacement tiles lost the attribution required by OpenStreetMap');
+  assert.doesNotMatch(HTML, /Maps — OpenStreetMap[\s\S]{0,160}CARTO/,
+    'the in-app source disclosure still credits a provider the app no longer uses');
+});
+
 // --- v1.0.24: finder attribution, GBIF state records, shared row template ---
 
 test('the first report is credited only when we watched the bird arrive', async () => {
@@ -9767,6 +9820,47 @@ test('a bird ticked in another region is still a target in this report', async (
     assert.deepEqual(Array.from(r2.hot[0].birds.filter((b) => b.unseen), (b) => b.code), [h],
       'a species held back for verification stays a target');
   }
+  app.window.close();
+});
+
+test('F372 an authoritative empty Hawaii list stays empty in My Ticks and Bird Gen', async () => {
+  const app = await boot({ report: 'hi' });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport.hi;
+  assert.ok(rep && Array.isArray(rep.codes) && Array.isArray(rep.yearList),
+    'the shipped Hawaii sample must explicitly carry both regional list shapes');
+  assert.equal(rep.codes.length, 0, 'the control is no longer an empty Hawaii seen set');
+  assert.equal(rep.yearList.length, 0, 'the control is no longer an empty Hawaii year list');
+  assert.ok(app.window.__SEED_BIRDLIST__.codes.includes('sposan'),
+    'the combined sample must still contain Spotted Sandpiper for the fallback defect to be measurable');
+
+  assert.deepEqual(Object.keys(A.getReportSeen()), [],
+    'empty Hawaii was treated as missing and replaced by the combined cross-region seen set');
+  A.updateMyYear();
+  assert.match(app.$('myYearBody').textContent, /0 species in 2026/i,
+    'My Ticks did not present the authoritative empty Hawaii year list');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /\d+ species logged/i,
+    'My Ticks fell back to the combined bundled sample total');
+
+  A.renderSurge([], [], [], [{
+    code: 'sposan',
+    name: 'Spotted Sandpiper',
+    sightings: 3,
+    nPlaces: 1,
+    latestLocName: 'Pololu Valley',
+    latestLocId: 'L-HI-SPOSAN',
+    latestStr: '2026-08-22 15:20',
+    latest: Date.parse('2026-08-22T15:20:00'),
+    latestSubId: 'S-HI-SPOSAN',
+  }], [], null, []);
+  const spotted = app.$('surgeResults').querySelector('[data-species-code="sposan"]');
+  assert.ok(spotted, 'the Bird Gen control row did not render');
+  assert.equal(spotted.dataset.surgeSeen, 'unseen',
+    'Bird Gen inherited a Spotted Sandpiper tick from another region');
+  assert.equal(spotted.hidden, false,
+    'the default Unseen filter hid a bird never seen in Hawaii');
+  assert.doesNotMatch(app.$('surgeResults').textContent, /1 seen hidden/i,
+    'Bird Gen still advertises a false Hawaii tick');
   app.window.close();
 });
 
@@ -15399,7 +15493,8 @@ test('a re-anchorable section says where it ranked from, and maps it there', () 
   anchored.forEach(function (fn) {
     const at = HTML.indexOf('function ' + fn + '(');
     assert.ok(at > 0, fn + ' exists');
-    const body = HTML.slice(at, at + 4000);
+    const next = HTML.indexOf('\n      function ', at + 1);
+    const body = HTML.slice(at, next > at ? next : HTML.length);
 
     assert.ok(body.indexOf('fromHere()') >= 0,
       fn + ' must print fromHere() — otherwise re-anchoring changes the '
@@ -19421,16 +19516,23 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
   // Both landmarks below are unique in index.html.
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const from = HTML.indexOf('function getChaseAll(');
-  const to = HTML.indexOf('function fetchAll(list, step, bg, work)');
+  const to = HTML.indexOf('function getTierChase(', from);
   assert.ok(from > 0 && to > from,
-    'getChaseAll and its inner fetchAll still bound the window this reads');
+    'getChaseAll still has a named top-level boundary before getTierChase');
   const gc = HTML.slice(from, to);
+  assert.match(gc, /function fetchAll\(/,
+    'the getChaseAll body no longer contains the inner fetch helper this guard describes');
   assert.match(gc,
     /if \(waveCovers\(_chaseInflight\[slug\]\)\) return joinWave\(_chaseInflight\[slug\]\);/,
     'a force joins only a running wave with compatible fetch provenance');
   assert.match(gc, /if \(promise\._geoNotableKm === wantKm\) return promise;/,
     'same-profile callers receive the exact in-flight promise and result object');
-  assert.ok(!/delete _chaseInflight\[slug\];/.test(gc),
+  const forceFrom = gc.indexOf('if (force) {');
+  const forceTo = gc.indexOf('if (c && (Date.now() - c.t) < CHASE_TTL_MS)', forceFrom);
+  assert.ok(forceFrom >= 0 && forceTo > forceFrom,
+    'the force branch still has a named boundary before the ordinary cache path');
+  const forceBranch = gc.slice(forceFrom, forceTo);
+  assert.ok(!/delete _chaseInflight\[slug\];/.test(forceBranch),
     'and never deletes the guard that makes that possible');
   app.window.close();
 });
@@ -20611,16 +20713,109 @@ test('My Ticks can refresh edited checklists again in the same session', async (
   }
 });
 
-test('opening My Ticks requests an immediate fresh own-checklist scan', () => {
+test('opening My Ticks owns an immediate fresh own-checklist scan', () => {
   const start = HTML.indexOf('function loadMyYear()');
-  const fn = HTML.slice(start, start + 700);
+  const end = HTML.indexOf('function updateMyYear()', start);
+  const fn = HTML.slice(start, end);
   assert.ok(start >= 0, 'My Ticks needs a loader that can do more than repaint local rows');
-  assert.match(fn, /updateMyYear\(\);/,
+  assert.match(fn, /_myYearRefreshState = 'checking';[\s\S]*updateMyYear\(\);/,
     'the existing rows still paint immediately');
-  assert.match(fn, /scheduleOwnHarvest\(0,\s*true\);/,
+  assert.match(fn, /return ensureOwnHarvest\(work,\s*true\)/,
     'opening or reloading My Ticks bypasses the session list cache');
+  assert.match(fn, /nameOwnCodes\(\)/,
+    'the owned first-paint promise settles before newly harvested codes receive names');
   assert.match(HTML, /myYearBody:\s*\{\s*fn:\s*loadMyYear\s*\}/,
     'the menu section is wired to the refreshing loader');
+});
+
+test('F342 My Ticks marks its first paint as updating until a new bird is included', async () => {
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const A = app.window.__app;
+  const response = (body) => Promise.resolve({
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(JSON.stringify(body)),
+    json: () => Promise.resolve(body),
+  });
+  let releaseKing;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    if (/product\/lists\/US-WA-033/.test(u)) {
+      return new Promise((resolve) => {
+        releaseKing = () => resolve({
+          ok: true, status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify([{
+            subId: 'S-LEWO', userDisplayName: 'Birder Wyatt', numSpecies: 1,
+            isoObsDate: '2026-09-09 08:00',
+            loc: { locId: 'L-LEWO', name: 'Lewis Woodpecker Place', isHotspot: true },
+          }])),
+          json: () => Promise.resolve([{
+            subId: 'S-LEWO', userDisplayName: 'Birder Wyatt', numSpecies: 1,
+            isoObsDate: '2026-09-09 08:00',
+            loc: { locId: 'L-LEWO', name: 'Lewis Woodpecker Place', isHotspot: true },
+          }]),
+        });
+      });
+    }
+    if (/product\/lists\/US-WA-061/.test(u)) return response([]);
+    if (/product\/checklist\/view\/S-LEWO/.test(u)) {
+      return response({ obs: [{ speciesCode: 'lewwoo' }] });
+    }
+    if (/ref\/taxonomy\/ebird/.test(u)) {
+      return response([{
+        speciesCode: 'lewwoo', comName: "Lewis's Woodpecker",
+        sciName: 'Melanerpes lewis',
+      }]);
+    }
+    return response([]);
+  };
+  A.fgSchedReset(Date.now());
+
+  const loading = A.LOADERS.myYearBody.fn();
+  assert.ok(loading && typeof loading.then === 'function',
+    'the loader detached the checklist scan, so callers cannot know when the first answer is authoritative');
+  await waitFor(() => releaseKing, 'the fresh King County checklist list request');
+  assert.match(app.$('myYearBody').textContent, /checking recent.*checklists|still updating/i,
+    'the first visible list looked complete while its fresh checklist scan was still pending');
+  assert.doesNotMatch(app.$('myYearList').textContent, /Lewis/,
+    'the controlled new bird appeared before its checklist response');
+
+  releaseKing();
+  await loading;
+  assert.match(app.$('myYearList').textContent, /Lewis's Woodpecker/,
+    'the loader settled before the newly harvested bird reached the authoritative list');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|checking recent/i,
+    'the updating disclosure remained after the fresh list settled');
+  app.window.close();
+});
+
+test('F342 My Ticks keeps its known list and names a failed fresh scan', async () => {
+  const app = await boot({
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const A = app.window.__app;
+  A.updateMyYear();
+  const before = app.$('myYearList').textContent;
+  assert.ok(before.trim(), 'the failure control needs a known list to preserve');
+  app.window.fetch = () => Promise.resolve({
+    ok: false, status: 400,
+    headers: { get: () => null },
+    text: () => Promise.resolve(JSON.stringify({ error: 'controlled failure' })),
+    json: () => Promise.resolve({ error: 'controlled failure' }),
+  });
+  A.fgSchedReset(Date.now());
+
+  await A.LOADERS.myYearBody.fn();
+  assert.equal(app.$('myYearList').textContent, before,
+    'a failed refresh erased the last known My Ticks rows');
+  assert.match(app.$('myYearBody').textContent,
+    /Recent checklist check did not finish.*Refresh to try again/is,
+    'the failed scan was presented as a current authoritative list');
+  app.window.close();
 });
 
 test('the harvest does not run when it cannot tell which checklists are yours', async () => {
@@ -28710,6 +28905,90 @@ test('F320 Washington Half-day uses bundled county bounds with zero metadata cal
     /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
   assert.equal(metadata.length, 0,
     'Half-day again enqueued the state list plus every county-info record');
+  app.window.close();
+});
+
+test('F345 Full-day paints a completed county before all 36 cold feeds settle', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  seedSeen(app, []);
+
+  const measured = await A.tripScopeProfile('full');
+  const measuredFeeds = app.window.BirdLogic.planFeeds(measured);
+  assert.equal(measured.tierCountyCodes.length, 18,
+    'the measured Woodinville Full-day scope is no longer 18 counties');
+  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'recent').length, 18);
+  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'notable').length, 18);
+  assert.equal(measuredFeeds.length, 36,
+    'the reported cold-start request count is not the current feed plan');
+  assert.equal(app.state.fetches.filter((url) =>
+    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url)).length, 0,
+  'the 36-call measurement was contaminated by county metadata');
+
+  A.setCountySeed({
+    'US-WA-007': {
+      name: 'Chelan',
+      bounds: { minX: -121.180688, maxX: -119.859017,
+        minY: 47.258622, maxY: 48.550461 },
+    },
+    'US-WA-067': {
+      name: 'Thurston',
+      bounds: { minX: -123.202760, maxX: -122.217056,
+        minY: 46.762589, maxY: 47.186668 },
+    },
+  });
+  const base = A.chaseProfile();
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+
+  const today = A.todayStr() + ' 08:00';
+  const leavenworth = [{
+    speciesCode: 'leabir', comName: 'Leavenworth Bird',
+    obsDt: today, locName: 'Leavenworth', locId: 'L-LEA', subId: 'S-LEA',
+    lat: 47.5962, lng: -120.6615,
+    subnational2Code: 'US-WA-007', subnational2Name: 'Chelan',
+  }];
+  const response = (body) => Promise.resolve({
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(JSON.stringify(body)),
+    json: () => Promise.resolve(body),
+  });
+  let releaseThurston;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    if (/data\/obs\/US-WA-007\/recent\/notable/.test(u)) return response(leavenworth);
+    if (/data\/obs\/US-WA-067\/recent\/notable/.test(u)) {
+      return new Promise((resolve) => { releaseThurston = () => resolve(response([])); })
+        .then((value) => value);
+    }
+    return response([]);
+  };
+  A.fgSchedReset(Date.now());
+
+  const loading = A.loadFullDay();
+  await waitFor(() => releaseThurston, 'the second county feed to remain pending');
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.match(app.$('fullDayResults').textContent, /Leavenworth/,
+    'the useful first county stayed invisible behind the remaining cold feeds');
+  assert.match(app.$('fullDayStatus').textContent, /so far|still checking/i,
+    'a partial county paint was presented as complete');
+  assert.equal(app.$('fullDayResults').querySelector('.hsnum').textContent.trim(), '1',
+    'the partial list did not keep the map/list numbering contract');
+
+  releaseThurston();
+  await loading;
+  const completedText = app.$('fullDayResults').textContent;
+  const calls = app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length;
+  const warm = A.loadFullDay();
+  assert.equal(app.$('fullDayResults').textContent, completedText,
+    'a warm reopen erased a valid answer before consulting its owned cache');
+  await warm;
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length,
+    calls, 'the warm tier cache spent the cold feed plan again');
   app.window.close();
 });
 
