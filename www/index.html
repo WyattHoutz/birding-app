@@ -3488,7 +3488,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.95.0';
+      var APP_VERSION = '1.96.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4427,13 +4427,13 @@
       // the counties the active report scans, so it keeps THAT report's list
       // fresh and never claims to be a life list.
       var OWN_SEEN_NS = 'ebird_own_seen:';
-      function ownSeenKey() { return OWN_SEEN_NS + getReportSlug(); }
-      function ownSeenCodes() {
-        try { return JSON.parse(localStorage.getItem(ownSeenKey()) || '{}') || {}; }
+      function ownSeenKey(slug) { return OWN_SEEN_NS + (slug || getReportSlug()); }
+      function ownSeenCodes(slug) {
+        try { return JSON.parse(localStorage.getItem(ownSeenKey(slug)) || '{}') || {}; }
         catch (e) { return {}; }
       }
-      function ownSeenMeta() {
-        try { return JSON.parse(localStorage.getItem(ownSeenKey() + ':meta') || 'null'); }
+      function ownSeenMeta(slug) {
+        try { return JSON.parse(localStorage.getItem(ownSeenKey(slug) + ':meta') || 'null'); }
         catch (e) { return null; }
       }
       function isOwnRow(row) {
@@ -4573,6 +4573,7 @@
         work = work || navWork('own-checklist harvest', 'sec-myYearBody');
         if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
         if (!getKey() || !getDisplayName()) return Promise.resolve(0);
+        if (getReport().isRarityTracker) return Promise.resolve(0);
         if (_ownHarvestScan) return _ownHarvestScan;
         if (_ownHarvestStarted && !force) return Promise.resolve(0);
         if (force) {
@@ -4641,8 +4642,16 @@
       var LIFELIST_MIN_ROWS = 5;   // 1-4 rows remain suspicious, not authoritative
       var LIFELIST_COMPLETE_EMPTY = -1;
 
-      function lifelistYearUrl() {
-        var st = (getReport().stateCode || '').toUpperCase();
+      function lifelistOwner() {
+        var report = getReport();
+        return {
+          slug: getReportSlug(),
+          stateCode: report.stateCode || '',
+          obsRegion: getObsRegion()
+        };
+      }
+      function lifelistYearUrl(owner) {
+        var st = ((owner && owner.stateCode) || getReport().stateCode || '').toUpperCase();
         return st ? 'https://ebird.org/lifelist/' + encodeURIComponent(st) + '?time=year' : '';
       }
       // Rows look like: "1. Hairy Woodpecker … 01 Jan 2026 … Dendron Arbor".
@@ -4719,8 +4728,8 @@
       //                         29,423 B for the WA year list
       //
       // The day-lag objection must not be re-attached to the second.
-      function lifelistCsvUrl() {
-        var st = (getReport().stateCode || '').toUpperCase();
+      function lifelistCsvUrl(owner) {
+        var st = ((owner && owner.stateCode) || getReport().stateCode || '').toUpperCase();
         return st ? 'https://ebird.org/lifelist?r=' + encodeURIComponent(st)
                   + '&time=year&fmt=csv' : '';
       }
@@ -4808,10 +4817,10 @@
       // is already cached with a TTL and already fetched by several sections,
       // and it returns {code, name, sci}. Scientific name is tried FIRST
       // because it is unambiguous; a common name is not.
-      function lifelistResolveCodes(rows) {
+      function lifelistResolveCodes(rows, owner) {
         var need = (rows || []).filter(function (r) { return !r.code; });
         if (!need.length) return Promise.resolve(rows || []);
-        return loadSpeciesIndex(getObsRegion()).then(function (idx) {
+        return loadSpeciesIndex((owner && owner.obsRegion) || getObsRegion()).then(function (idx) {
           var bySci = {}, byName = {};
           (idx || []).forEach(function (s) {
             if (s.sci) bySci[String(s.sci).toLowerCase()] = s.code;
@@ -4839,7 +4848,7 @@
         return bestS || '(no dates)';
       }
 
-      function tryLifelistYear() {
+      function tryLifelistYear(owner) {
         // CSV FIRST, HTML SECOND, the 730-call walk as the floor.
         //
         // CSV is a stable format and this file's own comment says eBird's
@@ -4848,13 +4857,14 @@
         // the seen set is keyed by CODE, so the CSV route needs a name→code
         // step the HTML route does not — which is why it is tried first but
         // not trusted blindly: too few rows and it falls straight through.
-        return tryLifelistCsv().then(function (n) {
+        return tryLifelistCsv(owner).then(function (n) {
           return n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS
-            ? n : tryLifelistPage();
+            ? n : tryLifelistPage(owner);
         });
       }
-      function absorbLifelistRows(rows, how, extra) {
-        var codes = ownSeenCodes(), learned = 0, unresolved = 0;
+      function absorbLifelistRows(rows, how, extra, owner) {
+        var slug = owner && owner.slug;
+        var codes = ownSeenCodes(slug), learned = 0, unresolved = 0;
         rows.forEach(function (r) {
           var c = String(r.code || '').trim().toLowerCase();
           if (!c) { unresolved++; return; }
@@ -4863,7 +4873,7 @@
           learned++;
         });
         if (learned) {
-          try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
+          try { localStorage.setItem(ownSeenKey(slug), JSON.stringify(codes)); } catch (e) {}
         }
         verdict('My Ticks', how + ' read in ONE call: ' + rows.length
           + ' species, ' + learned + ' new'
@@ -4872,8 +4882,8 @@
           + (extra || '') + ' — the 730-call walk was skipped');
         return rows.length;
       }
-      function tryLifelistCsv() {
-        var url = lifelistCsvUrl();
+      function tryLifelistCsv(owner) {
+        var url = lifelistCsvUrl(owner);
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (body) {
           if (lifelistCsvIsEmpty(body)) {
@@ -4894,8 +4904,8 @@
               + ' — trying the page instead');
             return 0;
           }
-          return lifelistResolveCodes(rows).then(function (res) {
-            return absorbLifelistRows(res, 'lifelist CSV');
+          return lifelistResolveCodes(rows, owner).then(function (res) {
+            return absorbLifelistRows(res, 'lifelist CSV', '', owner);
           });
         }).catch(function (e) {
           verdict('My Ticks', 'lifelist CSV unreachable (' + ((e && e.message) || e)
@@ -4903,8 +4913,8 @@
           return 0;
         });
       }
-      function tryLifelistPage() {
-        var url = lifelistYearUrl();
+      function tryLifelistPage(owner) {
+        var url = lifelistYearUrl(owner);
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (html) {
           if (lifelistHTMLIsEmpty(html)) {
@@ -4928,7 +4938,8 @@
               + 'day-by-day walk');
             return 0;
           }
-          var codes = ownSeenCodes(), learned = 0;
+          var slug = owner && owner.slug;
+          var codes = ownSeenCodes(slug), learned = 0;
           rows.forEach(function (r) {
             var c = String(r.code || '').trim().toLowerCase();
             if (!c || codes[c]) return;
@@ -4936,7 +4947,7 @@
             learned++;
           });
           if (learned) {
-            try { localStorage.setItem(ownSeenKey(), JSON.stringify(codes)); } catch (e) {}
+            try { localStorage.setItem(ownSeenKey(slug), JSON.stringify(codes)); } catch (e) {}
           }
           verdict('My Ticks', 'lifelist page read in ONE call: ' + rows.length
             + ' species, ' + learned + ' new · newest ' + lifelistNewest(rows)
@@ -5029,9 +5040,7 @@
         var s = backfillState();
         if (s.done) return Promise.resolve(false);
         var codes = countyCodes();
-        if (!codes.length) {
-          s.done = true; backfillSave(s); return Promise.resolve(true);
-        }
+        if (!codes.length) return Promise.resolve(false);
 
         // One county's next day at a time, round-robin, so a two-county report
         // makes visible progress on both rather than finishing one first.
@@ -5102,6 +5111,7 @@
         return run;
       }
       function startOwnBackfill(delayMs, workOverride) {
+        if (getReport().isRarityTracker) return;
         var work = workOverride || navWork('My Ticks backfill', 'sec-myYearBody');
         _backfillWork = work;
         clearTimeout(_backfillTimer);
@@ -28221,6 +28231,7 @@
       var _MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
       var _myYearNaming = false;
       var _myYearRefreshState = 'idle';
+      var _myYearRefreshKind = 'checklists';
       // The window "NEW" means, named once so the guard and the card cannot
       // disagree about it.
       var MY_YEAR_NEW_DAYS = 7;
@@ -28257,11 +28268,23 @@
       }
       function myYearFreshnessHtml() {
         if (_myYearRefreshState === 'checking') {
+          if (_myYearRefreshKind === 'lifelist') {
+            return '<div class="hint" id="myYearFreshness"><b>Still updating.</b> '
+              + 'Reading your ' + esc(getReport().label) + ' year list straight '
+              + 'from eBird now; the rows already shown remain available while '
+              + 'that finishes.</div>';
+          }
           return '<div class="hint" id="myYearFreshness"><b>Still updating.</b> '
             + 'Checking your recent eBird checklists now; the rows already shown '
             + 'remain available while that finishes.</div>';
         }
         if (_myYearRefreshState === 'failed') {
+          if (_myYearRefreshKind === 'lifelist') {
+            return '<div class="hint" id="myYearFreshness"><b>'
+              + esc(getReport().label) + ' year-list refresh did not finish.</b> '
+              + 'Sign in to eBird in the app if asked, then use Refresh to try '
+              + 'again; the last known list remains below.</div>';
+          }
           return '<div class="hint" id="myYearFreshness"><b>Recent checklist check '
             + 'did not finish.</b> Use Refresh to try again; the last known list '
             + 'remains below.</div>';
@@ -28270,12 +28293,21 @@
       }
       function loadMyYear() {
         var work = navWork('My Ticks refresh', 'sec-myYearBody');
+        var report = getReport();
+        var owner = report.isRarityTracker ? lifelistOwner() : null;
+        _myYearRefreshKind = owner ? 'lifelist' : 'checklists';
         _myYearRefreshState = 'checking';
         updateMyYear();
-        // This is the one screen whose subject may have changed because an
-        // existing eBird checklist was edited. Re-read the cheap list rows
-        // immediately; unchanged fingerprints still cost no checklist body.
-        return ensureOwnHarvest(work, true).then(function (n) {
+        var refresh = owner
+          ? tryLifelistYear(owner).then(function (n) {
+              if (n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS) return n;
+              throw new Error('No usable signed-in year list');
+            })
+          // This is the one screen whose subject may have changed because an
+          // existing eBird checklist was edited. Re-read the cheap list rows
+          // immediately; unchanged fingerprints still cost no checklist body.
+          : ensureOwnHarvest(work, true);
+        return refresh.then(function (n) {
           if (!workCurrent(work)) throw queueCancelledError(work);
           // A harvested code is already a valid tick, but this screen needs
           // the name before it can paint the row. Keep the updating disclosure

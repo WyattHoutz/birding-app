@@ -21088,7 +21088,7 @@ test('opening My Ticks owns an immediate fresh own-checklist scan', () => {
   assert.ok(start >= 0, 'My Ticks needs a loader that can do more than repaint local rows');
   assert.match(fn, /_myYearRefreshState = 'checking';[\s\S]*updateMyYear\(\);/,
     'the existing rows still paint immediately');
-  assert.match(fn, /return ensureOwnHarvest\(work,\s*true\)/,
+  assert.match(fn, /:\s*ensureOwnHarvest\(work,\s*true\)/,
     'opening or reloading My Ticks bypasses the session list cache');
   assert.match(fn, /nameOwnCodes\(\)/,
     'the owned first-paint promise settles before newly harvested codes receive names');
@@ -21183,6 +21183,148 @@ test('F342 My Ticks keeps its known list and names a failed fresh scan', async (
   assert.match(app.$('myYearBody').textContent,
     /Recent checklist check did not finish.*Refresh to try again/is,
     'the failed scan was presented as a current authoritative list');
+  app.window.close();
+});
+
+test('F373 ABA My Ticks reads the signed-in year list immediately', async () => {
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: {
+      ebird_display_name: 'Birder Wyatt',
+      ebird_backfill_aba: JSON.stringify({
+        year: 2026, cursor: {}, days: 0, found: 0, done: true,
+      }),
+    },
+  });
+  const A = app.window.__app;
+  const loaderSource = HTML.slice(
+    HTML.indexOf('function loadMyYear()'),
+    HTML.indexOf('function updateMyYear()'),
+  );
+  assert.match(loaderSource, /isRarityTracker[\s\S]*tryLifelistYear/,
+    'ABA still goes through the empty county harvester instead of its signed-in year list');
+
+  const csv = [
+    'Species Code,Common Name,Date',
+    'hawgoo,Hawaiian Goose,10 Sep 2026',
+    'hawcoo,Hawaiian Coot,09 Sep 2026',
+    'hawhaw,Hawaiian Hawk,08 Sep 2026',
+    'iiwi,Iiwi,07 Sep 2026',
+    'apapan,Apapane,06 Sep 2026',
+  ].join('\n');
+  const urls = [];
+  let releaseCsv;
+  app.window.fetch = (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (/lifelist\?r=ABA&time=year&fmt=csv/.test(u)) {
+      return new Promise((resolve) => {
+        releaseCsv = () => resolve({
+          ok: true, status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(csv),
+          json: () => Promise.resolve(csv),
+        });
+      });
+    }
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(''),
+      json: () => Promise.resolve([]),
+    });
+  };
+
+  const loading = A.LOADERS.myYearBody.fn();
+  assert.ok(loading && typeof loading.then === 'function',
+    'the ABA refresh detached its signed-in year-list request');
+  await waitFor(() => releaseCsv, 'the ABA year-list request to start', 2000);
+  assert.match(app.$('myYearBody').textContent, /reading.*ABA.*year list|still updating/i,
+    'the old ABA rows looked current while the signed-in year list was pending');
+  assert.equal(urls.filter((u) => /product\/lists\//.test(u)).length, 0,
+    'a countyless ABA profile spent an impossible county-list call');
+
+  releaseCsv();
+  await loading;
+  const rows = app.$('myYearList').textContent;
+  ['Hawaiian Goose', 'Hawaiian Coot', 'Hawaiian Hawk', 'Iiwi', 'Apapane']
+    .forEach((name) => assert.match(rows, new RegExp(name),
+      name + ' did not reach the authoritative ABA list'));
+  assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|reading.*year list/i,
+    'the ABA updating disclosure remained after the signed-in list settled');
+  assert.equal(Object.keys(JSON.parse(
+    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
+  )).length, 5, 'the ABA rows were stored under a different report');
+  assert.equal(urls.filter((u) => /product\/lists\//.test(u)).length, 0,
+    'the successful one-call path fell through to county harvesting');
+  app.window.close();
+});
+
+test('F373 ABA My Ticks names an unavailable signed-in year list', async () => {
+  const login = '<!doctype html><html><head><title>Sign in to eBird</title></head>'
+    + '<body><form action="cassso/login"><input name="password"></form></body></html>';
+  const app = await boot({
+    report: 'aba',
+    storage: { ebird_display_name: 'Birder Wyatt' },
+    fetch: (url) => /lifelist/.test(url) ? login : [],
+  });
+  await app.window.__app.LOADERS.myYearBody.fn();
+  assert.match(app.$('myYearBody').textContent,
+    /ABA.*year-list refresh did not finish|year-list refresh did not finish.*ABA/is,
+    'a login response was presented as a current ABA list');
+  assert.match(app.$('myYearBody').textContent, /sign in.*eBird.*Refresh/is,
+    'the failed ABA source does not name the action that can repair it');
+  assert.equal(app.state.fetches.filter((u) => /product\/lists\//.test(u)).length, 0,
+    'a failed ABA account page fell through to an impossible county scan');
+  app.window.close();
+});
+
+test('F373 a late ABA year-list response stays owned by ABA', async () => {
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const csv = [
+    'Species Code,Common Name,Date',
+    'hawgoo,Hawaiian Goose,10 Sep 2026',
+    'hawcoo,Hawaiian Coot,09 Sep 2026',
+    'hawhaw,Hawaiian Hawk,08 Sep 2026',
+    'iiwi,Iiwi,07 Sep 2026',
+    'apapan,Apapane,06 Sep 2026',
+  ].join('\n');
+  let releaseCsv;
+  app.window.fetch = (url) => {
+    if (/lifelist\?r=ABA&time=year&fmt=csv/.test(String(url))) {
+      return new Promise((resolve) => {
+        releaseCsv = () => resolve({
+          ok: true, status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(csv),
+          json: () => Promise.resolve(csv),
+        });
+      });
+    }
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(''),
+      json: () => Promise.resolve([]),
+    });
+  };
+
+  const loading = app.window.__app.LOADERS.myYearBody.fn();
+  await waitFor(() => releaseCsv, 'the owned ABA year-list request', 2000);
+  app.window.localStorage.setItem('ebird_report', 'hi');
+  releaseCsv();
+  await loading;
+
+  assert.equal(Object.keys(JSON.parse(
+    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
+  )).length, 5, 'a late ABA response was discarded or stored under the new report');
+  assert.equal(app.window.localStorage.getItem('ebird_own_seen:hi'), null,
+    'a late ABA response contaminated Hawaii My Ticks');
   app.window.close();
 });
 
@@ -27902,7 +28044,7 @@ test('F8: the verdict names WHICH failure, so one device run settles it', async 
   // tryLifelistYear became a three-line dispatcher and the page verdict moved
   // into tryLifelistPage — a `+ 1600` window pins the layout of the file
   // rather than the property, which is the same fault as `fgWindowWait + 800`.
-  const src = HTML.slice(HTML.indexOf('function tryLifelistPage()'),
+  const src = HTML.slice(HTML.indexOf('function tryLifelistPage('),
                          HTML.indexOf('// ── F8: THE YEAR LIST, HARVESTED'));
   assert.ok(src.length > 200 && src.length < 4000,
     `the slice must really bracket the function, got ${src.length} chars`);
@@ -27999,13 +28141,13 @@ test('F8: the CSV route is tried first, and the page route still carries codes',
     'the INLINE endpoint - not Download My Data, which is an async emailed '
     + 'archive and is rejected on UX grounds');
 
-  const src = HTML.slice(HTML.indexOf('function tryLifelistYear()'),
+  const src = HTML.slice(HTML.indexOf('function tryLifelistYear('),
                          HTML.indexOf('function absorbLifelistRows('));
-  assert.match(src, /tryLifelistCsv\(\)/, 'CSV is attempted');
-  assert.ok(src.indexOf('tryLifelistCsv()') < src.indexOf('tryLifelistPage()'),
+  assert.match(src, /tryLifelistCsv\(owner\)/, 'CSV is attempted');
+  assert.ok(src.indexOf('tryLifelistCsv(owner)') < src.indexOf('tryLifelistPage(owner)'),
     'and it is attempted FIRST');
   assert.match(src,
-    /n === LIFELIST_COMPLETE_EMPTY \|\| n >= LIFELIST_MIN_ROWS[\s\S]*\? n : tryLifelistPage\(\)/,
+    /n === LIFELIST_COMPLETE_EMPTY \|\| n >= LIFELIST_MIN_ROWS[\s\S]*\? n : tryLifelistPage\(owner\)/,
     'only a positively identified empty list or enough rows may skip the page; '
     + 'one-to-four rows remain suspicious');
 

@@ -788,7 +788,7 @@ shares an eBird scope with a built-in region cannot collide with it.
 | Report section | App feature | Status | Notes |
 |---|---|---|---|
 | 🐦 header — year list count | **My Ticks** count | ✅ | Current-year species count from the imported CSV's Date column, or from explicitly loaded sample data. Top-100 rank in **My eBird rankings**. |
-| 🐦 {year} Year List | **My Ticks** list | ✅ | Full per-report year list (v1.0.7): the same rows the report prints — oldest numbered 1, newest first, species → `/species/{code}/{state}`, date → `/checklist/{subId}`, location link, "all obs" lifelist link, plus a thumbnail per entry. Built by `assets/build-seed.js`, whose parser now mirrors `report.py::_parse_lower48_year_list` exactly (section-aware, native-only) — cross-checked against the report in CI. |
+| 🐦 {year} Year List | **My Ticks** list | ⚠️ deliberate live delta | The bundled baseline is the same per-report year list the report prints — oldest numbered 1, newest first, species → `/species/{code}/{state}`, date → `/checklist/{subId}`, location link, "all obs" lifelist link, plus a thumbnail per entry. Built by `assets/build-seed.js`, whose parser mirrors `report.py::_parse_lower48_year_list` exactly (section-aware, native-only) and is cross-checked in CI. The installed app can then lead that archived snapshot: ordinary reports harvest the reader's recent public county checklists, while the countyless ABA and Lower 48 trackers read the signed-in eBird year list directly. Those live additions remain report-owned and never flow back into the static Markdown report. |
 
 ## Environmental (non-eBird sources)
 

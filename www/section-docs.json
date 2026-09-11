@@ -638,17 +638,20 @@
       "inputs": [
         "your eBird year-list export for this region",
         "recent product/lists feeds for the report's counties",
-        "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes"
+        "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes",
+        "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback"
       ],
       "how": [
         "Oldest is numbered 1; newest is listed first. Each entry links its species page, its checklist, and its location.",
-        "Opening My Ticks paints the last known rows immediately and labels them Still updating while it forces a fresh recent-checklist scan.",
+        "Opening My Ticks paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
+        "A late signed-in year-list response remains owned by the report that started it, so switching regions cannot put ABA ticks into Hawaii or Washington.",
         "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total."
       ],
       "limits": [
-        "The export remains the year-wide baseline. Automatic updates can see only your public checklists in the counties this report scans.",
-        "eBird's list feed identifies an observer by display name rather than user id, so the exact eBird display name must be set in Settings."
+        "The export remains the year-wide baseline for ordinary county reports. Their automatic updates can see only your public checklists in the counties the report scans.",
+        "eBird's county list feed identifies an observer by display name rather than user id, so ordinary regional refreshes require the exact eBird display name in Settings.",
+        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; if that session is unavailable, My Ticks keeps the last known rows and names Sign in plus Refresh as the recovery."
       ]
     },
     "settingsPanel": {

@@ -280,6 +280,42 @@ const REVIEW_SHOTS = [
            sec.dataset.mockAt = 'myYearBody';
            sec.dataset.mockReady = 'true';
            return true;` },
+  { id: 'abayearrefresh', at: 'myYearBody',
+    title: 'My Ticks — ABA year list refreshed',
+    host: 'myYearBody',
+    prep: `A.setActiveReport('aba');
+           localStorage.setItem('ebird_own_seen:aba', JSON.stringify({
+             rtbhum: { n: 'Ruby-throated Hummingbird', d: '10 Sep 2026',
+               s: 'S-ABA-RTBHUM', l: 'Hawaiʻi', i: '', h: 0, x: '' },
+             nazboo1: { n: 'Nazca Booby', d: '09 Sep 2026', s: 'S-ABA-NAZBOO',
+               l: 'Washington', i: '', h: 0, x: '' },
+             brnnod: { n: 'Brown Noddy', d: '08 Sep 2026', s: 'S-ABA-BRNNOD',
+               l: 'Hawaiʻi', i: '', h: 0, x: '' },
+             ruff: { n: 'Ruff', d: '07 Sep 2026', s: 'S-ABA-RUFF',
+               l: 'Washington', i: '', h: 0, x: '' },
+             sander: { n: 'Sanderling', d: '06 Sep 2026', s: 'S-ABA-SANDER',
+               l: 'Hawaiʻi', i: '', h: 0, x: '' }
+           }));
+           var host = document.getElementById('myYearBody');
+           var sec = host.closest('section');
+           A.showSection(sec.id);
+           A.updateMyYear();
+           var freshness = document.createElement('div');
+           freshness.className = 'hint';
+           freshness.innerHTML = '<b>ABA year-list refresh complete.</b> '
+             + 'Signed-in eBird year list · no county scan.';
+           host.appendChild(freshness);
+           if (!/ABA Area/i.test(host.textContent)
+               || !/year-list refresh complete/i.test(host.textContent)
+               || !/Ruby-throated Hummingbird/i.test(
+                 document.getElementById('myYearList').textContent)) {
+             throw new Error('ABA My Ticks review state is incomplete');
+           }
+           host.setAttribute('data-mock-data', 'true');
+           host.setAttribute('aria-label', 'Refreshed ABA year-list My Ticks control');
+           sec.dataset.mockAt = 'myYearBody';
+           sec.dataset.mockReady = 'true';
+           return true;` },
   { id: 'favoritesregion', at: 'favResults',
     title: 'Favorite patches — current region only',
     host: 'favResults',

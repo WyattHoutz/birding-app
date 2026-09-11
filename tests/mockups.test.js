@@ -49,9 +49,9 @@ test('release mockups include exactly one section shot per visible menu entry', 
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
-      'favoritesregion', 'spuhcompact', 'birdspcompact', 'birdspdetail',
-      'spuhdetail', 'spuhinfo', 'stakeoutdetail', 'stakeoutreports', 'megaaba',
-      'meganearest'],
+      'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
+      'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail',
+      'stakeoutreports', 'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
@@ -277,6 +277,16 @@ test('F372 review mockups prove empty Hawaii stays empty on both reported surfac
   assert.match(ticks.prep, /A\.setActiveReport\('hi'\)/);
   assert.match(ticks.prep, /0 species in 2026/);
   assert.match(ticks.prep, /species logged/);
+});
+
+test('F373 review mockup proves ABA My Ticks uses the account year list', () => {
+  const ticks = mockups.REVIEW_SHOTS.find((item) => item.id === 'abayearrefresh');
+  assert.ok(ticks, 'the refreshed ABA My Ticks review shot is missing');
+  assert.match(ticks.prep, /A\.setActiveReport\('aba'\)/);
+  assert.match(ticks.prep, /ebird_own_seen:aba/);
+  assert.match(ticks.prep, /ABA year-list refresh complete/);
+  assert.match(ticks.prep, /no county scan/);
+  assert.match(ticks.prep, /Ruby-throated Hummingbird/);
 });
 
 test('fixture photos use the extension of the bundled icon they render', () => {

@@ -203,7 +203,10 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
 - **P1** — Settings (eBird API key + region, on-device) + live notable-sightings
   call via `CapacitorHttp`. ✅
 - **P2** — Import eBird CSV (on-device seen list) → Targets view (recent
-  regional species you haven't logged) + My Year totals. ✅
+  regional species you haven't logged) + My Ticks totals. Opening My Ticks
+  refreshes ordinary reports from their recent county checklists; the
+  countyless ABA and Lower 48 trackers instead read the signed-in eBird year
+  list directly and say when sign-in is required. ✅
 - **P3** — Port ranking to JS: **Top destinations** (score = Σ 3×rarity / 1×target
   per unseen species, clustered by hotspot) with an inline SVG map, optional Home
   location for distances, and Maps links. ✅
