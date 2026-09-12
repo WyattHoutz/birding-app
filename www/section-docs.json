@@ -270,7 +270,8 @@
       ],
       "limits": [
         "Ranked by birds, not by drive time — the top row can be an hour away.",
-        "Older evidence is a fallback, not a claim that the bird is still present; private and access-restricted places remain excluded."
+        "Older evidence is a fallback, not a claim that the bird is still present; private and access-restricted places remain excluded.",
+        "Refresh keeps the last matching snapshot visible. If eBird is unavailable, the status explicitly labels those cached results instead of replacing them with a blank list."
       ]
     },
     "targetsBtn": {
@@ -293,14 +294,16 @@
       "limits": [
         "The chaseability gate rejects a location whose NAME says it is closed — a parenthesised 'private', 'restricted', 'no public access' and similar. That is checked before anything else, so even a well-attested stakeout at such a place is dropped.",
         "A location eBird marks private is still shown when it qualifies as a stakeout: 3+ distinct checklists within 300 m, which is what a roadside viewing point outside someone's yard looks like in the data. That is why a residential address can legitimately appear.",
-        "THE BIG ONE: the per-county 'recent' feed returns exactly ONE observation per species. So a needed bird has at most a handful of known locations in the whole dataset, and the nearest of those may be far from the nearest place it actually is. This section is sparse by construction, not by accident."
+        "THE BIG ONE: the per-county 'recent' feed returns exactly ONE observation per species. So a needed bird has at most a handful of known locations in the whole dataset, and the nearest of those may be far from the nearest place it actually is. This section is sparse by construction, not by accident.",
+        "Refresh keeps the last matching snapshot visible and labels it as cached if the live observation feeds are unavailable."
       ]
     },
     "quickBtn": {
       "report": "## 🚶 Find local patches — Local hotspots",
       "summary": "An impulse detour: the richest hotspots a few minutes from where you are.",
       "inputs": [
-        "ref/hotspot/geo around the chosen anchor"
+        "ref/hotspot/geo around the chosen anchor",
+        "an on-device fallback owned by the report, exact anchor coordinates, 32 km request radius and 30-day source window"
       ],
       "how": [
         "Pick the anchor — home, your current location, or a place you search for. Home is the default, which is what the Markdown report uses.",
@@ -308,7 +311,8 @@
         "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
         "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
         "Hotspots birded in the last 10 days are penalised but not removed.",
-        "In the app, a hotspot already present in Today's patches reuses that section's scored unseen rows; otherwise the card hydrates unseen and seen species from the place's last 30 days, with the wider local-history window labelled and each row keeping its report date."
+        "In the app, a hotspot already present in Today's patches reuses that section's scored unseen rows; otherwise the card hydrates unseen and seen species from the place's last 30 days, with the wider local-history window labelled and each row keeping its report date.",
+        "A successful directory read replaces the matching on-device fallback. An unavailable refresh retains that exact anchor's cached cards and says so in text."
       ],
       "limits": [
         "The place ranking is about all-time richness, not a claim that every listed bird is present today. The app's species list is recent local evidence, not a live forecast.",
@@ -338,7 +342,8 @@
         "A county box can include inaccessible terrain near Home, so scope deliberately overfetches. It never assigns a travel band to the whole county.",
         "The county scope is selected from Home. Here and Find may rerank loaded cards, but they do not silently acquire a different state-sized data set.",
         "The first cold catalog is expensive, but it is paid only when Half-day or Full-day is opened and never again for valid county bounds.",
-        "The 30-day eBird endpoint is species-collapsed rather than a complete hotspot history. On September 7 it supported two Big Island Half-day localities, so the app must not invent a five-place result."
+        "The 30-day eBird endpoint is species-collapsed rather than a complete hotspot history. On September 7 it supported two Big Island Half-day localities, so the app must not invent a five-place result.",
+        "A forced refresh keeps the matching tier snapshot and visible cards until live county feeds provide a replacement; unavailable feeds are labelled as cached rather than rendered as empty."
       ]
     },
     "fullDayBtn": {
@@ -365,7 +370,8 @@
         "County edge distance is a fetch envelope, not a driving-time promise.",
         "Completing a first cold load may take several minutes because every selected county contributes recent and notable feeds, but the screen no longer waits for the last feed before showing an eligible result. Cached bounds and in-session eBird responses make later opens cheaper.",
         "The model uses measured fixed route friction rather than a live routing API.",
-        "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination."
+        "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination.",
+        "A forced refresh keeps the matching tier snapshot and visible cards until live county feeds provide a replacement; unavailable feeds are labelled as cached rather than rendered as empty."
       ]
     },
     "hotBtn": {
@@ -380,7 +386,8 @@
         "Each row lists the birds actually being reported there with species counts and recent checklists."
       ],
       "limits": [
-        "Bounded to about 35 mi from home by default."
+        "Bounded to about 35 mi from home by default.",
+        "If every live source is unavailable, the previous ranking remains visible and durable with an explicit cached-results message; a failed scan is never saved as an empty ranking."
       ]
     },
     "coldBtn": {
@@ -397,7 +404,8 @@
         "A hotspot with no historic sample is reported as UNMEASURED, not as new: absence of a norm is not evidence of neglect."
       ],
       "limits": [
-        "Bounded to about 35 mi from home by default."
+        "Bounded to about 35 mi from home by default.",
+        "If every live source is unavailable, the previous ranking remains visible and durable with an explicit cached-results message; a failed scan is never saved as an empty ranking."
       ]
     },
     "cklBtn": {

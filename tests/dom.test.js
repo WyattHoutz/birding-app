@@ -5252,6 +5252,132 @@ test('a successful empty chase snapshot is valid and does not refetch forever', 
   a2.window.close();
 });
 
+test('F374 a forced offline patch refresh keeps the last good chase snapshot and cards', async () => {
+  const app = await boot({
+    fetch() {
+      return { __status: 400, __body: { error: 'airplane mode' } };
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+  seedSeen(app, []);
+  const profile = A.chaseProfile();
+  const feeds = W.BirdLogic.planFeeds(profile);
+  const rows = {};
+  const states = {};
+  feeds.forEach((feed) => {
+    rows[feed.file] = [];
+    states[feed.file] = 'ok';
+  });
+  rows[feeds.find((feed) => feed.kind !== 'notable').file] = [
+    {
+      speciesCode: 'f374a', comName: 'Cached Airplane Bird',
+      locId: 'F374-HOTSPOT', locName: 'Cached Airplane Marsh',
+      lat: 47.77, lng: -122.17, obsDt: todayFixtureDate() + ' 08:00',
+      subId: 'F374-S1', obsValid: true,
+    },
+    {
+      speciesCode: 'f374b', comName: 'Cached Airplane Gull',
+      locId: 'F374-HOTSPOT', locName: 'Cached Airplane Marsh',
+      lat: 47.77, lng: -122.17, obsDt: todayFixtureDate() + ' 08:00',
+      subId: 'F374-S1', obsValid: true,
+    },
+  ];
+  await A.saveChaseSnapshot(profile.slug, ['f374a', 'f374b'], rows, states);
+  A.seedChase(profile.slug, null);
+  await A.loadDestinations();
+  assert.match(app.$('destResults').textContent, /Cached Airplane Marsh/,
+    'the seeded snapshot did not produce the cached patch card');
+
+  let clock = Date.now();
+  W.Date.now = () => (clock += 3000);
+  const realTimeout = W.setTimeout.bind(W);
+  W.setTimeout = (fn, ms, ...args) => realTimeout(fn, Math.min(ms || 0, 1), ...args);
+  A.fgWindowReset();
+  A.fgSchedReset(clock);
+  const refresh = app.$('destBtn').closest('section').querySelector('.refreshbtn');
+  assert.ok(refresh, 'Today’s patches has no refresh control');
+  app.click(refresh);
+  assert.match(app.$('destResults').textContent, /Cached Airplane Marsh/,
+    'starting a refresh erased the last good patch card');
+  await waitFor(() => !app.$('destBtn').disabled,
+    'the forced offline patch refresh to settle', 30000);
+
+  assert.match(app.$('destResults').textContent, /Cached Airplane Marsh/,
+    'the all-failed wave replaced the cached patch card with a blank result');
+  assert.match(app.$('destStatus').textContent, /cached|refresh could not/i,
+    'the retained answer is presented as freshly updated');
+  assert.ok(W.localStorage.getItem(A.chaseKey(profile.slug)),
+    'Refresh deleted the durable snapshot before it had a replacement');
+  const retained = await A.getChase();
+  assert.ok(Object.values(retained.rows).flat()
+    .some((row) => row.speciesCode === 'f374a'),
+  'the in-memory result lost the snapshot rows after every live feed failed');
+  app.window.close();
+});
+
+test('F374 forced offline tier refreshes retain both Half-day and Full-day snapshots', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const W = app.window;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  const baseFeeds = W.BirdLogic.planFeeds(base);
+  const baseRows = {};
+  const baseStates = {};
+  baseFeeds.forEach((feed) => {
+    baseRows[feed.file] = [];
+    baseStates[feed.file] = 'ok';
+  });
+  baseRows[baseFeeds[0].file] = [{
+    speciesCode: 'f374base', comName: 'Cached Base Bird',
+    locId: 'F374-BASE', locName: 'Cached Base Marsh',
+    lat: 47.77, lng: -122.17, obsDt: todayFixtureDate() + ' 08:00',
+    subId: 'F374-BASE-S1', obsValid: true,
+  }];
+  await A.saveChaseSnapshot(base.slug, ['f374base'], baseRows, baseStates);
+
+  const profiles = {};
+  for (const band of ['half', 'full']) {
+    const profile = await A.tripScopeProfile(band);
+    profiles[band] = profile;
+    const feeds = W.BirdLogic.planFeeds(profile);
+    const rows = {};
+    const states = {};
+    feeds.forEach((feed) => {
+      rows[feed.file] = [];
+      states[feed.file] = 'ok';
+    });
+    rows[feeds[0].file] = [{
+      speciesCode: 'f374' + band, comName: 'Cached ' + band + '-day Bird',
+      locId: 'F374-' + band, locName: 'Cached ' + band + '-day Marsh',
+      lat: 47.0, lng: -122.7, obsDt: todayFixtureDate() + ' 08:00',
+      subId: 'F374-' + band + '-S1', obsValid: true,
+    }];
+    await A.saveChaseSnapshot(profile.slug, ['f374' + band], rows, states, null, {
+      fetchBaseKey: A.chaseFetchBaseKey(profile),
+      geoNotableKm: W.BirdLogic.geoNotableDistKm(profile),
+    });
+  }
+  A.seedChase(base.slug, null);
+  Object.values(profiles).forEach((profile) => A.seedChase(profile.slug, null));
+  let clock = Date.now();
+  W.Date.now = () => (clock += 3000);
+  A.fgWindowReset();
+  A.fgSchedReset(clock);
+  W.fetch = () => Promise.reject(new Error('airplane mode'));
+
+  for (const band of ['half', 'full']) {
+    const result = await A.getTierChase(band, 'obs');
+    assert.ok(Object.values(result.rows).flat()
+      .some((row) => row.speciesCode === 'f374' + band),
+    band + '-day refresh discarded its matching tier snapshot');
+    assert.ok(W.localStorage.getItem(A.chaseKey(profiles[band].slug)),
+      band + '-day refresh deleted its durable tier snapshot');
+  }
+  app.window.close();
+});
+
 test('chase menu badges clear and keep separate baselines when the region changes', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -14833,6 +14959,51 @@ test('F266 Hot patches owns a seven-day day-list floor without opening Nemesis b
   app.window.close();
 });
 
+test('F374 an all-offline Hot and Cold refresh keeps the last good ranking', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const W = app.window;
+  const key = 'bc_hotspots_v1:' + A.getReportSlug() + ':' + A.countyLabelStr();
+  const cached = {
+    t: Date.now() - 3600000,
+    hot: [{
+      locId: 'F374-HOT', name: 'Cached Hot Marsh',
+      lat: 47.74, lng: -122.15, dist: 1.2, fresh: 5, share: 50,
+      alltime: 180, silent: 0, latest: todayFixtureDate() + ' 08:00',
+      checklists: 2, score: 10, unseenN: 1,
+      birds: [{ code: 'f374hot', name: 'Cached Hot Bird', unseen: true }],
+    }],
+    cold: [{
+      locId: 'F374-COLD', name: 'Cached Cold Marsh',
+      lat: 47.73, lng: -122.14, dist: 1.8, fresh: 0, share: 0,
+      alltime: 190, silent: 12, latest: todayFixtureDate() + ' 07:00',
+      checklists: 1, score: 9, unseenN: 0, birds: [],
+    }],
+  };
+  await A.zcPut(key, cached);
+  let clock = Date.now();
+  W.Date.now = () => (clock += 3000);
+  A.fgWindowReset();
+  A.fgSchedReset(clock);
+  W.fetch = () => Promise.reject(new Error('airplane mode'));
+
+  await A.runHotspotScan({ force: true });
+  assert.match(app.$('hotResults').textContent, /Cached Hot Marsh/,
+    'the failed live scan replaced the cached Hot ranking');
+  assert.match(app.$('coldResults').textContent, /Cached Cold Marsh/,
+    'the failed live scan replaced the cached Cold ranking');
+  assert.match(app.$('hotStatus').textContent, /cached|refresh could not/i,
+    'Hot presents the retained cache as a current scan');
+  assert.match(app.$('coldStatus').textContent, /cached|refresh could not/i,
+    'Cold presents the retained cache as a current scan');
+  const stored = await A.zcGet(key);
+  assert.equal(stored.hot[0].locId, 'F374-HOT',
+    'an all-failed scan poisoned the durable Hot cache with an empty array');
+  assert.equal(stored.cold[0].locId, 'F374-COLD',
+    'an all-failed scan poisoned the durable Cold cache with an empty array');
+  app.window.close();
+});
+
 test('F266 an old ordinary hotspot scan cannot paint or launch ownership in a new report', async () => {
   const app = await boot({
     storage: { ebird_report: 'wa', ebird_home_lat: '47.75', ebird_home_lng: '-122.16' },
@@ -19403,11 +19574,15 @@ test('the Go birding sections refresh observations, not the world', () => {
   assert.ok(!re.test('ref/hotspot/US-WA-033'),
     'and NOT the hotspot directory, which is a list of parks');
 
-  // All five sections wired: Today through getChase, both day tiers through
-  // getTierChase, and hot/cold through their own scan.
+  // All six section loaders wired: Today and Closest through getChase, both
+  // day tiers through getTierChase, and hot/cold through their own scan.
   const dest = HTML.slice(HTML.indexOf('function loadDestinations'),
     HTML.indexOf('function loadDestinations') + 1200);
   assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top patches');
+  const closest = HTML.slice(HTML.indexOf('function loadTargets'),
+    HTML.indexOf('function loadTargets') + 2200);
+  assert.match(closest, /getChase\(takeForce\(\) \? 'obs' : false\)/,
+    'Closest patches consumes its own refresh instead of leaking it to the next section');
   const tiers = HTML.slice(HTML.indexOf('function loadDayTier'),
     HTML.indexOf('function loadExcursions'));
   assert.match(tiers, /getTierChase\(bandId, takeForce\(\) \? 'obs' : false/,
@@ -20665,6 +20840,49 @@ test('quick outing wires warm Today patch targets into its cards', () => {
     /speciesDays:\s*scored \? LOC_SPECIES_DAYS : QUICK_LOC_SPECIES_DAYS/,
     'warm Today cards keep the short correction while cold local cards use '
     + 'the labelled broader fallback');
+});
+
+test('F374 Find local restores only the matching anchor cache while offline', async () => {
+  const warm = await boot();
+  const warmA = warm.window.__app;
+  const home = warmA.quickAnchor('home');
+  const key = warmA.quickCacheKey(home);
+  await warmA.zcPut(key, {
+    t: Date.now() - 3600000,
+    rows: [{
+      locId: 'F374-LOCAL', locName: 'Cached Local Marsh',
+      lat: home.lat + 0.01, lng: home.lng,
+      numSpeciesAllTime: 175, latestObsDt: todayFixtureDate() + ' 08:00',
+    }],
+  });
+  const raw = warm.window.localStorage.getItem(key);
+  assert.ok(raw, 'the matching Find local directory was not stored durably');
+  warm.window.close();
+
+  const app = await boot({
+    storage: { [key]: raw },
+    fetch() {
+      return { __status: 400, __body: { error: 'airplane mode' } };
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+  await A.loadQuickOuting('home');
+  assert.match(app.$('quickResults').textContent, /Cached Local Marsh/,
+    'a restarted offline app did not restore the anchor-owned hotspot directory');
+  assert.match(app.$('quickStatus').textContent, /cached|refresh could not/i,
+    'Find local presents the restored cache as a current network answer');
+
+  W.localStorage.setItem(A.homeKey('lat'), '46.60');
+  W.localStorage.setItem(A.homeKey('lng'), '-120.45');
+  const moved = A.quickAnchor('home');
+  assert.notEqual(A.quickCacheKey(moved), key,
+    'moving Home did not change the Find local cache owner');
+  app.$('quickResults').innerHTML = '';
+  await A.loadQuickOuting('home');
+  assert.doesNotMatch(app.$('quickResults').textContent, /Cached Local Marsh/,
+    'the old Home cache answered for a different anchor');
+  app.window.close();
 });
 
 

@@ -3488,7 +3488,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.96.0';
+      var APP_VERSION = '1.97.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8663,11 +8663,33 @@
       function loadTargets() {
         if (!getKey()) { $('targetStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('targetsBtn'), st = $('targetStatus'), out = $('targetResults'), label = getReport().label;
-        btn.disabled = true; out.innerHTML = ''; $('closeMap').innerHTML = ''; st.textContent = 'Finding targets for ' + label + '…';
-        getChase().then(function (c) {
+        var map = $('closeMap'), contextKey = patchContextKey('closest');
+        var preserve = out.getAttribute('data-patch-context') === contextKey
+          && !!out.querySelector('.hscard');
+        btn.disabled = true;
+        if (!preserve) {
+          out.innerHTML = '';
+          map.innerHTML = '';
+        }
+        st.textContent = preserve
+          ? 'Refreshing targets for ' + label + '… current cached results remain visible.'
+          : 'Finding targets for ' + label + '…';
+        getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var targets = buildClosestSpots(c.cv, getAnchors());
-          if (!targets.length) { st.textContent = 'No unlogged species reported recently — you\u2019re caught up!'; return; }
+          if (!targets.length) {
+            if (patchFeedIssue(c) && preserve) {
+              st.textContent = 'Cached results shown — refresh could not reach eBird.';
+              return;
+            }
+            out.innerHTML = '';
+            map.innerHTML = '';
+            out.setAttribute('data-patch-context', contextKey);
+            st.textContent = patchFeedIssue(c)
+              ? 'No cached target results are available — refresh could not reach eBird.'
+              : 'No unlogged species reported recently — you\u2019re caught up!';
+            return;
+          }
           var shown = targets.slice(0, 100);
           var places = groupTargetsByPlace(shown);
           st.textContent = targets.length + ' target' + (targets.length === 1 ? '' : 's') +
@@ -8689,7 +8711,7 @@
             coverageNote(shown.map(function (t) {
               return { dist: (t.distMi != null ? t.distMi : t.dist) };
             })) +
-            ' · updated ' + nowTime();
+            patchFreshness(c);
           // The report maps this section, so the app must too. Rows are one per
           // species but several can share a spot, so pin the distinct locations.
           var atLoc = {}, pts = [];
@@ -8708,7 +8730,12 @@
           // and nothing on screen said so.
           renderMap($('closeMap'), pts.slice(0, 25), anchorPoint(), false);
           renderTargetPlaces(out, places);
-        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+          out.setAttribute('data-patch-context', contextKey);
+        }).catch(function (e) {
+          st.textContent = preserve
+            ? 'Cached results shown — refresh could not reach eBird. ' + netErr(e)
+            : netErr(e);
+        }).finally(function () { btn.disabled = false; });
       }
 
       // --- 📋 All unseen reports (report.section_all_unseen) ---------------
@@ -12571,6 +12598,7 @@
           });
         }
         var c = _chase[slug];
+        var forcedFallback = null;
         // SINCE F179 THE RADIUS DECIDES WHAT IS FETCHED, not only what is
         // shown. A cached wave gathered at 57 km cannot answer a question asked
         // at 121 km, and serving it would put "within 75 mi" over a list that
@@ -12592,9 +12620,9 @@
         // the "updated" clock. "refresh button does nothing" was an accurate
         // description of the code.
         //
-        // Forcing drops BOTH the in-memory result and today's stored snapshot,
-        // so the next read is a real wave. That costs ~47 calls, which is
-        // exactly what a person asking for fresh data is asking to spend.
+        // Forcing bypasses both cache layers while keeping the last good
+        // answer available as a fallback. A refresh is a replacement attempt,
+        // not permission to destroy the only answer before a live feed lands.
         if (force) {
           // A WAVE ALREADY RUNNING IS ALREADY FRESH. Deleting the in-flight
           // promise here destroyed the guard that stops two waves overlapping:
@@ -12624,8 +12652,8 @@
             replaceChaseGeneration();
           }
           replaceChaseGeneration();
+          forcedFallback = c && chaseSnapshotCompatible(c, profile) ? c : null;
           delete _chase[slug];
-          try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
           // ...and the eBird response memo, which is the one that actually
           // decides whether a call happens. Dropping only the chase caches
           // rebuilt the snapshot from 30-minute-old memoised responses, so a
@@ -13116,6 +13144,20 @@
         // day-scoped, so "earlier today" is the same answer for most sections.
         var run = loadChaseSnapshot(slug).then(function (snap) {
           requireCurrentChase();
+          if (force) {
+            if (!chaseSnapshotCompatible(snap, profile)) {
+              if (snap) {
+                try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
+              }
+              snap = null;
+            }
+            var fallback = snap || forcedFallback;
+            if (fallback) {
+              seedSnapshot(fallback, false);
+              dbg('net', 'refreshing live feeds with the last good snapshot retained');
+            }
+            return runWave();
+          }
           if (!chaseSnapshotCompatible(snap, profile)) {
             if (snap) {
               try { localStorage.removeItem(chaseKey(slug)); } catch (e) {}
@@ -13175,14 +13217,7 @@
           profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
             ? base.cv.destRadiusMi
             : (profile.dailyDriveMi || BL.CONST.DAILY_DRIVE_MI);
-          if (force) {
-            delete _chase[profile.slug];
-            try { localStorage.removeItem(chaseKey(profile.slug)); } catch (e) {}
-            BL.planFeeds(profile).forEach(function (feed) {
-              delete _ebCache[BL.requestUrl(feed)];
-            });
-          }
-          return getChaseAll(false, profile, work, onPartial);
+          return getChaseAll(force, profile, work, onPartial);
         });
       }
       function anyRows(rows) {
@@ -16487,6 +16522,25 @@
         return (localStorage.getItem(homeKey('place')) || '').trim() || 'Home';
       }
       function fromHere() { return ' · from ' + anchorLabel(); }
+      function patchContextKey(kind) {
+        var home = getHome() || {};
+        var lat = Number(home.lat), lng = Number(home.lng);
+        return [
+          getReportSlug(),
+          kind || '',
+          isFinite(lat) ? lat.toFixed(5) : '',
+          isFinite(lng) ? lng.toFixed(5) : ''
+        ].join('|');
+      }
+      function patchFeedIssue(c) {
+        return !!(c && (c.feedFailed || c.partial || c.stale
+          || c.feedComplete === false));
+      }
+      function patchFreshness(c) {
+        return patchFeedIssue(c)
+          ? ' · Cached results shown — refresh could not reach all eBird feeds'
+          : ' · updated ' + nowTime();
+      }
 
       // The anchor moves; the DATA cannot follow it.
       //
@@ -16564,7 +16618,18 @@
       function loadDestinations() {
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('destBtn'), st = $('destStatus'), label = getReport().label;
-        btn.disabled = true; $('destResults').innerHTML = ''; $('destMap').innerHTML = ''; st.textContent = 'Ranking hotspots for ' + label + '…';
+        var results = $('destResults'), map = $('destMap');
+        var contextKey = patchContextKey('today');
+        var preserve = results.getAttribute('data-patch-context') === contextKey
+          && !!results.querySelector('.hscard');
+        btn.disabled = true;
+        if (!preserve) {
+          results.innerHTML = '';
+          map.innerHTML = '';
+        }
+        st.textContent = preserve
+          ? 'Refreshing hotspots for ' + label + '… current cached results remain visible.'
+          : 'Ranking hotspots for ' + label + '…';
         return getChase(takeForce() ? 'obs' : false).then(function (c) {
           if (c.rarity) { rarityRedirect(st); return; }
           var minRows = (c.cv && c.cv.destinationMinRows) || DEST_THIN_ROWS;
@@ -16572,6 +16637,7 @@
             var thin = $('destThin');
             if (thin) thin.parentNode.removeChild(thin);
             renderDestinations(dests, $('destMap'), $('destResults'), deferHydration);
+            results.setAttribute('data-patch-context', contextKey);
             var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
             var rad = destRadiusMi();
             var older = dests.filter(function (d) {
@@ -16583,7 +16649,7 @@
             }
             st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
               + fromHere() + ' · best first, not nearest' + coverageNote(dests)
-              + ' · updated ' + nowTime();
+              + patchFreshness(c);
           }
           var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           var p = c.profile || chaseProfile();
@@ -16605,7 +16671,11 @@
               : '') + 'older public-hotspot evidence could not be loaded: '
               + netErr(e);
           });
-        }).catch(function (e) { st.textContent = netErr(e); }).finally(function () { btn.disabled = false; });
+        }).catch(function (e) {
+          st.textContent = preserve
+            ? 'Cached results shown — refresh could not reach eBird. ' + netErr(e)
+            : netErr(e);
+        }).finally(function () { btn.disabled = false; });
       }
 
       function dayTierContextKey(bandId) {
@@ -16678,8 +16748,7 @@
             + ' selected from Home';
           var partial = c.profile.countyScopeComplete ? ''
             : ' · ⚠️ some county bounds failed; refresh to retry';
-          var feedIssue = !!(c.feedFailed || c.partial || c.stale
-            || c.feedComplete === false);
+          var feedIssue = patchFeedIssue(c);
           function paint(finalRows, usedFallback) {
             renderDestinations(finalRows, map, results);
             results.setAttribute('data-tier-context', contextKey);
@@ -16699,7 +16768,7 @@
             st.textContent = finalRows.length + ' ' + label.toLowerCase() + ' option'
               + (finalRows.length === 1 ? '' : 's') + fromHere()
               + ' · ' + scope + partial
-              + (feedIssue ? ' · ⚠️ incomplete earlier data'
+              + (feedIssue ? ' · Cached results shown — refresh could not reach all eBird feeds'
                            : ' · updated ' + nowTime());
           }
           if (c.profile.stateCode !== 'US-HI' || rows.length >= minRows) {
@@ -17710,6 +17779,7 @@
         'bc_ckl:',              // one call each — the cheapest thing there is
         'ebird_photos_neg_v1',  // remembered misses
         'bc_ref:',              // reference lookups
+        'ebird_quick_hotspots_v1:',
         'bc_lastnew:',
         'easymiss_v1:',
         'ebird_birdinfo_v2',    // Wikipedia text
@@ -18868,6 +18938,20 @@
       var quickOrigin = 'home';
       var quickHere = null;   // resolved current location for this session only
       var quickFound = null;  // a geocoded place, this session only
+      var QUICK_CACHE_NS = 'ebird_quick_hotspots_v1:';
+      var _quickLoadGeneration = 0;
+
+      function quickCacheKey(anchor) {
+        anchor = anchor || {};
+        var lat = Number(anchor.lat), lng = Number(anchor.lng);
+        return QUICK_CACHE_NS + [
+          getReportSlug(),
+          isFinite(lat) ? lat.toFixed(5) : '',
+          isFinite(lng) ? lng.toFixed(5) : '',
+          32,
+          30
+        ].join(':');
+      }
 
       function quickAnchor(which) {
         if (which === 'here') {
@@ -19095,21 +19179,52 @@
         if ($('quickHereRow')) $('quickHereRow').hidden = (which !== 'find');
         var btns = [$('quickBtn'), $('quickHereBtn')];
         btns.forEach(function (b) { if (b) b.disabled = true; });
-        $('quickResults').innerHTML = ''; $('quickMap').innerHTML = '';
-        st.textContent = 'Finding hotspots near ' + a.label + '\u2026';
-        // ONE scan, centred on the chosen anchor. The old two-anchor union
-        // existed only because both ranked at once; picking an origin makes the
-        // second circle a fetch nobody reads.
-        return ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng + '&dist=32&back=30&fmt=json').then(function (hs) {
-          var top = buildQuickOuting(hs || [], [{ name: a.name, lat: a.lat, lng: a.lng }]);
-          if (!top.length) { st.textContent = 'No recently active eBird hotspots within ~20 mi of ' + a.label + '.'; return; }
-          st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's') +
-            ' within ' + top.radiusMi + ' mi of ' + a.label + ' · closest first · updated ' + nowTime();
-          var el = $('quickResults'); el.innerHTML = '';
-          renderMap($('quickMap'), top.map(function (h) { return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName }; }), a, false);
+        var results = $('quickResults'), map = $('quickMap');
+        var cacheKey = quickCacheKey(a);
+        var preserve = results.getAttribute('data-quick-context') === cacheKey
+          && !!results.querySelector('.hscard');
+        var generation = ++_quickLoadGeneration;
+        var cached = null;
+        if (!preserve) {
+          results.innerHTML = '';
+          map.innerHTML = '';
+        }
+        st.textContent = preserve
+          ? 'Refreshing hotspots near ' + a.label
+            + '\u2026 current cached results remain visible.'
+          : 'Finding hotspots near ' + a.label + '\u2026';
+        function current() {
+          return generation === _quickLoadGeneration && quickCacheKey(a) === cacheKey;
+        }
+        function cachedStatus(entry, failed) {
+          var age = entry && entry.t ? hotCacheAge(entry.t) : 'earlier';
+          return failed
+            ? ' \u00b7 Cached results shown \u2014 refresh could not reach eBird'
+              + ' \u00b7 as of ' + age
+            : ' \u00b7 cached as of ' + age + ' \u00b7 refreshing\u2026';
+        }
+        function paint(hs, freshness) {
+          if (!current()) return Promise.resolve(null);
+          var top = buildQuickOuting(hs || [],
+            [{ name: a.name, lat: a.lat, lng: a.lng }]);
+          results.setAttribute('data-quick-context', cacheKey);
+          if (!top.length) {
+            results.innerHTML = '';
+            map.innerHTML = '';
+            st.textContent = freshness || ('No recently active eBird hotspots within ~20 mi of '
+              + a.label + '.');
+            return Promise.resolve(top);
+          }
+          st.textContent = top.length + ' hotspot' + (top.length === 1 ? '' : 's')
+            + ' within ' + top.radiusMi + ' mi of ' + a.label + ' \u00b7 closest first'
+            + (freshness || (' \u00b7 updated ' + nowTime()));
+          results.innerHTML = '';
+          renderMap($('quickMap'), top.map(function (h) {
+            return { lat: parseFloat(h.lat), lng: parseFloat(h.lng), locName: h.locName };
+          }), a, false);
           top.forEach(function (h, i) {
             var scored = quickPatchSpeciesFromChase(_chase[getReport().slug], h.locId);
-            el.appendChild(hotspotCard({
+            results.appendChild(hotspotCard({
               n: i + 1, locId: h.locId, locName: h.locName, lat: h.lat, lng: h.lng,
               distMi: h.dist,
               latest: h.latest,
@@ -19121,27 +19236,41 @@
               ]
             }));
           });
-          // "The quick outing report should display data the same way as top
-          // destinations." It already built the SAME card — what it never did
-          // was hydrate it, so every row was a name, a distance and an
-          // all-time count, with no unseen/seen split and no checklists.
-          //
-          // These are the three calls renderDestinations ends with. The
-          // per-hotspot feed they use is data/obs/{locId}/recent, which is
-          // scoped to the LOCATION and not to the report's counties — so this
-          // works from any anchor, including one outside them.
-          //
-          // Costs one call per card (up to QUICK_OUTING_TOP = 10), which is
-          // what Top destinations pays for the same rows. Chained, not
-          // parallel: the checklist pass consumes the unseen subIds the
-          // species pass publishes.
-          hydratePhotos(el);
-          return hydrateLocSpecies(el)
-            .then(function () { return hydrateHotspotChecklists(el); })
+          hydratePhotos(results);
+          return hydrateLocSpecies(results)
+            .then(function () { return hydrateHotspotChecklists(results); })
             .catch(function (e) {
               dbg('warn', 'quick outing hotspots: ' + ((e && e.message) || e));
-            });
-        }).catch(function (e) { st.textContent = netErr(e); })
+            }).then(function () { return top; });
+        }
+        // ONE scan, centred on the chosen anchor. The old two-anchor union
+        // existed only because both ranked at once; picking an origin makes the
+        // second circle a fetch nobody reads.
+        return zcGet(cacheKey).then(function (entry) {
+          if (!current()) return null;
+          cached = entry && Array.isArray(entry.rows) ? entry : null;
+          if (cached && !preserve) {
+            paint(cached.rows, cachedStatus(cached, false));
+          }
+          return ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng
+            + '&dist=32&back=30&fmt=json');
+        }).then(function (hs) {
+          if (!current() || hs == null) return null;
+          zcPut(cacheKey, { t: Date.now(), rows: Array.isArray(hs) ? hs : [] });
+          return paint(hs, '');
+        }).catch(function (e) {
+          if (!current()) return null;
+          if (cached) {
+            return paint(cached.rows, cachedStatus(cached, true));
+          }
+          if (preserve) {
+            st.textContent = 'Cached results shown \u2014 refresh could not reach eBird. '
+              + netErr(e);
+            return null;
+          }
+          st.textContent = netErr(e) + ' No cached hotspots are available for this place.';
+          return null;
+        })
           .finally(function () { btns.forEach(function (b) { if (b) b.disabled = false; }); });
       }
 
@@ -24305,15 +24434,29 @@
         // are globally unique so a plain concat is safe (computeHotspots dedups).
         return Promise.all(codes.map(function (code) {
           return Promise.all([
-            ebird('data/obs/' + encodeURIComponent(code) + '/recent?back=30&detail=full&hotspot=true&includeProvisional=true&maxResults=10000').catch(function () { return []; }),
-            ebird('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json').catch(function () { return []; })
+            ebird('data/obs/' + encodeURIComponent(code)
+              + '/recent?back=30&detail=full&hotspot=true&includeProvisional=true&maxResults=10000')
+              .then(function (rows) { return { ok: true, rows: rows }; })
+              .catch(function (e) { return { ok: false, rows: [], error: e }; }),
+            ebird('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json')
+              .then(function (rows) { return { ok: true, rows: rows }; })
+              .catch(function (e) { return { ok: false, rows: [], error: e }; })
           ]);
         })).then(function (perCounty) {
-          var recent = [], meta = [];
+          var recent = [], meta = [], attempted = 0, failed = 0;
           perCounty.forEach(function (pair) {
-            if (Array.isArray(pair[0])) recent.push.apply(recent, pair[0]);
-            if (Array.isArray(pair[1])) meta.push.apply(meta, pair[1]);
+            pair.forEach(function (source) {
+              attempted++;
+              if (!source.ok) failed++;
+            });
+            if (Array.isArray(pair[0].rows)) recent.push.apply(recent, pair[0].rows);
+            if (Array.isArray(pair[1].rows)) meta.push.apply(meta, pair[1].rows);
           });
+          if (attempted && failed === attempted) {
+            var e = new Error('All hotspot feeds are unavailable');
+            e.allFeedsFailed = true;
+            throw e;
+          }
           var baseRecent = recent.slice();
           return hotspotCachedDays(codes).then(function (extra) {
             // The day lists carry personal locations as well as hotspots;
@@ -24323,6 +24466,8 @@
             var result = [recent, meta];
             result.baseRecent = baseRecent;
             result.cachedDayRows = extra.length;
+            result.attempted = attempted;
+            result.failed = failed;
             return result;
           });
         });
@@ -24613,6 +24758,10 @@
             throw queueCancelledError(null, 'Hotspot context changed');
           }
           _hotspotCache = computeHotspots(res[0], res[1], home, anchors);
+          Object.defineProperty(_hotspotCache, '_feedIssue', {
+            configurable: true,
+            value: !!res.failed
+          });
           Object.defineProperty(_hotspotCache, '_ownershipInput', {
             configurable: true,
             value: {
@@ -24710,11 +24859,12 @@
         // between two taps of a button; it stays in the durable reference
         // cache, which is what keeps this a few calls instead of hundreds.
         if (opts.force) ebClearMatching(FORCE_OBS_RE);
-        // ⚠️ Set BEFORE the cache warm-up starts. Decoding is async now, so a
-        // slow decode could otherwise land after the live scan and paint
-        // yesterday's ranking over today's — a cache that makes the answer
-        // WORSE. Whoever answers first wins, and the live scan always wins.
+        // Decode the fallback before starting the live scan. It is a tiny local
+        // read, and doing it in this order gives every failure path the same
+        // last-good answer without allowing a late cache paint over live data.
         var painted = false, context = hotspotContextKey();
+        var cachedResult = _hotspotCache || null;
+        var warm = Promise.resolve(cachedResult);
         if (!(_hotspotCache && !opts.force)) {
           var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
           if (hotSt) hotSt.textContent = scanMsg;
@@ -24724,31 +24874,57 @@
           // empty card with a spinner is strictly worse than yesterday's
           // answer plus a note — especially when the scan is pacing against
           // the eBird rate limit and the wait is measured in tens of seconds.
-          hotCacheWarm().then(function (cached) {
-            if (!cached || painted || hotspotContextKey() !== context) return;
+          warm = hotCacheWarm().then(function (cached) {
+            if (!cached || painted || hotspotContextKey() !== context) return cachedResult;
+            cachedResult = cached;
             renderHot(cached); renderCold(cached);
             var age = 'as of ' + hotCacheAge(cached.t) + ' \u00b7 refreshing\u2026';
             if (hotSt) hotSt.textContent = age;
             if (coldSt) coldSt.textContent = age;
+            return cached;
           });
         }
-        return scanHotspots(opts.force).then(function (r) {
+        return warm.then(function () {
+          return scanHotspots(opts.force);
+        }).then(function (r) {
           painted = true;
-          hotCacheSave(r);
+          if (r._feedIssue && cachedResult) {
+            _hotspotCache = cachedResult;
+            renderHot(cachedResult); renderCold(cachedResult);
+            var cachedMsg = 'Cached results shown \u2014 refresh could not reach all eBird feeds'
+              + (cachedResult.t ? ' \u00b7 as of ' + hotCacheAge(cachedResult.t) : '');
+            if (hotSt) hotSt.textContent = cachedMsg;
+            if (coldSt) coldSt.textContent = cachedMsg;
+            return cachedResult;
+          }
+          if (!r._feedIssue) hotCacheSave(r);
           renderHot(r); renderCold(r);
           if (hotSt) hotSt.textContent = r.hot.length + ' running hot within '
-            + HOTSPOT_MAX_DIST_MI + ' mi · indexing 7 recent days in background · '
-            + nowTime();
+            + HOTSPOT_MAX_DIST_MI + ' mi'
+            + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
+                            : ' \u00b7 indexing 7 recent days in background')
+            + ' \u00b7 ' + nowTime();
           if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
             + (r.cold.length === 1 ? '' : 's') + ' within '
-            + HOTSPOT_MAX_DIST_MI + ' mi · indexing 7 recent days in background · '
-            + nowTime();
-          if (r._ownershipInput) {
+            + HOTSPOT_MAX_DIST_MI + ' mi'
+            + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
+                            : ' \u00b7 indexing 7 recent days in background')
+            + ' \u00b7 ' + nowTime();
+          if (!r._feedIssue && r._ownershipInput) {
             setTimeout(function () { startHotspotOwnership(r._ownershipInput); }, 0);
           }
           return r;
         }).catch(function (e) {
           if (e && e.queueCancelled) return null;
+          if (cachedResult && hotspotContextKey() === context) {
+            _hotspotCache = cachedResult;
+            renderHot(cachedResult); renderCold(cachedResult);
+            var msg = 'Cached results shown \u2014 refresh could not reach eBird'
+              + (cachedResult.t ? ' \u00b7 as of ' + hotCacheAge(cachedResult.t) : '');
+            if (hotSt) hotSt.textContent = msg;
+            if (coldSt) coldSt.textContent = msg;
+            return cachedResult;
+          }
           var em = netErr(e);
           if (hotSt) hotSt.textContent = em;
           if (coldSt) coldSt.textContent = em;
@@ -32933,7 +33109,8 @@
         loadHelp: loadHelp, renderMenuIdentity: renderMenuIdentity,
         destinationScopeDisclosure: destinationScopeDisclosure,
         menuIdentityHtml: menuIdentityHtml, todayStr: todayStr,
-        loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor, syncQuickButtons: syncQuickButtons,
+        loadQuickOuting: loadQuickOuting, quickAnchor: quickAnchor,
+        quickCacheKey: quickCacheKey, syncQuickButtons: syncQuickButtons,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
         easySampleState: easySampleState, easyResultStatus: easyResultStatus,
