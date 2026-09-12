@@ -16113,7 +16113,7 @@ test('the lifelist parser reads a real page and refuses a login page', async () 
 
   // ...and the URL is built from the ACTIVE report, not hard-coded.
   const url = A.lifelistYearUrl();
-  assert.ok(!url || /\/lifelist\/[A-Z-]+\?time=year$/.test(url),
+  assert.ok(!url || /\/lifelist\?r=[a-z0-9-]+&time=year&year=\d{4}$/.test(url),
     'the lifelist url is region-scoped and year-scoped: ' + url);
   app.window.close();
 });
@@ -21436,7 +21436,7 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
   app.window.fetch = (url) => {
     const u = String(url);
     urls.push(u);
-    if (/lifelist\?r=ABA&time=year&fmt=csv/.test(u)) {
+    if (/lifelist\?r=aba&time=year&year=2026&fmt=csv/.test(u)) {
       return new Promise((resolve) => {
         releaseCsv = () => resolve({
           ok: true, status: 200,
@@ -21514,7 +21514,7 @@ test('F373 a late ABA year-list response stays owned by ABA', async () => {
   ].join('\n');
   let releaseCsv;
   app.window.fetch = (url) => {
-    if (/lifelist\?r=ABA&time=year&fmt=csv/.test(String(url))) {
+    if (/lifelist\?r=aba&time=year&year=2026&fmt=csv/.test(String(url))) {
       return new Promise((resolve) => {
         releaseCsv = () => resolve({
           ok: true, status: 200,
@@ -21543,6 +21543,99 @@ test('F373 a late ABA year-list response stays owned by ABA', async () => {
   )).length, 5, 'a late ABA response was discarded or stored under the new report');
   assert.equal(app.window.localStorage.getItem('ebird_own_seen:hi'), null,
     'a late ABA response contaminated Hawaii My Ticks');
+  app.window.close();
+});
+
+test('F375 Reload My Ticks uses the exact ABA year URL and adds Hawaii birds', async () => {
+  const prior = {
+    amerob: {
+      n: 'American Robin', d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '',
+    },
+  };
+  const exactCsv = 'https://ebird.org/lifelist?r=aba&time=year&year=2026&fmt=csv';
+  const exactPage = 'https://ebird.org/lifelist?r=aba&time=year&year=2026';
+  const csv = [
+    'Species Code,Common Name,Date',
+    'hawgoo,Hawaiian Goose,10 Sep 2026',
+    'hawcoo,Hawaiian Coot,09 Sep 2026',
+    'hawhaw,Hawaiian Hawk,08 Sep 2026',
+    'iiwi,Iiwi,07 Sep 2026',
+    'apapan,Apapane,06 Sep 2026',
+  ].join('\n');
+  const urls = [];
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: {
+      ebird_display_name: 'Birder Wyatt',
+      'ebird_own_seen:aba': JSON.stringify(prior),
+    },
+  });
+  app.window.fetch = (url) => {
+    const u = String(url);
+    urls.push(u);
+    const body = u === exactCsv ? csv : 'Species Code,Common Name,Date\n';
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(body),
+      json: () => Promise.resolve(body),
+    });
+  };
+
+  const section = app.$('myYearBody').closest('section');
+  const reload = section.querySelector('.refreshbtn');
+  assert.ok(reload, 'My Ticks has no visible reload control beside its heading');
+  assert.equal(reload.getAttribute('aria-label'), 'Reload My Ticks',
+    'the My Ticks reload control has no explicit accessible label');
+  app.click(reload);
+  await waitFor(() => /Hawaiian Goose/.test(app.$('myYearList').textContent),
+    'the exact ABA year list to reach My Ticks', 3000);
+
+  assert.ok(urls.includes(exactCsv),
+    'Reload My Ticks did not request the lower-case, explicit-year ABA CSV URL');
+  assert.equal(urls.filter((u) => /ebird\.org\/lifelist/.test(u)).length, 1,
+    'the exact successful CSV unexpectedly fell through to another life-list URL');
+  const link = app.$('myYearBody').querySelector('.bignum a');
+  assert.ok(link, 'the My Ticks total no longer links to its eBird year list');
+  assert.equal(link.getAttribute('data-href'), exactPage,
+    'the visible My Ticks link does not use the same lower-case, explicit-year URL');
+  assert.match(app.$('myYearList').textContent, /Hawaiian Goose/);
+  assert.ok(Object.keys(JSON.parse(
+    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
+  )).length > Object.keys(prior).length,
+  'the exact ABA response did not increase the stored list');
+  assert.equal(app.window.__app.takeForce(), false,
+    'Reload My Ticks leaked its force flag into the next section');
+  app.window.close();
+});
+
+test('F375 a header-only life-list CSV cannot erase or complete over prior rows', async () => {
+  const prior = {
+    amerob: {
+      n: 'American Robin', d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '',
+    },
+  };
+  const header = 'Species Code,Common Name,Date\n';
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: {
+      ebird_display_name: 'Birder Wyatt',
+      'ebird_own_seen:aba': JSON.stringify(prior),
+    },
+    fetch: (url) => /fmt=csv/.test(String(url)) ? header : '',
+  });
+  const A = app.window.__app;
+
+  assert.equal(A.lifelistCsvIsEmpty(header), false,
+    'a header-only response was called authoritative empty over a known list');
+  const result = await A.tryLifelistYear();
+  assert.notEqual(result, A.LIFELIST_COMPLETE_EMPTY,
+    'the cheap path completed from a suspicious header-only response');
+  A.updateMyYear();
+  assert.match(app.$('myYearList').textContent, /American Robin/,
+    'the suspicious response erased the prior My Ticks row');
   app.window.close();
 });
 
@@ -28355,6 +28448,10 @@ test('F8: the CSV route is tried first, and the page route still carries codes',
 
   assert.match(A.lifelistCsvUrl(), /fmt=csv/, 'the CSV url asks for CSV');
   assert.match(A.lifelistCsvUrl(), /time=year/, 'and for the year, not the life list');
+  assert.match(A.lifelistCsvUrl(), /[?&]year=\d{4}/,
+    'the CSV request owns the same explicit year as the displayed list');
+  assert.doesNotMatch(A.lifelistCsvUrl(), /[?&]r=[A-Z]/,
+    'the query-form region is lower-case, matching the signed-in eBird page');
   assert.match(A.lifelistCsvUrl(), /ebird\.org\/lifelist/,
     'the INLINE endpoint - not Download My Data, which is an async emailed '
     + 'archive and is rejected on UX grounds');

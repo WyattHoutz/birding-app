@@ -2836,6 +2836,9 @@
 
     <section class="panel">
       <h2>📅 My Ticks</h2>
+      <div class="row">
+        <button id="myYearBtn">Reload My Ticks</button>
+      </div>
       <div id="myYearBody" class="status">Import your eBird CSV in Settings to see your totals.</div>
       <ul id="myYearList" class="obs"></ul>
     </section>
@@ -3488,7 +3491,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.97.0';
+      var APP_VERSION = '1.98.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4650,9 +4653,16 @@
           obsRegion: getObsRegion()
         };
       }
+      function lifelistBaseUrl(owner) {
+        var region = ((owner && owner.stateCode) || getReport().stateCode || '')
+          .trim().toLowerCase();
+        return region
+          ? 'https://ebird.org/lifelist?r=' + encodeURIComponent(region)
+            + '&time=year&year=' + encodeURIComponent(seedYear())
+          : '';
+      }
       function lifelistYearUrl(owner) {
-        var st = ((owner && owner.stateCode) || getReport().stateCode || '').toUpperCase();
-        return st ? 'https://ebird.org/lifelist/' + encodeURIComponent(st) + '?time=year' : '';
+        return lifelistBaseUrl(owner);
       }
       // Rows look like: "1. Hairy Woodpecker … 01 Jan 2026 … Dendron Arbor".
       // Parsed loosely on purpose: eBird's markup is not a contract, and a
@@ -4729,9 +4739,8 @@
       //
       // The day-lag objection must not be re-attached to the second.
       function lifelistCsvUrl(owner) {
-        var st = ((owner && owner.stateCode) || getReport().stateCode || '').toUpperCase();
-        return st ? 'https://ebird.org/lifelist?r=' + encodeURIComponent(st)
-                  + '&time=year&fmt=csv' : '';
+        var base = lifelistBaseUrl(owner);
+        return base ? base + '&fmt=csv' : '';
       }
       // A field may be quoted and contain commas — a location name almost
       // always does. Splitting on /,/ would shear every row at "Marymoor Park,
@@ -4778,9 +4787,17 @@
         };
         return table.code < 0 && table.name < 0 && table.sci < 0 ? null : table;
       }
-      function lifelistCsvIsEmpty(text) {
+      function lifelistHasPriorRows(owner) {
+        var slug = (owner && owner.slug) || getReportSlug();
+        if (Object.keys(ownSeenCodes(slug)).length) return true;
+        var seed = window.__SEED_BIRDLIST__;
+        var reportSeed = seed && seed.seenByReport && seed.seenByReport[slug];
+        return !!(usesBundledSeed() && reportSeed
+          && Array.isArray(reportSeed.yearList) && reportSeed.yearList.length);
+      }
+      function lifelistCsvIsEmpty(text, owner) {
         var table = lifelistCsvTable(text);
-        return !!table && table.lines.length === 1;
+        return !!table && table.lines.length === 1 && !lifelistHasPriorRows(owner);
       }
       // HEADER-DRIVEN, never positional.
       //
@@ -4886,7 +4903,7 @@
         var url = lifelistCsvUrl(owner);
         if (!url) return Promise.resolve(0);
         return fetchPublicHTML(url).then(function (body) {
-          if (lifelistCsvIsEmpty(body)) {
+          if (lifelistCsvIsEmpty(body, owner)) {
             verdict('My Ticks', 'lifelist CSV read in ONE call: authoritative '
               + 'empty species table — the 730-call walk was skipped');
             return LIFELIST_COMPLETE_EMPTY;
@@ -28398,10 +28415,8 @@
         return (seed && seed.year) || String(new Date().getFullYear());
       }
       function lifelistUrl(spp) {
-        var y = encodeURIComponent(seedYear()), r = encodeURIComponent(getRegion());
-        return spp
-          ? 'https://ebird.org/lifelist?r=' + r + '&time=year&year=' + y + '&spp=' + encodeURIComponent(spp)
-          : 'https://ebird.org/lifelist/' + r + '?time=year&year=' + y;
+        var base = lifelistYearUrl(lifelistOwner());
+        return spp && base ? base + '&spp=' + encodeURIComponent(spp) : base;
       }
       // "19 Jul 2026" (eBird export) → Date, for the "added this week" window.
       var _MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
@@ -28468,6 +28483,7 @@
         return '';
       }
       function loadMyYear() {
+        takeForce();
         var work = navWork('My Ticks refresh', 'sec-myYearBody');
         var report = getReport();
         var owner = report.isRarityTracker ? lifelistOwner() : null;
@@ -32287,6 +32303,7 @@
       });
       $('refreshBtn').addEventListener('click', refresh);
       $('targetsBtn').addEventListener('click', loadTargets);      $('destBtn').addEventListener('click', loadDestinations);
+      $('myYearBtn').addEventListener('click', loadMyYear);
       $('excBtn').addEventListener('click', loadExcursions);
       $('fullDayBtn').addEventListener('click', loadFullDay);
       $('tripBtn').addEventListener('click', loadTripPlanner);
