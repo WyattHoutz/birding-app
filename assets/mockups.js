@@ -115,7 +115,9 @@ const STUB_SPEC = {
       '#spLookupIdHelp details.spuhdetails',
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
       '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
-  stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults' },
+  stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults', map: 'stakeHsMap',
+    expects: ['#stakeHsResults .hscard-lg', '#stakeHsResults #stakeHsMap',
+      '#stakeHsResults .stakeHsIntroActions', '#stakeHsResults .stakeHsChecklistCards'] },
   iconicBtn:      { kind: 'hotspot',       host: 'iconicResults' },
   hotBtn:         { kind: 'hotspot',       host: 'hotResults', map: 'hotMap' },
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
@@ -135,7 +137,8 @@ const STUB_SPEC = {
   favResults:     { kind: 'hotspot',       host: 'favResults' },
   allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
-  nvResults:      { kind: 'species-search', host: 'nvResults' },
+  nvResults:      { kind: 'species-search', host: 'nvResults',
+    allowDisabled: ['.nvup', '.nvdown'] },
   migBtn:         { kind: 'migration',     host: 'migFirstResults',
     expects: ['#migEvent [data-event-id="october-big-day-2026"]',
       '#migFirstResults .obs.big.xl.icon-sm > li', '#migFirstResults .spdist',
@@ -154,13 +157,14 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
   return {
     id: 'section-' + item.at,
     at: item.at,
-    title: item.label + ' — ' + item.sub,
+    title: item.label + (item.sub ? ' — ' + item.sub : ''),
     kind: spec && spec.kind,
     host: spec && spec.host,
     map: spec && spec.map,
     scrollTo: spec && spec.scrollTo,
     maxHostHeight: spec && spec.maxHostHeight,
     expects: (spec && spec.expects) || [],
+    allowDisabled: (spec && spec.allowDisabled) || [],
     prep: `var spec = ${JSON.stringify(spec || null)};
            A.setActiveReport((spec && spec.report) || 'wa');
            FIX.before(${at}, A, document);
@@ -716,15 +720,26 @@ const BOOTSTRAP = `
     var secondCode = at === 'myYearBody' ? 'fragul' : 'solsan';
     var secondBird = stubBird(secondCode);
     var firstBird = stubBird(cfg[1]);
+    var isMyYear = at === 'myYearBody';
     return [
       SC.medium({ sci: cfg[2], icon: mockPhoto(cfg[1]),
-        name: cfg[0], code: cfg[1], alpha: firstBird.alpha || '',
+        name: (isMyYear ? '<span class="yrnum">216.</span>' : '') + cfg[0],
+        code: cfg[1], alpha: firstBird.alpha || '',
         tags: '<span class="mockstate">' + cfg[3] + '</span>', distMi: 8.4,
+        actions: isMyYear
+          ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
+            + ' aria-pressed="false">Add to watchlist</button>'
+          : '',
         sub: cfg[4] }),
       SC.medium({ sci: secondBird.sci || 'Tringa solitaria', icon: mockPhoto(secondCode),
-        name: secondBird.name || 'Solitary Sandpiper', code: secondCode,
+        name: (isMyYear ? '<span class="yrnum">214.</span>' : '')
+          + (secondBird.name || 'Solitary Sandpiper'), code: secondCode,
         alpha: secondBird.alpha || '',
         tags: '<span class="mockstate">' + secondTag + '</span>', distMi: 17.2,
+        actions: isMyYear
+          ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
+            + ' aria-pressed="true">Remove from watchlist</button>'
+          : '',
         sub: secondSub })
     ];
   }
@@ -1138,7 +1153,14 @@ const BOOTSTRAP = `
             subId: 'S389010339', latestSubId: 'S389010339',
             latestStr: '2026-09-01 16:12',
             latestLocName: 'Jefferson Park, Seattle', latestLocId: 'L14245785',
-            latestLat: 47.5704544, latestLon: -122.310873, latestDistMi: 14.3 }
+            latestLat: 47.5704544, latestLon: -122.310873, latestDistMi: 14.3 },
+          { code: 'baisan', name: "Baird's Sandpiper", sightings: 1,
+            nPlaces: 1, distMi: 12.5, locName: 'Release filter control',
+            locId: 'LSEENCONTROL', lat: 47.6, lon: -122.2,
+            subId: 'SSEENCONTROL', latestSubId: 'SSEENCONTROL',
+            latestStr: '2026-09-02 12:00',
+            latestLocName: 'Release filter control', latestLocId: 'LSEENCONTROL',
+            latestLat: 47.6, latestLon: -122.2, latestDistMi: 12.5 }
         ], [],
         { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' },
         [
@@ -1160,7 +1182,7 @@ const BOOTSTRAP = `
         return row.hidden;
       }).map(function (row) { return row.getAttribute('data-species-code'); });
       if (visibleCodes.join(',') !== 'nazboo1,amgplo,vesspa,comter'
-          || hiddenCodes.join(',') !== 'ruff') {
+          || hiddenCodes.join(',') !== 'baisan') {
         throw new Error('Bird Gen fixture species/filter state drifted: visible='
           + visibleCodes.join(',') + ' hidden=' + hiddenCodes.join(','));
       }
@@ -1312,10 +1334,60 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);
-    } else if (spec.kind === 'hotspot' || spec.kind === 'hotspot-search') {
+    } else if (spec.kind === 'hotspot-search') {
+      var place = "Pu'u Lā'au, Palila Discovery Trail and Ka'ohe GMA";
+      var recent = [
+        ['S393001001', '2026-09-12 09:05', 'Lance Tanino - Hawaii Bird Guide', 18],
+        ['S393001002', '2026-09-12 08:20', 'Reginald David', 20],
+        ['S393001003', '2026-09-11 16:42', 'Nicole Carion', 14],
+        ['S393001004', '2026-09-10 07:18', 'Michael Carion', 22]
+      ].map(function (row) {
+        return {
+          subId: row[0], obsDt: row[1], userDisplayName: row[2], numSpecies: row[3],
+          loc: {
+            lat: 19.8319, lng: -155.5948,
+            hierarchicalName: place + ', Hawaii, Hawaii, US'
+          }
+        };
+      });
+      document.getElementById('stakeHs').value = place;
+      A.renderStakeHs('L285813', place, recent, [
+        { speciesCode: 'blkfra', comName: 'Black Francolin' },
+        { speciesCode: 'calqua', comName: 'California Quail' },
+        { speciesCode: 'melthr', comName: 'Chinese Hwamei' },
+        { speciesCode: 'palila', comName: 'Palila' }
+      ], {
+        lat: 19.8319, lng: -155.5948, n: 54, nc: 3256,
+        latest: '2026-09-12 09:05'
+      }, false);
+      document.getElementById('stakeHsStatus').textContent =
+        '4 recent checklists · 10:03 PM';
+      markHost(host, label);
+    } else if (spec.kind === 'hotspot') {
       fillHotspotHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'species-search') {
-      fillSpeciesHost(host, document.defaultView, label, at);
+      if (at === 'nvResults') {
+        A.setActiveReport('wa');
+        localStorage.setItem('ebird_watchlist_v1', JSON.stringify([
+          { code: 'baisan', name: "Baird's Sandpiper" },
+          { code: 'hawama', name: 'Hawaii Amakihi' }
+        ]));
+        A.renderWatch();
+        var scopeButtons = document.querySelectorAll('#nvScope .nvscopebtn');
+        if (scopeButtons.length !== 2
+            || scopeButtons[0].textContent.trim() !== 'This region'
+            || scopeButtons[0].getAttribute('aria-pressed') !== 'true'
+            || scopeButtons[1].textContent.trim() !== 'All'
+            || !/Baird's Sandpiper/.test(host.textContent)
+            || /Hawaii Amakihi/.test(host.textContent)
+            || !/1 of 2 species awaiting verification/.test(
+              document.getElementById('nvStatus').textContent)) {
+          throw new Error('Needs proof regional scope fixture drifted');
+        }
+        markHost(host, label);
+      } else {
+        fillSpeciesHost(host, document.defaultView, label, at);
+      }
     } else if (spec.kind === 'checklists') {
       fillChecklistHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'ranking') {

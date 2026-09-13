@@ -791,13 +791,18 @@
        yet, and cannot be forgotten. :not(:first-child) so a badge that still
        leads its line is not pushed off its own left edge. */
     .newflag:not(:first-child) { margin-left: 6px; }
-    /* The My-year ordinal, on its own line. `display:block` rather than a
-       <br>, so the number is still one element the layout audit can measure
-       and a screen reader announces as its own thing. Muted and smaller
-       because it ranks the row, it does not name the bird. */
-    .yrnum { display: block; font-size: calc(13px * var(--s)); font-weight: 700;
-             color: var(--muted); line-height: 1.2; margin-bottom: 2px;
+    /* The My-year ordinal is part of the title, not metadata. Keep it on its
+       own line so it cannot force a mid-name wrap, but inherit the species
+       name's exact type instead of shrinking the number into a caption. */
+    .yrnum { display: block; font-size: inherit; font-weight: inherit;
+             color: inherit; line-height: inherit; margin-bottom: 2px;
              font-variant-numeric: tabular-nums; }
+    .myYearWatchlist { display: block; width: max-content; max-width: 100%;
+                       min-height: 44px; margin: 8px 0 0; padding: 7px 10px;
+                       font-size: calc(13px * var(--s)); line-height: 1.2;
+                       white-space: normal; text-align: left; }
+    .nvscope { display: flex; align-items: center; margin: 8px 0 10px; }
+    .nvscope .sortpick { margin-left: 0; }
     /* No `white-space: nowrap`. At 320px with the 1.75x accessibility scale
        "N new since you last looked" is 300px wide and overflowed the screen by
        27.6px — the status line is prose, and prose wraps. */
@@ -1113,10 +1118,14 @@
     /* Outer margin so a control row is separated from the content it acts on
        rather than sitting flush against it. */
     .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
+    .stakeHsActions { flex-wrap: nowrap; }
+    .stakeHsActions > #stakeHs { flex: 1 1 auto; width: auto; min-width: 0; }
+    .stakeHsActions > #stakeHsBtn { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     #spCodesBtn { min-height: 44px; }
     .spLookupActions { column-gap: 6px; }
     .spLookupActions > button { padding-inline: 10px; }
     .spLookupActions #spCodesBtn { font-size: calc(14px * var(--s)); }
+    .spLookupWatchlist { min-height: 44px; }
     /* Condensed. Five chunky buttons wrapped onto three rows on a 402px
        phone and pushed the answer below the fold - the controls were taking
        more of the screen than the content they control.
@@ -1162,8 +1171,8 @@
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #fullDayMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
-    #spLookupMap:empty, #destMap:empty, #excMap:empty, #fullDayMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
+    #destMap, #excMap, #fullDayMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap, #stakeHsMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #spLookupMap:empty, #stakeHsMap:empty, #destMap:empty, #excMap:empty, #fullDayMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .leaflet-div-icon { background: transparent; border: none; }
@@ -1875,6 +1884,20 @@
                     color: var(--muted); font-variant-numeric: tabular-nums;
                     white-space: nowrap; }
     .stakewho .wn b { color: var(--ink); font-size: calc(16px * var(--s)); }
+    .stakeHsIntroActions { display: flex; flex-wrap: wrap; align-items: center;
+                           gap: 8px 12px; margin-top: 8px; }
+    .stakeHsIntroActions .maplink, .stakeHsIntroActions .extlink,
+    .stakeHsIntroActions .favlink { margin-top: 0; font-size: inherit; }
+    .stakeHsIntroActions .stakeHsFav {
+      min-height: 44px; padding: 8px 10px; color: var(--accent-ink);
+    }
+    .stakeHsChecklistCards { display: grid; gap: 7px; margin-top: 8px; }
+    .stakeHsChecklistCards > .cklcard-sm {
+      margin: 0; padding: 8px 10px; text-indent: 0;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: var(--card);
+    }
+    .stakeHsChecklistCards > .cklcard-sm::before { content: none; }
     .favrank { display: inline-flex; align-items: center; justify-content: center;
                min-width: calc(22px * var(--s)); height: calc(22px * var(--s)); padding: 0 6px; border-radius: 999px;
                background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -2603,15 +2626,16 @@
         <button id="allUnseenBtn">List every report</button>
       </div>
       <div id="allUnseenStatus" class="status"></div>
-      <ul id="allUnseenResults" class="obs big xl icon-sm"></ul>
+      <div id="allUnseenProgress">
+        <ul id="allUnseenResults" class="obs big xl icon-sm"></ul>
+      </div>
     </section>
 
     <section class="panel">
       <h2>🏞 Stake out a hotspot <span class="dim" id="stakeHsRegionLabel"></span></h2>
-      <div class="row">
+      <div class="row stakeHsActions">
         <input id="stakeHs" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
-        <button id="stakeHsBtn" class="secondary">Search</button>
-        <button id="stakeHsClear" class="secondary" type="button" hidden>✕ Close</button>
+        <button id="stakeHsBtn" class="secondary" type="button">Go</button>
       </div>
       <ul id="stakeHsFound" class="obs picklist"></ul>
       <div id="stakeHsStatus" class="status">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
@@ -2796,6 +2820,7 @@
         <button id="nvBtn">Check for recent reports</button>
         <button id="nvCopyBtn" class="secondary" type="button">📋 Copy for birdlist-needsverification.md</button>
       </div>
+      <div id="nvScope" class="nvscope"></div>
       <div id="nvStatus" class="status">Your tentative IDs awaiting a confirmation sighting. These are held OFF your year list everywhere in the app, so they keep showing up as targets until you drop them.</div>
       <ul id="nvResults" class="obs favlist"></ul>
     </section>
@@ -3235,6 +3260,7 @@
     #debugPanel .dbgtools[hidden] { display: none; }
     #debugPanel .dbgtools button { background: #24463a; color: #e6fff4; border: 0;
                                    border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+    html[data-report-export="true"] #debugPanel { display: none !important; }
     /* `overflow:auto` and `-webkit-overflow-scrolling` because a <pre> does not
        scroll on its own the way a textarea did. `user-select: text` so the log
        can still be selected by hand if the clipboard is refused. */
@@ -3258,6 +3284,8 @@
       <button id="dbgMore" type="button" aria-expanded="false">⋯</button>
     </div>
     <div id="dbgTools" class="dbgtools" hidden>
+      <button id="dbgCopyReportImage" type="button">🖼 Copy full report</button>
+      <button id="dbgShareReport" type="button">↗ Share report PDF</button>
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgClear" type="button">Clear</button>
@@ -3491,7 +3519,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.99.0';
+      var APP_VERSION = '1.100.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4439,10 +4467,12 @@
         try { return JSON.parse(localStorage.getItem(ownSeenKey(slug) + ':meta') || 'null'); }
         catch (e) { return null; }
       }
-      function isOwnRow(row) {
+      function sameDisplayName(name) {
         var me = String(getDisplayName() || '').trim().toLowerCase();
-        if (!me) return false;
-        return String((row && row.userDisplayName) || '').trim().toLowerCase() === me;
+        return !!me && String(name || '').trim().toLowerCase() === me;
+      }
+      function isOwnRow(row) {
+        return sameDisplayName(row && row.userDisplayName);
       }
       // product/lists exposes no edit timestamp, but its numSpecies follows the
       // current checklist body. Measured on an edited Hawaii row: 13 in the
@@ -7291,10 +7321,12 @@
           var names = {};
           c.rows.forEach(function (h) {
             var n = h && (h.locName || h.name);
-            // Carries the COORDINATES, not just membership, because the county
-            // baseline needs a point to resolve. Still truthy, so the existing
-            // "is this a real hotspot" test reads the same.
-            if (n) names[String(n).trim().toLowerCase()] = { lat: h.lat, lng: h.lng };
+            // Carries the identity and coordinates, not just membership. The
+            // county baseline needs the point; the rendered place needs locId
+            // so its ordinary name can stay in-app through Stakeout hotspot.
+            if (n) names[String(n).trim().toLowerCase()] = {
+              lat: h.lat, lng: h.lng, locId: h.locId || h.id || ''
+            };
           });
           return Promise.resolve(names);
         } catch (e) { return Promise.resolve(null); }
@@ -7344,7 +7376,8 @@
               if (!tot || tot < minEffort) return;      // a ratio off five checklists is a fiction
               out.push({
                 place: x.name, n: x.count, effort: tot,
-                lat: hs && hs.lat, lng: hs && hs.lng, unwatched: !covered(x.name)
+                lat: hs && hs.lat, lng: hs && hs.lng,
+                locId: hs && hs.locId, unwatched: !covered(x.name)
               });
             });
             // The baseline is the COUNTY the place sits in, exactly as in
@@ -7854,7 +7887,7 @@
           if (!r.locId) r.locId = megaCachedHotspotId(r, s.region);
           (by[r.speciesCode] || (by[r.speciesCode] = [])).push(r);
         });
-        var freshMs = MEGA_NEWS_MAX_AGE_DAYS * 86400000;
+        var freshMs = MEGA_NEWS_MAX_AGE_H * 3600000;
         function freshRecord(r) {
           var t = Date.parse(String((r && r.obsDt) || '').replace(' ', 'T'));
           var age = Date.now() - t;
@@ -7982,8 +8015,10 @@
       // word, and the corroboration floor every other lane here uses (F122:
       // count independent parties, and eBird files one checklist per member).
       var MEGA_MULTI_REPORTS = 2;
-      // F264. How old a mega's newest report may be and still be NEWS.
-      var MEGA_NEWS_MAX_AGE_DAYS = 7;
+      // F379. MEGA rarities owns the durable, complete list. Bird Gen is the
+      // alert surface, so its mega rows use the same 36-hour definition of
+      // "now" as its crowd and hotspot lanes instead of lingering for a week.
+      var MEGA_NEWS_MAX_AGE_H = BL.SURGE.WINDOW_H;
       // ⚠️ F271. THE DAY-TRIP RADIUS, WHICH IS NOT THE CHASE RADIUS.
       //
       // Owner: *"the booby should show up under celebrity birds only because it
@@ -8504,24 +8539,11 @@
             var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name) + flock + stake + warn;
             return SpeciesCards.medium({
               sci: sciFor(r && r.code),
-              // "in todays rarities, if i click on the species icon or name,
-              // then link to the checklist on ebird."
-              //
-              // Every other section's card is ABOUT A BIRD, so its head goes to
-              // the species page. This one is not: Today's rarities is one row
-              // per REPORT, and what you want when a rarity turns up is the
-              // checklist that reported it — the photos, the notes, exactly
-              // where the observer was standing. So the head of the card points
-              // at its own subject.
-              //
-              // The species page is not lost: Last 7-Days is these same birds
-              // seen as species rather than as reports, and Species lookup
-              // answers for any bird by name. A row with no submission id
-              // (rare, but the alert feed can omit it) falls back to the
-              // species page rather than rendering a dead name.
-              icon: photoSlot(r.name, r.code, r.subId ? checklistUrl(r.subId) : ''),
-              name: r.subId ? checklistLink(r.subId, r.name)
-                            : speciesLink(r.name, r.code),
+              // The bird remains the subject even though this is one row per
+              // report: name and photo open Species Stakeout. The dated action
+              // below retains the exact supporting checklist.
+              icon: photoSlot(r.name, r.code, { stakeout: true }),
+              name: speciesLink(r.name, r.code),
               // The header is the NAME and nothing else.
               tags: '',
               // The medium card carries distance in its own column, so it
@@ -8901,16 +8923,81 @@
         });
         return groups;
       }
+      var ALL_UNSEEN_BATCH = 12;
+      var _allUnseenRequestGeneration = 0;
+      var _allUnseenPaintGeneration = 0;
+      function allUnseenCardHtml(g) {
+        var near = g.near.length ? g.near : g.places;
+        // Show the freshest few and fold the rest away. A bird reported at
+        // 66 places turned one card into a wall you had to scroll past to
+        // reach the next species, and the places are already sorted newest
+        // first — so the ones worth reading are the ones at the top.
+        return speciesPlacesCard({
+          code: g.code, name: g.name,
+          // No rank number: it rendered hard against the name as "1Merlin",
+          // and a list already ordered nearest-first does not need to
+          // number itself to say so.
+          tags: needTag(g.code, g.name) + (g.anyUnconfirmed ? ' ⚠️' : ''),
+          // Distance is the third column now, not a phrase buried in the
+          // middle of the sub-header — it is the one fact here that
+          // decides whether you can go.
+          distMi: g.distMi,
+          sub: [
+            near.length + ' place' + (near.length === 1 ? '' : 's'),
+            near.reduce(function (a, p) { return a + p.nReports; }, 0) + ' reports'
+          ].filter(Boolean).join(' · '),
+          places: near
+          // NO per-card "beyond N mi" expander. Every card carried one, so
+          // the section repeated the same "there is more, further away"
+          // affordance dozens of times over — and the status line above
+          // already says how many species are only further out. A second
+          // expander inside each card, under the one that folds the extra
+          // places, was two folds deep for a place you had already decided
+          // was too far.
+        });
+      }
+      function renderAllUnseenCards(rows) {
+        var host = $('allUnseenProgress');
+        var section = host && host.closest('section');
+        if (!host || !window.ProgressiveList) {
+          throw new Error('The progressive list control is unavailable.');
+        }
+        var generation = ++_allUnseenPaintGeneration;
+        return ProgressiveList.mount({
+          host: host,
+          id: 'allUnseenResults',
+          items: rows || [],
+          batchSize: ALL_UNSEEN_BATCH,
+          listClass: 'obs big xl icon-sm',
+          buttonClass: 'allUnseenMore',
+          noun: 'birds',
+          renderItem: allUnseenCardHtml,
+          isCurrent: function () {
+            return generation === _allUnseenPaintGeneration
+              && section && !section.hidden
+              && visibleSectionId() === section.id;
+          },
+          afterAppend: function (list, start, end) {
+            for (var i = start; i < end; i++) hydratePhotos(list.children[i]);
+          }
+        });
+      }
       function loadAllUnseen() {
         if (!getKey()) { $('allUnseenStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         if ($('allUnseenRegionLabel')) $('allUnseenRegionLabel').textContent = '· ' + getReport().label;
-        var btn = $('allUnseenBtn'), st = $('allUnseenStatus'), el = $('allUnseenResults');
-        btn.disabled = true; el.innerHTML = '';
+        var btn = $('allUnseenBtn'), st = $('allUnseenStatus');
+        var requestGeneration = ++_allUnseenRequestGeneration;
+        btn.disabled = true;
         st.textContent = 'Collecting every unseen report in ' + getReport().label + '…';
         getChase().then(function (c) {
+          if (requestGeneration !== _allUnseenRequestGeneration) return;
           if (c.rarity) { rarityRedirect(st); return; }
           var rows = buildAllUnseen(c.cv.unseen || []);
-          if (!rows.length) { st.textContent = 'No unseen-species reports in range right now.'; return; }
+          if (!rows.length) {
+            st.textContent = 'No unseen-species reports in range right now.';
+            renderAllUnseenCards([]);
+            return;
+          }
           // Filter by the chase radius, the same one Today's rarities uses.
           // The section was listing places 111 mi away beside one 8 mi from
           // the house, in a report whose whole job is "where can I go and see
@@ -8936,39 +9023,12 @@
               + (farOnly ? ' (' + farOnly + ' more species only further out)' : '')
               + ' · nearest first, places by date · ' + nowTime();
           }
-          el.innerHTML = shown.map(function (g) {
-            var near = g.near.length ? g.near : g.places;
-            // Show the freshest few and fold the rest away. A bird reported at
-            // 66 places turned one card into a wall you had to scroll past to
-            // reach the next species, and the places are already sorted newest
-            // first — so the ones worth reading are the ones at the top.
-            return speciesPlacesCard({
-              code: g.code, name: g.name,
-              // No rank number: it rendered hard against the name as "1Merlin",
-              // and a list already ordered nearest-first does not need to
-              // number itself to say so.
-              tags: needTag(g.code, g.name) + (g.anyUnconfirmed ? ' ⚠️' : ''),
-              // Distance is the third column now, not a phrase buried in the
-              // middle of the sub-header — it is the one fact here that
-              // decides whether you can go.
-              distMi: g.distMi,
-              sub: [
-                near.length + ' place' + (near.length === 1 ? '' : 's'),
-                near.reduce(function (a, p) { return a + p.nReports; }, 0) + ' reports'
-              ].filter(Boolean).join(' · '),
-              places: near
-              // NO per-card "beyond N mi" expander. Every card carried one, so
-              // the section repeated the same "there is more, further away"
-              // affordance dozens of times over — and the status line above
-              // already says how many species are only further out. A second
-              // expander inside each card, under the one that folds the extra
-              // places, was two folds deep for a place you had already decided
-              // was too far.
-            });
-          }).join('');
-          hydratePhotos(el);
-        }).catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
+          renderAllUnseenCards(shown);
+        }).catch(function (e) {
+          if (requestGeneration === _allUnseenRequestGeneration) st.textContent = netErr(e);
+        }).finally(function () {
+          if (requestGeneration === _allUnseenRequestGeneration) btn.disabled = false;
+        });
       }
       // ONE LINE PER CHECKLIST: name · when · how many · how far · 🗺.
       //
@@ -8980,32 +9040,32 @@
       // SAME date twice, one above the other, which is what read as a
       // duplicate row for every checklist in the list.
       //
-      // So the hotspot NAME is now the row, and the name is the link to the
-      // checklist. That is the same trade the small card already made for its
-      // date lead: an eBird submission id is noise, the row needed a link, and
-      // the name is the thing worth tapping. A place with three checklists is
-      // three rows under the same name — repetitive, but each row is a
-      // separate report you can open, which "3 reports" never was.
+      // So the hotspot NAME is now the row and opens Stakeout hotspot. Its
+      // date is the explicitly external checklist action. A place with three
+      // checklists is three rows under the same name — repetitive, but each
+      // row is a separate report you can open, which "3 reports" never was.
       function unseenPlacesHtml(places) {
         var rows = [];
         (places || []).forEach(function (p) {
           // A place always has its checklists; Easy misses can hand over a
-          // spot with none, and that still deserves a row, so it falls back to
-          // the place's own date and links to the hotspot instead.
+          // spot with none, and that still deserves a row. In that fallback
+          // the hotspot name remains in-app and a labelled eBird action keeps
+          // the external source reachable.
           var cks = (p.checklists && p.checklists.length)
             ? p.checklists
             : [{ subId: '', dateStr: p.dateStr, count: null, valid: null }];
           cks.forEach(function (c) {
-            var href = c.subId
-              ? 'https://ebird.org/checklist/' + encodeURIComponent(c.subId)
-              : (p.locId && !p.locationPrivate ? hotspotUrl(p.locId) : '');
+            var href = c.subId ? checklistUrl(c.subId) : '';
+            var publicHotspot = p.locId && !p.locationPrivate;
             rows.push(ChecklistCards.small({
               // The full name, not the 34-char default: this row is the only
               // place the hotspot is named now, so it gets the width the old
               // heading had and still ellipsises rather than wrapping.
               place: (p.loc || p.locId || ''),
+              placeHtml: publicHotspot
+                ? stakeHotspotLink(p.locId, p.loc || p.locId || '') : '',
               max: 60,
-              href: href,
+              dateHref: href,
               date: fmtDateTime(c.dateStr || p.dateStr),
               count: c.count,
               // 📷 / 🎥 / 🔊 straight off the feed row, like every other list.
@@ -9018,6 +9078,8 @@
               // the place heading, which no longer exists.
               map: mapPin(p.lat, p.lon),
               distQ: distQ(p.lat, p.lon),
+              below: (!href && publicHotspot)
+                ? '<div class="hsact">' + ebirdHotspotA(p.locId) + '</div>' : '',
               flag: (c.valid === false
                 || (!c.subId && p.anyUnconfirmed)) ? '⚠️' : ''
             }));
@@ -9529,14 +9591,13 @@
       }
 
       function spuhPathChip(node) {
-        return '<a class="spuhtaxlink spuhpathchip'
-          + (node.limit ? ' limited' : '') + '" href="https://ebird.org/species/'
-          + encodeURIComponent(node.code) + '" data-spuh="' + esc(node.code)
+        return '<button type="button" class="spuhtaxlink spuhpathchip'
+          + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
           + '" data-compact-label="' + esc(node.name) + '"><span>'
           + esc(node.name) + '</span>'
           + (node.limit
             ? '<span class="spuhcompactstate" aria-label="Coverage limit">⚠</span>' : '')
-          + '</a>';
+          + '</button>';
       }
 
       function spuhPathSentenceHtml(levels, extraClass, viewControls) {
@@ -11260,9 +11321,7 @@
           // hand-built one is silently dropped and the row loses the number
           // that ties it to its map pin.
           num: num,
-          name: (r.lat != null && r.lng != null)
-            ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
-            : esc(r.place),
+          name: r.locId ? stakeHotspotLink(r.locId, r.place) : esc(r.place),
           sub: esc(r.label || '')
             + (r.when ? ' \u00b7 ' + esc(r.when) : '')
             + (r.yearsLabel ? ' \u00b7 ' + esc(r.yearsLabel) : '')
@@ -11271,7 +11330,9 @@
             + (r.scope === 'state' ? ' \u00b7 vs the whole state' : '')
             + (r.unwatched
                 ? ' \u00b7 \u2744\ufe0e nobody looking'
-                : ' \u00b7 \u2713 reported lately')
+                : ' \u00b7 \u2713 reported lately'),
+          below: '<div class="hsact">' + mapA(
+            r.lat, r.lng, '🗺 Open in Maps ↗') + '</div>'
         });
       }
 
@@ -11421,6 +11482,7 @@
         var lookupSummary = '';
         var sightingsFailure = '';
         sortSpeciesPlaces(g, iconicMode ? 'date' : _spLookupSort);
+        var watched = isWatched(g.code);
         var seenIt = !!getReportSeen()[g.code];
         st.hidden = false;
         if (g.loadError) {
@@ -11464,14 +11526,17 @@
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           code: g.code,
-          actions: qrButton('species', g.code),
-          tags: (seenIt ? '✅' : needTag(g.code, g.name)) + (g.anyUnconfirmed ? ' ⚠️' : ''),
+          actions: qrButton('species', g.code)
+            + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
+          tags: (seenIt ? '✅' : needTag(g.code, g.name))
+            + (g.anyUnconfirmed && !watched ? ' ⚠️' : ''),
           // Same third column as All unseen. The lookup itself is not filtered
           // — you asked about this bird, so every place it has been is the
           // answer, however far. What IS filtered is the DEFAULT VIEW of that
           // answer; see below.
           distMi: g.distMi,
-          sub: seenIt ? 'already on your year list' : 'not on your year list',
+          sub: watched ? 'on your watchlist for verification'
+            : (seenIt ? 'already on your year list' : 'not on your year list'),
           below: (lookupSummary
             ? '<div class="status splookupsummary">' + esc(lookupSummary) + '</div>'
             : '') + megaEvidenceHtml(mega) + sightingsFailure + placesHtml
@@ -11491,6 +11556,13 @@
         if (retrySightings) retrySightings.addEventListener('click', function () {
           lookupSpecies(retrySightings.getAttribute('data-code') || g.code,
             retrySightings.getAttribute('data-name') || g.name);
+        });
+        var watchButton = out.querySelector('.spLookupWatchlist');
+        if (watchButton) watchButton.addEventListener('click', function () {
+          var code = String(watchButton.getAttribute('data-code') || '').toLowerCase();
+          var name = watchButton.getAttribute('data-name') || g.name || '';
+          toggleWatchlistSpecies(code, name);
+          renderSpeciesLookup();
         });
         if ((g.places || []).length) renderSpeciesLookupMap(g, iconicMode, SP_ROWS_MAX);
         else clearMap($('spLookupMap'));
@@ -12196,6 +12268,7 @@
         });
       }
       function chaseKey(slug) { return CHASE_NS + slug + ':' + todayStr(); }
+      var _chaseSnapshotStoreGate = null;
       function saveChaseSnapshot(slug, codes, rowsByFile, feedStates,
                                  expectedGeneration, provenance) {
         provenance = provenance || {
@@ -12208,6 +12281,10 @@
           fetchBaseKey: provenance.fetchBaseKey || '',
           geoNotableKm: provenance.geoNotableKm
         })
+          .then(function (payload) {
+            var gate = _chaseSnapshotStoreGate ? _chaseSnapshotStoreGate() : null;
+            return Promise.resolve(gate).then(function () { return payload; });
+          })
           .then(function (payload) {
             if (expectedGeneration != null && expectedGeneration !== _chaseGeneration) {
               dbg('info', 'superseded chase snapshot not written · ' + slug);
@@ -13035,12 +13112,17 @@
                 if (chaseCurrent()) onChasePhaseOne(slug);
               });
             }
+            // The phase-one rows already drive Bird Gen's observation,
+            // celebrity and top-patch news. Persist them before the detached
+            // species pass finishes, so closing the app during that long pass
+            // cannot leave only the independently cached MEGA rows behind.
+            var phaseOneSaved = saveChaseSnapshot(
+              slug, codes, rowsByFile, feedStates, generation,
+              { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm }
+            );
             if (!spFeeds.length) {
               progressEnd();
-              saveChaseSnapshot(slug, null, rowsByFile, feedStates, generation,
-                { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm })
-                .catch(function () {});
-              return first;
+              return phaseOneSaved.then(function () { return first; });
             }
             dbg('net', 'WAVE phase 2 · ' + spFeeds.length + ' species feeds'
               + ' (~' + Math.round(spFeeds.length / FG_REFILL_PER_S) + 's at the safe rate)'
@@ -13107,7 +13189,10 @@
                   { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm });
               });
             }
-            _chasePhase2[slug] = runTargetPlan(targetCodes, targetGeneration).then(function () {
+            _chasePhase2[slug] = phaseOneSaved.then(function () {
+              requireCurrentChase();
+              return runTargetPlan(targetCodes, targetGeneration);
+            }).then(function () {
               requireCurrentChase();
               progressEnd();
               _partialDone[slug] = false;
@@ -13141,7 +13226,7 @@
               if (_chasePhase2[slug] === _p2) delete _chasePhase2[slug];
             });
 
-            return first;
+            return phaseOneSaved.then(function () { return first; });
           });
         }
         // A cold start had nothing in memory and paid the whole wave again.
@@ -13621,13 +13706,9 @@
       }
 
       // --- Report-parity row furniture ---------------------------------------
-      // Every observation row in the Markdown report carries the same links and
-      // tags: the species name links to its eBird species page, the location to
-      // its hotspot page (plus a separate 🗺 maps link) or straight to maps for
-      // personal locations, and the sighting links to its checklist. These
-      // mirror report.py's _name_link / _loc_link / _rec_loc_link /
-      // _checklist_url so app rows carry the same information — and the same
-      // working links — as the report rows they mirror.
+      // External URLs remain available through explicitly labelled eBird,
+      // checklist, QR and Maps actions. Ordinary bird and public-hotspot names
+      // stay inside the app through the two Stakeout screens.
       function speciesUrl(code) { return code ? 'https://ebird.org/species/' + encodeURIComponent(code) + '/' + encodeURIComponent(getRegion()) : ''; }
       function checklistUrl(sub) { return sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : ''; }
       function hotspotUrl(locId) { return locId ? 'https://ebird.org/hotspot/' + encodeURIComponent(locId) : ''; }
@@ -14349,20 +14430,25 @@
       // Species code is optional so older call sites keep working, but passing
       // it is what lets tier 1 and tier 2 hit at all — codes are stable, common
       // names are not.
-      // `href` turns the icon itself into the link. The class list keeps
-      // `thumb` first so hydratePhotos still finds it and the layout rules
-      // (float, and the grid cell on the medium card) still apply — an <a> and
-      // a <span> style identically here, so this changes what the icon DOES
-      // without changing what it looks like. `extlink` is what the delegated
-      // opener listens for, and data-href is how every other external link in
-      // the app is expressed.
+      // A string `href` turns the icon into an external link. Passing
+      // `{ stakeout: true }` makes it an in-app Species Stakeout action. The
+      // class list keeps `thumb` first so hydration and layout are unchanged.
       function photoSlot(name, code, href) {
         if (!name && !code) return '';
-        return '<' + (href ? 'a' : 'span') + ' class="thumb' + (href ? ' extlink thumblink' : '')
+        var stakeout = !!(href && typeof href === 'object' && href.stakeout && code);
+        var externalHref = typeof href === 'string' ? href : '';
+        var linked = stakeout || !!externalHref;
+        return '<' + (linked ? 'a' : 'span') + ' class="thumb'
+          + (stakeout ? ' splink thumblink' : (externalHref ? ' extlink thumblink' : ''))
           + '" data-bird="' + esc(name || '') + '"' +
           (code ? ' data-code="' + esc(code) + '"' : '') +
-          (href ? ' data-href="' + esc(href) + '"' : '') +
-          '></' + (href ? 'a' : 'span') + '>';
+          (stakeout ? ' data-sp="' + esc(code) + '" data-spname="'
+            + esc(name || code) + '"' : '') +
+          (externalHref ? ' data-href="' + esc(externalHref) + '"' : '') +
+          (linked ? ' aria-label="' + esc(stakeout
+            ? 'Open ' + (name || code) + ' Stakeout'
+            : 'Open supporting checklist') + '"' : '') +
+          '></' + (linked ? 'a' : 'span') + '>';
       }
       // The card photo. Same pipeline, opposite tier order: the bundled seed is
       // 60px wide, which is fine at 46px in a list and a smear across a card, so
@@ -14921,6 +15007,16 @@
         return '<a class="favlink" data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') +
           '" data-lat="' + esc(o.lat) + '" data-lng="' + esc(o.lng) + '">' + (isFav(favId(o)) ? '★ Saved' : '☆ Save') + '</a>';
       }
+      function stakeHsFavoriteButton(o) {
+        var saved = isFav(favId(o));
+        return '<button type="button" class="favlink stakeHsFav" data-fav-label="full"'
+          + ' data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') + '"'
+          + ' data-lat="' + esc(o.lat == null ? '' : o.lat) + '"'
+          + ' data-lng="' + esc(o.lng == null ? '' : o.lng) + '"'
+          + ' aria-pressed="' + String(saved) + '">'
+          + (saved ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
+          + '</button>';
+      }
       // The report's favorites section does not list what is AT a hotspot — it
       // lists what is worth driving for: rarities (⭐), watchlist verifications
       // (🔍) and species not on your year list. Common birds you have already
@@ -15275,29 +15371,6 @@
       }
       // Absent key means "never edited", which is NOT the same as "emptied":
       // an empty stored array must stay empty rather than snap back to the seed.
-      // Which watchlist birds are NOT on the year list — i.e. dropped by an
-      // eBird reviewer or withdrawn. Mirrors analyze.py's `_watch_dropped`
-      // (`_unverified_codes - _seen_bl_codes`) so the app and the report
-      // answer this the same way.
-      //
-      // Compares against the BUNDLED year list, which is the app's only
-      // offline copy of it. If the seed is older than the owner's latest eBird
-      // export the two repos can briefly disagree — that is a staleness
-      // window, not a different rule, and it closes when the seed rebuilds.
-      function watchDropped() {
-        var year = {};
-        reportYearList().forEach(function (e) {
-          var c = e && (e.code || e);
-          if (c) year[String(c).toLowerCase()] = 1;
-        });
-        // No year list at all (such as a new custom region) means we
-        // cannot tell "dropped" from "never recorded", so we say nothing
-        // rather than accusing a reviewer of deleting the whole list.
-        if (!Object.keys(year).length) return [];
-        return getWatchlist().filter(function (e) {
-          return e && e.code && !year[String(e.code).toLowerCase()];
-        });
-      }
       function getWatchlist() {
         var raw = null;
         try { raw = localStorage.getItem(WATCH_KEY); } catch (e) { raw = null; }
@@ -15317,6 +15390,27 @@
       }
       function isWatched(code) {
         return !!(code && watchCodes()[String(code).toLowerCase()]);
+      }
+      function watchlistActionHtml(code, name, extraClass) {
+        var c = String(code || '').toLowerCase();
+        if (!c) return '';
+        var watched = isWatched(c);
+        return '<button type="button" class="secondary speciesWatchlistAction'
+          + (extraClass ? ' ' + extraClass : '') + '"'
+          + ' data-code="' + esc(c) + '" data-name="' + esc(name || '') + '"'
+          + ' aria-pressed="' + (watched ? 'true' : 'false') + '">'
+          + (watched ? 'Remove from watchlist' : 'Add to watchlist') + '</button>';
+      }
+      function toggleWatchlistSpecies(code, name) {
+        var c = String(code || '').toLowerCase();
+        if (!c) return false;
+        var list = getWatchlist();
+        var watched = list.some(function (entry) { return entry.code === c; });
+        list = watched
+          ? list.filter(function (entry) { return entry.code !== c; })
+          : list.concat([{ code: c, name: String(name || '') }]);
+        setWatchlist(list);
+        return !watched;
       }
       // The watchlist decides the seen set, so every chase view computed from
       // the old one is stale the moment it changes.
@@ -15591,46 +15685,86 @@
       // Nearest recent report per tracked species, kept across re-renders so a
       // reorder doesn't throw away data that cost a network round trip.
       var _watchRecs = {};
+      var _watchScope = 'region';
+      function watchScopeControl() {
+        return ToggleControls.group({
+          id: 'nvScopePick',
+          label: 'Watchlist scope',
+          options: [
+            { label: 'This region', cls: 'nvscopebtn',
+              data: { 'nv-scope': 'region' }, pressed: _watchScope === 'region' },
+            { label: 'All', cls: 'nvscopebtn',
+              data: { 'nv-scope': 'all' }, pressed: _watchScope === 'all' }
+          ]
+        });
+      }
+      function watchNameKey(value) {
+        return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      }
+      // DISPLAY FILTER ONLY. Patch/chase computation continues to read
+      // getWatchlist() through watchCodes(), including watched species that
+      // are not on this report's year list.
+      function watchlistForScope() {
+        var all = getWatchlist().map(function (entry, index) {
+          return { entry: entry, index: index };
+        });
+        if (_watchScope === 'all') return all;
+        var codes = {}, names = {};
+        mergedYearList().forEach(function (entry) {
+          var code = String((entry && entry.code) || '').toLowerCase();
+          var name = watchNameKey(entry && entry.name);
+          if (code) codes[code] = 1;
+          if (name) names[name] = 1;
+        });
+        return all.filter(function (item) {
+          var entry = item.entry || {};
+          var code = String(entry.code || '').toLowerCase();
+          return !!(codes[code] || names[watchNameKey(entry.name)]);
+        });
+      }
+      function moveWatchScoped(index, delta) {
+        var scoped = watchlistForScope();
+        var at = scoped.findIndex(function (item) { return item.index === index; });
+        var to = at + delta;
+        if (at < 0 || to < 0 || to >= scoped.length) return;
+        var all = getWatchlist(), other = scoped[to].index;
+        var tmp = all[index]; all[index] = all[other]; all[other] = tmp;
+        setWatchlist(all);
+      }
+      function renderWatchScopeControl() {
+        var host = $('nvScope');
+        if (!host) return;
+        host.innerHTML = watchScopeControl();
+        [].forEach.call(host.querySelectorAll('.nvscopebtn'), function (button) {
+          button.addEventListener('click', function () {
+            _watchScope = button.getAttribute('data-nv-scope') === 'all'
+              ? 'all' : 'region';
+            renderWatch();
+          });
+        });
+      }
       function renderWatch() {
-        var list = getWatchlist(), el = $('nvResults'), st = $('nvStatus');
+        var all = getWatchlist(), scoped = watchlistForScope();
+        var list = scoped.map(function (item) { return item.entry; });
+        var el = $('nvResults'), st = $('nvStatus');
         if (!el) return;
         el.innerHTML = '';
+        renderWatchScopeControl();
         if ($('nvRegionLabel')) $('nvRegionLabel').textContent = '· ' + getReport().label;
-        if (!list.length) {
+        if (!all.length) {
           st.textContent = 'Nothing is awaiting verification. Search above to start tracking a species.';
           syncNvSearchClear();
           return;
         }
-        var withRec = 0;
-        // ⛔ DROPPED BY A REVIEWER — the same alert the Markdown report prints,
-        // and it has to be here too or the two disagree about the same facts.
-        //
-        // A watchlist bird should be on the year list AND held back from the
-        // seen set. Missing from the year list means the record is gone from
-        // eBird: a reviewer reclassified it, or it was withdrawn. Silent in
-        // both directions — the year list quietly loses a species while the
-        // watchlist goes on chasing a bird that is no longer on the list.
-        //
-        // The app compares the DEVICE-LOCAL watchlist against the bundled
-        // year list, so it can differ from the report's answer while the seed
-        // is older than the export. That is stated rather than hidden.
-        var dropped = watchDropped();
-        if (dropped.length) {
-          var d = document.createElement('li');
-          d.className = 'nvdropped';
-          d.innerHTML = '<div class="warn"><b>⛔ ' + dropped.length + ' bird'
-            + (dropped.length === 1 ? ' on your list is' : 's on your list are')
-            + ' NOT on your year list</b> — dropped by an eBird reviewer, or '
-            + 'withdrawn.<br>'
-            + dropped.map(function (e) {
-                return '• ' + esc(e.name || e.code) + ' (<code>' + esc(e.code) + '</code>)';
-              }).join('<br>')
-            + '<br><br>Re-find it and confirm, or remove it from the list. Until '
-            + 'then it stays an unseen target, which is correct — but it is no '
-            + 'longer backed by a record.</div>';
-          el.appendChild(d);
+        if (!list.length) {
+          st.textContent = 'No watched species are on the ' + getReport().label
+            + ' year list. Choose All to see all ' + all.length + ' watched species.';
+          syncNvSearchClear();
+          return;
         }
+        var withRec = 0;
         list.forEach(function (e, i) {
+          var sourceIndex = scoped[i].index;
           var r = e.code ? _watchRecs[e.code] : null;
           if (r) withRec++;
           var li = document.createElement('li');
@@ -15654,16 +15788,20 @@
                     (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>'
                 : '<div class="meta dim">' + (e.code ? 'No report in range' : 'Not resolved to an eBird species code') + '</div>') +
             '</div><div class="favctl">' +
-              '<button class="favbtn nvup" data-i="' + i + '" aria-label="Move ' +
+              '<button class="favbtn nvup" data-i="' + sourceIndex + '" aria-label="Move ' +
                 esc(e.name || e.code) + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
-              '<button class="favbtn nvdown" data-i="' + i + '" aria-label="Move ' +
+              '<button class="favbtn nvdown" data-i="' + sourceIndex + '" aria-label="Move ' +
                 esc(e.name || e.code) + ' down"' + (i === list.length - 1 ? ' disabled' : '') + '>▼</button>' +
-              '<button class="favbtn del nvdel" data-i="' + i + '" aria-label="Stop tracking ' +
+              '<button class="favbtn del nvdel" data-i="' + sourceIndex + '" aria-label="Stop tracking ' +
                 esc(e.name || e.code) + '">✕</button>' +
             '</div></div>';
           el.appendChild(li);
         });
-        st.textContent = list.length + ' species awaiting verification · in your order · ' +
+        st.textContent = list.length
+          + (_watchScope === 'region' ? ' of ' + all.length : '')
+          + ' species awaiting verification · '
+          + (_watchScope === 'region' ? 'This region' : 'All watched birds')
+          + ' · in your order · ' +
           (withRec ? withRec + ' reported in range' : 'tap “Check for recent reports” to see where they are being seen') + '.';
         hydratePhotos(el);
       }
@@ -15810,15 +15948,12 @@
             // bird found this morning is the reason to go whichever list you
             // happen to be reading.
             if (x.dateStr && BL.isFresh(x.dateStr)) tags = newRarityTag() + tags;
-            // "in the small species card, the bird photo and name should link
-            // to most recent checklist with that bird." The row already knows
-            // which checklist reported it here; without the link the reader has
-            // the bird's name and no way to see the evidence for it.
+            // The bird is the subject, so its name and photo stay in the app.
+            // The dated action retains the newest supporting checklist.
             var href = x.subId ? checklistUrl(x.subId) : '';
             return SpeciesCards.small({
-              icon: photoSlot(x.comName, x.code, href),
-              name: href ? checklistLink(x.subId, x.comName)
-                         : speciesLink(x.comName, x.code),
+              icon: photoSlot(x.comName, x.code, { stakeout: true }),
+              name: speciesLink(x.comName, x.code),
               tags: tags,
               // F225. THE CODE IS THE LEGEND, not decoration.
               //
@@ -15842,6 +15977,7 @@
               alpha: x.code ? alphaFor(x.code) : '',
               count: x.count,
               when: fmtWhenShort(x.dateStr),
+              whenHtml: href ? extA(href, fmtWhenShort(x.dateStr)) : '',
               sub: x.sub || ''
             });
           });
@@ -17045,12 +17181,14 @@
             var locId = l.locId || lc.locId || '', sub = l.subId || l.subID || '';
             var d = (home && lc.latitude != null && lc.longitude != null)
               ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null;
+            var checklistHref = sub ? checklistUrl(sub) : '';
             return ChecklistCards.medium({
-              // The headline is the PLACE and it links to the checklist, so
-              // the "View S379659278 ↗" line under every row is gone: an
-              // eBird submission id is eleven characters nobody reads.
+              // The headline is the PLACE and opens Stakeout hotspot. The
+              // date keeps the supporting checklist one explicit tap away.
               place: loc || 'Location hidden',
-              href: sub ? checklistUrl(sub) : '',
+              placeHtml: locId ? stakeHotspotLink(locId, loc) : '',
+              href: locId ? '' : checklistHref,
+              dateHref: locId ? checklistHref : '',
               species: l.numSpecies || 0,
               date: fmtDateTime(l.isoObsDate || l.obsDt || ''),
               distMi: d,
@@ -17181,13 +17319,17 @@
           el.innerHTML = ChecklistCards.list('medium', top.map(function (l, i) {
             var lc = l.loc || {};
             var loc = lc.name || lc.locName || l.locName || '';
+            var locId = l.locId || lc.locId || '';
             var sub = l.subId || l.subID || '';
+            var checklistHref = sub ? checklistUrl(sub) : '';
             return ChecklistCards.medium({
               num: i + 1,
-              // The headline is the PLACE and it links to the checklist —
-              // which is what "View checklist ↗" used to be, minus the line.
+              // The headline is the PLACE and opens Stakeout hotspot; the
+              // date is the checklist evidence action.
               place: loc || 'Location hidden',
-              href: sub ? checklistUrl(sub) : '',
+              placeHtml: locId ? stakeHotspotLink(locId, loc) : '',
+              href: locId ? '' : checklistHref,
+              dateHref: locId ? checklistHref : '',
               species: l.numSpecies || 0,
               date: fmtDateTime(l.isoObsDate || l.obsDt || ''),
               distMi: (home && lc.latitude != null && lc.longitude != null)
@@ -17498,16 +17640,10 @@
             // real third column instead of a token inside the sub-header.
             return SpeciesCards.medium({
               sci: sciFor(r && r.code),
-              // Same rule as Today's rarities: this card is about a SIGHTING,
-              // so its head opens the checklist that reported it — and here it
-              // is the MOST RECENT one, because the question a 7-day list
-              // raises is "is it still there", which the newest report answers
-              // and the nearest one does not.
-              icon: photoSlot(r.name, r.code,
-                r.newest && r.newest.subId ? checklistUrl(r.newest.subId) : ''),
-              name: (r.newest && r.newest.subId)
-                ? checklistLink(r.newest.subId, r.name)
-                : speciesLink(r.name, r.code),
+              // The bird remains the subject; the newest supporting checklist
+              // stays on the dated action in the facts row below.
+              icon: photoSlot(r.name, r.code, { stakeout: true }),
+              name: speciesLink(r.name, r.code),
               // The header is the NAME alone, exactly as in Today's rarities:
               // the flags are facts ABOUT the sighting and belong with the
               // rest of them, not mixed into the thing you are scanning for.
@@ -17798,6 +17934,7 @@
         'bc_ref:',              // reference lookups
         'ebird_quick_hotspots_v1:',
         'bc_lastnew:',
+        'bc_surge_sources_v1:',
         'easymiss_v1:',
         'ebird_birdinfo_v2',    // Wikipedia text
         'ebird_photos_v2',      // image URLs (the bytes live in IndexedDB)
@@ -18826,9 +18963,14 @@
         // three-column grid with the observer tucked into a nested span.
         var rows = items.map(function (x) {
           var lng = x.lng != null ? x.lng : x.lon;
+          var checklistHref = x.subId ? checklistUrl(x.subId) : '';
+          var publicHotspot = x.locId && !(x.location_private || x.locationPrivate);
           return ChecklistCards.small({
             place: x.loc || x.locName || '',
-            href: x.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(x.subId) : '',
+            placeHtml: publicHotspot
+              ? stakeHotspotLink(x.locId, x.loc || x.locName || '') : '',
+            href: publicHotspot ? '' : checklistHref,
+            dateHref: publicHotspot ? checklistHref : '',
             date: fmtDateTime(x.dateStr),
             count: x.count,
             distMi: x.distMi,
@@ -21870,6 +22012,7 @@
           // would migrate between them as the board hydrated.
           st.textContent = 'Resolving ' + species.length + ' birds…';
           return lastNewCodeIndex(region).then(function (codeIdx) {
+            reconcileLastNewOwnerTicks(groups, codeIdx);
             renderLastNew(groups, {}, region, codeIdx);
             st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
             return lastNewChecklists(species, region, function (done, total) {
@@ -21883,6 +22026,33 @@
         }).catch(function (e) {
           st.textContent = e && e.message ? e.message : 'Could not load the leaderboard.';
         }).finally(function () { btn.disabled = false; });
+      }
+
+      function reconcileLastNewOwnerTicks(groups, codeIdx) {
+        var stored = ownSeenCodes(), learned = 0;
+        Object.keys(groups || {}).forEach(function (species) {
+          var code = String((codeIdx || {})[species.toLowerCase()] || '').toLowerCase();
+          if (!code || stored[code]) return;
+          var own = (groups[species].birders || []).filter(function (birder) {
+            return sameDisplayName(birder && birder.name);
+          }).sort(function (a, b) {
+            return String(b.date || '').localeCompare(String(a.date || ''));
+          })[0];
+          if (!own) return;
+          stored[code] = {
+            n: species, d: own.date || '', s: '', l: '', i: '', h: 0, x: ''
+          };
+          learned++;
+        });
+        if (!learned) return 0;
+        try { localStorage.setItem(ownSeenKey(), JSON.stringify(stored)); }
+        catch (e) {
+          dbg('warn', 'owner leaderboard ticks not saved: ' + (e && e.name));
+          return 0;
+        }
+        clearChaseCache(true);
+        _autoLoaded = {};
+        return learned;
       }
 
       // One region-wide feed gives comName -> speciesCode for everything
@@ -22177,8 +22347,8 @@
             order.push(sp);
           });
         }
-        block(needed, '🔍 Still needed',
-          'not on your year list — the ones worth chasing');
+        block(needed, '🔍 Still needed or awaiting verification',
+          'not yet confirmed here — absent from your year list or held on your watchlist');
         block(already, '✅ Already on your year list',
           'what is moving right now, not a new bird');
         // A filter that silently shortens a list is indistinguishable from a
@@ -22283,6 +22453,8 @@
           });
           var subs = {}, uniq = [];
           obs.forEach(function (o) { if (o.subId && subs[o.subId]) return; if (o.subId) subs[o.subId] = 1; uniq.push(o); });
+          var watched = isWatched(code);
+          var seenIt = isSpeciesSeen(code, sp);
           var ck;
           if (pending) {
             // IT HAS TO LOOK LIKE WORK IN PROGRESS. Reported from the device:
@@ -22322,9 +22494,14 @@
             var mkRow = function (o) {
               var d = (home && isFinite(o.lat) && isFinite(o.lng))
                 ? haversineMi(home.lat, home.lng, +o.lat, +o.lng) : null;
+              var checklistHref = o.subId ? checklistUrl(o.subId) : '';
+              var publicHotspot = o.locId && !o.locationPrivate;
               return ChecklistCards.small({
                 place: o.locName || '',
-                href: o.subId ? 'https://ebird.org/checklist/' + encodeURIComponent(o.subId) : '',
+                placeHtml: publicHotspot
+                  ? stakeHotspotLink(o.locId, o.locName || '') : '',
+                href: publicHotspot ? '' : checklistHref,
+                dateHref: publicHotspot ? checklistHref : '',
                 date: fmtDateTime(o.obsDt),
                 count: o.howMany,
                 distMi: d,
@@ -22350,7 +22527,9 @@
             // sub-header. It is measured to the CLOSEST report, not the newest.
             distMi: near,
             distQ: nearAt,
-            sub: people.length + ' of the top 100 · newest tick ' + esc(fmtDate(g.latest)),
+            sub: people.length + ' of the top 100 · newest tick ' + esc(fmtDate(g.latest))
+              + ' · ' + (watched ? 'on your watchlist for verification'
+                : (seenIt ? 'already on your year list' : 'not on your year list')),
             below: who + ck
           });
         }
@@ -25231,7 +25410,6 @@
         var st = $('stakeHsStatus'), box = $('stakeHsResults');
         if (!box) return Promise.resolve();
         $('stakeHsFound').innerHTML = '';
-        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
         var state = { lists: [], obs: [], hrow: null, iconic: undefined };
@@ -25290,11 +25468,7 @@
 
       function renderStakeHs(locId, name, lists, obs, hrow, iconic) {
         var box = $('stakeHsResults');
-        obs = obs || []; hrow = hrow || {};
-        if (!lists.length && !obs.length) {
-          box.innerHTML = '<div class="status">eBird has no recent checklists for this place.</div>';
-          return;
-        }
+        lists = lists || []; obs = obs || []; hrow = hrow || {};
         // WHO BIRDS HERE, and the visit pattern. Both counted from the call
         // already made, so neither costs anything.
         var by = {}, days = {}, spp = 0, n = 0;
@@ -25338,7 +25512,7 @@
         // is empty every morning by eBird's own design (F159 measurement 3).
         var facts = [
           addr ? esc(addr) : '',
-          extA(hotspotUrl(locId), locId, 'extlink'),
+          esc(locId),
           lists.length ? lists.length + ' recent checklist' + (lists.length === 1 ? '' : 's')
             + ' across ' + nDays + ' day' + (nDays === 1 ? '' : 's')
             + (span ? ' (' + span + '-day window)' : '') : '',
@@ -25348,6 +25522,17 @@
           hrow.latest ? 'last birded ' + esc(fmtWhenShort(hrow.latest)) : '',
           (la != null && ln != null) ? esc((+la).toFixed(4) + ', ' + (+ln).toFixed(4)) : ''
         ].filter(Boolean).join(' \u00b7 ');
+        var placeActions = (la != null && ln != null
+          ? '<a class="maplink" data-q="' + esc(distQ(la, ln))
+            + '">\ud83d\uddfa Open in Maps \u2197</a>' : '')
+          + extA(hotspotUrl(locId), 'Open eBird hotspot \u2197', 'extlink')
+          + qrButton('hotspot', locId)
+          + stakeHsFavoriteButton({
+            locId: locId, locName: name || locId, lat: la, lng: ln
+          });
+        if (placeActions) {
+          facts += '<span class="stakeHsIntroActions">' + placeActions + '</span>';
+        }
 
         // ---- the birds, with a header of their own.
         // Reported as "only Recent checklists has a real header": the bird
@@ -25357,7 +25542,12 @@
         // alongside the other three, built from the SAME splitLists the medium
         // card uses, so nothing about the rows changes - only that they are
         // now announced.
-        var below = '';
+        var below = (la != null && ln != null)
+          ? '<div id="stakeHsMap" aria-label="Map showing ' + esc(name || locId) + '"></div>'
+          : '';
+        if (!lists.length && !obs.length) {
+          below += '<div class="status">eBird has no recent checklists for this place.</div>';
+        }
         if (unseen.length || seen.length) {
           below += '<div class="rankhead"><b>\ud83d\udc26 Birds reported here</b>'
             + '<span class="rankwhy">the last ' + STAKE_HS_BACK + ' days, '
@@ -25420,11 +25610,10 @@
             return ChecklistCards.small({
               date: r.obsDt || r.isoObsDate || '',
               href: r.subId ? checklistUrl(r.subId) : '',
-              qr: qrButton('checklist', r.subId),
               who: esc(r.userDisplayName || ''),
               sp: isFinite(r.numSpecies) ? r.numSpecies : ''
             });
-          }));
+          }), 'stakeHsChecklistCards');
         }
 
         // ---- ...and the birders LAST, one line each.
@@ -25448,21 +25637,21 @@
           }).join('') + '</ul>';
         }
 
-        var acts = (la != null && ln != null
-          ? '<a class="maplink" data-q="' + esc(distQ(la, ln)) + '">\ud83d\uddfa Open in Maps \u2197</a>' : '')
-          + qrButton('hotspot', locId)
-          + favLink({ locId: locId, locName: name || locId, lat: la, lng: ln });
-
         box.innerHTML = '<ul class="obs">' + HotspotCards.large({
-          name: extA(hotspotUrl(locId), name || loc.locName || locId),
+          name: esc(name || loc.locName || locId),
           sub: facts,
           // The bird split moved into `below` so it could carry a header like
           // every other block on this card. These slots stay empty rather than
           // rendering the same list twice.
           unseen: '', unseenLabel: '', seen: '', seenLabel: '',
           below: below,
-          actions: '<div class="hsact">' + acts + '</div>'
+          actions: ''
         }) + '</ul>';
+        if (la != null && ln != null) {
+          renderMap($('stakeHsMap'), [{
+            lat: +la, lng: +ln, name: name || loc.locName || locId
+          }], null, false);
+        }
         hydratePhotos(box);
       }
 
@@ -25619,8 +25808,8 @@
             code: r.code, alpha: r.code ? alphaFor(r.code) : '',
             tags: '<span class="ictag">' + Math.round(r.mult) + '\u00d7</span>'
               + needTag(r.code, r.name),
-            sub: (r.lat != null && r.lng != null
-                  ? '<a class="maplink" data-q="' + esc(distQ(r.lat, r.lng)) + '">' + esc(r.place) + '</a>'
+            sub: (r.locId
+                  ? locLink(r.place, r.lat, r.lng, r.locId, false)
                   : esc(r.place))
               + ' \u00b7 ' + r.distMi.toFixed(1) + ' mi'
               + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
@@ -26341,7 +26530,7 @@
         var id = (s.loc && s.loc.locId) || s.locId || '';
         var lat = s.loc ? s.loc.latitude : null, lng = s.loc ? s.loc.longitude : null;
         var isHotspot = s.loc ? (s.loc.isHotspot !== false) : true;
-        return locLink(convoyLocName(s), isHotspot ? id : '', lat, lng);
+        return locLink(convoyLocName(s), lat, lng, isHotspot ? id : '', !isHotspot);
       }
       function renderConvoys(routes, lists) {
         var el = $('convoyResults'); el.innerHTML = '';
@@ -26800,6 +26989,73 @@
       var _surgeFilter = 'unseen';
       var _surgeEarlyPaint = null;
       var _surgeLoadGeneration = 0;
+      var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
+      function surgeSourceCacheKey() {
+        return SURGE_SOURCE_NS + getReportSlug() + ':' + todayStr();
+      }
+      function surgeSourceContext() {
+        var rr = rankPrimaryRegion();
+        return [
+          getRegion(),
+          rr && rr.region || '',
+          (BL.planConvoyFeeds(getReport()) || []).map(function (feed) {
+            return BL.requestUrl(feed);
+          }).join('|')
+        ].join('||');
+      }
+      function loadSurgeSourceCache() {
+        return zcGet(surgeSourceCacheKey()).then(function (cache) {
+          return cache && cache.context === surgeSourceContext() ? cache : null;
+        });
+      }
+      function surgeCachedSource(cache, key) {
+        var part = cache && cache[key];
+        if (!part || !Array.isArray(part.rows)) return null;
+        var age = Date.now() - Number(part.t || 0);
+        return {
+          state: isFinite(age) && age >= 0 && age < CHASE_TTL_MS ? 'ok' : 'stale',
+          rows: part.rows
+        };
+      }
+      function surgeSourceFallback(live, cached) {
+        if (live && (live.state === 'ok' || live.state === 'notApplicable')) return live;
+        if (!cached || !Array.isArray(cached.rows)) return live;
+        return {
+          state: live && live.state === 'failed' ? 'failed' : 'stale',
+          rows: cached.rows
+        };
+      }
+      function saveSurgeSourceCache(model) {
+        return loadSurgeSourceCache().then(function (old) {
+          var now = Date.now();
+          var next = {
+            v: 1,
+            context: surgeSourceContext(),
+            cascades: old && old.cascades || null,
+            convergence: old && old.convergence || null
+          };
+          ['cascades', 'convergence'].forEach(function (key) {
+            var part = model && model[key];
+            if (part && part.state === 'ok' && Array.isArray(part.rows)) {
+              next[key] = { t: now, rows: part.rows };
+            }
+          });
+          if (!next.cascades && !next.convergence) return false;
+          try {
+            var keep = surgeSourceCacheKey(), drop = [];
+            for (var i = 0; i < localStorage.length; i++) {
+              var storedKey = localStorage.key(i);
+              if (storedKey && storedKey.indexOf(SURGE_SOURCE_NS) === 0
+                  && storedKey !== keep) drop.push(storedKey);
+            }
+            drop.forEach(function (key) {
+              localStorage.removeItem(key);
+              zcForget(key);
+            });
+          } catch (e) {}
+          return zcPut(surgeSourceCacheKey(), next);
+        });
+      }
       var SURGE_SOURCE_LABELS = {
         mega: 'Mega snapshot',
         observations: 'Recent/notable bird feeds',
@@ -27658,6 +27914,7 @@
           showSettings(true);
           return;
         }
+        var force = takeForce();
         var generation = ++_surgeLoadGeneration;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
         var btn = $('surgeBtn'), st = $('surgeStatus'), resultsBox = $('surgeResults');
@@ -27672,6 +27929,7 @@
         // source: successful rows still paint, and the UI names what is
         // unavailable instead of turning a partial answer into "nothing".
         var _merged = [], surgeModel = null, megaRefreshStarted = false;
+        var cachedCascades = null, cachedConvergence = null;
         function paintSurgeModel() {
           if (generation !== _surgeLoadGeneration || !surgeModel) return 0;
           var states = {
@@ -27715,8 +27973,8 @@
           _merged = observed.merged || [];
           surgeModel = {
             observed: observed,
-            cascades: { state: 'loading', rows: [] },
-            convergence: {
+            cascades: cachedCascades || { state: 'loading', rows: [] },
+            convergence: cachedConvergence || {
               state: hasCounties() ? 'loading' : 'notApplicable',
               rows: []
             }
@@ -27733,6 +27991,27 @@
             dbg('warn', 'Bird gen early observation paint: ' + ((e && e.message) || e));
           }
         };
+        var pCachedSources = force ? Promise.resolve(null)
+          : loadSurgeSourceCache().then(function (cache) {
+              if (generation !== _surgeLoadGeneration || !cache) return cache;
+              cachedCascades = surgeCachedSource(cache, 'cascades');
+              cachedConvergence = surgeCachedSource(cache, 'convergence');
+              if (!cachedCascades && !cachedConvergence) return cache;
+              var observed = surgeModel && surgeModel.observed || {
+                state: 'loading', merged: [], events: [], needs: [], patches: []
+              };
+              surgeModel = {
+                observed: observed,
+                cascades: cachedCascades || { state: 'loading', rows: [] },
+                convergence: cachedConvergence || {
+                  state: hasCounties() ? 'loading' : 'notApplicable',
+                  rows: []
+                }
+              };
+              paintSurgeModel();
+              beginMegaRefresh();
+              return cache;
+            });
         // getChaseRarity, NOT getChase. A device log measured this section
         // sitting on "Step 2 of 2 - 0 of 40" while phase 2 fetched 40
         // per-species feeds: phase 1 finished in 5.5s, phase 2 took 221.3s, and
@@ -27747,38 +28026,41 @@
         // The wave keeps running underneath and onRarityEarly repaints when it
         // completes, so the crowd lane still gets the full merged set; it just
         // arrives after the screen is useful instead of before.
-        var pObserved = getChaseRarity().then(function (res) {
+        var pObserved = getChaseRarity(force ? 'notable' : false).then(function (res) {
           return surgeObservedResult(res, now);
         }).catch(function (e) {
           dbg('warn', 'Bird gen recent/notable source: ' + ((e && e.message) || e));
           return { state: 'failed', merged: [], events: [], needs: [], patches: [] };
         }).then(paintObserved);
         var rr = rankPrimaryRegion();
-        var pBoard = fetchRank(rr, new Date().getFullYear(), getDisplayName())
-          .then(function (data) {
-            return {
-              state: 'ok',
-              rows: BL.tickCascades((data && data.rows) || [], parseRecentTick)
-            };
-          }).catch(function (e) {
-            dbg('warn', 'Bird gen leaderboard source: ' + ((e && e.message) || e));
-            return { state: 'failed', rows: [] };
-          });
-        var pCascades = Promise.all([pBoard, pObserved]).then(function (r) {
-          if (r[0].state !== 'ok') return r[0];
-          return cascadeSpots(r[0].rows, _merged)
-            .then(function (rows) {
-              return { state: rows.sourceFailed ? 'failed' : 'ok', rows: rows };
-            })
-            .catch(function (e) {
-              dbg('warn', 'Bird gen cascade reports: ' + ((e && e.message) || e));
+        var pCascades = pCachedSources.then(function () {
+          if (cachedCascades && cachedCascades.state === 'ok') return cachedCascades;
+          return fetchRank(rr, new Date().getFullYear(), getDisplayName())
+            .then(function (data) {
+              return {
+                state: 'ok',
+                rows: BL.tickCascades((data && data.rows) || [], parseRecentTick)
+              };
+            }).catch(function (e) {
+              dbg('warn', 'Bird gen leaderboard source: ' + ((e && e.message) || e));
+              return { state: 'failed', rows: [] };
+            }).then(function (board) {
+              if (board.state !== 'ok') return board;
+              return pObserved.then(function () {
+                return cascadeSpots(board.rows, _merged)
+                  .then(function (rows) {
+                    return { state: rows.sourceFailed ? 'failed' : 'ok', rows: rows };
+                  });
+              });
+            }).catch(function (e) {
+              dbg('warn', 'Bird gen cascade source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
             });
-        }).catch(function (e) {
-          dbg('warn', 'Bird gen cascade source: ' + ((e && e.message) || e));
-          return { state: 'failed', rows: [] };
         });
-        var pConverge = pObserved.then(function () {
+        var pConverge = Promise.all([pCachedSources, pObserved]).then(function () {
+          if (cachedConvergence && cachedConvergence.state === 'ok') {
+            return cachedConvergence;
+          }
           if (!hasCounties()) return { state: 'notApplicable', rows: [] };
           return Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
               return ebird(BL.requestUrl(f))
@@ -27835,10 +28117,18 @@
               dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
             });
-        Promise.all([pObserved, pCascades, pConverge]).then(function (r) {
+        return Promise.all([pObserved, pCascades, pConverge]).then(function (r) {
           if (generation !== _surgeLoadGeneration) return;
-          surgeModel = { observed: r[0], cascades: r[1], convergence: r[2] };
+          var cascades = surgeSourceFallback(r[1], cachedCascades);
+          var convergence = surgeSourceFallback(r[2], cachedConvergence);
+          surgeModel = {
+            observed: r[0], cascades: cascades, convergence: convergence
+          };
           paintSurgeModel();
+          saveSurgeSourceCache({
+            cascades: r[1],
+            convergence: r[2]
+          }).catch(function () {});
         }).catch(function (e) {
           if (generation === _surgeLoadGeneration) {
             st.hidden = false;
@@ -28306,12 +28596,24 @@
           if (!v || typeof v !== 'object' || !v.n) return;
           out.push({
             code: c, name: v.n, date: v.d || '', subId: v.s || '', loc: v.l || '',
-            locUrl: (v.h && v.i) ? ('https://ebird.org/hotspot/' + encodeURIComponent(v.i)) : '',
+            locId: (v.h && v.i) ? v.i : '',
             exoticCategory: v.x || '',
             own: true,
           });
         });
         return out;
+      }
+      function yearEntryLocId(e) {
+        if (e && /^L\d+$/i.test(String(e.locId || ''))) return String(e.locId);
+        var match = /(?:\/hotspot\/|[?&]r=)(L\d+)/i.exec(
+          String(e && e.locUrl || ''));
+        return match ? match[1] : '';
+      }
+      function yearEntryPlaceHtml(e) {
+        var where = String(e && e.loc || '').split('--')[0].trim();
+        if (!where) return '';
+        var locId = yearEntryLocId(e);
+        return locId ? stakeHotspotLink(locId, where) : esc(where);
       }
       // F176. The three buckets eBird prints BELOW its numbered total, built
       // from the same two halves mergedYearList counts — so a bird is in
@@ -28613,7 +28915,7 @@
         // dates compared as dates, never against the current clock.
         list.innerHTML = entries.map(function (e, i) {
           var where = String(e.loc || '').split('--')[0].trim();
-          var whereHtml = where ? (e.locUrl ? extA(e.locUrl, where) : esc(where)) : '';
+          var whereHtml = where ? stakeHotspotLink(yearEntryLocId(e), where) : '';
           var bits = [];
           if (e.date) bits.push(e.subId ? checklistLink(e.subId, e.date) : esc(e.date));
           if (whereHtml) bits.push(whereHtml);
@@ -28646,11 +28948,21 @@
             name: '<span class="yrnum">' + (total - i) + '.</span>'
               + speciesLink(e.name, e.code),
             tags: isNew ? newRarityTag() : '',
+            actions: watchlistActionHtml(e.code, e.name, 'myYearWatchlist'),
             code: e.code,
               alpha: alphaFor(e.code),
             sub: bits.join(' · ')
           });
         }).join('');
+        [].forEach.call(list.querySelectorAll('.myYearWatchlist'), function (button) {
+          button.addEventListener('click', function () {
+            toggleWatchlistSpecies(
+              button.getAttribute('data-code'),
+              button.getAttribute('data-name')
+            );
+            updateMyYear();
+          });
+        });
         // F176. eBird's three trailing sections, below the numbered total —
         // the birds stay visible without being counted. Appended rather than
         // woven in, so the ordinal numbering above is untouched.
@@ -28670,13 +28982,15 @@
               return SpeciesCards.medium({
                 sci: sciFor(e && e.code),
                 icon: photoSlot(e.name, e.code),
-                name: e.subId ? checklistLink(e.subId, e.name) : esc(e.name),
+                name: speciesLink(e.name, e.code),
                 // The mark is ALWAYS beside the word, never instead of it.
                 tags: '<span class="exomark">\u2731</span>',
                 sub: speciesMetaRow({
                   flags: '', icons: '',
-                  loc: e.loc ? esc(String(e.loc).split('--')[0].trim()) : '',
-                  when: e.date ? esc(e.date) : '', observer: ''
+                  loc: yearEntryPlaceHtml(e),
+                  when: e.date
+                    ? (e.subId ? checklistLink(e.subId, e.date) : esc(e.date)) : '',
+                  observer: ''
                 })
               });
             }).join('') + '</ul>';
@@ -28724,7 +29038,7 @@
         targetsBtn:    'Nearest place with a bird you need',
         spLookupBtn:   'Birds or spuhs',
         iconicBtn:     'Hotspot specialities',
-        stakeHsBtn:    'Everything about one place',
+        stakeHsBtn:    '',
         refreshBtn:    'Rarities today',
         activeBtn:     'Rarities this week',
         abaBtn:        'ABA Code 3+ alert',
@@ -32015,6 +32329,55 @@
         } catch (e) {}
         selectFallback();
       }
+      function reportPdfName() {
+        return 'Bird-Chaser-' + String(getReport().slug || 'report')
+          .replace(/[^A-Za-z0-9._-]+/g, '-') + '-' + todayStr() + '.pdf';
+      }
+      function reportPdfPlugin() {
+        return window.Capacitor && window.Capacitor.Plugins
+          && window.Capacitor.Plugins.FullReport;
+      }
+      function runReportPdf(mode) {
+        var copy = mode === 'copy-image';
+        var btn = $(copy ? 'dbgCopyReportImage' : 'dbgShareReport');
+        var normal = copy ? '🖼 Copy full report' : '↗ Share report PDF';
+        var plugin = reportPdfPlugin();
+        var method = copy ? 'copyReportImage' : 'shareReport';
+        if (!plugin || typeof plugin[method] !== 'function') {
+          if (btn) {
+            btn.textContent = '✕ PDF needs the installed iPhone app';
+            setTimeout(function () { btn.textContent = normal; }, 2200);
+          }
+          dbg('error', 'full report PDF bridge is unavailable');
+          return Promise.resolve(false);
+        }
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Creating full PDF…';
+        }
+        document.documentElement.setAttribute('data-report-export', 'true');
+        var paint = window.requestAnimationFrame || function (fn) { setTimeout(fn, 0); };
+        return new Promise(function (resolve) {
+          paint(function () { paint(resolve); });
+        }).then(function () {
+          return plugin[method]({ fileName: reportPdfName() });
+        }).then(function (result) {
+          if (btn) btn.textContent = copy ? '✓ Report image copied' : '✓ PDF ready to share';
+          dbg('info', 'full report ' + (copy ? 'image copied' : 'PDF shared')
+            + ' · ' + ((result && result.bytes) || 0) + ' bytes');
+          return true;
+        }, function (e) {
+          if (btn) btn.textContent = copy ? '✕ Image failed — use PDF' : '✕ PDF failed';
+          dbg('error', 'full report capture failed · ' + ((e && e.message) || e));
+          return false;
+        }).finally(function () {
+          document.documentElement.removeAttribute('data-report-export');
+          if (btn) {
+            btn.disabled = false;
+            setTimeout(function () { btn.textContent = normal; }, 2200);
+          }
+        });
+      }
 
       // --- wire up ---
       // Settings is a top-level section with its own menu tile, so a second
@@ -32343,13 +32706,6 @@
       $('stakeHs').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); stakeHsSearch(); }
       });
-      $('stakeHsClear').addEventListener('click', function () {
-        $('stakeHs').value = ''; $('stakeHsFound').innerHTML = '';
-        $('stakeHsResults').innerHTML = ''; this.hidden = true;
-        $('stakeHsStatus').textContent = 'Pick a place and see what eBird\u2019s '
-          + 'hotspot page buries: who actually birds it, what it holds that '
-          + 'nowhere else does, and which of its birds you still need.';
-      });
       // Delegated, because the result buttons are rendered after this runs.
       $('stakeHsFound').addEventListener('click', function (e) {
         var b = e.target.closest('button[data-loc]');
@@ -32479,6 +32835,10 @@
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', ebirdSignOut);
       $('dbgCopy').addEventListener('click', dbgCopyLog);
+      $('dbgCopyReportImage').addEventListener('click', function () {
+        runReportPdf('copy-image');
+      });
+      $('dbgShareReport').addEventListener('click', function () { runReportPdf('share'); });
       $('dbgMore').addEventListener('click', function () {
         var t = $('dbgTools'), b = $('dbgMore');
         if (!t) return;
@@ -32708,7 +33068,13 @@
         if (fav) {
           ev.preventDefault();
           var nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
-          fav.textContent = nowFav ? '★ Saved' : '☆ Save';
+          var fullFavLabel = fav.getAttribute('data-fav-label') === 'full';
+          fav.textContent = fullFavLabel
+            ? (nowFav ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
+            : (nowFav ? '★ Saved' : '☆ Save');
+          if (fav.hasAttribute('aria-pressed')) {
+            fav.setAttribute('aria-pressed', String(nowFav));
+          }
           renderFavs();
           return;
         }
@@ -32722,7 +33088,7 @@
           }
           var nvi = parseInt(nvBtnEl.getAttribute('data-i'), 10);
           if (nvBtnEl.classList.contains('nvdel')) removeWatchAt(nvi);
-          else moveWatch(nvi, nvBtnEl.classList.contains('nvup') ? -1 : 1);
+          else moveWatchScoped(nvi, nvBtnEl.classList.contains('nvup') ? -1 : 1);
           return;
         }
         var favBtn = ev.target.closest('.favup, .favdown, .favdel, .favadd');
@@ -32994,14 +33360,18 @@
         // to a search over source text.
         gbifJson: gbifJson, GBIF_BUCKET: GBIF_BUCKET,
         GBIF_REFILL_PER_S: GBIF_REFILL_PER_S,
-        watchDropped: watchDropped,
         loadAbaAlert: loadAbaAlert,
         renderSurge: renderSurge, loadSurge: loadSurge,
         chaseAlertSourceState: chaseAlertSourceState,
         surgeDestinationsComplete: surgeDestinationsComplete,
+        surgeSourceCacheKey: surgeSourceCacheKey,
+        loadSurgeSourceCache: loadSurgeSourceCache,
+        saveSurgeSourceCache: saveSurgeSourceCache,
+        surgeSourceFallback: surgeSourceFallback,
         megaAlertSourceState: megaAlertSourceState,
         lazyRefreshMegaSnapshot: lazyRefreshMegaSnapshot,
         MEGA_SNAP_KEY: MEGA_SNAP_KEY,
+        MEGA_NEWS_MAX_AGE_H: MEGA_NEWS_MAX_AGE_H,
         scrubbableKeys: scrubbableKeys, scrubPersonalData: scrubPersonalData,
         SCRUB_PREFIX: SCRUB_PREFIX, getDisplayName: getDisplayName,
         getIdentityMeta: getIdentityMeta, setDisplayNameValue: setDisplayNameValue,
@@ -33068,6 +33438,7 @@
         syncChaseMi: syncChaseMi, toDest: toDest,
         harvestOwnChecklists: harvestOwnChecklists, ownSeenCodes: ownSeenCodes,
         ownSeenMeta: ownSeenMeta, ownNewSubs: ownNewSubs, isOwnRow: isOwnRow,
+        sameDisplayName: sameDisplayName,
         mergedYearList: mergedYearList, ownYearEntries: ownYearEntries,
         reportYearList: reportYearList, ownListDate: ownListDate,
         nameOwnCodes: nameOwnCodes, ownNaming: function () { return _ownNaming || Promise.resolve(0); },
@@ -33145,6 +33516,7 @@
         recScopes: recScopes, getRecScope: getRecScope,
         stateRecordFile: stateRecordFile, renderRecScope: renderRecScope,
         renderLastNew: renderLastNew, lastNewChecklists: lastNewChecklists,
+      reconcileLastNewOwnerTicks: reconcileLastNewOwnerTicks,
       lastNewKey: lastNewKey, lastNewPick: lastNewPick,
       loadLastNewCache: loadLastNewCache, saveLastNewCache: saveLastNewCache,
       favInteresting: favInteresting, favDetailHtml: favDetailHtml,
@@ -33311,6 +33683,9 @@
       },
       chaseGeneration: function () { return _chaseGeneration; },
       chasePhase2Max: chasePhase2Max, chasePhase2Codes: chasePhase2Codes,
+      setChaseSnapshotStoreGate: function (fn) {
+        _chaseSnapshotStoreGate = typeof fn === 'function' ? fn : null;
+      },
       loadedSectionFor: loadedSectionFor, autoLoad: autoLoad,
       onChasePhaseOne: onChasePhaseOne,
       onChasePartial: onChasePartial,
@@ -33318,6 +33693,8 @@
       progressState: function () { return _stage ? { label: _stage.label, total: _stage.total, done: _stage.done } : null; },
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
+        renderAllUnseenCards: renderAllUnseenCards,
+        allUnseenBatch: function () { return ALL_UNSEEN_BATCH; },
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav, toggleFav: toggleFav,
         favoriteEntriesForRegion: favoriteEntriesForRegion,

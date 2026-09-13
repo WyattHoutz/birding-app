@@ -73,6 +73,19 @@ jobs:
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 
+      # WKWebView's JavaScript print path does not reliably expose a full-page
+      # PDF on iOS. The generated project is ephemeral, so install the tracked
+      # native bridge after every sync. It uses WKWebView.createPDF over the
+      # full scroll content, then copies the PDF or opens the native share sheet.
+      - name: Install the full-report PDF bridge
+        run: |
+          set -euo pipefail
+          cp native/ios/ViewController.swift ios/App/App/ViewController.swift
+          grep -q 'registerPluginInstance(FullReportPlugin())' ios/App/App/ViewController.swift
+          grep -q 'height: contentSize.height' ios/App/App/ViewController.swift
+          grep -q 'UTType.jpeg.identifier' ios/App/App/ViewController.swift
+          grep -q 'UIActivityViewController' ios/App/App/ViewController.swift
+
       # Same reason: Info.plist is regenerated, so the location usage string
       # cannot be committed. Without it CoreLocation refuses the request WITHOUT
       # ever prompting, which is how "📍 Here" in Quick outing came to hang

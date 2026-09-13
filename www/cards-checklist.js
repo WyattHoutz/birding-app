@@ -35,10 +35,11 @@
   /* ---------------------------------------------------------------- markup */
 
   /* SMALL — ONE LINE that never wraps.
-     The line is: place (abbreviated, and it IS the link to the checklist) ·
-     short date/time · count · distance. Making the NAME the checklist link is
-     what buys the width back: an eBird submission id like "S379329490" is
-     eleven characters of pure noise, and the row already needed a link.
+     The line is: place · short date/time · count · distance. A plain `place`
+     keeps the historical checklist-link behavior. `placeHtml` lets the app
+     supply an in-app hotspot link instead; in that form `dateHref` carries the
+     checklist destination on the date, so the subject stays in the app and
+     the evidence remains one explicit tap away.
      Every field is optional, because the caller's context decides what is
      redundant. When a row stands on its own - as it does in All unseen, where
      the checklist IS the row - it carries all four facts: name, date, count,
@@ -299,10 +300,16 @@
   function build(tpl, v, isMedium) {
     v = v || {};    var bits = [];
     if (isMedium) {
-      // MEDIUM: the place is the headline and carries the link, so the facts
-      // line leads with a PLAIN date. Two links to the same checklist in one
-      // card is one more tap target than the row has meaning for.
-      if (v.date) bits.push('<span class="ckdate">' + esc(shortWhen(v.date)) + '</span>');
+      // MEDIUM: a plain-place card keeps the historical headline checklist
+      // link. When `placeHtml` supplies an in-app hotspot name, `dateHref`
+      // moves the external checklist destination onto the date instead.
+      if (v.date) {
+        var mediumDate = esc(shortWhen(v.date));
+        bits.push('<span class="ckdate">' + (v.dateHref
+          ? '<a class="ckgo" target="_blank" rel="noopener" href="'
+            + esc(v.dateHref) + '">' + mediumDate + '</a>'
+          : mediumDate) + '</span>');
+      }
     } else {
       // SMALL: the LEAD is the link. Its text is the abbreviated place when
       // there is one, and otherwise the date — so a row always has something
@@ -317,7 +324,9 @@
       var leadText = v.place ? condense(v.place, v.max || SMALL_NAME_MAX)
                              : shortWhen(v.date, true);
       if (leadText) {
-        bits.push('<span class="cklead">' + (v.href
+        bits.push('<span class="cklead">' + (v.placeHtml
+          ? v.placeHtml
+          : v.href
           ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
             + esc(leadText) + '</a>'
           : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
@@ -331,7 +340,11 @@
         bits.push('<span class="ckevid">' + v.icons + '</span>');
       }
       if (v.place && v.date) {
-        bits.push('<span class="ckdate">' + esc(shortWhen(v.date, true)) + '</span>');
+        var dateText = esc(shortWhen(v.date, true));
+        bits.push('<span class="ckdate">' + (v.dateHref
+          ? '<a class="ckgo" target="_blank" rel="noopener" href="'
+            + esc(v.dateHref) + '">' + dateText + '</a>'
+          : dateText) + '</span>');
       }
       // WHO, on a small row, but only when the place is not being printed.
       // Small rows used to drop the observer unconditionally; under a hotspot
@@ -425,7 +438,7 @@
       // HTML that browsers silently un-nest — which would break the pin. The
       // name stays a REAL link, so keyboard and screen-reader users still get
       // one; the row click is an enhancement over it, not a replacement.
-      .replace('{{rowlink}}', ((v.href && !isMedium)
+      .replace('{{rowlink}}', ((v.href && !isMedium && !v.placeHtml)
         ? ' data-href="' + esc(v.href) + '"' : '') + attrsHtml(v))
       .replace('{{num}}', v.num != null && v.num !== ''
         ? '<span class="cknum">' + esc(v.num) + '</span>' : '')

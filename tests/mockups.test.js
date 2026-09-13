@@ -266,6 +266,31 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the Full-day release shot does not identify the measured completed cold plan');
 });
 
+test('F384/F385 release mockups expose row actions and regional watch scope', () => {
+  const year = source.slice(source.indexOf("var isMyYear = at === 'myYearBody'"),
+    source.indexOf('function fillSpeciesHost', source.indexOf("var isMyYear = at === 'myYearBody'")));
+  assert.match(year, /class="yrnum">216\./,
+    'the My Ticks release fixture does not exercise the full-size ordinal');
+  assert.match(year, /aria-pressed="false">Add to watchlist/);
+  assert.match(year, /aria-pressed="true">Remove from watchlist/,
+    'the My Ticks release fixture does not show both watchlist states');
+
+  const scope = source.slice(source.indexOf("if (at === 'nvResults')"),
+    source.indexOf("} else {", source.indexOf("if (at === 'nvResults')")));
+  assert.match(scope, /code: 'baisan'/);
+  assert.match(scope, /code: 'hawama'/,
+    'the Needs proof release fixture lost its preserved cross-region control');
+  assert.match(scope, /scopeButtons\[0\]\.textContent\.trim\(\) !== 'This region'/);
+  assert.match(scope, /scopeButtons\[0\]\.getAttribute\('aria-pressed'\) !== 'true'/);
+  assert.match(scope, /scopeButtons\[1\]\.textContent\.trim\(\) !== 'All'/);
+  assert.match(scope, /\/Hawaii Amakihi\/\.test\(host\.textContent\)/,
+    'the release fixture does not reject a cross-region bird leaking into the default view');
+  assert.match(scope, /1 of 2 species awaiting verification/,
+    'the default Needs proof screenshot no longer discloses its hidden stored row');
+  assert.deepEqual(mockups.STUB_SPEC.nvResults.allowDisabled, ['.nvup', '.nvdown'],
+    'legitimate first/last reorder boundaries make the release shot look unfinished');
+});
+
 test('F372 review mockups prove empty Hawaii stays empty on both reported surfaces', () => {
   const birdGen = mockups.REVIEW_SHOTS.find((item) => item.id === 'hawaiiemptybirdgen');
   const ticks = mockups.REVIEW_SHOTS.find((item) => item.id === 'hawaiiemptyticks');
@@ -366,6 +391,8 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release renderer does not behaviorally guard its approved relative age');
   assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
     'the release gate does not assert its exact visible Bird Gen species');
+  assert.match(source, /hiddenCodes\.join\(','\) !== 'baisan'/,
+    'the release gate no longer proves a seen Bird Gen row is hidden');
 });
 
 test('F302 Bird Gen mockup shows the approved three-line cards', () => {

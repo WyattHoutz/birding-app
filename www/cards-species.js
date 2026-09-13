@@ -600,7 +600,9 @@
   function whenHtml(v, tpl) {
     var t = whenText(v.when);
     if (!t) return '';
-    return '<span class="spwhen">' + t + '</span>';
+    // `whenHtml` is caller-built, already-escaped markup for the uncommon
+    // case where the date itself is an action (for example, its checklist).
+    return '<span class="spwhen">' + (v.whenHtml || t) + '</span>';
   }
 
   function codeHtml(v, tpl) {

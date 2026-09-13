@@ -177,6 +177,7 @@
         "Newest first, and every row carries the clock time — a rarity is chased within hours, so a bare date decides nothing.",
         "One row per checklist, not per species: a bird found at six places is six places you could drive to.",
         "The card gives the bird's name a row of its own. Everything else — whether you still need it (🔍), how many were seen, whether it has stayed put (📍 Day N), where, when and who — sits on the line beneath it, because the one thing you scan a rarity list for is WHICH BIRD.",
+        "The bird name and photo open Species Stakeout. The linked date opens the exact supporting checklist, and the public hotspot name opens Stakeout hotspot, so ordinary subject taps stay in the app while evidence remains explicit.",
         "Reports beyond the chase radius are collapsed into an expander rather than dropped: a bird you still need is worth a longer drive on the right day.",
         "How rare each species is across the whole snapshot is deliberately NOT here — that is what 🚨 Last 7-Days rarity reports answers."
       ],
@@ -192,7 +193,8 @@
       ],
       "how": [
         "Grouped by species, then by location, most recent first.",
-        "A multi-day presence is marked, because a bird seen on three separate days is a stakeout you can plan around rather than a fly-by."
+        "A multi-day presence is marked, because a bird seen on three separate days is a stakeout you can plan around rather than a fly-by.",
+        "Bird names and photos open Species Stakeout; public hotspot names open Stakeout hotspot; linked dates remain the explicit path to supporting eBird checklists."
       ],
       "limits": [
         "This is the largest section in the report. Ten checklists at one pond is still one place to drive to; deduping it by location is open backlog work."
@@ -417,7 +419,8 @@
       "how": [
         "Last 7 days, public hotspots only, within 40 mi of home, best checklist per hotspot, top 25.",
         "Birds you still need are flagged inside each checklist.",
-        "Two modes over ONE cached per-county product/lists feed, so the second costs no extra call: Birdiest keeps the best checklist per hotspot, Newest keeps every checklist in order. Birdiest is the default."
+        "Two modes over ONE cached per-county product/lists feed, so the second costs no extra call: Birdiest keeps the best checklist per hotspot, Newest keeps every checklist in order. Birdiest is the default.",
+        "A public hotspot headline opens Stakeout hotspot. Its linked date opens the supporting eBird checklist."
       ],
       "limits": [
         "One checklist per hotspot, so a site with two great lists appears once."
@@ -433,7 +436,8 @@
         "Birders filing checklists at the same places within a short window on the same day are detected as a convoy.",
         "Every member's checklist at every stop is pooled. Two birders standing together file different lists, so reading only one drops birds the other wrote down.",
         "Each convoy is titled with its date, party size, stop count, species count and unseen count — two convoys on the same day are otherwise indistinguishable.",
-        "Unseen birds are listed before seen ones, and 'nothing unseen here' is stated plainly: that is a direct answer to 'should I drive this route?'"
+        "Unseen birds are listed before seen ones, and 'nothing unseen here' is stated plainly: that is a direct answer to 'should I drive this route?'",
+        "Each public stop name opens Stakeout hotspot. Checklist ids and the labelled map action remain separate external evidence and navigation controls."
       ],
       "limits": [
         "Names are never printed — open a checklist to see who. The species count is omitted rather than shown as 0 when detail has not loaded."
@@ -475,14 +479,17 @@
         "Places are then merged by HOTSPOT NAME, because eBird issues a separate location id for every personal location — one hotspot otherwise arrives as several rows with the same name, each holding one checklist.",
         "Every checklist for a hotspot is kept and listed newest first, deduplicated by submission id.",
         "Duplicate observers of the same bird, at the same spot, on the same day are merged into ONE row: six birders standing together at one stakeout is one place to drive to, not six leads.",
+        "The public hotspot name opens Stakeout hotspot. The linked date opens that row's supporting eBird checklist; map and explicitly labelled eBird actions remain available without making the place name leave the app.",
         "The row shows the checklist time, the tally and how far away it is; a warning triangle marks a report eBird has not yet reviewed.",
         "Filtered to the shared chase radius; places beyond it are collapsed into an expander rather than dropped.",
         "The five most recent places show under each bird and the rest fold into a second expander, so one bird reported at 66 places does not bury the next species.",
+        "The first 12 species cards and their photo slots paint immediately; one labelled Show-more control appends the next 12 into the same list without refetching.",
         "Species sorted nearest first, places within a species by date."
       ],
       "limits": [
         "Distance is straight-line, not drive time — a ferry or a lake can make a near place far.",
-        "Beyond the chase radius the list is still complete, just collapsed; it is not a claim that nothing is out there."
+        "Beyond the chase radius the list is still complete, just collapsed; it is not a claim that nothing is out there.",
+        "Only the initial batch is in the document at first; Show more remains available until every species is appended."
       ]
     },
     "spLookupBtn": {
@@ -503,7 +510,7 @@
         "The full taxonomy is compacted on the device to concrete species, spuh labels and reportAs aliases, then cached in IndexedDB for 30 days. No eBird taxonomy bundle ships in the public repository.",
         "Each spuh resolves to its exact published candidate-species set. Labels with identical sets share one coverage class, and minimal subset/superset relations form a DAG because real groups overlap.",
         "A spuh is treated as a bird-hierarchy entry, not a separate feature. Its result uses the same medium SpeciesCards shape as a selected bird, without a separate enclosing border: a uniformly random candidate reported in the current 30-day regional snapshot supplies the clearly labelled representative image, falling back to another active regional candidate only when needed. The searched spuh is the large title, and its count and taxonomy identifiers sit on the card's metadata line.",
-        "Below the TAXONOMIC HIERARCHY heading, Condensed runs the verified backbone inline with the same › chevron as candidate cards between ancestry levels. Familiar spuh wording for which eBird publishes no separate bird set is regular italic with a baseline * and a small bold backslash announced as \"or\"; those real spuh labels remain buttons but receive no invented count.",
+        "Below the TAXONOMIC HIERARCHY heading, Condensed runs the verified backbone inline with the same › chevron as candidate cards between ancestry levels. Familiar spuh wording for which eBird publishes no separate bird set is regular italic with a baseline * and a small bold backslash announced as \"or\"; every compact taxonomy chip is an in-app Spuh Finder button with no direct eBird species href, and real spuh labels receive no invented count.",
         "Detailed replaces the inline row with numbered Class, Order, Family and Genus steps. Every backbone step names its verified taxon and exact published-set count; starred spuh wording stays at the matching level without being drawn as a parent or child. Switching views preserves the representative image and the same SpeciesCards.small candidate list.",
         "The hierarchy information button explains the starred notation, preserves the selected spuh's generated definition, and keeps taxonomy and example-image source boundaries out of the primary result.",
         "Candidate birds are split into Recently reported and Other regional candidates. The regional feed proves only recent presence, so rows say RECENT or REGIONAL LIST and never invent per-species report counts or a most-reported ranking.",
@@ -541,7 +548,8 @@
         "For each hotspot, ONE faceted GBIF call returns every species' share of the records in a 2 km box around it, together with the box total. A second call does the same for the whole county, and is shared by every hotspot inside it.",
         "The multiplier is the bird's share of records at the place divided by its share across the county. Against eBird's own Iconic Birds panel at Mann Rd, Sultan this reproduces eBird's exact ordering: Yellow-breasted Chat, then Western Kingbird, then Lazuli Bunting, then Eastern Kingbird.",
         "Measured across the WHOLE YEAR, not the current season. eBird's August-only view at Bolt Creek Burn omits the Northern House Wren the site is known for, because it is a May–June bird there; every row therefore states which months its records fall in.",
-        "Two views of one scan: by BIRD keeps a row per bird-and-place pairing, so the same bird can appear for several places; by PLACE ranks hotspots by their single best bird."
+        "Two views of one scan: by BIRD keeps a row per bird-and-place pairing, so the same bird can appear for several places; by PLACE ranks hotspots by their single best bird.",
+        "Bird names open Species Stakeout and matched public hotspot names open Stakeout hotspot. Open in Maps remains a separately labelled action."
       ],
       "limits": [
         "App-only. The numbers are measured against YOUR home and YOUR chase radius, which a Markdown report generated hours earlier cannot ask for.",
@@ -579,11 +587,14 @@
       "how": [
         "Each name is resolved to an eBird species code against your birdlists first, then against the full eBird taxonomy, so a bird you have never recorded anywhere still resolves. A name that resolves to nothing is reported rather than dropped.",
         "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Closest spots, Easy misses and everywhere else - it is deliberately not counted as seen.",
-        "The section then shows the nearest report of each tracked species in the current window, closest first, with the checklist it came from. Species with no report in range are still listed, so the list is a complete inventory rather than only the ones that happen to be showing."
+        "This region is the default display: it intersects the global watchlist with the active report's merged year list. All reveals every stored watched bird. Switching scope is local, deletes nothing, and visible Up/Down controls reorder adjacent visible birds inside the same global list.",
+        "The scope control filters this screen only. Every watched code, including a bird absent from the current region's year list, remains an unseen patch/chase input at the established quarter weight.",
+        "The section then shows the nearest report of each visible tracked species in the current window, closest first, with the checklist it came from. Species with no report in range are still listed, so the selected scope is a complete inventory rather than only the ones that happen to be showing."
       ],
       "limits": [
         "The list is authored in the private pipeline repo. The app bundles it at build time and edits made in the app are stored on the device only - the app has no runtime GitHub dependency and cannot write the file back. Use the copy button and paste over birdlist-needsverification.md to make an edit stick in the Markdown report.",
-        "One list is shared by every region, because a tentative ID is tentative wherever you made it. A species you drop returns to your seen set only in reports whose year list actually contained it.",
+        "One list is shared by every region. Absence from one region's year list is not evidence that eBird moderation dropped or withdrew the bird; unseen birds may be watched deliberately.",
+        "A species you remove returns to your seen set only in reports whose year list actually contained it.",
         "The species lookup searches birds recorded in the active region, so a bird never reported there will not appear in the picker."
       ]
     },
@@ -650,7 +661,8 @@
         "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback; both use the lower-case report code and the displayed year"
       ],
       "how": [
-        "Oldest is numbered 1; newest is listed first. Each entry links its species page, its checklist, and its location.",
+        "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the species title on its own line, so it never forces a bird name to wrap mid-name. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
+        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Ticks immediately without refetching or removing the year-list row.",
         "Opening My Ticks paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
         "The heading's Reload control repeats that owned refresh. Its visible year-list link, CSV request and page fallback all use the same explicit-year eBird query.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
@@ -718,16 +730,17 @@
     },
     "stakeHsBtn": {
       "report": null,
-      "summary": "Everything about ONE place you have already chosen, rather than which place to choose.",
+      "summary": "Choose one hotspot and see its map, visit pattern, birds, recent checklists, and regular birders.",
       "inputs": [
         "eBird ref/hotspot/{region} for the name search, cached",
         "eBird product/lists/{locId}, one call, which carries every recent checklist header AND its observer"
       ],
       "how": [
         "The PATTERN leads, not today rows. How many checklists, across how many days, and what a visit is typically worth are true all day - unlike what was seen today, which is empty every morning by eBird own design.",
+        "The selected place leads with a map and explicit Open in Maps, Open eBird hotspot, QR, and add/remove favorite actions. Favorite changes use the same on-device favorite-hotspot list as Favorite patches.",
         "MEASURED 2026-08-22 at 10:10: three target species returned ZERO reports from that day across the whole state. eBird embargoes checklists for an hour (its hotspot page says so) and people submit hours after the walk.",
         "WHO BIRDS HERE is counted from the same single call, because product/lists carries userDisplayName. The patch-regular list is a different and more useful thing than the county top 100: the person to ask about a place is whoever actually birds it. Cedar River mouth reads Eric Hope 30.",
-        "Checklists are shown newest-first, which is the order product/lists returns - measured at three depths, 5, 50 and 200."
+        "Checklists are shown newest-first as shared small checklist cards. The linked date opens the checklist; QR is kept once for the hotspot instead of repeated on every evidence row. product/lists ordering was measured at three depths, 5, 50 and 200."
       ],
       "limits": [
         "It does not enumerate hidden checklists. Both species_recent and /data/obs/{loc}/recent/{code} collapse to ONE row per location - measured across 14 species at two hotspots, including owls, which was the sharpest test because owlers often use custom pins. Only /data/obs/{loc}/historic/{y}/{m}/{d} returns them all, at one call per DAY, and that cost is not spent here.",
