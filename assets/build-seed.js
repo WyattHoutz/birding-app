@@ -29,6 +29,7 @@ const outPath = path.join(appRoot, 'www', 'seed-birdlist.json');
 // The report registry (which birdlist + seen_from_region drives each report)
 // lives in the shared BirdLogic module, so the seed and the app agree on scope.
 const BirdLogic = require(path.join(appRoot, 'www', 'logic.js'));
+const { domesticReportAs } = require(path.join(__dirname, 'taxonomy-aliases.js'));
 
 if (!fs.existsSync(srcRoot)) {
   console.error('Source repo not found: ' + srcRoot);
@@ -164,29 +165,35 @@ const nvCodes = Object.create(null);
 // rather than disappearing between the report and the app.
 const nvEntries = [];
 const nvUnresolved = [];
-// Lazily read, because it is a 6 MB file that most runs never need. It lives
-// in the SOURCE repo's gitignored cache, which is the same "run this beside
-// the private repo" assumption every birdlist read above already makes; when
-// it is missing we say so rather than quietly shipping empty codes.
+// The same cached taxonomy supplies both watchlist name fallback and F387's
+// compact domestic child -> parent map. It lives in the SOURCE repo's
+// gitignored cache, which is the same "run this beside the private repo"
+// assumption every birdlist read above already makes. An empty alias map would
+// recreate the installed bug silently, so a missing/unreadable cache stops the
+// build instead of producing success-shaped data.
+let taxRows = null;
 let taxNameToCode = null;
+function taxonomyRows() {
+  if (taxRows !== null) return taxRows;
+  const taxPath = path.join(srcRoot, '.cache', 'taxonomy-en.json');
+  if (!fs.existsSync(taxPath)) {
+    throw new Error('No taxonomy cache at ' + taxPath
+      + ' — run any report in the birding repo once to populate it');
+  }
+  const parsed = JSON.parse(fs.readFileSync(taxPath, 'utf8'));
+  if (!Array.isArray(parsed) || !parsed.length) {
+    throw new Error('Taxonomy cache is empty or invalid: ' + taxPath);
+  }
+  taxRows = parsed;
+  return taxRows;
+}
 function taxonomyLookup(normalised) {
   if (taxNameToCode === null) {
     taxNameToCode = Object.create(null);
-    const taxPath = path.join(srcRoot, '.cache', 'taxonomy-en.json');
-    if (fs.existsSync(taxPath)) {
-      try {
-        JSON.parse(fs.readFileSync(taxPath, 'utf8')).forEach(function (t) {
-          const k = normName(t.comName || '');
-          if (k && !taxNameToCode[k]) taxNameToCode[k] = t.speciesCode;
-        });
-      } catch (e) {
-        console.warn('[warn] taxonomy cache unreadable (' + e.message + ')');
-      }
-    } else {
-      console.warn('[warn] no taxonomy cache at ' + taxPath
-        + ' — run any report in the birding repo once to populate it; '
-        + 'watchlist birds absent from every birdlist cannot resolve without it');
-    }
+    taxonomyRows().forEach(function (t) {
+      const k = normName(t.comName || '');
+      if (k && !taxNameToCode[k]) taxNameToCode[k] = t.speciesCode;
+    });
   }
   return taxNameToCode[normalised];
 }
@@ -271,6 +278,7 @@ const seed = {
   codes: codeList,
   names: nameList,
   watchlist: nvEntries,
+  domesticParents: domesticReportAs(taxonomyRows()),
   seenByReport: seenByReport
 };
 
@@ -287,6 +295,7 @@ console.log('Wrote ' + outPath);
 console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
 console.log('  codes:  ' + codeList.length + ' (combined union)');
+console.log('  domestic aliases: ' + Object.keys(seed.domesticParents).length);
 console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length + ' of ' + nvEntries.length + ' entries');
 if (nvUnresolved.length) {
   // Loud, and mirroring analyze.py's own [warn] line, because the failure is

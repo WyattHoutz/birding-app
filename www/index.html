@@ -3519,7 +3519,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.100.0';
+      var APP_VERSION = '1.101.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4401,6 +4401,25 @@
         var meta = getSeenMeta();
         return !!(meta && meta.source === 'seed');
       }
+      function addDomesticParents(set, parentOf) {
+        Object.keys(set || {}).forEach(function (code) {
+          var cur = String(code || '').toLowerCase(), hops = {};
+          while (parentOf && parentOf[cur] && !hops[cur]) {
+            hops[cur] = 1;
+            cur = String(parentOf[cur] || '').trim().toLowerCase();
+            if (cur) set[cur] = 1;
+          }
+        });
+        return set;
+      }
+      function finishReportSeen(set, watch, seed) {
+        // A watched child must not create an unwatched parent, and a watched
+        // parent must not be recreated by an unwatched domestic child.
+        Object.keys(watch || {}).forEach(function (c) { delete set[c]; });
+        addDomesticParents(set, seed && seed.domesticParents);
+        Object.keys(watch || {}).forEach(function (c) { delete set[c]; });
+        return set;
+      }
       // Seen-species set (eBird codes) the ACTIVE report chases against. Matches
       // the Markdown report exactly: each report subtracts its own region's year
       // list (bundled in seed-birdlist.js as seenByReport[slug]). Falls back to
@@ -4430,11 +4449,15 @@
           // back is never ticked by your own checklist.
           var own = ownSeenCodes();
           Object.keys(own).forEach(function (c) { if (!w[c]) set[c] = 1; });
-          return set;
+          // eBird checklist detail preserves domestic-form codes such as
+          // redjun1, rocpig1, musduc3 and mallar2. Patch candidates use their
+          // parent species codes, so add only taxonomy rows explicitly marked
+          // domestic. Ordinary forms remain independently chaseable.
+          return finishReportSeen(set, w, seed);
         }
         var base = getSeen(), w2 = watchCodes(), own2 = ownSeenCodes();
         Object.keys(own2).forEach(function (c) { if (!w2[c]) base[c] = 1; });
-        return base;
+        return finishReportSeen(base, w2, seed);
       }
 
       // ---- your own list, kept current between report builds ----------------

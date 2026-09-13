@@ -7,6 +7,8 @@
     "controls-progressive.js",
     "cards-species.js",
     "cards-hotspot.js",
+    "seed-birdlist.js",
+    "seed-birdlist.json",
     "section-docs.json",
     "info-dialogs.js"
   ],
@@ -22,8 +24,19 @@
       "<script src=\"controls-progressive.js\"></script>",
       "parseEbirdAccountIdentity",
       "openMegaIndexRow",
+      "finishReportSeen",
       "PERSIST_DELAY_MS = 750",
       "PREVIOUS SESSION (saved locally; secrets scrubbed)"
+    ],
+    "seed-birdlist.js": [
+      "\"domesticParents\"",
+      "\"redjun1\":\"redjun\"",
+      "\"mallar2\":\"mallar3\""
+    ],
+    "seed-birdlist.json": [
+      "\"domesticParents\"",
+      "\"rocpig1\":\"rocpig\"",
+      "\"musduc3\":\"musduc\""
     ],
     "controls-toggle.js": [
       "global.ToggleControls = api",

@@ -20337,6 +20337,75 @@ test('your own checklists top up the year list, for free', async () => {
   app.window.close();
 });
 
+test('F387 domestic checklist taxa satisfy parent patch targets and the watchlist still wins', async () => {
+  const domestic = {
+    redjun1: 'redjun',
+    rocpig1: 'rocpig',
+    musduc3: 'musduc',
+    mallar2: 'mallar3',
+    rinphe37: 'rinphe1',
+  };
+  const app = await boot({
+    fetch(url) {
+      return /product\/checklist\/view\/S1/.test(String(url))
+        ? { obs: Object.keys(domestic).map((speciesCode) => ({ speciesCode })) }
+        : null;
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  W.__SEED_BIRDLIST__.domesticParents = domestic;
+  seedSeen(app, []);
+  A.setWatchlist([]);
+  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+
+  await A.harvestOwnChecklists([
+    { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 5 },
+  ]);
+  const raw = A.ownSeenCodes();
+  const seen = A.getReportSeen();
+  for (const [child, parent] of Object.entries(domestic)) {
+    assert.ok(raw[child], child + ' remains the durable raw My Ticks record');
+    assert.ok(seen[parent],
+      child + ' satisfies its parent ' + parent + ' in the chase seen set');
+  }
+
+  const profile = A.chaseProfile();
+  const feed = W.BirdLogic.planFeeds(profile).find((f) => f.kind === 'recent');
+  assert.ok(feed, 'the active report has a recent feed to exercise');
+  const rowsByFile = {};
+  rowsByFile[feed.file] = Object.values(domestic).map((speciesCode, i) => ({
+    speciesCode,
+    comName: 'Domestic parent ' + i,
+    obsId: 'DOM-' + i,
+    obsDt: todayFixtureDate() + ' 08:00',
+    lat: profile.home.lat,
+    lng: profile.home.lng,
+    locName: 'Domestic control',
+    locId: 'L-DOM-' + i,
+    subId: 'S-DOM-' + i,
+    userDisplayName: 'Another Birder',
+    subnational2Code: profile.counties[0].code,
+    subnational2Name: profile.counties[0].label,
+  }));
+  assert.deepEqual(
+    Array.from(A.computeChaseRows(
+      profile, profile.slug, rowsByFile, Object.values(domestic)).unseenAll,
+    (r) => r.code),
+    [],
+    'parent species disappear from patch rankings after a domestic child was reported');
+
+  A.setWatchlist([{ code: 'redjun', name: 'Red Junglefowl' }]);
+  assert.equal(A.getReportSeen().redjun, undefined,
+    'a watched parent is removed after alias expansion');
+  assert.deepEqual(
+    Array.from(A.computeChaseRows(
+      profile, profile.slug, rowsByFile, Object.values(domestic)).unseenAll,
+    (r) => r.code),
+    ['redjun'],
+    'the watched parent remains a target even though its domestic child was reported');
+  app.window.close();
+});
+
 test('an edited own checklist is reread when its species count changes', async () => {
   let species = ['amerob'];
   let bodyCalls = 0;

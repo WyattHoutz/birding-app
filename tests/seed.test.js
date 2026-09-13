@@ -26,6 +26,8 @@ const SEED = JSON.parse(
   fs.readFileSync(path.join(WWW, 'seed-birdlist.json'), 'utf8'));
 const BUILDER = fs.readFileSync(
   path.join(__dirname, '..', 'assets', 'build-seed.js'), 'utf8');
+const RELEASE_CONTRACT = JSON.parse(fs.readFileSync(
+  path.join(__dirname, '..', 'assets', 'release-contract.json'), 'utf8'));
 
 test('the watchlist really came off — an empty one is indistinguishable from a broken parser', () => {
   const held = [];
@@ -124,4 +126,55 @@ test('seen_codes.txt is not read by the seed builder', () => {
     'build-seed.js must not read the retired ratchet file');
   assert.ok(!/scCodes\)/.test(BUILDER.replace(/\/\/[^\n]*/g, '')),
     'and must not union it into any set');
+});
+
+test('F387 domestic parent aliases come from taxonomy, not a four-bird list', () => {
+  const helperPath = path.join(
+    __dirname, '..', 'assets', 'taxonomy-aliases.js');
+  assert.ok(fs.existsSync(helperPath),
+    'the taxonomy-derived domestic alias helper exists');
+  if (!fs.existsSync(helperPath)) return;
+  const { domesticReportAs } = require(helperPath);
+  const derived = domesticReportAs([
+    { speciesCode: 'redjun1', category: 'domestic', reportAs: 'redjun' },
+    { speciesCode: 'mallar2', category: 'domestic', reportAs: 'mallar3' },
+    { speciesCode: 'rocpig2', category: 'form', reportAs: 'rocpig' },
+    { speciesCode: 'missingparent', category: 'domestic' },
+  ]);
+  assert.deepEqual(derived, {
+    mallar2: 'mallar3',
+    redjun1: 'redjun',
+  }, 'only taxonomy rows explicitly categorized as domestic aliases qualify');
+
+  const aliases = SEED.domesticParents || {};
+  assert.ok(Object.keys(aliases).length >= 20,
+    'the bundled map is broad enough to be taxonomy-derived, not a '
+    + 'hard-coded list of the four reported examples');
+  assert.deepEqual(
+    {
+      redjun1: aliases.redjun1,
+      rocpig1: aliases.rocpig1,
+      musduc3: aliases.musduc3,
+      mallar2: aliases.mallar2,
+      rinphe37: aliases.rinphe37,
+    },
+    {
+      redjun1: 'redjun',
+      rocpig1: 'rocpig',
+      musduc3: 'musduc',
+      mallar2: 'mallar3',
+      rinphe37: 'rinphe1',
+    },
+    'the owner examples plus an independent domestic taxon keep eBird’s '
+    + 'exact parent codes, including Mallard’s non-obvious mallar3');
+  assert.equal(aliases.rocpig2, undefined,
+    'a non-domestic form is not collapsed into its parent');
+  assert.match(BUILDER, /domesticReportAs\(taxonomyRows\(\)\)/,
+    'the generated seed is wired to the taxonomy-derived helper');
+  assert.ok(RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.js')
+    && RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.json'),
+  'the IPA contract requires both domestic-alias seed forms');
+  assert.ok((RELEASE_CONTRACT.requiredText['index.html'] || [])
+    .includes('finishReportSeen'),
+  'the IPA contract requires the runtime seen-set expansion');
 });
