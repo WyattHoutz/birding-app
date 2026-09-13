@@ -25420,10 +25420,16 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
 // of it.
 test('a mega found this week is marked; one that was already here is not', async () => {
   const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const localStamp = (minsAgo) => {
+    const d = new Date(Date.now() - minsAgo * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+      + `${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
 
   const snap = JSON.stringify({
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
-    rows: [{ speciesCode: 'nazboo', comName: 'Nazca Booby', obsDt: day(1) + ' 08:00',
+    rows: [{ speciesCode: 'nazboo', comName: 'Nazca Booby', obsDt: localStamp(60),
              locName: 'The Jetty', locId: 'L9', subId: 'S9', lat: 47.76, lng: -122.17 }],
   });
   // WATCHED IT ARRIVE: the archive holds this species only from two days ago,
