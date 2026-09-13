@@ -255,6 +255,15 @@ OVERRIDES = {
     # of clear frame before the bill at the 56px small-card size while keeping
     # the folded wing and useful tail context.
     'vesspa.jpg': 0.25,
+
+    # F376. These five device-reported crops used landscape sources whose
+    # subjects could not fit the old square. The replacement photos were
+    # reviewed at source and 56px card size; freeze those approved windows.
+    'rinphe1.jpg': 0.34,
+    'redjun.jpg': 0.613,
+    'pibgre.jpg': 0.80,
+    'wetshe.jpg': (0.18761, 0.16888, 0.64779, 0.83419),
+    'hawgoo.jpg': 0.10,
 }
 
 
@@ -331,6 +340,12 @@ OVERRIDE_SRC_SHA = {
     'shshaw.jpg': '88d0e03cb12f2ede',
     # F290: same credited photograph re-fetched from Wikimedia at 1070x756.
     'vesspa.jpg': 'e7a65b4b836cbf65',
+    # F376: reviewed 1280px Wikimedia sources and their approved square crops.
+    'rinphe1.jpg': '1e69885ae2ba8ab8',
+    'redjun.jpg': 'f43d62dc0e60f719',
+    'pibgre.jpg': '549b13d63ff69da7',
+    'wetshe.jpg': 'dc96eb8806cacdd7',
+    'hawgoo.jpg': 'e51062c2dfd80911',
 }
 
 

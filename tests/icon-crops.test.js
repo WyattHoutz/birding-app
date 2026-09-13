@@ -17,7 +17,7 @@ function tableBody(name) {
 
 function jpegSize(buf) {
   assert.ok(buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8,
-    'vesspa.jpg is no longer a JPEG');
+    'expected a JPEG image');
   let p = 2;
   while (p + 9 < buf.length) {
     if (buf[p] !== 0xff) { p += 1; continue; }
@@ -35,6 +35,14 @@ function jpegSize(buf) {
   return null;
 }
 
+function imageSize(buf) {
+  if (buf.length >= 24
+      && buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+  }
+  return jpegSize(buf);
+}
+
 function pythonRound(value) {
   const lower = Math.floor(value);
   const fraction = value - lower;
@@ -43,6 +51,80 @@ function pythonRound(value) {
   }
   return Math.round(value);
 }
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+test('F376 five reviewed bird crops stay pinned to their approved sources and squares', () => {
+  const overrides = tableBody('OVERRIDES');
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  const credits = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+  const birds = [
+    {
+      file: 'rinphe1.jpg',
+      override: /['"]rinphe1\.jpg['"]\s*:\s*0\.34\b/,
+      sourcePin: '1e69885ae2ba8ab8',
+      dimensions: { w: 1018, h: 1018 },
+      outputSha: 'ce8a6c3a330b3677f8ba45e899561fa2c762892a63969d2f5ab120982b06e541',
+      credit: /Phasianus_colchicus_in_Tashkent_botanical_garden\.jpg/,
+    },
+    {
+      file: 'redjun.jpg',
+      override: /['"]redjun\.jpg['"]\s*:\s*0\.613\b/,
+      sourcePin: 'f43d62dc0e60f719',
+      dimensions: { w: 853, h: 853 },
+      outputSha: 'dcb2ed489cb372d8c7cc212ed8becce7404bdb3649ba8cfcf5dadc95190e6927',
+      credit: /Red_junglefowl_%28Gallus_gallus%29_Rarotonga\.jpg/,
+    },
+    {
+      file: 'pibgre.jpg',
+      override: /['"]pibgre\.jpg['"]\s*:\s*0\.80\b/,
+      sourcePin: '549b13d63ff69da7',
+      dimensions: { w: 768, h: 768 },
+      outputSha: '97e70397eb16327812700e74d176efc72a4f56d2da30304879a1fc69d78c67ea',
+      credit: /Podilymbus-podiceps-001\.jpg/,
+    },
+    {
+      file: 'wetshe.jpg',
+      override: /['"]wetshe\.jpg['"]\s*:\s*\(\s*0\.18761,\s*0\.16888,\s*0\.64779,\s*0\.83419\s*\)/,
+      sourcePin: 'dc96eb8806cacdd7',
+      dimensions: { w: 589, h: 589 },
+      outputSha: 'a91e7b8848900227f241837dfec1a31d7a703a071d3eb422fbc24add422239d8',
+      credit: /WEDGE-TAILED_SHEARWATER_%284-27-2018%29/,
+    },
+    {
+      file: 'hawgoo.jpg',
+      override: /['"]hawgoo\.jpg['"]\s*:\s*0\.10\b/,
+      sourcePin: 'e51062c2dfd80911',
+      dimensions: { w: 853, h: 853 },
+      outputSha: '8afe6950a42db258a7f0399594a3eb6ab351de7959b56c9ee5d80e1782fc8a15',
+      credit: /Animals_%2820120211-APHIS-WS-001%29\.jpg/,
+    },
+  ];
+
+  for (const bird of birds) {
+    assert.match(overrides, bird.override,
+      `${bird.file} is not pinned to its reviewed square`);
+    assert.match(pins,
+      new RegExp(`['"]${bird.file.replace('.', '\\.')}['"]\\s*:\\s*['"]${bird.sourcePin}['"]`),
+      `${bird.file} is not pinned to its reviewed source`);
+    assert.match(credits, bird.credit,
+      `${bird.file} does not credit the reviewed Wikimedia source`);
+
+    const output = fs.readFileSync(
+      path.join(ROOT, 'www', 'assets', 'birds', bird.file));
+    assert.deepEqual(imageSize(output), bird.dimensions,
+      `${bird.file} was not regenerated from its reviewed crop`);
+    assert.equal(sha256Hex(output), bird.outputSha,
+      `${bird.file} no longer matches the visually approved square`);
+  }
+
+  assert.equal(fs.existsSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'redjun.png')), false,
+  'the public bundle must use the corrected Red Junglefowl JPEG');
+});
 
 test('F290 Vesper Sparrow crop keeps the whole head clear of the 56px left edge', () => {
   const override = tableBody('OVERRIDES').match(
