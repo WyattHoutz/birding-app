@@ -791,11 +791,10 @@
        yet, and cannot be forgotten. :not(:first-child) so a badge that still
        leads its line is not pushed off its own left edge. */
     .newflag:not(:first-child) { margin-left: 6px; }
-    /* The My-year ordinal is part of the title, not metadata. Keep it on its
-       own line so it cannot force a mid-name wrap, but inherit the species
-       name's exact type instead of shrinking the number into a caption. */
-    .yrnum { display: block; font-size: inherit; font-weight: inherit;
-             color: inherit; line-height: inherit; margin-bottom: 2px;
+    /* The My-year ordinal is part of the title, not metadata. Keep it beside
+       the bird name and inherit that name's exact type. */
+    .yrnum { display: inline; font-size: inherit; font-weight: inherit;
+             color: inherit; line-height: inherit; margin-right: 0.25em;
              font-variant-numeric: tabular-nums; }
     .myYearWatchlist { display: block; width: max-content; max-width: 100%;
                        min-height: 44px; margin: 8px 0 0; padding: 7px 10px;
@@ -1122,9 +1121,12 @@
     .stakeHsActions > #stakeHs { flex: 1 1 auto; width: auto; min-width: 0; }
     .stakeHsActions > #stakeHsBtn { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     #spCodesBtn { min-height: 44px; }
-    .spLookupActions { column-gap: 6px; }
-    .spLookupActions > button { padding-inline: 10px; }
-    .spLookupActions #spCodesBtn { font-size: calc(14px * var(--s)); }
+    .spLookupActions { flex-wrap: nowrap; }
+    .spLookupActions > #spLookup { flex: 1 1 auto; width: auto; min-width: 0; }
+    .spLookupActions > #spLookupBtn { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
+    .spLookupSecondaryActions { column-gap: 6px; }
+    .spLookupSecondaryActions > button { padding-inline: 10px; }
+    .spLookupSecondaryActions #spCodesBtn { font-size: calc(14px * var(--s)); }
     .spLookupWatchlist { min-height: 44px; }
     /* Condensed. Five chunky buttons wrapped onto three rows on a 402px
        phone and pushed the answer below the fold - the controls were taking
@@ -2637,6 +2639,10 @@
         <input id="stakeHs" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="stakeHsBtn" class="secondary" type="button">Go</button>
       </div>
+      <div class="row stakeHsSecondaryActions">
+        <button id="stakeHsHere" class="secondary" type="button">📍 Here</button>
+        <button id="stakeHsClear" class="secondary" type="button" hidden>✕ Close</button>
+      </div>
       <ul id="stakeHsFound" class="obs picklist"></ul>
       <div id="stakeHsStatus" class="status">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
       <div id="stakeHsResults"></div>
@@ -2647,9 +2653,11 @@
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
                placeholder="Search for birds and spuhs…" autocomplete="off" />
-        <button id="spLookupBtn" class="secondary">Search</button>
+        <button id="spLookupBtn" class="secondary">Go</button>
+      </div>
+      <div class="row spLookupSecondaryActions">
         <button id="spLookupClear" class="secondary" type="button" hidden>✕ Close</button>
-        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">🔤 Show bird codes</button>
+        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">🔤 Codes</button>
       </div>
       <div class="row" id="spCodesSortRow" hidden>
         <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
@@ -3519,7 +3527,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.102.0';
+      var APP_VERSION = '1.103.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4707,8 +4715,9 @@
         };
       }
       function lifelistBaseUrl(owner) {
-        var region = ((owner && owner.stateCode) || getReport().stateCode || '')
-          .trim().toLowerCase();
+        var region = ((owner && owner.stateCode) || getReport().stateCode || '').trim();
+        region = /^[A-Za-z]{2}-[A-Za-z]{2}$/.test(region)
+          ? region.toUpperCase() : region.toLowerCase();
         return region
           ? 'https://ebird.org/lifelist?r=' + encodeURIComponent(region)
             + '&time=year&year=' + encodeURIComponent(seedYear())
@@ -4918,7 +4927,7 @@
         return bestS || '(no dates)';
       }
 
-      function tryLifelistYear(owner) {
+      function tryOneLifelistYear(owner) {
         // CSV FIRST, HTML SECOND, the 730-call walk as the floor.
         //
         // CSV is a stable format and this file's own comment says eBird's
@@ -4930,6 +4939,37 @@
         return tryLifelistCsv(owner).then(function (n) {
           return n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS
             ? n : tryLifelistPage(owner);
+        });
+      }
+      function lifelistSupplementOwners(owner) {
+        owner = owner || lifelistOwner();
+        // eBird's ABA reporting region excludes Hawaii. The installed list
+        // therefore stopped at the owner's last mainland bird even after new
+        // US-HI checklists. Read that signed-in year list separately and merge
+        // it into the same ABA-owned store.
+        return String(owner.stateCode || '').toLowerCase() === 'aba'
+          ? [{ slug: owner.slug, stateCode: 'US-HI', obsRegion: 'US-HI' }]
+          : [];
+      }
+      function tryLifelistYear(owner) {
+        owner = owner || lifelistOwner();
+        return tryOneLifelistYear(owner).then(function (mainCount) {
+          if (mainCount !== LIFELIST_COMPLETE_EMPTY && mainCount < LIFELIST_MIN_ROWS) {
+            return mainCount;
+          }
+          var supplementOwners = lifelistSupplementOwners(owner);
+          if (!supplementOwners.length) return mainCount;
+          return Promise.all(supplementOwners.map(function (extraOwner) {
+            return tryOneLifelistYear(extraOwner).catch(function () { return 0; });
+          })).then(function (counts) {
+            var supplementCount = counts.reduce(function (total, n) {
+              return total + (n > 0 ? n : 0);
+            }, 0);
+            if (mainCount > 0) return mainCount + supplementCount;
+            if (supplementCount > 0) return supplementCount;
+            return counts.every(function (n) { return n === LIFELIST_COMPLETE_EMPTY; })
+              ? LIFELIST_COMPLETE_EMPTY : 0;
+          });
         });
       }
       function absorbLifelistRows(rows, how, extra, owner) {
@@ -4955,7 +4995,7 @@
       function tryLifelistCsv(owner) {
         var url = lifelistCsvUrl(owner);
         if (!url) return Promise.resolve(0);
-        return fetchPublicHTML(url).then(function (body) {
+        return fetchPublicHTML(url, true).then(function (body) {
           if (lifelistCsvIsEmpty(body, owner)) {
             verdict('My Ticks', 'lifelist CSV read in ONE call: authoritative '
               + 'empty species table — the 730-call walk was skipped');
@@ -4986,7 +5026,7 @@
       function tryLifelistPage(owner) {
         var url = lifelistYearUrl(owner);
         if (!url) return Promise.resolve(0);
-        return fetchPublicHTML(url).then(function (html) {
+        return fetchPublicHTML(url, true).then(function (html) {
           if (lifelistHTMLIsEmpty(html)) {
             verdict('My Ticks', 'lifelist page: ' + fmtInt(String(html || '').length)
               + ' B · title "' + lifelistTitle(html) + '" · explicit zero species '
@@ -10374,7 +10414,7 @@
         if (open) {
           _spCodesGeneration++;
           btn.setAttribute('aria-expanded', 'false');
-          btn.textContent = '🔤 Show bird codes';
+          btn.textContent = '🔤 Codes';
           ul.hidden = true; if (st) st.hidden = true; if (row) row.hidden = true;
           return;
         }
@@ -10419,7 +10459,7 @@
         if ($('spCodesSortRow')) $('spCodesSortRow').hidden = true;
         if (btn) {
           btn.setAttribute('aria-expanded', 'false');
-          btn.textContent = '🔤 Show bird codes';
+          btn.textContent = '🔤 Codes';
         }
       }
 
@@ -15000,9 +15040,12 @@
         });
       }
 
-      function fetchPublicHTML(url) {
+      function fetchPublicHTML(url, noStore) {
         dbg('net', 'GET(html) ' + url);
-        return fetch(url, { headers: { 'Accept': 'text/html,application/xhtml+xml' } })
+        return fetch(url, {
+          cache: noStore ? 'no-store' : 'default',
+          headers: { 'Accept': 'text/html,application/xhtml+xml' }
+        })
           .then(function (r) {
             if (!r.ok) { dbg('error', 'html HTTP ' + r.status + ' · ' + url); throw new Error('HTTP ' + r.status); }
             return r.text();
@@ -25335,6 +25378,7 @@
       var STAKE_HS_TOP = 8;          // birders named
       var STAKE_HS_BACK = 30;        // days of observations for the bird list
       var _stakeHsRows = null;
+      var _stakeHsGeneration = 0;
 
       // WHY THE BIRD LIST IS `data/obs/{loc}/recent`, NOT `product/spplist`.
       //
@@ -25434,11 +25478,14 @@
         var q = ($('stakeHs') || {}).value || '';
         var out = $('stakeHsFound'), st = $('stakeHsStatus');
         if (!out) return;
+        var generation = ++_stakeHsGeneration;
         q = q.trim().toLowerCase();
         out.innerHTML = '';
         if (q.length < 3) { st.textContent = 'Type at least three letters of a hotspot name.'; return; }
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         st.textContent = 'Searching hotspots\u2026';
         loadHotspotIndex(getObsRegion()).then(function (rows) {
+          if (generation !== _stakeHsGeneration) return;
           var hits = (rows || []).filter(function (h) {
             return String(h.locName || h.name || '').toLowerCase().indexOf(q) >= 0;
           }).slice(0, 12);
@@ -25448,17 +25495,77 @@
             return '<li><button type="button" class="pickbtn" data-loc="' + esc(h.locId) + '">'
               + esc(h.locName || h.name || h.locId) + '</button></li>';
           }).join('');
-        }).catch(function (e) { st.textContent = netErr(e); });
+        }).catch(function (e) {
+          if (generation === _stakeHsGeneration) st.textContent = netErr(e);
+        });
+      }
+
+      function stakeHsUseHere() {
+        var out = $('stakeHsFound'), st = $('stakeHsStatus');
+        if (!out || !st) return;
+        var generation = ++_stakeHsGeneration;
+        out.innerHTML = '';
+        if ($('stakeHsResults')) $('stakeHsResults').innerHTML = '';
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
+        st.textContent = 'Finding hotspots near you\u2026';
+        getDeviceLocation().then(function (here) {
+          return loadHotspotIndex(getObsRegion()).then(function (rows) {
+            if (generation !== _stakeHsGeneration) return;
+            var hits = (rows || []).filter(function (h) {
+              return h && h.locId && isFinite(h.lat) && isFinite(h.lng)
+                && BL.isPublicPlace(h.locName || h.name || '');
+            }).map(function (h) {
+              return {
+                locId: h.locId,
+                name: h.locName || h.name || h.locId,
+                mi: haversineMi(here.lat, here.lng, +h.lat, +h.lng)
+              };
+            }).sort(function (a, b) { return a.mi - b.mi; }).slice(0, 12);
+            if (!hits.length) {
+              st.textContent = 'No public hotspots with coordinates are available in '
+                + getReport().label + '.';
+              return;
+            }
+            st.textContent = hits.length + ' nearest hotspot'
+              + (hits.length === 1 ? '' : 's') + ' \u2014 pick one.';
+            out.innerHTML = hits.map(function (h) {
+              return '<li><button type="button" class="pickbtn" data-loc="'
+                + esc(h.locId) + '">' + esc(h.name) + ' \u00b7 '
+                + esc(h.mi.toFixed(1)) + ' mi</button></li>';
+            }).join('');
+          });
+        }).catch(function (e) {
+          if (generation === _stakeHsGeneration) {
+            st.textContent = (e && e.message) || 'Your location is unavailable.';
+          }
+        });
+      }
+
+      function clearStakeHs() {
+        _stakeHsGeneration++;
+        _stakeHsRows = null;
+        if ($('stakeHs')) $('stakeHs').value = '';
+        if ($('stakeHsFound')) $('stakeHsFound').innerHTML = '';
+        if ($('stakeHsResults')) $('stakeHsResults').innerHTML = '';
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = true;
+        if ($('stakeHsStatus')) {
+          $('stakeHsStatus').textContent = 'Pick a place and see what eBird\u2019s hotspot '
+            + 'page buries: who actually birds it, what it holds that nowhere else '
+            + 'does, and which of its birds you still need.';
+        }
       }
 
       function stakeHsOpen(locId, name) {
         var st = $('stakeHsStatus'), box = $('stakeHsResults');
         if (!box) return Promise.resolve();
+        var generation = ++_stakeHsGeneration;
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         $('stakeHsFound').innerHTML = '';
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
         var state = { lists: [], obs: [], hrow: null, iconic: undefined };
         function paint() {
+          if (generation !== _stakeHsGeneration) return;
           renderStakeHs(locId, name, state.lists, state.obs, state.hrow, state.iconic);
         }
         // ── PAINT ON THE FIRST ANSWER, FILL IN THE REST ────────────────────
@@ -25481,6 +25588,7 @@
         return ebird('product/lists/' + encodeURIComponent(locId)
                      + '?maxResults=' + STAKE_HS_LISTS)
           .then(function (lists) {
+            if (generation !== _stakeHsGeneration) return;
             state.lists = Array.isArray(lists) ? lists : [];
             _stakeHsRows = state.lists;
             paint();
@@ -25490,11 +25598,13 @@
             ebird('data/obs/' + encodeURIComponent(locId)
                   + '/recent?back=' + STAKE_HS_BACK + '&maxResults=10000')
               .then(function (obs) {
+                if (generation !== _stakeHsGeneration) return;
                 state.obs = Array.isArray(obs) ? obs : [];
                 paint();
               }).catch(function () { /* no bird list; the card still stands */ });
 
             stakeHsHotspotRow(locId).then(function (h) {
+              if (generation !== _stakeHsGeneration) return;
               if (!h) return;
               state.hrow = h;
               // Only once a coordinate is in hand is the iconic measurement
@@ -25503,16 +25613,23 @@
               state.iconic = null;                    // renders "measuring…"
               paint();
               stakeHsIconic(h.lat, h.lng).then(function (ic) {
+                if (generation !== _stakeHsGeneration) return;
                 state.iconic = ic || false;
                 paint();
-              }).catch(function () { state.iconic = false; paint(); });
+              }).catch(function () {
+                if (generation !== _stakeHsGeneration) return;
+                state.iconic = false; paint();
+              });
             }).catch(function () { /* no index; totals stay absent */ });
           })
-          .catch(function (e) { st.textContent = netErr(e); });
+          .catch(function (e) {
+            if (generation === _stakeHsGeneration) st.textContent = netErr(e);
+          });
       }
 
       function renderStakeHs(locId, name, lists, obs, hrow, iconic) {
         var box = $('stakeHsResults');
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         lists = lists || []; obs = obs || []; hrow = hrow || {};
         // WHO BIRDS HERE, and the visit pattern. Both counted from the call
         // already made, so neither costs anything.
@@ -28868,6 +28985,12 @@
       }
       function updateMyYear() {
         var el = $('myYearBody'), list = $('myYearList');
+        if (list && list.parentNode) {
+          Array.prototype.forEach.call(
+            list.parentNode.querySelectorAll('.myYearExtras'),
+            function (node) { node.remove(); }
+          );
+        }
         if (list) list.innerHTML = '';
         var entries = mergedYearList(), meta = getSeenMeta();
         var nOwn = entries.filter(function (e) { return e.own; }).length;
@@ -28885,6 +29008,12 @@
         if (entries.length) {
           html += '<div class="bignum">' + extA(lifelistUrl(), entries.length + ' species') +
             ' <small>in ' + esc(year) + '</small></div>' +
+            (lifelistYearUrl()
+              ? '<div class="row myYearSourceActions"><button type="button" '
+                + 'class="secondary myYearEbirdLink" data-href="'
+                + esc(lifelistYearUrl()) + '">↗ Open ' + esc(label)
+                + ' year list in eBird</button></div>'
+              : '') +
             '<div class="meta">' + esc(label) + ' · native, naturalized and provisional species · newest first. ' +
             (nOwn ? '<b>' + nOwn + '</b> of these came from your own checklists since the export, '
                   + 'so this is ahead of the eBird link above. ' : '') +
@@ -28985,11 +29114,7 @@
           return SpeciesCards.medium({
             sci: sciFor(e && e.code),
             icon: photoSlot(e.name, e.code),
-            // THE ORDINAL GETS ITS OWN LINE. "210. Baird's Sandpiper" broke
-            // mid-name at 393px, so the number and the first word shared a line
-            // and the rest of the bird wrapped under it — the number is a
-            // position in a list, not part of the bird's name, and it should
-            // never be what decides where the name breaks.
+            // The ordinal is title content, so it stays beside the bird name.
             name: '<span class="yrnum">' + (total - i) + '.</span>'
               + speciesLink(e.name, e.code),
             tags: isNew ? newRarityTag() : '',
@@ -29042,6 +29167,8 @@
         });
         if (extraHtml) {
           var extras = document.createElement('div');
+          extras.id = 'myYearExtras';
+          extras.className = 'myYearExtras';
           extras.innerHTML = extraHtml;
           list.parentNode.appendChild(extras);
           hydratePhotos(extras);
@@ -31543,8 +31670,8 @@
           // a cross-reference rather than a field dump, and it is why the
           // trackers show a name alone: they span many regions and have no
           // single code the chip could ever display.
-          o.textContent = r.label + (EBIRD_REGION_RE.test(r.stateCode || '') ? '  ' + r.stateCode : '')
-            + (r.isRarityTracker ? ' — rarities' : '');
+          o.textContent = r.label
+            + (EBIRD_REGION_RE.test(r.stateCode || '') ? '  ' + r.stateCode : '');
           sel.appendChild(o);
         });
         sel.value = cur || '';
@@ -32748,6 +32875,8 @@
       // F159. Enter searches, because a search box that ignores Enter is a
       // search box people think is broken.
       $('stakeHsBtn').addEventListener('click', stakeHsSearch);
+      $('stakeHsHere').addEventListener('click', stakeHsUseHere);
+      $('stakeHsClear').addEventListener('click', clearStakeHs);
       $('stakeHs').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); stakeHsSearch(); }
       });
@@ -32867,7 +32996,7 @@
           lst.hidden = true;
           if (crow) crow.hidden = true;
           if (cst) cst.hidden = true;
-          if (cbtn) { cbtn.setAttribute('aria-expanded', 'false'); cbtn.textContent = '🔤 Show bird codes'; }
+          if (cbtn) { cbtn.setAttribute('aria-expanded', 'false'); cbtn.textContent = '🔤 Codes'; }
         }
         lookupSpecies(code, name);
       }

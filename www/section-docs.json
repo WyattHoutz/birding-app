@@ -499,10 +499,11 @@
         "eBird product/spplist for the active region and, only after an empty match, each parent region in order",
         "data/obs/{region}/recent/{code}, the per-species observation feed",
         "ref/taxonomy/ebird, fetched directly with your key and cached as a compact on-device model for the bird hierarchy",
-        "when opened from Mega rarities only, that current in-memory Mega view's raw reports, state/ABA-wide promises and evidence"
+        "when opened from Mega rarities only, that current in-memory Mega view's raw reports, state/ABA-wide promises and evidence",
+        "the search field and Go action share the primary row; Close and Codes remain available in the secondary row"
       ],
       "how": [
-        "Typed text is matched against species common names, scientific names and codes. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level.",
+        "Typed text is matched against species common names, scientific names and codes. The active region is searched first; only if it has no match does the search climb through its parent regions, stopping at the first useful level. Go submits the search; Close clears the selected bird; Codes opens the browsable code list.",
         "A parent-region result stays under an Outside {active region} heading and each row says it is not on the active regional list. Opening it still asks the original report for sightings, so a taxonomy match can never masquerade as a local observation.",
         "A query ending in sp or sp. is treated as exact spuh intent before any species-list request; punctuation variants are equivalent. An exact spuh opens its bird hierarchy immediately, while several spuh matches stay as choices.",
         "For ordinary text, active-region bird matches paint first while matching spuh labels load independently into the same result. Parent-region species indexes are consulted only when the active region has no bird match; full-taxonomy birds remain under an explicit Outside {active region} boundary.",
@@ -658,22 +659,24 @@
         "your eBird year-list export for this region",
         "recent product/lists feeds for the report's counties",
         "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes",
-        "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback; both use the lower-case report code and the displayed year"
+        "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback; both use the lower-case report code and the displayed year",
+        "for ABA My Ticks, a second US-HI year-list read supplements the species eBird excludes from its ABA reporting region"
       ],
       "how": [
-        "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the species title on its own line, so it never forces a bird name to wrap mid-name. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
+        "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
         "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Ticks immediately without refetching or removing the year-list row.",
         "Opening My Ticks paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
-        "The heading's Reload control repeats that owned refresh. Its visible year-list link, CSV request and page fallback all use the same explicit-year eBird query.",
+        "The heading's Reload control repeats that owned refresh without using the web view's HTTP cache. Its visible year-list link, CSV request and page fallback all use the same explicit-year eBird query.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
         "A late signed-in year-list response remains owned by the report that started it, so switching regions cannot put ABA ticks into Hawaii or Washington.",
         "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total.",
-        "A header-only CSV is not accepted as authoritative empty over a non-empty stored or bundled list; My Ticks keeps those rows and tries the signed-in page instead."
+        "A header-only CSV is not accepted as authoritative empty over a non-empty stored or bundled list; My Ticks keeps those rows and tries the signed-in page instead.",
+        "Escapees, hybrids and unresolved Additional taxa render below the numbered total. Every repaint replaces that trailing block instead of appending another copy."
       ],
       "limits": [
         "The export remains the year-wide baseline for ordinary county reports. Their automatic updates can see only your public checklists in the counties the report scans.",
         "eBird's county list feed identifies an observer by display name rather than user id, so ordinary regional refreshes require the exact eBird display name in Settings.",
-        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; if that session is unavailable, My Ticks keeps the last known rows and names Sign in plus Refresh as the recovery."
+        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; ABA also reads US-HI because eBird excludes Hawaii from the ABA reporting region. If that session is unavailable, My Ticks keeps the last known rows and names Sign in plus Refresh as the recovery."
       ]
     },
     "settingsPanel": {
@@ -732,10 +735,12 @@
       "report": null,
       "summary": "Choose one hotspot and see its map, visit pattern, birds, recent checklists, and regular birders.",
       "inputs": [
-        "eBird ref/hotspot/{region} for the name search, cached",
+        "eBird ref/hotspot/{region} for the name search and nearest-hotspot lookup, cached",
+        "the device's current location when Here is selected",
         "eBird product/lists/{locId}, one call, which carries every recent checklist header AND its observer"
       ],
       "how": [
+        "The search field and Go action share the primary row. Here lists the nearest public hotspots from the cached regional directory; Close clears the query, choices and selected hotspot and rejects any late result from that cleared lookup.",
         "The PATTERN leads, not today rows. How many checklists, across how many days, and what a visit is typically worth are true all day - unlike what was seen today, which is empty every morning by eBird own design.",
         "The selected place leads with a map and explicit Open in Maps, Open eBird hotspot, QR, and add/remove favorite actions. Favorite changes use the same on-device favorite-hotspot list as Favorite patches.",
         "MEASURED 2026-08-22 at 10:10: three target species returned ZERO reports from that day across the whole state. eBird embargoes checklists for an hour (its hotspot page says so) and people submit hours after the walk.",

@@ -304,7 +304,7 @@ const REVIEW_SHOTS = [
            return true;` },
   { id: 'abayearrefresh', at: 'myYearBody',
     title: 'My Ticks — ABA year list refreshed',
-    host: 'myYearBody',
+    host: 'myYearExtras', scrollTo: '#myYearExtras',
     prep: `A.setActiveReport('aba');
            localStorage.setItem('ebird_own_seen:aba', JSON.stringify({
              rtbhum: { n: 'Ruby-throated Hummingbird', d: '10 Sep 2026',
@@ -316,11 +316,15 @@ const REVIEW_SHOTS = [
              ruff: { n: 'Ruff', d: '07 Sep 2026', s: 'S-ABA-RUFF',
                l: 'Washington', i: '', h: 0, x: '' },
              sander: { n: 'Sanderling', d: '06 Sep 2026', s: 'S-ABA-SANDER',
-               l: 'Hawaiʻi', i: '', h: 0, x: '' }
+               l: 'Hawaiʻi', i: '', h: 0, x: '' },
+             shorebird: { n: 'shorebird sp.', d: '05 Sep 2026',
+               s: 'S-ABA-SHOREBIRD', l: 'Hawaiʻi', i: '', h: 0, x: '' }
            }));
            var host = document.getElementById('myYearBody');
            var sec = host.closest('section');
            A.showSection(sec.id);
+           A.updateMyYear();
+           A.updateMyYear();
            A.updateMyYear();
            var freshness = document.createElement('div');
            freshness.className = 'hint';
@@ -333,6 +337,14 @@ const REVIEW_SHOTS = [
                  document.getElementById('myYearList').textContent)) {
              throw new Error('ABA My Ticks review state is incomplete');
            }
+           if (document.querySelectorAll('.myYearExtras').length !== 1
+               || !/Additional taxa \\(1\\)/i.test(
+                 document.querySelector('.myYearExtras').textContent)) {
+             throw new Error('ABA My Ticks duplicated or omitted Additional taxa');
+           }
+           var extrasHost = document.getElementById('myYearExtras');
+           extrasHost.setAttribute('data-mock-data', 'true');
+           extrasHost.setAttribute('aria-label', 'Single Additional taxa block');
            host.setAttribute('data-mock-data', 'true');
            host.setAttribute('aria-label', 'Refreshed ABA year-list My Ticks control');
            sec.dataset.mockAt = 'myYearBody';

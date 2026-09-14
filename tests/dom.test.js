@@ -16726,7 +16726,7 @@ test('the lifelist parser reads a real page and refuses a login page', async () 
 
   // ...and the URL is built from the ACTIVE report, not hard-coded.
   const url = A.lifelistYearUrl();
-  assert.ok(!url || /\/lifelist\?r=[a-z0-9-]+&time=year&year=\d{4}$/.test(url),
+  assert.ok(!url || /\/lifelist\?r=(?:[a-z0-9-]+|US-[A-Z0-9-]+)&time=year&year=\d{4}$/.test(url),
     'the lifelist url is region-scoped and year-scoped: ' + url);
   app.window.close();
 });
@@ -22406,7 +22406,7 @@ test('F373 a late ABA year-list response stays owned by ABA', async () => {
   app.window.close();
 });
 
-test('F375 Reload My Ticks uses the exact ABA year URL and adds Hawaii birds', async () => {
+test('F375 Reload My Ticks uses the exact ABA year URL', async () => {
   const prior = {
     amerob: {
       n: 'American Robin', d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '',
@@ -22416,11 +22416,11 @@ test('F375 Reload My Ticks uses the exact ABA year URL and adds Hawaii birds', a
   const exactPage = 'https://ebird.org/lifelist?r=aba&time=year&year=2026';
   const csv = [
     'Species Code,Common Name,Date',
-    'hawgoo,Hawaiian Goose,10 Sep 2026',
-    'hawcoo,Hawaiian Coot,09 Sep 2026',
-    'hawhaw,Hawaiian Hawk,08 Sep 2026',
-    'iiwi,Iiwi,07 Sep 2026',
-    'apapan,Apapane,06 Sep 2026',
+    'amerob,American Robin,10 Sep 2026',
+    'norcar,Northern Cardinal,09 Sep 2026',
+    'moudov,Mourning Dove,08 Sep 2026',
+    'blujay,Blue Jay,07 Sep 2026',
+    'amecro,American Crow,06 Sep 2026',
   ].join('\n');
   const urls = [];
   const app = await boot({
@@ -22434,7 +22434,8 @@ test('F375 Reload My Ticks uses the exact ABA year URL and adds Hawaii birds', a
   app.window.fetch = (url) => {
     const u = String(url);
     urls.push(u);
-    const body = u === exactCsv ? csv : 'Species Code,Common Name,Date\n';
+    const body = u === exactCsv || /lifelist\?r=US-HI.*fmt=csv/.test(u)
+      ? csv : 'Species Code,Common Name,Date\n';
     return Promise.resolve({
       ok: true, status: 200,
       headers: { get: () => null },
@@ -22449,24 +22450,141 @@ test('F375 Reload My Ticks uses the exact ABA year URL and adds Hawaii birds', a
   assert.equal(reload.getAttribute('aria-label'), 'Reload My Ticks',
     'the My Ticks reload control has no explicit accessible label');
   app.click(reload);
-  await waitFor(() => /Hawaiian Goose/.test(app.$('myYearList').textContent),
+  await waitFor(() => /American Crow/.test(app.$('myYearList').textContent),
     'the exact ABA year list to reach My Ticks', 3000);
 
   assert.ok(urls.includes(exactCsv),
     'Reload My Ticks did not request the lower-case, explicit-year ABA CSV URL');
-  assert.equal(urls.filter((u) => /ebird\.org\/lifelist/.test(u)).length, 1,
-    'the exact successful CSV unexpectedly fell through to another life-list URL');
+  assert.equal(urls.filter((u) => u === exactCsv).length, 1,
+    'the exact ABA CSV was not read exactly once');
+  assert.equal(urls.filter((u) => /ebird\.org\/lifelist/.test(u)).length, 2,
+    'the ABA refresh did not make exactly one intentional Hawaii supplement read');
   const link = app.$('myYearBody').querySelector('.bignum a');
   assert.ok(link, 'the My Ticks total no longer links to its eBird year list');
   assert.equal(link.getAttribute('data-href'), exactPage,
     'the visible My Ticks link does not use the same lower-case, explicit-year URL');
-  assert.match(app.$('myYearList').textContent, /Hawaiian Goose/);
+  assert.match(app.$('myYearList').textContent, /American Crow/);
   assert.ok(Object.keys(JSON.parse(
     app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
   )).length > Object.keys(prior).length,
   'the exact ABA response did not increase the stored list');
   assert.equal(app.window.__app.takeForce(), false,
     'Reload My Ticks leaked its force flag into the next section');
+  app.window.close();
+});
+
+test('F390 ABA My Ticks reloads uncached Hawaii sightings beside the ABA list', async () => {
+  const exactAbaCsv = 'https://ebird.org/lifelist?r=aba&time=year&year=2026&fmt=csv';
+  const exactHiCsv = 'https://ebird.org/lifelist?r=US-HI&time=year&year=2026&fmt=csv';
+  const abaCsv = [
+    'Species Code,Common Name,Date',
+    'amerob,American Robin,12 Aug 2026',
+    'norcar,Northern Cardinal,11 Aug 2026',
+    'moudov,Mourning Dove,10 Aug 2026',
+    'blujay,Blue Jay,09 Aug 2026',
+    'amecro,American Crow,08 Aug 2026',
+  ].join('\n');
+  const firstHiCsv = [
+    'Species Code,Common Name,Date',
+    'hawcoo,Hawaiian Coot,11 Sep 2026',
+    'hawhaw,Hawaiian Hawk,10 Sep 2026',
+    'iiwi,Iiwi,09 Sep 2026',
+    'apapan,Apapane,08 Sep 2026',
+    'hawgoo,Hawaiian Goose,07 Sep 2026',
+  ].join('\n');
+  const refreshedHiCsv = firstHiCsv + '\nreblei,Red-billed Leiothrix,13 Sep 2026';
+  const requests = [];
+  let hiReads = 0;
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  app.window.fetch = (url, options) => {
+    const u = String(url);
+    requests.push({ url: u, options: options || {} });
+    const body = u === exactAbaCsv
+      ? abaCsv
+      : u === exactHiCsv
+        ? (++hiReads === 1 ? firstHiCsv : refreshedHiCsv)
+        : 'Species Code,Common Name,Date\n';
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(body),
+      json: () => Promise.resolve(body),
+    });
+  };
+  const A = app.window.__app;
+
+  await A.tryLifelistYear();
+  A.updateMyYear();
+  assert.match(app.$('myYearList').textContent, /Hawaiian Coot/,
+    'the ABA list did not supplement its excluded Hawaii scope');
+  assert.doesNotMatch(app.$('myYearList').textContent, /Red-billed Leiothrix/);
+
+  await A.tryLifelistYear();
+  A.updateMyYear();
+  assert.match(app.$('myYearList').textContent, /Red-billed Leiothrix/,
+    'a later Hawaii sighting did not appear after the next reload');
+  assert.equal(requests.filter((r) => r.url === exactAbaCsv).length, 2,
+    'the two reloads did not read the ABA year list twice');
+  assert.equal(requests.filter((r) => r.url === exactHiCsv).length, 2,
+    'the two reloads did not read the Hawaii year list twice');
+  requests.filter((r) => /ebird\.org\/lifelist/.test(r.url)).forEach((request) => {
+    assert.equal(request.options.cache, 'no-store',
+      'a My Ticks reload allowed the web view to reuse a stale life-list response');
+  });
+  app.window.close();
+});
+
+test('F390 My Ticks has an explicit eBird control and keeps ordinal with the name', async () => {
+  const exactPage = 'https://ebird.org/lifelist?r=aba&time=year&year=2026';
+  const app = await boot({ report: 'aba', sample: true });
+  const body = app.$('myYearBody');
+  const control = body.querySelector('.myYearEbirdLink');
+  assert.ok(control, 'My Ticks has no explicit control to open its eBird year list');
+  assert.equal(control.getAttribute('data-href'), exactPage,
+    'the explicit eBird control does not open the same year list My Ticks refreshes');
+  assert.match(control.textContent, /Open .*eBird/i,
+    'the eBird control does not plainly say what it opens');
+
+  app.window.__app.updateMyYear();
+  const ordinal = app.$('myYearList').querySelector('.yrnum');
+  assert.ok(ordinal && ordinal.nextElementSibling,
+    'the ordinal and species link are not adjacent title content');
+  assert.notEqual(app.window.getComputedStyle(ordinal).display, 'block',
+    'the ordinal still forces the species name onto a new line');
+  app.window.close();
+});
+
+test('F393 repeated My Ticks redraws keep one Additional taxa block', async () => {
+  const app = await boot({ report: 'hi' });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
+    hawama: {
+      n: 'Hawaii Amakihi', d: '11 Sep 2026', s: 'S0',
+      l: 'Hawaii Rental', i: '', h: 0, x: '',
+    },
+    shorebird: {
+      n: 'shorebird sp.', d: '12 Sep 2026', s: 'S1',
+      l: 'Hawaii Rental', i: '', h: 0, x: '',
+    },
+  }));
+  assert.equal(A.yearListExtras().additional.length, 1,
+    'the repeated-redraw fixture did not reach the Additional taxa bucket');
+  A.updateMyYear();
+  A.updateMyYear();
+  A.updateMyYear();
+
+  const groups = [...app.document.querySelectorAll('.rankhead')]
+    .filter((heading) => /Additional taxa/.test(heading.textContent));
+  assert.equal(groups.length, 1,
+    'each My Ticks repaint appended another Additional taxa heading');
+  const cards = [...app.document.querySelectorAll('.myYearExtras li')]
+    .filter((card) => /shorebird sp\./i.test(card.textContent));
+  assert.equal(cards.length, 1,
+    'each My Ticks repaint appended another shorebird sp. card');
   app.window.close();
 });
 
@@ -26195,7 +26313,19 @@ test('Stake out a hotspot leads with the pattern, and names who birds there', as
 });
 
 test('F380 Stake out a hotspot uses one compact search row and leads with place tools', async () => {
-  const app = await boot({ storage: { ebird_favs: '[]' } });
+  const app = await boot({
+    location: { lat: 47.66, lng: -122.12 },
+    storage: {
+      ebird_favs: '[]',
+      'ebird_hotspots_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [
+          { locId: 'L-NEAR', locName: 'Nearby Marsh', lat: 47.661, lng: -122.121 },
+          { locId: 'L-FAR', locName: 'Farther Refuge', lat: 47.8, lng: -122.3 },
+        ],
+      }),
+    },
+  });
   const A = app.window.__app;
   app.open(/Stake out a hotspot/);
 
@@ -26205,12 +26335,26 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   assert.strictEqual(app.$('stakeHs').parentElement, searchRow);
   assert.strictEqual(app.$('stakeHsBtn').parentElement, searchRow);
   assert.equal(app.$('stakeHsBtn').textContent.trim(), 'Go');
-  assert.equal(panel.querySelector('#stakeHsClear'), null,
-    'the redundant Close control still occupies the search row');
+  const close = panel.querySelector('#stakeHsClear');
+  const here = panel.querySelector('#stakeHsHere');
+  assert.ok(close, 'Stakeout hotspot has no Close control');
+  assert.ok(here, 'Stakeout hotspot has no Here control');
+  assert.equal(here.textContent.trim(), '📍 Here');
+  assert.notEqual(close.parentElement, searchRow,
+    'Close crowds the field-plus-Go hotspot search row');
+  assert.equal(close.parentElement, here.parentElement,
+    'Here and Close do not share the secondary hotspot action row');
   assert.doesNotMatch(panel.textContent, /Everything about one place/i,
     'the redundant section subtitle still consumes a line');
   assert.equal(app.window.getComputedStyle(searchRow).flexWrap, 'nowrap',
     'the text box and Go button are allowed to split onto separate lines');
+
+  app.click(here);
+  await waitFor(() => /Nearby Marsh/.test(app.$('stakeHsFound').textContent),
+    'nearby hotspots from the device location');
+  assert.ok(app.$('stakeHsFound').textContent.indexOf('Nearby Marsh')
+    < app.$('stakeHsFound').textContent.indexOf('Farther Refuge'),
+  'Here does not order nearby hotspots by distance');
 
   A.renderStakeHs('L128530', 'Marymoor Park', [{
     subId: 'S123456789', obsDt: '2026-09-12 08:15', numSpecies: 25,
@@ -26259,6 +26403,14 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   assert.deepEqual(arr(A.getFavs(), (item) => item.locId), []);
   assert.equal(app.state.fetches.length, before,
     'changing favorite state refetched the hotspot instead of updating locally');
+
+  app.$('stakeHs').value = 'Marymoor Park';
+  app.$('stakeHsFound').innerHTML = '<li>stale match</li>';
+  app.click(close);
+  assert.equal(app.$('stakeHs').value, '');
+  assert.equal(app.$('stakeHsFound').textContent, '');
+  assert.equal(app.$('stakeHsResults').textContent, '',
+    'Close left the selected hotspot visible');
   app.window.close();
 });
 
@@ -26631,31 +26783,46 @@ test('the Contents grid cannot crush a tile label', () => {
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
 
-test('F358 Show bird codes follows Close in the shared action row', async () => {
+test('F391 Stakeout bird matches the compact hotspot search row and says Codes', async () => {
   const app = await boot();
+  const input = app.$('spLookup');
   const codes = app.$('spCodesBtn');
   const search = app.$('spLookupBtn');
   const close = app.$('spLookupClear');
-  assert.equal(codes.closest('.row'), search.closest('.row'),
-    'Show bird codes is not in the Search action row');
-  assert.equal(search.closest('.row'), close.closest('.row'),
-    'Search and Close no longer share their action row');
+  assert.equal(input.parentElement, search.parentElement,
+    'the Stakeout bird field and Go control do not share one compact search row');
+  assert.equal(search.textContent.trim(), 'Go',
+    'Stakeout bird does not use the same short Go action as Stakeout hotspot');
+  assert.notEqual(codes.closest('.row'), search.closest('.row'),
+    'the secondary Codes control still crowds the field-plus-Go search row');
+  assert.equal(codes.closest('.row'), close.closest('.row'),
+    'Codes and Close no longer share the secondary action row');
   assert.ok(close.compareDocumentPosition(codes)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'Show bird codes is not authored immediately after Close');
+  'Codes is not authored immediately after Close');
+  assert.equal(codes.textContent.trim(), '🔤 Codes',
+    'the compact control still says Show bird codes');
+  assert.doesNotMatch(HTML, /textContent\s*=\s*['"]🔤 Show bird codes['"]/,
+    'selecting a code restores the obsolete long closed label');
+  assert.match(HTML,
+    /\.spLookupActions\s*\{[^}]*flex-wrap:\s*nowrap/,
+    'the field-plus-Go row can wrap at ordinary phone widths');
+  assert.match(HTML,
+    /\.spLookupActions\s*>\s*#spLookup\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/,
+    'the Stakeout bird field cannot shrink beside Go');
 
   const audit = fs.readFileSync(
     path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
-  assert.match(audit, /codesBtn\.parentElement !== searchBtn\.parentElement/,
-    'the browser audit does not verify the authored row identity');
-  assert.match(audit, /Math\.abs\(codesCenter - closeCenter\) > 0\.5/,
-    'the browser audit does not prove the three normal-width actions share a line');
+  assert.match(audit, /searchBtn\.parentElement !== searchInput\.parentElement/,
+    'the browser audit does not verify the field-plus-Go row identity');
+  assert.match(audit, /Math\.abs\(searchCenter - inputCenter\) > 0\.5/,
+    'the browser audit does not prove the field and Go share a line');
   assert.match(audit, /var AUDIT_WIDTH = \$\{WIDTH\};[\s\S]*var AUDIT_SCALE = \$\{JSON\.stringify\(SCALE\)\};/,
     'the browser audit references Node-only width variables inside the page');
   assert.doesNotMatch(audit, /if \(WIDTH >= 393 && SCALE === '1'/,
     'the injected browser audit still throws on undefined Node-side constants');
-  assert.match(audit, /CODE CONTROL ROW/,
-    'the browser audit does not report the failed row contract');
+  assert.match(audit, /BIRD SEARCH ROW/,
+    'the browser audit does not report the failed search-row contract');
   assert.match(audit, /CODE CONTROL TARGET/,
     'the browser audit does not enforce the 44px target');
   assert.match(HTML, /#spCodesBtn\s*\{[^}]*min-height:\s*44px/,
@@ -26683,8 +26850,12 @@ test('the region and county pickers show the code the top bar displays', async (
   // wearing the costume of a reference. Caught before shipping.
   const l48 = opts.find((t) => t.startsWith('Lower 48'));
   assert.ok(l48 && !/lower48/.test(l48), 'a slug is never shown as a code: ' + l48);
+  assert.equal(l48, 'Lower 48',
+    'the region picker adds a redundant rarities suffix to Lower 48');
   const aba = opts.find((t) => t.startsWith('ABA Area'));
   assert.ok(aba && !/\baba\b/.test(aba), 'the ABA slug is not shown either: ' + aba);
+  assert.equal(aba, 'ABA Area',
+    'the region picker adds a redundant rarities suffix to ABA Area');
 
   // The county the chip actually reflects.
   const cs = [...doc.getElementById('menuCounty').options].map((o) => o.textContent);
@@ -29381,13 +29552,13 @@ test('F8: the CSV route is tried first, and the page route still carries codes',
   assert.match(A.lifelistCsvUrl(), /time=year/, 'and for the year, not the life list');
   assert.match(A.lifelistCsvUrl(), /[?&]year=\d{4}/,
     'the CSV request owns the same explicit year as the displayed list');
-  assert.doesNotMatch(A.lifelistCsvUrl(), /[?&]r=[A-Z]/,
-    'the query-form region is lower-case, matching the signed-in eBird page');
+  assert.match(A.lifelistCsvUrl(), /[?&]r=US-[A-Z0-9-]+/,
+    'an eBird region code lost the uppercase form used by the signed-in page');
   assert.match(A.lifelistCsvUrl(), /ebird\.org\/lifelist/,
     'the INLINE endpoint - not Download My Data, which is an async emailed '
     + 'archive and is rejected on UX grounds');
 
-  const src = HTML.slice(HTML.indexOf('function tryLifelistYear('),
+  const src = HTML.slice(HTML.indexOf('function tryOneLifelistYear('),
                          HTML.indexOf('function absorbLifelistRows('));
   assert.match(src, /tryLifelistCsv\(owner\)/, 'CSV is attempted');
   assert.ok(src.indexOf('tryLifelistCsv(owner)') < src.indexOf('tryLifelistPage(owner)'),

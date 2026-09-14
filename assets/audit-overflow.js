@@ -216,33 +216,31 @@ const AUDIT = `<script>
         }
       }
     }
-    // F358. The owner moved Bird codes into the Search / Close action row.
-    // Authored row identity is checked at every viewport. At normal release
-    // widths the three buttons must also share one visual line in that order;
-    // narrow large-text layouts may wrap rather than crushing their targets.
+    // F391. Stakeout bird uses the same field-plus-Go row as Stakeout hotspot.
+    // Codes and Close live below it so they cannot squeeze the query field.
     var controlRows = [];
+    var searchInput = document.getElementById('spLookup');
     var searchBtn = document.getElementById('spLookupBtn');
-    var closeBtn = document.getElementById('spLookupClear');
     var codesBtn = document.getElementById('spCodesBtn');
-    if (searchBtn && closeBtn && codesBtn) {
-      if (codesBtn.parentElement !== searchBtn.parentElement
-          || codesBtn.parentElement !== closeBtn.parentElement) {
+    if (searchInput && searchBtn && codesBtn) {
+      if (searchBtn.parentElement !== searchInput.parentElement) {
         controlRows.push({ kind: 'separate-authored-row' });
       }
+      var inputRect = searchInput.getBoundingClientRect();
       var searchRect = searchBtn.getBoundingClientRect();
-      var closeRect = closeBtn.getBoundingClientRect();
       var codesRect = codesBtn.getBoundingClientRect();
-      if (searchRect.width && codesRect.width) {
-        var codesCenter = (codesRect.top + codesRect.bottom) / 2;
-        var closeCenter = (closeRect.top + closeRect.bottom) / 2;
-        if (AUDIT_WIDTH >= 393 && AUDIT_SCALE === '1'
-            && Math.abs(codesCenter - closeCenter) > 0.5) {
+      if (searchRect.width && inputRect.width) {
+        var searchCenter = (searchRect.top + searchRect.bottom) / 2;
+        var inputCenter = (inputRect.top + inputRect.bottom) / 2;
+        if (Math.abs(searchCenter - inputCenter) > 0.5) {
           controlRows.push({
             kind: 'not-same-line',
-            center: +codesCenter.toFixed(1),
-            actionCenter: +closeCenter.toFixed(1)
+            center: +searchCenter.toFixed(1),
+            actionCenter: +inputCenter.toFixed(1)
           });
         }
+      }
+      if (codesRect.width) {
         if (codesRect.width < 43.5 || codesRect.height < 43.5) {
           controlRows.push({
             kind: 'too-small',
@@ -763,12 +761,12 @@ server.listen(0, '127.0.0.1', () => {
             console.log('   CODE CONTROL TARGET ' + it.w + 'x' + it.h
               + ' < 44px  #spCodesBtn');
           } else if (it.kind === 'separate-authored-row') {
-            console.log('   CODE CONTROL ROW #spCodesBtn must share the authored '
-              + 'Search / Close row');
+            console.log('   BIRD SEARCH ROW #spLookup and #spLookupBtn must share '
+              + 'the authored field-plus-Go row');
           } else {
-            console.log('   CODE CONTROL ROW center=' + it.center
-              + ' differs from action center=' + it.actionCenter
-              + '  #spCodesBtn must follow Close on the same normal-width line');
+            console.log('   BIRD SEARCH ROW center=' + it.center
+              + ' differs from field center=' + it.actionCenter
+              + '  #spLookup and #spLookupBtn must stay on one line');
           }
         });
       }
