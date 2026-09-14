@@ -30,7 +30,7 @@
       "stakeHsHere",
       "clearStakeHs",
       "spLookupSecondaryActions",
-      "Open ' + esc(label) + ' year list in eBird",
+      "myYearEbirdLink",
       "spLookupPlaceReachable",
       "reachable places only, newest first",
       "No physically reachable reports are within",
