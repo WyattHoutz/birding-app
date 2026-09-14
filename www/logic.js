@@ -1024,7 +1024,7 @@
   // the daily sections, and private/access-restricted spots are dropped unless
   // they host an active stakeout. Both regexes are ported verbatim from report.py.
   var _SPECIAL_TRIP_LOC_RE =
-    /\boffshore\b|\bpelagic\b|\bferry\b(?!\s*(?:terminal|landing|dock))|\bstrait\s+of\b|--\s*open\s+water\b/i;
+    /\boffshore\b|\bpelagic\b|\bferry\b(?!\s*(?:terminal|landing|dock))|\bstrait\s+of\b|--\s*open\s+water\b|\b(?:north\s+|south\s+)?(?:pacific|atlantic|indian|arctic|southern)\s+ocean\b/i;
   var _COLD_SKIP_NAME_RE =
     /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
 

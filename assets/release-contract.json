@@ -25,8 +25,14 @@
       "parseEbirdAccountIdentity",
       "openMegaIndexRow",
       "finishReportSeen",
+      "spLookupPlaceReachable",
+      "reachable places only, newest first",
+      "No physically reachable reports are within",
       "PERSIST_DELAY_MS = 750",
       "PREVIOUS SESSION (saved locally; secrets scrubbed)"
+    ],
+    "logic.js": [
+      "(?:pacific|atlantic|indian|arctic|southern)"
     ],
     "seed-birdlist.js": [
       "\"domesticParents\"",

@@ -2677,7 +2677,7 @@
            Iconic Birds, so the word carries the concept across from something
            the reader has already seen rather than inventing a synonym for it. -->
       <div class="row" id="spLookupSortRow" hidden>
-        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort reachable places first, newest within each group">🧭 Reachable</button>
+        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Show physically reachable places only, newest first">🧭 Reachable</button>
         <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
       </div>
@@ -3519,7 +3519,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.101.0';
+      var APP_VERSION = '1.102.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8837,6 +8837,7 @@
               lat: canon.lat != null ? canon.lat : rep.lat,
               lon: canon.lon != null ? canon.lon : rep.lon,
               locationPrivate: canon.location_private,
+              sub2: canon.sub2 || rep.sub2 || '',
               distMi: canon.distMi != null ? canon.distMi : rep.distMi,
               dateStr: rep.dateStr, subId: rep.subId, observer: rep.observer,
               count: rep.count, evidence: rep.evidence || '',
@@ -8894,6 +8895,7 @@
             p.dateStr = c.dateStr; p.subId = c.subId; p.count = c.count;
             p.loc = c.loc; p.locId = c.locId; p.lat = c.lat; p.lon = c.lon;
             p.locationPrivate = c.locationPrivate; p.observer = c.observer;
+            p.sub2 = c.sub2 || p.sub2;
             p.evidence = c.evidence || p.evidence;
             p.hasComments = c.hasComments || p.hasComments;
           }
@@ -10210,6 +10212,7 @@
             subId: r.subId || '',
             valid: r.obsValid == null ? true : !!r.obsValid,
             location_private: !!r.locationPrivate,
+            sub2: r.subnational2Code || '',
             evidence: r.evidence || '',
             hasComments: !!(r.hasComments || r.has_comments),
             sciName: r.sciName || ''
@@ -11533,7 +11536,7 @@
             + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
             + ' · ' + (iconicMode ? 'iconic places'
                        : _spLookupSort === 'dist' ? 'by distance'
-                       : 'reachable first, newest within each group')
+                       : 'reachable places only, newest first')
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
@@ -11553,10 +11556,9 @@
             + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
           tags: (seenIt ? '✅' : needTag(g.code, g.name))
             + (g.anyUnconfirmed && !watched ? ' ⚠️' : ''),
-          // Same third column as All unseen. The lookup itself is not filtered
-          // — you asked about this bird, so every place it has been is the
-          // answer, however far. What IS filtered is the DEFAULT VIEW of that
-          // answer; see below.
+          // Same third column as All unseen. The loaded evidence remains
+          // complete; only the default Reachable view is filtered. Distance
+          // and Iconic still expose the wider regional answer.
           distMi: g.distMi,
           sub: watched ? 'on your watchlist for verification'
             : (seenIt ? 'already on your year list' : 'not on your year list'),
@@ -11697,11 +11699,25 @@
           spLookupPlaceCards(places, startAt, bird), 'spLookupPlaceList');
       }
 
+      function spLookupPlaceReachable(place) {
+        if (!place || place.distMi == null || !isFinite(place.distMi) ||
+            place.distMi > chaseMaxMi()) return false;
+        if (!BL.isChaseable({
+          loc: place.loc || '',
+          locId: place.locId || '',
+          locationPrivate: !!place.locationPrivate
+        }, {})) return false;
+        var countyCodes = ((getReport() && getReport().counties) || [])
+          .map(function (county) { return county.code; }).filter(Boolean);
+        return !countyCodes.length || !place.sub2 ||
+          countyCodes.indexOf(place.sub2) >= 0;
+      }
+
       function spLookupOrderedPlaces(places) {
-        var all = places || [], lim = chaseMaxMi();
-        var near = all.filter(function (p) { return !(p.distMi > lim); });
-        var far = all.filter(function (p) { return p.distMi > lim; });
-        return near.length ? near.concat(far) : all.slice();
+        var all = (places || []).slice();
+        return _spLookupSort === 'date'
+          ? all.filter(spLookupPlaceReachable)
+          : all;
       }
 
       function spLookupMoreButton(start, total) {
@@ -11755,6 +11771,12 @@
       }
       function spLookupPlacesHtmlInner(places, bird) {
         var all = spLookupOrderedPlaces(places || []);
+        if (!all.length && _spLookupSort === 'date') {
+          return '<div class="status">No physically reachable reports are within '
+            + chaseMaxMi().toFixed(0)
+            + ' mi in this report’s target counties. Use Distance or Iconic to see '
+            + 'all regional evidence.</div>';
+        }
         var shown = all.slice(0, SP_ROWS_MAX);
         return '<div class="spLookupPlaceWrap" data-generation="' + _spLookupGeneration + '">'
           + spLookupRowsHtml(shown, 1, bird)
@@ -33492,6 +33514,7 @@
         LOADERS: LOADERS,
         coverageNote: coverageNote, chaseMaxMi: chaseMaxMi, countyLabelStr: countyLabelStr,
         spLookupPlacesHtml: spLookupPlacesHtml,
+        spLookupPlaceReachable: spLookupPlaceReachable,
         chaseMiKey: chaseMiKey, chaseDefaultMi: chaseDefaultMi,
         migrateHomeKeys: migrateHomeKeys,
         CHASE_MI_KEY: CHASE_MI_KEY, CHASE_DEFAULT_MI: CHASE_DEFAULT_MI,

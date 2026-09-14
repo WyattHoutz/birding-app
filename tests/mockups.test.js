@@ -47,7 +47,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['onboardingregion', 'onboardinghome',
+    ['stakeoutreachable-f389', 'stakeoutdistance-f389',
+      'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail',
@@ -237,13 +238,20 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
     source.indexOf('fullDayBtn: [', source.indexOf('excBtn: [')));
   assert.equal((halfRows.match(/\{ name:/g) || []).length, 3,
     'Half-day review does not show the two measured land localities plus the routed offshore trip');
-  assert.match(halfRows, /Offshore Honokōhau Marina/);
-  assert.match(halfRows, /half day · boat trip · fresh today/);
+  assert.match(halfRows, /North Pacific Ocean/);
+  assert.match(halfRows, /half day · special trip · boat required · fresh today/);
   assert.match(halfRows, /Pu'u O'o Trail/);
   assert.match(halfRows, /Laupahoehoe Point County Park/);
   assert.match(halfRows, /Older evidence · last report 8 days ago/);
-  assert.doesNotMatch(rows, /Offshore Honokōhau Marina/,
-    'the F353 boat-trip control leaked back into Today’s patches');
+  assert.doesNotMatch(rows, /North Pacific Ocean/,
+    'the F389 named-ocean control leaked back into Today’s patches');
+  const f389Review = mockups.REVIEW_SHOTS.filter((shot) =>
+    /stakeout(?:reachable|distance)-f389/.test(shot.id));
+  assert.equal(f389Review.length, 2,
+    'Reachable and Distance no longer have paired F389 review states');
+  assert.match(source, /Captain Zodiac pelagic—C/);
+  assert.match(source, /subnational2Code: 'US-HI-007'/);
+  assert.match(source, /Distance did not preserve all regional evidence/);
 });
 
 test('F329/F342/F345 release mockups show the completed new facts', () => {

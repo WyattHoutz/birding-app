@@ -190,6 +190,24 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the mandatory 34-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'stakeoutreachable-f389', at: 'spLookupBtn',
+    title: 'Stakeout bird — Reachable hides pelagic and other-island evidence',
+    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    expects: ['#spLookupByDate[aria-pressed="true"]',
+      '#spLookupResults .spLookupPlaceList > .hscard-sm'],
+    prep: `var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareF389Stakeout(A, document, sec, 'date');` },
+  { id: 'stakeoutdistance-f389', at: 'spLookupBtn',
+    title: 'Stakeout bird — Distance retains all regional evidence',
+    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    expects: ['#spLookupByDist[aria-pressed="true"]',
+      '#spLookupResults .spLookupPlaceList > .hscard-sm'],
+    prep: `var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareF389Stakeout(A, document, sec, 'dist');` },
   { id: 'onboardingregion', menuState: true,
     title: 'First run — choose or find a region',
     prep: `localStorage.removeItem('ebird_display_name');
@@ -773,8 +791,8 @@ const BOOTSTRAP = `
           sub: 'half day · fresh today · 10 targets' },
         { name: 'Laupahoehoe Point County Park', distance: 42.0,
           sub: 'half day · Older evidence · last report 8 days ago · 7 targets' },
-        { name: 'Offshore Honokōhau Marina', distance: 29.6,
-          sub: 'half day · boat trip · fresh today · 1 target' }
+        { name: 'North Pacific Ocean', distance: 35.0,
+          sub: 'half day · special trip · boat required · fresh today · 1 target' }
       ],
       fullDayBtn: [
         { name: 'Hilo gardens', distance: 49.4,
@@ -849,13 +867,14 @@ const BOOTSTRAP = `
     options = options || {};
     var code = options.code || 'semsan';
     var name = options.name || 'Semipalmated Sandpiper';
+    var region = options.region || 'US-WA';
     var W = document.defaultView;
     var previousFetch = W.fetch;
     W.fetch = function (url) {
-      if (String(url).indexOf('/data/obs/US-WA/recent/' + code) >= 0) {
+      if (String(url).indexOf('/data/obs/' + region + '/recent/' + code) >= 0) {
         var n = placeCount || 2;
         var names = options.places || ['Marymoor Park', 'Cedar River Mouth'];
-        var rows = Array.from({ length: n }, function (_, i) {
+        var rows = options.rows || Array.from({ length: n }, function (_, i) {
           return {
             speciesCode: code, comName: name,
             locId: 'L' + (i + 1),
@@ -887,6 +906,63 @@ const BOOTSTRAP = `
     }
     if (A.fgProgressReset) A.fgProgressReset();
     markHost(document.getElementById('spLookupIdHelp'), label);
+  }
+  async function prepareF389Stakeout(A, document, sec, mode) {
+    ensureMockStyle(document);
+    fixtureBefore('spLookupBtn', A, document);
+    A.setActiveReport('hi');
+    localStorage.setItem(A.homeKey('lat'), '19.92222');
+    localStorage.setItem(A.homeKey('lng'), '-155.88404');
+    localStorage.setItem(A.homeKey('place'), 'Kawaihae, Hawaiʻi');
+    A.setSpeciesLookupSort(mode);
+    fixtureStatus(sec, mode === 'dist'
+      ? 'Stakeout bird complete regional evidence'
+      : 'Stakeout bird physically reachable evidence');
+    await fillStakeoutSpecies(A, document, 'White-tailed Tropicbird evidence', 4, {
+      region: 'US-HI',
+      code: 'whttro',
+      name: 'White-tailed Tropicbird',
+      rows: [
+        { speciesCode: 'whttro', comName: 'White-tailed Tropicbird',
+          locId: 'L-BIG-ISLAND', locName: 'Kaloko-Honokōhau NHP',
+          subnational2Code: 'US-HI-001', lat: 19.674, lng: -156.030,
+          obsDt: '2026-09-13 08:00', howMany: 2, subId: 'S-LAND',
+          obsValid: true },
+        { speciesCode: 'whttro', comName: 'White-tailed Tropicbird',
+          locId: 'L-CAPTAIN', locName: 'Captain Zodiac pelagic—C',
+          subnational2Code: 'US-HI-001', lat: 19.750, lng: -156.050,
+          obsDt: '2026-09-13 07:30', howMany: 4, subId: 'S-PELAGIC',
+          obsValid: true },
+        { speciesCode: 'whttro', comName: 'White-tailed Tropicbird',
+          locId: 'L77149042', locName: 'North Pacific Ocean',
+          subnational2Code: 'US-HI-001', lat: 19.6249, lng: -156.3120,
+          obsDt: '2026-09-13 07:00', howMany: 3, subId: 'S-OCEAN',
+          obsValid: true },
+        { speciesCode: 'whttro', comName: 'White-tailed Tropicbird',
+          locId: 'L-KAUAI', locName: 'Kauaʻi North Shore',
+          subnational2Code: 'US-HI-007', lat: 22.225, lng: -159.490,
+          obsDt: '2026-09-13 06:30', howMany: 1, subId: 'S-KAUAI',
+          obsValid: true }
+      ]
+    });
+    var text = document.getElementById('spLookupResults').textContent;
+    if (mode === 'date') {
+      if (!/Kaloko-Honokōhau/.test(text)
+          || /Captain Zodiac|North Pacific Ocean|Kauaʻi/.test(text)) {
+        throw new Error('Reachable did not isolate the Big Island land hotspot');
+      }
+    } else if (!/Kaloko-Honokōhau/.test(text)
+        || !/Captain Zodiac/.test(text)
+        || !/North Pacific Ocean/.test(text)
+        || !/Kauaʻi/.test(text)) {
+      throw new Error('Distance did not preserve all regional evidence');
+    }
+    if (A.fgProgressReset) A.fgProgressReset();
+    markHost(document.getElementById('spLookupResults'),
+      mode === 'dist' ? 'All regional evidence' : 'Physically reachable evidence');
+    sec.dataset.mockAt = 'spLookupBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
   }
   function megaFixture(code, name, sci) {
     var f = JSON.parse(JSON.stringify(MEGA_STAKEOUT));
@@ -1739,6 +1815,7 @@ const BOOTSTRAP = `
     prepare: fixturePrepare,
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
+    prepareF389Stakeout: prepareF389Stakeout,
     prepareBirdFinderMerged: prepareBirdFinderMerged,
     prepareBirdSp: prepareBirdSp,
     assertDetailedHierarchyLayout: assertDetailedHierarchyLayout,
@@ -1767,6 +1844,8 @@ const BOOTSTRAP = `
           familyComName: familyCom || family, taxonOrder: n };
       }
       return [
+        s('whttro', 'White-tailed Tropicbird', 'Phaethon lepturus',
+          'Phaethontiformes', 'Phaethontidae', 0, 'Tropicbirds'),
         s('semsan', 'Semipalmated Sandpiper', 'Calidris pusilla',
           'Charadriiformes', 'Scolopacidae', 1, 'Sandpipers and Allies'),
         s('wessan', 'Western Sandpiper', 'Calidris mauri',

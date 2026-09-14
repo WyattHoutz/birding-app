@@ -15,7 +15,9 @@
  */
 const { test, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 
@@ -110,6 +112,10 @@ const IOS_WF = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'ios-build.yml'), 'utf8');
 const IOS_FULL_REPORT = fs.readFileSync(
   path.join(__dirname, '..', 'native', 'ios', 'ViewController.swift'), 'utf8');
+const IOS_FULL_REPORT_INSTALLER = fs.readFileSync(
+  path.join(__dirname, '..', 'native', 'ios', 'install-full-report-bridge.js'), 'utf8');
+const installFullReportBridge = require(
+  path.join(__dirname, '..', 'native', 'ios', 'install-full-report-bridge.js')).install;
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 const BL = require(wwwFixture('logic.js'));
 
@@ -12391,6 +12397,7 @@ test('F367 a transport-only sightings failure retries once and keeps the selecte
     });
   };
   installSpuhFixture(app);
+  app.window.__app.setSpeciesLookupSort('dist');
   await app.window.__app.renderSpuhNode('peep');
   const ruff = app.document.querySelector(
     '#spLookupQueryHelp .spuhcandidatecard[data-sp="ruff"]');
@@ -12429,6 +12436,7 @@ test('F367 two transport failures retain a named manual sightings retry', async 
     });
   };
   installSpuhFixture(app);
+  app.window.__app.setSpeciesLookupSort('dist');
   await app.window.__app.lookupSpecies('ruff', 'Ruff');
   const card = app.document.querySelector('#spLookupResults > li');
   const retry = card && card.querySelector('.spLookupRetrySightings');
@@ -12502,6 +12510,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   });
   installSpuhFixture(app);
   app.window.__app.setSpuhRandom(() => 0);
+  app.window.__app.setSpeciesLookupSort('dist');
 
   const section = app.$('sec-spLookupBtn');
   assert.match(section.querySelector('h2').textContent, /Stakeout bird/i,
@@ -12665,7 +12674,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.match(stakeoutMeta && stakeoutMeta.textContent, /on your year list/,
     'the species card lost the year-list state above its sightings summary');
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
-    /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · reachable first, newest within each group/,
+    /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by distance/,
   'the sightings summary is not inside the Western Sandpiper card');
   assert.ok(stakeoutMeta.compareDocumentPosition(stakeoutSummary)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
@@ -13789,11 +13798,72 @@ test('F371 reachable-first Stakeout order is labelled honestly instead of Date',
     'the F92 reachable-first behavior was removed instead of labelled');
   assert.match(app.$('spLookupByDate').textContent, /Reachable/);
   assert.equal(app.$('spLookupByDate').getAttribute('aria-label'),
-    'Sort reachable places first, newest within each group');
+    'Show physically reachable places only, newest first');
   assert.match(app.document.querySelector(
     '#spLookupResults .splookupsummary').textContent,
-  /reachable first, newest within each group/);
+  /reachable places only, newest first/);
   assert.doesNotMatch(app.$('spLookupByDate').textContent, /\bDate\b/);
+  app.window.close();
+});
+
+test('F389 Stakeout Reachable excludes pelagic pins and other Hawaiian islands', async (t) => {
+  const app = await boot({
+    storage: {
+      'ebird_home_lat:hi': '19.92222',
+      'ebird_home_lng:hi': '-155.88404',
+    },
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) {
+        return [
+          {
+            speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+            locName: 'Kealakehe WTP', locId: 'L-LAND',
+            lat: 19.674, lng: -156.001, subnational2Code: 'US-HI-001',
+            obsDt: '2026-09-11 08:00', subId: 'S-LAND', obsValid: true,
+          },
+          {
+            speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+            locName: 'Captain Zodiac pelagic—C', locId: 'L-PELAGIC',
+            lat: 19.7656, lng: -156.1054, subnational2Code: 'US-HI-001',
+            obsDt: '2026-09-13 08:00', subId: 'S-PELAGIC', obsValid: true,
+            locationPrivate: true,
+          },
+          {
+            speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+            locName: 'Kauaʻi offshore', locId: 'L-KAUAI',
+            lat: 21.9711, lng: -159.9362, subnational2Code: 'US-HI-007',
+            obsDt: '2026-09-12 08:00', subId: 'S-KAUAI', obsValid: true,
+          },
+        ];
+      }
+      return null;
+    },
+  });
+  t.after(() => app.window.close());
+  const A = app.window.__app;
+  A.setActiveReport('hi');
+  assert.equal(A.spLookupPlaceReachable({
+    loc: 'Other-island land control', locId: 'L-OTHER', distMi: 10,
+    sub2: 'US-HI-007', locationPrivate: false,
+  }), false, 'another island is not reachable merely because straight-line miles are small');
+  installSpuhFixture(app);
+  await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
+
+  let rows = [...app.document.querySelectorAll(
+    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+  assert.equal(rows.length, 1,
+    'Reachable is still a sort that displays unreachable regional evidence');
+  assert.match(rows[0], /Kealakehe WTP/);
+  assert.doesNotMatch(rows.join(' '), /Captain Zodiac|Kauaʻi/,
+    'pelagic or other-island evidence remains in the Reachable view');
+
+  app.click(app.$('spLookupByDist'));
+  rows = [...app.document.querySelectorAll(
+    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+  assert.equal(rows.length, 3,
+    'the broader Distance view lost evidence hidden from Reachable');
+  assert.match(rows.join(' '), /Captain Zodiac/);
+  assert.match(rows.join(' '), /Kauaʻi/);
   app.window.close();
 });
 
@@ -21330,8 +21400,52 @@ test('F383 debug tools copy a full report image and share the complete native PD
   assert.match(IOS_FULL_REPORT, /UIActivityViewController\(/,
     'there is no Save/Share fallback when PDF paste is unsupported');
   assert.match(IOS_WF,
-    /cp native\/ios\/ViewController\.swift ios\/App\/App\/ViewController\.swift/,
+    /node native\/ios\/install-full-report-bridge\.js/,
     'the generated iOS project never receives the tracked PDF bridge');
+  assert.match(IOS_WF,
+    /ViewController\.swift in Sources/,
+    'the copied Swift bridge is never added to the generated Xcode target');
+  assert.match(IOS_FULL_REPORT_INSTALLER,
+    /AppDelegate\.swift in Sources[\s\S]*ViewController\.swift in Sources/,
+    'ViewController.swift is not compiled in the App target Sources phase');
+  assert.match(IOS_FULL_REPORT_INSTALLER,
+    /customClass="ViewController" customModule="App" customModuleProvider="target"/,
+    'Main.storyboard still instantiates Capacitor’s base controller instead of the plugin-registering subclass');
+  assert.match(IOS_WF, /strings "\$APP_PATH\/\$EXECUTABLE" \| grep -q 'FullReportPlugin'/,
+    'the compiled app binary is never checked for the native plugin');
+
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'birdchaser-full-report-'));
+  try {
+    const iosRoot = path.join(fixtureRoot, 'ios');
+    const nativeRoot = path.join(fixtureRoot, 'native', 'ios');
+    fs.mkdirSync(iosRoot, { recursive: true });
+    fs.mkdirSync(nativeRoot, { recursive: true });
+    fs.copyFileSync(
+      path.join(__dirname, '..', 'native', 'ios', 'ViewController.swift'),
+      path.join(nativeRoot, 'ViewController.swift'));
+    childProcess.execFileSync('tar', [
+      '-xzf',
+      path.join(__dirname, '..', 'node_modules', '@capacitor', 'cli', 'assets',
+        'ios-spm-template.tar.gz'),
+      '-C', iosRoot,
+    ]);
+    installFullReportBridge(fixtureRoot);
+    const project = fs.readFileSync(
+      path.join(iosRoot, 'App', 'App.xcodeproj', 'project.pbxproj'), 'utf8');
+    const storyboard = fs.readFileSync(
+      path.join(iosRoot, 'App', 'App', 'Base.lproj', 'Main.storyboard'), 'utf8');
+    const sourcesPhase =
+      /\/\* Begin PBXSourcesBuildPhase section \*\/([\s\S]*?)\/\* End PBXSourcesBuildPhase section \*\//
+        .exec(project);
+    assert.ok(sourcesPhase);
+    assert.match(sourcesPhase[1], /ViewController\.swift in Sources/,
+      'the installer ran without adding the bridge to the generated Sources phase');
+    assert.match(storyboard,
+      /customClass="ViewController" customModule="App" customModuleProvider="target"/,
+      'the installer ran without selecting the bridge-registering controller');
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
   app.window.close();
 });
 
@@ -21858,7 +21972,7 @@ test('convoy species are read when scrolled to, not all at once', () => {
 // nothing. Sorting by DATE interleaves them, and a bird reported this morning
 // 200 miles away outranks one reported yesterday down the road — true, and not
 // what the list is for.
-test('species lookup lists reachable places first and keeps the rest in one list', async () => {
+test('species lookup Reachable filters far places while Distance keeps all evidence', async () => {
   const app = await boot();
   const A = app.window.__app;
   const lim = A.chaseMaxMi();
@@ -21872,20 +21986,29 @@ test('species lookup lists reachable places first and keeps the rest in one list
     'far places still split into a second nested/disclosure list');
   assert.equal((html.match(/spLookupPlaceList/g) || []).length, 1,
     'the answer is not one stable hotspot list');
-  // Order matters: reachable first, then the same list continues with far rows.
+  // Reachable is now a view, not a misleading sort label.
   assert.ok(html.indexOf('Near') < html.indexOf('AlsoNear'), 'reachable places keep their order');
-  assert.ok(html.indexOf('AlsoNear') < html.indexOf('Far'), 'far places do not interrupt reachable ones');
-  assert.ok(html.indexOf('Far') < html.indexOf('Farther'), 'far places continue in order');
+  assert.doesNotMatch(html, /Far|Farther/,
+    'the Reachable view still includes places beyond the chase radius');
+
+  A.setSpeciesLookupSort('dist');
+  const distanceHtml = A.spLookupPlacesHtml([
+    mk('Near', 5), mk('AlsoNear', lim - 1), mk('Far', lim + 1), mk('Farther', 200)
+  ]);
+  assert.ok(distanceHtml.indexOf('AlsoNear') < distanceHtml.indexOf('Far'));
+  assert.ok(distanceHtml.indexOf('Far') < distanceHtml.indexOf('Farther'),
+    'Distance no longer preserves the complete regional evidence list');
 
   // THE BOUNDARY IS THE CHASE RADIUS, not a magic number, and it is inclusive
   // — a place exactly at the limit is still a chase.
   const edge = A.spLookupPlacesHtml([mk('Edge', lim)]);
   assert.ok(!/spLookupMore/.test(edge), 'one place exactly at the radius needs no lazy control');
 
-  // Nothing within range is a real answer, not an empty list.
+  A.setSpeciesLookupSort('date');
+  // Nothing within range is stated plainly rather than silently returning no markup.
   const allFar = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
-  assert.ok(!/spLookupMore/.test(allFar), 'with one far result there is nothing to expand');
-  assert.match(allFar, /OnlyFar/, 'so the lookup still answers the question that was asked');
+  assert.match(allFar, /No physically reachable reports/);
+  assert.doesNotMatch(allFar, /OnlyFar/);
   app.window.close();
 });
 

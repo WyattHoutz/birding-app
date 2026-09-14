@@ -80,8 +80,11 @@ jobs:
       - name: Install the full-report PDF bridge
         run: |
           set -euo pipefail
-          cp native/ios/ViewController.swift ios/App/App/ViewController.swift
+          node native/ios/install-full-report-bridge.js
           grep -q 'registerPluginInstance(FullReportPlugin())' ios/App/App/ViewController.swift
+          grep -q 'ViewController.swift in Sources' ios/App/App.xcodeproj/project.pbxproj
+          grep -q 'customClass="ViewController" customModule="App" customModuleProvider="target"' \
+            ios/App/App/Base.lproj/Main.storyboard
           grep -q 'height: contentSize.height' ios/App/App/ViewController.swift
           grep -q 'UTType.jpeg.identifier' ios/App/App/ViewController.swift
           grep -q 'UIActivityViewController' ios/App/App/ViewController.swift
@@ -122,6 +125,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             clean build
+          APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+          strings "$APP_PATH/$EXECUTABLE" | grep -q 'FullReportPlugin'
 
       - name: Package .app into an unsigned .ipa
         run: |

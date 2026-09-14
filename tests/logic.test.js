@@ -577,6 +577,42 @@ test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today
     'the 29.6-mile offshore trip belongs in Half-day, not Full-day');
 });
 
+test('F389 named ocean hotspots cannot route into Today’s patches', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-13';
+  const ocean = Object.assign(OBS({
+    obsId: 'north-pacific-ocean', speciesCode: 'bkwpet',
+    comName: 'Black-winged Petrel', locId: 'L77149042',
+    locName: 'North Pacific Ocean', lat: 19.6249, lng: -156.3120,
+    obsDt: SNAP + ' 08:29', subId: 'S-ocean'
+  }), { subnational2Code: 'US-HI-001' });
+  const shore = Object.assign(OBS({
+    obsId: 'ocean-shores', speciesCode: 'brnboo',
+    comName: 'Brown Booby', locId: 'L-OCEAN-SHORES',
+    locName: 'Ocean Shores Marina', lat: 19.6700, lng: -156.0300,
+    obsDt: SNAP + ' 08:30', subId: 'S-shore'
+  }), { subnational2Code: 'US-HI-001' });
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday: profileSnapshot(hi, {
+      'hawaii-recent.json': [ocean, shore]
+    }),
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ
+  });
+
+  assert.equal(BL.isSpecialTrip({ loc: 'North Pacific Ocean' }), true,
+    'an explicit ocean-basin location is offshore even when its label omits “offshore”');
+  assert.equal(BL.isSpecialTrip({ loc: 'Ocean Shores Marina' }), false,
+    'the ocean-basin rule must not classify a land place merely containing “Ocean”');
+  assert.ok(!cv.destinations.some((r) => r.loc === 'North Pacific Ocean'),
+    'the installed L77149042 location leaked into Today’s patches');
+  assert.ok(cv.excursions.some((r) => r.loc === 'North Pacific Ocean') ||
+    cv.fullDay.some((r) => r.loc === 'North Pacific Ocean'),
+  'the offshore destination disappeared instead of moving to a longer-trip tier');
+  assert.ok(cv.destinations.some((r) => r.loc === 'Ocean Shores Marina'),
+    'the land-access negative control no longer remains Today-eligible');
+});
+
 test('F341 sparse Hawaii patches fill fresh-first from bounded older public evidence', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-02';
