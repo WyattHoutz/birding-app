@@ -127,7 +127,8 @@ jobs:
             clean build
           APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
           EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
-          strings "$APP_PATH/$EXECUTABLE" | grep -q 'FullReportPlugin'
+          strings "$APP_PATH/$EXECUTABLE" > build/full-report-symbols.txt
+          grep -q 'FullReportPlugin' build/full-report-symbols.txt
 
       - name: Package .app into an unsigned .ipa
         run: |

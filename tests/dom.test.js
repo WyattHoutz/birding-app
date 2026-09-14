@@ -21411,8 +21411,12 @@ test('F383 debug tools copy a full report image and share the complete native PD
   assert.match(IOS_FULL_REPORT_INSTALLER,
     /customClass="ViewController" customModule="App" customModuleProvider="target"/,
     'Main.storyboard still instantiates Capacitor’s base controller instead of the plugin-registering subclass');
-  assert.match(IOS_WF, /strings "\$APP_PATH\/\$EXECUTABLE" \| grep -q 'FullReportPlugin'/,
-    'the compiled app binary is never checked for the native plugin');
+  assert.match(IOS_WF,
+    /strings "\$APP_PATH\/\$EXECUTABLE" > build\/full-report-symbols\.txt[\s\S]*grep -q 'FullReportPlugin' build\/full-report-symbols\.txt/,
+    'the completed app binary symbol dump is never checked for the native plugin');
+  assert.doesNotMatch(IOS_WF,
+    /strings "\$APP_PATH\/\$EXECUTABLE" \| grep -q/,
+    'the binary proof uses grep -q in a pipe, which makes macOS strings fail to flush under pipefail after a successful match');
 
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'birdchaser-full-report-'));
   try {
