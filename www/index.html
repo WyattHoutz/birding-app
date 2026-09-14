@@ -3527,7 +3527,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.103.0';
+      var APP_VERSION = '1.104.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4960,7 +4960,10 @@
           var supplementOwners = lifelistSupplementOwners(owner);
           if (!supplementOwners.length) return mainCount;
           return Promise.all(supplementOwners.map(function (extraOwner) {
-            return tryOneLifelistYear(extraOwner).catch(function () { return 0; });
+            return tryOneLifelistYear(extraOwner).catch(function (e) {
+              if (e && e.ownSeenPersistence) throw e;
+              return 0;
+            });
           })).then(function (counts) {
             var supplementCount = counts.reduce(function (total, n) {
               return total + (n > 0 ? n : 0);
@@ -4971,6 +4974,38 @@
               ? LIFELIST_COMPLETE_EMPTY : 0;
           });
         });
+      }
+      function saveOwnSeenCodes(slug, codes) {
+        var key = ownSeenKey(slug);
+        var payload = JSON.stringify(codes);
+        function write() {
+          localStorage.setItem(key, payload);
+          return localStorage.getItem(key) === payload;
+        }
+        try {
+          if (write()) return true;
+        } catch (e) {
+          if (!freeCacheSpace(60)) {
+            dbg('warn', 'owned bird list not saved (' + key + ', '
+              + Math.round(payload.length / 1024) + ' KB): '
+              + (e && e.name || 'storage error') + ' · store holds '
+              + storeComposition());
+            var failed = new Error('Owned bird list could not be saved');
+            failed.ownSeenPersistence = true;
+            throw failed;
+          }
+        }
+        try {
+          if (write()) return true;
+        } catch (e2) {
+          dbg('warn', 'owned bird list not saved after cache eviction (' + key
+            + ', ' + Math.round(payload.length / 1024) + ' KB): '
+            + (e2 && e2.name || 'storage error') + ' · store holds '
+            + storeComposition());
+        }
+        var failedRetry = new Error('Owned bird list could not be saved');
+        failedRetry.ownSeenPersistence = true;
+        throw failedRetry;
       }
       function absorbLifelistRows(rows, how, extra, owner) {
         var slug = owner && owner.slug;
@@ -4983,7 +5018,7 @@
           learned++;
         });
         if (learned) {
-          try { localStorage.setItem(ownSeenKey(slug), JSON.stringify(codes)); } catch (e) {}
+          saveOwnSeenCodes(slug, codes);
         }
         verdict('My Ticks', how + ' read in ONE call: ' + rows.length
           + ' species, ' + learned + ' new'
@@ -5018,6 +5053,7 @@
             return absorbLifelistRows(res, 'lifelist CSV', '', owner);
           });
         }).catch(function (e) {
+          if (e && e.ownSeenPersistence) throw e;
           verdict('My Ticks', 'lifelist CSV unreachable (' + ((e && e.message) || e)
             + ') — trying the page instead');
           return 0;
@@ -5057,13 +5093,14 @@
             learned++;
           });
           if (learned) {
-            try { localStorage.setItem(ownSeenKey(slug), JSON.stringify(codes)); } catch (e) {}
+            saveOwnSeenCodes(slug, codes);
           }
           verdict('My Ticks', 'lifelist page read in ONE call: ' + rows.length
             + ' species, ' + learned + ' new · newest ' + lifelistNewest(rows)
             + ' — the 730-call walk was skipped');
           return rows.length;
         }).catch(function (e) {
+          if (e && e.ownSeenPersistence) throw e;
           verdict('My Ticks', 'lifelist page unreachable (' + ((e && e.message) || e)
             + ') — falling back to the day-by-day walk');
           return 0;
@@ -18017,7 +18054,7 @@
       // shown, your key, your home, your settings. Those are not caches, and a
       // full disk is not a reason to lose them.
       var DISPOSABLE = [
-        'bc_ckl:',              // one call each — the cheapest thing there is
+        CKL_NS,                 // one call each — the cheapest thing there is
         'ebird_photos_neg_v1',  // remembered misses
         'bc_ref:',              // reference lookups
         'ebird_quick_hotspots_v1:',

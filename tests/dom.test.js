@@ -20677,7 +20677,7 @@ test('the expensive snapshot evicts cheap caches rather than giving up', () => {
   // were opening was nearly empty while the rest of the store sat untouched.
   assert.match(HTML, /var DISPOSABLE = \[/, 'there is a ranked list of what may be dropped');
   const disposable = /var DISPOSABLE = \[([\s\S]*?)\];/.exec(HTML)[1];
-  assert.match(disposable, /'bc_ckl:'/, 'cheapest first: a checklist costs one call');
+  assert.match(disposable, /\bCKL_NS\b/, 'cheapest first: the current checklist cache costs one call');
   assert.match(disposable, /'ebird_photos_v2'/, 'and it reaches the big blob caches too');
   // The rule that matters: nothing the network cannot hand back.
   [['ebird_watchlist_v1', 'your watchlist'],
@@ -21058,7 +21058,7 @@ test('a full store gives up its cheapest caches, not the wave', async () => {
   const app = await boot();
   const A = app.window.__app, W = app.window;
 
-  W.localStorage.setItem('bc_ckl:S1', JSON.stringify({ d: '2026-08-01', o: '2026-08-01' }));
+  W.localStorage.setItem('bc_ckl2:S1', JSON.stringify({ d: '2026-08-01', o: '2026-08-01' }));
   W.localStorage.setItem('ebird_photos_v2', JSON.stringify({ a: 'https://x/1.jpg' }));
   W.localStorage.setItem('ebird_birdinfo_v2', JSON.stringify({ a: 'blurb' }));
   W.localStorage.setItem('easymiss_v1:x', '[]');
@@ -21070,7 +21070,7 @@ test('a full store gives up its cheapest caches, not the wave', async () => {
 
   const freed = A.freeCacheSpace(100);
   assert.ok(freed >= 4, `every disposable cache is reachable, not just checklists (freed ${freed})`);
-  assert.equal(W.localStorage.getItem('bc_ckl:S1'), null, 'the cheapest thing goes');
+  assert.equal(W.localStorage.getItem('bc_ckl2:S1'), null, 'the cheapest thing goes');
   assert.equal(W.localStorage.getItem('ebird_photos_v2'), null, 'and so do the big blobs');
 
   // The rule that matters. A full disk is not a reason to lose something the
@@ -22535,6 +22535,116 @@ test('F390 ABA My Ticks reloads uncached Hawaii sightings beside the ABA list', 
     assert.equal(request.options.cache, 'no-store',
       'a My Ticks reload allowed the web view to reuse a stale life-list response');
   });
+  app.window.close();
+});
+
+test('F394 ABA My Ticks makes room and durably repaints the fetched year lists', async () => {
+  const exactAbaCsv = 'https://ebird.org/lifelist?r=aba&time=year&year=2026&fmt=csv';
+  const exactHiCsv = 'https://ebird.org/lifelist?r=US-HI&time=year&year=2026&fmt=csv';
+  const csv = (prefix, count, newestName) => [
+    'Species Code,Common Name,Date',
+    `${prefix}000,${newestName},13 Sep 2026`,
+    ...Array.from({ length: count - 1 }, (_, i) => (
+      `${prefix}${String(i + 1).padStart(3, '0')},${prefix.toUpperCase()} Bird ${i + 1},12 Sep 2026`
+    )),
+  ].join('\n');
+  const abaCsv = csv('fa', 368, 'F394 ABA Latest');
+  const hiCsv = csv('fh', 35, 'F394 Hawaii Latest');
+  const app = await boot({
+    report: 'aba',
+    sample: true,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  app.window.localStorage.setItem('bc_ckl2:discard-me', JSON.stringify({
+    d: '2026-09-01', o: '2026-09-01', v: 'j:[]',
+  }));
+  const original = app.window.Storage.prototype.setItem;
+  let blockedWrites = 0;
+  app.window.Storage.prototype.setItem = function (key, value) {
+    if (String(key).endsWith('ebird_own_seen:aba')
+        && String(value).includes('"fh000"')
+        && app.window.localStorage.getItem('bc_ckl2:discard-me') != null) {
+      blockedWrites++;
+      throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return original.call(this, key, value);
+  };
+  app.window.fetch = (url) => {
+    const u = String(url);
+    const body = u === exactAbaCsv ? abaCsv
+      : u === exactHiCsv ? hiCsv
+        : 'Species Code,Common Name,Date\n';
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(body),
+      json: () => Promise.resolve(body),
+    });
+  };
+
+  const reload = app.$('myYearBody').closest('section').querySelector('.refreshbtn');
+  app.click(reload);
+  await waitFor(() => /F394 ABA Latest/.test(app.$('myYearList').textContent),
+    'the production My Ticks refresh to repaint its fetched ABA rows', 3000);
+
+  const stored = JSON.parse(
+    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
+  );
+  assert.ok(blockedWrites >= 1, 'the quota fixture never blocked the owned-list write');
+  assert.equal(app.window.localStorage.getItem('bc_ckl2:discard-me'), null,
+    'the durable owned list did not evict a replaceable cache after quota');
+  assert.equal(Object.keys(stored).length, 403,
+    'the ABA and Hawaii responses were not both durable after the retry');
+  assert.ok(stored.fa000 && stored.fh000,
+    'the durable store lost one of the two fetched year-list scopes');
+  assert.match(app.$('myYearList').textContent, /F394 Hawaii Latest/,
+    'the final production repaint omitted the fetched Hawaii row');
+  assert.match(app.$('myYearBody').textContent, /403 of these came from your own checklists/,
+    'the final repaint did not disclose the owned rows it actually rendered');
+  app.window.Storage.prototype.setItem = original;
+  app.window.close();
+});
+
+test('F394 My Ticks reports failure instead of claiming rows an owned store rejected', async () => {
+  const csv = [
+    'Species Code,Common Name,Date',
+    'f394a,F394 Bird A,13 Sep 2026',
+    'f394b,F394 Bird B,12 Sep 2026',
+    'f394c,F394 Bird C,11 Sep 2026',
+    'f394d,F394 Bird D,10 Sep 2026',
+    'f394e,F394 Bird E,09 Sep 2026',
+  ].join('\n');
+  const app = await boot({
+    report: 'aba',
+    sample: true,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  const original = app.window.Storage.prototype.setItem;
+  app.window.Storage.prototype.setItem = function (key, value) {
+    if (String(key).endsWith('ebird_own_seen:aba')) {
+      throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return original.call(this, key, value);
+  };
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(csv),
+    json: () => Promise.resolve(csv),
+  });
+
+  app.click(app.$('myYearBody').closest('section').querySelector('.refreshbtn'));
+  await waitFor(() => /year-list refresh did not finish/.test(app.$('myYearBody').textContent),
+    'the production refresh to expose its rejected owned-list write', 3000);
+
+  assert.equal(app.window.localStorage.getItem('ebird_own_seen:aba'), null,
+    'the rejected write left a success-shaped owned list behind');
+  assert.doesNotMatch(
+    String((app.window.__dbg.verdicts || {})['My Ticks'] || ''),
+    /read in ONE call:.*new/,
+    'My Ticks claimed fetched rows were learned before durable storage',
+  );
+  app.window.Storage.prototype.setItem = original;
   app.window.close();
 });
 

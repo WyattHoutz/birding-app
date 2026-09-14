@@ -266,6 +266,35 @@ OVERRIDES = {
     'hawgoo.jpg': 0.10,
 }
 
+# F395. These reports are not requests to move a square crop: the owner's
+# observation is that part of the bird is missing. For these credited source
+# images the subject is too long for the image's short side, so every ordinary
+# square crop must remove either head, tail, wing, feet, or bill. Preserve the
+# complete frame over a blurred version of itself instead. The 4% inset keeps
+# source-edge feathers and bills visibly clear at the 56px card size without
+# introducing the flat grey bars that originally prompted square assets.
+FIT_OVERRIDES = {
+    'dunlin.png',
+    'cubthr.jpg',
+    'norcar.jpg',
+    'plsvir.jpg',
+    'virwar.jpg',
+    'crithr.jpg',
+    'comblh1.jpg',
+    'ameavo.jpg',
+    'whfibi.jpg',
+    'calqua.jpg',
+    'brnboo.jpg',
+    'easpho.jpg',
+    'yetvir.jpg',
+    'easmea.jpg',
+    'whevir.jpg',
+    'woothr.jpg',
+    'wiltur.jpg',
+    'brwhaw.jpg',
+    'rocpig.jpg',
+}
+
 
 # Fingerprint of the SOURCE each override was drawn against, so a changed photo
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
@@ -288,7 +317,7 @@ OVERRIDE_SRC_SHA = {
     'brdowl.jpg': '07fee0c37c791286',
     'batpig1.jpg': 'd24457ac604b4088',
     'pelcor.jpg': 'be5dfe88b872e1cb',
-    'rocpig.jpg': '2d44d22ea60c2fce',
+    'rocpig.jpg': 'cdec0abbf2e37e9d',
     # F216, drawn 2026-08-27.
     'baleag.jpg': 'dde1e6df6d87ac46',
     'cangoo.jpg': '24e4e459eda18a86',
@@ -346,6 +375,26 @@ OVERRIDE_SRC_SHA = {
     'pibgre.jpg': '549b13d63ff69da7',
     'wetshe.jpg': 'dc96eb8806cacdd7',
     'hawgoo.jpg': 'e51062c2dfd80911',
+    # F395: same credited Commons files, re-fetched at usable resolution and
+    # reviewed as full-frame fits rather than necessarily clipping squares.
+    'ameavo.jpg': 'b4e04c0e69b598e2',
+    'brnboo.jpg': '3275bcf0568bb77f',
+    'brwhaw.jpg': '72ebdbd8f1617535',
+    'calqua.jpg': '1d954b6c55a82832',
+    'comblh1.jpg': '2d3fb51f7e14f6f1',
+    'crithr.jpg': '063ab11388021076',
+    'cubthr.jpg': '27eee7e9caaa15a2',
+    'dunlin.png': 'c232fe7640ffd7c9',
+    'easmea.jpg': '78c4fb91b88f9a88',
+    'easpho.jpg': '3f19aa02d9beaa49',
+    'norcar.jpg': '164578e644843e72',
+    'plsvir.jpg': '13886650624a92ca',
+    'virwar.jpg': '862215924f6d9293',
+    'whevir.jpg': 'bde3f96698bf68ec',
+    'whfibi.jpg': '2239a98814adaa42',
+    'wiltur.jpg': 'c4bdb918de305d18',
+    'woothr.jpg': 'd08e0ac1b2370b00',
+    'yetvir.jpg': '1e68afb5315cea89',
 }
 
 
@@ -705,21 +754,46 @@ def energy_kept(im, crop):
     return (inside / tot) if tot else 1.0
 
 
+def fit_square(im):
+    """Keep the complete source frame on a non-letterboxed square canvas."""
+    # 512 covers the app's largest measured 366-device-pixel card while
+    # avoiding nineteen needlessly large bundled images.
+    side = min(min(im.size), 512)
+    resample = Image.Resampling.LANCZOS
+    backdrop = ImageOps.fit(im, (side, side), method=resample)
+    backdrop = backdrop.filter(ImageFilter.GaussianBlur(max(4, side // 24)))
+    inset = max(1, int(round(side * 0.04)))
+    subject = ImageOps.contain(
+        im, (side - inset * 2, side - inset * 2), method=resample)
+    left = (side - subject.width) // 2
+    top = (side - subject.height) // 2
+    backdrop.paste(subject, (left, top))
+    return backdrop
+
+
 def process(path, out_dir, dry=False):
     with Image.open(path) as im:
         im = im.convert('RGB') if im.mode not in ('RGB', 'L') else im
         w, h = im.size
+        name = os.path.basename(path)
+        if name in FIT_OVERRIDES:
+            if not dry:
+                fit_square(im).save(os.path.join(out_dir, name),
+                                    quality=88, optimize=True)
+            return {'file': name, 'already_square': False, 'fit': True,
+                    'head_cut': 0.0, 'tail_cut': 0.0, 'kept': 1.0,
+                    'size': [w, h], 'box': [0, 0, w, h]}
         if abs(w - h) <= 1:
-            return {'file': os.path.basename(path), 'already_square': True,
+            return {'file': name, 'already_square': True,
                     'head_cut': 0.0, 'tail_cut': 0.0, 'kept': 1.0}
         a = analyse(im)
-        box = square_box(w, h, a, os.path.basename(path))
+        box = square_box(w, h, a, name)
         head_cut, tail_cut = crop_loss(w, h, box, a)
         kept = energy_kept(im, box)
         if not dry:
-            im.crop(box).save(os.path.join(out_dir, os.path.basename(path)),
+            im.crop(box).save(os.path.join(out_dir, name),
                               quality=88, optimize=True)
-    return {'file': os.path.basename(path), 'already_square': False,
+    return {'file': name, 'already_square': False,
             'head_cut': round(head_cut, 3), 'tail_cut': round(tail_cut, 3),
             'kept': round(kept, 3), 'rival': round(a['rival'], 3),
             'size': [w, h], 'box': list(box)}

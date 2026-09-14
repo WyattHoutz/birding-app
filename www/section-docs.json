@@ -667,6 +667,7 @@
         "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Ticks immediately without refetching or removing the year-list row.",
         "Opening My Ticks paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
         "The heading's Reload control repeats that owned refresh without using the web view's HTTP cache. Its visible year-list link, CSV request and page fallback all use the same explicit-year eBird query.",
+        "Fetched year-list rows are reported as learned only after the owned list is durably stored. If the device store is full, My Ticks evicts replaceable network caches and retries once; if that still fails, it keeps the prior list and shows the refresh failure instead of claiming the new rows were saved.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
         "A late signed-in year-list response remains owned by the report that started it, so switching regions cannot put ABA ticks into Hawaii or Washington.",
         "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total.",

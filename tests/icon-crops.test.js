@@ -167,6 +167,46 @@ test('F290 Vesper Sparrow crop keeps the whole head clear of the 56px left edge'
     'the public Vesper icon was not regenerated from the 1070x756 source');
 });
 
+test('F395 reported full-bird icons use pinned fit crops instead of clipping', () => {
+  const fitted = tableBody('FIT_OVERRIDES');
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  const outputs = {
+    'dunlin.png': ['35f0aa39c9cc715b96003f57ca6136193c515b504b6da66d4a6f00ba21efe481', 512],
+    'cubthr.jpg': ['e402b8264d439ee736f5b2fb0dcfe09994286dbdf1d25fcaa3c56bb32252c050', 512],
+    'norcar.jpg': ['b9938649b5712b4ec1c48d40edba0d6333b9e18bdecbf69a3ab50407f0d6392d', 512],
+    'plsvir.jpg': ['a41c4badc431b1f96c3542a6e06b9f45b550ed8b64de2898a053162f57c21100', 380],
+    'virwar.jpg': ['4358a27f3dd1199cce562148356dea93aecc96b080086267a4ecffe08b7e1d06', 512],
+    'crithr.jpg': ['0031250d711c0a48d755a37258a9b29256774d07e2158e92a2e7948fc2e26bed', 512],
+    'comblh1.jpg': ['cb2be81c6a302f0d574b0bb8647ed0360082033049c29fd95eecf88d7e604c29', 512],
+    'ameavo.jpg': ['1e511db395128265cc128b0de10dfcd4fa8337c46c654a70086e038bf023dfb3', 512],
+    'whfibi.jpg': ['ce27b4060c7cdf62a59a849f4fbb2710107824d4b68b760a18b8c7af9cc5853b', 512],
+    'calqua.jpg': ['29f895d6e4b7c0a7e24d9695cd315b079072adea6c6faadf63c9e4919986e702', 512],
+    'brnboo.jpg': ['c0aea3209aad889cf8135faf29c2f9284cb0a85b5115b81cff74b29909c48ba4', 512],
+    'easpho.jpg': ['37c96732a4e503110116819e675bebb35006f34eff6b890d4c641c6e23812804', 512],
+    'yetvir.jpg': ['b5666cab3def6232c82041b36e292fd4a8bb8a260300b6cc7cbc4ea4cb36bdc7', 512],
+    'easmea.jpg': ['73d991b45e956667fc4c51605d6c0d97c51736d10dde8dbee45ea8b0df1c6735', 512],
+    'whevir.jpg': ['59691a8b5886f4b738a044d74d6108a9ee5cf68c935aba610b31812a6f4777eb', 512],
+    'woothr.jpg': ['7e3ff1c0c6e4cc001d424c15418bbb0de117f5a37db8b4727fd26f0690621f77', 512],
+    'wiltur.jpg': ['8c4578362554f7d930b009e353b19510b21087cc0f727e5d07cc16ef01272e6b', 512],
+    'brwhaw.jpg': ['2dfcf5a4a01c73fa6a1deefb1f413fdc511b58816fe2e8b90929a8f66857aecc', 358],
+    'rocpig.jpg': ['5b452338fbd38dec33adf7e3307281f0beb65e76c55986dbb68b7303b48f4290', 512],
+  };
+
+  for (const [file, [hash, side]] of Object.entries(outputs)) {
+    const escaped = file.replace('.', '\\.');
+    assert.match(fitted, new RegExp(`['"]${escaped}['"]`),
+      `${file} can fall back to a clipping square crop`);
+    assert.match(pins, new RegExp(`['"]${escaped}['"]\\s*:\\s*['"][0-9a-f]{16}['"]`),
+      `${file} fit crop is not pinned to the reviewed credited source`);
+    const output = fs.readFileSync(path.join(ROOT, 'www', 'assets', 'birds', file));
+    const size = imageSize(output);
+    assert.deepEqual(size, { w: side, h: side },
+      `${file} was not regenerated at its reviewed square size`);
+    assert.equal(sha256Hex(output), hash,
+      `${file} no longer matches its reviewed full-bird fit`);
+  }
+});
+
 test('F250 Sharp-shinned Hawk trades tail for measured crown clearance', () => {
   const override = tableBody('OVERRIDES').match(
     /['"]shshaw\.jpg['"]\s*:\s*([0-9.]+)/);
