@@ -52,7 +52,9 @@
       "spLookupSecondaryActions",
       "myYearEbirdLink",
       "spLookupPlaceReachable",
-      "reachable places only, newest first",
+      "Sort by date, newest first",
+      "Filter places to within the chase distance",
+      "setSpeciesLookupWithinChase",
       "No physically reachable reports are within",
       "PERSIST_DELAY_MS = 750",
       "PREVIOUS SESSION (saved locally; secrets scrubbed)"
