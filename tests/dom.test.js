@@ -10296,6 +10296,73 @@ test('the seen list reaches every hotspot card, not just Hot and Cold', async ()
   app.window.close();
 });
 
+test('Today’s patches treats imported-CSV name matches as seen before ranking', async () => {
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      ebird_seen: JSON.stringify({ 'chlorodrepanis virens': 1 }),
+      ebird_seen_field: 'sciName',
+      ebird_year_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_life_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+      'ebird_home_lat:hi': '19.92222',
+      'ebird_home_lng:hi': '-155.88404',
+    },
+  });
+  const A = app.window.__app;
+  const profile = A.chaseProfile();
+  const hawama = {
+    obsId: 'hawama-seen', speciesCode: 'hawama', comName: 'Hawaii Amakihi',
+    locId: 'L-puu', locName: "Pu'u La'au",
+    lat: 19.80, lng: -155.75, obsDt: '2026-09-16 08:00',
+    subId: 'S-hawama', subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  };
+  const calqua = {
+    obsId: 'calqua-new', speciesCode: 'calqua', comName: 'California Quail',
+    locId: 'L-puu', locName: "Pu'u La'au",
+    lat: 19.80, lng: -155.75, obsDt: '2026-09-16 08:10',
+    subId: 'S-calqua', subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  };
+
+  assert.equal(A.isSpeciesSeen('hawama', 'Hawaii Amakihi'), true,
+    'fixture: UI-level seen resolver finds the imported CSV common-name match');
+  const cv = A.computeChaseRows(profile, profile.slug, {
+    'hawaii-recent.json': [hawama, calqua],
+  }, []);
+  assert.ok(!cv.unseen.some((row) => row.code === 'hawama'),
+    'the shared chase scorer receives hawama as seen, not as a target');
+  assert.ok(cv.unseen.some((row) => row.code === 'calqua'),
+    'a bird not in the imported CSV remains chaseable');
+  app.window.close();
+});
+
+test('a stale pre-scored hotspot list is re-partitioned against the current seen list', async () => {
+  const app = await boot({
+    sample: false,
+    storage: {
+      ebird_seen: JSON.stringify({ 'chlorodrepanis virens': 1 }),
+      ebird_seen_field: 'sciName',
+      ebird_year_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_life_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+    },
+  });
+  const A = app.window.__app;
+  const split = A.locSpeciesSplit('L-no-index', [
+    { code: 'hawama', comName: 'Hawaii Amakihi', tag: '<span class="needflag">🔍</span>' },
+    { code: 'calqua', comName: 'California Quail', tag: '<span class="needflag">🔍</span>' },
+  ]);
+
+  assert.deepEqual(arr(split.unseen, (s) => s.code), ['calqua'],
+    'the already-seen Amakihi is removed from the pre-scored unseen list');
+  assert.deepEqual(arr(split.seen, (s) => s.code), ['hawama'],
+    'and moved to the collapsed already-seen context list');
+  assert.equal(split.seen[0].tag, '',
+    'seen rows do not keep the chase marker from the stale scored row');
+  app.window.close();
+});
+
 // A card that showed the seen list while hiding the unseen one would answer
 // "is this worth the drive?" with a confident NO about a spot with a target
 // sitting on it. Quick outing brings neither list (its ref/hotspot/geo feed
@@ -27448,6 +27515,59 @@ test('the choice patch section states what it cannot see', async () => {
   assert.equal(overlap.length, 0,
     'nobody is both ranked and reported as unplaced: ' + overlap.join(', '));
 
+  app.window.close();
+});
+
+test('Pro patches builds a live Hawaii home-county table instead of showing the WA harvest', async () => {
+  const rows = [
+    {
+      subId: 'S-hi-1', userDisplayName: 'Hawaii Regular',
+      locId: 'L-hilo', locName: 'Hilo Bayfront',
+      lat: 19.73, lng: -155.08, isoObsDate: '2026-09-16T08:00:00',
+    },
+    {
+      subId: 'S-hi-2', userDisplayName: 'Hawaii Regular',
+      locId: 'L-hilo', locName: 'Hilo Bayfront',
+      lat: 19.73, lng: -155.08, isoObsDate: '2026-09-15T08:00:00',
+    },
+    {
+      subId: 'S-hi-3', userDisplayName: 'Hawaii Regular',
+      locId: 'L-volcano', locName: 'Volcano Steam Vents',
+      lat: 19.43, lng: -155.26, isoObsDate: '2026-09-14T08:00:00',
+    },
+    {
+      subId: 'S-hi-4', userDisplayName: 'Kona Patch Birder',
+      locId: 'L-kona', locName: 'Old Kona Airport',
+      lat: 19.64, lng: -156.00, isoObsDate: '2026-09-16T09:00:00',
+    },
+  ];
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.92222',
+      'ebird_home_lng:hi': '-155.88404',
+    },
+    fetch: (url) => /product\/lists\/US-HI-001\?maxResults=1200/.test(url) ? rows : [],
+  });
+  const A = app.window.__app;
+  await A.loadChoicePatches();
+
+  assert.ok(app.state.fetches.some((url) =>
+    /product\/lists\/US-HI-001\?maxResults=1200/.test(url)),
+  'US-HI falls back to the home county checklist feed, not the bundled WA counties');
+  assert.doesNotMatch(app.$('patchResults').textContent, /King and Snohomish/,
+    'the incompatible WA harvest is not presented as the Hawaii answer');
+  assert.match(app.$('patchLead').textContent, /Hawaii County \(Big Island\)/,
+    'the live fallback names the selected home county');
+  assert.match(app.$('patchResults').textContent, /Hilo Bayfront/,
+    'the live fallback renders ranked Hawaii hotspots');
+  assert.match(app.$('patchLead').textContent, /statewide board rank is not joined/,
+    'the fallback says exactly what the live one-call table cannot know');
+  assert.equal(A.patchOpenBirder('Hawaii Regular'), true,
+    'a live fallback birder opens from the same table the list rendered');
+  assert.match(app.$('patchDetailBody').textContent, /Volcano Steam Vents/,
+    'the detail page uses Hawaii live rows, not the bundled WA table');
   app.window.close();
 });
 

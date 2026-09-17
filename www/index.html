@@ -3527,7 +3527,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.106.0';
+      var APP_VERSION = '1.107.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12638,10 +12638,26 @@
         });
         return out;
       }
+      function chaseSeenCodes(rowsByFile, fallbackRows) {
+        var out = {};
+        var stored = getReportSeen();
+        Object.keys(stored || {}).forEach(function (code) { out[code] = stored[code]; });
+        function scan(rows) {
+          (rows || []).forEach(function (row) {
+            var code = row && row.speciesCode;
+            if (code && isSpeciesSeen(code, row.comName || '')) {
+              out[String(code).toLowerCase()] = 1;
+            }
+          });
+        }
+        Object.keys(rowsByFile || {}).forEach(function (file) { scan(rowsByFile[file]); });
+        scan(fallbackRows);
+        return out;
+      }
       function computeChaseRows(profile, slug, rowsByFile, codes, fallbackRows) {
         return BL.computeChaseViews(profile, {
           rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
-          seen: seenCodesForRows(rowsByFile),
+          seen: chaseSeenCodes(rowsByFile, fallbackRows),
           ownName: getDisplayName(), snapshotDate: todayStr(),
           watch: watchCodes(),
           home: getHome(), dailyDriveMi: profile.dailyDriveMi,
@@ -16130,25 +16146,14 @@
       // sub-header above it.
       var _locIdx = { slug: null, t: 0, idx: null };
       // ONE definition of "already seen", shared by every card that splits a
-      // bird list — and it is the ACTIVE REPORT's, which is the only one that
-      // mirrors the Markdown report.
-      //
-      // The trap this replaces: isSpeciesSeen() reads localStorage K.seen,
-      // which applySeed() fills with the COMBINED cross-region code list, not
-      // the per-report one. Measured against the shipped seed, the combined set
-      // claims 28 species the Washington report does not count as seen — and on
-      // the Waikoloa trip report, whose whole premise is that every Big Island
-      // bird is a lifer target, it claims ALL 331. Anything ranking with
-      // isSpeciesSeen therefore buries real targets in the collapsed "already
-      // seen" list: a bird ticked in Missouri silences it in Washington. It also
-      // ignores watchHeld, so a tentative ID that is deliberately held off the
-      // year list to resurface as a target would be hidden instead.
-      //
-      // So the report set is the authority and nothing else is consulted. Names
-      // are matched too, but only names belonging to codes THIS report already
-      // counts as seen, so a subspecies row ("Dark-eyed Junco (Oregon)") finds
-      // its parent without letting a watchlisted bird back in.
+      // bird list — and it is the ACTIVE REPORT's for species-code seeds. For
+      // imported CSVs the durable list can be keyed by scientific/common name,
+      // so the resolver deliberately switches to isSpeciesSeen() only for that
+      // name-keyed case.
       function seenResolver() {
+        if (getField() !== 'speciesCode') {
+          return function (code, name) { return isSpeciesSeen(code, name); };
+        }
         var set = getReportSeen() || {};
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var rep = (seed && seed.seenByReport && seed.seenByReport[slug]) || {};
@@ -16212,10 +16217,29 @@
       // the other.
       function locSpeciesSplit(locId, ownUnseen) {
         var bucket = locId ? locSpeciesIndex()[locId] : null;
-        if (!bucket) return { unseen: ownUnseen || [], seen: [] };
+        var isSeen = seenResolver();
+        var repartitionOwn = getField() !== 'speciesCode';
+        if (!bucket) {
+          var onlyUnseen = [], onlySeen = [];
+          (ownUnseen || []).forEach(function (s) {
+            if (repartitionOwn && isSeen(s.code, s.comName || s.name)) {
+              onlySeen.push({ comName: s.comName || s.name, code: s.code, rare: 0, tag: '' });
+            } else {
+              onlyUnseen.push(s);
+            }
+          });
+          return { unseen: onlyUnseen, seen: onlySeen };
+        }
         var skip = {};
-        (ownUnseen || []).forEach(function (s) { if (s.code) skip[s.code] = 1; });
-        var unseen = ownUnseen ? ownUnseen.slice() : [], seen = [];
+        var unseen = [], seen = [];
+        (ownUnseen || []).forEach(function (s) {
+          if (s.code) skip[s.code] = 1;
+          if (repartitionOwn && isSeen(s.code, s.comName || s.name)) {
+            seen.push({ comName: s.comName || s.name, code: s.code, rare: 0, tag: '' });
+          } else {
+            unseen.push(s);
+          }
+        });
         Object.keys(bucket).forEach(function (code) {
           if (skip[code]) return;
           var b = bucket[code];
@@ -21695,6 +21719,7 @@
       // the tail is an expander rather than a cut, because "every hotspot they
       // used" is the claim the per-birder page makes and a silent cap breaks it.
       var PATCH_ROWS = 25;
+      var _renderedChoicePatchData = null;
 
       function choicePatchData() {
         var d = window.__CHOICE_PATCHES__;
@@ -21710,6 +21735,118 @@
         var mine = countyCodes();
         if (!mine.length || !d.counties || !d.counties.length) return false;
         return d.counties.some(function (c) { return mine.indexOf(c) > -1; });
+      }
+      function choicePatchSelectedCounties() {
+        var selected = getCountyView();
+        if (selected) {
+          var hit = getCountyChoices().filter(function (county) {
+            return String(county.code || '').toUpperCase() === String(selected).toUpperCase();
+          })[0];
+          if (hit) return [hit];
+        }
+        var base = getCounties();
+        return base.length ? base : baseCounties();
+      }
+      function choicePatchHomeCounty() {
+        var selected = choicePatchSelectedCounties();
+        if (selected.length === 1) return Promise.resolve(selected);
+        var home = getHome(), parent = countyParentCode(getReport());
+        if (!home || !parent) return Promise.resolve(selected);
+        return ensureCountyCatalog(parent, null, navWork('choice-patch county'))
+          .then(function (catalog) {
+            var scope = BL.deriveCountyScope(home, (catalog && catalog.rows) || [], 0);
+            return scope.length ? [scope[0]] : selected;
+          }).catch(function () { return selected; });
+      }
+      function checklistLocId(row) {
+        return row && (row.locId || row.locID || (row.loc && (row.loc.locId || row.loc.locID)));
+      }
+      function checklistLocName(row, locId) {
+        return (row && (row.locName || (row.loc && row.loc.name))) || locId || 'Unknown hotspot';
+      }
+      function checklistCoord(row, field) {
+        var value = row && (row[field] != null ? row[field] : (row.loc && row.loc[field]));
+        value = Number(value);
+        return isFinite(value) ? Math.round(value * 100) / 100 : null;
+      }
+      function liveChoicePatchData() {
+        return choicePatchHomeCounty().then(function (counties) {
+          counties = (counties || []).filter(function (county) { return county && county.code; });
+          if (!counties.length) throw new Error('No county is selected for Pro patches');
+          return Promise.all(counties.map(function (county) {
+            var path = 'product/lists/' + encodeURIComponent(county.code) + '?maxResults=1200';
+            return ebird(path).then(function (rows) {
+              return { county: county, rows: Array.isArray(rows) ? rows : [] };
+            });
+          })).then(function (parts) {
+            var places = {}, placeVisits = {}, birders = {};
+            parts.forEach(function (part) {
+              part.rows.forEach(function (row) {
+                var who = String((row && row.userDisplayName) || '').trim();
+                if (!who || /^anonymous ebirder$/i.test(who)) return;
+                var locId = checklistLocId(row);
+                if (!locId) return;
+                if (!places[locId]) {
+                  places[locId] = [
+                    checklistLocName(row, locId),
+                    0,
+                    checklistCoord(row, 'lat'),
+                    checklistCoord(row, 'lng')
+                  ];
+                }
+                placeVisits[locId] = (placeVisits[locId] || 0) + 1;
+                var b = birders[who] || (birders[who] = { n: who, r: null, t: 0, p: {} });
+                b.t++;
+                b.p[locId] = (b.p[locId] || 0) + 1;
+              });
+            });
+            var grand = Object.keys(placeVisits).reduce(function (sum, locId) {
+              places[locId][1] = placeVisits[locId];
+              return sum + placeVisits[locId];
+            }, 0);
+            var effort = Object.keys(birders).map(function (name) {
+              return birders[name];
+            }).sort(function (a, b) {
+              return b.t - a.t || a.n.localeCompare(b.n);
+            }).slice(0, 100);
+            var kept = effort.map(function (b) {
+              return {
+                n: b.n, r: b.r, t: b.t,
+                p: Object.keys(b.p).map(function (locId) {
+                  return [locId, b.p[locId]];
+                }).sort(function (a, b) { return b[1] - a[1]; })
+              };
+            });
+            var used = {};
+            kept.forEach(function (b) {
+              b.p.forEach(function (pair) { used[pair[0]] = 1; });
+            });
+            Object.keys(places).forEach(function (locId) {
+              if (!used[locId]) delete places[locId];
+            });
+            var scope = counties.map(function (c) { return countyDisplayLabel(c); }).join(' + ');
+            return {
+              v: 3,
+              generated: todayStr(),
+              live: true,
+              scope: scope,
+              counties: counties.map(function (c) { return c.code; }),
+              days: null,
+              coverage: 'from the most recent public checklist slice eBird returns for '
+                + scope + ' — a birder whose lists are mostly private will look like '
+                + 'they have no patch',
+              grand: grand,
+              population: kept.length,
+              birders_total: Object.keys(birders).length,
+              board: 0,
+              on_board: 0,
+              matched: kept.length,
+              unmatched: [],
+              places: places,
+              birders: kept
+            };
+          });
+        });
       }
 
       // "368.1×", and never "0.0×". A birder who filed one list somewhere has a
@@ -21873,6 +22010,14 @@
       }
 
       function patchLeadHtml(d) {
+        var board = d.board
+          ? ' Of these ' + esc(d.matched) + ' birders, '
+            + '<b>' + esc(d.on_board) + ' of ' + esc(d.population) + '</b> also sit on the '
+            + 'statewide top-' + esc(d.board) + ' board \u2014 the two are nearly different '
+            + 'populations, because that board ranks species for the year and this ranks '
+            + 'effort on the ground.'
+          : ' This live table ranks local public checklist effort only; statewide board '
+            + 'rank is not joined on this fallback path.';
         return '<p class="patchlead-eg">The ' + esc(d.population) + ' birders who file the '
           + 'most checklists in ' + esc(d.scope) + ', ranked by <b>where they choose to '
           + 'go</b> rather than by how many lists a place holds.</p>'
@@ -21881,11 +22026,7 @@
           + 'can beat a famous park, which is the point. Tap a birder to see every '
           + 'hotspot they used.</p>'
           + '<div class="patchcov">\u2139\uFE0F <b>Coverage is part of the answer.</b> '
-          + 'Measured ' + esc(d.coverage) + '. Of these ' + esc(d.matched) + ' birders, '
-          + '<b>' + esc(d.on_board) + ' of ' + esc(d.population) + '</b> also sit on the '
-          + 'statewide top-' + esc(d.board) + ' board \u2014 the two are nearly different '
-          + 'populations, because that board ranks species for the year and this ranks '
-          + 'effort on the ground.</div>';
+          + 'Measured ' + esc(d.coverage) + '.' + board + '</div>';
       }
 
       // NAMED, not ranked low. A birder with no public lists here has no patch
@@ -21938,7 +22079,7 @@
       var _patchOpen = '';
       var PATCH_PARTS = ['patchLead', 'patchResults', 'patchUnplaced'];
       function patchOpenBirder(name) {
-        var d = choicePatchData();
+        var d = _renderedChoicePatchData || choicePatchData();
         if (!d) return false;
         var b = null;
         for (var i = 0; i < d.birders.length; i++) {
@@ -21981,6 +22122,7 @@
             un = $('patchUnplaced');
         if (!out || !lead || !un) return;
         patchCloseBirder();
+        _renderedChoicePatchData = null;
         var d = choicePatchData();
         // NEVER A BLANK PANEL. A section that renders nothing is
         // indistinguishable from a section that is broken, and this one has
@@ -21997,22 +22139,45 @@
         }
         if (!patchScopeMatches(d)) {
           lead.innerHTML = ''; un.innerHTML = '';
-          out.innerHTML = '<p class="hint">The bundled choice-patch table covers '
-            + esc(d.scope) + ', which this report does not include. It is a harvest of '
-            + 'named counties rather than a live feed, so there is nothing honest to '
-            + 'show for ' + esc(countyLabelStr()) + ' yet \u2014 switch region, or wait '
-            + 'for a build that covers it.</p>';
-          if (st) st.textContent = 'Bundled table covers ' + d.scope + '.';
-          return;
+          out.innerHTML = '<p class="hint">Building a live Pro patches table for '
+            + esc(countyLabelStr()) + ' from the home county\u2019s recent public checklists. '
+            + 'The bundled harvest covers ' + esc(d.scope) + ', so it is not being shown here.</p>';
+          if (st) st.textContent = 'Loading live home-county Pro patches.';
+          return liveChoicePatchData().then(function (live) {
+            if (!live || !live.birders || !live.birders.length || !live.grand) {
+              lead.innerHTML = ''; un.innerHTML = '';
+              out.innerHTML = '<p class="hint">No public checklist table could be built for '
+                + esc(countyLabelStr()) + ' from eBird\u2019s recent checklist feed.</p>';
+              if (st) st.textContent = 'No live Pro patches found for ' + countyLabelStr() + '.';
+              return;
+            }
+            renderChoicePatchData(live);
+          }).catch(function (e) {
+            lead.innerHTML = ''; un.innerHTML = '';
+            out.innerHTML = '<p class="hint">The bundled choice-patch table covers '
+              + esc(d.scope) + ', which this report does not include, and the live '
+              + 'home-county table could not be loaded: ' + esc((e && e.message) || e)
+              + '.</p>';
+            if (st) st.textContent = 'Pro patches unavailable for ' + countyLabelStr() + '.';
+          });
         }
+        return renderChoicePatchData(d);
+      }
+
+      function renderChoicePatchData(d) {
+        var st = $('patchStatus'), lead = $('patchLead'), out = $('patchResults'),
+            un = $('patchUnplaced');
+        if (!out || !lead || !un) return;
+        _renderedChoicePatchData = d;
         var leaders = patchLeaders(d);
         lead.innerHTML = patchLeadHtml(d);
-        var onBoard = patchBoardFilter() === 'board';
+        var hasBoard = !!(d.board > 0);
+        var onBoard = hasBoard && patchBoardFilter() === 'board';
         var shown = onBoard
           ? leaders.filter(function (e) { return e.r != null && e.r !== ''; })
           : leaders;
         var hidden = leaders.length - shown.length;
-        out.innerHTML = patchBoardControl() + (shown.length
+        out.innerHTML = (hasBoard ? patchBoardControl() : '') + (shown.length
           ? patchCapped(shown.map(function (e, i) { return patchLeaderCard(e, i + 1); }),
                         'birder')
             // Naming what the filter removed matters more here than usual: it
@@ -22044,7 +22209,8 @@
         // year, and "Aug 12" read in March would claim a table seven months old
         // was built last week. It also cannot shift a day across a timezone,
         // because nothing parses it.
-        if (st) st.textContent = 'Bundled table built ' + String(d.generated).slice(0, 10)
+        if (st) st.textContent = (d.live ? 'Live table from recent eBird checklists '
+          : 'Bundled table built ' + String(d.generated).slice(0, 10))
           + ' \u00b7 ' + d.scope;
       }
 
