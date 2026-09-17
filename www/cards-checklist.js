@@ -185,9 +185,12 @@
        and before checklist comment"*. 14px is a line of this 13px/1.4 row
        (18.2px) less the 4px the row already carries beneath it, so it reads as
        one blank line rather than one and a bit. */
+    /* F402. The clipboard belongs to the checklist-comment label, not to the
+       preceding checklist facts. Keep the glyph and label as one unbreakable
+       caption so they cannot split across lines on a narrow phone. */
     '.evnotehd { display: block; text-indent: 0; margin: 14px 0 1px;',
     '  font-size: calc(11px * var(--s)); font-weight: 700; letter-spacing: .02em;',
-    '  color: var(--dim); white-space: normal; }',
+    '  color: var(--dim); white-space: nowrap; }',
     '.evnotebq { display: block; text-indent: 0; margin: 0; padding-left: 10px;',
     '  border-left: 3px solid var(--line); white-space: normal;',
     '  overflow-wrap: anywhere; color: var(--ink); font-style: normal; }',

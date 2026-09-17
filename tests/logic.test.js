@@ -1697,6 +1697,9 @@ test('on a rare bird the NOTE badge is noise, the WAYPOINT badge is signal', () 
   assert.ok(BL.checklistIcons(wp, { noteRequired: true })
     .includes(BL.MEDIA_ICON),
     'and the photo mark survives alongside it');
+  assert.ok(!BL.checklistIcons(
+    { k: 'outing note' }, { checklistNote: false }).includes(BL.CHECKLIST_NOTE_ICON),
+  'a visible checklist-comment heading can own the clipboard without a duplicate row mark');
   assert.ok(!BL.checklistIcons(wp).includes(BL.COMMENT_ICON),
     'a waypoint REPLACES the generic note badge rather than doubling it');
 });

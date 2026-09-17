@@ -2973,7 +2973,9 @@
     // Placed before the observation marks' branch so the order stays fixed:
     // media, then the outing, then the bird. A column of rows only stays
     // scannable if a given glyph is always in the same place.
-    if (detail.k) out += CHECKLIST_NOTE_ICON;
+    if (detail.k && (!opts || opts.checklistNote !== false)) {
+      out += CHECKLIST_NOTE_ICON;
+    }
     if (detail.w) out += WAYPOINT_ICON;
     else if (detail.c && !(opts && opts.noteRequired)) out += COMMENT_ICON;
     return out;

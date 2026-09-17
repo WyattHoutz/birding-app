@@ -12540,6 +12540,7 @@ test('F367 a transport-only sightings failure retries once and keeps the selecte
   };
   installSpuhFixture(app);
   app.window.__app.setSpeciesLookupSort('dist');
+  app.window.__app.setSpeciesLookupWithinChase(false);
   await app.window.__app.renderSpuhNode('peep');
   const ruff = app.document.querySelector(
     '#spLookupQueryHelp .spuhcandidatecard[data-sp="ruff"]');
@@ -12579,6 +12580,7 @@ test('F367 two transport failures retain a named manual sightings retry', async 
   };
   installSpuhFixture(app);
   app.window.__app.setSpeciesLookupSort('dist');
+  app.window.__app.setSpeciesLookupWithinChase(false);
   await app.window.__app.lookupSpecies('ruff', 'Ruff');
   const card = app.document.querySelector('#spLookupResults > li');
   const retry = card && card.querySelector('.spLookupRetrySightings');
@@ -12653,6 +12655,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   installSpuhFixture(app);
   app.window.__app.setSpuhRandom(() => 0);
   app.window.__app.setSpeciesLookupSort('dist');
+  app.window.__app.setSpeciesLookupWithinChase(false);
 
   const section = app.$('sec-spLookupBtn');
   assert.match(section.querySelector('h2').textContent, /Stakeout bird/i,
@@ -13909,7 +13912,7 @@ test('species lookup sorts by date and by distance from one fetch', async () => 
   app.window.close();
 });
 
-test('F371 reachable-first Stakeout order is labelled honestly instead of Date', async (t) => {
+test('F402 Stakeout separates date sorting from the chase-distance filter', async (t) => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) {
@@ -13937,14 +13940,21 @@ test('F371 reachable-first Stakeout order is labelled honestly instead of Date',
   const rows = [...app.document.querySelectorAll(
     '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.match(rows[0], /Older reachable place/,
-    'the F92 reachable-first behavior was removed instead of labelled');
-  assert.match(app.$('spLookupByDate').textContent, /Reachable/);
+    'the default chase filter did not keep the reachable report');
+  assert.match(app.$('spLookupByDate').textContent, /Date/);
   assert.equal(app.$('spLookupByDate').getAttribute('aria-label'),
-    'Show physically reachable places only, newest first');
+    'Sort by date, newest first');
+  assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'), 'true');
   assert.match(app.document.querySelector(
     '#spLookupResults .splookupsummary').textContent,
-  /reachable places only, newest first/);
-  assert.doesNotMatch(app.$('spLookupByDate').textContent, /\bDate\b/);
+  /by date · within \d+ mi chase distance/);
+
+  app.click(app.$('spLookupWithinChase'));
+  const unfiltered = [...app.document.querySelectorAll(
+    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+  assert.match(unfiltered[0], /Newer distant place/,
+    'Date is not a real sort over the unfiltered regional evidence');
+  assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'), 'false');
   app.window.close();
 });
 
@@ -13994,16 +14004,16 @@ test('F389 Stakeout Reachable excludes pelagic pins and other Hawaiian islands',
   let rows = [...app.document.querySelectorAll(
     '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.equal(rows.length, 1,
-    'Reachable is still a sort that displays unreachable regional evidence');
+    'the default chase-distance filter includes unreachable regional evidence');
   assert.match(rows[0], /Kealakehe WTP/);
   assert.doesNotMatch(rows.join(' '), /Captain Zodiac|Kauaʻi/,
     'pelagic or other-island evidence remains in the Reachable view');
 
-  app.click(app.$('spLookupByDist'));
+  app.click(app.$('spLookupWithinChase'));
   rows = [...app.document.querySelectorAll(
     '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.equal(rows.length, 3,
-    'the broader Distance view lost evidence hidden from Reachable');
+    'turning off the filter lost regional evidence');
   assert.match(rows.join(' '), /Captain Zodiac/);
   assert.match(rows.join(' '), /Kauaʻi/);
   app.window.close();
@@ -16403,6 +16413,11 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
   // asked for: "Do not show the Checklist comment if there is none."
   assert.match(src, /if \(ck\) \{[\s\S]{0,120}CKL_NOTE_LABEL/,
     'the checklist label is painted only when there is a checklist comment');
+  assert.match(src,
+    /noteHead\(\s*CKL_NOTE_LABEL,\s*BirdLogic\.CHECKLIST_NOTE_ICON\)/,
+    'the checklist glyph is not immediately before its label in the same heading');
+  assert.match(HTML, /checklistNote:\s*!rarityNotes\(\)/,
+    'the checklist glyph remains in the row after moving into the visible heading');
   assert.match(src, /if \(!sp && !ck\) \{ settleNote\(el\); return; \}/,
     'and with neither comment the row prints nothing at all');
   // NEVER innerHTML. This is the one field on these rows that is genuinely
@@ -22118,7 +22133,7 @@ test('convoy species are read when scrolled to, not all at once', () => {
 // nothing. Sorting by DATE interleaves them, and a bird reported this morning
 // 200 miles away outranks one reported yesterday down the road — true, and not
 // what the list is for.
-test('species lookup Reachable filters far places while Distance keeps all evidence', async () => {
+test('species lookup chase distance filters independently of Date and Distance', async () => {
   const app = await boot();
   const A = app.window.__app;
   const lim = A.chaseMaxMi();
@@ -22132,7 +22147,7 @@ test('species lookup Reachable filters far places while Distance keeps all evide
     'far places still split into a second nested/disclosure list');
   assert.equal((html.match(/spLookupPlaceList/g) || []).length, 1,
     'the answer is not one stable hotspot list');
-  // Reachable is now a view, not a misleading sort label.
+  // Date is the default sort; Chase distance is a separate filter.
   assert.ok(html.indexOf('Near') < html.indexOf('AlsoNear'), 'reachable places keep their order');
   assert.doesNotMatch(html, /Far|Farther/,
     'the Reachable view still includes places beyond the chase radius');
@@ -22141,8 +22156,15 @@ test('species lookup Reachable filters far places while Distance keeps all evide
   const distanceHtml = A.spLookupPlacesHtml([
     mk('Near', 5), mk('AlsoNear', lim - 1), mk('Far', lim + 1), mk('Farther', 200)
   ]);
-  assert.ok(distanceHtml.indexOf('AlsoNear') < distanceHtml.indexOf('Far'));
-  assert.ok(distanceHtml.indexOf('Far') < distanceHtml.indexOf('Farther'),
+  assert.doesNotMatch(distanceHtml, /Far|Farther/,
+    'changing the sort silently disabled the chase-distance filter');
+
+  A.setSpeciesLookupWithinChase(false);
+  const unfilteredDistanceHtml = A.spLookupPlacesHtml([
+    mk('Near', 5), mk('AlsoNear', lim - 1), mk('Far', lim + 1), mk('Farther', 200)
+  ]);
+  assert.ok(unfilteredDistanceHtml.indexOf('AlsoNear') < unfilteredDistanceHtml.indexOf('Far'));
+  assert.ok(unfilteredDistanceHtml.indexOf('Far') < unfilteredDistanceHtml.indexOf('Farther'),
     'Distance no longer preserves the complete regional evidence list');
 
   // THE BOUNDARY IS THE CHASE RADIUS, not a magic number, and it is inclusive
@@ -22150,6 +22172,7 @@ test('species lookup Reachable filters far places while Distance keeps all evide
   const edge = A.spLookupPlacesHtml([mk('Edge', lim)]);
   assert.ok(!/spLookupMore/.test(edge), 'one place exactly at the radius needs no lazy control');
 
+  A.setSpeciesLookupWithinChase(true);
   A.setSpeciesLookupSort('date');
   // Nothing within range is stated plainly rather than silently returning no markup.
   const allFar = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
@@ -24861,6 +24884,10 @@ test('the stakeout sort controls sit under the map and offer the odds view', () 
   assert.ok(/spLookupByIconic'\)\.addEventListener/.test(HTML),
     'the odds button is not wired - the same class of bug that left the rankings '
     + 'scope control dead for a whole release');
+  assert.ok(/id="spLookupWithinChase"/.test(HTML),
+    'there is no independent chase-distance filter');
+  assert.ok(/spLookupWithinChase'\)\.addEventListener/.test(HTML),
+    'the chase-distance filter is not wired');
 
   // The button must actually change what the list renders, not just relabel it.
   const at = HTML.indexOf('function renderSpeciesLookup');
@@ -25000,7 +25027,7 @@ test('a short Top patches list explains its time and access scope', async () => 
     'the explanation is appended without clearing the previous one');
 });
 
-test('the odds rows are numbered, readable, and within reach first', () => {
+test('the odds rows are numbered, readable, and honor the chase filter', () => {
   // Three bugs shipped in one view, all invisible to a source-text guard and
   // all obvious in a rendered row:
   //   1. "Saltese Wetlands3.5×" - the sub-line rendered inline, welding the
@@ -25027,20 +25054,19 @@ test('the odds rows are numbered, readable, and within reach first', () => {
   assert.match(HC.css, /\.hscard-sm > \.name > \.ntext > \.sub \{[^}]*display: block/,
     'the small hotspot card sub-line is not a block, so it renders inline');
 
-  // 3: near first, far behind an expander - "should have to click expand to
-  // see beyond chase area".
+  // 3: the same chase-distance toggle used by Date and Distance also controls
+  // Iconic, rather than Iconic inventing a separate disclosure interaction.
   const at = HTML.indexOf('function spLookupIconicHtml');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
   assert.ok(at > 0, 'spLookupIconicHtml not found');
   assert.ok(/iconicOrdered\(\)/.test(src), 'the odds list is not split by distance at all');
-  assert.ok(/<details class="farplaces"/.test(src),
-    'places beyond the chase radius are not behind an expander');
-  assert.ok(/ord\.near/.test(src) && /ord\.far/.test(src),
-    'near and far are not rendered as separate groups');
+  assert.ok(/_spLookupWithinChase\s*\?\s*ord\.near\s*:\s*ord\.all/.test(src),
+    'Iconic ignores the shared chase-distance filter');
+  assert.doesNotMatch(src, /<details class="farplaces"/,
+    'Iconic kept a second hidden-distance control after the shared toggle was added');
 
-  // Nothing nearby is an ANSWER, not an empty list - the state-wide sites are
-  // still shown, they just stop pretending to be local.
-  assert.ok(/Nothing within/.test(src),
+  // Nothing nearby is an ANSWER, not a silent empty list.
+  assert.ok(/Nothing within[\s\S]*Turn off Chase distance/.test(src),
     'a bird with no nearby site renders an empty view instead of saying so');
 
   // The MAP must follow the same split, or it zooms out to fit pins whose rows

@@ -2673,21 +2673,18 @@
       <div id="spLookupQueryHelp"></div>
       <div id="spLookupIdHelp"></div>
       <div id="spLookupMap"></div>
-      <!-- The sort controls sit BELOW the map, not above it: they act on the
-           list, and between the search box and the map they read as though they
-           filter the search.
-           `sortbtn` is what draws the SELECTED state — the class already
-           existed with an [aria-pressed="true"] rule, and these three were the
-           only sort controls in the app not using it, so the pressed state was
-           set on the element and never shown. Labels are one word each so all
-           three fit on one line at 402px.
-           "Iconic" rather than "Odds": eBird's own hotspot section is called
-           Iconic Birds, so the word carries the concept across from something
-           the reader has already seen rather than inventing a synonym for it. -->
+      <!-- Sort and filter controls sit BELOW the map, not above it: they act on
+           the result list, and between the search box and the map they read as
+           though they filter the search itself. Date and Distance answer order;
+           Chase distance independently answers which places remain visible. -->
       <div class="row" id="spLookupSortRow" hidden>
-        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Show physically reachable places only, newest first">🧭 Reachable</button>
+        <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by date, newest first">🗓 Date</button>
         <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         <button id="spLookupByIconic" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Show iconic places">✨ Iconic</button>
+      </div>
+      <div class="row" id="spLookupFilterRow" hidden>
+        <button id="spLookupWithinChase" class="secondary sortbtn" type="button"
+                aria-pressed="true" aria-label="Filter places to within the chase distance">🧭 Chase distance</button>
       </div>
       <ul id="spLookupResults" class="obs big xl"></ul>
       <div id="spLookupBest"></div>
@@ -3527,7 +3524,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.107.0';
+      var APP_VERSION = '1.108.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10262,6 +10259,7 @@
 
       var SP_LOOKUP_BACK = 30;
       var _spLookupSort = 'date';
+      var _spLookupWithinChase = true;
       var _spLookupGroup = null;
       // null means "not asked yet" and [] means "asked, and there are none" —
       // the same distinction the watchlist storage turns on. The iconic view
@@ -10340,6 +10338,7 @@
         _spLookupIconic = null; _spLookupSeason = null;
         _spLookupLoading = false;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
+        if ($('spLookupFilterRow')) $('spLookupFilterRow').hidden = true;
       }
 
       function clearSpeciesLookup() {
@@ -10821,6 +10820,7 @@
           g.name = g.name || name; g.code = g.code || code;
           _spLookupGroup = g;
           if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
+          if ($('spLookupFilterRow')) $('spLookupFilterRow').hidden = false;
           renderSpeciesLookup();
           // F11 rides ALONGSIDE the live answer rather than blocking it: the
           // question "where is it right now" is already answered above, and a
@@ -11468,6 +11468,7 @@
             + 'it is not a bird with a reliable address here.</div>';
         }
         var ord = iconicOrdered();
+        var visible = _spLookupWithinChase ? ord.near : ord.all;
         var cold = rows.filter(function (r) { return r.unwatched; });
         h += '<div class="status">Places where ' + esc(name) + ' has historically been '
           + 'well above the county average, measured across the whole year \u2014 each row '
@@ -11478,31 +11479,15 @@
               : 'All of them already have recent reports.')
           + ' These are <strong>historical odds, not sightings</strong>, so there is no '
           + 'checklist behind a row \u2014 that is the point of the view.</div>';
-        // WITHIN REACH FIRST. The archive is searched state-wide, so for a bird
-        // like Western Kingbird every strong site is east of the Cascades and
-        // the whole list read as places 200 miles away - "shows state wide
-        // range by default under odds". Same rule the other two views of this
-        // section already follow: near is the answer, far is one tap away
-        // rather than dropped, because "nowhere near you" is worth knowing too.
-        if (!ord.near.length) {
+        if (_spLookupWithinChase && !visible.length) {
           h += '<div class="hint">Nothing within <b>' + ord.lim + ' mi</b> stands out for '
-            + esc(name) + ' in any month. The best places in the state are below.</div>'
-            + HotspotCards.list('small', ord.far.map(function (r, i) {
-                return iconicRowHtml(r, i + 1);
-              }));
+            + esc(name) + ' in any month. Turn off Chase distance to see all '
+            + 'regional evidence.</div>';
           return h;
         }
-        h += HotspotCards.list('small', ord.near.map(function (r, i) {
+        h += HotspotCards.list('small', visible.map(function (r, i) {
           return iconicRowHtml(r, i + 1);
         }));
-        if (ord.far.length) {
-          h += '<details class="farplaces"><summary>' + ord.far.length
-            + ' more beyond ' + ord.lim + ' mi</summary>'
-            + HotspotCards.list('small', ord.far.map(function (r, i) {
-                return iconicRowHtml(r, ord.near.length + i + 1);
-              }))
-            + '</details>';
-        }
         return h;
       }
 
@@ -11620,7 +11605,10 @@
             + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
             + ' · ' + (iconicMode ? 'iconic places'
                        : _spLookupSort === 'dist' ? 'by distance'
-                       : 'reachable places only, newest first')
+                       : 'by date')
+            + ' · ' + (_spLookupWithinChase
+              ? 'within ' + chaseMaxMi().toFixed(0) + ' mi chase distance'
+              : 'all regional evidence')
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
@@ -11640,9 +11628,8 @@
             + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
           tags: (seenIt ? '✅' : needTag(g.code, g.name))
             + (g.anyUnconfirmed && !watched ? ' ⚠️' : ''),
-          // Same third column as All unseen. The loaded evidence remains
-          // complete; only the default Reachable view is filtered. Distance
-          // and Iconic still expose the wider regional answer.
+          // Same third column as All unseen. Sorting and chase filtering are
+          // independent controls; neither changes the loaded evidence.
           distMi: g.distMi,
           sub: watched ? 'on your watchlist for verification'
             : (seenIt ? 'already on your year list' : 'not on your year list'),
@@ -11682,6 +11669,10 @@
                    : id === 'spLookupByIconic' ? 'iconic' : 'date';
           b.setAttribute('aria-pressed', String(mine === _spLookupSort));
         });
+        if ($('spLookupWithinChase')) {
+          $('spLookupWithinChase').setAttribute(
+            'aria-pressed', String(_spLookupWithinChase));
+        }
       }
 
       // F291. One SMALL hotspot card per place, because the bird is already
@@ -11699,7 +11690,7 @@
           var pts;
           if (iconicMode) {
             var ord = iconicOrdered();
-            var shown = ord.near.length ? ord.near : ord.far;
+            var shown = _spLookupWithinChase ? ord.near : ord.all;
             pts = shown.slice(0, visibleCount)
               .map(function (r) { return { lat: +r.lat, lng: +r.lng, name: r.place }; })
               .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
@@ -11799,7 +11790,7 @@
 
       function spLookupOrderedPlaces(places) {
         var all = (places || []).slice();
-        return _spLookupSort === 'date'
+        return _spLookupWithinChase
           ? all.filter(spLookupPlaceReachable)
           : all;
       }
@@ -11855,10 +11846,10 @@
       }
       function spLookupPlacesHtmlInner(places, bird) {
         var all = spLookupOrderedPlaces(places || []);
-        if (!all.length && _spLookupSort === 'date') {
+        if (!all.length && _spLookupWithinChase) {
           return '<div class="status">No physically reachable reports are within '
             + chaseMaxMi().toFixed(0)
-            + ' mi in this report’s target counties. Use Distance or Iconic to see '
+            + ' mi in this report’s target counties. Turn off Chase distance to see '
             + 'all regional evidence.</div>';
         }
         var shown = all.slice(0, SP_ROWS_MAX);
@@ -11868,6 +11859,10 @@
       }
       function setSpeciesLookupSort(mode) {
         _spLookupSort = mode === 'dist' ? 'dist' : mode === 'iconic' ? 'iconic' : 'date';
+        renderSpeciesLookup();
+      }
+      function setSpeciesLookupWithinChase(on) {
+        _spLookupWithinChase = !!on;
         renderSpeciesLookup();
       }
 
@@ -18766,10 +18761,10 @@
         if (link && link.parentNode) link.parentNode.insertBefore(row, link);
         else el.appendChild(row);
       }
-      function noteHead(text) {
+      function noteHead(text, icon) {
         var hd = document.createElement('div');
         hd.className = 'evnotehd';
-        hd.textContent = text;
+        hd.textContent = (icon ? icon + ' ' : '') + text;
         return hd;
       }
       function noteQuote(text) {
@@ -18829,7 +18824,8 @@
           row.appendChild(bq);
         }
         if (ck) {
-          row.appendChild(noteHead(CKL_NOTE_LABEL));
+          row.appendChild(noteHead(
+            CKL_NOTE_LABEL, BirdLogic.CHECKLIST_NOTE_ICON));
           row.appendChild(noteQuote(ck));
         }
         appendNoteRow(el, row);
@@ -18916,7 +18912,10 @@
             // noteRequired: these lists hang under ONE species, and the ones
             // that matter most are rarities, where eBird makes the note
             // compulsory. See the note on checklistIcons.
-            var marks = BirdLogic.checklistIcons(det, { noteRequired: true });
+            var marks = BirdLogic.checklistIcons(det, {
+              noteRequired: true,
+              checklistNote: !rarityNotes()
+            });
             if (!marks) return;
             var slot = el.querySelector('.ckevid');
             if (!slot) {
@@ -33202,6 +33201,9 @@
       $('spLookupByDate').addEventListener('click', function () { setSpeciesLookupSort('date'); });
       $('spLookupByDist').addEventListener('click', function () { setSpeciesLookupSort('dist'); });
       $('spLookupByIconic').addEventListener('click', function () { setSpeciesLookupSort('iconic'); });
+      $('spLookupWithinChase').addEventListener('click', function () {
+        setSpeciesLookupWithinChase(!_spLookupWithinChase);
+      });
       // The match list is rebuilt on every search, so the handler is delegated
       // to the container rather than bound per row.
       //
@@ -34063,6 +34065,7 @@
         runSpeciesLookup: runSpeciesLookup, lookupSpecies: lookupSpecies,
         openStakeSpecies: openStakeSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
+        setSpeciesLookupWithinChase: setSpeciesLookupWithinChase,
         speciesLookupRecords: speciesLookupRecords, sortSpeciesPlaces: sortSpeciesPlaces,
         speciesLookupPath: speciesLookupPath, speciesSearchScopes: speciesSearchScopes,
         SP_LOOKUP_BACK: SP_LOOKUP_BACK,
