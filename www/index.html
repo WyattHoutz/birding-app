@@ -3527,7 +3527,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.104.0';
+      var APP_VERSION = '1.105.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5014,7 +5014,10 @@
           var c = String(r.code || '').trim().toLowerCase();
           if (!c) { unresolved++; return; }
           if (codes[c]) return;
-          codes[c] = { n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '' };
+          codes[c] = {
+            n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '',
+            p: 'lifelist'
+          };
           learned++;
         });
         if (learned) {
@@ -5089,7 +5092,10 @@
           rows.forEach(function (r) {
             var c = String(r.code || '').trim().toLowerCase();
             if (!c || codes[c]) return;
-            codes[c] = { n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '' };
+            codes[c] = {
+              n: r.name || '', d: r.date || '', s: '', l: '', i: '', h: 0, x: '',
+              p: 'lifelist'
+            };
             learned++;
           });
           if (learned) {
@@ -5329,6 +5335,7 @@
                 l: loc.name || loc.locName || row.locName || '',
                 i: loc.locId || row.locId || '',
                 h: loc.isHotspot ? 1 : 0,
+                p: 'checklist',
                 // F176. The checklist response already carries this per row, so
                 // it costs NOTHING — and it must be stored per OBSERVATION,
                 // because the same species is an escapee in one place and
@@ -28797,6 +28804,7 @@
             code: c, name: v.n, date: v.d || '', subId: v.s || '', loc: v.l || '',
             locId: (v.h && v.i) ? v.i : '',
             exoticCategory: v.x || '',
+            source: v.p || (v.s ? 'checklist' : 'lifelist'),
             own: true,
           });
         });
@@ -28983,14 +28991,27 @@
         }
         return '';
       }
+      function paintMyYearFreshness() {
+        var el = $('myYearBody');
+        if (!el) return;
+        var old = $('myYearFreshness');
+        if (old) old.remove();
+        var html = myYearFreshnessHtml();
+        if (html) el.insertAdjacentHTML('beforeend', html);
+      }
+      function myYearDataSignature() {
+        return getReportSlug() + '|' + JSON.stringify(ownSeenCodes()) + '|'
+          + JSON.stringify(reportYearList());
+      }
       function loadMyYear() {
         takeForce();
         var work = navWork('My Ticks refresh', 'sec-myYearBody');
         var report = getReport();
         var owner = report.isRarityTracker ? lifelistOwner() : null;
+        var before = myYearDataSignature();
         _myYearRefreshKind = owner ? 'lifelist' : 'checklists';
         _myYearRefreshState = 'checking';
-        updateMyYear();
+        paintMyYearFreshness();
         var refresh = owner
           ? tryLifelistYear(owner).then(function (n) {
               if (n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS) return n;
@@ -29009,13 +29030,14 @@
         }).then(function (n) {
           if (!workCurrent(work)) return n;
           _myYearRefreshState = 'idle';
-          updateMyYear();
+          if (myYearDataSignature() !== before) updateMyYear();
+          else paintMyYearFreshness();
           return n;
         }).catch(function (e) {
           if (e && e.queueCancelled) return 0;
           if (workCurrent(work)) {
             _myYearRefreshState = 'failed';
-            updateMyYear();
+            paintMyYearFreshness();
           }
           return 0;
         });
@@ -29030,7 +29052,12 @@
         }
         if (list) list.innerHTML = '';
         var entries = mergedYearList(), meta = getSeenMeta();
-        var nOwn = entries.filter(function (e) { return e.own; }).length;
+        var nChecklist = entries.filter(function (e) {
+          return e.own && e.source === 'checklist';
+        }).length;
+        var nLifelist = entries.filter(function (e) {
+          return e.own && e.source === 'lifelist';
+        }).length;
         var year = seedYear(), label = getReport().label || '';
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var reportSeed = seed && seed.seenByReport && seed.seenByReport[slug];
@@ -29047,13 +29074,15 @@
             ' <small>in ' + esc(year) + '</small></div>' +
             (lifelistYearUrl()
               ? '<div class="row myYearSourceActions"><button type="button" '
-                + 'class="secondary myYearEbirdLink" data-href="'
+                + 'class="secondary ebirdlink myYearEbirdLink" data-href="'
                 + esc(lifelistYearUrl()) + '">↗ Open ' + esc(label)
                 + ' year list in eBird</button></div>'
               : '') +
             '<div class="meta">' + esc(label) + ' · native, naturalized and provisional species · newest first. ' +
-            (nOwn ? '<b>' + nOwn + '</b> of these came from your own checklists since the export, '
-                  + 'so this is ahead of the eBird link above. ' : '') +
+            (nChecklist ? '<b>' + nChecklist + '</b> added from refreshed checklists; '
+                  + 'these can be ahead of the eBird link above. ' : '') +
+            (nLifelist ? '<b>' + nLifelist + '</b> added from the signed-in eBird year-list refresh. '
+                  : '') +
             'First seen links to that checklist; all obs opens every ' + esc(year) + ' checklist for the species.</div>'
             // F8. A forty-five minute job that says nothing looks like a job
             // that is not running — and the reason to show it is not progress
@@ -29133,12 +29162,16 @@
           if (e.code) bits.push(extA(lifelistUrl(e.code), 'all obs'));
           // Said plainly, because this row is the reason the count above no
           // longer matches the eBird page it links to.
-          if (e.own) bits.push('<b>new since the export</b>');
+          if (e.own && e.source === 'checklist') {
+            bits.push('<b>added from checklist refresh</b>');
+          } else if (e.own && e.source === 'lifelist') {
+            bits.push('<b>added from eBird year-list refresh</b>');
+          }
           // The NEW mark replaces the "Added this week: …" paragraph that used to
           // sit above the list restating rows already on screen. The mark says the
           // same thing where the reader already is, and it is the same tag every
           // other section uses for "this just happened".
-          var isNew = myYearIsNew(e.date);
+          var isNew = e.source !== 'lifelist' && myYearIsNew(e.date);
           // LARGE, on request. The large card was missing code, dist and conf,
           // so those were added to it first - switching size should not quietly
           // drop facts the reader had a moment ago.

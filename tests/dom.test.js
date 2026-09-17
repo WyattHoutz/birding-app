@@ -21040,7 +21040,7 @@ test('the export keeps its own order when new birds are merged in', async () => 
   // leading whitespace was incidental to the hand-rolled <li> it replaced.
   assert.match(rows[0].textContent.trim(), new RegExp('^' + (seed.length + 1) + '\\.'),
     'numbered as the newest, not renumbered from the top');
-  assert.match(rows[0].textContent, /new since the export/,
+  assert.match(rows[0].textContent, /added from checklist refresh/,
     'and it says why it is not on the eBird page');
   app.window.close();
 });
@@ -22599,8 +22599,9 @@ test('F394 ABA My Ticks makes room and durably repaints the fetched year lists',
     'the durable store lost one of the two fetched year-list scopes');
   assert.match(app.$('myYearList').textContent, /F394 Hawaii Latest/,
     'the final production repaint omitted the fetched Hawaii row');
-  assert.match(app.$('myYearBody').textContent, /403 of these came from your own checklists/,
-    'the final repaint did not disclose the owned rows it actually rendered');
+  assert.match(app.$('myYearBody').textContent,
+    /403 added from the signed-in eBird year-list refresh/,
+    'the final repaint did not disclose the source of the owned rows it rendered');
   app.window.Storage.prototype.setItem = original;
   app.window.close();
 });
@@ -22658,6 +22659,16 @@ test('F390 My Ticks has an explicit eBird control and keeps ordinal with the nam
     'the explicit eBird control does not open the same year list My Ticks refreshes');
   assert.match(control.textContent, /Open .*eBird/i,
     'the eBird control does not plainly say what it opens');
+  const opened = [];
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    openWebView(options) {
+      opened.push(options);
+      return Promise.resolve({ id: 'f398-year-list' });
+    },
+  } } };
+  app.click(control);
+  assert.deepEqual(opened.map((options) => options.url), [exactPage],
+    'the visible eBird year-list button has a URL but no click path');
 
   app.window.__app.updateMyYear();
   const ordinal = app.$('myYearList').querySelector('.yrnum');
@@ -22665,6 +22676,107 @@ test('F390 My Ticks has an explicit eBird control and keeps ordinal with the nam
     'the ordinal and species link are not adjacent title content');
   assert.notEqual(app.window.getComputedStyle(ordinal).display, 'block',
     'the ordinal still forces the species name onto a new line');
+  app.window.close();
+});
+
+test('F398 ABA My Ticks stays responsive through an unchanged manual refresh', async () => {
+  const rows = [
+    ['amerob', 'American Robin'],
+    ['norcar', 'Northern Cardinal'],
+    ['moudov', 'Mourning Dove'],
+    ['blujay', 'Blue Jay'],
+    ['amecro', 'American Crow'],
+    ['hawcoo', 'Hawaiian Coot'],
+    ['hawhaw', 'Hawaiian Hawk'],
+    ['iiwi', 'Iiwi'],
+    ['apapan', 'Apapane'],
+    ['hawgoo', 'Hawaiian Goose'],
+  ];
+  const stored = Object.fromEntries(rows.map(([code, name]) => [code, {
+    n: name, d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '', p: 'lifelist',
+  }]));
+  const csv = (subset) => [
+    'Species Code,Common Name,Date',
+    ...subset.map(([code, name]) => `${code},${name},01 Jan 2026`),
+  ].join('\n');
+  let releaseAba;
+  let releaseHi;
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: {
+      ebird_display_name: 'Birder Wyatt',
+      'ebird_own_seen:aba': JSON.stringify(stored),
+    },
+  });
+  app.window.fetch = (url) => new Promise((resolve) => {
+    const body = /r=US-HI/.test(String(url)) ? csv(rows.slice(5)) : csv(rows.slice(0, 5));
+    const release = () => resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(body),
+      json: () => Promise.resolve(body),
+    });
+    if (/r=US-HI/.test(String(url))) releaseHi = release;
+    else releaseAba = release;
+  });
+  const A = app.window.__app;
+  A.updateMyYear();
+  const firstCard = app.$('myYearList').firstElementChild;
+  assert.ok(firstCard, 'the responsiveness fixture has no existing card to preserve');
+
+  const refresh = A.LOADERS.myYearBody.fn();
+  await waitFor(() => releaseAba, 'the delayed ABA refresh to start', 2000);
+  assert.equal(app.$('myYearList').firstElementChild, firstCard,
+    'starting refresh synchronously destroyed and rebuilt the entire card list');
+  assert.match(app.$('myYearBody').textContent, /Still updating/i,
+    'manual refresh gives no immediate visible feedback');
+
+  releaseAba();
+  await waitFor(() => releaseHi, 'the delayed Hawaii supplement to start', 2000);
+  releaseHi();
+  await refresh;
+  assert.equal(app.$('myYearList').firstElementChild, firstCard,
+    'an unchanged refresh rebuilt and rehydrated every card a second time');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /Still updating/i,
+    'the unchanged manual refresh never visibly completed');
+  app.window.close();
+});
+
+test('F398 signed-in year-list dates cannot call an old Muscovy Duck NEW', async () => {
+  const now = new Date();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const today = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: {
+      'ebird_own_seen:aba': JSON.stringify({
+        musduc: {
+          n: 'Muscovy Duck', d: today, s: '', l: '', i: '', h: 0, x: '',
+        },
+        newbird: {
+          n: 'Checklist-backed New Bird', d: today, s: 'S-NEW',
+          l: 'Recent Place', i: 'L-NEW', h: 1, x: '', p: 'checklist',
+        },
+      }),
+    },
+  });
+  const A = app.window.__app;
+  A.updateMyYear();
+  const cards = [...app.$('myYearList').querySelectorAll('li')];
+  const muscovy = cards.find((card) => /Muscovy Duck/.test(card.textContent));
+  const checklist = cards.find((card) => /Checklist-backed New Bird/.test(card.textContent));
+  assert.ok(muscovy, 'the signed-in year-list Muscovy row did not render');
+  assert.equal(muscovy.querySelector('.newflag'), null,
+    'an ambiguous signed-in year-list date was presented as first-seen recency');
+  assert.match(muscovy.textContent, /added from eBird year-list refresh/,
+    'the old stored row still claims it came from a recent checklist');
+  assert.ok(checklist.querySelector('.newflag'),
+    'removing false year-list recency also removed checklist-backed recency');
+  assert.match(checklist.textContent, /added from checklist refresh/,
+    'the checklist-backed row lost its distinct provenance');
   app.window.close();
 });
 
