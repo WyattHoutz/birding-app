@@ -3527,7 +3527,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.105.0';
+      var APP_VERSION = '1.106.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -32796,16 +32796,16 @@
         // reused rather than reimplemented three more times.
         if (which === 'here') {
           quickOrigin = 'here';
-          reload();
-          if (!quickHere) {
-            resolveHere().then(reload).catch(function (e) {
-              quickOrigin = 'home'; syncAnchorSwitches();
-              showExcludedSheet('location-unavailable', 'Location unavailable',
-                (e && e.message) || 'Your device would not share a position.',
-                '<div class="evnote">Ranking from home instead. Use <b>Find…</b> '
-                + 'to name a place.</div>');
-            });
-          }
+          syncQuickButtons();
+          syncAnchorSwitches();
+          resolveHere().then(reload).catch(function (e) {
+            quickOrigin = 'home';
+            reload();
+            showExcludedSheet('location-unavailable', 'Location unavailable',
+              (e && e.message) || 'Your device would not share a position.',
+              '<div class="evnote">Ranking from home instead. Use <b>Find…</b> '
+              + 'to name a place.</div>');
+          });
           return;
         }
         if (which === 'find') {
@@ -32916,7 +32916,7 @@
       $('cklModeBest').addEventListener('click', function () { setChecklistMode('best'); });
       $('cklModeNew').addEventListener('click', function () { setChecklistMode('new'); });
       $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
-      $('quickHereBtn').addEventListener('click', function () { loadQuickOuting('here'); });
+      $('quickHereBtn').addEventListener('click', quickUseHere);
       $('quickHereFind').addEventListener('click', quickFindPlace);
       $('quickHerePlace').addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') { ev.preventDefault(); quickFindPlace(); }
@@ -33128,7 +33128,8 @@
         if (val.indexOf('quick:') === 0) {
           var origin = val.slice(6);
           showSection('sec-quickBtn');
-          loadQuickOuting(origin);
+          if (origin === 'here') quickUseHere();
+          else loadQuickOuting(origin);
           return;
         }
         showSection(val);

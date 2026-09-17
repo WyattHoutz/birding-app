@@ -7416,6 +7416,81 @@ test('current location asks the NATIVE plugin first, not the web API', async () 
   w.close();
 });
 
+test('each Here tap asks for a fresh device position', async () => {
+  const app = await boot({
+    fetch: (url) => /ref\/hotspot\/geo/.test(url) ? [] : null,
+  });
+  const w = app.window;
+  const positions = [
+    { latitude: 47.1, longitude: -123.2 },
+    { latitude: 48.5, longitude: -122.6 },
+  ];
+  let asked = 0;
+  w.Capacitor = Object.assign({}, w.Capacitor, {
+    Plugins: Object.assign({}, w.Capacitor && w.Capacitor.Plugins, {
+      Geolocation: {
+        getCurrentPosition() {
+          return Promise.resolve({ coords: positions[asked++] });
+        },
+      },
+    }),
+  });
+
+  const beforeFirst = app.state.fetches.length;
+  app.click(app.$('quickHereBtn'));
+  await waitFor(() => app.state.fetches.length > beforeFirst,
+    'the first Here scan to start');
+  await waitFor(() => !app.$('quickHereBtn').disabled,
+    'the first Here scan to finish');
+  const afterFirst = app.state.fetches.length;
+  app.click(app.$('quickHereBtn'));
+  await waitFor(() => app.state.fetches.length > afterFirst,
+    'the second Here scan to start');
+
+  assert.equal(asked, 2,
+    'Here means where the phone is now, not the first position retained until restart');
+  const moved = w.__app.quickAnchor('here');
+  assert.equal(moved.lat, 48.5, 'the active Here latitude moves to the second fix');
+  assert.equal(moved.lng, -122.6, 'the active Here longitude moves to the second fix');
+  const secondScan = app.state.fetches.slice(afterFirst).find((u) => /ref\/hotspot\/geo/.test(u));
+  assert.ok(secondScan && /lat=48\.5&lng=-122\.6/.test(secondScan),
+    'moving and tapping Here again centres the new scan on the new position: '
+      + JSON.stringify(app.state.fetches.slice(afterFirst))
+      + ' status=' + app.$('quickStatus').textContent);
+  w.close();
+});
+
+test('shared Go birding Here pills also refresh the device position', async () => {
+  const app = await boot();
+  const w = app.window;
+  const positions = [
+    { latitude: 47.1, longitude: -123.2 },
+    { latitude: 48.5, longitude: -122.6 },
+  ];
+  let asked = 0;
+  w.Capacitor = Object.assign({}, w.Capacitor, {
+    Plugins: Object.assign({}, w.Capacitor && w.Capacitor.Plugins, {
+      Geolocation: {
+        getCurrentPosition() {
+          return Promise.resolve({ coords: positions[asked++] });
+        },
+      },
+    }),
+  });
+  const here = app.document.querySelector('.modebtn[data-anchor="here"]');
+
+  app.click(here);
+  await settle();
+  app.click(here);
+  await settle();
+
+  assert.equal(asked, 2, 'an already-selected Here pill still asks where the phone is now');
+  const moved = w.__app.quickAnchor('here');
+  assert.equal(moved.lat, 48.5, 'the shared anchor receives the new latitude');
+  assert.equal(moved.lng, -122.6, 'the shared anchor receives the new longitude');
+  w.close();
+});
+
 test('a location request that never answers still lands somewhere usable', async () => {
   // This is the symptom the user actually saw: the status line stuck on
   // "Asking for your location…" forever. A PositionOptions `timeout` is enforced
