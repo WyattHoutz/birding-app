@@ -925,6 +925,8 @@
   // depends on float rounding would put a place in different sections in the
   // report and the app, and only sometimes.
   var DEST_MIN_ROWS = 4;
+  var FULL_DAY_MIN_ROWS = 5;
+  var FULL_DAY_TOP = 15;
   var DEST_FALLBACK_DAYS = 30;
   var DEST_RADIUS_STEPS = [1, 1.5, 2, 3];
 
@@ -2641,11 +2643,11 @@
       : excursions(excursionRecentGo, excursionOpts);
     var full = opts.travelCfg
       ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
-          { bandIds: ['full'] }))
+          { bandIds: ['full'], top: FULL_DAY_TOP }))
       : [];
     var fallbackExcursionGo = [];
     if (opts.travelCfg && fallbackRecs.length &&
-        (exc.length < fallbackTarget || full.length < fallbackTarget)) {
+        (exc.length < fallbackTarget || full.length < FULL_DAY_MIN_ROWS)) {
       fallbackExcursionGo = fallbackRecs.filter(function (r) {
         return inExcursionPool(r, countyLabels, countyCodes) &&
           isReachable(r, stakeout);
@@ -2660,14 +2662,14 @@
         }));
       exc = fillFreshFirst(exc, fallbackHalf, fallbackTarget);
     }
-    if (opts.travelCfg && full.length < fallbackTarget &&
+    if (opts.travelCfg && full.length < FULL_DAY_MIN_ROWS &&
         fallbackExcursionGo.length) {
       var fallbackFull = excursions(fallbackExcursionGo,
         Object.assign({}, excursionOpts, {
           bandIds: ['full'],
-          top: CONST.TOP_EXC
+          top: FULL_DAY_TOP
         }));
-      full = fillFreshFirst(full, fallbackFull, fallbackTarget);
+      full = fillFreshFirst(full, fallbackFull, FULL_DAY_MIN_ROWS);
     }
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
@@ -4710,6 +4712,8 @@
     destinations: destinations,
     destinationRadius: destinationRadius,
     DEST_MIN_ROWS: DEST_MIN_ROWS,
+    FULL_DAY_MIN_ROWS: FULL_DAY_MIN_ROWS,
+    FULL_DAY_TOP: FULL_DAY_TOP,
     excursions: excursions,
     notableToday: notableToday,
     notableRecent: notableRecent, NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,

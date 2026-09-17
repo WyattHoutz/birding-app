@@ -86,8 +86,8 @@
     },
     {
       "at": "quickBtn",
-      "label": "🚶 Find local patches",
-      "report": "## 🚶 Find local patches — Local hotspots",
+      "label": "🚶 Near By Patches",
+      "report": "## 🚶 Near By Patches — Local hotspots",
       "map": "quickMap",
       "sub": "Local hotspots"
     },
@@ -104,19 +104,19 @@
       "report": null,
       "map": "spLookupMap",
       "why": "app-only (F358): one interactive query accepts either a bird or a spuh. Birds continue into recent places and checklists; spuhs open their on-device bird hierarchy and candidates, and choosing one continues into that same evidence surface. A Markdown report cannot accept the query, comparison set, or candidate selection, and printing every bird and spuh path for a region would be a phone book.",
-      "sub": "Birds or spuhs"
+      "sub": "Lookup birds & spuhs"
     },
     {
       "at": "stakeHsBtn",
-      "label": "🏞 Stake out a hotspot",
+      "label": "🏞 Stakeout Patch",
       "report": null,
       "map": null,
       "why": "app-only, and for the same reason as Stakeout bird above: a Markdown report cannot take a query. It is the INVERSE of every place-finding section - those answer 'which place should I go to', this one starts from 'I have chosen this place, tell me everything'. It leads with the PATTERN (how often the place is birded, what a visit is usually worth, who the regulars are) rather than with today rows, because eBird embargoes checklists for an hour and people submit hours later - measured 2026-08-22, three target species returned ZERO reports from that day statewide at 10:10.",
-      "sub": ""
+      "sub": "Look up hotspot"
     },
     {
       "at": "iconicBtn",
-      "label": "⭐ Iconic spots near me",
+      "label": "⭐ Iconic Patches",
       "report": null,
       "map": null,
       "why": "F156. APP-ONLY, and deliberately so: the numbers come from GBIF's keyless occurrence facets measured against the reader's own home and chase radius, which a Markdown report generated hours earlier cannot ask for. Ranks how much a place stands out for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags.",
@@ -205,8 +205,9 @@
     },
     {
       "at": "nvResults",
-      "label": "❓ Needs proof",
+      "label": "❓ Watch List",
       "report": "## ❓ Needs proof — Birds considered unseen",
+      "reportLabel": "❓ Needs proof",
       "map": null,
       "why": "the report renders the watchlist as a chase list; the app also MANAGES it (search to add, reorder, remove) because the authored file lives in the private pipeline repo the app cannot write to",
       "sub": "Birds considered unseen"
@@ -234,8 +235,8 @@
     },
     {
       "at": "myYearBody",
-      "label": "📅 My Ticks",
-      "report": "## 📅 My Ticks — Your seen bird list this year",
+      "label": "📅 My Year List",
+      "report": "## 📅 My Year List — Your seen bird list this year",
       "map": null,
       "sub": "Your seen bird list this year"
     },

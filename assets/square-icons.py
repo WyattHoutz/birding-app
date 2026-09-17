@@ -264,6 +264,12 @@ OVERRIDES = {
     'pibgre.jpg': 0.80,
     'wetshe.jpg': (0.18761, 0.16888, 0.64779, 0.83419),
     'hawgoo.jpg': 0.10,
+    # F412. The prior blurred full-frame fit made the turkey needlessly small.
+    # This square keeps the complete fan, head and feet at useful card scale.
+    'wiltur.jpg': 0.386,
+    # F412. The automatic crop chose the head end and removed the whole tail.
+    # This reviewed window keeps the complete bird with balanced clearance.
+    'chukar.jpg': 0.35,
 }
 
 # F395. These reports are not requests to move a square crop: the owner's
@@ -290,7 +296,6 @@ FIT_OVERRIDES = {
     'easmea.jpg',
     'whevir.jpg',
     'woothr.jpg',
-    'wiltur.jpg',
     'brwhaw.jpg',
     'rocpig.jpg',
 }
@@ -392,7 +397,9 @@ OVERRIDE_SRC_SHA = {
     'virwar.jpg': '862215924f6d9293',
     'whevir.jpg': 'bde3f96698bf68ec',
     'whfibi.jpg': '2239a98814adaa42',
-    'wiltur.jpg': 'c4bdb918de305d18',
+    # F412: reviewed 960px Commons sources and complete-bird square windows.
+    'wiltur.jpg': 'a9d62263900aee3c',
+    'chukar.jpg': 'b58e9b28ee9e7bfe',
     'woothr.jpg': 'd08e0ac1b2370b00',
     'yetvir.jpg': '1e68afb5315cea89',
 }

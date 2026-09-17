@@ -6718,21 +6718,22 @@ test('every tile title and subtitle comes from the contract, and the report head
       at + ': the tile subtitle in index.html and the contract disagree');
     // Sections the report does not carry have no heading to derive.
     if (!entry.report) continue;
-    assert.equal(entry.report, '## ' + entry.label + ' — ' + entry.sub,
+    const reportLabel = entry.reportLabel || entry.label;
+    assert.equal(entry.report, '## ' + reportLabel + ' — ' + entry.sub,
       at + ': the report heading is not "title — subtitle". It is DERIVED, '
       + 'not typed — change the title or the subtitle, never the heading.');
   }
 });
 
-test('F316 calls the seen-year surface My Ticks and explains its scope', async () => {
+test('F407 calls the seen-year surface My Year List and explains its scope', async () => {
   const entry = CONTRACT.menu.find((item) => item.at === 'myYearBody');
-  assert.ok(entry, 'the My Ticks contract entry exists');
+  assert.ok(entry, 'the My Year List contract entry exists');
   assert.deepEqual(
     { label: entry.label, sub: entry.sub, report: entry.report },
     {
-      label: '📅 My Ticks',
+      label: '📅 My Year List',
       sub: 'Your seen bird list this year',
-      report: '## 📅 My Ticks — Your seen bird list this year',
+      report: '## 📅 My Year List — Your seen bird list this year',
     },
     'F316 title and subtitle are the product wording, not aliases derived from code');
 
@@ -6744,10 +6745,10 @@ test('F316 calls the seen-year surface My Ticks and explains its scope', async (
     .map((node) => node.textContent).join('').trim();
   const tile = [...app.document.querySelectorAll('#menuList .toclink')]
     .find((link) => link.getAttribute('data-at') === 'myYearBody');
-  assert.equal(heading, '📅 My Ticks', 'the section heading uses the F316 title');
-  assert.ok(tile, 'the My Ticks menu tile rendered');
-  assert.equal(tile.getAttribute('aria-label'), '📅 My Ticks',
-    'the accessible tile name uses the F316 title');
+  assert.equal(heading, '📅 My Year List', 'the section heading uses the requested title');
+  assert.ok(tile, 'the My Year List menu tile rendered');
+  assert.equal(tile.getAttribute('aria-label'), '📅 My Year List',
+    'the accessible tile name uses the requested title');
   assert.equal(tile.querySelector('.tilesub').textContent.trim(),
     'Your seen bird list this year',
     'the visible tile subtitle states exactly what the list contains');
@@ -7848,7 +7849,7 @@ test('the Needs-verification section renders the tracked list with controls', as
       { code: '', name: 'Unresolvable Bird' },
     ]) },
   });
-  app.open(/Needs proof/);
+  app.open(/Watch List/);
   assert.equal(app.$('nvResults').querySelectorAll('li:not(.nvdropped)').length, 0,
     'This region hides tracked species absent from the active year list');
   const allScope = [...app.document.querySelectorAll('#nvScope .nvscopebtn')]
@@ -12887,6 +12888,21 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   unit.button.click();
   assert.equal(unitList.children.length, 55);
   assert.equal(unit.button.isConnected, false);
+
+  const stagedHost = unitDom.window.document.createElement('div');
+  const staged = ProgressiveList.mount({
+    host: stagedHost,
+    items: Array.from({ length: 31 }, (_, i) => i + 1),
+    initialCount: 2,
+    batchSize: 25,
+    renderItem: (n) => `<li>${n}</li>`,
+    noun: 'checklists',
+  });
+  assert.equal(staged.list.children.length, 2,
+    'a context-sized first batch is ignored');
+  staged.button.click();
+  assert.equal(staged.list.children.length, 27,
+    'the shared control does not return to its normal batch size after first paint');
   unitDom.window.close();
 
   const species = Array.from({ length: 31 }, (_, i) => ({
@@ -14751,20 +14767,18 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   // isnt helpful because its not clickable and its big text."* A count that
   // names evidence and gives no way to reach it is worse than silence — the
   // same complaint F143 made about "…and X more" being dead text stating a
-  // number the reader already had. It is now the SAME disclosure control as
-  // the one beside it, so one shape means one thing on the card.
-  const restD = [...det.querySelectorAll('details.ckmore')]
-    .find((d) => /without a bird you need/.test(d.querySelector('summary').textContent));
-  assert.ok(restD, 'the filtered-out lists survive as an OPENABLE disclosure');
-  assert.match(restD.querySelector('summary').textContent,
-    /…and 2 more checklists without a bird you need/,
-    'it states the count and the reason, in the shared "…and N more" form');
-  // And it really holds them — a control that opens onto nothing is the
-  // F193 shape, and this one is filled lazily on first click.
-  restD.querySelector('summary').click();
+  // number the reader already had. It is now the shared in-place progressive
+  // control, so opening more appends to this list rather than nesting another.
+  const progress = det.querySelector('.hotspotChecklistProgress');
+  const list = progress.querySelector('ul');
+  const more = progress.querySelector('.hotspotChecklistMore');
+  assert.ok(more, 'the filtered-out lists survive behind an OPENABLE control');
+  assert.match(more.textContent, /Show 2 more of 2 checklists without a bird you need/,
+    'it states the count and the reason in the shared progressive form');
+  more.click();
   await new Promise((r) => setTimeout(r, 60));
-  assert.equal(restD.querySelectorAll('.cklcard-sm').length, 2,
-    'opening it yields the two checklists it counted, not an empty box');
+  assert.equal(list.querySelectorAll('.cklcard-sm').length, 3,
+    'opening it appends the two checklists it counted to the useful checklist');
   app.window.close();
 });
 
@@ -18706,7 +18720,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // in report-contract.json, which is where that fact lives.
   // Scout LEFT the menu on 2026-08-18: "i don't like that there are two menus
   // for the identical behavior" - looking a place up already lives inside
-  // Find local patches, which has its own place box (#quickHerePlace). The
+  // Near By Patches, which has its own place box (#quickHerePlace). The
   // panel is still in the DOM but hidden, and hidden is load-bearing: a section
   // with no menu entry is not managed by showSection, so without it the app
   // booted with a panel already open.
@@ -18732,15 +18746,15 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // and will move again. What is asserted is the property the entry was
   // written for: each of these is its own top-level tile rather than a mode
   // buried inside another section, and they sit together.
-  const GO = ['destBtn', 'excBtn', 'fullDayBtn', 'favResults', 'quickBtn', 'targetsBtn',
+  const GO = ['destBtn', 'quickBtn', 'excBtn', 'fullDayBtn', 'favResults', 'targetsBtn',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Today', 'Half-day patches', 'Full-day patches', 'Find local patches',
-                      'Closest patches', 'Stakeout bird', 'Stake out a hotspot',
-                      'Iconic spots near me',
+  for (const want of ['Today', 'Near By Patches', 'Half-day patches', 'Full-day patches',
+                      'Closest patches', 'Stakeout bird', 'Stakeout Patch',
+                      'Iconic Patches',
                       'Hot patches', 'Cold patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
@@ -18748,7 +18762,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   assert.ok(!labels.some((l) => l && l.includes('Trip planner')),
     'Trip planner is switched off, so it has no tile');
   assert.ok(!labels.some((l) => l && l.includes('Look up a place')),
-    'Look up a place is a duplicate of the place box inside Find local patches');
+    'Look up a place is a duplicate of the place box inside Near By Patches');
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
   const kids = [...doc.querySelectorAll('#menuList > li')];
@@ -18762,6 +18776,13 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   }
   assert.equal(under.length, GO.length,
     'exactly the place-finding sections sit under it, got: ' + under.join(' | '));
+  assert.match(under[0], /Today’s patches/);
+  assert.match(under[1], /Near By Patches/,
+    'Near By Patches is not immediately after Today’s patches');
+  assert.ok(labels.some((label) => label === '❓ Watch List'),
+    'the Needs proof Contents tile was not renamed Watch List');
+  assert.ok(!labels.some((label) => label === '❓ Needs proof'),
+    'the old Needs proof menu label remains');
 
   // 3. The MENU ARRAY order is a contract with the Markdown report and is
   //    never touched. Grouping changes only the LAYOUT: a group collects its
@@ -21803,6 +21824,71 @@ test('quick outing keeps broader local unseen evidence', async () => {
   app.window.close();
 });
 
+test('F405 Near By Patches filters loaded hotspots by Unseen or All without refetching', async () => {
+  const calls = [];
+  const app = await boot({
+    storage: {
+      ebird_home_lat: '19.92',
+      ebird_home_lng: '-155.88',
+    },
+    fetch(url) {
+      const u = String(url);
+      calls.push(u);
+      if (/ref\/hotspot\/geo/.test(u)) {
+        return [
+          { locId: 'L1', locName: 'Needed Patch', lat: 19.92, lng: -155.88,
+            numSpeciesAllTime: 42, latestObsDt: todayFixtureDate() + ' 08:27' },
+          { locId: 'L2', locName: 'Seen-only Patch', lat: 19.93, lng: -155.89,
+            numSpeciesAllTime: 35, latestObsDt: todayFixtureDate() + ' 08:20' },
+        ];
+      }
+      if (/data\/obs\/L1\/recent/.test(u)) {
+        return [{ speciesCode: 'need1', comName: 'Needed Bird',
+          subId: 'S1', obsDt: todayFixtureDate() + ' 08:27' }];
+      }
+      if (/data\/obs\/L2\/recent/.test(u)) {
+        return [{ speciesCode: 'seen1', comName: 'Seen Bird',
+          subId: 'S2', obsDt: todayFixtureDate() + ' 08:20' }];
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = ['seen1']; rep.watchHeld = []; rep.names = ['Seen Bird'];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  await A.loadQuickOuting('home');
+  await waitFor(() => app.document.querySelectorAll(
+    '#quickResults [data-unseen-n]').length === 2,
+  'both nearby hotspot species lists');
+
+  const cards = () => [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
+  const pins = () => app.document.querySelectorAll(
+    '#quickMap .pinbubble:not(.home)').length;
+  assert.equal(app.document.querySelector(
+    '#quickSpeciesScope [data-scope="unseen"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(cards().filter((card) => !card.hidden).length, 1,
+    'Unseen does not hide the hotspot containing only seen birds');
+  assert.equal(pins(), 1,
+    'Unseen leaves a numbered map pin for a hotspot hidden from the list');
+  assert.match(app.$('quickStatus').textContent, /1 of 2 hotspots with an unseen bird/);
+  const before = calls.length;
+
+  app.click(app.document.querySelector('#quickSpeciesScope [data-scope="all"]'));
+  assert.equal(cards().filter((card) => !card.hidden).length, 2,
+    'All does not restore every loaded hotspot');
+  assert.equal(pins(), 2, 'All does not restore every loaded hotspot map pin');
+  assert.equal(calls.length, before,
+    'changing the local hotspot filter repeated network requests');
+
+  app.click(app.document.querySelector('#quickSpeciesScope [data-scope="unseen"]'));
+  assert.equal(cards().filter((card) => !card.hidden).length, 1);
+  assert.equal(pins(), 1, 'returning to Unseen leaves the map and list misaligned');
+  assert.equal(calls.length, before);
+  app.window.close();
+});
+
 test('quick outing can reuse the matching Today patch species', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -22611,9 +22697,9 @@ test('F375 Reload My Ticks uses the exact ABA year URL', async () => {
 
   const section = app.$('myYearBody').closest('section');
   const reload = section.querySelector('.refreshbtn');
-  assert.ok(reload, 'My Ticks has no visible reload control beside its heading');
-  assert.equal(reload.getAttribute('aria-label'), 'Reload My Ticks',
-    'the My Ticks reload control has no explicit accessible label');
+  assert.ok(reload, 'My Year List has no visible reload control beside its heading');
+  assert.equal(reload.getAttribute('aria-label'), 'Reload My Year List',
+    'the My Year List reload control has no explicit accessible label');
   app.click(reload);
   await waitFor(() => /American Crow/.test(app.$('myYearList').textContent),
     'the exact ABA year list to reach My Ticks', 3000);
@@ -25008,8 +25094,8 @@ test('a short Top patches list explains its time and access scope', async () => 
   assert.match(host.textContent,
     new RegExp('last ' + BL.CONST.CUTOFF_DAYS + ' days', 'i'),
     'the note hides the shorter evidence window');
-  assert.match(host.textContent, /Find local patches.*30 days/i,
-    'the note does not explain why Find local patches can show more places');
+  assert.match(host.textContent, /Near By Patches.*30 days/i,
+    'the note does not explain why Near By Patches can show more places');
   assert.match(host.textContent, /Half-day patches/i,
     'the note does not point at the section holding everything further out');
   host.innerHTML = A.destinationScopeDisclosure(25, 25, 2, 5);
@@ -26717,7 +26803,7 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
     },
   });
   const A = app.window.__app;
-  app.open(/Stake out a hotspot/);
+  app.open(/Stakeout Patch/);
 
   const panel = app.$('sec-stakeHsBtn');
   const searchRow = panel.querySelector('.stakeHsActions');
@@ -26779,6 +26865,11 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   const checklistList = card.querySelector('.stakeHsChecklistCards');
   assert.ok(checklistList, 'Recent checklists is not rendered as the compact checklist-card list');
   assert.equal(checklistList.querySelectorAll(':scope > .cklcard-sm').length, 1);
+  assert.match(checklistList.className, /\bcklcards-sm\b/,
+    'Stakeout hotspot does not use the shared sentence-style checklist list');
+  assert.doesNotMatch(HTML,
+    /\.stakeHsChecklistCards\s*>\s*\.cklcard-sm/,
+    'Stakeout hotspot still overrides shared checklist rows into separate cards');
   assert.equal(checklistList.querySelector('[data-qr-kind="checklist"]'), null,
     'recent checklist rows still repeat a QR control on every item');
 
@@ -26801,6 +26892,94 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   assert.equal(app.$('stakeHsFound').textContent, '');
   assert.equal(app.$('stakeHsResults').textContent, '',
     'Close left the selected hotspot visible');
+  app.window.close();
+});
+
+test('F403 hotspot checklist rows share formatting, comments, and one progressive list', async () => {
+  const lists = Array.from({ length: 31 }, (_, i) => ({
+    subId: 'S' + (i + 1),
+    obsDt: '2026-09-' + String(16 - (i % 10)).padStart(2, '0') + ' 08:15',
+    isoObsDate: '2026-09-' + String(16 - (i % 10)).padStart(2, '0') + ' 08:15',
+    numSpecies: 10 + i,
+    userDisplayName: 'Birder ' + (i + 1),
+    loc: {
+      locId: 'L1', locName: 'Fixture Hotspot',
+      latitude: 47.66, longitude: -122.12,
+      lat: 47.66, lng: -122.12,
+    },
+  }));
+  let checklistViews = 0;
+  const app = await boot({
+    storage: { ebird_rarity_notes_v1: 'on' },
+    fetch(url) {
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L1\/recent/.test(url)) {
+        return [
+          { speciesCode: 'bird1', comName: 'Bird 1', subId: 'S1' },
+          { speciesCode: 'bird2', comName: 'Bird 2', subId: 'S2' },
+        ];
+      }
+      if (/product\/checklist\/view\//.test(url)) {
+        checklistViews++;
+        return { comments: 'Park in the lower lot and walk past the gate.', obs: [] };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+
+  A.renderStakeHs('L128530', 'Marymoor Park', lists.slice(0, 1), [], {
+    lat: 47.66, lng: -122.12, n: 100, nc: 20,
+  }, false);
+  await waitFor(() => /Park in the lower lot/.test(app.$('stakeHsResults').textContent),
+    'Stakeout hotspot checklist comment');
+  const stakeRow = app.document.querySelector('#stakeHsResults .cklcard-sm');
+  assert.equal(stakeRow.getAttribute('data-ev-checklist-only'), '1');
+  assert.match(stakeRow.textContent, /Checklist comment/);
+  assert.doesNotMatch(stakeRow.textContent, /Species comment/);
+
+  const noComments = app.document.querySelector(
+    '#stakeHsNotes .stakeHsNotesBtn[data-notes="off"]');
+  app.click(noComments);
+  assert.equal(app.document.querySelector('#stakeHsResults .evnoterow'), null,
+    'No comments leaves an old hydrated comment in the row');
+
+  const onComments = app.document.querySelector(
+    '#stakeHsNotes .stakeHsNotesBtn[data-notes="on"]');
+  app.click(onComments);
+  await waitFor(() => /Park in the lower lot/.test(app.$('stakeHsResults').textContent),
+    'restored cached Stakeout hotspot comment');
+
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  A.renderHot({
+    hot: [{
+      locId: 'L1', name: 'Fixture Hotspot', lat: 47.66, lng: -122.12,
+      dist: 8, fresh: 2, checklists: 31, share: 5, latest: '2026-09-16',
+      birds: [
+        { name: 'Bird 1', code: 'bird1', unseen: true },
+        { name: 'Bird 2', code: 'bird2', unseen: true },
+      ],
+    }],
+  });
+  await waitFor(() => app.document.querySelector('.hotspotChecklistProgress'),
+    'Today’s patches checklist progressive list');
+  const progress = app.document.querySelector('.hotspotChecklistProgress');
+  const list = progress.querySelector('ul');
+  assert.ok(list, 'Today’s patches did not mount the shared progressive list');
+  assert.equal(progress.querySelectorAll(':scope > ul').length, 1,
+    'Today’s patches still creates multiple checklist lists');
+  assert.equal(list.children.length, 2,
+    'the first paint does not stop after the checklists with a bird you need');
+  const more = progress.querySelector('.hotspotChecklistMore');
+  assert.match(more.textContent, /Show 25 more of 29 checklists without a bird you need/);
+  more.click();
+  assert.strictEqual(progress.querySelector('ul'), list,
+    'Show more replaced the checklist list instead of appending to it');
+  assert.equal(list.children.length, 27);
+  assert.equal(progress.querySelectorAll(':scope > ul').length, 1);
+  assert.ok(checklistViews > 0, 'the checklist-only comment path never fetched');
   app.window.close();
 });
 

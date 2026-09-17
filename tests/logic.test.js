@@ -761,6 +761,37 @@ test('F343 Hawaii older evidence fills Full-day without crossing county scope', 
   assert.ok(!cv.fullDay.some((r) => r.loc === 'Haleakala'));
 });
 
+test('F411 Full-day keeps at least five when available and can rank up to fifteen good options', () => {
+  const hi = BL.profileFor('hi');
+  const SNAP = '2026-09-17';
+  const home = { lat: 19.92222, lng: -155.88404 };
+  const fullRows = Array.from({ length: 15 }, (_, i) => Object.assign(
+    OBS({
+      obsId: 'full-' + i,
+      speciesCode: 'bird-' + i,
+      comName: 'Full-day Bird ' + i,
+      locId: 'L-FULL-' + i,
+      locName: 'Full-day Patch ' + i,
+      lat: 19.55 - (i * 0.004),
+      lng: -155.20 + (i * 0.003),
+      obsDt: SNAP + ' 08:00',
+      subId: 'S-FULL-' + i,
+    }),
+    { subnational2Code: 'US-HI-001' }));
+  const cv = BL.computeChaseViews(hi, {
+    rowsToday: profileSnapshot(hi, { 'hawaii-recent.json': fullRows }),
+    rowsPrior: profileSnapshot(hi, {}),
+    seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home,
+    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+  });
+  assert.equal(BL.FULL_DAY_MIN_ROWS, 5);
+  assert.equal(BL.FULL_DAY_TOP, 15);
+  assert.equal(cv.fullDay.length, 15,
+    'Full-day still shares the ten-row Half-day cap');
+  assert.ok(cv.fullDay.every((row) => row.travelBand === 'full'),
+    'the larger list weakened the Full-day travel-band gate');
+});
+
 test('computeChaseViews: the rarity view is a rolling 24 hours, one row per checklist', () => {
   const wa = BL.profileFor('wa');
   const SNAP = '2026-01-15';

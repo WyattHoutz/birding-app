@@ -23,6 +23,7 @@
     var noun = String(spec.noun || 'items');
     var id = spec.id || ('progressive-list-' + nextId++);
     var shown = 0;
+    var initialCount = Math.max(0, Number(spec.initialCount) || 0);
 
     host.innerHTML = '';
     var list = doc.createElement('ul');
@@ -61,7 +62,8 @@
 
     function append() {
       if (!current()) return false;
-      var end = Math.min(items.length, shown + batchSize);
+      var count = shown === 0 && initialCount ? initialCount : batchSize;
+      var end = Math.min(items.length, shown + count);
       var html = '';
       for (var i = shown; i < end; i++) {
         html += spec.renderItem(items[i], i);

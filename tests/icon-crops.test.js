@@ -187,7 +187,6 @@ test('F395 reported full-bird icons use pinned fit crops instead of clipping', (
     'easmea.jpg': ['73d991b45e956667fc4c51605d6c0d97c51736d10dde8dbee45ea8b0df1c6735', 512],
     'whevir.jpg': ['59691a8b5886f4b738a044d74d6108a9ee5cf68c935aba610b31812a6f4777eb', 512],
     'woothr.jpg': ['7e3ff1c0c6e4cc001d424c15418bbb0de117f5a37db8b4727fd26f0690621f77', 512],
-    'wiltur.jpg': ['8c4578362554f7d930b009e353b19510b21087cc0f727e5d07cc16ef01272e6b', 512],
     'brwhaw.jpg': ['2dfcf5a4a01c73fa6a1deefb1f413fdc511b58816fe2e8b90929a8f66857aecc', 358],
     'rocpig.jpg': ['5b452338fbd38dec33adf7e3307281f0beb65e76c55986dbb68b7303b48f4290', 512],
   };
@@ -204,6 +203,50 @@ test('F395 reported full-bird icons use pinned fit crops instead of clipping', (
       `${file} was not regenerated at its reviewed square size`);
     assert.equal(sha256Hex(output), hash,
       `${file} no longer matches its reviewed full-bird fit`);
+  }
+});
+
+test('F412 Wild Turkey and Chukar keep their reviewed complete-bird squares', () => {
+  const overrides = tableBody('OVERRIDES');
+  const fitted = tableBody('FIT_OVERRIDES');
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  const credits = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+  const birds = [
+    {
+      file: 'wiltur.jpg',
+      override: /['"]wiltur\.jpg['"]\s*:\s*0\.386\b/,
+      sourcePin: 'a9d62263900aee3c',
+      dimensions: { w: 640, h: 640 },
+      outputSha: '43e6b6dbc5d388f68aeeb24d6df826310b5d708e280efc3d4afa083dcd692260',
+      credit: /20260428_tom_wild_turkey_matthaei_botanical_gardens_PD08952/,
+    },
+    {
+      file: 'chukar.jpg',
+      override: /['"]chukar\.jpg['"]\s*:\s*0\.35\b/,
+      sourcePin: 'b58e9b28ee9e7bfe',
+      dimensions: { w: 638, h: 638 },
+      outputSha: '36e6fd7b113bd8981b5b75f3bbde19282562019fcb0c5636cb92c377888ed0d2',
+      credit: /Chukarhuhn_Weltvogelpark_Walsrode_2010/,
+    },
+  ];
+
+  for (const bird of birds) {
+    assert.match(overrides, bird.override,
+      `${bird.file} lost its reviewed complete-bird crop position`);
+    assert.doesNotMatch(fitted, new RegExp(`['"]${bird.file.replace('.', '\\.')}['"]`),
+      `${bird.file} fell back to the small blurred full-frame treatment`);
+    assert.match(pins,
+      new RegExp(`['"]${bird.file.replace('.', '\\.')}['"]\\s*:\\s*['"]${bird.sourcePin}['"]`),
+      `${bird.file} crop is not pinned to its reviewed credited source`);
+    assert.match(credits, bird.credit,
+      `${bird.file} lost its Wikimedia Commons source credit`);
+    const output = fs.readFileSync(
+      path.join(ROOT, 'www', 'assets', 'birds', bird.file));
+    assert.deepEqual(jpegSize(output), bird.dimensions,
+      `${bird.file} was not regenerated as its reviewed square`);
+    assert.equal(sha256Hex(output), bird.outputSha,
+      `${bird.file} no longer matches its reviewed complete-bird crop`);
   }
 });
 

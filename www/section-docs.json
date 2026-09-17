@@ -301,7 +301,7 @@
       ]
     },
     "quickBtn": {
-      "report": "## 🚶 Find local patches — Local hotspots",
+      "report": "## 🚶 Near By Patches — Local hotspots",
       "summary": "An impulse detour: the richest hotspots a few minutes from where you are.",
       "inputs": [
         "ref/hotspot/geo around the chosen anchor",
@@ -653,33 +653,33 @@
       ]
     },
     "myYearBody": {
-      "report": "## 📅 My Ticks — Your seen bird list this year",
+      "report": "## 📅 My Year List — Your seen bird list this year",
       "summary": "Your seen bird list this year.",
       "inputs": [
         "your eBird year-list export for this region",
         "recent product/lists feeds for the report's counties",
         "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes",
         "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback; both use the lower-case report code and the displayed year",
-        "for ABA My Ticks, a second US-HI year-list read supplements the species eBird excludes from its ABA reporting region"
+        "for ABA My Year List, a second US-HI year-list read supplements the species eBird excludes from its ABA reporting region"
       ],
       "how": [
         "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
-        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Ticks immediately without refetching or removing the year-list row.",
-        "Opening My Ticks paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
+        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Year List immediately without refetching or removing the year-list row.",
+        "Opening My Year List paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
         "The heading's Reload control repeats that owned refresh without using the web view's HTTP cache. Its visible year-list button, CSV request and page fallback all use the same explicit-year eBird query, and the button opens through the installed in-app browser.",
         "Starting or failing a refresh updates only the status message, leaving the existing cards responsive. An unchanged refresh removes that message without rebuilding and rehydrating the entire list.",
         "Rows learned from the signed-in year-list are labelled as year-list refresh results, not recent checklist additions. Because that source's date is not established as a first-seen date, those rows never receive a NEW badge; checklist-backed and bundled first-seen rows retain the seven-day rule.",
-        "Fetched year-list rows are reported as learned only after the owned list is durably stored. If the device store is full, My Ticks evicts replaceable network caches and retries once; if that still fails, it keeps the prior list and shows the refresh failure instead of claiming the new rows were saved.",
+        "Fetched year-list rows are reported as learned only after the owned list is durably stored. If the device store is full, My Year List evicts replaceable network caches and retries once; if that still fails, it keeps the prior list and shows the refresh failure instead of claiming the new rows were saved.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
         "A late signed-in year-list response remains owned by the report that started it, so switching regions cannot put ABA ticks into Hawaii or Washington.",
         "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total.",
-        "A header-only CSV is not accepted as authoritative empty over a non-empty stored or bundled list; My Ticks keeps those rows and tries the signed-in page instead.",
+        "A header-only CSV is not accepted as authoritative empty over a non-empty stored or bundled list; My Year List keeps those rows and tries the signed-in page instead.",
         "Escapees, hybrids and unresolved Additional taxa render below the numbered total. Every repaint replaces that trailing block instead of appending another copy."
       ],
       "limits": [
         "The export remains the year-wide baseline for ordinary county reports. Their automatic updates can see only your public checklists in the counties the report scans.",
         "eBird's county list feed identifies an observer by display name rather than user id, so ordinary regional refreshes require the exact eBird display name in Settings.",
-        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; ABA also reads US-HI because eBird excludes Hawaii from the ABA reporting region. If that session is unavailable, My Ticks keeps the last known rows and names Sign in plus Refresh as the recovery."
+        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; ABA also reads US-HI because eBird excludes Hawaii from the ABA reporting region. If that session is unavailable, My Year List keeps the last known rows and names Sign in plus Refresh as the recovery."
       ]
     },
     "settingsPanel": {
