@@ -31799,6 +31799,88 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
   app.window.close();
 });
 
+test('F413 Hawaii Full-day reuses cached daily public-hotspot evidence at zero calls', async () => {
+  const now = new Date();
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 4, 12);
+  const stamp = [
+    day.getFullYear(),
+    String(day.getMonth() + 1).padStart(2, '0'),
+    String(day.getDate()).padStart(2, '0'),
+  ].join('-') + ' 08:00';
+  const cached = [
+    {
+      obsId: 'hilo-cache', speciesCode: 'hawhaw', comName: 'Hawaiian Hawk',
+      locId: 'L-hilo-cache', locName: 'Hilo gardens',
+      lat: 19.719, lng: -155.083, obsDt: stamp, subId: 'S-hilo-cache',
+    },
+    {
+      obsId: 'volcano-cache', speciesCode: 'apapan', comName: 'Apapane',
+      locId: 'L-volcano-cache', locName: 'Volcano Steam Vents',
+      lat: 19.432, lng: -155.261, obsDt: stamp, subId: 'S-volcano-cache',
+    },
+    {
+      obsId: 'private-cache', speciesCode: 'iiwi', comName: 'Iiwi',
+      locId: 'L-private-cache', locName: 'Private backyard',
+      lat: 19.52, lng: -155.31, obsDt: stamp, subId: 'S-private-cache',
+    },
+  ];
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.95',
+      'ebird_home_lng:hi': '-155.79',
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const base = A.chaseProfile();
+  A.seedChase(base.slug, {
+    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(base),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
+  });
+  const profile = await A.tripScopeProfile('full');
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  A.ebRefPut('ref/hotspot/US-HI-001?fmt=json', [
+    { locId: 'L-hilo-cache', locName: 'Hilo gardens' },
+    { locId: 'L-volcano-cache', locName: 'Volcano Steam Vents' },
+  ]);
+  await A.zcPut(
+    A.easyCacheKey('US-HI-001', day, 'hi'),
+    A.easyCompact(cached),
+  );
+  const requested = [];
+  app.window.fetch = (url) => {
+    requested.push(String(url));
+    return Promise.resolve({
+      ok: true, status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve('[]'),
+      json: () => Promise.resolve([]),
+    });
+  };
+
+  A.fgSchedReset(Date.now());
+  await A.loadFullDay();
+
+  const text = app.$('fullDayResults').textContent;
+  assert.match(text, /Hilo gardens/);
+  assert.match(text, /Volcano Steam Vents/);
+  assert.doesNotMatch(text, /Private backyard/,
+    'daily history admitted a personal location not present in the public-hotspot directory');
+  assert.equal(requested.filter((url) => /\/historic\//.test(url)).length, 0,
+    'reusing cached daily history spent new eBird calls');
+  assert.equal(requested.filter((url) =>
+    /\/recent\?back=30.*hotspot=true/.test(url)).length, 1,
+  'the additive cache path replaced or duplicated the bounded live fallback');
+  app.window.close();
+});
+
 test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its band', async () => {
   const now = new Date();
   const stamp = (daysAgo) => {

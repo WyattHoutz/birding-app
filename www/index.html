@@ -3519,7 +3519,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.109.0';
+      var APP_VERSION = '1.110.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12669,13 +12669,36 @@
           + '&includeProvisional=true&maxResults=10000')
           .then(function (rows) {
             if (!Array.isArray(rows)) return [];
-            if (!county) return rows;
-            return rows.map(function (row) {
-              if (row.subnational2Code) return row;
+            function withCounty(row) {
+              if (!county || row.subnational2Code) return row;
               return Object.assign({}, row, {
                 subnational2Code: county.code,
                 subnational2Name: county.label
               });
+            }
+            rows = rows.map(withCounty);
+            if (!county) return rows;
+
+            var publicIds = {};
+            cachedHotspots(p).forEach(function (hotspot) {
+              if (hotspot && hotspot.locId) publicIds[hotspot.locId] = 1;
+            });
+            if (!Object.keys(publicIds).length) return rows;
+
+            return hotspotCachedDays([county.code]).then(function (cached) {
+              var seen = {}, out = [];
+              rows.concat((cached || []).filter(function (row) {
+                return row && publicIds[row.locId];
+              }).map(withCounty)).forEach(function (row) {
+                var key = [
+                  row.speciesCode || '', row.locId || '', row.obsDt || '',
+                  row.subId || ''
+                ].join('|');
+                if (seen[key]) return;
+                seen[key] = 1;
+                out.push(row);
+              });
+              return out;
             });
           });
       }
