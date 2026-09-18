@@ -318,6 +318,9 @@ function boot(opts = {}) {
   return new Promise((resolve) => {
     dom.window.addEventListener('load', () => setTimeout(() => {
       const window = dom.window;
+      if (!window.__app && state.errors.length) {
+        throw new Error('app boot failed: ' + state.errors.join(' | '));
+      }
       _booted.push(window);
       resolve({
         dom, window,
@@ -5272,19 +5275,18 @@ test('All unseen reports drops the rank number from the species name', () => {
 });
 
 // A bird reported at 66 places turned one card into a wall you had to scroll
-// past to reach the next species.
-test('All unseen reports shows five places, then folds the rest away', async () => {
+// past to reach the next species. A disclosure then created a second nested
+// list; the shared progressive control keeps one list and appends in place.
+test('F420 Nemesis and Open-target cards progressively append places in one list', async () => {
   const app = await boot();
   const A = app.window.__app;
-  assert.equal(A.UNSEEN_PLACES_SHOWN, 5, 'five places per bird before the fold');
+  assert.equal(A.UNSEEN_PLACES_SHOWN, 5, 'five places per bird in the first batch');
   const card = HTML.slice(HTML.indexOf('function speciesPlacesCard('),
     HTML.indexOf('function easySpotsToPlaces('));
-  assert.match(card, /places\.slice\(0, UNSEEN_PLACES_SHOWN\)/, 'the head is the first five');
-  assert.match(card, /places\.slice\(UNSEEN_PLACES_SHOWN\)/, 'and the tail is kept, not dropped');
-  assert.match(card, /upmore/, 'behind its own expander');
+  assert.match(card, /progressiveListHtml\(/, 'the shared progressive loader owns the places');
+  assert.doesNotMatch(card, /<details|upmore/,
+    'the remainder is not a second disclosure/list');
 
-  // Proven by rendering, not just by reading the source: seven places must
-  // produce five rows outside the expander and two inside it.
   const places = [];
   for (let i = 0; i < 7; i++) {
     places.push({ loc: 'Spot ' + i, lat: 47, lon: -122, locId: 'L' + i, distMi: i,
@@ -5292,18 +5294,21 @@ test('All unseen reports shows five places, then folds the rest away', async () 
                   checklists: [{ subId: 'S' + i, dateStr: '2026-07-2' + i + ' 08:00' }] });
   }
   const html = A.speciesPlacesCard({ code: 'merlin', name: 'Merlin', places: places });
-  const cut = html.indexOf('<details class="upmore"');
-  assert.ok(cut > 0, 'the expander exists');
-  // Counted as CHECKLIST ROWS, not as the old `.uploc` place headings: the
-  // section is one line per checklist now, and each of these seven fixtures
-  // carries exactly one. Anchoring on `<details class="upmore">` rather than
-  // the first `<details>` matters for the same reason — a place's own
-  // checklists can open an expander of their own further down the row.
-  const rowRe = /class="cklcard cklcard-sm"/g;
-  assert.equal((html.slice(0, cut).match(rowRe) || []).length, 5,
-    'exactly five places are shown before the fold');
-  assert.equal((html.slice(cut).match(rowRe) || []).length, 2,
-    'and the remaining two are inside it, not discarded');
+  const host = app.document.createElement('div');
+  host.innerHTML = html;
+  A.mountProgressiveLists(host);
+  const list = host.querySelector('ul.uplaces');
+  const more = host.querySelector('button.speciesPlacesMore');
+  assert.equal(list.children.length, 5, 'the first batch is five checklist rows');
+  assert.match(more.textContent, /Show 2 more of 7 places/);
+  more.click();
+  assert.strictEqual(host.querySelector('ul.uplaces'), list,
+    'Show more replaced the original list');
+  assert.equal(list.children.length, 7, 'the remaining places append in place');
+  assert.equal(host.querySelectorAll('ul.uplaces').length, 1,
+    'Nemesis/Open targets created a second place list');
+  assert.equal(host.querySelector('button.speciesPlacesMore'), null,
+    'the exhausted progressive control remains');
 
   // The cap must not silently become the count.
   const fn = HTML.slice(HTML.indexOf('function allUnseenCardHtml('),
@@ -13627,7 +13632,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   'the one hotspot row does not link its newest checklist');
 
   const more = card.querySelector('button.spLookupMore');
-  assert.match(more.textContent, /Show 30 more places/);
+  assert.match(more.textContent, /Show 25 more of 55 places/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
   assert.equal(numberedPins(), 25,
@@ -13642,7 +13647,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     'expanded reports are still indented inside a second list');
   assert.equal(numberedPins(), 50,
     'Show more appended rows without appending their map pins');
-  assert.match(more.textContent, /Show 5 more places/,
+  assert.match(more.textContent, /Show 5 more of 55 places/,
     'the remaining Show-more label switched back to reports');
   more.click();
   assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 55);
@@ -20670,7 +20675,7 @@ test('your own checklists top up the year list, for free', async () => {
   app.window.close();
 });
 
-test('F416 recorded forms satisfy parent species and the watchlist still wins', async () => {
+test('F417 records exact forms separately while parent species and watchlist rules hold', async () => {
   const aliases = {
     redjun1: 'redjun',
     rocpig1: 'rocpig',
@@ -20698,7 +20703,8 @@ test('F416 recorded forms satisfy parent species and the watchlist still wins', 
     { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: observed.length },
   ]);
   const raw = A.ownSeenCodes();
-  const seen = A.getReportSeen();
+  const scope = A.getReportSeenScope();
+  const seen = scope.species;
   for (const child of observed) {
     const parent = aliases[child];
     assert.ok(raw[child], child + ' remains the durable raw My Ticks record');
@@ -20708,7 +20714,10 @@ test('F416 recorded forms satisfy parent species and the watchlist still wins', 
   assert.ok(raw.hawama2 && !raw.hawama1 && seen.hawama2 && seen.hawama,
     'Hawaii Amakihi (Hawaii) remains the exact tick and satisfies Hawaii Amakihi');
   assert.ok(seen.hawama1,
-    'the temporary species-group rule also counts the Maui form as seen');
+    'the species-level chase set also suppresses sibling-form candidates');
+  assert.deepEqual(Object.keys(scope.exact).filter((c) => /^hawama/.test(c)),
+    ['hawama2'],
+    'the exact-taxon layer does not claim Hawaii Amakihi (Maui) or the parent');
 
   const profile = A.chaseProfile();
   const feed = W.BirdLogic.planFeeds(profile).find((f) => f.kind === 'recent');
@@ -20748,10 +20757,24 @@ test('F416 recorded forms satisfy parent species and the watchlist still wins', 
     'the watched parent remains a target even though its child was reported');
 
   A.setWatchlist([]);
+  W.localStorage.removeItem('ebird_own_seen:' + A.getReportSlug());
   seedSeen(app, ['hawama']);
-  const parentSeen = A.getReportSeen();
-  assert.ok(parentSeen.hawama && parentSeen.hawama1 && parentSeen.hawama2,
-    'seeing the parent counts both named island forms as seen for now');
+  const parentScope = A.getReportSeenScope();
+  assert.ok(parentScope.species.hawama && parentScope.species.hawama1
+    && parentScope.species.hawama2,
+  'seeing the parent satisfies all species-level aliases');
+  assert.deepEqual(Object.keys(parentScope.exact).filter((c) => /^hawama/.test(c)),
+    ['hawama'],
+    'but the exact-taxon layer records only the parent that was actually listed');
+
+  W.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()].yearList = [{
+    code: 'hawama2', name: 'Hawaii Amakihi (Hawaii)', date: '18 Sep 2026',
+    subId: 'S-HAWAMA', loc: 'Hawaii',
+  }];
+  A.updateMyYear();
+  assert.match(app.$('myYearList').textContent,
+    /Exact form · counts as Hawaii Amakihi for species lists/,
+    'a form row labels its exact-versus-species relationship in words');
   app.window.close();
 });
 
@@ -22332,32 +22355,45 @@ test('species lookup chase distance filters independently of Date and Distance',
                                      mk('Far', lim + 1), mk('Farther', 200)]);
   assert.doesNotMatch(html, /farplaces|<details/,
     'far places still split into a second nested/disclosure list');
-  assert.equal((html.match(/spLookupPlaceList/g) || []).length, 1,
+  const host = app.window.document.createElement('div');
+  host.innerHTML = html;
+  A.mountProgressiveLists(host);
+  assert.equal(host.querySelectorAll('ul.spLookupPlaceList').length, 1,
     'the answer is not one stable hotspot list');
+  const mountedHtml = host.innerHTML;
   // Date is the default sort; Chase distance is a separate filter.
-  assert.ok(html.indexOf('Near') < html.indexOf('AlsoNear'), 'reachable places keep their order');
-  assert.doesNotMatch(html, /Far|Farther/,
+  assert.ok(mountedHtml.indexOf('Near') < mountedHtml.indexOf('AlsoNear'),
+    'reachable places keep their order');
+  assert.doesNotMatch(mountedHtml, /Far|Farther/,
     'the Reachable view still includes places beyond the chase radius');
 
   A.setSpeciesLookupSort('dist');
-  const distanceHtml = A.spLookupPlacesHtml([
+  const distanceHost = app.window.document.createElement('div');
+  distanceHost.innerHTML = A.spLookupPlacesHtml([
     mk('Near', 5), mk('AlsoNear', lim - 1), mk('Far', lim + 1), mk('Farther', 200)
   ]);
-  assert.doesNotMatch(distanceHtml, /Far|Farther/,
+  A.mountProgressiveLists(distanceHost);
+  assert.doesNotMatch(distanceHost.innerHTML, /Far|Farther/,
     'changing the sort silently disabled the chase-distance filter');
 
   A.setSpeciesLookupWithinChase(false);
-  const unfilteredDistanceHtml = A.spLookupPlacesHtml([
+  const unfilteredHost = app.window.document.createElement('div');
+  unfilteredHost.innerHTML = A.spLookupPlacesHtml([
     mk('Near', 5), mk('AlsoNear', lim - 1), mk('Far', lim + 1), mk('Farther', 200)
   ]);
+  A.mountProgressiveLists(unfilteredHost);
+  const unfilteredDistanceHtml = unfilteredHost.innerHTML;
   assert.ok(unfilteredDistanceHtml.indexOf('AlsoNear') < unfilteredDistanceHtml.indexOf('Far'));
   assert.ok(unfilteredDistanceHtml.indexOf('Far') < unfilteredDistanceHtml.indexOf('Farther'),
     'Distance no longer preserves the complete regional evidence list');
 
   // THE BOUNDARY IS THE CHASE RADIUS, not a magic number, and it is inclusive
   // — a place exactly at the limit is still a chase.
-  const edge = A.spLookupPlacesHtml([mk('Edge', lim)]);
-  assert.ok(!/spLookupMore/.test(edge), 'one place exactly at the radius needs no lazy control');
+  const edgeHost = app.window.document.createElement('div');
+  edgeHost.innerHTML = A.spLookupPlacesHtml([mk('Edge', lim)]);
+  A.mountProgressiveLists(edgeHost);
+  assert.ok(!edgeHost.querySelector('.spLookupMore'),
+    'one place exactly at the radius needs no lazy control');
 
   A.setSpeciesLookupWithinChase(true);
   A.setSpeciesLookupSort('date');
@@ -25576,12 +25612,16 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
   assert.ok(start > 0, 'renderSpeciesLookup not found');
   const end = HTML.indexOf('\n      function ', start + 10);
   const fn = HTML.slice(start, end);
-  assert.ok(/renderSpeciesLookupMap\(g, iconicMode, SP_ROWS_MAX\)/.test(fn),
-    'renderSpeciesLookup no longer hands its own group to the map renderer');
+  assert.ok(/mountProgressiveLists\(out\)/.test(fn),
+    'renderSpeciesLookup no longer mounts the progressive list that owns its map');
   const mapStart = HTML.indexOf('function renderSpeciesLookupMap');
   const mapFn = HTML.slice(mapStart, HTML.indexOf('\n      function ', mapStart + 1));
   assert.ok(/renderMap\(\$\('spLookupMap'\)/.test(mapFn),
     'the Stakeout map helper does not render the map');
+  const listStart = HTML.indexOf('function spLookupPlacesHtmlInner');
+  const listFn = HTML.slice(listStart, HTML.indexOf('\n      function ', listStart + 1));
+  assert.ok(/afterAppend:[\s\S]*renderSpeciesLookupMap\(bird, false, end\)/.test(listFn),
+    'the progressive place list does not extend its map through the same visible count');
 
   // ...and nowhere else. Any other renderer touching it is reaching for data
   // it does not have.
@@ -25590,11 +25630,9 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
 
   // The rows and the pins must be numbered from the same list, or the numbers
   // are decoration.
-  assert.ok(/function spLookupRowsHtml/.test(HTML), 'no numbered row renderer');
-  assert.ok(/spLookupRowsHtml\(shown, 1, bird\)/.test(HTML),
-    'the first lazy batch is not numbered from 1');
-  assert.ok(/spLookupPlaceCards\(next, start \+ 1, bird\)/.test(HTML),
-    'an appended batch restarts numbering instead of continuing the same list');
+  assert.ok(/function spLookupPlaceCards/.test(HTML), 'no numbered row renderer');
+  assert.ok(/renderItem:\s*function \(place, i\)[\s\S]*spLookupPlaceCards\(\[place\], i \+ 1, bird\)/
+    .test(listFn), 'progressive batches do not keep one continuous row number');
   assert.ok(!/_spLookupGroup\.name/.test(HTML),
     'the row renderer still reaches for module state instead of its argument');
 });
@@ -27122,6 +27160,101 @@ test('the debug panel leads with Copy and folds its tools away', () => {
     'the seldom-used debug tools are no longer folded away by default');
 });
 
+test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const states = [
+    ['nemesis', 'results'],
+    ['open_targets', 'true-empty'],
+    ['nearby_patches', 'partial'],
+    ['todays_patches', 'failed'],
+    ['half_day_patches', 'not-opened'],
+  ];
+  states.forEach(([section, state], i) => {
+    A.recordCoverage({
+      section,
+      state,
+      report: 'hi',
+      region: 'US-HI',
+      countyScope: ['US-HI-001'],
+      anchor: 'home',
+      filter: i % 2 ? 'all' : 'unseen',
+      sort: 'date',
+      visibleSpecies: [{ code: 'hawama1', name: 'Private checklist comment' }],
+      hiddenSpecies: [{ code: 'hawama2', token: 'SECRET-TOKEN' }],
+      publicHotspots: [{
+        id: 'L123',
+        name: 'Private yard',
+        lat: 19.5,
+        lng: -155.5,
+        species: ['hawama1', 'hawama2'],
+      }],
+      source: {
+        observedAt: '2026-09-18T12:00:00Z',
+        provenance: state === 'partial' ? 'partial' : 'live',
+        rawBody: 'SECRET-RAW-BODY',
+      },
+      exclusions: [{ reason: 'outside county scope', count: 4 }],
+      counts: { listRows: 2, mapMarkers: 1 },
+      apiKey: 'SECRET-API-KEY',
+    });
+  });
+
+  const exported = A.coverageAuditExport();
+  const parsed = JSON.parse(exported);
+  assert.equal(parsed.schema, 'bird-chaser-us-hi-coverage-v1');
+  assert.deepEqual(states.map(([section]) => (
+    parsed.sections.find((row) => row.section === section).state
+  )), states.map(([, state]) => state), 'all five verdict states survive the export');
+  const nemesis = parsed.sections.find((row) => row.section === 'nemesis');
+  assert.deepEqual(arr(nemesis.visibleSpecies, (row) => row.code), ['hawama1']);
+  assert.deepEqual(arr(nemesis.hiddenSpecies, (row) => row.code), ['hawama2']);
+  assert.deepEqual(arr(nemesis.publicHotspots, (row) => ({
+    id: row.id, species: arr(row.species, (species) => species.code),
+  })), [{ id: 'L123', species: ['hawama1', 'hawama2'] }]);
+  assert.deepEqual(nemesis.counts, {
+    listRows: 2,
+    mapMarkers: 1,
+    visibleSpecies: 1,
+    hiddenSpecies: 1,
+    publicHotspots: 1,
+  }, 'list, map and species counts are exported together from one snapshot');
+  assert.doesNotMatch(exported,
+    /SECRET|Private yard|checklist comment|19\.5|-155\.5|apiKey|rawBody/,
+    'credentials, coordinates, private locations, comments and raw bodies are absent');
+  assert.match(HTML.slice(HTML.indexOf('function dbgCopyLog'),
+    HTML.indexOf('function reportPdfName')), /coverageAuditText\(\)/,
+  'Copy all appends the one parseable coverage artifact');
+
+  for (let i = 0; i < 30; i++) {
+    A.recordCoverage({
+      section: 'nemesis', state: 'results', report: 'hi', region: 'US-HI',
+      filter: 'f' + i, visibleSpecies: [{ code: 'hawgoo' }],
+    });
+  }
+  const stored = app.window.__coverageAudit.read();
+  assert.ok(stored.history.length <= 12, 'retained history is bounded');
+  assert.ok(Object.keys(stored.latest).length <= 36, 'latest filter snapshots are bounded');
+  assert.ok(JSON.stringify(stored).length <= 120000, 'the retained artifact has a byte bound');
+
+  const storageProto = Object.getPrototypeOf(app.window.localStorage);
+  const originalSet = storageProto.setItem;
+  storageProto.setItem = function () { throw new Error('quota'); };
+  assert.doesNotThrow(() => A.recordCoverage({
+    section: 'dawn_dusk', state: 'results', visibleSpecies: ['iiwi'],
+  }), 'diagnostic storage failure cannot break a render boundary');
+  storageProto.setItem = originalSet;
+
+  A.clearCoverageAudit();
+  assert.equal(app.window.localStorage.getItem('ebird_coverage_audit_v1'), null,
+    'the existing Debug Clear action can remove the coverage store');
+  assert.match(HTML.slice(HTML.indexOf('function clearDebug'),
+    HTML.indexOf('function push(', HTML.indexOf('function clearDebug'))),
+  /__coverageAudit\.clear/,
+  'Debug Clear owns coverage cleanup; there is no second export/clear control');
+  app.window.close();
+});
+
 test('F330 visible Debug rendering is coalesced across an event burst', async () => {
   const app = await boot();
   const D = app.window.__dbg;
@@ -28162,6 +28295,19 @@ test('tapping a birder opens their patch page', async () => {
   assert.ok(res, '#patchResults exists');
   const who = res.querySelectorAll('.patchwho');
   assert.ok(who.length > 0, 'the leaderboard renders birder controls');
+  const patchList = res.querySelector('ul.hscards-medium');
+  const patchMore = res.querySelector('button.patchMore');
+  assert.ok(patchList && patchMore,
+    'the capped Pro-patches result uses the shared progressive loader');
+  assert.equal(res.querySelectorAll('ul.hscards-medium').length, 1);
+  assert.equal(res.querySelectorAll('details.farplaces').length, 0,
+    'Pro patches no longer hides the remainder in a second list');
+  const firstPatchCount = patchList.children.length;
+  patchMore.click();
+  assert.strictEqual(res.querySelector('ul.hscards-medium'), patchList,
+    'Pro-patches Show more replaced its list');
+  assert.ok(patchList.children.length > firstPatchCount,
+    'Pro-patches Show more did not append another batch');
 
   // A BUTTON. An href-less <a> is not natively interactive, and that is what
   // shipped and did nothing on the device.
@@ -28553,6 +28699,7 @@ test('a small hotspot card nested in a species card keeps its own layout', async
     distMi: 6.3, sub: '3 places',
     below: A.spLookupPlacesHtml(places, { code: 'bkgwar', name: 'Black-throated Gray Warbler' }),
   });
+  A.mountProgressiveLists(host);
 
   const cards = [].slice.call(host.querySelectorAll('li.hscard-sm'));
   assert.equal(cards.length, 3, 'the places rendered as small hotspot cards');
@@ -28726,6 +28873,7 @@ test('a hotspot list is not handed the species-list class', async () => {
     { code: 'x', name: 'Test Bird' });
   const div = app.window.document.createElement('div');
   div.innerHTML = html;
+  A.mountProgressiveLists(div);
   const ul = div.querySelector('ul');
   assert.ok(ul, 'the places render as a list');
   assert.ok(/hscards/.test(ul.className), 'a list of hotspot cards');

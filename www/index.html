@@ -117,6 +117,11 @@
         persistTimer = null;
         liveTimer = null;
         try { window.localStorage.removeItem(storageKey()); } catch (e) {}
+        try {
+          if (window.__coverageAudit && window.__coverageAudit.clear) {
+            window.__coverageAudit.clear();
+          }
+        } catch (e) {}
         if (disableCapture) {
           captureEnabled = false;
           persistEnabled = false;
@@ -3530,7 +3535,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.111.0';
+      var APP_VERSION = '1.112.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4434,21 +4439,31 @@
         });
         return set;
       }
-      function finishReportSeen(set, watch, seed) {
+      function finishReportSeenScope(set, watch, seed) {
         var parentOf = seed && (seed.reportAsParents || seed.domesticParents);
         var held = {};
         Object.keys(watch || {}).forEach(function (c) { held[c] = 1; });
         addSeenGroup(held, parentOf);
         Object.keys(held).forEach(function (c) { delete set[c]; });
-        addSeenGroup(set, parentOf);
-        Object.keys(held).forEach(function (c) { delete set[c]; });
-        return set;
+        var exact = {};
+        Object.keys(set || {}).forEach(function (c) { exact[c] = set[c]; });
+        var species = {};
+        Object.keys(exact).forEach(function (c) { species[c] = exact[c]; });
+        addSeenGroup(species, parentOf);
+        Object.keys(held).forEach(function (c) {
+          delete exact[c];
+          delete species[c];
+        });
+        return { exact: exact, species: species };
+      }
+      function finishReportSeen(set, watch, seed) {
+        return finishReportSeenScope(set, watch, seed).species;
       }
       // Seen-species set (eBird codes) the ACTIVE report chases against. Matches
       // the Markdown report exactly: each report subtracts its own region's year
       // list (bundled in seed-birdlist.js as seenByReport[slug]). Falls back to
       // the imported CSV / combined seed when a per-report set isn't bundled.
-      function getReportSeen() {
+      function getReportSeenScope() {
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
         if (usesBundledSeed() && rep && Array.isArray(rep.codes)) {
@@ -4477,11 +4492,14 @@
           // hawama2 "Hawaii Amakihi (Hawaii)". Until form-level year tracking
           // is implemented, every reportAs child and its parent count as one
           // seen group: any one tick suppresses the parent and all siblings.
-          return finishReportSeen(set, w, seed);
+          return finishReportSeenScope(set, w, seed);
         }
         var base = getSeen(), w2 = watchCodes(), own2 = ownSeenCodes();
         Object.keys(own2).forEach(function (c) { if (!w2[c]) base[c] = 1; });
-        return finishReportSeen(base, w2, seed);
+        return finishReportSeenScope(base, w2, seed);
+      }
+      function getReportSeen() {
+        return getReportSeenScope().species;
       }
 
       // ---- your own list, kept current between report builds ----------------
@@ -9103,7 +9121,10 @@
               && visibleSectionId() === section.id;
           },
           afterAppend: function (list, start, end) {
-            for (var i = start; i < end; i++) hydratePhotos(list.children[i]);
+            for (var i = start; i < end; i++) {
+              hydratePhotos(list.children[i]);
+              mountProgressiveLists(list.children[i]);
+            }
           }
         });
       }
@@ -9169,7 +9190,7 @@
       // date is the explicitly external checklist action. A place with three
       // checklists is three rows under the same name — repetitive, but each
       // row is a separate report you can open, which "3 reports" never was.
-      function unseenPlacesHtml(places) {
+      function unseenPlaceRows(places) {
         var rows = [];
         (places || []).forEach(function (p) {
           // A place always has its checklists; Easy misses can hand over a
@@ -9210,7 +9231,10 @@
             }));
           });
         });
-        return ChecklistCards.list('small', rows, 'uplaces');
+        return rows;
+      }
+      function unseenPlacesHtml(places) {
+        return ChecklistCards.list('small', unseenPlaceRows(places), 'uplaces');
       }
 
       // "lat,lng" for a card's distance link, or '' when we do not know where
@@ -11676,10 +11700,7 @@
         // observer's note, which is the control every other list already uses,
         // rather than a second one invented for this section.
         hydrateChecklistEvidence(out);
-        var more = out.querySelector('.spLookupMore');
-        if (more) more.addEventListener('click', function () {
-          appendSpLookupPlaces(more, g);
-        });
+        mountProgressiveLists(out);
         var retrySightings = out.querySelector('.spLookupRetrySightings');
         if (retrySightings) retrySightings.addEventListener('click', function () {
           lookupSpecies(retrySightings.getAttribute('data-code') || g.code,
@@ -11692,8 +11713,10 @@
           toggleWatchlistSpecies(code, name);
           renderSpeciesLookup();
         });
-        if ((g.places || []).length) renderSpeciesLookupMap(g, iconicMode, SP_ROWS_MAX);
-        else clearMap($('spLookupMap'));
+        if ((g.places || []).length && iconicMode) {
+          renderSpeciesLookupMap(g, true, SP_ROWS_MAX);
+        }
+        else if (!(g.places || []).length) clearMap($('spLookupMap'));
         ['spLookupByDate', 'spLookupByDist', 'spLookupByIconic'].forEach(function (id) {
           var b = $(id);
           if (!b) return;
@@ -11801,11 +11824,6 @@
         return out;
       }
 
-      function spLookupRowsHtml(places, startAt, bird) {
-        return HotspotCards.list('small',
-          spLookupPlaceCards(places, startAt, bird), 'spLookupPlaceList');
-      }
-
       function spLookupPlaceReachable(place) {
         if (!place || place.distMi == null || !isFinite(place.distMi) ||
             place.distMi > chaseMaxMi()) return false;
@@ -11825,39 +11843,6 @@
         return _spLookupWithinChase
           ? all.filter(spLookupPlaceReachable)
           : all;
-      }
-
-      function spLookupMoreButton(start, total) {
-        var left = total - start;
-        if (!(left > 0)) return '';
-        return '<button type="button" class="secondary spLookupMore" data-start="'
-          + start + '" data-generation="' + _spLookupGeneration + '">Show '
-          + left + ' more place' + (left === 1 ? '' : 's') + '</button>';
-      }
-
-      function appendSpLookupPlaces(button, bird) {
-        if (!button || !bird) return 0;
-        var generation = +(button.getAttribute('data-generation') || 0);
-        if (generation !== _spLookupGeneration) return 0;
-        var wrap = button.closest ? button.closest('.spLookupPlaceWrap') : null;
-        var list = wrap && wrap.querySelector('ul.spLookupPlaceList');
-        if (!list) return 0;
-        var all = spLookupOrderedPlaces(bird.places || []);
-        var start = +(button.getAttribute('data-start') || 0);
-        var next = all.slice(start, start + SP_ROWS_MAX);
-        var box = document.createElement('div');
-        box.innerHTML = spLookupPlaceCards(next, start + 1, bird).join('');
-        while (box.firstElementChild) list.appendChild(box.firstElementChild);
-        var at = start + next.length, left = all.length - at;
-        if (left > 0) {
-          button.setAttribute('data-start', at);
-          button.textContent = 'Show ' + left + ' more place' + (left === 1 ? '' : 's');
-        } else {
-          button.remove();
-        }
-        hydrateChecklistEvidence(list);
-        renderSpeciesLookupMap(bird, false, at);
-        return next.length;
       }
 
       // A LIST RENDERER MUST NOT TAKE DOWN ITS CALLER.
@@ -11884,10 +11869,23 @@
             + ' mi in this report’s target counties. Turn off Chase distance to see '
             + 'all regional evidence.</div>';
         }
-        var shown = all.slice(0, SP_ROWS_MAX);
-        return '<div class="spLookupPlaceWrap" data-generation="' + _spLookupGeneration + '">'
-          + spLookupRowsHtml(shown, 1, bird)
-          + spLookupMoreButton(shown.length, all.length) + '</div>';
+        var generation = _spLookupGeneration;
+        return progressiveListHtml({
+          items: all,
+          initialCount: SP_ROWS_MAX,
+          batchSize: SP_ROWS_MAX,
+          noun: 'places',
+          listClass: 'obs hscards hscards-small spLookupPlaceList',
+          buttonClass: 'spLookupMore',
+          renderItem: function (place, i) {
+            return spLookupPlaceCards([place], i + 1, bird).join('');
+          },
+          isCurrent: function () { return generation === _spLookupGeneration; },
+          afterAppend: function (list, start, end) {
+            hydrateChecklistEvidence(list);
+            renderSpeciesLookupMap(bird, false, end);
+          }
+        });
       }
       function setSpeciesLookupSort(mode) {
         _spLookupSort = mode === 'dist' ? 'dist' : mode === 'iconic' ? 'iconic' : 'date';
@@ -22318,12 +22316,16 @@
       }
 
       function patchCapped(cards, noun) {
-        if (cards.length <= PATCH_ROWS) return HotspotCards.list('medium', cards);
-        var rest = cards.slice(PATCH_ROWS);
-        return HotspotCards.list('medium', cards.slice(0, PATCH_ROWS))
-          + '<details class="farplaces"><summary>' + rest.length + ' more ' + noun
-          + (rest.length === 1 ? '' : 's') + '</summary>'
-          + HotspotCards.list('medium', rest) + '</details>';
+        return progressiveListHtml({
+          items: cards,
+          initialCount: PATCH_ROWS,
+          batchSize: PATCH_ROWS,
+          noun: noun + (cards.length === 1 ? '' : 's'),
+          listClass: 'obs hscards hscards-medium',
+          buttonClass: 'patchMore',
+          renderItem: function (card) { return card; },
+          isCurrent: function () { return true; }
+        });
       }
 
       function patchLeadHtml(d) {
@@ -22406,6 +22408,7 @@
         var detail = $('patchDetail'), body = $('patchDetailBody');
         if (!detail || !body) return false;
         body.innerHTML = patchBirderHtml(b, d);
+        mountProgressiveLists(body);
         PATCH_PARTS.forEach(function (id) { var el = $(id); if (el) el.hidden = true; });
         var st = $('patchStatus'); if (st) st.hidden = true;
         detail.hidden = false;
@@ -22509,6 +22512,7 @@
                 + 'statewide board. Switch to All to see them.'
               : 'The bundled table holds no birder with a placeable hotspot, so there '
                 + 'is nothing to rank.') + '</p>');
+        mountProgressiveLists(out);
         var ctl = document.getElementById('patchControls');
         if (ctl) {
           ctl.addEventListener('click', function (ev) {
@@ -24913,10 +24917,40 @@
       // so drifted into a different card, a different place list and a #N rank
       // badge. The card system's rule is that no section rolls its own bird
       // row; this is that rule applied to the layer above it.
+      var _progressiveLists = {}, _progressiveListSeq = 0;
+      function progressiveListHtml(spec) {
+        var id = 'pl' + (++_progressiveListSeq);
+        _progressiveLists[id] = spec;
+        return '<div class="progressive-host" data-progressive-id="' + id + '"></div>';
+      }
+      function mountProgressiveLists(root) {
+        if (!root || !window.ProgressiveList) return 0;
+        var mounted = 0;
+        [].forEach.call(root.querySelectorAll('[data-progressive-id]'), function (host) {
+          var id = host.getAttribute('data-progressive-id');
+          var spec = _progressiveLists[id];
+          delete _progressiveLists[id];
+          if (!spec || host.getAttribute('data-progressive-mounted')) return;
+          host.setAttribute('data-progressive-mounted', '1');
+          ProgressiveList.mount({
+            host: host,
+            items: spec.items || [],
+            initialCount: spec.initialCount,
+            batchSize: spec.batchSize,
+            noun: spec.noun,
+            listClass: spec.listClass,
+            buttonClass: spec.buttonClass,
+            renderItem: spec.renderItem,
+            isCurrent: spec.isCurrent,
+            moreLabel: spec.moreLabel,
+            afterAppend: spec.afterAppend
+          });
+          mounted++;
+        });
+        return mounted;
+      }
       function speciesPlacesCard(o) {
         var places = o.places || [];
-        var head = places.slice(0, UNSEEN_PLACES_SHOWN);
-        var rest = places.slice(UNSEEN_PLACES_SHOWN);
         // The card's distance is to the NEAREST place, so that is where its
         // map link has to go. The list is ordered by date, not distance, so
         // the nearest one has to be found rather than assumed to be first.
@@ -24936,13 +24970,18 @@
           distMi: o.distMi,
           distQ: nearest ? distQ(nearest.lat, nearest.lon != null ? nearest.lon : nearest.lng) : '',
           sub: o.sub || '',
-          below: unseenPlacesHtml(head)
-            + (rest.length
-              ? '<details class="upmore"><summary>' + rest.length + ' more place'
-                + (rest.length === 1 ? '' : 's') + '</summary>'
-                + unseenPlacesHtml(rest) + '</details>'
-              : '')
-            + (o.extra || '')
+          below: progressiveListHtml({
+            items: places,
+            initialCount: UNSEEN_PLACES_SHOWN,
+            batchSize: UNSEEN_PLACES_SHOWN,
+            noun: 'places',
+            listClass: 'cklcards cklcards-sm uplaces',
+            buttonClass: 'speciesPlacesMore',
+            renderItem: function (place) {
+              return unseenPlaceRows([place]).join('');
+            },
+            isCurrent: function () { return true; }
+          }) + (o.extra || '')
         });
       }
       // Easy misses counts LOCATION-DAYS from historic checklists, so its
@@ -25088,6 +25127,7 @@
               places: places
             });
           }).join('') + '</ul>';
+        mountProgressiveLists(box);
         hydratePhotos(box);
       }
       function loadEasyMisses() {
@@ -29673,6 +29713,12 @@
           if (e.date) bits.push(e.subId ? checklistLink(e.subId, e.date) : esc(e.date));
           if (whereHtml) bits.push(whereHtml);
           if (e.code) bits.push(extA(lifelistUrl(e.code), 'all obs'));
+          var reportAs = ((window.__SEED_BIRDLIST__ || {}).reportAsParents || {})[
+            String(e.code || '').toLowerCase()];
+          if (reportAs) {
+            bits.push('<b>Exact form</b> · counts as '
+              + esc(baseSpeciesName(e.name) || reportAs) + ' for species lists');
+          }
           // Said plainly, because this row is the reason the count above no
           // longer matches the eBird page it links to.
           if (e.own && e.source === 'checklist') {
@@ -30028,14 +30074,17 @@
         if (result && typeof result.then === 'function') {
           return result.then(function (ok) {
             if (spec.retryOnFailure && ok === false) _autoLoaded[sec.id] = false;
+            recordSectionCoverage(sec, ok);
             return ok;
           }, function (e) {
             if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
             try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+            recordSectionCoverage(sec, false);
             return false;
           });
         }
         if (spec.retryOnFailure && result === false) _autoLoaded[sec.id] = false;
+        recordSectionCoverage(sec, result);
         return result;
       }
       var _sections = [];
@@ -32600,6 +32649,259 @@
         }
         return out;
       }
+      var COVERAGE_AUDIT_KEY = 'ebird_coverage_audit_v1';
+      var COVERAGE_HISTORY_MAX = 12;
+      var COVERAGE_LATEST_MAX = 36;
+      var COVERAGE_BYTES_MAX = 120000;
+      var COVERAGE_SECTIONS = [
+        'nemesis', 'open_targets', 'nearby_patches', 'todays_patches',
+        'half_day_patches', 'full_day_patches', 'stakeout_bird',
+        'todays_rarities', 'last_7_days', 'mega', 'bird_gen',
+        'on_passage', 'due_back_soon', 'dawn_dusk'
+      ];
+      var COVERAGE_AT = {
+        easyBtn: 'nemesis',
+        allUnseenBtn: 'open_targets',
+        quickBtn: 'nearby_patches',
+        destBtn: 'todays_patches',
+        excBtn: 'half_day_patches',
+        fullDayBtn: 'full_day_patches',
+        spLookupBtn: 'stakeout_bird',
+        refreshBtn: 'todays_rarities',
+        activeBtn: 'last_7_days',
+        abaBtn: 'mega',
+        surgeBtn: 'bird_gen',
+        migBtn: 'on_passage',
+        dueBackBtn: 'due_back_soon',
+        todBtn: 'dawn_dusk'
+      };
+      function coverageCode(value) {
+        value = String(value || '').toLowerCase();
+        return /^[a-z0-9]+$/.test(value) ? value : '';
+      }
+      function coverageLoc(value) {
+        value = String(value || '').toUpperCase();
+        return /^L[0-9]+$/.test(value) ? value : '';
+      }
+      function coverageState(value) {
+        return ['results', 'true-empty', 'partial', 'failed', 'not-opened']
+          .indexOf(value) >= 0 ? value : 'failed';
+      }
+      function coverageCodes(items) {
+        var out = [], seenCodes = {};
+        (items || []).forEach(function (item) {
+          var code = coverageCode(typeof item === 'string' ? item : item && item.code);
+          if (code && !seenCodes[code]) { seenCodes[code] = 1; out.push({ code: code }); }
+        });
+        return out;
+      }
+      function normalizeCoverageSnapshot(input) {
+        input = input || {};
+        var section = String(input.section || '');
+        if (COVERAGE_SECTIONS.indexOf(section) < 0) return null;
+        var exclusions = [];
+        (input.exclusions || []).slice(0, 20).forEach(function (row) {
+          var reason = String(row && row.reason || '').toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+          var count = Math.max(0, Math.floor(Number(row && row.count) || 0));
+          if (reason && count) exclusions.push({ reason: reason, count: count });
+        });
+        var hotspots = [];
+        (input.publicHotspots || []).slice(0, 100).forEach(function (row) {
+          var id = coverageLoc(row && (row.id || row.locId));
+          if (id) hotspots.push({ id: id, species: coverageCodes(row.species) });
+        });
+        var source = input.source || {};
+        var provenance = ['live', 'cached', 'partial', 'mixed', 'unknown']
+          .indexOf(source.provenance) >= 0 ? source.provenance : 'unknown';
+        var capturedAt = /^\d{4}-\d\d-\d\dT/.test(String(input.capturedAt || ''))
+          ? String(input.capturedAt) : new Date().toISOString();
+        return {
+          section: section,
+          state: coverageState(input.state),
+          appVersion: APP_VERSION,
+          report: String(input.report || getReportSlug() || '').slice(0, 40),
+          region: String(input.region || getRegion() || '').slice(0, 20),
+          countyScope: (input.countyScope || []).map(function (code) {
+            return String(code || '').toUpperCase();
+          }).filter(function (code) { return /^[A-Z]{2}-[A-Z0-9-]+$/.test(code); }).slice(0, 20),
+          anchor: ['home', 'here', 'find', 'report'].indexOf(input.anchor) >= 0
+            ? input.anchor : 'report',
+          filter: String(input.filter || 'default').replace(/[^a-z0-9_-]/gi, '').slice(0, 30),
+          sort: String(input.sort || 'default').replace(/[^a-z0-9_-]/gi, '').slice(0, 30),
+          visibleSpecies: coverageCodes(input.visibleSpecies),
+          hiddenSpecies: coverageCodes(input.hiddenSpecies),
+          publicHotspots: hotspots,
+          source: {
+            observedAt: /^\d{4}-\d\d-\d\dT/.test(String(source.observedAt || ''))
+              ? String(source.observedAt) : null,
+            cachedAt: /^\d{4}-\d\d-\d\dT/.test(String(source.cachedAt || ''))
+              ? String(source.cachedAt) : null,
+            provenance: provenance
+          },
+          exclusions: exclusions,
+          counts: {
+            listRows: Math.max(0, Math.floor(Number(input.counts && input.counts.listRows) || 0)),
+            mapMarkers: Math.max(0, Math.floor(Number(input.counts && input.counts.mapMarkers) || 0)),
+            visibleSpecies: coverageCodes(input.visibleSpecies).length,
+            hiddenSpecies: coverageCodes(input.hiddenSpecies).length,
+            publicHotspots: hotspots.length
+          },
+          capturedAt: capturedAt
+        };
+      }
+      function coverageRead() {
+        try {
+          var value = JSON.parse(localStorage.getItem(COVERAGE_AUDIT_KEY) || 'null');
+          if (value && value.latest && Array.isArray(value.history)) return value;
+        } catch (e) {}
+        return { version: 1, latest: {}, history: [] };
+      }
+      function coverageKey(row) {
+        return [row.section, row.report, row.countyScope.join(','), row.anchor,
+          row.filter, row.sort].join('|');
+      }
+      function coverageBound(value) {
+        value.history = value.history.slice(-COVERAGE_HISTORY_MAX);
+        var keys = Object.keys(value.latest).sort(function (a, b) {
+          return String(value.latest[a].capturedAt).localeCompare(
+            String(value.latest[b].capturedAt));
+        });
+        while (keys.length > COVERAGE_LATEST_MAX) delete value.latest[keys.shift()];
+        while (JSON.stringify(value).length > COVERAGE_BYTES_MAX && value.history.length) {
+          value.history.shift();
+        }
+        while (JSON.stringify(value).length > COVERAGE_BYTES_MAX && keys.length > 1) {
+          delete value.latest[keys.shift()];
+        }
+        return value;
+      }
+      function recordCoverage(input) {
+        var row = normalizeCoverageSnapshot(input);
+        if (!row) return null;
+        try {
+          var value = coverageRead();
+          value.latest[coverageKey(row)] = row;
+          value.history.push(row);
+          localStorage.setItem(COVERAGE_AUDIT_KEY, JSON.stringify(coverageBound(value)));
+        } catch (e) {
+          try { dbg('warn', 'coverage audit store: ' + ((e && e.message) || e)); } catch (_) {}
+        }
+        return row;
+      }
+      function coverageSpeciesIn(root, hidden) {
+        var out = [], seenCodes = {};
+        if (!root) return out;
+        [].forEach.call(root.querySelectorAll('[data-code]'), function (el) {
+          var code = coverageCode(el.getAttribute('data-code'));
+          if (!code || seenCodes[code]) return;
+          var details = el.closest && el.closest('details');
+          var concealed = !!(el.closest && el.closest('[hidden]'))
+            || !!(details && !details.open);
+          if (concealed === hidden) { seenCodes[code] = 1; out.push({ code: code }); }
+        });
+        return out;
+      }
+      function coverageHotspotsIn(root) {
+        var out = [];
+        if (!root) return out;
+        [].forEach.call(root.querySelectorAll('[data-hsloc]'), function (card) {
+          var id = coverageLoc(card.getAttribute('data-hsloc'));
+          if (!id) return;
+          out.push({ id: id, species: coverageSpeciesIn(card, false)
+            .concat(coverageSpeciesIn(card, true)) });
+        });
+        return out;
+      }
+      function inferCoverageState(sec, ok) {
+        if (ok === false) return 'failed';
+        var text = String(sec && sec.textContent || '').toLowerCase();
+        if (/incomplete|some .* failed|could not reach|unavailable/.test(text)) return 'partial';
+        return pdRows(sec).length || coverageSpeciesIn(sec, false).length
+          || coverageHotspotsIn(sec).length ? 'results' : 'true-empty';
+      }
+      function recordSectionCoverage(sec, ok) {
+        try {
+          if (!sec || getRegion() !== 'US-HI') return null;
+          var section = COVERAGE_AT[sec._at];
+          if (!section) return null;
+          var status = sec.querySelector('.status');
+          var statusText = String(status && status.textContent || '').toLowerCase();
+          var profile = getReport() || {};
+          var counties = (profile.counties || []).map(function (county) {
+            return county && county.code;
+          }).filter(Boolean);
+          var visibleSpecies = coverageSpeciesIn(sec, false);
+          var hiddenSpecies = coverageSpeciesIn(sec, true);
+          var hotspots = coverageHotspotsIn(sec);
+          return recordCoverage({
+            section: section,
+            state: inferCoverageState(sec, ok),
+            countyScope: getCountyView() ? [getCountyView()] : counties,
+            anchor: section === 'nearby_patches'
+              ? (quickOrigin === 'here' ? 'here' : quickOrigin === 'find' ? 'find' : 'home')
+              : 'report',
+            filter: /patches$/.test(section) ? patchSpeciesFilter() : 'default',
+            sort: section === 'nemesis' ? _easySort : 'default',
+            visibleSpecies: visibleSpecies,
+            hiddenSpecies: hiddenSpecies,
+            publicHotspots: hotspots,
+            source: {
+              provenance: /partial|incomplete/.test(statusText) ? 'partial'
+                : /cached/.test(statusText) ? 'cached' : 'live',
+              observedAt: new Date().toISOString()
+            },
+            counts: {
+              listRows: pdRows(sec).length,
+              mapMarkers: sec.querySelectorAll('.leaflet-marker-icon').length
+            }
+          });
+        } catch (e) {
+          try { dbg('warn', 'coverage audit record: ' + ((e && e.message) || e)); } catch (_) {}
+          return null;
+        }
+      }
+      function coverageAuditExport() {
+        var stored = coverageRead(), latest = {};
+        Object.keys(stored.latest || {}).forEach(function (key) {
+          var row = stored.latest[key];
+          if (!latest[row.section]
+              || String(row.capturedAt) > String(latest[row.section].capturedAt)) {
+            latest[row.section] = row;
+          }
+        });
+        var sections = COVERAGE_SECTIONS.map(function (section) {
+          return latest[section] || normalizeCoverageSnapshot({
+            section: section, state: 'not-opened', source: { provenance: 'unknown' }
+          });
+        });
+        var payload = {
+          schema: 'bird-chaser-us-hi-coverage-v1',
+          generatedAt: new Date().toISOString(),
+          sections: sections,
+          history: (stored.history || []).slice(-COVERAGE_HISTORY_MAX)
+        };
+        var text = JSON.stringify(payload, null, 2);
+        try {
+          if (window.__dbg && window.__dbg.scrubText) {
+            text = window.__dbg.scrubText(text);
+          }
+        } catch (e) {}
+        return text;
+      }
+      function coverageAuditText() {
+        return '\nUS-HI COVERAGE AUDIT JSON\n' + coverageAuditExport()
+          + '\nEND US-HI COVERAGE AUDIT JSON\n';
+      }
+      function clearCoverageAudit() {
+        try { localStorage.removeItem(COVERAGE_AUDIT_KEY); } catch (e) {}
+      }
+      window.__coverageAudit = {
+        record: recordCoverage,
+        exportJson: coverageAuditExport,
+        clear: clearCoverageAudit,
+        read: coverageRead
+      };
       function dumpSections() {
         var refYear = new Date().getFullYear();
         var secs = (_sections || []).map(function (sec) {
@@ -33056,7 +33358,7 @@
         // contents and freezes live updates; rebuilding here would have copied
         // the log back over the dump the reader had just asked for.
         var el = $('dbgLog');
-        var text = (el && el.textContent) || dbgText();
+        var text = ((el && el.textContent) || dbgText()) + coverageAuditText();
         var btn = $('dbgCopy');
         function done(ok) {
           if (!btn) return;
@@ -34441,6 +34743,8 @@
         getChase: getChase, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,
+        recordCoverage: recordCoverage, recordSectionCoverage: recordSectionCoverage,
+        coverageAuditExport: coverageAuditExport, clearCoverageAudit: clearCoverageAudit,
       seenCodesForRows: seenCodesForRows,
       chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
       setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },
@@ -34462,6 +34766,8 @@
         refresh: refresh, CHASE_MAX_MI: CHASE_MAX_MI,
         renderDestinations: renderDestinations, renderRoute: renderRoute,
         renderAllUnseenCards: renderAllUnseenCards,
+        progressiveListHtml: progressiveListHtml,
+        mountProgressiveLists: mountProgressiveLists,
         allUnseenBatch: function () { return ALL_UNSEEN_BATCH; },
         groupTargetsByPlace: groupTargetsByPlace, renderTargetPlaces: renderTargetPlaces,
         getFavs: getFavs, setFavs: setFavs, addFav: addFav, toggleFav: toggleFav,
@@ -34478,7 +34784,8 @@
         moveWatch: moveWatch, removeWatchAt: removeWatchAt, renderWatch: renderWatch,
         watchCodes: watchCodes, watchlistMarkdown: watchlistMarkdown,
         searchSpecies: searchSpecies, runNvSearch: runNvSearch, clearNvSearch: clearNvSearch,
-        getReportSeen: getReportSeen, WATCH_KEY: WATCH_KEY,
+        getReportSeen: getReportSeen, getReportSeenScope: getReportSeenScope,
+        finishReportSeenScope: finishReportSeenScope, WATCH_KEY: WATCH_KEY,
         abaArchiveAdd: abaArchiveAdd, abaArchiveFor: abaArchiveFor,
         abaArchiveSince: abaArchiveSince, ABA_ARCHIVE_KEY: ABA_ARCHIVE_KEY,
         keyLooksWrong: keyLooksWrong, renderKeyBanner: renderKeyBanner,
