@@ -1829,7 +1829,7 @@ test('every section the report maps has a map container, wired to a renderer', a
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
       const finalPaintWired =
-        tier.includes('renderDestinations(finalRows, map, results)');
+        tier.includes('renderDestinations(shown, map, results, false, showingAll)');
       const pendingPaintWired =
         tier.includes('renderDestinations(rows, map, results, true)');
       const genericContainers =
@@ -4706,6 +4706,41 @@ test('easy misses: ranked by location-days, excluding birds on your year list', 
       obsDt: '2026-07-' + d + ' 08:00', locId: 'L' + i, lat: 47.6, lng: -122.3 }));
   assert.equal(A.computeEasyMisses(forms, 10, { daejun5: 'daejun' }).length, 0,
     'a form of a bird on your year list is not a miss');
+  app.window.close();
+});
+
+test('F414 Nemesis retains qualifiers beyond row 25 and reveals them without refetching', async () => {
+  const app = await boot({ fetch: () => null });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const obs = [];
+  for (let i = 0; i < 30; i++) {
+    const code = 'nem' + String(i).padStart(2, '0');
+    for (const day of ['01', '02', '03', '04']) {
+      obs.push({
+        speciesCode: code, comName: 'Nemesis Bird ' + i,
+        obsDt: '2026-09-' + day + ' 08:00',
+        locId: 'L' + i, locName: 'Place ' + i,
+        lat: 19.9 + i / 1000, lng: -155.8,
+      });
+    }
+  }
+  const rows = A.computeEasyMisses(obs, 10, {});
+  assert.equal(rows.length, 30,
+    'the computation still truncates valid qualifiers at the old 25-row display cap');
+
+  A.renderEasyMisses(rows, 10);
+  assert.equal(app.document.querySelectorAll('#easyResults > ul > li').length, 25,
+    'the initial bounded batch is not 25 rows');
+  assert.equal(app.$('easyMore').hidden, false,
+    'the remaining computed rows have no progressive reveal control');
+  const before = app.state.fetches.length;
+  app.click(app.$('easyMore'));
+  assert.equal(app.document.querySelectorAll('#easyResults > ul > li').length, 30,
+    'the remaining five qualifiers were not revealed');
+  assert.equal(app.$('easyMore').hidden, true);
+  assert.equal(app.state.fetches.length, before,
+    'revealing already-computed Nemesis rows repeated network requests');
   app.window.close();
 });
 
@@ -13475,6 +13510,56 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   app.window.close();
 });
 
+test('F416 Hawaii Amakihi variants open one Stakeout and remain listed', async () => {
+  const calls = [];
+  const app = await boot({
+    report: 'hi',
+    fetch(url) {
+      calls.push(String(url));
+      if (/data\/obs\/US-HI\/recent\/hawama(?:[/?]|$)/.test(String(url))) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  A.setSpuhModel(app.window.Spuh.createFromTaxonomy([
+    {
+      speciesCode: 'hawama', comName: 'Hawaii Amakihi',
+      sciName: 'Chlorodrepanis virens', category: 'species',
+      order: 'Passeriformes', familySciName: 'Fringillidae',
+      familyComName: 'Finches, Euphonias, and Allies', taxonOrder: 1,
+    },
+    {
+      speciesCode: 'hawama1', comName: 'Hawaii Amakihi (Maui)',
+      sciName: 'Chlorodrepanis virens wilsoni', category: 'issf',
+      order: 'Passeriformes', familySciName: 'Fringillidae',
+      familyComName: 'Finches, Euphonias, and Allies', taxonOrder: 2,
+      reportAs: 'hawama',
+    },
+    {
+      speciesCode: 'hawama2', comName: 'Hawaii Amakihi (Hawaii)',
+      sciName: 'Chlorodrepanis virens virens', category: 'issf',
+      order: 'Passeriformes', familySciName: 'Fringillidae',
+      familyComName: 'Finches, Euphonias, and Allies', taxonOrder: 3,
+      reportAs: 'hawama',
+    },
+  ]));
+
+  await A.lookupSpecies('hawama2', 'Hawaii Amakihi (Hawaii)');
+
+  assert.ok(calls.some((url) => /recent\/hawama(?:[/?]|$)/.test(url)),
+    'the Hawaii form uses the parent-species sighting feed');
+  assert.ok(!calls.some((url) => /recent\/hawama2(?:[/?]|$)/.test(url)),
+    'the form does not create a separate Stakeout feed');
+  assert.match(app.$('spLookupResults').textContent, /Hawaii Amakihi/);
+  const variants = app.$('spLookupIdHelp').querySelector('.stakevariants');
+  assert.ok(variants, 'the shared Stakeout does not list its named variants');
+  assert.match(variants.textContent, /Hawaii Amakihi \(Maui\)/);
+  assert.match(variants.textContent, /Hawaii Amakihi \(Hawaii\)/);
+  assert.equal(variants.querySelectorAll('.splink[data-sp="hawama"]').length, 3,
+    'parent and both island variants link to the same Stakeout species');
+  app.window.close();
+});
+
 test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint', async () => {
   const app = await boot({
     fetch(url) {
@@ -20585,43 +20670,51 @@ test('your own checklists top up the year list, for free', async () => {
   app.window.close();
 });
 
-test('F387 domestic checklist taxa satisfy parent patch targets and the watchlist still wins', async () => {
-  const domestic = {
+test('F416 recorded forms satisfy parent species and the watchlist still wins', async () => {
+  const aliases = {
     redjun1: 'redjun',
     rocpig1: 'rocpig',
     musduc3: 'musduc',
     mallar2: 'mallar3',
     rinphe37: 'rinphe1',
+    hawama1: 'hawama',
+    hawama2: 'hawama',
   };
+  const observed = Object.keys(aliases).filter((code) => code !== 'hawama1');
   const app = await boot({
     fetch(url) {
       return /product\/checklist\/view\/S1/.test(String(url))
-        ? { obs: Object.keys(domestic).map((speciesCode) => ({ speciesCode })) }
+        ? { obs: observed.map((speciesCode) => ({ speciesCode })) }
         : null;
     },
   });
   const A = app.window.__app, W = app.window;
-  W.__SEED_BIRDLIST__.domesticParents = domestic;
+  W.__SEED_BIRDLIST__.reportAsParents = aliases;
   seedSeen(app, []);
   A.setWatchlist([]);
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
 
   await A.harvestOwnChecklists([
-    { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 5 },
+    { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: observed.length },
   ]);
   const raw = A.ownSeenCodes();
   const seen = A.getReportSeen();
-  for (const [child, parent] of Object.entries(domestic)) {
+  for (const child of observed) {
+    const parent = aliases[child];
     assert.ok(raw[child], child + ' remains the durable raw My Ticks record');
     assert.ok(seen[parent],
       child + ' satisfies its parent ' + parent + ' in the chase seen set');
   }
+  assert.ok(raw.hawama2 && !raw.hawama1 && seen.hawama2 && seen.hawama,
+    'Hawaii Amakihi (Hawaii) remains the exact tick and satisfies Hawaii Amakihi');
+  assert.ok(seen.hawama1,
+    'the temporary species-group rule also counts the Maui form as seen');
 
   const profile = A.chaseProfile();
   const feed = W.BirdLogic.planFeeds(profile).find((f) => f.kind === 'recent');
   assert.ok(feed, 'the active report has a recent feed to exercise');
   const rowsByFile = {};
-  rowsByFile[feed.file] = Object.values(domestic).map((speciesCode, i) => ({
+  rowsByFile[feed.file] = Object.values(aliases).map((speciesCode, i) => ({
     speciesCode,
     comName: 'Domestic parent ' + i,
     obsId: 'DOM-' + i,
@@ -20637,20 +20730,28 @@ test('F387 domestic checklist taxa satisfy parent patch targets and the watchlis
   }));
   assert.deepEqual(
     Array.from(A.computeChaseRows(
-      profile, profile.slug, rowsByFile, Object.values(domestic)).unseenAll,
+      profile, profile.slug, rowsByFile, Object.values(aliases)).unseenAll,
     (r) => r.code),
     [],
-    'parent species disappear from patch rankings after a domestic child was reported');
+    'parent species disappear from patch rankings after a child form was reported');
 
   A.setWatchlist([{ code: 'redjun', name: 'Red Junglefowl' }]);
   assert.equal(A.getReportSeen().redjun, undefined,
     'a watched parent is removed after alias expansion');
+  assert.equal(A.getReportSeen().redjun1, undefined,
+    'holding any group member for verification holds its aliases too');
   assert.deepEqual(
     Array.from(A.computeChaseRows(
-      profile, profile.slug, rowsByFile, Object.values(domestic)).unseenAll,
+      profile, profile.slug, rowsByFile, Object.values(aliases)).unseenAll,
     (r) => r.code),
     ['redjun'],
-    'the watched parent remains a target even though its domestic child was reported');
+    'the watched parent remains a target even though its child was reported');
+
+  A.setWatchlist([]);
+  seedSeen(app, ['hawama']);
+  const parentSeen = A.getReportSeen();
+  assert.ok(parentSeen.hawama && parentSeen.hawama1 && parentSeen.hawama2,
+    'seeing the parent counts both named island forms as seen for now');
   app.window.close();
 });
 
@@ -31710,6 +31811,97 @@ test('F346 Today patches does not request older evidence when five fresh rows ex
   app.window.close();
 });
 
+test('F415 Today patches switches cached Hāpuna evidence from Unseen to All', async () => {
+  const stamp = todayFixtureDate() + ' 08:00';
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.92',
+      'ebird_home_lng:hi': '-155.88',
+    },
+  });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_seen_meta', JSON.stringify({ source: 'seed' }));
+  seedSeen(app, ['grefri'], ['Great Frigatebird']);
+  assert.equal(A.isSpeciesSeen('grefri', 'Great Frigatebird'), true,
+    'the Hawaii seen-list fixture did not activate');
+  const profile = A.chaseProfile();
+  const rows = [
+    {
+      obsId: 'hapuna-frigate', speciesCode: 'grefri', comName: 'Great Frigatebird',
+      locId: 'L-hapuna', locName: 'Hāpuna Beach State Recreation Area',
+      lat: 19.991, lng: -155.825, obsDt: stamp, subId: 'S-hapuna',
+      subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+    },
+  ].concat([0, 1, 2, 3, 4].map((n) => ({
+    obsId: 'near-target-' + n, speciesCode: 'needhi' + n,
+    comName: 'Needed Hawaii Bird ' + n,
+    locId: 'L-needed-' + n, locName: 'Needed nearby patch ' + n,
+    lat: 19.93 + n * 0.01, lng: -155.86,
+    obsDt: stamp, subId: 'S-needed-' + n,
+    subnational2Code: 'US-HI-001', subnational2Name: 'Hawaii',
+  })));
+  A.seedChase(profile.slug, {
+    t: Date.now(), rarity: false, rows: { 'hawaii-recent.json': rows },
+    speciesCodes: rows.map((row) => row.speciesCode),
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+  await A.loadDestinations();
+  assert.doesNotMatch(app.$('destResults').textContent, /Hāpuna|Great Frigatebird/,
+    'the default Unseen board retained an already-seen bird');
+  const before = app.state.fetches.length;
+
+  app.click(app.document.querySelector(
+    '#destPatchSpeciesScope [data-scope="all"]'));
+  const text = app.$('destResults').textContent.replace(/\s+/g, ' ');
+  assert.match(text, /Hāpuna Beach State Recreation Area/);
+  assert.match(text, /Great Frigatebird/);
+  assert.match(text, /Seen today/,
+    'the restored species is not explicitly labelled as already recorded today');
+  assert.equal(app.state.fetches.length, before,
+    'changing Today patches from Unseen to All repeated network requests');
+  assert.match(app.$('destStatus').textContent, /current bird evidence/);
+  app.window.close();
+});
+
+test('F415 Hāpuna remains a nearby All-mode patch and never enters a day tier', async () => {
+  const app = await boot({
+    report: 'hi',
+    sample: false,
+    storage: {
+      'ebird_home_lat:hi': '19.95',
+      'ebird_home_lng:hi': '-155.79',
+      ebird_seen_meta: JSON.stringify({ source: 'seed' }),
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, ['grefri'], ['Great Frigatebird']);
+  const profile = A.chaseProfile();
+  const rows = [{
+    speciesCode: 'grefri', comName: 'Great Frigatebird',
+    locId: 'L-hapuna', locName: 'Hāpuna Beach State Recreation Area',
+    lat: 19.991, lng: -155.825, obsDt: todayFixtureDate() + ' 14:09',
+    subId: 'S-hapuna', subnational2Code: 'US-HI-001',
+    subnational2Name: 'Hawaii',
+  }];
+  const unseen = A.computeChaseRows(profile, profile.slug,
+    { 'hawaii-recent.json': rows }, ['grefri'], []);
+  const all = A.computeAllPatchRows(profile, profile.slug,
+    { 'hawaii-recent.json': rows }, ['grefri'], [], unseen.destRadiusMi);
+  assert.equal(unseen.destinations.length, 0,
+    'a seen-only Hāpuna row remained on the Unseen board');
+  assert.equal(all.destinations.length, 1,
+    'All did not recover Hāpuna from the same cached observation');
+  assert.equal(all.destinations[0].locId, 'L-hapuna');
+  assert.equal(all.excursions.length, 0,
+    'the nearby Hāpuna evidence crossed into Half-day');
+  assert.equal(all.fullDay.length, 0,
+    'the nearby Hāpuna evidence crossed into Full-day');
+  app.window.close();
+});
+
 test('F343 Hawaii Full-day stays searching, then paints only Big Island older evidence', async () => {
   const now = new Date();
   const stamp = (daysAgo) => {
@@ -32043,7 +32235,7 @@ test('F349 five fresh Hawaii Half-day rows spend no fallback request', async () 
 });
 
 test('F320 empty-account phase two is capped by visible value and rate headroom', async () => {
-  const app = await boot({ sample: false });
+  const app = await boot({ sample: false, report: 'hi' });
   const A = app.window.__app;
   const unseen = Array.from({ length: 80 }, (_, i) => ({
     code: 'bird' + String(i).padStart(3, '0'),
@@ -32062,8 +32254,29 @@ test('F320 empty-account phase two is capped by visible value and rate headroom'
   assert.equal(app.window.BirdLogic.planSpeciesFeeds(A.chaseProfile(), codes).length, 10);
   assert.ok(codes.length < app.window.BirdLogic.SPECIES_FEED_MAX,
     'the app-only first pass fell back to the old 60-call ceiling');
+  const noLead = {
+    code: 'hawhaw', name: 'Hawaiian Hawk',
+  };
+  const withGap = {
+    destinations: [{ species: unseen }],
+    unseenAll: unseen.concat(noLead),
+  };
+  assert.ok(A.chasePhase2Codes(withGap, 6).includes('hawhaw'),
+    'a Hawaii target with no public destination lead still loses the bounded pass');
+  const endemicPriority = {
+    destinations: [],
+    unseenAll: unseen.slice(0, 20).concat(noLead),
+  };
+  assert.ok(A.chasePhase2Codes(endemicPriority, 6).includes('hawhaw'),
+    'the F418 Big Island endemic signal does not affect a crowded no-lead batch');
+  assert.equal(A.chasePhase2Codes(cv, 6, 60).length, 60,
+    'ten remained a total product cap instead of the first safe rate-window batch');
   const wave = HTML.slice(HTML.indexOf('var attemptedSpecies = {};'),
     HTML.indexOf('_chasePhase2[slug] = runTargetPlan', HTML.indexOf('var attemptedSpecies = {};')));
+  const phaseTwoPlan = HTML.slice(HTML.indexOf('var phase2Budget ='),
+    HTML.indexOf('var attemptedSpecies = {};'));
+  assert.match(phaseTwoPlan, /var phase2Budget = BL\.SPECIES_FEED_MAX/,
+    'the detached phase cannot continue after the first ten safe starts');
   assert.match(wave, /phase2Budget - Object\.keys\(attemptedSpecies\)\.length/,
     'a seen-list replan received a fresh ten-call budget instead of the remainder');
   assert.match(wave, /pending = pending\.slice\(0, remaining\)/,
@@ -32410,7 +32623,7 @@ test('F320 deterministic empty-account probe reports the before/after plan', asy
     },
     maxObservedInternalQueueWaitMs: { before: 90230, after: 'not asserted' },
     countyMetadataForegroundCalls: { before: countyRows + 1, after: 0 },
-    phaseTwoCallsWithZeroSeen: {
+    phaseTwoStartsInFirstWindow: {
       before: app.window.BirdLogic.SPECIES_FEED_MAX,
       after: A.chasePhase2Max(phaseOne),
     },
@@ -32431,7 +32644,7 @@ test('F320 deterministic empty-account probe reports the before/after plan', asy
     },
     maxObservedInternalQueueWaitMs: { before: 90230, after: 'not asserted' },
     countyMetadataForegroundCalls: { before: 40, after: 0 },
-    phaseTwoCallsWithZeroSeen: { before: 60, after: 10 },
+    phaseTwoStartsInFirstWindow: { before: 60, after: 10 },
     remainingPhaseTwoPlanAfterNavigation: { before: 60, after: 0 },
   });
   console.log('F320_MEASUREMENT ' + JSON.stringify(measurement));

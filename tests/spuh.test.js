@@ -100,8 +100,20 @@ test('packTaxonomy keeps only the compact fields needed at runtime', () => {
   assert.equal(packed.v, Spuh.SCHEMA);
   assert.equal(packed.species.length, 14);
   assert.equal(packed.spuhs.length, 13);
-  assert.deepEqual(packed.aliases, [['sem-form', 'sem']]);
+  assert.deepEqual(packed.aliases, [[
+    'sem-form', 'sem', 'Semipalmated Sandpiper (form)',
+    'Calidris pusilla test', 'issf', 112
+  ]]);
   assert.ok(JSON.stringify(packed).length < JSON.stringify(TAXONOMY).length);
+});
+
+test('a parent and every reportAs variant share one Stakeout species', () => {
+  const model = build();
+  assert.equal(model.speciesRow('sem-form').code, 'sem');
+  assert.deepEqual(model.variants('sem-form').map((row) => row.code),
+    ['sem', 'sem-form']);
+  assert.deepEqual(model.variants('sem').map((row) => row.name),
+    ['Semipalmated Sandpiper', 'Semipalmated Sandpiper (form)']);
 });
 
 test('explicit scientific species lists resolve exactly, not to the family', () => {

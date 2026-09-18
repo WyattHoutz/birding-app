@@ -128,28 +128,30 @@ test('seen_codes.txt is not read by the seed builder', () => {
     'and must not union it into any set');
 });
 
-test('F387 domestic parent aliases come from taxonomy, not a four-bird list', () => {
+test('F416 reportAs aliases preserve forms while satisfying parent species', () => {
   const helperPath = path.join(
     __dirname, '..', 'assets', 'taxonomy-aliases.js');
   assert.ok(fs.existsSync(helperPath),
-    'the taxonomy-derived domestic alias helper exists');
+    'the taxonomy-derived reportAs alias helper exists');
   if (!fs.existsSync(helperPath)) return;
-  const { domesticReportAs } = require(helperPath);
-  const derived = domesticReportAs([
+  const { reportAsParents } = require(helperPath);
+  const derived = reportAsParents([
     { speciesCode: 'redjun1', category: 'domestic', reportAs: 'redjun' },
     { speciesCode: 'mallar2', category: 'domestic', reportAs: 'mallar3' },
     { speciesCode: 'rocpig2', category: 'form', reportAs: 'rocpig' },
+    { speciesCode: 'hawama2', category: 'issf', reportAs: 'hawama' },
     { speciesCode: 'missingparent', category: 'domestic' },
   ]);
   assert.deepEqual(derived, {
+    hawama2: 'hawama',
     mallar2: 'mallar3',
     redjun1: 'redjun',
-  }, 'only taxonomy rows explicitly categorized as domestic aliases qualify');
+    rocpig2: 'rocpig',
+  }, 'every child that eBird reports as a parent species qualifies');
 
-  const aliases = SEED.domesticParents || {};
-  assert.ok(Object.keys(aliases).length >= 20,
-    'the bundled map is broad enough to be taxonomy-derived, not a '
-    + 'hard-coded list of the four reported examples');
+  const aliases = SEED.reportAsParents || {};
+  assert.ok(Object.keys(aliases).length >= 4000,
+    'the bundled map covers the taxonomy rather than a hand-picked form list');
   assert.deepEqual(
     {
       redjun1: aliases.redjun1,
@@ -157,6 +159,7 @@ test('F387 domestic parent aliases come from taxonomy, not a four-bird list', ()
       musduc3: aliases.musduc3,
       mallar2: aliases.mallar2,
       rinphe37: aliases.rinphe37,
+      hawama2: aliases.hawama2,
     },
     {
       redjun1: 'redjun',
@@ -164,16 +167,16 @@ test('F387 domestic parent aliases come from taxonomy, not a four-bird list', ()
       musduc3: 'musduc',
       mallar2: 'mallar3',
       rinphe37: 'rinphe1',
+      hawama2: 'hawama',
     },
-    'the owner examples plus an independent domestic taxon keep eBird’s '
-    + 'exact parent codes, including Mallard’s non-obvious mallar3');
-  assert.equal(aliases.rocpig2, undefined,
-    'a non-domestic form is not collapsed into its parent');
-  assert.match(BUILDER, /domesticReportAs\(taxonomyRows\(\)\)/,
+    'domestic and named subspecific forms keep eBird’s exact parent codes');
+  assert.equal(aliases.rocpig2, 'rocpig',
+    'a named form satisfies its species parent without losing its own code');
+  assert.match(BUILDER, /reportAsParents\(taxonomyRows\(\)\)/,
     'the generated seed is wired to the taxonomy-derived helper');
   assert.ok(RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.js')
     && RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.json'),
-  'the IPA contract requires both domestic-alias seed forms');
+  'the IPA contract requires both reportAs-alias seed forms');
   assert.ok((RELEASE_CONTRACT.requiredText['index.html'] || [])
     .includes('finishReportSeen'),
   'the IPA contract requires the runtime seen-set expansion');

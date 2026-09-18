@@ -29,7 +29,7 @@ const outPath = path.join(appRoot, 'www', 'seed-birdlist.json');
 // The report registry (which birdlist + seen_from_region drives each report)
 // lives in the shared BirdLogic module, so the seed and the app agree on scope.
 const BirdLogic = require(path.join(appRoot, 'www', 'logic.js'));
-const { domesticReportAs } = require(path.join(__dirname, 'taxonomy-aliases.js'));
+const { reportAsParents } = require(path.join(__dirname, 'taxonomy-aliases.js'));
 
 if (!fs.existsSync(srcRoot)) {
   console.error('Source repo not found: ' + srcRoot);
@@ -165,8 +165,8 @@ const nvCodes = Object.create(null);
 // rather than disappearing between the report and the app.
 const nvEntries = [];
 const nvUnresolved = [];
-// The same cached taxonomy supplies both watchlist name fallback and F387's
-// compact domestic child -> parent map. It lives in the SOURCE repo's
+// The same cached taxonomy supplies both watchlist name fallback and the
+// child-taxon -> parent-species map. It lives in the SOURCE repo's
 // gitignored cache, which is the same "run this beside the private repo"
 // assumption every birdlist read above already makes. An empty alias map would
 // recreate the installed bug silently, so a missing/unreadable cache stops the
@@ -278,7 +278,7 @@ const seed = {
   codes: codeList,
   names: nameList,
   watchlist: nvEntries,
-  domesticParents: domesticReportAs(taxonomyRows()),
+  reportAsParents: reportAsParents(taxonomyRows()),
   seenByReport: seenByReport
 };
 
@@ -295,7 +295,7 @@ console.log('Wrote ' + outPath);
 console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
 console.log('  codes:  ' + codeList.length + ' (combined union)');
-console.log('  domestic aliases: ' + Object.keys(seed.domesticParents).length);
+console.log('  reportAs aliases: ' + Object.keys(seed.reportAsParents).length);
 console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length + ' of ' + nvEntries.length + ' entries');
 if (nvUnresolved.length) {
   // Loud, and mirroring analyze.py's own [warn] line, because the failure is

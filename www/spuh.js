@@ -23,7 +23,7 @@
 (function (global) {
   'use strict';
 
-  var SCHEMA = 1;
+  var SCHEMA = 2;
   var GLOSS = /\s*\([^()]*\)\s*$/;
   var SPECIES_LIST = /^([A-Z][A-Za-z-]+)\s+([a-z][A-Za-z-]*(?:\/[A-Z][A-Za-z-]+\s+[a-z][A-Za-z-]*|\/[a-z][A-Za-z-]*)+)$/;
 
@@ -94,7 +94,13 @@
       ];
       if (row.category === 'species') species.push(tuple);
       else if (row.category === 'spuh') spuhs.push(tuple);
-      if (row.reportAs) aliases.push([String(row.speciesCode), String(row.reportAs)]);
+      if (row.reportAs) {
+        aliases.push([
+          String(row.speciesCode), String(row.reportAs),
+          String(row.comName || ''), String(row.sciName || ''),
+          String(row.category || ''), Number(row.taxonOrder || 0)
+        ]);
+      }
     });
     species.sort(function (a, b) { return a[6] - b[6]; });
     spuhs.sort(function (a, b) { return a[6] - b[6]; });
@@ -132,8 +138,24 @@
     }
     var species = (packed.species || []).map(rowFromTuple);
     var spuhRows = (packed.spuhs || []).map(rowFromTuple);
+    var aliasRows = (packed.aliases || []).map(function (pair) {
+      return {
+        code: pair[0], parent: pair[1], name: pair[2] || pair[0],
+        sci: pair[3] || '', category: pair[4] || 'form',
+        taxonOrder: Number(pair[5] || 0)
+      };
+    });
     var aliases = Object.create(null);
-    (packed.aliases || []).forEach(function (pair) { aliases[pair[0]] = pair[1]; });
+    aliasRows.forEach(function (row) { aliases[row.code] = row.parent; });
+
+    function aliasRoot(code) {
+      var seen = Object.create(null), cur = String(code || '');
+      while (cur && aliases[cur] && !seen[cur]) {
+        seen[cur] = 1;
+        cur = aliases[cur];
+      }
+      return cur;
+    }
 
     var speciesByCode = Object.create(null);
     var speciesBySci = Object.create(null);
@@ -152,6 +174,18 @@
       if (row.order) {
         (byOrder[row.order] || (byOrder[row.order] = [])).push(row);
       }
+    });
+
+    var variantsBySpecies = Object.create(null);
+    aliasRows.forEach(function (row) {
+      var root = aliasRoot(row.code);
+      if (!variantsBySpecies[root]) variantsBySpecies[root] = [];
+      variantsBySpecies[root].push(row);
+    });
+    Object.keys(variantsBySpecies).forEach(function (root) {
+      variantsBySpecies[root].sort(function (a, b) {
+        return a.taxonOrder - b.taxonOrder || a.name.localeCompare(b.name);
+      });
     });
 
     function union(groups) {
@@ -393,12 +427,13 @@
     }
 
     function resolveSpecies(code) {
-      var seen = Object.create(null), cur = String(code || '');
-      while (cur && !speciesByCode[cur] && aliases[cur] && !seen[cur]) {
-        seen[cur] = 1;
-        cur = aliases[cur];
-      }
-      return speciesByCode[cur] || null;
+      return speciesByCode[aliasRoot(code)] || null;
+    }
+
+    function variantsForSpecies(code) {
+      var speciesRow = resolveSpecies(code);
+      if (!speciesRow) return [];
+      return [speciesRow].concat(variantsBySpecies[speciesRow.code] || []);
     }
 
     function classesContainingSpecies(code) {
@@ -486,6 +521,7 @@
       aliases: aliases,
       node: function (code) { return nodeByCode[String(code || '')] || null; },
       speciesRow: resolveSpecies,
+      variants: variantsForSpecies,
       searchSpuh: function (query, limit) {
         return searchRows(nodes, query, limit);
       },

@@ -2545,6 +2545,11 @@
     .spuhcomparehits button { width: 100%; text-align: left; border: 0;
                  background: none; color: var(--link); font: inherit;
                  font-weight: 700; padding: 3px; }
+    .stakevariants { margin-top: 10px; border-top: 1px solid var(--line);
+                 padding-top: 9px; }
+    .stakevariants ul { list-style: none; margin: 5px 0 0; padding: 0; }
+    .stakevariants li { padding: 4px 0; }
+    .stakevariants .pmeta { margin-left: 6px; }
     @media (max-width: 360px) {
       .spuhmedia { grid-template-columns: calc(82px * var(--s)) minmax(0, 1fr); }
       .spuhmedia .thumb { width: calc(82px * var(--s)); height: calc(82px * var(--s)); }
@@ -2725,6 +2730,7 @@
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
       </div>
+      <div id="destSpeciesFilter"></div>
       <div id="destStatus" class="status">Hotspots with the most species you still need, ranked by score (rarities ×3).</div>
       <div id="destMap"></div>
       <ul id="destResults" class="obs dest"></ul>
@@ -2736,6 +2742,7 @@
       <div class="row">
         <button id="excBtn">Find half-day options</button>
       </div>
+      <div id="excSpeciesFilter"></div>
       <div id="excStatus" class="status">Target-rich hotspots for a half-day outing, with county scope derived from Home.</div>
       <div id="excMap"></div>
       <ul id="excResults" class="obs dest"></ul>
@@ -2747,6 +2754,7 @@
       <div class="row">
         <button id="fullDayBtn">Find full-day options</button>
       </div>
+      <div id="fullDaySpeciesFilter"></div>
       <div id="fullDayStatus" class="status">Farther target-rich hotspots worth planning a full day around, loaded only when this section opens.</div>
       <div id="fullDayMap"></div>
       <ul id="fullDayResults" class="obs dest"></ul>
@@ -2964,6 +2972,9 @@
         <button id="easyByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
       </div>
       <div id="easyResults"></div>
+      <div class="row">
+        <button id="easyMore" class="secondary" type="button" hidden>Show 25 more</button>
+      </div>
     </section>
 
     <section class="panel" id="iconicPanel">
@@ -3519,7 +3530,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.110.0';
+      var APP_VERSION = '1.111.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4401,23 +4412,36 @@
         var meta = getSeenMeta();
         return !!(meta && meta.source === 'seed');
       }
-      function addDomesticParents(set, parentOf) {
+      var _seenGroupSource = null, _seenGroups = null;
+      function seenTaxonGroups(parentOf) {
+        if (_seenGroupSource === parentOf && _seenGroups) return _seenGroups;
+        var groups = {};
+        Object.keys(parentOf || {}).forEach(function (child) {
+          var root = resolveSpecies(child, parentOf);
+          if (!groups[root]) groups[root] = {};
+          groups[root][root] = 1;
+          groups[root][child] = 1;
+        });
+        _seenGroupSource = parentOf;
+        _seenGroups = groups;
+        return groups;
+      }
+      function addSeenGroup(set, parentOf) {
+        var groups = seenTaxonGroups(parentOf);
         Object.keys(set || {}).forEach(function (code) {
-          var cur = String(code || '').toLowerCase(), hops = {};
-          while (parentOf && parentOf[cur] && !hops[cur]) {
-            hops[cur] = 1;
-            cur = String(parentOf[cur] || '').trim().toLowerCase();
-            if (cur) set[cur] = 1;
-          }
+          var root = resolveSpecies(String(code || '').toLowerCase(), parentOf);
+          Object.keys(groups[root] || {}).forEach(function (peer) { set[peer] = 1; });
         });
         return set;
       }
       function finishReportSeen(set, watch, seed) {
-        // A watched child must not create an unwatched parent, and a watched
-        // parent must not be recreated by an unwatched domestic child.
-        Object.keys(watch || {}).forEach(function (c) { delete set[c]; });
-        addDomesticParents(set, seed && seed.domesticParents);
-        Object.keys(watch || {}).forEach(function (c) { delete set[c]; });
+        var parentOf = seed && (seed.reportAsParents || seed.domesticParents);
+        var held = {};
+        Object.keys(watch || {}).forEach(function (c) { held[c] = 1; });
+        addSeenGroup(held, parentOf);
+        Object.keys(held).forEach(function (c) { delete set[c]; });
+        addSeenGroup(set, parentOf);
+        Object.keys(held).forEach(function (c) { delete set[c]; });
         return set;
       }
       // Seen-species set (eBird codes) the ACTIVE report chases against. Matches
@@ -4449,10 +4473,10 @@
           // back is never ticked by your own checklist.
           var own = ownSeenCodes();
           Object.keys(own).forEach(function (c) { if (!w[c]) set[c] = 1; });
-          // eBird checklist detail preserves domestic-form codes such as
-          // redjun1, rocpig1, musduc3 and mallar2. Patch candidates use their
-          // parent species codes, so add only taxonomy rows explicitly marked
-          // domestic. Ordinary forms remain independently chaseable.
+          // eBird checklist detail preserves form/subspecies codes such as
+          // hawama2 "Hawaii Amakihi (Hawaii)". Until form-level year tracking
+          // is implemented, every reportAs child and its parent count as one
+          // seen group: any one tick suppresses the parent and all siblings.
           return finishReportSeen(set, w, seed);
         }
         var base = getSeen(), w2 = watchCodes(), own2 = ownSeenCodes();
@@ -10233,7 +10257,17 @@
           }
           if (!species) throw new Error('This species is not in the current eBird taxonomy.');
           if (generation !== _spLookupGeneration) return null;
-          host.innerHTML = spuhTaxNavigatorHtml(model, species, sourceSpuhCode);
+          var variants = typeof model.variants === 'function'
+            ? model.variants(species.code) : [];
+          var variantsHtml = variants.length > 1
+            ? '<div class="stakevariants"><div class="spuheyebrow">Variants in this species</div>'
+              + '<ul>' + variants.map(function (v) {
+                return '<li>' + stakeSpeciesLink(v.name, v.code)
+                  + '<span class="pmeta">' + esc(v.code) + '</span></li>';
+              }).join('') + '</ul></div>'
+            : '';
+          host.innerHTML = spuhTaxNavigatorHtml(model, species, sourceSpuhCode)
+            + variantsHtml;
           var compare = host.querySelector('.spuhcompare');
           if (compare) compare.addEventListener('toggle', function () {
             if (!compare.open || compare.dataset.filled) return;
@@ -10729,6 +10763,9 @@
       function lookupSpecies(code, name, generation, scopeSlug, megaRef, finderContext) {
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
         if (!out || !st) return Promise.resolve();
+        var target = stakeSpeciesTarget(code, name);
+        code = target.code;
+        name = target.name;
         if (generation == null) generation = ++_spLookupGeneration;
         scopeSlug = scopeSlug || getReportSlug();
         if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return Promise.resolve();
@@ -11999,18 +12036,48 @@
           FG_WINDOW_MAX - FG_WINDOW_RESERVE - Math.max(0, regionFeedCount || 0));
         return Math.min((BL.CONST && BL.CONST.TOP_DEST) || 10, windowRoom);
       }
-      function chasePhase2Codes(cv, regionFeedCount) {
-        var max = chasePhase2Max(regionFeedCount);
+      // F418's modern endemic subset, narrowed to Hawaii Island/statewide and
+      // conditional coastal/pelagic taxa. This changes priority only: a code
+      // still has to exist in the live unseen feed before it can be selected.
+      // Other-island and managed-only endemics are deliberately absent.
+      var HI_ENDEMIC_PRIORITY = {
+        hawgoo: 1, hawduc: 1, hawpet1: 1, towshe2: 1, hawhaw: 1,
+        hawcoo: 1, elepai: 1, omao: 1, palila: 1, hawama: 1,
+        akiapo: 1, hawcre: 1, akepa1: 1, iiwi: 1, apapan: 1,
+        commoo1: 1, hawsti1: 1, sheowl4: 1, blknod1: 1
+      };
+      function chasePhase2Codes(cv, regionFeedCount, totalLimit) {
+        var max = totalLimit == null
+          ? chasePhase2Max(regionFeedCount)
+          : Math.max(0, Math.min(BL.SPECIES_FEED_MAX, totalLimit));
         if (!max) return [];
-        var seen = {}, picked = [];
+        var seen = {}, picked = [], destinationCodes = {};
         function add(row) {
           var code = row && row.code;
           if (!code || seen[code] || picked.length >= max) return;
           seen[code] = 1;
           picked.push({ code: code });
         }
-        // Spend the bounded pass on birds attached to the visible destination
-        // cards first; only then fill unused slots from the wider unseen set.
+        // A species already attached to a public destination has an actionable
+        // lead. Spend the bounded enrichment pass first on birds that do not:
+        // their region observation may be private or collapsed away from the
+        // public hotspot where they can actually be chased. F414's Hawaii
+        // control is Hawaiian Hawk, which sat just beyond the old destination-
+        // first ten-species window despite having no public lead.
+        ((cv && cv.destinations) || []).forEach(function (place) {
+          (place.species || []).forEach(function (row) {
+            if (row && row.code) destinationCodes[row.code] = 1;
+          });
+        });
+        if (getReport().stateCode === 'US-HI') {
+          ((cv && cv.unseenAll) || []).forEach(function (row) {
+            if (row && HI_ENDEMIC_PRIORITY[row.code]
+                && !destinationCodes[row.code]) add(row);
+          });
+        }
+        ((cv && cv.unseenAll) || []).forEach(function (row) {
+          if (row && !destinationCodes[row.code]) add(row);
+        });
         ((cv && cv.destinations) || []).forEach(function (place) {
           (place.species || []).forEach(add);
         });
@@ -12656,6 +12723,19 @@
           destinationFallbackRows: fallbackRows || []
         });
       }
+      function computeAllPatchRows(profile, slug, rowsByFile, codes, fallbackRows, radiusMi) {
+        var viewProfile = Number.isFinite(radiusMi)
+          ? Object.assign({}, profile, { tierBaseRadiusMi: radiusMi })
+          : profile;
+        return BL.computeChaseViews(viewProfile, {
+          rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
+          seen: {}, ownName: '', snapshotDate: todayStr(), watch: {},
+          home: getHome(), dailyDriveMi: profile.dailyDriveMi,
+          travelCfg: profile.travelCfg || null,
+          hotspots: cachedHotspots(profile),
+          destinationFallbackRows: fallbackRows || []
+        });
+      }
       function destinationFallbackRows(profile) {
         var p = profile || chaseProfile();
         if (!p.stateCode) return Promise.resolve([]);
@@ -13247,7 +13327,13 @@
             // reason this could not be a static fetch plan.
             var phaseOneCv = compute(null);
             var codes = BL.speciesTargetCodes(phaseOneCv.unseenAll);
-            var targetCodes = chasePhase2Codes(phaseOneCv, feeds.length);
+            // Ten is the first safe rate-window batch, not a product cap.
+            // fetchBatched continues through the shared background limiter,
+            // which preserves the interactive reserve while later windows
+            // fill public leads for the rest of the visible target list.
+            var phase2Budget = BL.SPECIES_FEED_MAX;
+            var targetCodes = chasePhase2Codes(
+              phaseOneCv, feeds.length, phase2Budget);
             var spFeeds = BL.planSpeciesFeeds(profile, targetCodes);
 
             // RESOLVE HERE, on phase 1. Not "publish and keep waiting".
@@ -13299,7 +13385,6 @@
             // complaint: one `ref/hotspot/geo` call, minutes behind the wave.
             var attemptedSpecies = {};
             var targetGeneration = _chaseTargetGeneration;
-            var phase2Budget = chasePhase2Max(feeds.length);
             var phase2Work = {
               label: 'Bird Gen phase-two enrichment',
               current: function () {
@@ -13332,7 +13417,8 @@
                 applyFetchResults(spResults);
                 var currentCv = compute(null);
                 var currentCodes = BL.speciesTargetCodes(currentCv.unseenAll);
-                var currentTargets = chasePhase2Codes(currentCv, feeds.length);
+                var currentTargets = chasePhase2Codes(
+                  currentCv, feeds.length, phase2Budget);
                 if (expectedTargetGeneration !== _chaseTargetGeneration
                     || !sameTargetCodes(targetCodes, currentTargets)) {
                   dbg('net', 'phase 2 target plan changed · '
@@ -13898,8 +13984,21 @@
       // labelled. `speciesUrl` and `hotspotUrl` are unchanged for exactly that.
       function stakeSpeciesLink(name, code) {
         if (!code) return esc(name || '');
-        return '<a class="splink" data-sp="' + esc(code) + '" data-spname="'
-          + esc(name || code) + '">' + esc(name || code) + '</a>';
+        var target = stakeSpeciesTarget(code, name);
+        return '<a class="splink" data-sp="' + esc(target.code) + '" data-spname="'
+          + esc(target.name) + '">' + esc(name || code) + '</a>';
+      }
+      function stakeSpeciesTarget(code, name) {
+        var seed = window.__SEED_BIRDLIST__ || {};
+        var parentOf = seed.reportAsParents || seed.domesticParents || {};
+        var normalCode = String(code || '').toLowerCase();
+        var parent = resolveSpecies(normalCode, parentOf);
+        return {
+          code: parent || normalCode,
+          name: parent && parent !== normalCode
+            ? (baseSpeciesName(name) || parent)
+            : (name || code)
+        };
       }
       function stakeHotspotLink(locId, name) {
         if (!locId) return esc(name || '');
@@ -15994,7 +16093,7 @@
       // BL.toRenderDest is the parity-tested display projection; it intentionally
       // carries only what the golden fixtures compare. The report also links each
       // species and the hotspot itself, so re-attach the species codes here.
-      function toDest(cluster) {
+      function toDest(cluster, includeSeen) {
         var d = BL.toRenderDest(cluster);
         // ONE DEFINITION OF SEEN, APPLIED HERE.
         //
@@ -16013,8 +16112,20 @@
         // of the section entirely, which is what renderDestinations already
         // does with a zero.
         var isSeen = seenResolver();
+        var seenSpecies = [];
         d.species = (cluster.species || [])
-          .filter(function (s) { return !isSeen(s.code, s.name); })
+          .filter(function (s) {
+            var hit = isSeen(s.code, s.name);
+            if (includeSeen && hit) {
+              seenSpecies.push({
+                comName: s.name, code: s.code, count: s.count,
+                dateStr: s.dateStr, subId: s.subId, rare: 0,
+                tag: String(s.dateStr || '').slice(0, 10) === todayStr()
+                  ? 'Seen today' : 'Seen'
+              });
+            }
+            return !hit;
+          })
           .map(function (s) {
             // count, dateStr and subId were being dropped here, which is why a
             // destination row showed a name and nothing else - no count, no
@@ -16023,8 +16134,9 @@
             // carrying them across.
             return { comName: s.name || s.code || 'Unknown species', code: s.code || '',
                      rare: s.kind === 'Rarity', count: s.count,
-                     dateStr: s.dateStr || '', subId: s.subId || '' };
+                     dateStr: s.dateStr || '', subId: s.subId || ''                      };
           });
+        if (includeSeen) d.seenSpecies = seenSpecies;
         // The rarity count is a count OF THOSE SPECIES, so it has to be
         // recounted too — otherwise the card says "2 rarities" over a list
         // holding none, which is the same bug wearing a different number.
@@ -16772,6 +16884,7 @@
         });
       }
       function renderDestinations(list, mapEl, listEl, deferHydration) {
+        var includeSeen = arguments.length > 4 && arguments[4];
         // A hotspot with NO unseen birds is not a destination. The ranking is
         // by target count, so a zero lands at the bottom rather than being
         // excluded — but "0 targets" is a row that answers the section's own
@@ -16779,7 +16892,8 @@
         // It happens whenever the feed knows a hotspot is active but every
         // species it has reported is already on your year list.
         list = (list || []).filter(function (d) {
-          return d && d.species && d.species.length > 0;
+          return d && d.species && (d.species.length > 0
+            || (includeSeen && d.seenSpecies && d.seenSpecies.length > 0));
         });
         renderMap(mapEl, list, anchorPoint(), false);
         listEl.innerHTML = '';
@@ -16803,9 +16917,12 @@
               d.travelNote || d.travelLabel || '',
               BL.yieldBand(d.score, _scores),
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
-              d.species.length + ' target' + (d.species.length === 1 ? '' : 's')
+              d.species.length + ' target' + (d.species.length === 1 ? '' : 's'),
+              includeSeen && d.seenSpecies && d.seenSpecies.length
+                ? d.seenSpecies.length + ' already seen' : ''
             ],
-            species: d.species
+            species: d.species,
+            seenSpecies: includeSeen ? (d.seenSpecies || []) : null
           }));
         });
         if (deferHydration) return;
@@ -16882,6 +16999,51 @@
         return patchFeedIssue(c)
           ? ' · Cached results shown — refresh could not reach all eBird feeds'
           : ' · updated ' + nowTime();
+      }
+      var PATCH_SPECIES_FILTER_KEY = 'ebird_patch_species_filter_v1';
+      var _patchRepaints = {};
+      function patchSpeciesFilter() {
+        try {
+          return localStorage.getItem(PATCH_SPECIES_FILTER_KEY) === 'all'
+            ? 'all' : 'unseen';
+        } catch (e) { return 'unseen'; }
+      }
+      function setPatchSpeciesFilter(value) {
+        try {
+          localStorage.setItem(PATCH_SPECIES_FILTER_KEY,
+            value === 'all' ? 'all' : 'unseen');
+        } catch (e) {}
+      }
+      function renderPatchSpeciesFilters() {
+        [
+          ['destSpeciesFilter', 'destPatchSpeciesScope'],
+          ['excSpeciesFilter', 'excPatchSpeciesScope'],
+          ['fullDaySpeciesFilter', 'fullDayPatchSpeciesScope']
+        ].forEach(function (pair) {
+          var host = $(pair[0]);
+          if (!host) return;
+          host.innerHTML = ToggleControls.group({
+            id: pair[1],
+            cls: 'raritypick',
+            label: 'Filter patch birds by year-list need',
+            options: [
+              { label: 'Unseen', cls: 'patchSpeciesFilterBtn',
+                data: { scope: 'unseen' }, pressed: patchSpeciesFilter() === 'unseen' },
+              { label: 'All', cls: 'patchSpeciesFilterBtn',
+                data: { scope: 'all' }, pressed: patchSpeciesFilter() === 'all' }
+            ]
+          });
+        });
+        [].slice.call(document.querySelectorAll('.patchSpeciesFilterBtn')).forEach(
+          function (button) {
+            button.addEventListener('click', function () {
+              setPatchSpeciesFilter(button.getAttribute('data-scope'));
+              renderPatchSpeciesFilters();
+              Object.keys(_patchRepaints).forEach(function (key) {
+                _patchRepaints[key]();
+              });
+            });
+          });
       }
 
       // The anchor moves; the DATA cannot follow it.
@@ -16976,25 +17138,36 @@
           if (c.rarity) { rarityRedirect(st); return; }
           var minRows = (c.cv && c.cv.destinationMinRows) || DEST_THIN_ROWS;
           function paint(dests, deferHydration) {
+            var allCv = computeAllPatchRows(
+              p, p.slug, c.rows || {}, c.speciesCodes || [], currentFallback,
+              c.cv.destRadiusMi);
+            var allDests = rerankFromAnchor((allCv.destinations || []).map(function (row) {
+              return toDest(row, true);
+            }));
+            var showingAll = patchSpeciesFilter() === 'all';
+            var shown = showingAll ? allDests : dests;
             var thin = $('destThin');
             if (thin) thin.parentNode.removeChild(thin);
-            renderDestinations(dests, $('destMap'), $('destResults'), deferHydration);
+            renderDestinations(shown, $('destMap'), $('destResults'), deferHydration, showingAll);
             results.setAttribute('data-patch-context', contextKey);
             var base = getReport().dailyDriveMi || BL.CONST.DAILY_DRIVE_MI;
             var rad = destRadiusMi();
-            var older = dests.filter(function (d) {
+            var older = shown.filter(function (d) {
               return Number.isFinite(d.fallbackEvidenceDays);
             }).length;
-            if (dests.length < minRows || rad > base || older) {
+            if (shown.length < minRows || rad > base || older) {
               $('destResults').insertAdjacentHTML('afterend',
                 destinationScopeDisclosure(rad, base, older, minRows));
             }
-            st.textContent = dests.length + ' hotspot' + (dests.length === 1 ? '' : 's')
+            st.textContent = shown.length + ' hotspot' + (shown.length === 1 ? '' : 's')
+              + (showingAll ? ' with current bird evidence' : ' with an unseen bird')
               + fromHere() + ' · best first, not nearest' + coverageNote(dests)
               + patchFreshness(c);
+            _patchRepaints.today = function () { paint(dests, false); };
           }
-          var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           var p = c.profile || chaseProfile();
+          var currentFallback = [];
+          var dests = rerankFromAnchor(c.cv.destinations.map(toDest));
           var useFallback = p.stateCode === 'US-HI'
             && dests.length < minRows;
           paint(dests, useFallback);
@@ -17003,6 +17176,7 @@
             + (dests.length === 1 ? '' : 's') + ' found · ' : '')
             + 'checking up to 30 days of older public-hotspot evidence…';
           return destinationFallbackRows(p).then(function (fallback) {
+            currentFallback = fallback;
             var cv = computeChaseRows(
               p, p.slug, c.rows || {}, c.speciesCodes || [], fallback);
             paint(rerankFromAnchor(cv.destinations.map(toDest)), false);
@@ -17092,9 +17266,19 @@
             : ' · ⚠️ some county bounds failed; refresh to retry';
           var feedIssue = patchFeedIssue(c);
           function paint(finalRows, usedFallback) {
-            renderDestinations(finalRows, map, results);
+            var allCv = computeAllPatchRows(
+              c.profile, c.profile.slug, c.rows || {}, c.speciesCodes || [],
+              currentFallback, c.cv.destRadiusMi);
+            var allSource = bandId === 'full' ? allCv.fullDay : allCv.excursions;
+            var allRows = rerankFromAnchor((allSource || []).map(function (row) {
+              return toDest(row, true);
+            }));
+            var showingAll = patchSpeciesFilter() === 'all';
+            var shown = showingAll ? allRows : finalRows;
+            renderDestinations(shown, map, results, false, showingAll);
             results.setAttribute('data-tier-context', contextKey);
-            if (!finalRows.length) {
+            _patchRepaints[bandId] = function () { paint(finalRows, usedFallback); };
+            if (!shown.length) {
               if (feedIssue) {
                 st.textContent = 'Incomplete ' + label.toLowerCase()
                   + ' answer — some observation feeds are unavailable'
@@ -17107,12 +17291,15 @@
                 + ' · ' + scope + partial + '.';
               return;
             }
-            st.textContent = finalRows.length + ' ' + label.toLowerCase() + ' option'
-              + (finalRows.length === 1 ? '' : 's') + fromHere()
+            st.textContent = shown.length + ' ' + label.toLowerCase() + ' option'
+              + (shown.length === 1 ? '' : 's')
+              + (showingAll ? ' with current bird evidence' : ' with an unseen bird')
+              + fromHere()
               + ' · ' + scope + partial
               + (feedIssue ? ' · Cached results shown — refresh could not reach all eBird feeds'
                            : ' · updated ' + nowTime());
           }
+          var currentFallback = [];
           if (c.profile.stateCode !== 'US-HI' || rows.length >= minRows) {
             paint(rows, false);
             return;
@@ -17124,6 +17311,7 @@
             + (rows.length === 1 ? '' : 's') + ' shown · ' : '')
             + 'still checking up to 30 days of older public-hotspot evidence…';
           return destinationFallbackRows(c.profile).then(function (fallback) {
+            currentFallback = fallback;
             var cv = computeChaseRows(c.profile, c.profile.slug,
               c.rows || {}, c.speciesCodes || [], fallback);
             var filledSource = bandId === 'full' ? cv.fullDay : cv.excursions;
@@ -24457,7 +24645,7 @@
       // Ranked by LOCATION-DAYS, not raw report count, exactly as the report
       // does: a bird reported from eight different places is one you can go
       // and get, while eight reports from one feeder is one lucky yard.
-      var EASY_MISS_DAYS = 30, EASY_MISS_MIN_FREQ = 0.40, EASY_MISS_TOP = 25;
+      var EASY_MISS_DAYS = 30, EASY_MISS_MIN_FREQ = 0.40, EASY_MISS_BATCH = 25;
       // The 40% bar is right in January and wrong in August: by mid-year the
       // common birds ARE on your year list, so an absolute threshold quietly
       // turns the highest hit-rate section in the report into two rows. Widen
@@ -24717,7 +24905,6 @@
           kept = rows.filter(function (r) { return r.freq >= bar; });
           if (kept.length >= EASY_MISS_MIN_ROWS) break;
         }
-        kept = kept.slice(0, EASY_MISS_TOP);
         kept.minFreq = bar;
         return kept;
       }
@@ -24801,7 +24988,7 @@
       // reorder a list already in memory, which is the opposite of what a
       // toggle is for.
       var _easySort = 'freq';
-      var _easyRows = null, _easyDays = 0;
+      var _easyRows = null, _easyDays = 0, _easyVisible = EASY_MISS_BATCH;
       function easySortRows(rows) {
         var out = rows.slice();
         if (_easySort === 'dist') {
@@ -24848,15 +25035,24 @@
           var mine = id === 'easyByDist' ? 'dist' : id === 'easyByDate' ? 'date' : 'freq';
           b.setAttribute('aria-pressed', String(mine === _easySort));
         });
-        if (_easyRows) renderEasyMisses(_easyRows, _easyDays);
+        if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
       }
-      function renderEasyMisses(rows, totalDays) {
+      function renderEasyMisses(rows, totalDays, keepVisible) {
         var box = $('easyResults');
         // Remembered so a sort tap re-renders from data already in hand.
         _easyRows = rows; _easyDays = totalDays;
         var sortRow = $('easySortRow');
         if (sortRow) sortRow.hidden = !(rows && rows.length);
+        if (!keepVisible) _easyVisible = EASY_MISS_BATCH;
         if (rows && rows.length) rows = easySortRows(rows);
+        var totalRows = rows ? rows.length : 0;
+        if (rows && rows.length) rows = rows.slice(0, _easyVisible);
+        var more = $('easyMore');
+        if (more) {
+          more.hidden = _easyVisible >= totalRows;
+          more.textContent = 'Show ' + Math.min(EASY_MISS_BATCH,
+            Math.max(0, totalRows - _easyVisible)) + ' more';
+        }
         if (!rows || !rows.length) {
           box.innerHTML = '<div class="status">Nothing common is missing — every bird reported on at least '
             + Math.round(EASY_MISS_WIDEN_FREQ[EASY_MISS_WIDEN_FREQ.length - 1] * 100) + '% of the last ' + totalDays
@@ -33245,6 +33441,11 @@
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
+      $('easyMore').addEventListener('click', function () {
+        _easyVisible += EASY_MISS_BATCH;
+        if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
+      });
+      renderPatchSpeciesFilters();
       ['easyByFreq', 'easyByDate', 'easyByDist'].forEach(function (id) {
         var b = $(id);
         if (b) b.addEventListener('click', function () {
@@ -34238,7 +34439,7 @@
         },
         seedChase: function (slug, res) { _chase[slug] = res; },
         getChase: getChase, clearChaseCache: clearChaseCache,
-        computeChaseRows: computeChaseRows,
+        computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,
       seenCodesForRows: seenCodesForRows,
       chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },

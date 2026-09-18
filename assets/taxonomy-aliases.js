@@ -1,9 +1,9 @@
 'use strict';
 
-function domesticReportAs(rows) {
+function reportAsParents(rows) {
   const pairs = [];
   (rows || []).forEach(function (row) {
-    if (!row || String(row.category || '').toLowerCase() !== 'domestic') return;
+    if (!row) return;
     const child = String(row.speciesCode || '').trim().toLowerCase();
     const parent = String(row.reportAs || '').trim().toLowerCase();
     if (child && parent && child !== parent) pairs.push([child, parent]);
@@ -14,4 +14,4 @@ function domesticReportAs(rows) {
   return out;
 }
 
-module.exports = { domesticReportAs };
+module.exports = { reportAsParents };
