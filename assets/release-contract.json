@@ -63,12 +63,12 @@
       "(?:pacific|atlantic|indian|arctic|southern)"
     ],
     "seed-birdlist.js": [
-      "\"domesticParents\"",
+      "\"reportAsParents\"",
       "\"redjun1\":\"redjun\"",
       "\"mallar2\":\"mallar3\""
     ],
     "seed-birdlist.json": [
-      "\"domesticParents\"",
+      "\"reportAsParents\"",
       "\"rocpig1\":\"rocpig\"",
       "\"musduc3\":\"musduc\""
     ],

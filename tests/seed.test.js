@@ -177,6 +177,12 @@ test('F416 reportAs aliases preserve forms while satisfying parent species', () 
   assert.ok(RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.js')
     && RELEASE_CONTRACT.requiredFiles.includes('seed-birdlist.json'),
   'the IPA contract requires both reportAs-alias seed forms');
+  assert.ok(
+    (RELEASE_CONTRACT.requiredText['seed-birdlist.js'] || [])
+      .includes('"reportAsParents"')
+    && (RELEASE_CONTRACT.requiredText['seed-birdlist.json'] || [])
+      .includes('"reportAsParents"'),
+  'the IPA contract verifies the current reportAs alias key');
   assert.ok((RELEASE_CONTRACT.requiredText['index.html'] || [])
     .includes('finishReportSeen'),
   'the IPA contract requires the runtime seen-set expansion');
