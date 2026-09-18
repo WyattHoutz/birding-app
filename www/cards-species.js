@@ -144,11 +144,11 @@
     '  min-width: calc(34px * var(--s)); min-height: calc(34px * var(--s));',
     '  font-size: calc(22px * var(--s)); line-height: 1; font-weight: 700;',
     '  color: var(--accent); text-decoration: none; }',
-    /* Controls sit on their own action row: squeezing an icon beside an
-       unknown-length species name is how a 44px target steals the title's
-       last readable word. `actions` is empty in ordinary scan lists. */
-    '.spact { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;',
-    '  align-items: center; }',
+    /* Actions ride the title line as compact badges. This rule loads after
+       qr.js, so making it `display:flex` changed the inline wrapper back into
+       a block-level flex box and forced the QR onto a new line on-device. */
+    '.spact { display: inline-flex; align-items: center; vertical-align: middle;',
+    '  margin-left: 6px; gap: 8px; }',
     /* The small card's optional SECOND line: what the row is (the name) stays
        on top, and what backs it up (count, time, checklist) drops below at
        caption weight. The icon box is 46px, which two lines of this size fit

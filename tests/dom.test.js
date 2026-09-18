@@ -5318,6 +5318,35 @@ test('F420 Nemesis and Open-target cards progressively append places in one list
   app.window.close();
 });
 
+test('F422 the species QR action stays on the bird-name line', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const host = app.document.createElement('ul');
+  host.className = 'obs big xl icon-sm';
+  host.innerHTML = A.speciesPlacesCard({
+    code: 'javspa',
+    name: 'Java Sparrow',
+    distMi: 0.5,
+    places: [{
+      loc: 'Waikoloa Skatepark', locId: 'L1',
+      lat: 19.9, lon: -155.8, distMi: 0.5,
+      dateStr: '2026-09-17 13:01', nReports: 1,
+      checklists: [{ subId: 'S1', dateStr: '2026-09-17 13:01' }],
+    }],
+  });
+  app.document.body.appendChild(host);
+
+  const name = host.querySelector('.name > .ntext');
+  const action = name && name.querySelector(':scope > .spact');
+  assert.ok(action && action.querySelector('.qrbtn'),
+    'the QR action is not a direct child of the bird-name text row');
+  assert.equal(app.window.getComputedStyle(action).display, 'inline-flex',
+    'the species-card stylesheet turned the inline QR wrapper into a new flex line');
+  assert.equal(app.window.getComputedStyle(action).marginTop, '0px',
+    'the QR action retains the old action-row top margin');
+  app.window.close();
+});
+
 // Easy misses hand-rolled its own row markup and so drifted into a different
 // card, a different place list and a "#N" rank badge. The card system's rule is
 // that no section rolls its own bird row; this is that rule one layer up.
@@ -9771,7 +9800,7 @@ test('F309 refreshing Bird Gen preserves current cards while feeds update', asyn
   app.window.close();
 });
 
-test('F350 Bird Gen starts one Mega refresh before optional sources and paints loading immediately', async () => {
+test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress', async () => {
   const app = await boot();
   const A = app.window.__app;
   let resolveMega;
@@ -9820,11 +9849,22 @@ test('F350 Bird Gen starts one Mega refresh before optional sources and paints l
   assert.match(box.querySelector('[data-surge-visible-count]').textContent,
     /0 loaded alerts/i,
     'pending source work was presented as a definitive zero-alert result');
+  await waitFor(() => {
+    return box.dataset.sourceLeaderboard !== 'loading'
+      && box.dataset.sourceHotspots !== 'loading';
+  }, 'the optional Bird Gen sources to settle around the held Mega refresh');
+  const progress = box.querySelector('.surgesourceprogress[role="progressbar"]');
+  assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
+  assert.equal(progress.getAttribute('aria-valuenow'), '3');
+  assert.equal(progress.getAttribute('aria-valuemax'), '4');
+  assert.match(progress.textContent, /3 of 4 complete/i);
 
   resolveMega();
   await waitFor(() => box.dataset.sourceMega === 'ok',
     'the completed Mega snapshot to repaint Bird Gen');
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
+  assert.equal(box.querySelector('.surgesourceprogress'), null,
+    'the completed Bird Gen load retained a stale progress bar');
   app.window.close();
 });
 
@@ -32139,7 +32179,7 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
   app.window.close();
 });
 
-test('F413 Hawaii Full-day reuses cached daily public-hotspot evidence at zero calls', async () => {
+test('F421 Hawaii Full-day accepts the installed state hotspot index for cached daily evidence', async () => {
   const now = new Date();
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 4, 12);
   const stamp = [
@@ -32186,10 +32226,15 @@ test('F413 Hawaii Full-day reuses cached daily public-hotspot evidence at zero c
     fetchBaseKey: A.chaseFetchBaseKey(profile),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
   });
-  A.ebRefPut('ref/hotspot/US-HI-001?fmt=json', [
-    { locId: 'L-hilo-cache', locName: 'Hilo gardens' },
-    { locId: 'L-volcano-cache', locName: 'Volcano Steam Vents' },
-  ]);
+  app.window.localStorage.setItem('ebird_hotspots_v2:US-HI', JSON.stringify({
+    at: Date.now(),
+    rows: [
+      { locId: 'L-hilo-cache', locName: 'Hilo gardens' },
+      { locId: 'L-volcano-cache', locName: 'Volcano Steam Vents' },
+    ],
+  }));
+  assert.equal(A.ebRefGet('ref/hotspot/US-HI-001?fmt=json'), null,
+    'the control accidentally warmed the bc_ref cache F413 already covered');
   await A.zcPut(
     A.easyCacheKey('US-HI-001', day, 'hi'),
     A.easyCompact(cached),
@@ -32212,7 +32257,7 @@ test('F413 Hawaii Full-day reuses cached daily public-hotspot evidence at zero c
   assert.match(text, /Hilo gardens/);
   assert.match(text, /Volcano Steam Vents/);
   assert.doesNotMatch(text, /Private backyard/,
-    'daily history admitted a personal location not present in the public-hotspot directory');
+    'daily history admitted a personal location absent from the installed hotspot index');
   assert.equal(requested.filter((url) => /\/historic\//.test(url)).length, 0,
     'reusing cached daily history spent new eBird calls');
   assert.equal(requested.filter((url) =>

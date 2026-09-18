@@ -719,6 +719,12 @@
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
     #loadBarActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #loadBarActions button { min-height: 40px; }
+    .surgesourceprogress { margin: 10px 0; }
+    .surgesourceprogress .track { height: 6px; border-radius: 999px; overflow: hidden;
+                                 background: color-mix(in srgb, var(--accent) 18%, transparent); }
+    .surgesourceprogress .fill { height: 100%; background: var(--accent);
+                                border-radius: 999px; transition: width .35s ease; }
+    .surgesourceprogress .label { margin-top: 5px; font-size: calc(12px * var(--s)); }
     /* "Who added it" as one sentence rather than a row per birder. The table
        version was the tallest thing on the card and the least scanned. */
     .wholine { font-size: calc(14px * var(--s)); line-height: 1.45; margin: 8px 0 0; }
@@ -3535,7 +3541,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.112.0';
+      var APP_VERSION = '1.113.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -14165,16 +14171,39 @@
           + '</svg></span>';
       }
 
-      // The county hotspot lists, from the persistent reference cache ONLY.
-      // `ref/hotspot/{county}` matches EB_REF_RE, so once any section has
-      // fetched it, it is on disk for a week and this costs nothing. Returns
-      // [] when nothing is cached rather than fetching, because the caller
-      // (the chase wave) must not grow a new request.
+      // Public-hotspot directories already held by either cache owner.
+      //
+      // The chase wave stores `ref/hotspot/{county}` in bc_ref. Hotspot search,
+      // Stakeout Patch and Iconic Patches store the same directory under
+      // `ebird_hotspots_v2:{state}`. F413 only read the first owner, so a
+      // device with daily history plus the ordinary state hotspot index still
+      // could not prove those historic rows were public and rendered empty.
+      //
+      // Returns [] rather than fetching when neither owner has a directory:
+      // this shared reader must never grow the chase wave by a request.
       function cachedHotspots(profile) {
-        var out = [];
+        var out = [], seen = {};
+        function add(rows) {
+          (rows || []).forEach(function (hotspot) {
+            if (!hotspot || !hotspot.locId || seen[hotspot.locId]) return;
+            seen[hotspot.locId] = 1;
+            out.push(hotspot);
+          });
+        }
         ((profile && profile.counties) || []).forEach(function (c) {
-          var v = ebRefGet('ref/hotspot/' + encodeURIComponent(c.code) + '?fmt=json');
-          if (Array.isArray(v)) out = out.concat(v);
+          add(ebRefGet('ref/hotspot/' + encodeURIComponent(c.code) + '?fmt=json'));
+        });
+        var regions = [];
+        if (profile && profile.stateCode) regions.push(profile.stateCode);
+        ((profile && profile.counties) || []).forEach(function (c) {
+          if (c && c.code && regions.indexOf(c.code) < 0) regions.push(c.code);
+        });
+        regions.forEach(function (region) {
+          try {
+            var cached = JSON.parse(
+              localStorage.getItem(hotspotCacheKey(region)) || 'null');
+            if (cached && Array.isArray(cached.rows)) add(cached.rows);
+          } catch (e) {}
         });
         return out;
       }
@@ -27882,6 +27911,23 @@
           + esc(unavailable.join('; ')) + '. Results use only sources that loaded.</div>';
       }
 
+      function surgeSourceProgress(states) {
+        var keys = Object.keys(SURGE_SOURCE_LABELS);
+        var pending = keys.filter(function (key) {
+          return ['loading', 'partial', 'stale', 'notLoaded']
+            .indexOf(states[key]) >= 0;
+        });
+        if (!pending.length) return '';
+        var done = keys.length - pending.length;
+        var pct = Math.round(done * 100 / keys.length);
+        return '<div class="surgesourceprogress" role="progressbar"'
+          + ' aria-label="Loading Bird Gen sources" aria-valuemin="0"'
+          + ' aria-valuemax="' + keys.length + '" aria-valuenow="' + done + '">'
+          + '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>'
+          + '<div class="label">Loading Bird Gen sources · ' + done + ' of '
+          + keys.length + ' complete</div></div>';
+      }
+
       function markSurgeSourceStates(box, states) {
         box.setAttribute('data-sources-complete',
           surgeSourcesComplete(states) ? 'true' : 'false');
@@ -28392,6 +28438,7 @@
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
         var sourceWarning = surgeSourceWarning(sourceStates);
+        var sourceProgress = surgeSourceProgress(sourceStates);
         markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length && !topPatches.length) {
@@ -28405,7 +28452,7 @@
             + (surgeSourcesComplete(sourceStates) ? '0 alerts' : '0 loaded alerts')
             + '</span></div>'
             + laneHelpBtn('feed') + '</div>'
-            + sourceWarning + (surgeSourcesComplete(sourceStates)
+            + sourceWarning + sourceProgress + (surgeSourcesComplete(sourceStates)
             ? '<div class="status">Nothing you need has been reported within '
               + chaseMaxMi() + ' mi in the last ' + BL.FRESH_HOURS + ' hours; no eligible '
               + 'ABA Code 3+ mega is news today; and nothing is drawing a crowd, cascading '
@@ -28629,7 +28676,7 @@
           + (rows.length === 1 ? '' : 's') + '</span>'
           + '<span class="surgehidden" data-surge-hidden-count></span></div>'
           + laneHelpBtn('feed') + '</div>'
-          + sourceWarning + surgeCountHtml(rows)
+          + sourceWarning + sourceProgress + surgeCountHtml(rows)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'
           + ' data-unified-alert-feed="true">'
           + rows.map(function (row) { return surgeAlertCard(row, order++); }).join('')
