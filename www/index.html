@@ -3551,7 +3551,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.114.0';
+      var APP_VERSION = '1.115.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5028,31 +5028,27 @@
       function saveOwnSeenCodes(slug, codes) {
         var key = ownSeenKey(slug);
         var payload = JSON.stringify(codes);
+        var lastError = null, freedTotal = 0;
         function write() {
           localStorage.setItem(key, payload);
           return localStorage.getItem(key) === payload;
         }
-        try {
-          if (write()) return true;
-        } catch (e) {
-          if (!freeCacheSpace(60)) {
-            dbg('warn', 'owned bird list not saved (' + key + ', '
-              + Math.round(payload.length / 1024) + ' KB): '
-              + (e && e.name || 'storage error') + ' · store holds '
-              + storeComposition());
-            var failed = new Error('Owned bird list could not be saved');
-            failed.ownSeenPersistence = true;
-            throw failed;
+        while (true) {
+          try {
+            if (write()) return true;
+            lastError = new Error('storage verification failed');
+          } catch (e) {
+            lastError = e;
           }
+          var freed = freeCacheSpace(60);
+          if (!freed) break;
+          freedTotal += freed;
         }
-        try {
-          if (write()) return true;
-        } catch (e2) {
-          dbg('warn', 'owned bird list not saved after cache eviction (' + key
-            + ', ' + Math.round(payload.length / 1024) + ' KB): '
-            + (e2 && e2.name || 'storage error') + ' · store holds '
-            + storeComposition());
-        }
+        dbg('warn', 'owned bird list not saved'
+          + (freedTotal ? ' after evicting ' + freedTotal + ' cached items' : '')
+          + ' (' + key + ', ' + Math.round(payload.length / 1024) + ' KB): '
+          + (lastError && lastError.name || 'storage error') + ' · store holds '
+          + storeComposition());
         var failedRetry = new Error('Owned bird list could not be saved');
         failedRetry.ownSeenPersistence = true;
         throw failedRetry;
@@ -29658,12 +29654,14 @@
       function myYearFreshnessHtml() {
         if (_myYearRefreshState === 'checking') {
           if (_myYearRefreshKind === 'lifelist') {
-            return '<div class="hint" id="myYearFreshness"><b>Still updating.</b> '
+            return '<div class="hint" id="myYearFreshness" role="status" aria-live="polite">'
+              + '<b>Still updating. <span class="loadingdots" aria-hidden="true">\u2026</span></b> '
               + 'Reading your ' + esc(getReport().label) + ' year list straight '
               + 'from eBird now; the rows already shown remain available while '
               + 'that finishes.</div>';
           }
-          return '<div class="hint" id="myYearFreshness"><b>Still updating.</b> '
+          return '<div class="hint" id="myYearFreshness" role="status" aria-live="polite">'
+            + '<b>Still updating. <span class="loadingdots" aria-hidden="true">\u2026</span></b> '
             + 'Checking your recent eBird checklists now; the rows already shown '
             + 'remain available while that finishes.</div>';
         }
@@ -29686,11 +29684,16 @@
         var old = $('myYearFreshness');
         if (old) old.remove();
         var html = myYearFreshnessHtml();
-        if (html) el.insertAdjacentHTML('beforeend', html);
+        if (html) el.insertAdjacentHTML('afterbegin', html);
       }
       function myYearDataSignature() {
         return getReportSlug() + '|' + JSON.stringify(ownSeenCodes()) + '|'
           + JSON.stringify(reportYearList());
+      }
+      function myYearViewIsCurrent() {
+        var list = $('myYearList');
+        return !!(list && list.querySelector('.yrnum')
+          && list.getAttribute('data-my-year-report') === getReportSlug());
       }
       function loadMyYear() {
         takeForce();
@@ -29700,7 +29703,8 @@
         var before = myYearDataSignature();
         _myYearRefreshKind = owner ? 'lifelist' : 'checklists';
         _myYearRefreshState = 'checking';
-        paintMyYearFreshness();
+        if (myYearViewIsCurrent()) paintMyYearFreshness();
+        else updateMyYear();
         var refresh = owner
           ? tryLifelistYear(owner).then(function (n) {
               if (n === LIFELIST_COMPLETE_EMPTY || n >= LIFELIST_MIN_ROWS) return n;
@@ -29733,6 +29737,7 @@
       }
       function updateMyYear() {
         var el = $('myYearBody'), list = $('myYearList');
+        if (list) list.setAttribute('data-my-year-report', getReportSlug());
         if (list && list.parentNode) {
           Array.prototype.forEach.call(
             list.parentNode.querySelectorAll('.myYearExtras'),
@@ -29753,8 +29758,8 @@
         var hasBundledReportList = usesBundledSeed()
           && reportSeed && Array.isArray(reportSeed.yearList);
         if (!entries.length && !meta) {
-          el.innerHTML = 'Import your eBird CSV in Settings to see your totals.'
-            + myYearFreshnessHtml();
+          el.innerHTML = myYearFreshnessHtml()
+            + 'Import your eBird CSV in Settings to see your totals.';
           return;
         }
         var html = '';
@@ -29797,8 +29802,7 @@
             : '<div class="bignum">' + esc(meta.count) + ' <small>species logged</small></div>' +
               '<div class="meta">' + (isSeed ? 'bundled sample data' : 'from ' + esc(meta.rows) + ' observations · imported ' + esc(fmtDate(meta.date))) + '</div>';
         }
-        el.innerHTML = html;
-        el.innerHTML += myYearFreshnessHtml();
+        el.innerHTML = myYearFreshnessHtml() + html;
         // The harvest cannot identify your checklists without your eBird
         // display name, and until now it returned 0 and said nothing — so a
         // list that never grew looked exactly like a list with nothing to add.

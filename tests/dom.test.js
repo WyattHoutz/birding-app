@@ -22735,10 +22735,19 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
     });
   };
 
+  app.$('myYearBody').innerHTML = '<div>Hawaii · 38 species in 2026</div>';
+  app.$('myYearList').innerHTML = '<li>stale Hawaii bird</li>';
   const loading = A.LOADERS.myYearBody.fn();
   assert.ok(loading && typeof loading.then === 'function',
     'the ABA refresh detached its signed-in year-list request');
   await waitFor(() => releaseCsv, 'the ABA year-list request to start', 2000);
+  assert.match(app.$('myYearBody').textContent.trim(),
+    /^Still updating\..*Reading your ABA Area year list/is,
+    'F425 the active ABA loader is not the first visible My Year List status');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /Hawaii.*38 species/is,
+    'F425 stale Hawaii summary survived after the ABA refresh started');
+  assert.doesNotMatch(app.$('myYearList').textContent, /stale Hawaii bird/i,
+    'F425 stale Hawaii cards survived after the ABA refresh started');
   assert.match(app.$('myYearBody').textContent, /reading.*ABA.*year list|still updating/i,
     'the old ABA rows looked current while the signed-in year list was pending');
   assert.equal(urls.filter((u) => /product\/lists\//.test(u)).length, 0,
@@ -23066,6 +23075,52 @@ test('F394 My Ticks reports failure instead of claiming rows an owned store reje
     /read in ONE call:.*new/,
     'My Ticks claimed fetched rows were learned before durable storage',
   );
+  app.window.Storage.prototype.setItem = original;
+  app.window.close();
+});
+
+test('F425 My Year List keeps evicting disposable cache batches until its owned list is durable', async () => {
+  const csv = [
+    'Species Code,Common Name,Date',
+    'f425a,F425 Bird A,13 Sep 2026',
+    'f425b,F425 Bird B,12 Sep 2026',
+    'f425c,F425 Bird C,11 Sep 2026',
+    'f425d,F425 Bird D,10 Sep 2026',
+    'f425e,F425 Bird E,09 Sep 2026',
+  ].join('\n');
+  const app = await boot({
+    report: 'aba',
+    sample: false,
+    storage: { ebird_display_name: 'Birder Wyatt' },
+  });
+  for (let i = 0; i < 125; i++) {
+    app.window.localStorage.setItem(`bc_ckl2:f425-${String(i).padStart(3, '0')}`,
+      JSON.stringify({ d: '2026-09-01', v: 'j:[]' }));
+  }
+  const original = app.window.Storage.prototype.setItem;
+  let blockedWrites = 0;
+  app.window.Storage.prototype.setItem = function (key, value) {
+    if (String(key).endsWith('ebird_own_seen:aba') && blockedWrites < 2) {
+      blockedWrites++;
+      throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return original.call(this, key, value);
+  };
+  app.window.fetch = () => Promise.resolve({
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: () => Promise.resolve(csv),
+    json: () => Promise.resolve(csv),
+  });
+
+  await app.window.__app.LOADERS.myYearBody.fn();
+
+  assert.equal(blockedWrites, 2,
+    'the fixture did not require more than the old single eviction batch');
+  assert.match(app.$('myYearList').textContent, /F425 Bird A/,
+    'the fetched year list did not repaint after the later durable retry');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /refresh did not finish/i,
+    'a successful later retry was still presented as a failed refresh');
   app.window.Storage.prototype.setItem = original;
   app.window.close();
 });
