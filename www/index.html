@@ -958,7 +958,7 @@
        sub-line spans both columns underneath where a full sentence fits. The
        old layout stacked all three, which is why the label had to stay small. */
     .toc .toclink { display: grid; grid-template-columns: auto minmax(0, 1fr);
-                    align-items: center; column-gap: 10px; row-gap: 6px;
+                    align-items: center; column-gap: 6px; row-gap: 6px;
                     flex: 1 1 auto; min-width: 0;
                     padding: 14px 12px; border: 1px solid var(--line);
                     border-radius: 14px; background: var(--card);
@@ -2784,13 +2784,23 @@
 
     <section class="panel">
       <h2>🦜 Big days <span class="dim" id="cklRegionLabel"></span></h2>
-      <div class="row modeswitch" data-modes="checklists" data-current="cklModeBest"></div>
       <div class="row">
         <button id="cklBtn">Load checklists</button>
       </div>
       <div id="cklStatus" class="status">Recent regional checklists ranked by species count.</div>
       <div id="cklMap"></div>
       <ul id="cklResults" class="cklcards cklcards-md"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>🕒 Recent checklists <span class="dim" id="recentRegionLabel"></span></h2>
+      <div id="recentSort"></div>
+      <div class="row">
+        <button id="recentBtn">Load recent checklists</button>
+      </div>
+      <div id="recentStatus" class="status">Every checklist returned by the selected county feeds.</div>
+      <div id="recentMap"></div>
+      <ul id="recentResults" class="cklcards cklcards-md"></ul>
     </section>
 
     <section class="panel">
@@ -3541,7 +3551,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.113.0';
+      var APP_VERSION = '1.114.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13678,7 +13688,7 @@
         points.forEach(function (p, i) {
           var x = X(p.lng), y = Y(p.lat);
           s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="11" fill="#e5484d"/>';
-          s += '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="sans-serif">' + (i + 1) + '</text>';
+          s += '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="sans-serif">' + (p.num || (i + 1)) + '</text>';
         });
         return s + '</svg>';
       }
@@ -13752,7 +13762,7 @@
           if (seq.length > 1) L.polyline(seq, { color: tone || '#e5484d', weight: 3, opacity: 0.6 }).addTo(map);
         }
         if (h) { L.marker([h.lat, h.lng], { icon: pinIcon('H', true) }).addTo(map); latlngs.push([h.lat, h.lng]); }
-        points.forEach(function (p, i) { L.marker([p.lat, p.lng], { icon: pinIcon(String(i + 1), false, tone) }).addTo(map); latlngs.push([p.lat, p.lng]); });
+        points.forEach(function (p, i) { L.marker([p.lat, p.lng], { icon: pinIcon(String(p.num || (i + 1)), false, tone) }).addTo(map); latlngs.push([p.lat, p.lng]); });
         function fit() {
           try {
             map.invalidateSize();
@@ -17478,18 +17488,36 @@
       // Costs no extra network: BL.planConvoyFeeds is the same set of
       // product/lists reads Birdiest already pays for, so the two sections
       // share one cached promise.
-      var _listsCache = null;
+      var _listsCache = null, _listsProgress = null;
       function recentLists(skipOwnHarvest, work, urgent, strict) {
         if (_listsCache) {
           if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
           return _listsCache;
         }
         var feeds = BL.planConvoyFeeds(getReport());
-        _listsCache = Promise.all(feeds.map(function (f) {
+        _listsProgress = {
+          rows: feeds.map(function () { return []; }),
+          settled: 0, total: feeds.length, listeners: []
+        };
+        function publish() {
+          var merged = [];
+          _listsProgress.rows.forEach(function (rows) {
+            if (Array.isArray(rows)) merged.push.apply(merged, rows);
+          });
+          _listsProgress.listeners.slice().forEach(function (fn) {
+            fn(merged.slice(), _listsProgress.settled, _listsProgress.total);
+          });
+        }
+        _listsCache = Promise.all(feeds.map(function (f, i) {
           return ebird(BL.requestUrl(f), false, false, false, work)
             .catch(function (e) {
               if (strict) throw e;
               return [];
+            }).then(function (rows) {
+              _listsProgress.rows[i] = Array.isArray(rows) ? rows : [];
+              _listsProgress.settled++;
+              publish();
+              return _listsProgress.rows[i];
             });
         })).then(function (results) {
           var lists = [];
@@ -17504,6 +17532,7 @@
       }
       function resetListsCache(forceNetwork) {
         _listsCache = null;
+        _listsProgress = null;
         if (!forceNetwork) return;
         BL.planConvoyFeeds(getReport()).forEach(function (f) {
           delete _ebCache[BL.requestUrl(f)];
@@ -17515,91 +17544,151 @@
       // also the only field carrying the clock time — which a section whose
       // whole premise is "what is happening right now" cannot do without.
       function sortRecentLists(lists) {
-        var bySub = {};
-        (lists || []).forEach(function (chk) {
-          var sub = chk.subId || chk.subID;
-          if (sub && !bySub[sub]) bySub[sub] = chk;
-        });
-        return Object.keys(bySub).map(function (k) { return bySub[k]; })
-          .sort(function (a, b) {
-            return String(b.isoObsDate || '').localeCompare(String(a.isoObsDate || ''));
-          });
+        return BL.recentChecklistRows(lists, getHome(), 'recent');
       }
 
-      // Two collapses of ONE cached feed, not two sections. Birdiest keeps the
-      // best checklist per hotspot ("where was the best birding this week");
-      // Newest keeps them all, in order ("what is happening right now") —
-      // three lists filed at one park this morning is itself the signal, and
-      // the Birdiest collapse destroys exactly that.
-      //
-      // It was a separate top-level section for exactly one day, which was one
-      // day too long: it shares `recentLists()` with Birdiest, so it never
-      // cost a fetch, and a view of another section's data is a MODE of that
-      // section rather than a peer to it. Birdiest stays the default because it
-      // answers the question you ask more often.
-      var cklMode = 'best';
-      function setChecklistMode(mode) {
-        cklMode = (mode === 'new') ? 'new' : 'best';
-        var b = $('cklModeBest'), n = $('cklModeNew');
-        if (b) b.setAttribute('aria-pressed', cklMode === 'best' ? 'true' : 'false');
-        if (n) n.setAttribute('aria-pressed', cklMode === 'new' ? 'true' : 'false');
-        if ($('cklStatus')) {
-          $('cklStatus').textContent = cklMode === 'new'
-            ? 'Every recent checklist in your counties, newest first.'
-            : 'Recent regional checklists ranked by species count.';
-        }
-        loadChecklists();
-      }
       function loadChecklists() {
-        return cklMode === 'new' ? loadRecentLists() : loadBirdiest();
+        return loadBirdiest();
       }
 
-      function loadRecentLists() {
-        var st = $('cklStatus'), el = $('cklResults'), btn = $('cklBtn');
+      var _recentChecklistSort = 'recent';
+      var _recentChecklistRows = [];
+      var _recentChecklistGeneration = 0;
+      function recentChecklistSort(mode) {
+        _recentChecklistSort = mode === 'distance' || mode === 'species'
+          ? mode : 'recent';
+        renderRecentChecklistSort();
+        paintRecentChecklists();
+      }
+      function renderRecentChecklistSort() {
+        var host = $('recentSort');
+        if (!host) return;
+        host.innerHTML = ToggleControls.group({
+          id: 'recentSortPick',
+          label: 'Order recent checklists',
+          options: [
+            { label: 'Distance', data: { sort: 'distance' },
+              pressed: _recentChecklistSort === 'distance' },
+            { label: 'Recent', data: { sort: 'recent' },
+              pressed: _recentChecklistSort === 'recent' },
+            { label: 'Species count', data: { sort: 'species' },
+              pressed: _recentChecklistSort === 'species' }
+          ]
+        });
+        host.querySelectorAll('.sortbtn').forEach(function (button) {
+          button.addEventListener('click', function () {
+            recentChecklistSort(button.getAttribute('data-sort'));
+          });
+        });
+      }
+      function recentChecklistCard(row, i) {
+        var lc = row.loc || {};
+        var loc = lc.name || lc.locName || row.locName || '';
+        var locId = row.locId || lc.locId || '', sub = row.subId || row.subID || '';
+        var checklistHref = sub ? checklistUrl(sub) : '';
+        return ChecklistCards.medium({
+          num: i + 1,
+          place: loc || 'Location hidden',
+          placeHtml: locId ? stakeHotspotLink(locId, loc) : '',
+          href: locId ? '' : checklistHref,
+          dateHref: locId ? checklistHref : '',
+          species: row.numSpecies || 0,
+          date: fmtDateTime(row.isoObsDate || row.obsDt || ''),
+          distMi: row._distMi,
+          distQ: distQ(lc.latitude, lc.longitude),
+          who: esc(row.userDisplayName || 'eBirder')
+        });
+      }
+      function paintRecentChecklists() {
+        var el = $('recentResults');
+        if (!el) return [];
+        var rows = BL.recentChecklistRows(
+          _recentChecklistRows, getHome(), _recentChecklistSort);
+        var existing = {};
+        [].forEach.call(el.querySelectorAll('[data-recent-sub]'), function (node) {
+          existing[node.getAttribute('data-recent-sub')] = node;
+        });
+        rows.forEach(function (row, i) {
+          var sub = row.subId || row.subID || '';
+          var node = existing[sub];
+          if (!node) {
+            var box = document.createElement('div');
+            box.innerHTML = recentChecklistCard(row, i);
+            node = box.firstElementChild;
+            node.setAttribute('data-recent-sub', sub);
+          } else {
+            var rank = node.querySelector('.cknum');
+            if (rank) rank.textContent = String(i + 1);
+          }
+          el.appendChild(node);
+        });
+        var points = [];
+        rows.forEach(function (row, i) {
+          var loc = row.loc || {};
+          if (loc.latitude == null || loc.longitude == null
+              || !isFinite(loc.latitude) || !isFinite(loc.longitude)) return;
+          points.push({
+            lat: +loc.latitude, lng: +loc.longitude,
+            name: loc.name || loc.locName || row.locName || '',
+            num: i + 1
+          });
+        });
+        if (points.length) renderMap($('recentMap'), points, getHome(), false);
+        else clearMap($('recentMap'));
+        return rows;
+      }
+      function recentChecklistScope(rows) {
+        var span = BL.feedSpanDays(rows);
+        return 'Rows span ' + (span == null ? 'an unknown window' :
+          span + ' day' + (span === 1 ? '' : 's'))
+          + '. Each county feed returns at most ' + BL.CONST.CONVOY_MAX_RESULTS
+          + ' recent checklists; eBird\u2019s measured ceiling is '
+          + BL.CONST.CHECKLIST_MAX_RESULTS_CEILING + '.';
+      }
+      function renderRecentChecklistBatch(lists, settled, total) {
+        if ($('recentSort') && !$('recentSort').children.length) {
+          renderRecentChecklistSort();
+        }
+        _recentChecklistRows = lists || [];
+        var rows = paintRecentChecklists();
+        var st = $('recentStatus'), el = $('recentResults');
+        if (st) {
+          st.textContent = rows.length + ' checklist' + (rows.length === 1 ? '' : 's')
+            + ' · ' + settled + '/' + total + ' county feeds checked'
+            + (settled < total ? ' · still checking…' : ' · updated ' + nowTime());
+        }
+        if (el) {
+          setSectionNote(el.closest ? el.closest('section') : null,
+            sectionNoteHtml(recentChecklistScope(rows)));
+        }
+        return rows;
+      }
+      function loadRecentChecklists() {
+        var st = $('recentStatus'), el = $('recentResults'), btn = $('recentBtn');
         if (!st || !el) return;
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; return; }
         el.innerHTML = '';
-        // The truncation caveat belongs to Birdiest's 7-day window. Newest has
-        // its own window, so the note is CLEARED here rather than left behind
-        // the ℹ button describing a list you are no longer looking at.
-        setSectionNote(el.closest ? el.closest('section') : null, '');
-        if ($('cklMap')) $('cklMap').innerHTML = '';
+        clearMap($('recentMap'));
         if (!hasCounties()) {
           el.innerHTML = '<div class="status">Recent checklists come from the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
           st.textContent = ''; return;
         }
-        if ($('cklRegionLabel')) $('cklRegionLabel').textContent = '· ' + countyLabelStr();
+        if ($('recentRegionLabel')) $('recentRegionLabel').textContent = '· ' + countyLabelStr();
         if (btn) btn.disabled = true;
-        st.textContent = 'Loading recent checklists in ' + countyLabelStr() + '…';
-        recentLists().then(function (lists) {
-          var rows = sortRecentLists(lists).slice(0, 50);
-          if (!rows.length) { st.textContent = 'No recent checklists in ' + countyLabelStr() + '.'; return; }
-          st.textContent = rows.length + ' checklist' + (rows.length === 1 ? '' : 's') + ' · newest first · updated ' + nowTime();
-          var home = getHome();
-          // The SAME medium checklist card Birdiest uses. These two modes are
-          // one section with one question ("which checklists near me are worth
-          // looking at"), and they were rendering two different hand-rolled
-          // rows — the exact drift cards-checklist.js exists to stop.
-          el.innerHTML = ChecklistCards.list('medium', rows.map(function (l) {
-            var lc = l.loc || {}, loc = lc.name || lc.locName || l.locName || '';
-            var locId = l.locId || lc.locId || '', sub = l.subId || l.subID || '';
-            var d = (home && lc.latitude != null && lc.longitude != null)
-              ? haversineMi(home.lat, home.lng, +lc.latitude, +lc.longitude) : null;
-            var checklistHref = sub ? checklistUrl(sub) : '';
-            return ChecklistCards.medium({
-              // The headline is the PLACE and opens Stakeout hotspot. The
-              // date keeps the supporting checklist one explicit tap away.
-              place: loc || 'Location hidden',
-              placeHtml: locId ? stakeHotspotLink(locId, loc) : '',
-              href: locId ? '' : checklistHref,
-              dateHref: locId ? checklistHref : '',
-              species: l.numSpecies || 0,
-              date: fmtDateTime(l.isoObsDate || l.obsDt || ''),
-              distMi: d,
-              distQ: distQ(lc.latitude, lc.longitude),
-              who: esc(l.userDisplayName || 'eBirder')
-            });
-          }));
+        renderRecentChecklistSort();
+        var generation = ++_recentChecklistGeneration;
+        _recentChecklistRows = [];
+        function progress(lists, settled, total) {
+          if (generation !== _recentChecklistGeneration) return;
+          renderRecentChecklistBatch(lists, settled, total);
+        }
+        var promise = recentLists();
+        if (_listsProgress) _listsProgress.listeners.push(progress);
+        promise.then(function (lists) {
+          if (generation !== _recentChecklistGeneration) return;
+          progress(lists, BL.planConvoyFeeds(getReport()).length,
+            BL.planConvoyFeeds(getReport()).length);
+          if (!lists.length) st.textContent = 'No recent checklists in ' + countyLabelStr() + '.';
         }).catch(function (e) {
           st.textContent = 'Could not load checklists: ' + (e && e.message ? e.message : e);
         }).then(function () { if (btn) btn.disabled = false; });
@@ -29894,6 +29983,7 @@
         hotBtn:        'Hotspots with recent surges',
         coldBtn:       'Overlooked gems nobody watches',
         cklBtn:        'Biggest day lists',
+        recentBtn:     'All recent county checklists',
         convoyBtn:     'Groups birding together',
         favResults:    'Saved hotspots',
         allUnseenBtn:  'Unseen birds reported nearby',
@@ -29958,6 +30048,7 @@
         { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
         { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'recentBtn',     label: '🕒 Recent checklists', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'myYearBody',    label: '📅 My Year List', group: 'My Bird List' },
         { at: 'nvResults',     label: '❓ Watch List', group: 'My Bird List' },
@@ -30023,6 +30114,7 @@
         hotBtn:     { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         coldBtn:    { fn: function () { runHotspotScan({ force: takeForce() }); }, needsKey: true, needsHome: true },
         cklBtn:     { fn: loadChecklists,   needsKey: true },
+        recentBtn:  { fn: loadRecentChecklists, needsKey: true },
         convoyBtn:  { fn: loadConvoys,      needsKey: true },
         favResults: { fn: loadFavs, needsKey: true },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true },
@@ -33594,9 +33686,6 @@
           { anchor: 'home', icon: '\uD83C\uDFE0', label: 'Home', full: 'Rank from home' },
           { anchor: 'find', icon: '\uD83D\uDD0E', label: 'Find\u2026', full: 'Rank from a place I name' }
         ],
-        checklists: [          { id: 'cklModeBest', icon: '\uD83E\uDD9C', label: 'Birdiest', full: 'Checklists with the most species' },
-          { id: 'cklModeNew',  icon: '\uD83D\uDD52', label: 'Newest',   full: 'The most recently submitted checklists' }
-        ],
         unseen: [
           { to: 'sec-easyBtn',      icon: '\uD83E\uDD5A', label: 'Nemesis birds', full: 'Common birds you still need' },
           { to: 'sec-allUnseenBtn', icon: '\uD83C\uDFAF', label: 'Open targets', full: 'Every unseen bird being reported now' }
@@ -33775,8 +33864,7 @@
       $('fullDayBtn').addEventListener('click', loadFullDay);
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadChecklists);
-      $('cklModeBest').addEventListener('click', function () { setChecklistMode('best'); });
-      $('cklModeNew').addEventListener('click', function () { setChecklistMode('new'); });
+      $('recentBtn').addEventListener('click', loadRecentChecklists);
       $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
       $('quickHereBtn').addEventListener('click', quickUseHere);
       $('quickHereFind').addEventListener('click', quickFindPlace);
@@ -34671,7 +34759,11 @@
         renderChecklistSplit: renderChecklistSplit, taxonomyFor: taxonomyFor,
         renderConvoys: renderConvoys, pinTone: pinTone, PIN_TONES: PIN_TONES,
         markBirdiestUnseen: markBirdiestUnseen,
-        hydrateLocSpecies: hydrateLocSpecies, loadRecentLists: loadRecentLists,
+        hydrateLocSpecies: hydrateLocSpecies,
+        loadRecentChecklists: loadRecentChecklists,
+        recentChecklistSort: recentChecklistSort,
+        paintRecentChecklists: paintRecentChecklists,
+        renderRecentChecklistBatch: renderRecentChecklistBatch,
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistView: checklistView, pruneChecklistCache: pruneChecklistCache,
         checklistLink: checklistLink, checklistUrl: checklistUrl,
@@ -34706,7 +34798,7 @@
         rarityChecklistDetails: rarityChecklistDetails,
         openChecklistLink: openChecklistLink,
         sortRecentLists: sortRecentLists, LOC_SPECIES_DAYS: LOC_SPECIES_DAYS,
-        setChecklistMode: setChecklistMode, loadChecklists: loadChecklists,
+        loadChecklists: loadChecklists,
         setSectionNote: setSectionNote, sectionNoteHtml: sectionNoteHtml,
         renderAbaAlert: renderAbaAlert, abaWhereLabel: abaWhereLabel,
         abaScope: abaScope, setAbaScope: setAbaScope, abaScopeControl: abaScopeControl,

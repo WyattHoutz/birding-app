@@ -2392,6 +2392,46 @@
     };
   }
 
+  // F424. One retained checklist set, three views. Dedupe only by checklist
+  // id because the same feed row can appear in adjacent counties; never
+  // collapse by hotspot, since several checklists at one place are the signal
+  // this report exists to preserve.
+  function recentChecklistRows(lists, home, order) {
+    var bySub = {}, rows = [];
+    (lists || []).forEach(function (chk) {
+      var sub = chk && (chk.subId || chk.subID);
+      if (!sub || bySub[sub]) return;
+      bySub[sub] = 1;
+      var loc = chk.loc || {};
+      var lat = loc.latitude, lng = loc.longitude;
+      var dist = home && isFinite(home.lat) && isFinite(home.lng)
+        && lat != null && lng != null && isFinite(lat) && isFinite(lng)
+        ? haversineMi(home.lat, home.lng, +lat, +lng) : null;
+      var row = {};
+      Object.keys(chk).forEach(function (k) { row[k] = chk[k]; });
+      row._distMi = dist;
+      rows.push(row);
+    });
+    order = order === 'distance' || order === 'species' ? order : 'recent';
+    rows.sort(function (a, b) {
+      if (order === 'distance') {
+        var ad = a._distMi == null ? Infinity : a._distMi;
+        var bd = b._distMi == null ? Infinity : b._distMi;
+        if (ad !== bd) return ad - bd;
+      } else if (order === 'species') {
+        var an = parseInt(a.numSpecies || 0, 10) || 0;
+        var bn = parseInt(b.numSpecies || 0, 10) || 0;
+        if (an !== bn) return bn - an;
+      }
+      var ai = String(a.isoObsDate || a.obsDt || '');
+      var bi = String(b.isoObsDate || b.obsDt || '');
+      if (ai !== bi) return bi.localeCompare(ai);
+      return String(a.subId || a.subID || '')
+        .localeCompare(String(b.subId || b.subID || ''));
+    });
+    return rows;
+  }
+
   // ---- convoys (mirror report.section_birder_convoys) ----------------------
   // One self-describing convoy heading, mirroring report._convoy_title. Two
   // groups birding the same day both rendered as "Jul 28 Convoy of 2", so the
@@ -4786,6 +4826,7 @@
     mergeHotspotHistory: mergeHotspotHistory,
     feedSpanDays: feedSpanDays,
     feedWindow: feedWindow,
+    recentChecklistRows: recentChecklistRows,
     anchorsFor: anchorsFor,
     nearestAnchor: nearestAnchor,
     annotateAnchorDistance: annotateAnchorDistance,

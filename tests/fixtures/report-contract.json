@@ -173,6 +173,13 @@
       "sub": "Biggest day lists"
     },
     {
+      "at": "recentBtn",
+      "label": "🕒 Recent checklists",
+      "report": "## 🕒 Recent checklists — All recent county checklists",
+      "map": "recentMap",
+      "sub": "All recent county checklists"
+    },
+    {
       "at": "convoyBtn",
       "label": "👥 Convoys",
       "report": "## 👥 Convoys — Groups birding together",

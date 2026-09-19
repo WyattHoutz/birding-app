@@ -414,18 +414,33 @@
     },
     "cklBtn": {
       "report": "## 🦜 Big days — Biggest day lists",
-      "summary": "Recent checklists in your counties - ranked by species count (Birdiest), or newest first.",
+      "summary": "The strongest recent day lists at public hotspots near home.",
       "inputs": [
         "checklist feeds for public hotspots in the region"
       ],
       "how": [
         "Last 7 days, public hotspots only, within 40 mi of home, best checklist per hotspot, top 25.",
         "Birds you still need are flagged inside each checklist.",
-        "Two modes over ONE cached per-county product/lists feed, so the second costs no extra call: Birdiest keeps the best checklist per hotspot, Newest keeps every checklist in order. Birdiest is the default.",
         "A public hotspot headline opens Stakeout hotspot. Its linked date opens the supporting eBird checklist."
       ],
       "limits": [
         "One checklist per hotspot, so a site with two great lists appears once."
+      ]
+    },
+    "recentBtn": {
+      "report": "## 🕒 Recent checklists — All recent county checklists",
+      "summary": "Every checklist returned by the selected county feeds, without collapsing repeated visits to one place.",
+      "inputs": [
+        "the same cached per-county product/lists feeds used by Big days and Convoys",
+        "the active Home location for distance ordering"
+      ],
+      "how": [
+        "Rows paint as each county feed settles and remain in one list while later counties append.",
+        "Distance, Recent and Species count reorder the same retained checklist rows without another network request.",
+        "Numbered map pins follow the selected order. Rows without coordinates remain in the list and are omitted only from the map."
+      ],
+      "limits": [
+        "Each county request is capped at 1200 recent checklists. The report states the observed date span and eBird's measured 2000-row ceiling rather than claiming older checklists do not exist."
       ]
     },
     "convoyBtn": {

@@ -73,7 +73,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `small` | `rarityChecklistDetails` | ⭐ Active rarities — the checklists behind one rarity |
 | `small` | `lastNewCard` | 🔭 Leader Board Ticks — the recent checklists for one bird |
 | `medium` | `loadBirdiest` | 🦜 Birdiest checklists |
-| `medium` | `loadRecentLists` | 🦜 Birdiest checklists → *Newest* mode |
+| `medium` | `recentChecklistCard` | 🕒 Recent checklists — every retained county-feed row, in the selected order |
 
 ## The unused ones
 

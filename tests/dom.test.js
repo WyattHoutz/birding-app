@@ -2433,7 +2433,7 @@ test('F386 bird and hotspot subjects route through Stakeout before external evid
   assert.match(iconic, /locLink\(r\.place,\s*r\.lat,\s*r\.lng,\s*r\.locId,\s*false\)/,
     'the by-bird Iconic view still makes its hotspot name a Maps link');
 
-  const newest = HTML.slice(HTML.indexOf('function loadRecentLists('),
+  const newest = HTML.slice(HTML.indexOf('function recentChecklistCard('),
     HTML.indexOf('function buildBirdiest('));
   const birdiest = HTML.slice(HTML.indexOf('function loadBirdiest('),
     HTML.indexOf('function markBirdiestUnseen('));
@@ -7097,13 +7097,6 @@ test('every mode switch is built from ONE table', async () => {
     // needs a location permission, so opening on it would prompt before the
     // reader has asked for anything. Offered first, chosen second.
     'here, home, find — with home still the default');
-  // Build order is load-bearing: the checklist chips are addressed by id and
-  // get their handlers bound in the init block, so the switch must be built
-  // BEFORE that block runs or those handlers land on elements that are about
-  // to be thrown away.
-  assert.ok(HTML.indexOf('buildModeSwitches();')
-            < HTML.indexOf("$('cklModeBest').addEventListener"),
-    'the switch is built before the id-addressed chips get their handlers');
   // And the table itself must be declared above its first call: `var`
   // initialisers do not hoist, so a table defined lower would read as
   // undefined and quietly build nothing at all.
@@ -12012,15 +12005,10 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
   app.window.close();
 });
 
-// --- The checklist pulse is a MODE of Birdiest, and it costs nothing --------
-// Birdiest answers "where was the best birding this week" by collapsing to one
-// checklist per hotspot. That collapse destroys the other signal: three lists
-// filed at one park this morning means people are STILL THERE. The Newest mode
-// keeps them, and shares Birdiest's single cached fetch, so the second question
-// is free. It shipped as its own top-level section for one day (v1.0.35), which
-// was one day too long — a view of another section's data is a mode of that
-// section, not a peer to it.
-test('the newest-checklists mode is newest first and never collapsed per hotspot', async () => {
+// F424 restores the checklist pulse as its own report. It still costs nothing
+// beyond Big days because both sections share recentLists(), but it now has the
+// distinct navigation and three orderings the owner asked for.
+test('Recent checklists is newest first and never collapsed per hotspot', async () => {
   const app = await boot();
   const A = app.window.__app;
   // These are the REAL field shapes eBird's product/lists returns, verified
@@ -12060,33 +12048,33 @@ test('the newest-checklists mode is newest first and never collapsed per hotspot
       return null;
     },
   });
-  rendered.window.__app.setChecklistMode('new');
+  rendered.window.__app.loadRecentChecklists();
   // The foreground lane paces requests now, so a render takes a beat longer.
   await new Promise((r) => setTimeout(r, 600));
   // Both modes render through the SHARED medium checklist card, so the clock
   // time lands in .ckdate rather than in a hand-rolled .name.
   const doc2 = rendered.window.document;
-  const when = doc2.querySelector('#cklResults .cklcard-md .ckdate');
-  assert.ok(when, 'the mode rendered a card into the Birdiest panel');
+  const when = doc2.querySelector('#recentResults .cklcard-md .ckdate');
+  assert.ok(when, 'the report rendered a card into its own panel');
   assert.match(when.textContent, /\d{1,2}(:\d{2})?\s*[ap]/i,
     `the rendered when carries the clock time, not just the day: got "${when && when.textContent}"`);
   // The headline is the PLACE and stays in-app; the date is the supporting
   // checklist action, so no raw submission-id line is needed.
-  const head = doc2.querySelector('#cklResults .cklcard-md .ckplace a');
+  const head = doc2.querySelector('#recentResults .cklcard-md .ckplace .hslink');
   assert.ok(head, 'the place is the headline and it is a link');
   assert.equal(head.getAttribute('data-loc'), 'L1',
     'and the place opens Stakeout hotspot');
   assert.match(when.querySelector('a')?.getAttribute('href') || '',
     /ebird\.org\/checklist\/S_AUG/,
     'the date opens the checklist itself');
-  assert.ok(!/View\s+S_AUG|View checklist/.test(doc2.getElementById('cklResults').textContent),
+  assert.ok(!/View\s+S_AUG|View checklist/.test(doc2.getElementById('recentResults').textContent),
     'so no row carries a separate "View …" line any more');
   rendered.window.close();
 });
 
 // Four things the device reported about this one section, pinned together
 // because they are one idea: the section should look like every other section.
-test('Birdiest and Newest are ONE template, with the caveat behind the ℹ', async () => {
+test('Big days and Recent checklists share one card template', async () => {
   const app = await boot();
   const doc = app.window.document;
   const CK = require(require('node:path')
@@ -12096,11 +12084,9 @@ test('Birdiest and Newest are ONE template, with the caveat behind the ℹ', asy
   //    two hand-rolled <li> shapes for one question.
   const best = HTML.slice(HTML.indexOf('function loadBirdiest('),
     HTML.indexOf('function markBirdiestUnseen('));
-  const recent = HTML.slice(HTML.indexOf('function loadRecentLists('),
+  const recent = HTML.slice(HTML.indexOf('function recentChecklistCard('),
     HTML.indexOf('function buildBirdiest('));
-  for (const [name, src] of [['Birdiest', best], ['Newest', recent]]) {
-    assert.match(src, /ChecklistCards\.list\('medium'/,
-      name + ' renders through the shared medium checklist card');
+  for (const [name, src] of [['Big days', best], ['Recent checklists', recent]]) {
     assert.match(src, /ChecklistCards\.medium\(\{/, name + ' builds shared cards');
     assert.ok(!/<span class="count big">/.test(src),
       name + ' must not hand-roll a row — that is how the two drifted apart');
@@ -12138,17 +12124,15 @@ test('Birdiest and Newest are ONE template, with the caveat behind the ℹ', asy
   assert.ok(!docBtn.classList.contains('hasnote'), 'and unmarked again when cleared');
   assert.ok(!box.getAttribute('data-note'), 'with the note actually removed');
 
-  // 4. The "Load checklists" button becomes the ↻ icon like every other
-  //    section. It never did, because the MODE SWITCH is a `.row` too and it
-  //    is the first one, so the helper skipped this section entirely.
+  // 4. The "Load checklists" button becomes the ↻ icon like every other section.
   const refresh = sec.querySelector('.refreshbtn');
   assert.ok(refresh, 'the section has the ↻ icon every other section has');
   const loadRow = doc.getElementById('cklBtn').closest('.row');
   assert.equal(loadRow.hidden, true, 'and the wide Load button row is hidden');
-  assert.ok(!loadRow.classList.contains('modeswitch'),
-    'the row that got hidden is the LOAD row, not the mode switch');
-  assert.equal(sec.querySelector('.modeswitch').hidden, false,
-    'the mode switch is still visible — hiding it would remove the modes');
+  assert.equal(sec.querySelector('.modeswitch'), null,
+    'the promoted Recent report leaves no redundant mode switch in Big days');
+  assert.ok(doc.getElementById('sec-recentBtn'),
+    'Recent checklists is independently reachable from Contents');
   app.window.close();
 });
 
@@ -12172,40 +12156,49 @@ test('a checklist headline cannot widen the card, however long the name', () => 
   });
   assert.ok(/\u2026/.test(long), 'and a very long name is truncated with an ellipsis');
 });
-test('the checklist modes share one section and one cached feed', async () => {
+test('F424 Recent checklists is a distinct, progressively updated report', async () => {
   const app = await boot();
   const doc = app.window.document;
   const A = app.window.__app;
-  assert.ok(!doc.getElementById('recentBtn'),
-    'Recent checklists is no longer its own section');
-  assert.ok(!doc.getElementById('recentResults'), 'nor its own results list');
-  const best = doc.getElementById('cklModeBest'), rec = doc.getElementById('cklModeNew');
-  assert.ok(best && rec, 'Birdiest carries both modes');
-  assert.equal(best.getAttribute('aria-pressed'), 'true', 'Birdiest is the default');
-  assert.equal(rec.getAttribute('aria-pressed'), 'false');
-  // These two chips are BUILT from the shared mode table but are addressed by
-  // id and keep their own handlers, so build order is load-bearing: building
-  // the switch AFTER the listeners are bound replaces the very elements the
-  // handlers sit on and leaves two buttons that look right and do nothing.
-  // Driving them by CLICK is the only assertion that can see that.
-  assert.ok(best.getAttribute('aria-label'), 'the chip names itself in full');
-  rec.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  assert.equal(rec.getAttribute('aria-pressed'), 'true',
-    'TAPPING Newest switches mode — not just calling setChecklistMode');
-  assert.equal(best.getAttribute('aria-pressed'), 'false');
-  best.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  assert.equal(best.getAttribute('aria-pressed'), 'true', 'and tapping back returns');
-  // Both collapses read the SAME cached promise, which is why the second mode
-  // is free — if either stopped using recentLists() it would double the calls.
-  const src = HTML.slice(HTML.indexOf('function loadRecentLists('),
-    HTML.indexOf('function loadChecklists(') > 0 ? HTML.length : HTML.length);
-  assert.match(HTML.slice(HTML.indexOf('function loadRecentLists(')), /recentLists\(\)/,
-    'the newest mode reads the shared cached feed');
+  assert.ok(doc.getElementById('recentBtn'), 'Recent checklists has its own menu anchor');
+  assert.ok(doc.getElementById('recentResults'), 'Recent checklists has its own result list');
+  assert.equal(doc.getElementById('cklModeBest'), null,
+    'Big days no longer keeps a redundant Newest mode');
+  const first = [
+    { subId: 'S1', isoObsDate: '2026-09-18 08:00', numSpecies: 30,
+      locId: 'L1', loc: { name: 'Near Park', latitude: 47.751, longitude: -122.16 } },
+    { subId: 'S2', isoObsDate: '2026-09-18 10:00', numSpecies: 10,
+      locId: 'P2', loc: { name: 'No Coordinates' } },
+  ];
+  A.renderRecentChecklistBatch(first, 1, 2);
+  const list = doc.getElementById('recentResults');
+  const original = list.querySelector('[data-recent-sub="S1"]');
+  assert.equal(list.children.length, 2, 'the first county paints immediately');
+  assert.match(doc.getElementById('recentStatus').textContent, /1\/2 county feeds checked.*still checking/);
+  const second = first.concat([
+    { subId: 'S3', isoObsDate: '2026-09-18 09:00', numSpecies: 50,
+      locId: 'L3', loc: { name: 'Far Park', latitude: 48.10, longitude: -122.30 } },
+  ]);
+  A.renderRecentChecklistBatch(second, 2, 2);
+  assert.equal(list.children.length, 3, 'the second county appends instead of replacing the list');
+  assert.equal(list.querySelector('[data-recent-sub="S1"]'), original,
+    'an already-painted checklist node survives the later batch');
+  assert.match(doc.getElementById('recentMap').textContent.replace(/\s+/g, ''), /2.*3/,
+    'map pins keep card numbers while the coordinate-less second row is omitted');
+  const labels = [...doc.querySelectorAll('#recentSort .sortbtn')].map((b) => b.textContent.trim());
+  assert.deepEqual(labels, ['Distance', 'Recent', 'Species count']);
+  A.recentChecklistSort('species');
+  assert.deepEqual([...list.children].map((li) => li.getAttribute('data-recent-sub')),
+    ['S3', 'S1', 'S2'], 'species ordering reuses the retained rows');
+  A.recentChecklistSort('distance');
+  assert.deepEqual([...list.children].map((li) => li.getAttribute('data-recent-sub')),
+    ['S1', 'S3', 'S2'], 'distance ordering puts missing coordinates last');
+  assert.match(doc.querySelector('#sec-recentBtn .sectiondoc').getAttribute('data-note') || '',
+    /1200.*2000/, 'the bounded feed and upstream ceiling are stated');
+  assert.match(HTML.slice(HTML.indexOf('function loadRecentChecklists(')), /recentLists\(\)/,
+    'the standalone report reads the shared cached feed');
   assert.match(HTML.slice(HTML.indexOf('function loadBirdiest(')), /recentLists\(\)/,
     'and so does Birdiest');
-  A.setChecklistMode('new');
-  assert.equal(rec.getAttribute('aria-pressed'), 'true', 'switching marks the new mode current');
-  assert.equal(best.getAttribute('aria-pressed'), 'false', 'and un-marks the old one');
   app.window.close();
 });
 
@@ -17842,7 +17835,7 @@ test('docs/CARDS.md matches the code it documents', () => {
   // 3. The builders the doc names must exist, or the mapping points nowhere.
   for (const fn of ['speciesListHtml', 'hotspotCard', 'unseenPlacesHtml',
                     'rarityChecklistDetails', 'lastNewCard', 'loadBirdiest',
-                    'loadRecentLists', 'speciesPlacesCard', 'renderSpeciesLookup',
+                    'recentChecklistCard', 'speciesPlacesCard', 'renderSpeciesLookup',
                     'loadActiveRarities']) {
     assert.ok(CARDS_MD.includes('`' + fn + '`'), fn + ' is named in the mapping');
     assert.ok(HTML.includes('function ' + fn + '('),

@@ -379,6 +379,11 @@ const AUDIT = `<script>
     var cands = document.querySelectorAll('section.panel:not([hidden]) *');
     for (var k = 0; k < cands.length; k++) {
       var ke = cands[k];
+      // Leaflet positions marker panes with negative translated margins and
+      // intentionally clips them to the map viewport during fit/zoom. Those
+      // are map coordinates, not hanging-indent text; the overflow scan above
+      // already excludes the same implementation detail.
+      if (ke.closest && ke.closest('.leaflet-container')) continue;
       var kcs = getComputedStyle(ke);
       if (/^inline(?!-block|-flex|-grid)/.test(kcs.display) || kcs.display === 'none') continue;
       if (!(parseFloat(kcs.textIndent || '0') < -0.5

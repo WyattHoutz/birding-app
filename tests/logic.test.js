@@ -187,7 +187,35 @@ test('planConvoyFeeds: per-county product/lists; empty for rarity trackers', () 
       new RegExp('maxResults=' + BL.CONST.CONVOY_MAX_RESULTS),
       'convoy feed asks for the configured number of checklists');
   });
+
   assert.equal(BL.planConvoyFeeds(BL.profileFor('aba')).length, 0, 'aba: no convoy feeds');
+});
+
+test('F424 recent checklist rows retain duplicates by place and support all orders', () => {
+  const home = { lat: 47.75, lng: -122.16 };
+  const rows = [
+    { subId: 'S-old-near', isoObsDate: '2026-09-17 08:00', numSpecies: 12,
+      locId: 'L1', loc: { name: 'Shared Park', latitude: 47.751, longitude: -122.16 } },
+    { subId: 'S-new-far', isoObsDate: '2026-09-18 09:00', numSpecies: 40,
+      locId: 'L2', loc: { name: 'Far Park', latitude: 48.10, longitude: -122.30 } },
+    { subId: 'S-newer-same-place', isoObsDate: '2026-09-18 10:00', numSpecies: 20,
+      locId: 'L1', loc: { name: 'Shared Park', latitude: 47.751, longitude: -122.16 } },
+    { subId: 'S-no-coords', isoObsDate: '2026-09-18 11:00', numSpecies: 55,
+      locId: 'P1', loc: { name: 'Private site' } },
+    { subId: 'S-old-near', isoObsDate: '2026-09-17 08:00', numSpecies: 12,
+      locId: 'L1', loc: { name: 'Shared Park', latitude: 47.751, longitude: -122.16 } },
+  ];
+  assert.deepEqual(
+    BL.recentChecklistRows(rows, home, 'recent').map((r) => r.subId),
+    ['S-no-coords', 'S-newer-same-place', 'S-new-far', 'S-old-near']);
+  assert.deepEqual(
+    BL.recentChecklistRows(rows, home, 'distance').map((r) => r.subId),
+    ['S-newer-same-place', 'S-old-near', 'S-new-far', 'S-no-coords']);
+  assert.deepEqual(
+    BL.recentChecklistRows(rows, home, 'species').map((r) => r.subId),
+    ['S-no-coords', 'S-new-far', 'S-newer-same-place', 'S-old-near']);
+  assert.equal(BL.recentChecklistRows(rows, home, 'recent').length, 4,
+    'only a repeated checklist id is removed; two lists at one place survive');
 });
 
 test('requestUrl: params sorted, null-dropped, path preserved', () => {

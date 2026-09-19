@@ -133,6 +133,7 @@ const STUB_SPEC = {
       '#abaResults .spdist', '#abaResults .abadist'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
+  recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
   favResults:     { kind: 'hotspot',       host: 'favResults' },
   allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
