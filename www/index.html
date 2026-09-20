@@ -3551,7 +3551,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.115.0';
+      var APP_VERSION = '1.116.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -11704,6 +11704,7 @@
           below: (lookupSummary
             ? '<div class="status splookupsummary">' + esc(lookupSummary) + '</div>'
             : '') + megaEvidenceHtml(mega) + sightingsFailure + placesHtml
+            + speciesReferenceLinks(g.name, g.code)
         });
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -13968,6 +13969,12 @@
       function hotspotUrl(locId) { return locId ? 'https://ebird.org/hotspot/' + encodeURIComponent(locId) : ''; }
       function extA(url, text, cls) {
         return url ? '<a class="' + (cls || 'extlink') + '" data-href="' + esc(url) + '">' + esc(text) + '</a>' : esc(text);
+      }
+      function speciesReferenceLinks(name, code) {
+        var wiki = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(String(name || ''));
+        return '<div class="spreferences">'
+          + extA(speciesUrl(code), 'eBird bird profile')
+          + ' · ' + extA(wiki, 'Wikipedia') + '</div>';
       }
 
       // ── TAPPING A BIRD OR A PLACE STAYS IN THE APP ───────────────────────
@@ -23326,6 +23333,14 @@
         });
         return best;
       }
+      function megaChaseRows(rows, home) {
+        if (!home || !localStorage.getItem(chaseMiKey())) return (rows || []).slice();
+        var lim = chaseMaxMi();
+        return (rows || []).filter(function (r) {
+          if (!r || !isFinite(r.lat) || !isFinite(r.lng)) return false;
+          return haversineMi(home.lat, home.lng, +r.lat, +r.lng) <= lim;
+        });
+      }
       function abaSortGroups(groups) {
         var mode = abaSort();
         return (groups || []).slice().sort(function (a, b) {
@@ -23616,7 +23631,16 @@
           + (marks ? ' <span class="evid">' + marks + '</span>' : '') + '</div>';
       }
       function megaFinderState(entry) {
-        var fr = firstReport(entry && entry.stateRows, coverageStart(entry.view.region));
+        var latest = entry && entry.latest;
+        if (!latest) return null;
+        // The finder claim belongs to the latest report's locality, not to the
+        // oldest report anywhere in the state. A continuing mega can move
+        // between distant sites, and crediting the first statewide record
+        // makes a Neah Bay observer appear to have found a Snohomish bird.
+        var local = megaChaseRows(entry.stateRows || [], getHome()).filter(function (r) {
+          return megaSameLocality(r, latest);
+        });
+        var fr = firstReport(local, coverageStart(entry.view.region));
         if (!fr || (entry.latest && abaArchiveKey(fr.r) === abaArchiveKey(entry.latest))) return null;
         return fr;
       }
@@ -23645,21 +23669,24 @@
           + '</div>';
       }
       function megaHistoryHtml(entry) {
-        var rows = (entry && entry.stateRows || []).slice().sort(function (a, b) {
+        var rows = megaChaseRows(entry && entry.stateRows || [], getHome()).sort(function (a, b) {
           return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
         });
         if (!rows.length) return '';
-        var shown = rows.slice(0, ABA_CARD_REPORTS).map(megaReportRowHtml).join('');
-        var more = moreDetails(rows.length - ABA_CARD_REPORTS,
-          { one: 'report', many: 'reports' }, function () {
-            return '<ul class="abareports">'
-              + rows.slice(ABA_CARD_REPORTS).map(megaReportRowHtml).join('') + '</ul>';
-          });
         var since = abaArchiveSince(entry.view.region);
         return '<div class="bcwhere megareports"><span class="lbl">Every Mega report we hold</span>'
           + (since ? '<div class="bcsince">Kept on this device since ' + esc(fmtDate(since))
             + ' — earlier sightings are not missing, they are simply before we started.</div>' : '')
-          + '<ul class="cklrows">' + shown + '</ul>' + more + '</div>';
+          + progressiveListHtml({
+            items: rows,
+            initialCount: ABA_CARD_REPORTS,
+            batchSize: ABA_CARD_REPORTS,
+            noun: 'reports',
+            listClass: 'cklrows',
+            buttonClass: 'megaReportsMore',
+            renderItem: megaReportRowHtml,
+            isCurrent: function () { return megaViewCurrent(entry.view); }
+          }) + '</div>';
       }
       function megaEvidenceHtml(entry) {
         if (!entry) return '';

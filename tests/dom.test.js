@@ -17926,6 +17926,10 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   const immediate = D.querySelector('#spLookupResults > li');
   assert.ok(immediate.querySelector('.megaevidence'),
     'Mega evidence paints before the ordinary sightings request settles');
+  assert.ok(immediate.querySelector('.spreferences [data-href*="ebird.org/species/whiwag"]'),
+    'Stakeout exposes the eBird bird profile at the bottom of the card');
+  assert.ok(immediate.querySelector('.spreferences [data-href*="wikipedia.org/wiki/White"]'),
+    'Stakeout exposes the Wikipedia article at the bottom of the card');
   const immediateText = immediate.textContent;
   assert.match(immediateText, /Mega.*ABA Code 3\+/s);
   assert.match(immediateText, /Latest mega report/i);
@@ -17948,18 +17952,19 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   ]);
   assert.match(immediateText, /Every Mega report we hold/);
   assert.match(immediateText, /Kept on this device since Jul 1/i);
-  const more = immediate.querySelector('details.ckmore > summary');
-  assert.match(more.textContent, /2 more reports/);
+  const more = immediate.querySelector('.megaReportsMore');
+  assert.ok(more, 'Mega report history uses the shared progressive loader');
+  assert.match(more.textContent, /more of 14 reports/i);
   app.click(more);
-  assert.match(immediate.querySelector('.ckmorebody').textContent, /Neah Bay harbor/);
+  assert.match(immediate.querySelector('.megareports').textContent, /Neah Bay harbor/);
 
   await waitFor(() => typeof settleSightings === 'function',
     'the independently running active-region sightings request');
   assert.ok(D.querySelector('#spLookupResults > li .megaevidence'),
     'Mega evidence remains visible while the sightings promise is unresolved');
   settleSightings();
-  await waitFor(() => /Finder Person/.test(D.getElementById('spLookupResults').textContent),
-    'lazy finder checklist hydration');
+  await waitFor(() => /No reports.*not being seen right now/i.test(
+    D.getElementById('spLookupStatus').textContent), 'active-region empty result');
   await waitFor(() => /white wagtail is a small passerine/i.test(
     D.getElementById('spLookupResults').textContent), 'lazy Wikipedia hydration');
   const settled = D.querySelector('#spLookupResults > li');
@@ -17968,11 +17973,12 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     'an honestly empty active-region result retains the one Mega Stakeout card');
   assert.match(D.getElementById('spLookupStatus').textContent, /No reports.*not being seen right now/i,
     'the retained evidence does not turn an honestly empty current feed into a positive claim');
-  assert.match(settledText, /Found by.*Finder Person/s);
-  assert.match(settledText, /Best guess.*open the checklist before you credit anyone/s);
-  assert.match(settledText, /A guess, not a record.*true find is at or before this one/s);
-  assert.match(settled.querySelector('.megafinder .evid').textContent, /📷/);
-  assert.match(settled.querySelector('.megafinder .evid').textContent, /🔊/);
+  assert.match(settledText, /Found by.*Birder Two/s,
+    'the first report at the latest locality remains eligible as the finder');
+  assert.doesNotMatch(settledText, /Finder Person/,
+    'a distant finder must not be credited for the latest report');
+  assert.equal(lazyCalls.some((u) => /product\/checklist\/view\/S-FINDER/.test(u)), false,
+    'a different-locality row must not trigger finder hydration');
   assert.match(settledText, /7 records in Washington.*1998–2023.*4 years with records/s);
   assert.match(settledText, /Searched 2023 and earlier/);
   assert.match(settledText, /125 records in the USA across 9 states.*most in Alaska \(44%\)/s);
@@ -18019,6 +18025,69 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.match(heldCard.textContent,
     /Already present when our records start.*true finder is earlier/s);
   assert.match(heldCard.querySelector('.megafinder .evid').textContent, /🎥/);
+  app.window.close();
+});
+
+test('F429 Mega finder evidence is local to the latest report', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\//.test(url)) return [];
+      if (/product\/checklist\/view\/S394436115/.test(url)) {
+        return {
+          userDisplayName: 'Kellie Sagen',
+          obs: [{ speciesCode: 'whiwag', mediaCounts: { P: 1 } }],
+        };
+      }
+      if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  app.window.localStorage.setItem(A.chaseMiKey(), '50');
+  const latest = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    sciName: 'Motacilla alba', obsDt: '2026-09-08 08:00',
+    locName: 'Leque Island--Davis Slough Access',
+    locId: 'L12722609', subId: 'S394620107',
+    lat: 48.2394953, lng: -122.3929974,
+  };
+  const localFinder = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-09-07 08:00', locName: 'Leque Island--Eide Rd.',
+    locId: 'L1667064', subId: 'S394436115',
+    lat: 48.2320943, lng: -122.3829746,
+  };
+  const distantFinder = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-08-01 08:00', locName: 'Neah Bay',
+    locId: 'L-NEAH', subId: 'S-DISTANT-FINDER',
+    lat: 48.36, lng: -124.62,
+  };
+  const outsideChaseWallaWalla = {
+    speciesCode: 'whiwag', comName: 'White Wagtail',
+    obsDt: '2026-07-15 08:00', locName: 'Walla Walla',
+    locId: 'L-WALLA', subId: 'S-WALLA',
+    lat: 46.065, lng: -118.34,
+  };
+  A.abaArchiveAdd('US-WA', [
+    { speciesCode: 'tersan', obsDt: '2026-07-01 05:00', locName: 'sentinel' },
+    localFinder, distantFinder, outsideChaseWallaWalla,
+  ]);
+  A.renderAbaAlert([latest], 'https://ebird.org/alert/summary?sid=SN10489',
+    true, false, {
+      reportSlug: 'wa', region: 'US-WA', sid: 'SN10489', scope: 'state',
+      wideRowsByCode: { whiwag: [] },
+    });
+  app.click(app.document.querySelector('#abaResults .megajump'));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const text = app.document.querySelector('#spLookupResults').textContent;
+  assert.match(text, /Kellie Sagen|Leque Island/,
+    'the latest locality finder remains eligible');
+  assert.doesNotMatch(text, /Neah Bay|Walla Walla|Distant Finder/,
+    'distant or outside-chase records cannot become Mega evidence');
+  assert.match(HTML, /function megaChaseRows\(rows, home\)/,
+    'Mega state evidence has a named chase-radius projection');
   app.window.close();
 });
 
@@ -18284,8 +18353,8 @@ test('F304 hydrates a finder first discovered by the lazy state feed', async () 
             {
               speciesCode: 'whiwag', comName: 'White Wagtail',
               sciName: 'Motacilla alba', obsDt: '2026-08-20 06:15',
-              locName: 'Finder marsh', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
-              lat: 48.3, lng: -124.6,
+              locName: 'Cape Flattery', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
+              lat: 48.3861, lng: -124.7142,
             },
           ])),
           json: () => Promise.resolve([
@@ -18298,8 +18367,8 @@ test('F304 hydrates a finder first discovered by the lazy state feed', async () 
             {
               speciesCode: 'whiwag', comName: 'White Wagtail',
               sciName: 'Motacilla alba', obsDt: '2026-08-20 06:15',
-              locName: 'Finder marsh', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
-              lat: 48.3, lng: -124.6,
+              locName: 'Cape Flattery', locId: 'L-FINDER', subId: 'S-FINDER-LAZY',
+              lat: 48.3861, lng: -124.7142,
             },
           ]),
         });
