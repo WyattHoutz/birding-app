@@ -3608,7 +3608,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.119.0';
+      var APP_VERSION = '1.120.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8881,7 +8881,59 @@
               + chaseMaxMi() + ' mi · choose ' + esc(rarityRegionName())
               + ' to show them with the nearby reports.</div></li>');
           }
-          var shown = 0, batch = 25;
+          var shown = 0, batch = 5, notePaintSeq = 0;
+          var todayNoteObserver = null, todayNoteQueue = [], todayNoteBusy = false;
+          function deferTodayNoteWork(fn) {
+            if (window.requestIdleCallback) {
+              window.requestIdleCallback(fn, { timeout: 1000 });
+            } else {
+              setTimeout(fn, 250);
+            }
+          }
+          function pumpTodayNoteQueue(seq) {
+            if (seq !== notePaintSeq || todayNoteBusy) return;
+            while (todayNoteQueue.length) {
+              var row = todayNoteQueue.shift();
+              if (!row || !row.isConnected || row.getAttribute('data-ev-done')) continue;
+              todayNoteBusy = true;
+              deferTodayNoteWork(function () {
+                if (seq !== notePaintSeq || !row.isConnected || row.getAttribute('data-ev-done')) {
+                  todayNoteBusy = false;
+                  pumpTodayNoteQueue(notePaintSeq);
+                  return;
+                }
+                Promise.resolve(hydrateChecklistEvidence(row)).catch(function (e) {
+                  log('Twitches today note hydration failed: ' + netErr(e));
+                }).finally(function () {
+                  todayNoteBusy = false;
+                  pumpTodayNoteQueue(notePaintSeq);
+                });
+              });
+              return;
+            }
+          }
+          function scheduleTodayNoteHydration() {
+            if (!rarityNotes()) return;
+            var seq = ++notePaintSeq;
+            todayNoteQueue = [];
+            if (todayNoteObserver) todayNoteObserver.disconnect();
+            var candidates = [].slice.call(out.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
+            if (!candidates.length) return;
+            if (window.IntersectionObserver) {
+              todayNoteObserver = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                  if (!entry.isIntersecting) return;
+                  todayNoteObserver.unobserve(entry.target);
+                  if (todayNoteQueue.indexOf(entry.target) < 0) todayNoteQueue.push(entry.target);
+                });
+                pumpTodayNoteQueue(seq);
+              }, { rootMargin: '250px 0px' });
+              candidates.forEach(function (row) { todayNoteObserver.observe(row); });
+            } else {
+              todayNoteQueue = candidates.slice(0, 1);
+              pumpTodayNoteQueue(seq);
+            }
+          }
           function paintTodayBatch(next) {
             shown = Math.min(rows.length, shown + next);
             var more = shown < rows.length
@@ -8894,7 +8946,7 @@
             out.innerHTML = rows.slice(0, shown).map(card).join('')
               + tailRows.join('') + more;
             hydratePhotos(out);
-            if (rarityNotes()) hydrateChecklistEvidence(out);
+            scheduleTodayNoteHydration();
             var moreBtn = out.querySelector('.todayRarityMore');
             if (moreBtn) moreBtn.addEventListener('click', function () {
               paintTodayBatch(batch);
@@ -19888,6 +19940,9 @@
       function hydrateChecklistEvidence(root) {
         if (!root || !getKey()) return Promise.resolve();
         var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
+        if (root.matches && root.matches('[data-ev-sub]:not([data-ev-done])')) {
+          rows.unshift(root);
+        }
         if (!rows.length) return Promise.resolve();
         // Rows are built newest-first, so this keeps the freshest reports.
         // A row that is cached costs nothing, so it is NOT counted against the

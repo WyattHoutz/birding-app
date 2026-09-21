@@ -17043,14 +17043,25 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
 test('Twitches today paints rarity rows in bounded batches', async () => {
   const render = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
-  assert.match(render, /var shown = 0, batch = 25;/,
+  assert.match(render, /var shown = 0, batch = 5, notePaintSeq = 0;/,
     'Twitches today has no bounded initial rarity-row batch');
   assert.match(render, /rows\.slice\(0, shown\)\.map\(card\)\.join\(''\)/,
     'Twitches today still builds every rare-checklist row before first paint');
   assert.match(render, /class="progressive-more todayRarityMore"/,
     'Twitches today has no explicit show-more control for remaining rows');
-  assert.match(render, /hydratePhotos\(out\)[\s\S]*if \(rarityNotes\(\)\) hydrateChecklistEvidence\(out\)/,
-    'Twitches today does not defer photo/note hydration to the painted batch');
+  assert.match(render, /scheduleTodayNoteHydration\(\)/,
+    'Twitches today does not schedule notes after the bounded paint');
+  assert.doesNotMatch(render, /hydrateChecklistEvidence\(out\)/,
+    'Twitches today still hydrates every painted note row during load');
+  assert.match(render, /new IntersectionObserver[\s\S]*rootMargin: '250px 0px'/,
+    'Twitches today notes are not viewport-lazy');
+  assert.match(render, /Promise\.resolve\(hydrateChecklistEvidence\(row\)\)[\s\S]*finally/,
+    'Twitches today notes are not hydrated asynchronously one row at a time');
+  assert.match(render, /todayNoteBusy = false;\s*pumpTodayNoteQueue\(notePaintSeq\);/,
+    'Twitches today does not resume the current lazy-note queue after stale work settles');
+  assert.match(HTML,
+    /root\.matches && root\.matches\('\[data-ev-sub\]:not\(\[data-ev-done\]\)'\)/,
+    'single-row note hydration cannot target the row itself');
 });
 
 test('the log names which section owns a control that was pressed', async () => {
