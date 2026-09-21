@@ -8423,8 +8423,10 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
     'Stakeout omitted the four-letter bird code');
   assert.match(card.querySelector('.stakeoutrarity').textContent,
     /Mega rarity.*ABA Code 3, 4 or 5/s);
-  assert.equal(card.querySelectorAll('.megareports li').length, 5,
-    'the newest Mega checklist is repeated beneath Latest mega report');
+  assert.equal(card.querySelectorAll('.megareports .hscard-sm').length, 5,
+    'the Mega history is not grouped into one place row per supporting hotspot');
+  assert.equal(card.querySelectorAll('.megareports .cklcard-sm').length, 5,
+    'one supporting Mega checklist is not nested under its place row');
   const reportLinks = [
     card.querySelector('.megalatest [data-href*="/checklist/"]'),
     ...card.querySelectorAll('.megareports li [href*="/checklist/"]'),
@@ -14352,6 +14354,29 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
     lng: -122.51,
     howMany: 1,
     userDisplayName: 'Recent Observer',
+  }, {
+    speciesCode: 'shtsan',
+    comName: 'Sharp-tailed Sandpiper',
+    sciName: 'Calidris acuminata',
+    obsDt: '2026-09-20 08:14',
+    locName: 'League Island--Eide Rd.',
+    locId: 'L-SPTS',
+    lat: 48.12,
+    lng: -122.51,
+    howMany: 1,
+    userDisplayName: 'Same report without a checklist id',
+  }, {
+    speciesCode: 'shtsan',
+    comName: 'Sharp-tailed Sandpiper',
+    sciName: 'Calidris acuminata',
+    obsDt: '2026-09-19 07:00',
+    locName: 'League Island--Eide Rd.',
+    locId: 'L-SPTS',
+    subId: 'S-OLDER',
+    lat: 48.12,
+    lng: -122.51,
+    howMany: 2,
+    userDisplayName: 'Older Observer',
   }];
   const app = await boot({
     storage: {
@@ -14373,8 +14398,26 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
     /Mega rarity.*ABA Code 3, 4 or 5/s);
   assert.match(card.querySelector('.megalatest').textContent,
     /Latest Mega report.*Sep 20.*League Island.*S-SPTS/s);
+  assert.equal(card.querySelector('.megalatest .hslink')?.getAttribute('data-loc'), 'L-SPTS',
+    'the latest Stakeout hotspot name was treated as a coordinate-only maps link');
+  assert.ok(card.querySelector('.megalatest .mapwrap .maplink[data-q="48.12,-122.51"]'),
+    'the latest Stakeout hotspot kept no separate Google Maps coordinate action');
+  const history = card.querySelector('.megareports');
+  assert.ok(history, 'Stakeout did not render the retained Mega report history');
+  assert.equal(history.querySelectorAll(':scope .hscard-sm').length, 1,
+    'Earlier Mega reports is not one hotspot/place list');
+  assert.equal(history.querySelectorAll('.cklcard-sm').length, 1,
+    'the older checklist is not nested under its hotspot row');
+  assert.match(history.textContent, /Sep 19|9\/19/,
+    'the retained non-latest report disappeared from the checklist history');
+  assert.match(history.querySelector('.ckall').textContent, /1 checklist — show the report/,
+    'the hotspot row does not expose its checklist list like Twitches this week');
+  assert.match(history.querySelector('.cklcard-sm').className, /cklcard-sm/,
+    'Mega history stopped using the shared checklist row');
   assert.doesNotMatch(card.textContent, /Opened from/,
     'the evidence still changes according to navigation history');
+  assert.doesNotMatch(HTML, /megareports \.stakeoutReportCards > \.cklcard-sm/,
+    'Mega history reintroduced a private checklist-card override');
   app.window.close();
 });
 
@@ -16963,6 +17006,53 @@ test('the log names what moved the reader between sections', async () => {
   app.window.close();
 });
 
+test('Twitches this week cannot turn cancelled background work into a white screen', async () => {
+  assert.match(HTML,
+    /if \(r && \(r\.queueCancelled \|\| r\.chaseSuperseded\)\) \{[\s\S]*?e\.preventDefault\(\)/,
+    'app-level cancelled queue work is still reported as an unhandled rejection');
+  assert.match(HTML,
+    /cancelled async work:/,
+    'cancelled queue work should remain visible in the debug log as a cancellation');
+});
+
+test('Twitches this week slow loads stop looking frozen', async () => {
+  assert.match(HTML,
+    /Still collecting rarity reports for/,
+    'the weekly twitch loader has no slow-load disclosure');
+  assert.match(HTML,
+    /the list will paint here when the shared sighting wave finishes/,
+    'the slow-load disclosure does not say the loader is still alive');
+  assert.match(HTML,
+    /btn\.disabled = false;/,
+    'a slow weekly twitch load leaves the Load button disabled');
+});
+
+test('Twitches this week bounds checklist evidence before lazy expansion', async () => {
+  const render = HTML.slice(HTML.indexOf('function loadActiveRarities('),
+    HTML.indexOf('function rarityChecklistDetails('));
+  assert.match(render, /rarityChecklistDetails\(r, \{ initialCount: 3 \}\)/,
+    'weekly rarity rows eagerly render every checklist behind every bird/place group');
+  const details = HTML.slice(HTML.indexOf('function rarityChecklistDetails('),
+    HTML.indexOf('// Last 7-Days rarity reports'));
+  assert.match(details, /opts\.initialCount/,
+    'rarityChecklistDetails has no bounded mode for large weekly groups');
+  assert.match(details, /moreDetails\(items\.length - nShow/,
+    'bounded weekly checklist rows do not lazy-render the remainder');
+});
+
+test('Twitches today paints rarity rows in bounded batches', async () => {
+  const render = HTML.slice(HTML.indexOf('function refresh()'),
+    HTML.indexOf('function buildClosestSpots('));
+  assert.match(render, /var shown = 0, batch = 25;/,
+    'Twitches today has no bounded initial rarity-row batch');
+  assert.match(render, /rows\.slice\(0, shown\)\.map\(card\)\.join\(''\)/,
+    'Twitches today still builds every rare-checklist row before first paint');
+  assert.match(render, /class="progressive-more todayRarityMore"/,
+    'Twitches today has no explicit show-more control for remaining rows');
+  assert.match(render, /hydratePhotos\(out\)[\s\S]*if \(rarityNotes\(\)\) hydrateChecklistEvidence\(out\)/,
+    'Twitches today does not defer photo/note hydration to the painted batch');
+});
+
 test('the log names which section owns a control that was pressed', async () => {
   const lines = [];
   const app = await boot({ fetch() { return null; } });
@@ -18411,11 +18501,13 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   ]);
   assert.match(immediateText, /Earlier Mega reports/);
   assert.match(immediateText, /Kept on this device since Jul 1/i);
-  const more = immediate.querySelector('.megaReportsMore');
-  assert.ok(more, 'Mega report history uses the shared progressive loader');
-  assert.match(more.textContent, /more of 13 reports/i);
-  app.click(more);
-  assert.match(immediate.querySelector('.megareports').textContent, /Neah Bay harbor/);
+  const history = immediate.querySelector('.megareports');
+  assert.ok(history, 'Mega report history did not render');
+  assert.equal(history.querySelectorAll('.hscard-sm').length, 6,
+    'Mega report history is not grouped into one row per hotspot');
+  assert.equal(history.querySelectorAll('.cklcard-sm').length, 13,
+    'Mega report history did not keep every supporting checklist under its hotspot');
+  assert.match(history.textContent, /Neah Bay harbor/);
 
   await waitFor(() => typeof settleSightings === 'function',
     'the independently running active-region sightings request');
@@ -25718,7 +25810,7 @@ test('the stakeout list keeps one newest-checklist row per hotspot', async () =>
   app.window.__app.runSpeciesLookup();
   await new Promise((r) => setTimeout(r, 500));
 
-  const rows = [...doc.querySelectorAll('#spLookupResults .hscards-small > li')];
+  const rows = [...doc.querySelectorAll('#spLookupResults .spLookupPlaceList > li')];
   assert.equal(rows.length, 1,
     `three checklists at one hotspot must remain one place row, got ${rows.length}`);
   const links = [...rows[0].querySelectorAll('a.extlink[data-href]')]
