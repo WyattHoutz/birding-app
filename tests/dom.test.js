@@ -17064,6 +17064,23 @@ test('Twitches today paints rarity rows in bounded batches', async () => {
     'single-row note hydration cannot target the row itself');
 });
 
+test('release mockup comparison shot has its own prep timeout', async () => {
+  const mockups = fs.readFileSync(
+    path.join(__dirname, '..', 'assets', 'mockups.js'), 'utf8');
+  assert.match(mockups,
+    /id: 'spuhcompare'[\s\S]*prepTimeoutMs: 45000/,
+    'spuhcompare must not share the default 15s preparation budget in CI');
+  assert.match(mockups,
+    /id: 'spuhcompare'[\s\S]*freshApp: true/,
+    'spuhcompare must run from a fresh iframe instead of accumulated gallery state');
+  assert.match(mockups,
+    /shot\.prepTimeoutMs \|\| 15000/,
+    'ordinary mockups must keep the default 15s preparation timeout');
+  assert.match(mockups,
+    /if \(\$\{shot\.freshApp \? 'true' : 'false'\}\)[\s\S]*frame\.src = '\/index\.html\?shot='/,
+    'fresh mockup shots must reload the app iframe before prep');
+});
+
 test('the log names which section owns a control that was pressed', async () => {
   const lines = [];
   const app = await boot({ fetch() { return null; } });

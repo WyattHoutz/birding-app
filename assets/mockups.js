@@ -180,6 +180,12 @@ const EXTRA_SHOTS = [
   { id: 'spuhcompare', at: 'spLookupBtn',
     title: 'Stakeout bird — compare possible birds',
     host: 'spLookupIdHelp',
+    // This shot does a full Stakeout lookup, opens taxonomy details, types a
+    // comparison bird, and waits for the shared Spuh result. On GitHub's
+    // runner it can exceed the default prep budget after the mandatory gallery
+    // has already rendered every other shot.
+    freshApp: true,
+    prepTimeoutMs: 45000,
     prep: `FIX.before('spLookupBtn', A, document);
            var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
@@ -2321,6 +2327,16 @@ async function main() {
     const expr = `(async function () {
       var frame = window.document.getElementById('f');
       if (!frame) return 'no iframe';
+      if (${shot.freshApp ? 'true' : 'false'}) {
+        await new Promise(function (resolve, reject) {
+          var timer = setTimeout(function () { reject(new Error('fresh iframe reload timed out')); }, 10000);
+          frame.onload = function () {
+            clearTimeout(timer);
+            setTimeout(resolve, 2500);
+          };
+          frame.src = '/index.html?shot=' + encodeURIComponent(${JSON.stringify(shot.id)});
+        });
+      }
       var w = frame.contentWindow;
       var A = w.__app, doc = w.document;
       if (!A) return 'no __app seam (the app did not boot)';
@@ -2340,7 +2356,7 @@ async function main() {
       c.send('Runtime.evaluate', {
         expression: expr, returnByValue: true, awaitPromise: true
       }, sessionId),
-      15000,
+      shot.prepTimeoutMs || 15000,
       shot.id + ' preparation'
     );
     const verdict = r.result && r.result.value;
