@@ -48,6 +48,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['stakeoutreachable-f389', 'stakeoutdistance-f389',
+      'stakeoutchecklists-progressive', 'stakeoutampi-answers',
+      'stakeoutampi-details',
       'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
@@ -57,6 +59,23 @@ test('release mockups include exactly one section shot per visible menu entry', 
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
   'the approved medium-card peep result is still capped by the superseded layout');
+});
+
+test('F435 AMPI review mockup answers the six Stakeout questions', () => {
+  const shot = mockups.REVIEW_SHOTS.find((item) => item.id === 'stakeoutampi-answers');
+  assert.ok(shot, 'the AMPI Stakeout review image is registered');
+  assert.match(source, /1 · Closest/);
+  assert.match(source, /2 · Most recent/);
+  assert.match(source, /3 · High count/);
+  assert.match(source, /4 · Repeat reports/);
+  assert.match(source, /5 · Historical stronghold/);
+  assert.match(source, /6 · Useful evidence/);
+  assert.match(source, /not a public destination/);
+  assert.match(source, /different observers and eBird groups/);
+  assert.match(source, /No checklist API calls/);
+  assert.match(source, /stakeoutampi-details/);
+  assert.match(source, /W\.ProgressiveList\.mount/);
+  assert.match(source, /stakeoutAmpiChecklists/);
 });
 
 test('every menu section declares representative fixture data or an intentional static surface', () => {
@@ -587,6 +606,20 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   ]);
   assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
     'the Mega release shot must use the production list renderer');
+});
+
+test('Stakeout checklist mockup uses the shared small card and progressive loader', () => {
+  const shot = mockups.REVIEW_SHOTS.find(
+    (item) => item.id === 'stakeoutchecklists-progressive'
+  );
+  assert.ok(shot);
+  assert.deepEqual(shot.expects, [
+    '#spLookupResults.stakeoutChecklistMock',
+    '#spLookupResults .stakeoutevidence .cklcard-sm',
+    '#spLookupResults .stakeoutevidence .progressive-more'
+  ]);
+  assert.match(indexSource, /function megaReportRowHtml[\s\S]*ChecklistCards\.small/);
+  assert.match(indexSource, /function megaHistoryHtml[\s\S]*progressiveListHtml/);
 });
 
 test('F268/F269 On passage mockup exercises event, first-report, and forecast lanes', () => {

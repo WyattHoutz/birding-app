@@ -110,6 +110,7 @@
        so a two-line row still reads as one item rather than as two. */
     '  display: block; white-space: normal; overflow-wrap: anywhere;',
     '  min-width: 0; padding: 3px 0 3px 1.15em; text-indent: -1.15em;',
+    '  border: 0;',
     '  font-size: calc(14px * var(--s)); line-height: 1.4;',
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',

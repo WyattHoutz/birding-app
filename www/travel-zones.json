@@ -25,7 +25,7 @@
     "raw straight-line distance. A real chase proved it: an Arctic Tern at",
     "Murden Cove on Bainbridge is 17 mi straight-line — inside today's 30 mi",
     "chase cap and 50 km geo feed — but 52 effective miles, which a penalised",
-    "35 mi radius would drop. Rarities arrive through the geo feed, so that",
+    "40 mi radius would drop. Rarities arrive through the geo feed, so that",
     "would not have ranked the bird lower, it would have hidden it entirely.",
     "The architecture agrees: eBird's geo feed takes `dist=` as a true radius",
     "and has never heard of a ferry, so what is FETCHED is physically a",

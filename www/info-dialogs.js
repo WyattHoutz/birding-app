@@ -123,7 +123,7 @@
           + 'median score of the same list. Bird Gen includes only the top '
           + '<b>high yield</b> category — score at least twice that median — '
           + 'and only after the complete chase view is ready.</p>'
-          + '<p>The headline opens Stakeout hotspot; <b>Near By Patches</b> '
+          + '<p>The headline opens Stakeout hotspot; <b>Nearby Patches</b> '
           + 'keeps the place in its full local-patch context. This is a local '
           + 'projection of data the chase '
           + 'wave already computed, so it adds no API call.</p>'

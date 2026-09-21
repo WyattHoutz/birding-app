@@ -54,10 +54,21 @@
         return;
       }
       var next = Math.min(batchSize, remaining);
-      button.textContent = typeof spec.moreLabel === 'function'
+      var label = typeof spec.moreLabel === 'function'
         ? spec.moreLabel(next, remaining, shown, items.length)
         : 'Show ' + next + ' more of ' + items.length + ' ' + noun;
-      button.setAttribute('aria-label', button.textContent);
+      button.textContent = '';
+      var icon = doc.createElement('span');
+      icon.className = 'progressive-more-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = '＋';
+      button.appendChild(icon);
+      var text = doc.createElement('span');
+      text.className = 'progressive-more-text';
+      text.textContent = label;
+      button.appendChild(text);
+      button.setAttribute('aria-label', label);
+      button.title = label;
     }
 
     function append() {
@@ -66,7 +77,16 @@
       var end = Math.min(items.length, shown + count);
       var html = '';
       for (var i = shown; i < end; i++) {
-        html += spec.renderItem(items[i], i);
+        var rendered = spec.renderItem(items[i], i);
+        if (rendered && rendered.nodeType) {
+          if (html) {
+            list.insertAdjacentHTML('beforeend', html);
+            html = '';
+          }
+          list.appendChild(rendered);
+        } else {
+          html += rendered || '';
+        }
       }
       if (html) list.insertAdjacentHTML('beforeend', html);
       var start = shown;
@@ -93,10 +113,14 @@
     '.progressive-status { position: absolute; width: 1px; height: 1px;',
     '  padding: 0; margin: -1px; overflow: hidden;',
     '  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }',
-    '.progressive-more { min-height: calc(44px * var(--s)); border: 0;',
-    '  padding: 7px 0; background: transparent; color: var(--link);',
-    '  font: 800 calc(14px * var(--s))/1.25 system-ui, sans-serif;',
-    '  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }',
+    '.progressive-more { min-height: calc(44px * var(--s)); min-width: calc(44px * var(--s));',
+    '  border: 1px solid var(--link); border-radius: 50%; padding: 0;',
+    '  background: transparent; color: var(--link); cursor: pointer;',
+    '  display: inline-flex; align-items: center; justify-content: center;',
+    '  font: 800 calc(22px * var(--s))/1 system-ui, sans-serif; }',
+    '.progressive-more-text { position: absolute; width: 1px; height: 1px;',
+    '  padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);',
+    '  white-space: nowrap; border: 0; }',
     '.progressive-more:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }'
   ].join('\n');
 

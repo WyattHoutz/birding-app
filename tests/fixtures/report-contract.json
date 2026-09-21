@@ -86,17 +86,10 @@
     },
     {
       "at": "quickBtn",
-      "label": "🚶 Near By Patches",
-      "report": "## 🚶 Near By Patches — Local hotspots",
+      "label": "🚶 Nearby Patches",
+      "report": "## 🚶 Nearby Patches — Local hotspots and unseen targets",
       "map": "quickMap",
-      "sub": "Local hotspots"
-    },
-    {
-      "at": "targetsBtn",
-      "label": "📍 Closest patches",
-      "report": "## 📍 Closest patches — Nearest place with a bird you need",
-      "map": "closeMap",
-      "sub": "Nearest place with a bird you need"
+      "sub": "Local hotspots and unseen targets"
     },
     {
       "at": "spLookupBtn",

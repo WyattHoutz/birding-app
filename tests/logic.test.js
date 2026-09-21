@@ -716,7 +716,7 @@ test('F346 five fresh Hawaii destinations do not gain older fallback rows', () =
 });
 
 test('F349 Hawaii older evidence fills Half-day without crossing county or travel bands', () => {
-  const hi = BL.profileFor('hi');
+  const hi = Object.assign({}, BL.profileFor('hi'), { chaseMaxMi: 35 });
   const SNAP = '2026-09-07';
   const home = { lat: 19.92222, lng: -155.88404 };
   const raw = (id, code, name, locId, loc, lat, lng, county, dt) => Object.assign(
@@ -730,7 +730,7 @@ test('F349 Hawaii older evidence fills Half-day without crossing county or trave
     rowsToday: profileSnapshot(hi, { 'hawaii-recent.json': [puu] }),
     rowsPrior: profileSnapshot(hi, {}),
     seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home,
-    dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ,
+    dailyDriveMi: 35, travelCfg: TZ,
     destinationFallbackRows: [
       raw('old-puu', 'akiapo', 'Akiapolaau', 'L366605',
         "Pu'u O'o Trail, Kipuka Ainahou section (first 2 miles)",

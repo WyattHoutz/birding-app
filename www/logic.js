@@ -48,7 +48,7 @@
     // quietly went unbounded — Today's rarity reports was listing birds 60+
     // miles out beside one four miles from the house.
     //
-    // 35, up from 30, and per-region on the report side (regions.Region
+    // 40, up from 35, and per-region on the report side (regions.Region
     // .chase_max_mi, rebound by analyze.set_region). This is the DEFAULT and the
     // value for WA; the app reads a per-region override from settings.
     //
@@ -57,7 +57,7 @@
     // trip — but never for inclusion. Murden Cove is 17 straight-line miles and
     // 52 effective; a real Arctic Tern chase went there, and a penalised radius
     // would have dropped it. eBird's own dist= is a straight-line radius too.
-    CHASE_MAX_MI: 35,
+    CHASE_MAX_MI: 40,
     CLUSTER_RADIUS_M: 250,  // report._cluster_by_proximity radius_m
     // F257. analyze.NV_WEIGHT. A needs-verification bird is one you have very
     // likely already seen but have not formally confirmed, so it is subtracted
@@ -226,7 +226,7 @@
         { slug: 'snohomish', code: 'US-WA-061', label: 'Snohomish' }
       ],
       home: { lat: 47.76, lng: -122.14 }, homeLabel: 'Woodinville, WA',
-      geoDistKm: 50, dailyDriveMi: 12, chaseMaxMi: 35, tideStation: '9447130',
+      geoDistKm: 50, dailyDriveMi: 12, chaseMaxMi: 40, tideStation: '9447130',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'wa', seenFromRegion: '',
       tzStdOffset: -8, tzObservesDst: true
     },
@@ -238,7 +238,7 @@
         { slug: 'jackson', code: 'US-MO-095', label: 'Jackson' }
       ],
       home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'mo', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
     },
@@ -250,7 +250,7 @@
         { slug: 'leavenworth', code: 'US-KS-103', label: 'Leavenworth' }
       ],
       home: { lat: 39.22, lng: -94.75 }, homeLabel: 'Parkville, MO',
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ks', seenFromRegion: 'lower48',
       tzStdOffset: -6, tzObservesDst: true
     },
@@ -261,7 +261,7 @@
         { slug: 'yavapai', code: 'US-AZ-025', label: 'Yavapai' }
       ],
       home: { lat: 33.85, lng: -112.11 }, homeLabel: 'Anthem, AZ',
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'az', seenFromRegion: 'lower48',
       tzStdOffset: -7, tzObservesDst: false
     },
@@ -272,7 +272,7 @@
         { slug: 'sacramento', code: 'US-CA-067', label: 'Sacramento' }
       ],
       home: { lat: 38.76, lng: -121.19 }, homeLabel: 'Granite Bay, CA',
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'ca', seenFromRegion: 'lower48',
       tzStdOffset: -8, tzObservesDst: true
     },
@@ -283,7 +283,7 @@
       // used only to centre maps. Conditions must ask for a real home rather
       // than report the weather in a field near Lebanon, Kansas.
       homeIsPlaceholder: true,
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'lower48', seenFromRegion: '',
       // eBird subnational1 codes dropped from the rarity feed (non-CONUS).
       excludeSubnational1: ['US-AK', 'US-HI', 'US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
@@ -293,7 +293,7 @@
       slug: 'aba', label: 'ABA Area', kind: 'region', stateCode: 'aba',
       counties: [], home: { lat: 39.8283, lng: -98.5795 }, homeLabel: 'ABA Area',
       homeIsPlaceholder: true,
-      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 35, tideStation: '',
+      geoDistKm: 50, dailyDriveMi: 20, chaseMaxMi: 40, tideStation: '',
       geoFeed: false, isRarityTracker: true, birdlistSlug: 'aba', seenFromRegion: '',
       // Inclusive companion to Lower 48: keeps HI + Canada, drops only US territories.
       excludeSubnational1: ['US-PR', 'US-VI', 'US-GU', 'US-MP', 'US-AS', 'US-UM'],
@@ -303,7 +303,7 @@
       slug: 'hi', label: 'Hawaii', kind: 'region', stateCode: 'US-HI',
       counties: [{ slug: 'hawaii', code: 'US-HI-001', label: 'Hawaii' }],
       home: { lat: 19.95, lng: -155.79 }, homeLabel: 'Waikoloa, Big Island',
-      geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 35, tideStation: '1617433',
+      geoDistKm: 50, dailyDriveMi: 25, chaseMaxMi: 40, tideStation: '1617433',
       geoFeed: true, isRarityTracker: false, birdlistSlug: 'hi', seenFromRegion: '',
       tzStdOffset: -10, tzObservesDst: false
     }
@@ -3225,7 +3225,7 @@
   //
   // A real chase is the regression test: an Arctic Tern at Murden Cove on
   // Bainbridge is 17 mi straight-line — inside the 30 mi chase cap — but 52
-  // effective miles, so a penalised 35 mi radius drops it. Rarities arrive
+  // effective miles, so a penalised 40 mi radius drops it. Rarities arrive
   // through the geo feed, so that would not rank the bird lower, it would hide
   // it entirely.
   //
