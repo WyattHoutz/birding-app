@@ -8366,6 +8366,60 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
   patchApp.window.close();
 });
 
+test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () => {
+  const now = new Date();
+  const stamp = (minutes) => new Date(now.getTime() - minutes * 60000)
+    .toISOString().slice(0, 16).replace('T', ' ');
+  const rows = Array.from({ length: 6 }, (_, i) => ({
+    speciesCode: 'shtsan',
+    comName: 'Sharp-tailed Sandpiper',
+    sciName: 'Calidris acuminata',
+    obsDt: stamp(i * 10),
+    locName: i ? `Supporting place ${i}` : 'League Island--Eide Rd.',
+    locId: `L${i}`,
+    subId: `S${i}`,
+    lat: 47.9 + i * 0.01,
+    lng: -122.2 - i * 0.01,
+    userDisplayName: `Observer ${i}`,
+  }));
+  const app = await boot({ storage: {
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489', rows,
+    }),
+    'ebird_species_v2:US-WA': JSON.stringify({
+      at: Date.now(),
+      rows: [{
+        name: 'Sharp-tailed Sandpiper',
+        code: 'shtsan',
+        alpha: 'SPTS',
+        sci: 'Calidris acuminata',
+      }],
+    }),
+  } });
+
+  app.window.__app.renderSurge([], [], [], [], []);
+  const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
+  assert.ok(mega.dataset.megaView,
+    'the Bird Gen mega row does not carry the exact Mega view reference');
+  app.click(mega.querySelector('.splink'));
+
+  assert.equal(app.$('sec-spLookupBtn').hidden, false,
+    'the mega card did not open Stakeout bird');
+  assert.equal(app.$('spLookup').value, 'Sharp-tailed Sandpiper');
+  const card = app.document.querySelector('#spLookupResults > li');
+  assert.deepEqual([...card.querySelectorAll(':scope > .meta .spcode, :scope > .meta .spalpha')]
+    .map((el) => el.textContent), ['shtsan', 'SPTS'],
+    'Stakeout omitted the four-letter bird code');
+  assert.match(card.querySelector('.megaorigin').textContent, /Opened from Bird Gen/);
+  assert.equal(card.querySelectorAll('.megareports li').length, 6,
+    'Bird Gen discarded the complete Mega checklist set');
+  assert.equal(app.$('navBack').getAttribute('aria-label'), 'Back to Bird Gen');
+  app.click(app.$('navBack'));
+  assert.equal(app.$('sec-surgeBtn').hidden, false,
+    'Back did not return to the Bird Gen source view');
+  app.window.close();
+});
+
 test('F311 Bird Gen never renders the rarity R marker', async () => {
   const app = await boot();
   const A = app.window.__app;

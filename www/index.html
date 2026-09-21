@@ -3551,7 +3551,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.116.0';
+      var APP_VERSION = '1.117.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8137,7 +8137,15 @@
         // old is not news however rare it is — 🦅 Mega rarities is the section
         // whose job is completeness, and it still lists it.
         var news = out.filter(freshNews);
-        return { at: s.at, rows: news, all: out, held: out.length - news.length };
+        return {
+          at: s.at,
+          region: s.region,
+          sid: s.sid,
+          sourceRows: s.rows,
+          rows: news,
+          all: out,
+          held: out.length - news.length
+        };
       }
       // ── F256: RARITY IS THE ENTRY TICKET, NOT THE RANKING ─────────────────
       //
@@ -11692,6 +11700,7 @@
           icon: photoSlot(g.name, g.code),
           name: speciesLink(g.name, g.code),
           code: g.code,
+          alpha: alphaFor(g.code),
           actions: qrButton('species', g.code)
             + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
           tags: (seenIt ? '✅' : needTag(g.code, g.name))
@@ -23513,6 +23522,8 @@
             reportLabel: meta.reportLabel || report.label || viewMeta.region,
             stateName: meta.stateName || BL.stateNameFor(report),
             country: meta.country || String(viewMeta.region).split('-')[0] || 'US',
+            originSection: meta.originSection || 'sec-abaBtn',
+            originLabel: meta.originLabel || 'Mega rarities',
             bySpecies: {}
           };
           _megaViews[key] = view;
@@ -23693,7 +23704,8 @@
         return '<div class="megaevidence" data-mega-view="' + esc(entry.view.key)
           + '" data-mega-code="' + esc(entry.code) + '">'
           + '<div class="megaorigin"><span class="stakeflag">🦅 Mega · ABA Code 3+</span>'
-          + '<span>Opened from Mega rarities; its report evidence is kept with the ordinary '
+          + '<span>Opened from ' + esc(entry.view.originLabel)
+          + '; its report evidence is kept with the ordinary '
           + 'Stakeout places below.</span></div>'
           + megaLatestHtml(entry)
           + megaFinderHtml(entry)
@@ -26167,9 +26179,13 @@
         if (!mega) clearMegaStakeContext();
         if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
         if (mega) {
-          _stakeOrigin = { section: 'sec-abaBtn', viewKey: mega.view.key, code: mega.code };
+          _stakeOrigin = {
+            section: mega.view.originSection,
+            viewKey: mega.view.key,
+            code: mega.code
+          };
           var back = $('navBack');
-          if (back) back.setAttribute('aria-label', 'Back to Mega rarities');
+          if (back) back.setAttribute('aria-label', 'Back to ' + mega.view.originLabel);
         }
         var inp = $('spLookup');
         if (inp && !finderContext) inp.value = name || code;
@@ -28414,6 +28430,7 @@
           var locName = row.getAttribute('data-hslocname') || '';
           var code = row.getAttribute('data-species-code') || '';
           var speciesName = row.getAttribute('data-species-name') || code;
+          var megaView = row.getAttribute('data-mega-view') || '';
           var place = !!locId;
           if (!place && !code && !speciesName) return;
           head.classList.add('surgeheadline');
@@ -28424,7 +28441,8 @@
             : 'Open ' + speciesName + ' in Stakeout bird');
           function open() {
             if (place) openStakeHotspot(locId, locName || locId);
-            else if (code) openStakeSpecies(code, speciesName || code);
+            else if (code) openStakeSpecies(code, speciesName || code,
+              megaView ? { viewKey: megaView, code: code } : null);
             else {
               if ($('sec-spLookupBtn')) showSection('sec-spLookupBtn');
               var input = $('spLookup');
@@ -28547,6 +28565,15 @@
         topPatches = topPatches || [];
         var mega = megaLane(getAnchors());
         var megaRows = (mega && mega.rows) || [];
+        var megaView = megaRows.length ? installMegaView(
+          mega.sourceRows, true, false, '', {
+            region: mega.region,
+            sid: mega.sid,
+            scope: abaScope(),
+            stateRows: mega.sourceRows,
+            originSection: 'sec-surgeBtn',
+            originLabel: 'Bird Gen'
+          }) : null;
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
         var sourceWarning = surgeSourceWarning(sourceStates);
@@ -28606,7 +28633,8 @@
               ? surgePlaceLink(m.locName, m.locId) : '',
             when: m.obsDt,
             time: surgeTimeValue(m.obsDt),
-            checklistId: m.subId || ''
+            checklistId: m.subId || '',
+            data: { 'mega-view': megaView ? megaView.key : '' }
           });
         });
 
@@ -34247,8 +34275,15 @@
         if (spl) {
           ev.preventDefault();
           var finderHost = spl.closest('#spLookupQueryHelp');
+          var surgeMega = spl.closest(
+            '#surgeFeed [data-alert-kind="mega"][data-mega-view]');
+          var surgeCode = spl.getAttribute('data-sp') || '';
           openStakeSpecies(spl.getAttribute('data-sp') || '',
-                           spl.getAttribute('data-spname') || '', null,
+                           spl.getAttribute('data-spname') || '',
+                           surgeMega ? {
+                             viewKey: surgeMega.getAttribute('data-mega-view') || '',
+                             code: surgeCode
+                           } : null,
                            finderHost ? { query: ($('spLookup') || {}).value || '' } : null);
           return;
         }
