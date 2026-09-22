@@ -9,6 +9,16 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const bundleVerifierPath = path.join(ROOT, 'assets', 'verify-release-bundle.js');
 const assetsVerifierPath = path.join(ROOT, 'assets', 'verify-release-assets.js');
+const releaseContractPath = path.join(ROOT, 'assets', 'release-contract.json');
+
+test('the release bundle contract requires the current progressive action label', () => {
+  const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  const markers = contract.requiredText['controls-progressive.js'] || [];
+  assert.ok(markers.includes('Load '),
+    'the shipped bundle is not required to contain the visible Load-more label');
+  assert.ok(!markers.includes('Show '),
+    'the shipped bundle still requires the removed Show-more label');
+});
 
 test('F340 the extracted release bundle contract fails closed on exact mutations', () => {
   assert.ok(fs.existsSync(bundleVerifierPath),

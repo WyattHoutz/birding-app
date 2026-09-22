@@ -84,7 +84,7 @@
     ],
     "controls-progressive.js": [
       "global.ProgressiveList = api",
-      "Show "
+      "Load "
     ]
   },
   "forbiddenText": {
