@@ -3628,7 +3628,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.122.0';
+      var APP_VERSION = '1.122.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -29767,12 +29767,15 @@
       }
 
       function surgeBirdTag(a) {
-        var kind = a.kind === 'mega' ? 'mega' : (a.rare ? 'rare' : '');
-        if (!kind) return '';
-        var word = kind === 'mega' ? 'MEGA' : 'RARE';
-        var label = kind === 'mega' ? 'Mega rarity' : 'Rare bird';
-        return '<span class="surgebirdtag surgebirdtag-' + kind
-          + '" aria-label="' + label + '" title="' + label + '">' + word + '</span>';
+        if (a.kind === 'mega' || a.mega) {
+          return '<span class="surgebirdtag surgebirdtag-mega"'
+            + ' aria-label="Mega rarity" title="Mega rarity">MEGA</span>';
+        }
+        if (a.rare) {
+          return '<span class="surgebirdtag surgebirdtag-rare"'
+            + ' aria-label="Rare bird" title="Rare bird">RARE</span>';
+        }
+        return '';
       }
 
       function surgeExplanationHtml(a, reasonText) {
@@ -30151,6 +30154,17 @@
         }
         var mega = megaLane(getAnchors());
         var megaRows = (mega && mega.rows) || [];
+        var megaCodes = {}, megaNames = {};
+        ((mega && mega.all) || []).forEach(function (m) {
+          var code = String(m.code || '').trim().toLowerCase();
+          var name = String(m.name || '').trim().toLowerCase();
+          if (code) megaCodes[code] = true;
+          if (name) megaNames[name] = true;
+        });
+        function isMegaBird(code, name) {
+          return !!(megaCodes[String(code || '').trim().toLowerCase()]
+            || megaNames[String(name || '').trim().toLowerCase()]);
+        }
         var megaView = megaRows.length ? installMegaView(
           mega.sourceRows, true, false, '', {
             region: mega.region,
@@ -30387,6 +30401,10 @@
           });
         });
 
+        rows.forEach(function (row) {
+          row.mega = row.kind === 'mega'
+            || isMegaBird(row.speciesKey || row.code, row.speciesNameKey);
+        });
         rows = mergeSurgeSpeciesRows(rows);
         var isSeen = seenResolver();
         rows.forEach(function (row) {

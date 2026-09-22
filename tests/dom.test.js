@@ -8577,6 +8577,40 @@ test('F459 Bird Gen labels mega and rare birds beside their names', async () => 
   app.window.close();
 });
 
+test('F465 Bird Gen prefers Mega over Rare when fresh local news wins', async () => {
+  const oldMegaStamp = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    .toISOString().slice(0, 16).replace('T', ' ');
+  const freshStamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const app = await boot({ storage: {
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      rows: [{
+        speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        obsDt: oldMegaStamp, locName: 'Old Mega site', locId: 'LMEGA',
+        subId: 'SM1', lat: 48.31, lng: -122.84,
+      }],
+    }),
+  } });
+
+  app.window.__app.renderSurge(
+    [], [], [],
+    [{ code: 'shtsan', alpha: 'STSA', name: 'Sharp-tailed Sandpiper',
+      sightings: 4, nPlaces: 1, distMi: 6.2, locName: 'Fresh local site',
+      locId: 'LLOCAL', subId: 'SLOCAL', whenStr: freshStamp, rare: true }],
+    [{ code: 'shtsan', name: 'Sharp-tailed Sandpiper', kind: 'Rarity' }]);
+
+  const row = app.$('surgeFeed').querySelector('[data-alert-kind="need"]');
+  assert.ok(row, 'the fresh local rarity did not remain the winning CELEBRITY alert');
+  assert.deepEqual(
+    [...row.querySelectorAll(':scope > .name .surgebirdtag')]
+      .map((tag) => tag.textContent.trim()),
+    ['MEGA'],
+    'the held ABA Mega classification was lost when fresh local rarity news won');
+  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+    'CELEBRITY', 'the intrinsic tags replaced the current alert category');
+  app.window.close();
+});
+
 test('F302 a name-only Cascade opens Stakeout search and explains its scope gap', async () => {
   const app = await boot();
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
