@@ -13,13 +13,25 @@
  * can assert they were triggered and count their requests) but never paint
  * results, which keeps the tests offline and deterministic.
  */
-const { test, after, afterEach } = require('node:test');
+const { test: nodeTest, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
+
+const DEFAULT_TEST_TIMEOUT_MS = 120000;
+function test(name, options, fn) {
+  if (typeof options === 'function') {
+    fn = options;
+    options = {};
+  }
+  return nodeTest(name, Object.assign(
+    { timeout: DEFAULT_TEST_TIMEOUT_MS },
+    options || {}
+  ), fn);
+}
 
 const DEFAULT_WWW = path.join(__dirname, '..', 'www');
 const WWW = process.env.BIRDCHASER_WWW

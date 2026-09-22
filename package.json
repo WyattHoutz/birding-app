@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test --test-timeout=120000 tests/*.test.js",
+    "test": "node --test tests/*.test.js",
     "info-catalog": "node assets/generate-info-catalog.js",
     "mockups": "node assets/mockups.js",
     "mockup:alertfeed": "node assets/mockup-alertfeed.js",
