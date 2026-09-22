@@ -1,10 +1,10 @@
 {
   "name": "birding-app",
-  "version": "1.120.1",
+  "version": "1.120.2",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test --test-timeout=1800000 tests/*.test.js",
+    "test": "node --test --test-timeout=120000 tests/*.test.js",
     "info-catalog": "node assets/generate-info-catalog.js",
     "mockups": "node assets/mockups.js",
     "mockup:alertfeed": "node assets/mockup-alertfeed.js",

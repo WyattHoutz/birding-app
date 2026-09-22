@@ -5303,7 +5303,7 @@ test('F420 Nemesis and Open-target cards progressively append places in one list
   const list = host.querySelector('ul.uplaces');
   const more = host.querySelector('button.speciesPlacesMore');
   assert.equal(list.children.length, 5, 'the first batch is five checklist rows');
-  assert.match(more.textContent, /Show 2 more of 7 places/);
+  assert.match(more.textContent, /Load 2 more places/);
   more.click();
   assert.strictEqual(host.querySelector('ul.uplaces'), list,
     'Show more replaced the original list');
@@ -9345,7 +9345,8 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   app.window.close();
 });
 
-test('F379 Bird Gen reuses its successful cascade and hotspot sources on first paint', async () => {
+test('F379 Bird Gen reuses its successful cascade and hotspot sources on first paint',
+  { timeout: 15000 }, async () => {
   const first = await boot();
   const A1 = first.window.__app;
   const profile = A1.chaseProfile();
@@ -11802,12 +11803,15 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
     /var pConverge = Promise\.all\(\[pCachedSources, pObserved\]\)\.then/,
     'optional product/list hotspot calls can jump ahead of the six-feed observation source');
 
-  // And the head start must keep the wave running underneath rather than
-  // replacing it - otherwise the partial view becomes the permanent one.
+  // The Twitch screens now own a bounded notable-only load. Happening now can
+  // consume that result without making either Twitch screen start the full
+  // chase wave that caused the installed crashes.
   const gr = HTML.indexOf('function getChaseRarity');
   const gsrc = HTML.slice(gr, HTML.indexOf('\n      function ', gr + 1));
-  assert.match(gsrc, /getChase\(force\)/,
-    'the rarity head start no longer starts the full wave behind it');
+  assert.doesNotMatch(gsrc, /getChase\(force\)/,
+    'the rarity loader still starts the full wave behind the Twitch screens');
+  assert.match(gsrc, /feed\.kind === 'notable'/,
+    'the rarity loader no longer limits itself to the source Happening now needs');
 });
 
 test('showing a section reports any element wider than the screen', async () => {
@@ -13131,8 +13135,13 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   });
   const unitList = unit.list;
   assert.equal(unitList.children.length, 25);
-  assert.equal(unit.button.getAttribute('aria-label'), 'Show 25 more of 55 birds');
-  assert.equal(unit.button.querySelector('.progressive-more-icon').textContent, '＋');
+  assert.equal(unit.button.getAttribute('aria-label'), 'Load 25 more birds');
+  assert.equal(unit.button.querySelector('.progressive-more-icon').textContent, '↓');
+  assert.equal(unit.button.querySelector('.progressive-more-text').textContent,
+    'Load 25 more birds', 'the action label must be visible, not screen-reader-only');
+  assert.match(ProgressiveList.css,
+    /\.progressive-more-text\s*\{[^}]*position:\s*static/,
+    'the load-more label is visually hidden');
   assert.match(ProgressiveList.css,
     /\.progressive-status\s*\{[^}]*position:\s*absolute[^}]*clip:/,
     'the live list count remains visible as a second footer sentence');
@@ -13140,7 +13149,7 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.strictEqual(unit.list, unitList,
     'the shared navigation replaced its list instead of appending');
   assert.equal(unitList.children.length, 50);
-  assert.equal(unit.button.getAttribute('aria-label'), 'Show 5 more of 55 birds');
+  assert.equal(unit.button.getAttribute('aria-label'), 'Load 5 more birds');
   unit.button.click();
   assert.equal(unitList.children.length, 55);
   assert.equal(unit.button.isConnected, false);
@@ -13209,7 +13218,7 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.doesNotMatch(list.textContent, /Outside Bird/,
     'a bird outside the active regional list entered the common-bird lane');
   assert.equal(host.querySelector('.spuhcandidatemore').getAttribute('aria-label'),
-    'Show 5 more of 30 birds');
+    'Load 5 more birds');
   assert.match(host.querySelector('.spuhcandidatestatus').textContent,
     /Reported in Washington in the last 30 days/,
   'the list does not name its recent-presence evidence');
@@ -13787,7 +13796,8 @@ test('F416 Hawaii Amakihi variants open one Stakeout and remain listed', async (
   app.window.close();
 });
 
-test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint', async () => {
+test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint',
+  { timeout: 15000 }, async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/(sem|sol)/.test(url)) return [];
@@ -13798,15 +13808,15 @@ test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint', asy
   const A = app.window.__app;
   let resolveModel;
   A.setSpuhModelPromise(new Promise((resolve) => { resolveModel = resolve; }));
-  const oldLookup = A.lookupSpecies('sem', 'Semipalmated Sandpiper');
+  const oldPaint = A.renderSpuhStakeoutNav('sem', 'Semipalmated Sandpiper');
   A.setSpuhModelPromise(Promise.resolve(model));
-  const newLookup = A.lookupSpecies('sol', 'Solitary Sandpiper');
-  await Promise.all([oldLookup, newLookup]);
+  A.lookupSpecies('sol', 'Solitary Sandpiper');
   await waitFor(() => app.document.querySelector(
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]'),
   'the current taxonomy paint');
   assert.match(app.$('spLookupIdHelp').textContent, /Solitary Sandpiper/);
   resolveModel(model);
+  await oldPaint;
   await new Promise((r) => setTimeout(r, 20));
   const nav = app.$('spLookupIdHelp').textContent;
   assert.match(nav, /Solitary Sandpiper/);
@@ -13854,7 +13864,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   'the one hotspot row does not link its newest checklist');
 
   const more = card.querySelector('button.spLookupMore');
-  assert.match(more.textContent, /Show 10 more of 55 places/);
+  assert.match(more.textContent, /Load 10 more places/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
   assert.equal(numberedPins(), 10,
@@ -13869,7 +13879,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     'expanded reports are still indented inside a second list');
   assert.equal(numberedPins(), 20,
     'Show more appended rows without appending their map pins');
-  assert.match(more.textContent, /Show 10 more of 55 places/,
+  assert.match(more.textContent, /Load 10 more places/,
     'the Show-more label switched back to reports');
   while (card.querySelector('button.spLookupMore')) {
     card.querySelector('button.spLookupMore').click();
@@ -15399,7 +15409,7 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   const list = progress.querySelector('ul');
   const more = progress.querySelector('.hotspotChecklistMore');
   assert.ok(more, 'the filtered-out lists survive behind an OPENABLE control');
-  assert.match(more.textContent, /Show 2 more of 2 checklists without a bird you need/,
+  assert.match(more.textContent, /Load 2 more of 2 checklists without a bird you need/,
     'it states the count and the reason in the shared progressive form');
   more.click();
   await new Promise((r) => setTimeout(r, 60));
@@ -17032,6 +17042,18 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
     HTML.indexOf('function rarityChecklistDetails('));
   assert.match(render, /rarityChecklistDetails\(r, \{ initialCount: 3 \}\)/,
     'weekly rarity rows eagerly render every checklist behind every bird/place group');
+  assert.match(render, /var shown = 0, batch = 5;/,
+    'Twitches this week has no bounded initial species-card batch');
+  assert.match(render, /activeRarityMore/,
+    'Twitches this week has no explicit show-more control for remaining cards');
+  assert.match(render,
+    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*Load '[\s\S]*more rare bird\/place results/,
+    'Twitches this week does not use the visible load-more icon and label');
+  assert.match(render, /rareGroup\(visibleNeeded,[\s\S]*rareGroup\(visibleSeen,/,
+    'the weekly batch does not preserve the needed/seen grouping');
+  assert.doesNotMatch(render,
+    /rareGroup\(stillNeeded,[\s\S]*rareGroup\(alreadySeen,/,
+    'Twitches this week still mounts every species card in one render');
   const details = HTML.slice(HTML.indexOf('function rarityChecklistDetails('),
     HTML.indexOf('// Last 7-Days rarity reports'));
   assert.match(details, /opts\.initialCount/,
@@ -17049,6 +17071,9 @@ test('Twitches today paints rarity rows in bounded batches', async () => {
     'Twitches today still builds every rare-checklist row before first paint');
   assert.match(render, /class="progressive-more todayRarityMore"/,
     'Twitches today has no explicit show-more control for remaining rows');
+  assert.match(render,
+    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*Load '[\s\S]*more rarity reports/,
+    'Twitches today does not use the visible load-more icon and label');
   assert.match(render, /scheduleTodayNoteHydration\(\)/,
     'Twitches today does not schedule notes after the bounded paint');
   assert.doesNotMatch(render, /hydrateChecklistEvidence\(out\)/,
@@ -17062,6 +17087,29 @@ test('Twitches today paints rarity rows in bounded batches', async () => {
   assert.match(HTML,
     /root\.matches && root\.matches\('\[data-ev-sub\]:not\(\[data-ev-done\]\)'\)/,
     'single-row note hydration cannot target the row itself');
+});
+
+test('the Twitch screens fetch only their shared notable feeds', async () => {
+  const from = HTML.indexOf('function getChaseRarity(');
+  const to = HTML.indexOf('// The two rarity sections are COMPLETE', from);
+  assert.ok(from > 0 && to > from, 'getChaseRarity has stable source boundaries');
+  const src = HTML.slice(from, to);
+  assert.match(src, /BL\.planFeeds\(profile\)\.filter\(function \(feed\) \{\s*return feed\.kind === 'notable';/,
+    'Twitch loading still plans the full chase wave instead of only notable feeds');
+  assert.match(src, /_chaseRarityInflight\[slug\]/,
+    'Today and This week can start duplicate rarity-only waves');
+  assert.match(src, /loadChaseSnapshot\(slug\)/,
+    'a fresh launch no longer reuses its complete same-day chase snapshot');
+  assert.doesNotMatch(src, /getChase\(force\)/,
+    'opening a Twitch screen still launches full chase enrichment');
+  assert.match(src, /progressStage\('Rare sightings near you', feeds\.length, 1, 1\)/,
+    'the shared Twitch loader does not report its bounded one-step work');
+});
+
+test('Nearby Patches progressive cards align with the map and status', () => {
+  assert.match(HTML,
+    /\.obs > \.progressive-list \{ list-style: none; margin: 0; padding: 0; \}/,
+    'the nested progressive list keeps the browser default left indent');
 });
 
 test('release mockup comparison shot has its own prep timeout', async () => {
@@ -22327,7 +22375,7 @@ test('F381 Open targets bounds first paint and appends into the same live list',
   assert.equal(list.querySelectorAll('.thumb[data-bird]').length, 12,
     'Open targets hydrated more photo slots than the bounded first batch');
   assert.equal(control.button.parentElement.id, 'allUnseenProgress');
-  assert.match(control.button.textContent, /Show 12 more of 30 birds/);
+  assert.match(control.button.textContent, /Load 12 more birds/);
 
   control.button.click();
   assert.strictEqual(app.$('allUnseenResults'), list,
@@ -27876,7 +27924,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   assert.equal(list.children.length, 2,
     'the first paint does not stop after the checklists with a bird you need');
   const more = progress.querySelector('.hotspotChecklistMore');
-  assert.match(more.textContent, /Show 25 more of 29 checklists without a bird you need/);
+  assert.match(more.textContent, /Load 25 more of 29 checklists without a bird you need/);
   more.click();
   assert.strictEqual(progress.querySelector('ul'), list,
     'Show more replaced the checklist list instead of appending to it');
@@ -32188,6 +32236,59 @@ test('F330 a stale-snapshot caller neither waits for nor rivals detached phase t
     + 'section it just left');
   assert.equal(fetchesWhileEnrichmentHeld, fetchesBefore,
     'returning stale phase-one rows started a rival chase wave');
+});
+
+test('F445 a stale-snapshot caller neither waits for nor rivals its background refresh', async () => {
+  let releaseFeeds;
+  const feedGate = new Promise((resolve) => { releaseFeeds = resolve; });
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\//.test(String(url))) return feedGate.then(() => []);
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const profile = A.chaseProfile();
+  const stale = {
+    t: 0,
+    rarity: false,
+    rows: {},
+    speciesCodes: [],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+  };
+  A.seedChase(profile.slug, stale);
+
+  let releaseRefresh;
+  const refresh = new Promise((resolve) => { releaseRefresh = resolve; });
+  A.setChaseRefresh(profile.slug, refresh, stale.fetchBaseKey, stale.geoNotableKm);
+  const fetchesBefore = app.state.fetches.length;
+
+  let settled = false;
+  const caller = A.getChase().then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const settledWhileRefreshHeld = settled;
+  const fetchesWhileRefreshHeld = app.state.fetches.length;
+  releaseRefresh(stale);
+  releaseFeeds();
+  await caller;
+
+  assert.equal(settledWhileRefreshHeld, true,
+    'a caller with usable stale rows waited for the background refresh');
+  assert.equal(fetchesWhileRefreshHeld, fetchesBefore,
+    'a caller during the background refresh started a rival chase wave');
+
+  const from = HTML.indexOf('function getChaseAll(');
+  const to = HTML.indexOf('function anyRows(rows)', from);
+  const gc = HTML.slice(from, to);
+  assert.match(gc, /if \(!force && _chaseRefresh\[slug\]\) \{/,
+    'normal callers guard the registered stale-snapshot refresh');
+  assert.match(gc, /var refreshing = projectChaseResult\(_chase\[slug\], profile, slug\);[\s\S]*if \(refreshing\) return Promise\.resolve\(refreshing\);/,
+    'they get the already-painted snapshot immediately rather than waiting');
+  app.window.close();
 });
 
 

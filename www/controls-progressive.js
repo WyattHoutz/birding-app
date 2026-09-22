@@ -1,4 +1,4 @@
-/* Shared in-place Show-more navigation for long lists. */
+/* Shared in-place load-more navigation for long lists. */
 (function (global) {
   'use strict';
 
@@ -56,12 +56,12 @@
       var next = Math.min(batchSize, remaining);
       var label = typeof spec.moreLabel === 'function'
         ? spec.moreLabel(next, remaining, shown, items.length)
-        : 'Show ' + next + ' more of ' + items.length + ' ' + noun;
+        : 'Load ' + next + ' more ' + noun;
       button.textContent = '';
       var icon = doc.createElement('span');
       icon.className = 'progressive-more-icon';
       icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = '＋';
+      icon.textContent = '↓';
       button.appendChild(icon);
       var text = doc.createElement('span');
       text.className = 'progressive-more-text';
@@ -114,13 +114,15 @@
     '  padding: 0; margin: -1px; overflow: hidden;',
     '  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }',
     '.progressive-more { min-height: calc(44px * var(--s)); min-width: calc(44px * var(--s));',
-    '  border: 1px solid var(--link); border-radius: 50%; padding: 0;',
+    '  border: 1px solid var(--link); border-radius: 999px;',
+    '  padding: calc(8px * var(--s)) calc(13px * var(--s));',
     '  background: transparent; color: var(--link); cursor: pointer;',
     '  display: inline-flex; align-items: center; justify-content: center;',
-    '  font: 800 calc(22px * var(--s))/1 system-ui, sans-serif; }',
-    '.progressive-more-text { position: absolute; width: 1px; height: 1px;',
-    '  padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);',
-    '  white-space: nowrap; border: 0; }',
+    '  gap: calc(7px * var(--s)); font: 800 calc(14px * var(--s))/1.2 system-ui, sans-serif; }',
+    '.progressive-more-icon { font-size: calc(19px * var(--s)); line-height: 1; }',
+    '.progressive-more-text { position: static; width: auto; height: auto;',
+    '  padding: 0; margin: 0; overflow: visible; clip: auto;',
+    '  white-space: normal; border: 0; }',
     '.progressive-more:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }'
   ].join('\n');
 

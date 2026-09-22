@@ -29,3 +29,11 @@ test('the version is not hard-coded anywhere else in the UI', () => {
   assert.deepEqual(literals, [],
     'render the version from APP_VERSION instead of repeating it: ' + literals.join(', '));
 });
+
+test('an individual test cannot hide a deadlock for half an hour', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const match = String(pkg.scripts.test || '').match(/--test-timeout=(\d+)/);
+  assert.ok(match, 'the app test command must set an explicit per-test timeout');
+  assert.ok(Number(match[1]) <= 120000,
+    `per-test timeout is ${match[1]}ms; deadlocks must fail within two minutes`);
+});

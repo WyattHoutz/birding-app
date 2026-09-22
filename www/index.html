@@ -1179,6 +1179,7 @@
        where an explanation that is true once and unchanging belongs. See
        `.docnote`. */
     .obs { list-style: none; margin: 6px 0 0; padding: 0; }
+    .obs > .progressive-list { list-style: none; margin: 0; padding: 0; }
     .obs li { padding: 12px 0; border-top: 1px solid var(--line); overflow: hidden; }
     /* Bird names are what these lists are FOR — they were set at 15px, smaller
        than the section intro text above them. Everything that names a species
@@ -3608,7 +3609,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.120.1';
+      var APP_VERSION = '1.120.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8938,10 +8939,10 @@
             shown = Math.min(rows.length, shown + next);
             var more = shown < rows.length
               ? '<li class="farhost"><button type="button" class="progressive-more todayRarityMore">'
-                + '<span class="progressive-more-icon" aria-hidden="true">＋</span>'
-                + '<span class="progressive-more-text">Show '
-                + Math.min(batch, rows.length - shown) + ' more of ' + rows.length
-                + ' rarity reports</span></button></li>'
+                + '<span class="progressive-more-icon" aria-hidden="true">↓</span>'
+                + '<span class="progressive-more-text">Load '
+                + Math.min(batch, rows.length - shown)
+                + ' more rarity reports</span></button></li>'
               : '';
             out.innerHTML = rows.slice(0, shown).map(card).join('')
               + tailRows.join('') + more;
@@ -12364,6 +12365,7 @@
       // file name, and hand them to computeChaseViews — so Top destinations /
       // excursions / fresh targets match the report section-for-section.
       var _chase = {};
+      var _chaseRarityInflight = {};
       function todayStr() {
         var d = new Date(), m = d.getMonth() + 1, day = d.getDate();
         return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
@@ -12549,7 +12551,7 @@
       // deleted at once while the refresh goes on for ~2.4 minutes — leaving
       // the force guard reading an empty registry, unable to fire in the one
       // window where it matters. Tracked separately because a normal caller
-      // must still get the instant snapshot; only a FORCE joins this.
+      // must still get the instant snapshot while a FORCE joins the refresh.
       var _chaseRefresh = {};
       // The rarity-only view that exists between the notable feeds landing and
       // the rest of phase 1 finishing. Deliberately NOT _chase: it is complete
@@ -12995,7 +12997,9 @@
             || snap.fetchBaseKey !== chaseFetchBaseKey(profile)
             || snap.geoNotableKm == null
             || snap.geoNotableKm < BL.geoNotableDistKm(profile)) return false;
-        var feeds = BL.planFeeds(profile);
+        var feeds = BL.planFeeds(profile).filter(function (feed) {
+          return feed.kind === 'notable';
+        });
         var successfulEmpty = !!(snap.feedStates && feeds.length
           && feeds.every(function (feed) { return snap.feedStates[feed.file] === 'ok'; }));
         return anyRows(snap.rows) || successfulEmpty;
@@ -13249,33 +13253,102 @@
         out.cv = computeChaseRows(profile, slug, res.rows, res.speciesCodes);
         return out;
       }
-      // What the two rarity sections read. A rarity list needs the notable
-      // feeds and nothing else, so it must not be made to wait for the half of
-      // phase 1 that exists to score destinations.
+      // What the two rarity sections read. They need the notable feeds and
+      // nothing else, so opening either Twitch screen must not launch the
+      // six-feed chase wave and its detached per-species enrichment.
       //
-      // getChase() still runs the wave; this only decides which answer to
-      // render while that wave is in flight. Once _chase is populated the
-      // partial is gone and this is an ordinary getChase().
+      // The ordinary eBird URL memo is shared, so a later chase section reuses
+      // these notable responses and buys only the additional feeds it needs.
       function getChaseRarity(force) {
         var slug = getReport().slug;
         var full = _chase[slug];
         var profile = chaseProfile();
-        var covers = full && full.rows
-          && full.fetchBaseKey === chaseFetchBaseKey(profile)
-          && full.geoNotableKm >= BL.geoNotableDistKm(profile);
+        function coversRarity(value) {
+          return value && value.rows
+            && value.fetchBaseKey === chaseFetchBaseKey(profile)
+            && value.geoNotableKm >= BL.geoNotableDistKm(profile);
+        }
+        function snapshotResult(snap) {
+          var feeds = BL.planFeeds(profile).filter(function (feed) {
+            return feed.kind === 'notable';
+          });
+          var states = snap.feedStates || {};
+          var failed = feeds.some(function (feed) {
+            return states[feed.file] === 'failed';
+          });
+          var complete = feeds.length > 0 && feeds.every(function (feed) {
+            return states[feed.file] === 'ok';
+          });
+          return projectChaseResult({
+            t: snap.t,
+            profile: profile,
+            rarity: false,
+            geoNotableKm: snap.geoNotableKm,
+            fetchBaseKey: snap.fetchBaseKey,
+            rows: snap.rows,
+            speciesCodes: snap.codes || null,
+            feedStates: states,
+            feedFailed: failed,
+            feedComplete: complete,
+            partial: !complete,
+            stale: false
+          }, profile, slug);
+        }
+        var covers = coversRarity(full);
         if (!force && covers && (Date.now() - full.t) < CHASE_TTL_MS) {
           full = projectChaseResult(full, profile, slug);
           _chase[slug] = full;
           return Promise.resolve(countyView(full));
         }
         var p = _chaseRarity[slug];
-        if (!force && p) {
-          // Keep the wave running underneath — this is a head start, not a
-          // substitute for it, and onRarityEarly repaints when it completes.
-          getChase(force);
+        if (!force && p && (Date.now() - p.t) < CHASE_TTL_MS) {
           return Promise.resolve(countyView(p));
         }
-        return getChase(force);
+        if (_chaseRarityInflight[slug]) return _chaseRarityInflight[slug];
+        if (force) {
+          ebClearMatching(FORCE_NOTABLE_RE);
+          delete _chaseRarity[slug];
+        }
+        var run = (force ? Promise.resolve(null) : loadChaseSnapshot(slug))
+          .then(function (snap) {
+            if (coversRarity(snap) && (Date.now() - snap.t) < CHASE_TTL_MS) {
+              var saved = snapshotResult(snap);
+              _chase[slug] = saved;
+              return countyView(saved);
+            }
+            var feeds = BL.planFeeds(profile).filter(function (feed) {
+              return feed.kind === 'notable';
+            });
+            if (!feeds.length) return {
+              t: Date.now(), profile: profile, cv: null, rarity: true
+            };
+            var rowsByFile = {};
+            var work = cancellableWork('Twitch rarity feeds');
+            progressStage('Rare sightings near you', feeds.length, 1, 1);
+            return Promise.all(feeds.map(function (feed) {
+              return ebird(BL.requestUrl(feed), false, false, false, work)
+                .then(function (rows) {
+                  rowsByFile[feed.file] = Array.isArray(rows) ? rows : [];
+                  progressStep(1, feedLabel(feed));
+                });
+            })).then(function () {
+              var res = {
+                t: Date.now(),
+                profile: profile,
+                cv: computeChaseRows(profile, slug, rowsByFile, null),
+                rarity: false
+              };
+              _chaseRarity[slug] = res;
+              return countyView(res);
+            });
+          }).finally(function () {
+          progressEnd();
+          if (_chaseRarityInflight[slug] === run) {
+            delete _chaseRarityInflight[slug];
+          }
+        });
+        _chaseRarityInflight[slug] = run;
+        return run;
       }
       // The two rarity sections are COMPLETE from the notable feeds. Bird Gen
       // also paints here, deliberately as an INCOMPLETE head start: its needed
@@ -13477,6 +13550,18 @@
         // share the one wave that is already running.
         if (_chaseInflight[slug]) {
           if (waveCovers(_chaseInflight[slug])) return joinWave(_chaseInflight[slug]);
+          replaceChaseGeneration();
+        }
+        // F445. A normal caller can arrive after the stale snapshot has already
+        // painted and _chaseInflight has settled, while its registered refresh
+        // is still running. Starting another wave here produced the measured
+        // 17:06:33 / 17:06:42 overlap. Return the useful snapshot immediately,
+        // just as the phase-two door below does.
+        if (!force && _chaseRefresh[slug]) {
+          if (waveCovers(_chaseRefresh[slug])) {
+            var refreshing = projectChaseResult(_chase[slug], profile, slug);
+            if (refreshing) return Promise.resolve(refreshing);
+          }
           replaceChaseGeneration();
         }
         // ⚠️ F267. PHASE 2 IS A WAVE TOO, AND F260 MISSED IT.
@@ -17188,7 +17273,7 @@
               renderItem: mkCkl,
               isCurrent: function () { return slot.isConnected; },
               moreLabel: kept && rest.length ? function (next, remaining) {
-                return 'Show ' + next + ' more of ' + remaining
+                return 'Load ' + next + ' more of ' + remaining
                   + ' checklists without a bird you need';
               } : null,
               afterAppend: function (list) {
@@ -18786,7 +18871,7 @@
               + 'rare bird/place entries in the selected region.';
           } else if (filters.distance === 'region') {
             summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
-              + 'rare bird/place entries shown'
+              + 'rare bird/place entries available'
               + (filters.year === 'unseen'
                 ? ' of ' + scopeAllGroups.length + ' total in this region' : '')
               + ' · scope: ' + rarityRegionName()
@@ -18797,7 +18882,7 @@
               + 'bird/place entries farther out';
           } else {
             summary = rows.length + ' ' + (filters.year === 'unseen' ? 'unseen ' : 'total ')
-              + 'rare bird/place entries shown'
+              + 'rare bird/place entries available'
               + (filters.year === 'unseen'
                 ? ' of ' + scopeAllGroups.length + ' total' : '')
               + ' within ' + chaseMaxMi() + ' mi'
@@ -18901,16 +18986,37 @@
               + '</span><span class="cgwhy">' + why + '</span></li>'
               + list.map(rareCard).join('');
           };
-          el.innerHTML =
-            rareGroup(stillNeeded, '🔍 Still needed',
-              'not on your year list — worth driving for')
-            + rareGroup(alreadySeen, '✅ Already on your year list',
-              'still rare, still worth knowing — but not a new bird');
-          hydratePhotos(el);
-          // Same rule as Today's rarities: marked only once they are on screen.
-          markRaritySeen(rows.map(function (r) {
-            return rarityRowId(r.newest || r.closest);
-          }));
+          var shown = 0, batch = 5;
+          function paintActiveBatch(next) {
+            shown = Math.min(rows.length, shown + next);
+            var nNeeded = Math.min(shown, stillNeeded.length);
+            var nSeen = Math.max(0, shown - nNeeded);
+            var visibleNeeded = stillNeeded.slice(0, nNeeded);
+            var visibleSeen = alreadySeen.slice(0, nSeen);
+            var more = shown < rows.length
+              ? '<li class="farhost"><button type="button" class="progressive-more activeRarityMore">'
+                + '<span class="progressive-more-icon" aria-hidden="true">↓</span>'
+                + '<span class="progressive-more-text">Load '
+                + Math.min(batch, rows.length - shown)
+                + ' more rare bird/place results</span></button></li>'
+              : '';
+            el.innerHTML =
+              rareGroup(visibleNeeded, '🔍 Still needed',
+                'not on your year list — worth driving for')
+              + rareGroup(visibleSeen, '✅ Already on your year list',
+                'still rare, still worth knowing — but not a new bird')
+              + more;
+            hydratePhotos(el);
+            var moreBtn = el.querySelector('.activeRarityMore');
+            if (moreBtn) moreBtn.addEventListener('click', function () {
+              paintActiveBatch(batch);
+            });
+            // Same rule as Today's rarities: marked only once they are on screen.
+            markRaritySeen(visibleNeeded.concat(visibleSeen).map(function (r) {
+              return rarityRowId(r.newest || r.closest);
+            }));
+          }
+          if (rows.length) paintActiveBatch(batch);
         }).catch(function (e) {
           if (e && e.queueCancelled) {
             st.textContent = 'That rarity refresh was cancelled by newer app work. Tap Load rarity reports to try again.';
@@ -36018,6 +36124,11 @@
       seenCodesForRows: seenCodesForRows,
       chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
       setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },
+      setChaseRefresh: function (slug, promise, baseKey, km) {
+        promise._fetchBaseKey = baseKey;
+        promise._geoNotableKm = km;
+        _chaseRefresh[slug] = promise;
+      },
       setChaseInflight: function (slug, promise, baseKey, km) {
         promise._fetchBaseKey = baseKey;
         promise._geoNotableKm = km;
