@@ -1,6 +1,6 @@
 {
   "name": "birding-app",
-  "version": "1.121.0",
+  "version": "1.122.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -16,6 +16,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "@capacitor/geolocation": "^8.2.0",

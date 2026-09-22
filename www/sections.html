@@ -250,6 +250,9 @@
         var b = BIRDS[i % BIRDS.length];
         return window.ChecklistCards.small({
           place: b[1], href: '#', date: 'Aug ' + (i + 1) + ' 10:25 AM',
+          observedAt: '2026-08-' + String(i + 1).padStart(2, '0') + 'T10:25:00',
+          nowMs: new Date('2026-08-12T12:25:00').getTime(),
+          durationHrs: i % 2 ? 1.5 : 0.7,
           count: 42 - i, distMi: parseFloat(b[2]), map: PIN,
           icons: MARKS[i % MARKS.length]
         });
@@ -291,7 +294,7 @@
           builder: 'patchLeaderCard + patchPlaceCard',
           note: 'one row per birder: their strongest patch and its lift',
           cards: [patchLeader] },
-        { at: 'refreshBtn', label: '\ud83c\udf05 Twitches \u2014 Rare Bird Alerts (RBAs)',
+        { at: 'refreshBtn', label: '\ud83c\udf05 Twitches',
           builder: 'refresh', note: 'one medium species row per bird',
           cards: [speciesMedium] },
         { at: 'activeBtn', label: '\ud83d\udea8 Twitches this week',

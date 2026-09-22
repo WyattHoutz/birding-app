@@ -109,9 +109,9 @@
        the bullet sits out at the margin and every continuation line clears it,
        so a two-line row still reads as one item rather than as two. */
     '  display: block; white-space: normal; overflow-wrap: anywhere;',
-    '  min-width: 0; padding: 3px 0 3px 1.15em; text-indent: -1.15em;',
+    '  min-width: 0; padding: 3px 0; text-indent: 0;',
     '  border: 0;',
-    '  font-size: calc(14px * var(--s)); line-height: 1.4;',
+    '  font-size: calc(16px * var(--s)); line-height: 1.4;',
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',
     '.cklcards-sm > .cklcard-sm[data-href]:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }',
@@ -133,6 +133,8 @@
     '  display: inline; white-space: normal; }',
     /* Tabular figures so dates, counts and distances line up down the list. */
     '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
+    '.cklcard .ckage, .cklcard .ckduration {',
+    '  color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
     '                    color: var(--ink); }',
     '.cklcard .ckdist { font-variant-numeric: tabular-nums; }',
@@ -157,8 +159,8 @@
        fact: it never shrinks, never wraps, and is not part of the flex
        content. */
     '.cklcards-sm > .cklcard-sm::before {',
-    '  content: "\\2022"; color: var(--line); margin-right: 0.45em;',
-    '  font-size: calc(11px * var(--s)); }',
+    '  content: "\\2022"; color: #E69F00; margin-right: 0.25em;',
+    '  font-size: calc(15px * var(--s)); }',
     /* F215. The observer's note, painted under its row when notes are switched
        on. `flex-basis: 100%` is the whole trick: the small card is a wrapping
        flex row, so a full-basis child takes a line of its own instead of
@@ -304,6 +306,38 @@
     return out;
   }
 
+  function observedMs(s) {
+    if (s instanceof Date) return s.getTime();
+    if (typeof s === 'number') return isFinite(s) ? s : NaN;
+    var raw = String(s == null ? '' : s).trim();
+    if (!raw) return NaN;
+    return Date.parse(raw.replace(' ', 'T'));
+  }
+
+  function ageText(s, nowMs) {
+    var then = observedMs(s);
+    var now = nowMs == null ? Date.now() : Number(nowMs);
+    if (!isFinite(then) || !isFinite(now)) return '';
+    var minutes = Math.max(0, Math.floor((now - then) / 60000));
+    if (minutes < 1) return 'now';
+    if (minutes < 60) return minutes + 'm ago';
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + 'h ago';
+    var days = Math.floor(hours / 24);
+    if (days < 30) return days + 'd ago';
+    var months = Math.floor(days / 30);
+    if (months < 12) return months + 'mo ago';
+    return Math.floor(months / 12) + 'y ago';
+  }
+
+  function durationText(hours) {
+    if (hours == null || hours === '') return '';
+    var total = Math.round(Number(hours) * 60);
+    if (!isFinite(total) || total < 0) return '';
+    var h = Math.floor(total / 60), m = total % 60;
+    return (h ? h + 'h' : '') + (m || !h ? m + 'm' : '');
+  }
+
   function build(tpl, v, isMedium) {
     v = v || {};    var bits = [];
     if (isMedium) {
@@ -338,6 +372,10 @@
             + esc(leadText) + '</a>'
           : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
       }
+      if (!v.place) {
+        var leadAge = ageText(v.observedAt, v.nowMs);
+        if (leadAge) bits.push('<span class="ckage">(' + leadAge + ')</span>');
+      }
       // Evidence marks sit RIGHT AFTER the place, not at the end of the row.
       // They qualify the sighting you just read the location of - "there is a
       // photo of this, at this place" - and a mark parked after the distance
@@ -352,12 +390,10 @@
           ? '<a class="ckgo" target="_blank" rel="noopener" href="'
             + esc(v.dateHref) + '">' + dateText + '</a>'
           : dateText) + '</span>');
+        var datedAge = ageText(v.observedAt, v.nowMs);
+        if (datedAge) bits.push('<span class="ckage">(' + datedAge + ')</span>');
       }
-      // WHO, on a small row, but only when the place is not being printed.
-      // Small rows used to drop the observer unconditionally; under a hotspot
-      // heading the name is one of the few facts that distinguishes one row
-      // from the next.
-      if (v.who && !v.place) bits.push('<span class="ckwho">' + v.who + '</span>');
+      if (v.who) bits.push('<span class="ckwho">' + v.who + '</span>');
       if (v.targets) {
         bits.push('<span class="cktargets">' + esc(v.targets) + '</span>');
       }
@@ -429,8 +465,19 @@
     // the map pin/action in the compact facts line, but is a real 44px button
     // rather than an icon-shaped dead target.
     if (v.qr) bits.push('<span class="ckqrwrap">' + v.qr + '</span>');
+    if (!isMedium && v.checklistId) {
+      bits.push('<span class="ckid">' + esc(v.checklistId) + '</span>');
+    }
     // Small rows drop the observer entirely — see the note on SMALL.
     if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
+    if (!isMedium) {
+      var duration = durationText(v.durationHrs);
+      if (duration || v.durationPending) {
+        bits.push('<span class="ckduration"'
+          + (!duration && v.durationPending ? ' data-pending="1"' : '')
+          + '>' + (duration ? '\u00b7 ' + duration : '') + '</span>');
+      }
+    }
 
     // The headline IS the link to the checklist. `placeHtml` lets a caller
     // pass ready-made HTML (a hotspot link plus its 🗺) instead of plain text.
@@ -486,6 +533,8 @@
     css: CSS,
     templates: { small: SMALL, medium: MEDIUM },
     condense: condense,
+    ageText: ageText,
+    durationText: durationText,
     small: function (v) { return build(SMALL, v, false); },
     medium: function (v) { return build(MEDIUM, v, true); },
     list: function (size, items, extraCls) {

@@ -73,13 +73,14 @@ const SEED = JSON.parse(fs.readFileSync(wwwFixture('seed-birdlist.json'), 'utf8'
 function megaAlertHtml(rows) {
   return (rows || []).map((row, i) => `
     <div id="obs-OBS${30400 + i}" class="Observation">
-      <a href="/species/${row.code}/aba" data-species-code="${row.code}">
-        <span class="Heading-main">${row.name}</span>
+      <a href="/species/${row.code || row.speciesCode}/aba"
+         data-species-code="${row.code || row.speciesCode}">
+        <span class="Heading-main">${row.name || row.comName}</span>
       </a>
-      <a href="/checklist/${row.subId}" title="Checklist">${row.when}</a>
-      <a rel="noopener" title="Map: ${row.lat}, ${row.lng}">${row.place}, Washington, United States</a>
-      <span><span class="is-visuallyHidden">Number observed: </span>${row.count}</span>
-      <span class="is-visuallyHidden">Observer: </span><span>${row.observer}</span>
+      <a href="/checklist/${row.subId}" title="Checklist">${row.when || row.obsDt}</a>
+      <a rel="noopener" title="Map: ${row.lat}, ${row.lng}">${row.place || row.locName}, Washington, United States</a>
+      <span><span class="is-visuallyHidden">Number observed: </span>${row.count ?? row.howMany}</span>
+      <span class="is-visuallyHidden">Observer: </span><span>${row.observer || row.userDisplayName || ''}</span>
       <strong>CONFIRMED</strong>
     </div>`).join('');
 }
@@ -350,6 +351,14 @@ function boot(opts = {}) {
       });
     }, 50));
   });
+}
+
+function stakeoutSurfaceText(app) {
+  return [
+    'spLookupResults',
+    'spLookupRecent',
+    'spLookupDetailsContent',
+  ].map((id) => app.$(id)?.textContent || '').join(' ');
 }
 
 test('F268 parses countable first-year rows and preserves eBird withholding', async () => {
@@ -1725,6 +1734,14 @@ test('Contents menu matches the report section contract (labels + order)', async
   app.window.close();
 });
 
+test('F460 Twitches menu keeps its short title and RBA subtitle', () => {
+  const entry = CONTRACT.menu.find((item) => item.at === 'refreshBtn');
+  assert.deepEqual({ label: entry.label, sub: entry.sub }, {
+    label: '🌅 Twitches',
+    sub: 'Rare Bird Alerts (RBA)',
+  });
+});
+
 test('every section HEADING is the same name as its tile (F238)', async () => {
   // ⚠️ READ THIS BEFORE "SIMPLIFYING" THIS GUARD TO USE THE DOM. The first
   // version did, and it COULD NOT FAIL.
@@ -2268,8 +2285,10 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
     'Mega remains a medium-card species index');
   assert.match(index, /data-mega-code/, 'the index carries the exact eBird code');
   assert.match(evidence,
-    /megaLatestHtml\(entry\)[\s\S]*megaFinderHtml\(entry\)[\s\S]*megaStatsHtml\(entry\)[\s\S]*megaHistoryHtml\(entry\)/,
-    'the shared Stakeout evidence composes every preserved Mega evidence block');
+    /megaLatestHtml\(entry\)[\s\S]*megaFinderHtml\(entry\)[\s\S]*megaStatsHtml\(entry\)/,
+    'the shared Stakeout evidence composes the non-list Mega evidence blocks');
+  assert.doesNotMatch(evidence, /megaHistoryHtml\(entry\)/,
+    'Stakeout must not compose a second Mega-only hotspot/checklist list');
   assert.match(lookup, /hydrateStakeoutEvidence\(_spLookupEvidence, generation\)/,
     'universal evidence hydrates only after one bird is opened');
   assert.doesNotMatch(index, /birdCard\(\{/,
@@ -5150,11 +5169,9 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   assert.match(full, /class="ckdate">7\/30 9:29a/,
     'the time is shortened AND the month is numeric — "7/30 9:29a" against '
     + '"Jul 30 9:29 AM" is six characters a 320px row cannot spare');
-  // The observer is the one field of unbounded width. The layout sweep caught
-  // it hanging 247px past a 320px row at 1.75x text scale, so the small card
-  // drops it and the medium card keeps it.
-  assert.ok(!/ckwho/.test(CK.small({ place: 'P', who: 'Neil Pankey' })),
-    'a one-line row never carries the observer name');
+  assert.match(CK.small({ place: 'P', who: 'Neil Pankey' }),
+    /class="ckwho">Neil Pankey/,
+    'the shared small checklist card omits the birder name');
   assert.match(CK.medium({ place: 'P', who: 'Neil Pankey' }), /class="ckwho">Neil Pankey/,
     'but the medium card, which has the room, does');
   // A name that carries a sub-area is condensed: the tail almost never tells
@@ -5166,7 +5183,7 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
 
 // Reported from the device with a screenshot: the checklist list under a place
 // showed the same name over and over and wrapped onto three lines per row.
-test('F226: a checklist row is flowing text with a hanging indent, and never overflows', async () => {
+test('a checklist row is full-width flowing text with a visible marker', async () => {
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
   // ⚠️ THIS TEST REPLACES ONE THAT ASSERTED THE OPPOSITE DESIGN, and the
@@ -5203,12 +5220,14 @@ test('F226: a checklist row is flowing text with a hanging indent, and never ove
   // there is no one-line answer to give.
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*white-space: normal/,
     'the row is prose, so it wraps');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*text-indent: -/,
-    'with a REVERSE indent, which is what keeps a wrapped row reading as ONE '
-    + 'list item instead of two');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*padding: [^;]*em/,
-    'and a matching left padding, or the hanging indent pulls the first line '
-    + 'off the left edge of the card');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*padding:\s*3px 0/,
+    'the checklist sentence has no left gutter taking width from its facts');
+  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*text-indent:\s*0/,
+    'continuation lines use the full width instead of preserving a hanging gutter');
+  assert.match(CK.css, /\.cklcard-sm::before \{[^}]*color:\s*#E69F00/,
+    'the list marker is visible rather than using the faint divider colour');
+  assert.match(CK.css, /font-size:\s*calc\(16px \* var\(--s\)\)/,
+    'the shared small-card text is large enough to read on the phone');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*border:\s*0/,
     'small checklist rows explicitly suppress global list separators');
 
@@ -5261,6 +5280,17 @@ test('the medium species card gives distance its own column', async () => {
   assert.ok(!/spdist/.test(none), 'no distance, no column');
   assert.ok(!/undefined|NaN/.test(SpeciesCards.medium({ name: 'M', distMi: null })),
     'a null distance never leaks a placeholder');
+  const actions = SpeciesCards.medium({
+    name: 'Sharp-tailed Sandpiper',
+    primary: '<button class="watch">Add to watchlist</button>',
+    metaAction: '<button class="qr">QR</button>',
+  });
+  assert.match(actions, /class="spprimary">.*Add to watchlist/s,
+    'the shared title card omits its primary action');
+  assert.match(actions, /class="spmetaact">.*QR/s,
+    'the shared title card omits its metadata action');
+  assert.doesNotMatch(none, /spprimary|spmetaact/,
+    'optional title-card actions reserve empty layout slots');
 
   const css = SpeciesCards.css;
   assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\) auto/,
@@ -6830,7 +6860,8 @@ test('F407 calls the seen-year surface My Year List and explains its scope', asy
     .map((node) => node.textContent).join('').trim();
   const tile = [...app.document.querySelectorAll('#menuList .toclink')]
     .find((link) => link.getAttribute('data-at') === 'myYearBody');
-  assert.equal(heading, '📅 My Year List', 'the section heading uses the requested title');
+  assert.equal(heading, 'Your seen bird list this year',
+    'the section heading uses the menu subtitle');
   assert.ok(tile, 'the My Year List menu tile rendered');
   assert.equal(tile.getAttribute('aria-label'), '📅 My Year List',
     'the accessible tile name uses the requested title');
@@ -8038,6 +8069,32 @@ test('map links are built by the selected provider', async () => {
   assert.match(googlePoint, /travelmode=driving/);
   assert.doesNotMatch(googlePoint, /\/maps\/search/,
     'Open in Maps still opens a Google search/install path instead of navigation');
+  assert.equal(A.googleMapsAppPointUrl('47.75,-122.16'),
+    'comgooglemaps://?daddr=47.75%2C-122.16&directionsmode=driving',
+    'the installed Google Maps handoff must carry the destination and driving mode');
+  const launched = [];
+  const browser = [];
+  app.window.Capacitor = { Plugins: {
+    AppLauncher: {
+      openUrl({ url }) {
+        launched.push(url);
+        return Promise.resolve({ completed: true });
+      },
+    },
+    CapgoInAppBrowser: {
+      open({ url }) {
+        browser.push(url);
+        return Promise.resolve();
+      },
+    },
+  } };
+  A.openMapPoint('47.75,-122.16');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(launched, [
+    'comgooglemaps://?daddr=47.75%2C-122.16&directionsmode=driving',
+  ], 'Google map points must launch the installed app instead of a Safari handoff');
+  assert.deepEqual(browser, [],
+    'a successful native Google Maps launch still opened the browser');
 
   // A route with nothing in the middle loses nothing, so even the two-point
   // provider is complete — the warning must not cry wolf.
@@ -8077,7 +8134,7 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   });
   const section = app.$('sec-surgeBtn');
   assert.equal(section.querySelector('h2').childNodes[0].textContent.trim(),
-    '🔔 Bird Gen');
+    'Talk and news');
   assert.equal(section.querySelector('.sechint'), null,
     'the old subtitle still sits between the title and controls');
   const results = app.$('surgeResults');
@@ -8138,7 +8195,13 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
         locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM2', lat: 47.76, lng: -122.17 },
     ],
   });
-  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  const app = await boot({ storage: {
+    ebird_mega_snapshot_v1: snap,
+    'ebird_species_v2:US-WA': JSON.stringify({
+      at: Date.now(),
+      rows: [{ code: 'nazboo1', alpha: 'NABO', name: 'Nazca Booby' }],
+    }),
+  } });
   const A = app.window.__app;
   seedSeen(app, ['zzseencontrol']);
   const birders = [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }, { name: 'Bruce', rank: 8 }];
@@ -8441,21 +8504,22 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   assert.deepEqual([...card.querySelectorAll(':scope > .meta .spcode, :scope > .meta .spalpha')]
     .map((el) => el.textContent), ['shtsan', 'SPTS'],
     'Stakeout omitted the four-letter bird code');
-  assert.match(card.querySelector('.stakeoutrarity').textContent,
+  assert.match(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity').textContent,
     /Mega rarity.*ABA Code 3, 4 or 5/s);
-  assert.equal(card.querySelectorAll('.megareports .hscard-sm').length, 5,
-    'the Mega history is not grouped into one place row per supporting hotspot');
-  assert.equal(card.querySelectorAll('.megareports .cklcard-sm').length, 5,
-    'one supporting Mega checklist is not nested under its place row');
+  assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
+    'Bird Gen opened a second Mega-only hotspot/checklist list');
+  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .hscard-sm').length, 6,
+    'the unified Stakeout list is not grouped into one row per supporting hotspot');
+  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm').length, 6,
+    'one supporting Mega checklist is not nested under its unified place row');
   const reportLinks = [
-    card.querySelector('.megalatest [data-href*="/checklist/"]'),
-    ...card.querySelectorAll('.megareports li [href*="/checklist/"]'),
-  ].filter(Boolean);
+    ...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm [href*="/checklist/"]'),
+  ];
   assert.equal(reportLinks.length, 6,
-    'Bird Gen discarded a Mega checklist while removing the duplicate');
+    'Bird Gen discarded a Mega checklist while building the unified list');
   assert.equal(new Set(reportLinks.map((link) =>
     link.getAttribute('data-href') || link.getAttribute('href'))).size, 6,
-  'the latest Mega checklist is repeated in the earlier-report rows');
+  'the unified Stakeout list repeats a Mega checklist');
   assert.equal(app.$('navBack').getAttribute('aria-label'), 'Back to Bird Gen');
   app.click(app.$('navBack'));
   assert.equal(app.$('sec-surgeBtn').hidden, false,
@@ -8463,8 +8527,17 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   app.window.close();
 });
 
-test('F311 Bird Gen never renders the rarity R marker', async () => {
-  const app = await boot();
+test('F459 Bird Gen labels mega and rare birds beside their names', async () => {
+  const snap = JSON.stringify({
+    at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    rows: [{
+      speciesCode: 'nazboo1', comName: 'Nazca Booby',
+      obsDt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      locName: 'Smith Island', locId: 'LMEGA', subId: 'SM1',
+      lat: 48.31, lng: -122.84,
+    }],
+  });
+  const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
   const A = app.window.__app;
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
   A.renderSurge(
@@ -8476,14 +8549,31 @@ test('F311 Bird Gen never renders the rarity R marker', async () => {
     [], [{ code: 'amgplo', alpha: 'AMGP',
       name: 'American Golden-Plover', sightings: 4,
       nPlaces: 1, distMi: 6.2, locName: 'Boe Road', locId: 'LBOE',
-      subId: 'S2', whenStr: stamp, rare: true }], []);
+      subId: 'S2', whenStr: stamp, rare: true }],
+    [{ code: 'comter', name: 'Common Tern', kind: 'Rarity' }]);
 
   for (const row of app.$('surgeFeed').children) {
     assert.equal(row.querySelector('.rarebadge'), null,
-      'Bird Gen still renders the R rare-bird marker');
-    assert.ok(row.querySelector('.surgefacts .spalpha'),
-      'removing R also removed the four-letter bird code');
+      'Bird Gen brought back the ambiguous icon-only R marker');
   }
+  const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
+  const megaTag = mega.querySelector(':scope > .name .surgebirdtag');
+  assert.ok(megaTag, 'a mega bird has no inline MEGA tag');
+  assert.equal(megaTag.textContent.trim(), 'MEGA',
+    'a mega bird has no inline MEGA tag');
+  const rare = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
+  const cascadeTag = rare.querySelector(':scope > .name .surgebirdtag');
+  assert.ok(cascadeTag, 'a seen rare bird categorized as CASCADE has no inline RARE tag');
+  assert.equal(cascadeTag.textContent.trim(), 'RARE',
+    'a seen rare bird categorized as CASCADE has no inline RARE tag');
+  const needTag = app.$('surgeFeed').querySelector('[data-alert-kind="need"] .surgebirdtag');
+  assert.ok(needTag, 'an unseen rare bird has no inline RARE tag');
+  assert.equal(needTag.textContent.trim(),
+    'RARE', 'an unseen rare bird has no inline RARE tag');
+  assert.equal(rare.querySelector('.surgefacts .spalpha').textContent.trim(), 'COTE',
+    'adding the rare tag removed the four-letter bird code');
+  assert.equal(app.$('surgeFeed').querySelectorAll('.surgebirdtag').length, 3,
+    'a non-rare Bird Gen bird received an intrinsic rarity tag');
   app.window.close();
 });
 
@@ -13037,10 +13127,10 @@ test('F367 a transport-only sightings failure retries once and keeps the selecte
     '#spLookupQueryHelp .spuhcandidatecard[data-sp="ruff"]');
   assert.ok(ruff, 'Ruff is missing from the peep candidate controls');
   app.click(ruff);
-  await waitFor(() => /Hoquiam STP/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /Hoquiam STP/.test(stakeoutSurfaceText(app)),
     'the automatically retried Ruff sightings');
   assert.equal(attempts, 2, 'the transport failure did not receive exactly one retry');
-  assert.match(app.$('spLookupResults').textContent, /Ruff.*Hoquiam STP/s);
+  assert.match(stakeoutSurfaceText(app), /Ruff.*Hoquiam STP/s);
   assert.match(app.$('spLookupIdHelp').textContent, /Ruff/,
     'the selected bird hierarchy disappeared during the retry');
   app.window.close();
@@ -13080,14 +13170,15 @@ test('F367 two transport failures retain a named manual sightings retry', async 
   app.window.__app.setSpeciesLookupWithinChase(false);
   await app.window.__app.lookupSpecies('ruff', 'Ruff');
   const card = app.document.querySelector('#spLookupResults > li');
-  const retry = card && card.querySelector('.spLookupRetrySightings');
+  const retry = app.$('spLookupDetailMain').querySelector('.spLookupRetrySightings');
   assert.ok(card && retry, 'two transport failures replaced the selected bird with a dead end');
-  assert.match(card.textContent, /Sightings could not load.*Load failed/s);
+  assert.match(app.$('spLookupDetailMain').textContent,
+    /Sightings could not load.*Load failed/s);
   assert.match(app.$('spLookupIdHelp').textContent, /Ruff/,
     'the bird hierarchy was discarded with the failed sightings request');
   assert.equal(attempts, 2, 'automatic retries were not bounded to one');
   app.click(retry);
-  await waitFor(() => /Hoquiam STP/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /Hoquiam STP/.test(stakeoutSurfaceText(app)),
     'the manual sightings retry');
   assert.equal(attempts, 3, 'manual retry did not issue only the failed sightings work');
   app.window.close();
@@ -13110,9 +13201,9 @@ test('F367 an HTTP sightings error is not mistaken for a transport retry', async
 
   await app.window.__app.lookupSpecies('ruff', 'Ruff');
   const card = app.document.querySelector('#spLookupResults > li');
-  assert.ok(card?.querySelector('.spLookupRetrySightings'),
+  assert.ok(card && app.$('spLookupDetailMain').querySelector('.spLookupRetrySightings'),
     'the HTTP failure did not retain the selected bird and manual retry');
-  assert.match(card.textContent, /eBird returned HTTP 400/);
+  assert.match(app.$('spLookupDetailMain').textContent, /eBird returned HTTP 400/);
   assert.equal(attempts, 1,
     'an HTTP response was retried as though no response had arrived');
   app.window.close();
@@ -13156,8 +13247,8 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   app.window.__app.setSpeciesLookupWithinChase(false);
 
   const section = app.$('sec-spLookupBtn');
-  assert.match(section.querySelector('h2').textContent, /Stakeout bird/i,
-    'the surviving Stakeout section was renamed instead of absorbing Spuh search');
+  assert.match(section.querySelector('h2').textContent, /Lookup birds & spuhs/i,
+    'the Stakeout panel does not use the menu subtitle as its in-page heading');
   assert.equal(app.$('spuhSearch'), null,
     'the standalone spuh search field still exists');
   assert.equal(app.$('spuhBtn'), null,
@@ -13300,28 +13391,27 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
     card.getAttribute('data-sp') === 'wes');
   assert.ok(western, 'the spuh result does not expose candidate birds');
   app.click(western.querySelector('.thumb'));
-  await waitFor(() => /Smith Island/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /Smith Island/.test(stakeoutSurfaceText(app)),
     'the selected candidate Stakeout evidence');
   assert.equal(app.$('sec-spLookupBtn').hidden, false,
     'candidate selection navigated away from Stakeout bird');
   assert.equal(app.$('spLookup').value, 'Western Sandpiper',
     'the selected result still looks like a peep sp. search');
-  assert.match(app.$('spLookupResults').textContent, /Western Sandpiper.*Smith Island/s,
+  assert.match(stakeoutSurfaceText(app), /Western Sandpiper.*Smith Island/s,
     'candidate selection did not continue into species evidence');
   assert.equal(app.$('spLookupQueryHelp').textContent, '',
     'the selected bird still carries the redundant peep sp. candidate panel');
   const stakeoutCard = app.document.querySelector('#spLookupResults > li');
   const stakeoutMeta = stakeoutCard && stakeoutCard.querySelector(':scope > .meta');
-  const stakeoutSummary = stakeoutCard
-    && stakeoutCard.querySelector(':scope > .splookupsummary');
+  const stakeoutSummary = app.$('spLookupDetailMain')
+    .querySelector('.splookupsummary');
   assert.match(stakeoutMeta && stakeoutMeta.textContent, /on your year list/,
-    'the species card lost the year-list state above its sightings summary');
+    'the species card lost the year-list state');
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
     /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by distance/,
-  'the sightings summary is not inside the Western Sandpiper card');
-  assert.ok(stakeoutMeta.compareDocumentPosition(stakeoutSummary)
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the sightings summary is not after the year-list line');
+  'the Details summary does not describe the Western Sandpiper sightings');
+  assert.equal(stakeoutCard.querySelector(':scope > .splookupsummary'), null,
+    'the Compact title card still contains the Details-only sightings summary');
   assert.doesNotMatch(app.$('spLookupStatus').textContent,
     /Western Sandpiper · 2 places · 2 reports/,
   'the sightings summary still floats above the species card');
@@ -13796,9 +13886,9 @@ test('F352 Stakeout shares the compact full Spuh hierarchy after hotspot results
   const results = app.$('spLookupResults');
   const host = app.$('spLookupIdHelp');
   const map = app.$('spLookupMap');
-  assert.ok(host.compareDocumentPosition(map)
+  assert.ok(map.compareDocumentPosition(host)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the concise bird hierarchy is not at the top before the map and results');
+  'the bird hierarchy is not in Details after the map and recent checklists');
   const nav = app.document.querySelector('#spLookupIdHelp .spuhtaxnav');
   assert.ok(nav && !nav.closest('details.spuhshell'),
     'the hierarchy is visible, not hidden behind the old disclosure');
@@ -13974,7 +14064,7 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
   assert.equal(app.document.querySelectorAll('#spLookupResults > li').length, 1,
     'sightings still render as exactly one medium species card');
-  assert.match(app.$('spLookupResults').textContent, /Marymoor Park/,
+  assert.match(app.$('spLookupRecent').textContent, /Marymoor Park/,
     'the sighting survives the independent taxonomy failure');
   assert.match(app.$('spLookupIdHelp').textContent,
     /Taxonomy unavailable.*new Stakeout bird search to retry/s,
@@ -14093,21 +14183,21 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   installSpuhFixture(app);
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
   const card = app.document.querySelector('#spLookupResults > li');
-  const list = card.querySelector('ul.spLookupPlaceList');
+  const list = app.document.querySelector('#spLookupRecent ul.spLookupPlaceList');
   assert.ok(list, 'recent reports do not have one stable list');
   assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 10,
     'the first lazy batch is not 10 shared small hotspot cards');
   assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 0,
     'the old medium hotspot template survived');
-  assert.equal(list.querySelectorAll('ul').length, 0,
-    'the first batch already contains a nested bullet list');
-  assert.equal(card.querySelectorAll('[data-ev-place="Hotspot 1"]').length, 1,
+  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 10,
+    'the first batch does not expose each place’s complete checklist list');
+  assert.equal(list.querySelectorAll(':scope > [data-ev-place="Hotspot 1"]').length, 1,
     'two checklists at one hotspot rendered two hotspot rows');
-  assert.equal(card.querySelector('[data-ev-place="Hotspot 1"]')
+  assert.equal(list.querySelector(':scope > [data-ev-place="Hotspot 1"]')
     .getAttribute('data-ev-sub'), 'SNEW',
   'the one hotspot row does not link its newest checklist');
 
-  const more = card.querySelector('button.spLookupMore');
+  const more = app.$('spLookupRecent').querySelector('button.spLookupMore');
   assert.match(more.textContent, /Load 10 more of 45/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
@@ -14115,23 +14205,23 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     'the initial map does not match the 10 visible numbered rows');
   const beforeFetches = fetches;
   more.click();
-  assert.strictEqual(card.querySelector('ul.spLookupPlaceList'), list,
+  assert.strictEqual(app.$('spLookupRecent').querySelector('ul.spLookupPlaceList'), list,
     'Show more replaced the list instead of appending to it');
   assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 20);
-  assert.equal(card.querySelectorAll('ul.spLookupPlaceList').length, 1);
-  assert.equal(list.querySelectorAll('ul').length, 0,
-    'expanded reports are still indented inside a second list');
+  assert.equal(app.$('spLookupRecent').querySelectorAll('ul.spLookupPlaceList').length, 1);
+  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 20,
+    'expanded places did not append their checklist lists');
   assert.equal(numberedPins(), 20,
     'Show more appended rows without appending their map pins');
   assert.match(more.textContent, /Load 10 more of 35/,
     'the Show-more label does not use the shared short formatter');
-  while (card.querySelector('button.spLookupMore')) {
-    card.querySelector('button.spLookupMore').click();
+  while (app.$('spLookupRecent').querySelector('button.spLookupMore')) {
+    app.$('spLookupRecent').querySelector('button.spLookupMore').click();
   }
   assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 55);
   assert.equal(numberedPins(), 55);
   assert.equal(fetches, beforeFetches, 'lazy expansion refetched the species feed');
-  assert.equal(card.querySelector('button.spLookupMore'), null,
+  assert.equal(app.$('spLookupRecent').querySelector('button.spLookupMore'), null,
     'the exhausted Show-more control remains active');
   app.window.close();
 });
@@ -14215,9 +14305,10 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
   await A.lookupSpecies('amepip', 'American Pipit');
   assert.equal(calls.filter((url) => /product\/(?:lists|checklist\/view)/.test(url)).length, 0,
     'the default Stakeout lookup made checklist-detail calls');
-  assert.match(app.$('spLookupResults').textContent, /Stakeout answers/);
+  assert.equal(app.$('spLookupDetailsContent').hidden, true,
+    'Compact shows the Details-only answer content');
   assert.equal(app.$('spLookupDetails').getAttribute('aria-pressed'), 'false');
-  assert.match(app.$('spLookupDetails').textContent, /Details off/);
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false');
 
   app.click(app.$('spLookupDetails'));
   async function waitLong(check, label) {
@@ -14229,20 +14320,22 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
       + `history=${app.document.querySelector('.stakeoutPlaceHistory')?.textContent}`);
   }
   await waitLong(() => /Repeat independent reports.*different observers/.test(
-    app.$('spLookupResults').textContent), 'independent AMPI history');
+    app.$('spLookupRecent').textContent), 'independent AMPI history');
   await waitLong(() => app.document.querySelector(
-    '#spLookupResults .evnoterow .evnotebq'), 'inline AMPI comment');
+    '#spLookupRecent .evnoterow .evnotebq'), 'inline AMPI comment');
 
   assert.equal(A.speciesLookupDetails(), true, 'the enabled preference was not remembered');
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
+    'Details did not enable Notes by default');
   assert.ok(calls.some((url) => /product\/lists\/L1/.test(url)),
     'Details did not start the bounded location-history read');
   assert.ok(calls.some((url) => /product\/checklist\/view\/S1/.test(url))
     && calls.some((url) => /product\/checklist\/view\/S2/.test(url)),
   'Details did not lazily read the visible matching checklists');
-  assert.match(app.$('spLookupResults').textContent,
+  assert.match(app.$('spLookupRecent').textContent,
     /Checklist details.*Birder One.*Species comment.*Feeding along the pond edge/s);
   const firstChecklist = app.document.querySelector(
-    '#spLookupResults .stakeoutPlaceChecklists .cklcard-sm');
+    '#spLookupRecent .stakeoutPlaceChecklists .cklcard-sm');
   assert.ok(firstChecklist,
     'Stakeout checklist rows do not use the shared small-checklist template');
   assert.match(firstChecklist.querySelector('.ckwho')?.textContent || '', /Birder One/,
@@ -14252,9 +14345,9 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
   assert.match(firstChecklist.querySelector('.ckevid')?.textContent || '', /📷/,
     'Stakeout checklist rows omit media icons returned by checklist detail');
   assert.equal(app.document.querySelector(
-    '#spLookupResults .hscard-sm .hslink')?.getAttribute('data-loc'), 'L1',
+    '#spLookupRecent .hscard-sm .hslink')?.getAttribute('data-loc'), 'L1',
     'the Stakeout bird hotspot name does not open that hotspot’s Stakeout report');
-  assert.match(app.$('spLookupResults').textContent,
+  assert.match(app.$('spLookupRecent').textContent,
     /Repeat independent reports.*different observers and eBird groups/s);
   app.window.close();
 });
@@ -14316,7 +14409,7 @@ test('F456 Stakeout checklist facts are viewport-lazy and use the shared small t
   const render = HTML.slice(
     HTML.indexOf('function renderSpeciesLookup()'),
     HTML.indexOf('function renderSpeciesLookupMap('));
-  assert.match(render, /hydrateStakeoutChecklistFacts\(out\)/,
+  assert.match(render, /hydrateStakeoutChecklistFacts\(recent\)/,
     'Stakeout rendering does not schedule checklist facts');
   assert.doesNotMatch(render, /hydrateChecklistEvidence\(out\)/,
     'Stakeout still eagerly parses every rendered checklist');
@@ -14610,8 +14703,7 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     'it asks eBird for THAT species, not the whole region feed filtered afterwards');
   assert.match(feeds[0], new RegExp(`back=${app2.window.__app.SP_LOOKUP_BACK}\\b`),
     'over a window wider than the chase feeds, because a lookup asks about birds that may not be here today');
-  const summary = doc2.querySelector(
-    '#spLookupResults > li > .splookupsummary');
+  const summary = doc2.querySelector('#spLookupDetailMain .splookupsummary');
   assert.match(summary && summary.textContent, /Testable Kingbird/,
     'a seen bird is answered inside its species card rather than refused');
   assert.equal(doc2.getElementById('spLookupStatus').textContent, '',
@@ -14624,7 +14716,7 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
   assert.match(panel, /✅/, 'and marks it with the same tick the other sections use');
   assert.equal(doc2.querySelectorAll('#spLookupResults > li').length, 1,
     'Stakeout renders exactly one medium species card, not a duplicate hero');
-  assert.match(doc2.querySelector('.stakeoutevidence .megalatest').textContent,
+  assert.match(doc2.querySelector('#spLookupEvidenceDetails .megalatest').textContent,
     /Latest report.*Jul 31.*Marina.*×2.*S1/s,
     'ordinary species do not receive the useful latest-report evidence');
   assert.ok(doc2.querySelector('.stakeoutevidence .bcstats'),
@@ -14692,30 +14784,83 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
 
   await app.window.__app.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
   const card = app.document.querySelector('#spLookupResults > li');
-  assert.match(card.querySelector('.stakeoutrarity').textContent,
+  assert.match(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity').textContent,
     /Mega rarity.*ABA Code 3, 4 or 5/s);
-  assert.match(card.querySelector('.megalatest').textContent,
+  assert.match(app.$('spLookupEvidenceDetails').querySelector('.megalatest').textContent,
     /Latest Mega report.*Sep 20.*League Island.*S-SPTS/s);
-  assert.equal(card.querySelector('.megalatest .hslink')?.getAttribute('data-loc'), 'L-SPTS',
+  assert.equal(app.$('spLookupEvidenceDetails')
+    .querySelector('.megalatest .hslink')?.getAttribute('data-loc'), 'L-SPTS',
     'the latest Stakeout hotspot name was treated as a coordinate-only maps link');
-  assert.ok(card.querySelector('.megalatest .mapwrap .maplink[data-q="48.12,-122.51"]'),
+  assert.ok(app.$('spLookupEvidenceDetails')
+    .querySelector('.megalatest .mapwrap .maplink[data-q="48.12,-122.51"]'),
     'the latest Stakeout hotspot kept no separate Google Maps coordinate action');
-  const history = card.querySelector('.megareports');
-  assert.ok(history, 'Stakeout did not render the retained Mega report history');
-  assert.equal(history.querySelectorAll(':scope .hscard-sm').length, 1,
-    'Earlier Mega reports is not one hotspot/place list');
-  assert.equal(history.querySelectorAll('.cklcard-sm').length, 1,
-    'the older checklist is not nested under its hotspot row');
-  assert.match(history.textContent, /Sep 19|9\/19/,
+  assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
+    'Stakeout rendered a second retained-Mega hotspot/checklist list');
+  const places = app.$('spLookupRecent').querySelector('.spLookupPlaceList');
+  assert.ok(places, 'Stakeout did not render the unified report history');
+  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 1,
+    'the unified reports are not one hotspot/place list');
+  assert.equal(places.querySelectorAll('.cklcard-sm').length, 2,
+    'the retained latest and older checklists are not nested under the hotspot row');
+  assert.match(places.textContent, /Sep 19|9\/19/,
     'the retained non-latest report disappeared from the checklist history');
-  assert.match(history.querySelector('.ckall').textContent, /1 checklist — show the report/,
-    'the hotspot row does not expose its checklist list like Twitches this week');
-  assert.match(history.querySelector('.cklcard-sm').className, /cklcard-sm/,
-    'Mega history stopped using the shared checklist row');
+  assert.match(places.querySelector('.cklcard-sm').className, /cklcard-sm/,
+    'the unified history stopped using the shared checklist row');
   assert.doesNotMatch(card.textContent, /Opened from/,
     'the evidence still changes according to navigation history');
-  assert.doesNotMatch(HTML, /megareports \.stakeoutReportCards > \.cklcard-sm/,
-    'Mega history reintroduced a private checklist-card override');
+  assert.doesNotMatch(HTML, /function megaHistoryHtml/,
+    'the removed second Mega-history renderer returned');
+  app.window.close();
+});
+
+test('F461 Stakeout merges retained Mega checklists into one complete place list', async () => {
+  const statewide = Array.from({ length: 40 }, (_, i) => ({
+    speciesCode: 'shtsan',
+    comName: 'Sharp-tailed Sandpiper',
+    obsDt: `2026-09-${String(21 - Math.floor(i / 12)).padStart(2, '0')} `
+      + `${String(17 - (i % 12)).padStart(2, '0')}:17`,
+    locName: i === 39 ? 'League Island--Eide Rd.'
+      : 'League Island--Davis Slough Access',
+    locId: i === 39 ? 'L-EIDE' : 'L-DAVIS',
+    subId: `S${900000 + i}`,
+    lat: i === 39 ? 47.91 : 47.9,
+    lng: i === 39 ? -122.21 : -122.2,
+    howMany: i + 1,
+  }));
+  const held = statewide.slice(0, 6);
+  const live = [statewide[0], statewide[39]];
+  const app = await boot({
+    storage: {
+      ebird_aba_sid: 'SN10489',
+      ebird_mega_snapshot_v1: JSON.stringify({
+        at: Date.now(), region: 'US-WA', sid: 'SN10489', rows: held,
+      }),
+    },
+    fetch(url) {
+      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return megaAlertHtml(statewide);
+      if (/data\/obs\/US-WA\/recent\/shtsan/.test(url)) return live;
+      if (/ref\/taxonomy/.test(url)) return [];
+      return null;
+    },
+  });
+
+  await app.window.__app.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
+  await waitFor(() => app.document.querySelectorAll(
+    '#spLookupRecent .spLookupPlaceList .cklcard-sm').length === 40,
+  'statewide RBA checklists to merge into Stakeout');
+  const card = app.document.querySelector('#spLookupResults > li');
+  assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
+    'Stakeout still renders a second Mega-only place/checklist list');
+  const places = app.$('spLookupRecent').querySelector('.spLookupPlaceList');
+  assert.ok(places, 'the unified Stakeout place list is missing');
+  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 2,
+    'the Twitches, retained, and live Mega places did not merge into one hotspot list');
+  const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
+    .map((link) => link.getAttribute('href'));
+  assert.equal(links.length, 40,
+    'the unified place list omitted Twitches/RBA Mega checklists');
+  assert.equal(new Set(links).size, 40,
+    'the unified place list repeats a Mega checklist');
   app.window.close();
 });
 
@@ -14873,7 +15018,7 @@ test('F402 Stakeout separates date sorting from the chase-distance filter', asyn
   installSpuhFixture(app);
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
   const rows = [...app.document.querySelectorAll(
-    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+    '#spLookupRecent .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.match(rows[0], /Older reachable place/,
     'the default chase filter did not keep the reachable report');
   assert.match(app.$('spLookupByDate').textContent, /Date/);
@@ -14881,15 +15026,54 @@ test('F402 Stakeout separates date sorting from the chase-distance filter', asyn
     'Sort by date, newest first');
   assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'), 'true');
   assert.match(app.document.querySelector(
-    '#spLookupResults .splookupsummary').textContent,
+    '#spLookupDetailMain .splookupsummary').textContent,
   /by date · within \d+ mi chase distance/);
 
-  app.click(app.$('spLookupWithinChase'));
+  app.click(app.$('spLookupStatewide'));
   const unfiltered = [...app.document.querySelectorAll(
-    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+    '#spLookupRecent .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.match(unfiltered[0], /Newer distant place/,
     'Date is not a real sort over the unfiltered regional evidence');
   assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'), 'false');
+  app.window.close();
+});
+
+test('F463 Stakeout mode controls switch Group/List and Details/Notes independently', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) {
+        return [{
+          speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+          locName: 'Marymoor Park', locId: 'L1', lat: 47.7, lng: -122.2,
+          obsDt: '2026-09-02 08:00', subId: 'S1', obsValid: true,
+        }];
+      }
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
+
+  assert.ok(app.document.querySelector('#spLookupRecent .spLookupPlaceList'),
+    'Group is not the initial checklist presentation');
+  assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'true');
+  app.click(app.$('spLookupList'));
+  assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'),
+    'List does not replace grouped hotspot rows with flat checklist cards');
+  assert.equal(app.$('spLookupList').getAttribute('aria-pressed'), 'true');
+
+  app.click(app.$('spLookupDetails'));
+  assert.equal(app.$('spLookupDetailsContent').hidden, false);
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
+    'Details does not enable Notes by default');
+  app.click(app.$('spLookupNotes'));
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
+    'Notes cannot be disabled independently while Details remains on');
+  assert.equal(app.$('spLookupDetails').getAttribute('aria-pressed'), 'true');
+  app.click(app.$('spLookupCompact'));
+  assert.equal(app.$('spLookupDetailsContent').hidden, true);
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
+    'Compact does not default Notes off');
   app.window.close();
 });
 
@@ -14937,16 +15121,16 @@ test('F389 Stakeout Reachable excludes pelagic pins and other Hawaiian islands',
   await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
 
   let rows = [...app.document.querySelectorAll(
-    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+    '#spLookupRecent .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.equal(rows.length, 1,
     'the default chase-distance filter includes unreachable regional evidence');
   assert.match(rows[0], /Kealakehe WTP/);
   assert.doesNotMatch(rows.join(' '), /Captain Zodiac|Kauaʻi/,
     'pelagic or other-island evidence remains in the Reachable view');
 
-  app.click(app.$('spLookupWithinChase'));
+  app.click(app.$('spLookupStatewide'));
   rows = [...app.document.querySelectorAll(
-    '#spLookupResults .spLookupPlaceList > li')].map((row) => row.textContent);
+    '#spLookupRecent .spLookupPlaceList > li')].map((row) => row.textContent);
   assert.equal(rows.length, 3,
     'turning off the filter lost regional evidence');
   assert.match(rows.join(' '), /Captain Zodiac/);
@@ -17466,14 +17650,15 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
   // The checklist comment is conditional and the species one is too. Asserting
   // BOTH guards prevents an empty labelled block, which is the specific thing
   // asked for: "Do not show the Checklist comment if there is none."
-  assert.match(src, /if \(ck\) \{[\s\S]{0,120}CKL_NOTE_LABEL/,
+  assert.match(src, /if \(showNotes && ck\) \{[\s\S]{0,120}CKL_NOTE_LABEL/,
     'the checklist label is painted only when there is a checklist comment');
   assert.match(src,
     /noteHead\(\s*CKL_NOTE_LABEL,\s*BirdLogic\.CHECKLIST_NOTE_ICON\)/,
     'the checklist glyph is not immediately before its label in the same heading');
   assert.match(HTML, /checklistNote:\s*!showDetails/,
     'the checklist glyph remains in the row after moving into the visible heading');
-  assert.match(src, /if \(!sp && !ck && !inline\) \{ settleNote\(el\); return; \}/,
+  assert.match(src,
+    /if \(!sp && !ck && !showInlineDetails\) \{ settleNote\(el\); return; \}/,
     'and with neither comment the row prints nothing at all');
   // NEVER innerHTML. This is the one field on these rows that is genuinely
   // user-authored, and cards-checklist.js has no escaper by design.
@@ -17488,7 +17673,7 @@ test('the comments placeholder always settles', () => {
   const hyd = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence'),
                          HTML.indexOf('var _evidStore = {}'));
   assert.match(hyd,
-    /rows\.filter\(function \(el\) \{[\s\S]*rarityNotes\(\)[\s\S]*data-ev-inline[\s\S]*\}\)\.forEach\(setNoteLoading\)/,
+    /rows\.filter\(function \(el\) \{[\s\S]*data-ev-show-details[\s\S]*data-ev-show-notes[\s\S]*\}\)\.forEach\(setNoteLoading\)/,
     'the wait is announced');
   // ...but only on rows the budget will actually fetch. `rows` is filtered to
   // CKL_EVID_MAX first, so a skipped row cannot sit at "loading" forever —
@@ -18835,6 +19020,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.ok(megaRow, 'the real Mega renderer emits one species-index row');
   assert.ok(megaRow.dataset.megaView, 'the row carries an opaque in-memory view key');
   app.click(megaRow.querySelector('.megajump'));
+  A.setSpeciesLookupWithinChase(false);
 
   assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1,
     'Mega enters Stakeout with exactly one medium species card');
@@ -18843,51 +19029,52 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.equal(D.getElementById('sec-spLookupBtn').hidden, false,
     'the real Mega click routes to Stakeout instead of a private sub-page');
   const immediate = D.querySelector('#spLookupResults > li');
-  assert.ok(immediate.querySelector('.megaevidence'),
+  assert.ok(D.querySelector('#spLookupEvidenceDetails .megaevidence'),
     'Mega evidence paints before the ordinary sightings request settles');
-  assert.ok(immediate.querySelector('.spreferences [data-href*="ebird.org/species/whiwag"]'),
+  assert.ok(D.querySelector('#spLookupEvidenceDetails .spreferences [data-href*="ebird.org/species/whiwag"]'),
     'Stakeout exposes the eBird bird profile at the bottom of the card');
-  assert.ok(immediate.querySelector('.spreferences [data-href*="wikipedia.org/wiki/White"]'),
+  assert.ok(D.querySelector('#spLookupEvidenceDetails .spreferences [data-href*="wikipedia.org/wiki/White"]'),
     'Stakeout exposes the Wikipedia article at the bottom of the card');
-  const immediateText = immediate.textContent;
+  const immediateText = stakeoutSurfaceText(app);
   assert.match(immediateText, /Mega rarity.*ABA Code 3, 4 or 5/s);
   assert.match(immediateText, /Latest mega report/i);
   assert.match(immediateText, /Sep 3.*2:45 PM|9\/3.*2:45P/i);
   assert.match(immediateText, /Cape Flattery overlook/);
   assert.match(immediateText, /×3/);
   assert.match(immediateText, /Latest Observer/);
-  assert.ok(immediate.querySelector('[data-href*="/checklist/S-LATEST"]'),
+  assert.ok(D.querySelector('#spLookupRecent [data-href*="/checklist/S-LATEST"]'),
     'the exact latest checklist survives the route');
-  assert.match(immediate.querySelector('.megalatest .evid').textContent, /📷/);
-  assert.match(immediate.querySelector('.megalatest .evid').textContent, /🎥/);
-  assert.deepEqual([...immediate.querySelectorAll('.bcstat')].map((stat) =>
+  const evidence = D.getElementById('spLookupEvidenceDetails');
+  assert.match(evidence.querySelector('.megalatest .evid').textContent, /📷/);
+  assert.match(evidence.querySelector('.megalatest .evid').textContent, /🎥/);
+  assert.deepEqual([...evidence.querySelectorAll('.bcstat')].map((stat) =>
     `${stat.querySelector('b').textContent} ${stat.querySelector('small').textContent}`), [
     '14 reports in Washington',
     '5 observers',
     '6 locations',
     '14 days seen',
   ]);
-  assert.match(immediateText, /Earlier Mega reports/);
-  assert.match(immediateText, /Kept on this device since Jul 1/i);
-  const history = immediate.querySelector('.megareports');
-  assert.ok(history, 'Mega report history did not render');
-  assert.equal(history.querySelectorAll('.hscard-sm').length, 6,
-    'Mega report history is not grouped into one row per hotspot');
-  assert.equal(history.querySelectorAll('.cklcard-sm').length, 13,
-    'Mega report history did not keep every supporting checklist under its hotspot');
-  assert.match(history.textContent, /Neah Bay harbor/);
+  assert.equal(evidence.querySelector('.megareports'), null,
+    'immediate Mega evidence rendered a second hotspot/checklist list');
+  const places = D.querySelector('#spLookupRecent .spLookupPlaceList');
+  assert.ok(places, 'the unified Mega report list did not render immediately');
+  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 6,
+    'the unified Mega reports are not grouped into one row per hotspot');
+  assert.equal(places.querySelectorAll('.cklcard-sm').length, 14,
+    'the unified Mega report list did not keep every supporting checklist');
+  assert.match(places.textContent, /Neah Bay harbor/);
 
   await waitFor(() => typeof settleSightings === 'function',
     'the independently running active-region sightings request');
-  assert.ok(D.querySelector('#spLookupResults > li .megaevidence'),
+  assert.ok(D.querySelector('#spLookupEvidenceDetails .megaevidence'),
     'Mega evidence remains visible while the sightings promise is unresolved');
   settleSightings();
   await waitFor(() => /No reports.*not being seen right now/i.test(
     D.getElementById('spLookupStatus').textContent), 'active-region empty result');
   await waitFor(() => /white wagtail is a small passerine/i.test(
-    D.getElementById('spLookupResults').textContent), 'lazy Wikipedia hydration');
+    stakeoutSurfaceText(app)), 'lazy Wikipedia hydration');
   const settled = D.querySelector('#spLookupResults > li');
-  const settledText = settled.textContent;
+  const settledText = stakeoutSurfaceText(app);
   assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1,
     'an honestly empty active-region result retains the one Mega Stakeout card');
   assert.match(D.getElementById('spLookupStatus').textContent, /No reports.*not being seen right now/i,
@@ -18902,7 +19089,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.match(settledText, /Searched 2023 and earlier/);
   assert.match(settledText, /125 records in the USA across 9 states.*most in Alaska \(44%\)/s);
   assert.match(settledText, /The white wagtail is a small passerine bird/);
-  assert.ok(settled.querySelector('.megawiki [data-href*="wikipedia.org/wiki/White_wagtail"]'),
+  assert.ok(D.querySelector('#spLookupEvidenceDetails .megawiki [data-href*="wikipedia.org/wiki/White_wagtail"]'),
     'the Wikipedia source survives with its extract');
   assert.equal(lazyCalls.some((u) => /product\/checklist\/view\/S-OLD/.test(u)), false,
     'an unopened Mega species does not hydrate its finder checklist');
@@ -18937,14 +19124,14 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   };
   app.click(heldRow.querySelector('.megajump'));
   await waitFor(() => /Earliest Held Observer/.test(
-    D.getElementById('spLookupResults').textContent), 'earliest-held checklist hydration');
+    stakeoutSurfaceText(app)), 'earliest-held checklist hydration');
   const heldCard = D.querySelector('#spLookupResults > li');
   assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1);
-  assert.match(heldCard.textContent,
+  assert.match(stakeoutSurfaceText(app),
     /Earliest observers we hold.*Earliest Held Observer/s);
-  assert.match(heldCard.textContent,
+  assert.match(stakeoutSurfaceText(app),
     /already present when retained coverage starts.*cannot identify the finder/is);
-  assert.match(heldCard.querySelector('.megafinder .evid').textContent, /🎥/);
+  assert.match(D.querySelector('#spLookupEvidenceDetails .megafinder .evid').textContent, /🎥/);
   app.window.close();
 });
 
@@ -19001,7 +19188,7 @@ test('F429 Mega finder evidence is local to the latest report', async () => {
     });
   app.click(app.document.querySelector('#abaResults .megajump'));
   await new Promise((resolve) => setTimeout(resolve, 50));
-  const text = app.document.querySelector('#spLookupResults').textContent;
+  const text = stakeoutSurfaceText(app);
   assert.match(text, /Kellie Sagen|Leque Island/,
     'the latest locality finder remains eligible');
   assert.doesNotMatch(text, /Neah Bay|Walla Walla|Distant Finder/,
@@ -19114,7 +19301,7 @@ test('F304 chooses the newest report independently of feed order', async () => {
   assert.match(app.document.querySelector('#abaResults li').textContent, /Sep 4/,
     'the index summary uses the newest row even when it arrived second');
   app.click(app.document.querySelector('#abaResults .megajump'));
-  const latest = app.document.querySelector('#spLookupResults .megalatest');
+  const latest = app.document.querySelector('#spLookupEvidenceDetails .megalatest');
   assert.match(latest.textContent, /Newest place/);
   assert.match(latest.textContent, /×4/);
   assert.match(latest.textContent, /Newest Observer/);
@@ -19227,17 +19414,17 @@ test('F304 a failed selected-state read is an error, not a false empty answer', 
   }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
   app.click(app.document.querySelector('#abaResults .megajump'));
   await waitFor(() => app.document.querySelector(
-    '#spLookupResults .splookuperror'),
+    '#spLookupDetailMain .splookuperror'),
     'the selected state-feed settlement');
   const card = app.document.querySelector('#spLookupResults > li');
-  assert.ok(card?.querySelector('.spLookupRetrySightings'),
+  assert.ok(card && app.$('spLookupDetailMain').querySelector('.spLookupRetrySightings'),
     'the failed state read replaced the selected bird with a dead end');
-  assert.match(card.textContent,
+  assert.match(app.$('spLookupDetailMain').textContent,
     /API key was rejected|Live eBird calls work only/i,
     `the state-feed failure must remain visible; calls: ${app.state.fetches.join(' | ')}`);
-  assert.ok(card.querySelector('.megaevidence'),
+  assert.ok(app.$('spLookupEvidenceDetails').querySelector('.megaevidence'),
     'already-held Mega evidence remains available after the live read fails');
-  assert.doesNotMatch(card.textContent + app.$('spLookupStatus').textContent,
+  assert.doesNotMatch(stakeoutSurfaceText(app) + app.$('spLookupStatus').textContent,
     /No reports.*real answer|not being seen right now/i,
     'a failed request cannot be relabelled as an observed absence');
   await settleMegaEntry(app, 'whiwag');
@@ -19317,10 +19504,10 @@ test('F304 hydrates a finder first discovered by the lazy state feed', async () 
   }], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
   app.click(app.document.querySelector('#abaResults .megajump'));
   await waitFor(() => resolveState, 'the selected species state request');
-  assert.equal(/Late Finder/.test(app.$('spLookupResults').textContent), false,
+  assert.equal(/Late Finder/.test(stakeoutSurfaceText(app)), false,
     'the alert alone did not invent a finder');
   resolveState();
-  await waitFor(() => /Late Finder/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /Late Finder/.test(stakeoutSurfaceText(app)),
     'finder hydration after the state feed revealed the earlier checklist');
   const marks = app.document.querySelector('.megafinder .evid');
   assert.match(marks.textContent, /📷/);
@@ -19419,9 +19606,9 @@ test('F304 retries lazy GBIF history when detail=full supplies the scientific na
     'GBIF does not guess from a common name while the scientific name is unavailable');
   resolveState();
   await waitFor(() => matchCalls === 1, 'GBIF retry after scientific-name enrichment');
-  await waitFor(() => /State records/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /State records/.test(stakeoutSurfaceText(app)),
     'the lazy history publication');
-  assert.match(app.$('spLookupResults').textContent, /No Washington record/);
+  assert.match(stakeoutSurfaceText(app), /No Washington record/);
   app.window.close();
 });
 
@@ -19513,14 +19700,14 @@ test('F304 stale Mega state and ABA-wide callbacks cannot repaint a newer view',
       },
     });
   app.click(app.document.querySelector('#abaResults .megajump'));
-  await waitFor(() => /CURRENT VIEW PLACE/.test(app.$('spLookupResults').textContent),
+  await waitFor(() => /CURRENT VIEW PLACE/.test(stakeoutSurfaceText(app)),
     'the newer Mega view');
 
   resolveOldState();
   await new Promise((resolve) => setTimeout(resolve, 100));
   resolveOldWide.splice(0).forEach(function (resolve) { resolve(); });
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const current = app.$('spLookupResults').textContent;
+  const current = stakeoutSurfaceText(app);
   assert.match(current, /CURRENT VIEW PLACE/);
   assert.doesNotMatch(current, /STALE ASYNC STATE PLACE|STALE ABA-WIDE PLACE/,
     'old callbacks cannot publish into the current species card');
@@ -19558,9 +19745,11 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
     HTML.indexOf('var SP_ROWS_MAX'));
   assert.equal((stakeout.match(/SpeciesCards\.medium\(/g) || []).length, 1,
     'Stakeout rebuilt preserved and live evidence as separate species cards');
+  assert.match(stakeout, /out\.innerHTML = SpeciesCards\.medium\(/,
+    'Stakeout does not render exactly one shared medium title card');
   assert.match(stakeout,
-    /below:[\s\S]*stakeoutEvidenceHtml\(evidence\) \+ sightingsFailure \+ placesHtml/,
-    'the preserved evidence and ordinary places must share one medium card');
+    /recent\.innerHTML = placesHtml[\s\S]*evidenceHost\.innerHTML = stakeoutEvidenceHtml\(evidence\)/,
+    'preserved evidence and recent checklists are not owned by the same Stakeout renderer');
   const registry = HTML.slice(HTML.indexOf('function megaViewId('),
     HTML.indexOf('function stakeoutStoredMegaRows('));
   assert.doesNotMatch(registry, /localStorage|innerHTML\s*=\s*JSON/,
@@ -26145,7 +26334,7 @@ test('the stakeout map plots the places the rows are numbered against', () => {
     'a place came out of speciesPlaces with no usable coordinate');
 });
 
-test('the stakeout list keeps one newest-checklist row per hotspot', async () => {
+test('the Stakeout list groups every recent checklist under one hotspot', async () => {
   const app = await boot({
     fetch(url) {
       if (/ref\/taxonomy/.test(url)) return [];
@@ -26178,56 +26367,59 @@ test('the stakeout list keeps one newest-checklist row per hotspot', async () =>
   app.window.__app.runSpeciesLookup();
   await new Promise((r) => setTimeout(r, 500));
 
-  const rows = [...doc.querySelectorAll('#spLookupResults .spLookupPlaceList > li')];
+  const rows = [...doc.querySelectorAll('#spLookupRecent .spLookupPlaceList > li')];
   assert.equal(rows.length, 1,
     `three checklists at one hotspot must remain one place row, got ${rows.length}`);
-  const links = [...rows[0].querySelectorAll('a.extlink[data-href]')]
-    .map((a) => a.getAttribute('data-href'));
+  const links = [...rows[0].querySelectorAll('.cklcard-sm')]
+    .map((card) => card.getAttribute('data-href'));
   assert.ok(links.some((href) => /\/checklist\/S1$/.test(href)),
-    `the newest 09:20 checklist should own the row, got ${JSON.stringify(links)}`);
-  assert.ok(!links.some((href) => /\/checklist\/S2$|\/checklist\/S3$/.test(href)),
-    'older checklists became duplicate rows/links instead of evidence summarized on the hotspot');
-  assert.match(rows[0].textContent, /3 recent checklists/,
-    'the one row no longer says that the hotspot has additional recent evidence');
+    `the newest 09:20 checklist is missing, got ${JSON.stringify(links)}`);
+  assert.ok(links.some((href) => /\/checklist\/S2$/.test(href))
+    && links.some((href) => /\/checklist\/S3$/.test(href)),
+  'supporting checklists were omitted from the grouped hotspot');
+  assert.equal(rows[0].querySelectorAll('.cklcard-sm').length, 3,
+    'the grouped hotspot does not contain all three checklist cards');
+  assert.doesNotMatch(rows[0].querySelector(':scope > .hssub')?.textContent || '',
+    /recent checklists/,
+  'the hotspot heading repeats a checklist summary above the checklist rows');
   assert.equal((rows[0].querySelector('.hsnum') || {}).textContent, '1');
   assert.ok(rows[0].classList.contains('hscard-sm'),
     'the result is not the shared SMALL hotspot card');
-  assert.equal(doc.querySelectorAll('#spLookupResults .sppl .thumb').length, 0,
+  assert.equal(doc.querySelectorAll('#spLookupRecent .sppl .thumb').length, 0,
     'the bird photo is repeated on every row');
 
   app.window.close();
 });
 
-test('the stakeout sort controls sit under the map and offer the odds view', () => {
-  // "the sort by buttons should be after the map, and it needs another botton
-  //  to sort by iconic."
+test('F463 Stakeout controls precede the map and Iconic is Details content', () => {
   const map = HTML.indexOf('id="spLookupMap"');
   const row = HTML.indexOf('id="spLookupSortRow"');
   assert.ok(map > 0 && row > 0, 'the stakeout map or sort row is missing');
-  assert.ok(map < row,
-    'the sort buttons still sit above the map, where they read as filtering the search');
+  assert.ok(row < map,
+    'the compact control strip does not precede the map');
 
-  assert.ok(/id="spLookupByIconic"/.test(HTML), 'there is no odds sort button');
-  assert.ok(/spLookupByIconic'\)\.addEventListener/.test(HTML),
-    'the odds button is not wired - the same class of bug that left the rankings '
-    + 'scope control dead for a whole release');
+  assert.doesNotMatch(HTML, /id="spLookupByIconic"/,
+    'Iconic survived as a sort mode instead of the final Details section');
+  assert.match(HTML, /<div id="spLookupUnwatched"[^>]*><\/div>/,
+    'Details has no final Iconic hotspot host');
   assert.ok(/id="spLookupWithinChase"/.test(HTML),
     'there is no independent chase-distance filter');
   assert.ok(/spLookupWithinChase'\)\.addEventListener/.test(HTML),
     'the chase-distance filter is not wired');
 
-  // The button must actually change what the list renders, not just relabel it.
+  assert.match(HTML, /id="spLookupDetails"[\s\S]*id="spLookupNotes"[\s\S]*id="spLookupGroup"/,
+    'Compact/Details, Notes, and List/Group controls are missing');
+
+  // Controls must actually change what the list renders, not just relabel it.
   const at = HTML.indexOf('function renderSpeciesLookup');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
-  assert.ok(/spLookupIconicHtml/.test(src),
-    'the odds view never reaches the list body');
-  assert.ok(/_spLookupIconic/.test(src) && /SP_ROWS_MAX/.test(src),
-    'the odds view does not repoint the map at the places it lists');
+  assert.match(src, /iconicHost\.innerHTML = spLookupIconicHtml/,
+    'Iconic hotspots do not render in their Details-only host');
+  assert.ok(src.indexOf('evidenceHost.innerHTML') < src.indexOf('iconicHost.innerHTML'),
+    'Iconic hotspots are not the final Details section');
 });
 
-test('the odds view is a list, not an appendix, and says what it is first', () => {
-  // "the good odds data should be integrated into one list instead of an
-  //  appendix ... show the paragraph of explanation text before the list."
+test('the Details Iconic section explains its historical odds before its list', () => {
   const at = HTML.indexOf('function spLookupIconicHtml');
   assert.ok(at > 0, 'spLookupIconicHtml not found');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
@@ -26306,6 +26498,46 @@ test('a checklist row never leaves the count ambiguous', () => {
 
   // The medium card is unchanged: it is about a VISIT and always said it.
   assert.match(ChecklistCards.medium({ place: 'X', count: 1 }), /1 bird/);
+});
+
+test('every small checklist card can show age and compact duration', () => {
+  const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
+  const now = new Date('2026-09-22T10:30:00').getTime();
+  const html = ChecklistCards.small({
+    date: 'Sep 21 5:17 PM',
+    observedAt: '2026-09-21T17:17:00',
+    nowMs: now,
+    durationHrs: 1 + 8 / 60
+  });
+  assert.match(html, /class="ckage">\(17h ago\)<\/span>/,
+    'relative age is not immediately after the checklist date');
+  assert.match(html, /class="ckduration">· 1h8m<\/span>/,
+    'duration is not abbreviated at the end of the checklist row');
+  assert.equal(ChecklistCards.durationText(2 + 4 / 60), '2h4m',
+    'hours and minutes regained an unnecessary space');
+
+  const pending = ChecklistCards.small({
+    date: 'Sep 21 5:17 PM',
+    observedAt: '2026-09-21T17:17:00',
+    nowMs: now,
+    durationPending: true
+  });
+  assert.match(pending, /class="ckduration" data-pending="1"><\/span>/,
+    'a missing duration has no stable slot for lazy checklist hydration');
+
+  const calls = HTML.match(/ChecklistCards\.small\(\{[\s\S]*?\n\s*\}\)/g) || [];
+  assert.ok(calls.length >= 7, 'the expected production small-card call sites vanished');
+  calls.forEach((call, i) => {
+    assert.match(call, /observedAt:/,
+      `small checklist call ${i + 1} does not provide the raw observation time`);
+    assert.match(call, /durationHrs:/,
+      `small checklist call ${i + 1} does not provide an already-known duration`);
+  });
+  assert.match(HTML, /setChecklistDuration\(el, got\.durationHrs\)/,
+    'lazy checklist hydration does not update the shared duration slot');
+  assert.doesNotMatch(HTML,
+    /facts\.push\(Number\(det\.durationHrs\)[\s\S]{0,120}hr checklist/,
+    'Stakeout still renders duration through a bespoke details style');
 });
 
 test('a short Top patches list explains its time and access scope', async () => {
@@ -26716,7 +26948,7 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
   assert.ok(start > 0, 'renderSpeciesLookup not found');
   const end = HTML.indexOf('\n      function ', start + 10);
   const fn = HTML.slice(start, end);
-  assert.ok(/mountProgressiveLists\(out\)/.test(fn),
+  assert.ok(/mountProgressiveLists\(recent\)/.test(fn),
     'renderSpeciesLookup no longer mounts the progressive list that owns its map');
   const mapStart = HTML.indexOf('function renderSpeciesLookupMap');
   const mapFn = HTML.slice(mapStart, HTML.indexOf('\n      function ', mapStart + 1));
@@ -28711,15 +28943,17 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
   const close = app.$('spLookupClear');
   assert.equal(input.parentElement, search.parentElement,
     'the Stakeout bird field and Go control do not share one compact search row');
+  assert.equal(input.parentElement, codes.parentElement,
+    'Codes is not between the Stakeout bird field and Go');
   assert.equal(search.textContent.trim(), 'Go',
     'Stakeout bird does not use the same short Go action as Stakeout hotspot');
-  assert.notEqual(codes.closest('.row'), search.closest('.row'),
-    'the secondary Codes control still crowds the field-plus-Go search row');
-  assert.equal(codes.closest('.row'), close.closest('.row'),
-    'Codes and Close no longer share the secondary action row');
-  assert.ok(close.compareDocumentPosition(codes)
+  assert.ok(input.compareDocumentPosition(codes)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'Codes is not authored immediately after Close');
+  'Codes is not authored after the search field');
+  assert.ok(codes.compareDocumentPosition(search)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'Go is not authored after Codes');
+  assert.equal(close, null, 'the rejected visible Close control remains');
   assert.equal(codes.textContent.trim(), '🔤 Codes',
     'the compact control still says Show bird codes');
   assert.doesNotMatch(HTML, /textContent\s*=\s*['"]🔤 Show bird codes['"]/,
@@ -28915,27 +29149,26 @@ test('a hotspot card is about the place, not the mileage', () => {
 // hydrateChecklistEvidence selects `[data-ev-sub]`, and a hotspot card had no
 // way to carry a data attribute at all, so nothing could ever have filled it.
 test('a stakeout place row links the place, the time and its checklist id', () => {
-  const src = HTML.slice(HTML.indexOf('function spLookupPlaceCards'),
+  const places = HTML.slice(HTML.indexOf('function spLookupPlaceCards'),
     HTML.indexOf('\n      function spLookupRowsHtml'));
-  assert.ok(src.length > 200, 'spLookupPlaceCards should be found and bounded');
+  const checklist = HTML.slice(HTML.indexOf('function stakeoutChecklistRow'),
+    HTML.indexOf('\n      function loadStakeoutPlaceHistory'));
+  assert.ok(places.length > 200 && checklist.length > 200,
+    'Stakeout place and checklist renderers should be found and bounded');
 
   // The place name stays in the app and opens Stake out a hotspot.
-  assert.match(src, /stakeHotspotLink\(p\.locId, where\)/,
+  assert.match(places, /stakeHotspotLink\(p\.locId, where\)/,
     'the place name opens the hotspot, not a checklist');
-  assert.doesNotMatch(src, /name:\s*\(href \? extA\(href, where\)/,
+  assert.doesNotMatch(places, /name:\s*\(href \? extA\(href, where\)/,
     'the old name-carries-the-checklist-link form must not come back');
 
-  // The time is the only thing on the row that refers to a single visit.
-  assert.match(src, /whenHtml\s*=\s*\(whenTxt && c\.subId\)\s*\?\s*extA\(checklistUrl\(c\.subId\), whenTxt\)/,
-    'the time opens the checklist that reported the bird');
-
-  // The id you quote to another birder.
-  assert.match(src, /subIdHtml\s*=\s*c\.subId \? extA\(checklistUrl\(c\.subId\), c\.subId\)/,
-    'the checklist id is shown and linked');
-
-  // The hook without which the icons can never arrive.
-  assert.match(src, /'ev-sub':\s*c\.subId/, 'the row carries the evidence hook');
-  assert.match(src, /'ev-code':/, 'and the species it is a report of');
+  assert.match(checklist, /href:\s*row\.subId \? checklistUrl\(row\.subId\)/,
+    'the shared row does not open the checklist that reported the bird');
+  assert.match(checklist, /checklistId:\s*speciesLookupDetails\(\) \? row\.subId/,
+    'Details does not show the checklist id');
+  assert.match(checklist, /'ev-sub':\s*row\.subId/, 'the row carries the evidence hook');
+  assert.match(checklist, /'ev-code':\s*\(bird && bird\.code\)/,
+    'and the species it is a report of');
 });
 
 // The hotspot card could not carry a data attribute, which is why the hook

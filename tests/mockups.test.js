@@ -61,21 +61,15 @@ test('release mockups include exactly one section shot per visible menu entry', 
   'the approved medium-card peep result is still capped by the superseded layout');
 });
 
-test('F435 AMPI review mockup answers the six Stakeout questions', () => {
+test('F463 AMPI review mockups exercise Compact and Details modes', () => {
   const shot = mockups.REVIEW_SHOTS.find((item) => item.id === 'stakeoutampi-answers');
   assert.ok(shot, 'the AMPI Stakeout review image is registered');
-  assert.match(source, /1 · Closest/);
-  assert.match(source, /2 · Most recent/);
-  assert.match(source, /3 · High count/);
-  assert.match(source, /4 · Repeat reports/);
-  assert.match(source, /5 · Historical stronghold/);
-  assert.match(source, /6 · Useful evidence/);
-  assert.match(source, /not a public destination/);
-  assert.match(source, /different observers and eBird groups/);
-  assert.match(source, /No checklist API calls/);
+  assert.match(source,
+    /'American Pipit Stakeout ' \+ \(detailsOn \? 'Details' : 'Compact'\)/);
+  assert.match(source, /durationHrs: 0\.7/);
+  assert.match(source, /durationHrs: 1 \+ 8 \/ 60/);
   assert.match(source, /stakeoutampi-details/);
-  assert.match(source, /W\.ProgressiveList\.mount/);
-  assert.match(source, /stakeoutAmpiChecklists/);
+  assert.match(source, /A\.setSpeciesLookupDetails\(!!detailsOn\)/);
 });
 
 test('every menu section declares representative fixture data or an intentional static surface', () => {
@@ -493,20 +487,22 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   assert.equal(mockups.STUB_SPEC.spLookupBtn.kind, 'stakeout-merged');
   assert.equal(mockups.STUB_SPEC.spuhBtn, undefined,
     'the removed Spuh menu surface still owns a release fixture');
-  assert.equal(mockups.STUB_SPEC.spLookupBtn.maxHostHeight, 150,
-    'the release guard allows the hierarchy sentence to grow back into a card');
-  assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'spLookupIdHelp',
-    'the release capture is not anchored to the selected bird hierarchy');
+  assert.equal(mockups.STUB_SPEC.spLookupBtn.maxHostHeight, undefined,
+    'the redesigned full Stakeout page is still clipped to the old hierarchy height');
+  assert.equal(mockups.STUB_SPEC.spLookupBtn.host, 'sec-spLookupBtn',
+    'the release capture is not anchored to the full Stakeout page');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
     '#spLookupQueryHelp:empty',
+    '#spLookupResults > li',
+    '#spLookupSortRow:not([hidden])',
+    '#spLookupMap .mockmap',
+    '#spLookupRecent .spLookupPlaceList > .hscard-sm',
     '#spLookupIdHelp .spuhpathsentence',
     '#spLookupIdHelp .spuhpathchip[data-spuh]',
-    '#spLookupResults > li',
     '#spLookupIdHelp .spuhtaxnav',
     '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
     '#spLookupIdHelp details.spuhdetails',
     '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
-    '#spLookupResults .spLookupPlaceList > .hscard-sm',
   ]);
   assert.match(source, /prepareBirdFinderMerged[\s\S]*fillStakeoutSpecies/,
     'the release shot does not continue a spuh candidate into species evidence');
@@ -608,18 +604,19 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the Mega release shot must use the production list renderer');
 });
 
-test('Stakeout checklist mockup uses the shared small card and progressive loader', () => {
+test('Stakeout checklist mockup uses the unified shared small-card list', () => {
   const shot = mockups.REVIEW_SHOTS.find(
     (item) => item.id === 'stakeoutchecklists-progressive'
   );
   assert.ok(shot);
   assert.deepEqual(shot.expects, [
-    '#spLookupResults.stakeoutChecklistMock',
-    '#spLookupResults .stakeoutevidence .cklcard-sm',
-    '#spLookupResults .stakeoutevidence .progressive-more'
+    '#spLookupRecent.stakeoutChecklistMock',
+    '#spLookupRecent .spLookupPlaceList .cklcard-sm',
   ]);
-  assert.match(indexSource, /function megaReportRowHtml[\s\S]*ChecklistCards\.small/);
-  assert.match(indexSource, /function megaHistoryHtml[\s\S]*progressiveListHtml/);
+  assert.match(indexSource,
+    /function spLookupPlaceCards[\s\S]*ChecklistCards\.list\('small', rows, 'stakeoutPlaceChecklists'\)/);
+  assert.doesNotMatch(indexSource, /function megaHistoryHtml/,
+    'Stakeout reintroduced the second Mega-only place list');
 });
 
 test('F268/F269 On passage mockup exercises event, first-report, and forecast lanes', () => {

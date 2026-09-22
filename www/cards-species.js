@@ -49,8 +49,8 @@
 
   var MEDIUM = [
     '<li class="{{cls}}"{{attrs}}>',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}</span>{{dist}}</div>',
-    '  <div class="meta">{{code}}{{sci}}{{when}}{{sub}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}</span>{{dist}}{{primary}}</div>',
+    '  <div class="meta">{{metaaction}}{{code}}{{sci}}{{when}}{{sub}}</div>',
     '  {{conf}}',
     '  {{below}}',
     '</li>'
@@ -220,6 +220,9 @@
     '  text-align: right; white-space: nowrap; padding-left: 12px;',
     '  font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.1;',
     '  color: var(--ink); font-variant-numeric: tabular-nums; }',
+    '.obs.card-md > li > .name > .spprimary { grid-column: 3; grid-row: 1;',
+    '  align-self: center; justify-self: end; padding-left: 10px; }',
+    '.obs.card-md > li > .meta > .spmetaact { float: right; margin: -3px 0 2px 8px; }',
     /* When the distance is a MAP LINK it keeps the column's typography — the
        number is what you scan down the edge of the list, and shrinking it to
        the app's 13px link size would hide it — but takes the accent colour so
@@ -779,6 +782,8 @@
       // choice - a block-level child of <span class="ntext"> is invalid and
       // the browser would break the line whatever the CSS said.
       actions: v.actions ? '<span class="spact">' + v.actions + '</span>' : '',
+      primary: v.primary ? '<span class="spprimary">' + v.primary + '</span>' : '',
+      metaaction: v.metaAction ? '<span class="spmetaact">' + v.metaAction + '</span>' : '',
       // `data` lets a SECTION hang its own hooks on the ROW without this file
       // learning what they mean — the same contract cards-checklist.js already
       // offers, and deliberately identical so the two card families do not

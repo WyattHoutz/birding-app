@@ -104,16 +104,19 @@ const STUB_SPEC = {
   fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap',
     report: 'hi' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
-  spLookupBtn:    { kind: 'stakeout-merged', host: 'spLookupIdHelp', map: 'spLookupMap',
-    maxHostHeight: 150,
+  spLookupBtn:    { kind: 'stakeout-merged', host: 'sec-spLookupBtn',
+    preserveHost: true, map: 'spLookupMap',
     expects: ['#spLookupQueryHelp:empty',
+      '#spLookupResults > li',
+      '#spLookupSortRow:not([hidden])',
+      '#spLookupMap .mockmap',
+      '#spLookupRecent .spLookupPlaceList > .hscard-sm',
       '#spLookupIdHelp .spuhpathsentence',
       '#spLookupIdHelp .spuhpathchip[data-spuh]',
-      '#spLookupResults > li', '#spLookupIdHelp .spuhtaxnav',
+      '#spLookupIdHelp .spuhtaxnav',
       '#spLookupIdHelp .spuhcompactpath .spuhtaxlink',
       '#spLookupIdHelp details.spuhdetails',
-      '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]',
-      '#spLookupResults .spLookupPlaceList > .hscard-sm'] },
+      '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]'] },
   stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults', map: 'stakeHsMap',
     expects: ['#stakeHsResults .hscard-lg', '#stakeHsResults #stakeHsMap',
       '#stakeHsResults .stakeHsIntroActions', '#stakeHsResults .stakeHsChecklistCards'] },
@@ -178,7 +181,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
 const EXTRA_SHOTS = [
   { id: 'spuhcompare', at: 'spLookupBtn',
     title: 'Stakeout bird — compare possible birds',
-    host: 'spLookupIdHelp',
+    host: 'sec-spLookupBtn',
     // This shot does a full Stakeout lookup, opens taxonomy details, types a
     // comparison bird, and waits for the shared Spuh result. On GitHub's
     // runner it can exceed the default prep budget after the mandatory gallery
@@ -197,57 +200,52 @@ const EXTRA_SHOTS = [
 const REVIEW_SHOTS = [
   { id: 'stakeoutreachable-f389', at: 'spLookupBtn',
     title: 'Stakeout bird — Reachable hides pelagic and other-island evidence',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupByDate[aria-pressed="true"]',
-      '#spLookupResults .spLookupPlaceList > .hscard-sm'],
+      '#spLookupRecent .spLookupPlaceList > .hscard-sm'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareF389Stakeout(A, document, sec, 'date');` },
   { id: 'stakeoutdistance-f389', at: 'spLookupBtn',
     title: 'Stakeout bird — Distance retains all regional evidence',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupByDist[aria-pressed="true"]',
-      '#spLookupResults .spLookupPlaceList > .hscard-sm'],
+      '#spLookupRecent .spLookupPlaceList > .hscard-sm'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareF389Stakeout(A, document, sec, 'dist');` },
   { id: 'stakeoutchecklists-progressive', at: 'spLookupBtn',
     title: 'Stakeout bird — progressive checklist cards',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
-    expects: ['#spLookupResults.stakeoutChecklistMock',
-      '#spLookupResults .stakeoutevidence .cklcard-sm',
-      '#spLookupResults .stakeoutevidence .progressive-more'],
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
+    expects: ['#spLookupRecent.stakeoutChecklistMock',
+      '#spLookupRecent .spLookupPlaceList .cklcard-sm'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutChecklistProgressive(A, document, sec);` },
   { id: 'stakeoutampi-answers', at: 'spLookupBtn',
-    title: 'Stakeout bird — American Pipit answers, details off',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    title: 'Stakeout bird — American Pipit Compact',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupResults.stakeoutAmpiMock',
-      '#spLookupResults .stakeoutanswers',
-      '#spLookupResults .stakeoutanswer[data-answer="closest"]',
-      '#spLookupResults .stakeoutanswer[data-answer="recent"]',
-      '#spLookupResults .stakeoutanswer[data-answer="count"]',
-      '#spLookupResults .stakeoutanswer[data-answer="repeat"]',
-      '#spLookupResults .stakeoutanswer[data-answer="historic"]',
-      '#spLookupResults .stakeoutanswer[data-answer="evidence"]',
-      '#spLookupResults .stakeoutAmpiLocations .hscard-sm',
+      '#spLookupRecent .spLookupPlaceList .hscard-sm',
       '#spLookupDetails[aria-pressed="false"]',
-      '#spLookupResults .progressive-more'],
+      '#spLookupNotes[aria-pressed="false"]',
+      '#spLookupDetailsContent[hidden]'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutAmpiAnswers(A, document, sec, false);` },
   { id: 'stakeoutampi-details', at: 'spLookupBtn',
-    title: 'Stakeout bird — American Pipit lazy details on',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    title: 'Stakeout bird — American Pipit Details',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupResults.stakeoutAmpiMock',
       '#spLookupDetails[aria-pressed="true"]',
-      '#spLookupResults .stakeoutAmpiChecklists .cklcard-sm',
-      '#spLookupResults .progressive-more'],
+      '#spLookupNotes[aria-pressed="true"]',
+      '#spLookupDetailsContent:not([hidden])',
+      '#spLookupRecent .spLookupPlaceList .cklcard-sm',
+      '#spLookupIdHelp .spuhtaxnav'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
@@ -539,19 +537,15 @@ const REVIEW_SHOTS = [
            return true;` },
   { id: 'stakeoutdetail', at: 'spLookupBtn',
     title: 'Stakeout bird — Detailed view',
-    host: 'spLookupIdHelp', scrollTo: '#spLookupIdHelp',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     prep: `FIX.before('spLookupBtn', A, document);
            var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
-           await FIX.prepare('spLookupBtn', ${JSON.stringify(STUB_SPEC.spLookupBtn)}, A, document, sec);
-           var detail = document.querySelector('#spLookupIdHelp details.spuhdetails');
-           if (!detail) throw new Error('missing Stakeout Detailed view');
-           detail.open = true;
-           return true;` },
+           return FIX.prepareStakeoutAmpiAnswers(A, document, sec, true);` },
   { id: 'stakeoutreports', at: 'spLookupBtn',
     title: 'Stakeout bird — lazy-expanded recent hotspots',
-    host: 'spLookupResults', scrollTo: '#spLookupResults',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     prep: `FIX.before('spLookupBtn', A, document);
            var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
@@ -729,42 +723,7 @@ const BOOTSTRAP = `
       + 'background:linear-gradient(135deg,var(--card) 0 48%,var(--note-bg) 48% 52%,var(--card) 52%);'
       + 'display:grid;place-items:center;text-align:center;font-weight:800;margin:8px 0}'
       + '.mockstate{display:inline-block;border:2px dashed var(--warn);border-radius:6px;'
-      + 'padding:2px 6px;font-size:calc(11px * var(--s));font-weight:800;margin-left:5px}'
-      + '.stakeoutAmpiMock{--pin:#0072B2}.stakeoutAmpiMock .mockbirdcode{'
-      + 'width:calc(64px * var(--s));height:calc(64px * var(--s));'
-      + 'border-radius:50%;display:grid;place-items:center;background:var(--safe-blue);color:#fff;'
-      + 'font-weight:900;font-size:calc(15px * var(--s));letter-spacing:.04em}'
-      + '.stakeoutanswers{margin:12px 0 16px;display:grid;gap:8px}'
-      + '.stakeoutanswer{border:1px solid var(--line);border-left:6px solid var(--safe-blue);'
-      + 'border-radius:10px;padding:9px 10px;background:var(--card)}'
-      + '.stakeoutanswer:nth-child(3n+2){border-left-style:dashed;border-left-color:var(--warn)}'
-      + '.stakeoutanswer:nth-child(3n){border-left-style:double;border-left-color:var(--ink)}'
-      + '.stakeoutanswerhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;'
-      + 'font-size:calc(12px * var(--s));font-weight:900;text-transform:uppercase;letter-spacing:.04em}'
-      + '.stakeoutanswer strong{display:block;margin-top:3px;font-size:calc(16px * var(--s));line-height:1.25}'
-      + '.stakeoutanswer p{margin:3px 0 0;color:var(--muted);font-size:calc(13px * var(--s));line-height:1.35}'
-      + '.stakeoutscope{display:inline-block;border:1px solid var(--line);border-radius:999px;'
-      + 'padding:2px 7px;font-size:calc(11px * var(--s));font-weight:800;text-transform:none;letter-spacing:0}'
-      + '.stakeoutAmpiMap{position:relative;height:calc(190px * var(--s));border:1px solid var(--line);'
-      + 'border-radius:12px;overflow:hidden;margin:10px 0 14px;background:'
-      + 'linear-gradient(28deg,transparent 47%,var(--line) 48% 50%,transparent 51%),'
-      + 'linear-gradient(145deg,var(--note-bg),var(--card))}'
-      + '.stakeoutAmpiMap::before{content:"Visible locations on map";position:absolute;left:10px;top:8px;'
-      + 'font-size:calc(12px * var(--s));font-weight:900}'
-      + '.stakeoutpin{position:absolute;width:calc(31px * var(--s));height:calc(31px * var(--s));'
-      + 'border:3px solid #000;border-radius:50% 50% 50% 0;background:#0072B2;color:#fff;'
-      + 'display:grid;place-items:center;font-weight:900;transform:rotate(-45deg)}'
-      + '.stakeoutpin span{transform:rotate(45deg)}'
-      + '.stakeoutpin.private{border-radius:4px;background:#E69F00;color:#000;transform:none}'
-      + '.stakeoutpin.private span{transform:none}'
-      + '.stakeoutAmpiLocations{display:grid;gap:10px}.stakeoutlocation{border:1px solid var(--line);'
-      + 'border-radius:12px;padding:8px;background:var(--card)}'
-      + '.stakeoutlocation>.hscards{margin:0}.stakeoutlocationmeta{margin:4px 4px 8px;'
-      + 'font-size:calc(12px * var(--s));color:var(--muted)}'
-      + '.stakeoutAmpiChecklists{margin:0}.stakeoutevidencekey{display:flex;flex-wrap:wrap;gap:5px;'
-      + 'margin:6px 4px 10px}.stakeoutevidencekey span{border:1px solid var(--line);border-radius:999px;'
-      + 'padding:3px 7px;font-size:calc(11px * var(--s));font-weight:800}'
-      + '.stakeoutAmpiMock .progressive-more{display:flex;margin:10px auto 2px}';
+      + 'padding:2px 6px;font-size:calc(11px * var(--s));font-weight:800;margin-left:5px}';
     document.head.appendChild(style);
   }
   function mockPhoto(code) {
@@ -952,6 +911,13 @@ const BOOTSTRAP = `
     }
     markHost(host, label);
   }
+  function mockObservationDate(hoursAgo) {
+    var date = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    function pad(value) { return String(value).padStart(2, '0'); }
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-'
+      + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':'
+      + pad(date.getMinutes());
+  }
   async function fillStakeoutSpecies(A, document, label, placeCount, options) {
     options = options || {};
     var code = options.code || 'semsan';
@@ -969,8 +935,7 @@ const BOOTSTRAP = `
             locId: 'L' + (i + 1),
             locName: names[i] || 'Representative hotspot ' + (i + 1),
             lat: 47.70 + i / 100, lng: -122.16,
-            obsDt: '2026-09-' + (i % 2 ? '01' : '02') + ' 08:'
-              + String(i).padStart(2, '0'),
+            obsDt: mockObservationDate(10 + i * 18),
             howMany: (i % 4) + 1, subId: 'S' + (i + 1), obsValid: true
           };
         });
@@ -1034,7 +999,7 @@ const BOOTSTRAP = `
           obsValid: true }
       ]
     });
-    var text = document.getElementById('spLookupResults').textContent;
+    var text = document.getElementById('spLookupRecent').textContent;
     if (mode === 'date') {
       if (!/Kaloko-Honokōhau/.test(text)
           || /Captain Zodiac|North Pacific Ocean|Kauaʻi/.test(text)) {
@@ -1047,7 +1012,7 @@ const BOOTSTRAP = `
       throw new Error('Distance did not preserve all regional evidence');
     }
     if (A.fgProgressReset) A.fgProgressReset();
-    markHost(document.getElementById('spLookupResults'),
+    markHost(document.getElementById('sec-spLookupBtn'),
       mode === 'dist' ? 'All regional evidence' : 'Physically reachable evidence');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
@@ -1271,7 +1236,7 @@ const BOOTSTRAP = `
       sec.dataset.mockStatic = 'true';
       return true;
     }
-    host.innerHTML = '';
+    if (!spec.preserveHost) host.innerHTML = '';
     if (spec.kind === 'birdgen') {
       var reportSeen = A.getReportSeen();
       if (!reportSeen.baisan || reportSeen.amgplo) {
@@ -1608,8 +1573,9 @@ const BOOTSTRAP = `
       return compare.querySelector('.spuhcompareresult .spuhbest');
     }, 'shared Spuh result');
     fillMapHost(document.getElementById('spLookupMap'), 'Stakeout bird comparison');
-    var host = document.getElementById('spLookupIdHelp');
-    markHost(host, 'Stakeout bird comparison');
+    markHost(document.getElementById('spLookupIdHelp'),
+      'Stakeout bird comparison details');
+    markHost(sec, 'Stakeout bird comparison');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
@@ -1619,15 +1585,21 @@ const BOOTSTRAP = `
     fixtureStatus(sec, 'Stakeout bird recent hotspots');
     await fillStakeoutSpecies(A, document, 'Stakeout bird recent hotspots', 30);
     var more = await waitFor(function () {
-      return document.querySelector('#spLookupResults .spLookupMore');
+      return document.querySelector('#spLookupRecent .spLookupMore');
     }, 'Stakeout Show more control');
-    more.click();
+    while (more) {
+      more.click();
+      more = document.querySelector('#spLookupRecent .spLookupMore');
+    }
     await waitFor(function () {
       return document.querySelectorAll(
-        '#spLookupResults .spLookupPlaceList > .hscard-sm').length === 30;
+        '#spLookupRecent .spLookupPlaceList > .hscard-sm').length === 30;
     }, 'expanded Stakeout hotspot rows');
+    await wait(100);
     if (A.fgProgressReset) A.fgProgressReset();
-    var host = document.getElementById('spLookupResults');
+    var loadBar = document.getElementById('loadBar');
+    if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
+    var host = document.getElementById('sec-spLookupBtn');
     markHost(host, 'Stakeout bird recent hotspots');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
@@ -1643,14 +1615,15 @@ const BOOTSTRAP = `
     ];
     var reports = Array.from({ length: 14 }, function (_, i) {
       var place = places[i % places.length];
-      var day = 20 - Math.floor(i / 2);
       return {
         speciesCode: 'wessan', comName: 'Western Sandpiper',
         locId: place[1], locName: place[0], lat: place[2], lng: place[3],
-        obsDt: '2026-09-' + String(day).padStart(2, '0') + ' '
-          + (i % 2 ? '07:36' : '08:14'),
+        obsDt: mockObservationDate(3 + i * 5),
         howMany: 42 - i * 2, subId: 'S2784' + String(10201 - i),
-        userDisplayName: 'Test Birder ' + (i + 1), obsValid: true
+        userDisplayName: 'Test Birder ' + (i + 1),
+        durationHrs: (42 + i * 7) / 60,
+        numSpecies: 24 + i,
+        obsValid: true
       };
     });
     await fillStakeoutSpecies(A, document, 'Stakeout bird checklist cards', 14, {
@@ -1658,171 +1631,74 @@ const BOOTSTRAP = `
       name: 'Western Sandpiper',
       rows: reports
     });
+    A.setSpeciesLookupWithinChase(false);
     Array.from(document.querySelectorAll('.status')).forEach(function (node) {
       if (/Loading the eBird taxonomy/i.test(node.textContent || '')) {
         node.textContent = '';
         node.hidden = true;
       }
     });
-    var host = document.getElementById('spLookupResults');
+    var host = document.getElementById('spLookupRecent');
     host.classList.add('stakeoutChecklistMock');
-    var progressive = host.querySelector('.stakeoutevidence .progressive-more');
-    if (!progressive || !progressive.getAttribute('aria-label')
-        || host.querySelectorAll('.stakeoutevidence .cklcard-sm').length !== 12) {
-      throw new Error('Stakeout checklist progressive evidence did not mount');
+    if (host.querySelectorAll('.spLookupPlaceList .cklcard-sm').length !== 14) {
+      throw new Error('Stakeout unified checklist evidence did not mount');
     }
     if (A.fgProgressReset) A.fgProgressReset();
     var loadBar = document.getElementById('loadBar');
     if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
     markHost(host, 'Stakeout bird checklist cards');
+    markHost(sec, 'Stakeout bird checklist cards');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
   }
   async function prepareStakeoutAmpiAnswers(A, document, sec, detailsOn) {
     ensureMockStyle(document);
-    fixtureStatus(sec, 'American Pipit Stakeout answers');
+    fixtureStatus(sec, 'American Pipit Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
     A.setActiveReport('wa');
     localStorage.setItem(A.homeKey('lat'), '47.76');
     localStorage.setItem(A.homeKey('lng'), '-122.14');
     localStorage.setItem(A.homeKey('place'), 'Woodinville, WA');
-    A.setSpeciesLookupDetails(!!detailsOn);
-    var filterRow = document.getElementById('spLookupFilterRow');
-    var detailButton = document.getElementById('spLookupDetails');
-    if (filterRow) filterRow.hidden = false;
-    if (detailButton) {
-      detailButton.setAttribute('aria-pressed', String(!!detailsOn));
-      detailButton.textContent = detailsOn ? '✓ Details' : 'Details off';
-    }
-
-    var W = document.defaultView;
-    var SC = W.SpeciesCards, HC = W.HotspotCards, CC = W.ChecklistCards;
-    var host = document.getElementById('spLookupResults');
-    host.className = 'obs big xl stakeoutAmpiMock';
-
-    var answers = [
-      ['closest', '1 · Closest', '5.7 mi', 'Redmond Retention Ponds',
-        '5 birds · Sep 19, 9:49 AM · public hotspot'],
-      ['recent', '2 · Most recent', 'within 40 mi', 'Leque Island — Eide Rd.',
-        '2 birds · Sep 19, 2:36 PM · 34.5 mi'],
-      ['count', '3 · High count', 'within 40 mi', 'KVI Beach — 35 birds',
-        'Sep 13, 11:52 AM · 27.0 mi'],
-      ['repeat', '4 · Repeat reports', detailsOn ? 'independent' : 'not loaded',
-        detailsOn ? 'Marymoor Park — 3 observers' : 'Turn Details on to check',
-        detailsOn ? 'Different eBird groups across Sep 16–18 · not a convoy'
-          : 'No location-history API calls have been made'],
-      ['historic', '5 · Historical stronghold', 'archive', 'Union Bay Natural Area',
-        'Seen in 7 of 8 recent years · strongest Sep–Oct · historical odds'],
-      ['evidence', '6 · Useful evidence', detailsOn ? 'recent lists' : 'not loaded',
-        detailsOn ? '2 comments · 1 photo · 1 waypoint' : 'Lazy checklist details',
-        detailsOn ? 'Evidence is labeled on the checklist rows below'
-          : 'Turn Details on to lazy load comments, media and waypoints']
+    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy([{
+      speciesCode: 'amepip',
+      comName: 'American Pipit',
+      sciName: 'Anthus rubescens',
+      category: 'species',
+      order: 'Passeriformes',
+      familySciName: 'Motacillidae',
+      familyComName: 'Wagtails and Pipits',
+      taxonOrder: 1
+    }]));
+    var rows = [
+      { speciesCode: 'amepip', comName: 'American Pipit',
+        locId: 'L-REDMOND', locName: 'Redmond Retention Ponds',
+        lat: 47.68, lng: -122.12, obsDt: mockObservationDate(17),
+        howMany: 5, subId: 'S-AMPI-1', userDisplayName: 'Melinda Milner',
+        durationHrs: 0.7, numSpecies: 31, obsValid: true },
+      { speciesCode: 'amepip', comName: 'American Pipit',
+        locId: 'L-REDMOND', locName: 'Redmond Retention Ponds',
+        lat: 47.68, lng: -122.12, obsDt: mockObservationDate(31),
+        howMany: 3, subId: 'S-AMPI-2', userDisplayName: 'Alex Rivera',
+        durationHrs: 1 + 8 / 60, numSpecies: 27, obsValid: true },
+      { speciesCode: 'amepip', comName: 'American Pipit',
+        locId: 'L-SIKES', locName: 'Sikes Lake',
+        lat: 47.70, lng: -121.98, obsDt: mockObservationDate(55),
+        howMany: 6, subId: 'S-AMPI-3', userDisplayName: 'Sam Chen',
+        durationHrs: 2 + 4 / 60, numSpecies: 42, obsValid: true }
     ];
-    var answerHtml = '<h3>Stakeout answers</h3>'
-      + '<div class="hint">American Pipit is on your watchlist. Answers prioritize your '
-      + '<b>40 mi drive range</b>; stronger evidence farther away remains available.</div>'
-      + '<div class="stakeoutanswers">'
-      + answers.map(function (x) {
-        return '<div class="stakeoutanswer" data-answer="' + x[0] + '">'
-          + '<div class="stakeoutanswerhead"><span>' + x[1] + '</span>'
-          + '<span class="stakeoutscope">' + x[2] + '</span></div>'
-          + '<strong>' + x[3] + '</strong><p>' + x[4] + '</p></div>';
-      }).join('') + '</div>';
-
-    var mapHtml = '<div class="stakeoutAmpiMap" role="img" '
-      + 'aria-label="Numbered public hotspot pins and square private-location evidence pins">'
-      + '<span class="stakeoutpin" style="left:17%;top:54%"><span>1</span></span>'
-      + '<span class="stakeoutpin" style="left:42%;top:32%"><span>2</span></span>'
-      + '<span class="stakeoutpin" style="left:70%;top:58%"><span>3</span></span>'
-      + '<span class="stakeoutpin private" style="left:56%;top:72%"><span>P</span></span>'
-      + '</div>';
-
-    var redmondChecks = [
-      CC.small({ num: 1, date: 'Sep 19 9:49 AM', who: 'Melinda Milner',
-        count: 5, icons: '💬 Species comment', href: '#',
-        below: '<div class="hint">“Five feeding along the pond edge.”</div>' }),
-      CC.small({ num: 2, date: 'Sep 18 8:12 AM', who: 'Alex Rivera',
-        count: 3, icons: '📷 Photo', href: '#' }),
-      CC.small({ num: 3, date: 'Sep 17 7:04 AM', who: 'Sam Chen',
-        count: 6, icons: '🎯 Waypoint', href: '#',
-        below: '<div class="hint">Waypoint opens directly in Maps.</div>' })
-    ];
-    var expanded = detailsOn
-      ? '<div class="stakeoutevidencekey"><span>💬 Comment</span><span>📷 Photo</span>'
-        + '<span>🎯 Waypoint</span><span>↗ Open checklist</span></div>'
-        + CC.list('small', redmondChecks, 'stakeoutAmpiChecklists')
-        + '<div class="stakeoutInnerMore"></div>'
-      : '<div class="stakeoutlocationmeta"><b>Details off.</b> No checklist API calls '
-        + 'until the toggle is turned on.</div>';
-    var locationRows = [
-      '<div class="stakeoutlocation">'
-        + HC.list('small', [HC.small({ num: 1,
-          name: 'Redmond Retention Ponds',
-          sub: '<b>Hotspot</b> · 5.7 mi · latest Sep 19 · high count 6',
-          below: '<div class="stakeoutlocationmeta">'
-            + (detailsOn ? '<b>3 repeat independent reports</b> · different observers and eBird groups'
-              : 'Checklist history not loaded')
-            + '</div>'
-        })])
-        + expanded + '</div>',
-      '<div class="stakeoutlocation">'
-        + HC.list('small', [HC.small({ num: 2, name: 'Sikes Lake',
-          sub: '<b>Hotspot</b> · 10.0 mi · 3 birds · Sep 19, 11:28 AM',
-          below: '<div class="stakeoutlocationmeta">1 current AMPI checklist</div>'
-        })]) + '</div>',
-      '<div class="stakeoutlocation">'
-        + HC.list('small', [HC.small({ icon: '■', name: 'Lake Leota',
-          sub: '<b>Private location</b> · 0.8 mi · 1 bird · Sep 6',
-          below: '<div class="stakeoutlocationmeta">Closest evidence, but '
-            + '<b>not a public destination</b>.</div>'
-        })]) + '</div>'
-    ];
-
-    var below = answerHtml + '<h3>Map and locations</h3>'
-      + '<div class="hint">Pins match the visible numbered location cards. '
-      + 'A square <b>P</b> marks private-location evidence without presenting a destination.</div>'
-      + mapHtml + '<div class="status"><b>Showing 10 of 405 locations.</b> '
-      + 'Public hotspots and private locations are labeled in words and by shape.</div>'
-      + '<div class="stakeoutAmpiLocations">' + locationRows.join('') + '</div>'
-      + '<div class="stakeoutOuterMore"></div>';
-
-    host.innerHTML = SC.medium({
-      sci: 'Anthus rubescens',
-      icon: '<span class="mockbirdcode" aria-hidden="true">AMPI</span>',
-      name: 'American Pipit',
+    await fillStakeoutSpecies(A, document, 'American Pipit Stakeout', rows.length, {
       code: 'amepip',
-      alpha: 'AMPI',
-      tags: '<span class="mockstate">ON WATCHLIST</span>',
-      distMi: 5.7,
-      sub: '405 locations · 80 within 40 mi · latest Sep 19',
-      below: below
+      name: 'American Pipit',
+      rows: rows
     });
-
-    if (detailsOn) {
-      W.ProgressiveList.mount({
-        host: host.querySelector('.stakeoutInnerMore'),
-        items: ['Sep 16', 'Sep 15', 'Sep 14', 'Sep 13'],
-        initialCount: 0,
-        batchSize: 3,
-        noun: 'checklists',
-        renderItem: function () { return ''; },
-        moreLabel: function () { return 'Show 3 more checklists at Redmond Retention Ponds'; }
-      });
-    }
-    W.ProgressiveList.mount({
-      host: host.querySelector('.stakeoutOuterMore'),
-      items: Array.from({ length: 395 }, function (_, i) { return i; }),
-      initialCount: 0,
-      batchSize: 10,
-      noun: 'locations',
-      renderItem: function () { return ''; },
-      moreLabel: function () { return 'Show 10 more of 405 locations'; }
-    });
+    A.setSpeciesLookupDetails(!!detailsOn);
+    document.getElementById('spLookupResults').classList.add('stakeoutAmpiMock');
 
     if (A.fgProgressReset) A.fgProgressReset();
     var loadBar = document.getElementById('loadBar');
     if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
-    markHost(host, 'American Pipit Stakeout answers');
+    markHost(document.getElementById('sec-spLookupBtn'),
+      'American Pipit Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
@@ -1846,7 +1722,7 @@ const BOOTSTRAP = `
     }
     fillMapHost(document.getElementById('spLookupMap'),
       'Western Sandpiper recent places');
-    markHost(document.getElementById('spLookupIdHelp'),
+    markHost(document.getElementById('sec-spLookupBtn'),
       'Stakeout bird merged proposal');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
