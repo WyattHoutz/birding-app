@@ -15072,10 +15072,12 @@ test('F402 Stakeout separates date sorting from the chase-distance filter', asyn
   app.window.close();
 });
 
-test('F463 Stakeout mode controls switch Group/List and Details/Notes independently', async () => {
+test('F466 Stakeout modes use approved cards, map order and open checklists', async () => {
+  let sightingReads = 0;
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) {
+        sightingReads += 1;
         return [{
           speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
           locName: 'Marymoor Park', locId: 'L1', lat: 47.7, lng: -122.2,
@@ -15088,8 +15090,40 @@ test('F463 Stakeout mode controls switch Group/List and Details/Notes independen
   installSpuhFixture(app);
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
 
+  const compactCard = app.$('spLookupResults');
+  assert.equal(sightingReads, 1, 'the initial bird lookup fetched sightings more than once');
+  assert.ok(app.$('spLookupMap').compareDocumentPosition(compactCard)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the compact orientation map no longer precedes the selected-bird card');
+  assert.equal(app.window.getComputedStyle(app.$('spLookupMap')).aspectRatio, '16 / 7',
+    'the Stakeout map returned to the oversized shared-map ratio');
+  assert.ok(compactCard.classList.contains('stakeoutSpeciesCard-compact'),
+    'Compact does not use the approved Stakeout title card');
+  assert.ok(compactCard.querySelector(':scope > li .thumb'),
+    'Compact lost the bird photo');
+  assert.equal(app.window.getComputedStyle(
+    compactCard.querySelector(':scope > li .thumb')).width, '64px',
+  'Compact does not use the approved 64px bird-photo width');
   assert.ok(app.document.querySelector('#spLookupRecent .spLookupPlaceList'),
     'Group is not the initial checklist presentation');
+  const checklistPanel = app.document.querySelector(
+    '#spLookupRecent .stakeoutPlaceDetails');
+  const checklistStyle = app.window.getComputedStyle(checklistPanel);
+  assert.equal(checklistStyle.backgroundColor, 'rgba(0, 0, 0, 0)',
+    'Recent Checklists are still enclosed in a coloured bubble');
+  assert.equal(checklistStyle.borderTopStyle, 'none',
+    'Recent Checklists are still enclosed by a bubble border');
+  assert.equal(checklistStyle.paddingTop, '0',
+    'Recent Checklists are still padded like a separate bubble');
+  const checklistRule = [...app.document.styleSheets]
+    .flatMap((sheet) => [...sheet.cssRules])
+    .find((rule) => rule.selectorText === '.stakeoutPlaceDetails');
+  assert.equal(checklistRule.style.getPropertyValue('background'), '',
+    'Recent Checklists still declare a bubble background');
+  assert.equal(checklistRule.style.getPropertyValue('border'), '',
+    'Recent Checklists still declare a bubble border');
+  assert.equal(checklistRule.style.getPropertyValue('padding'), '',
+    'Recent Checklists still declare bubble padding');
   assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'true');
   app.click(app.$('spLookupList'));
   assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'),
@@ -15097,6 +15131,22 @@ test('F463 Stakeout mode controls switch Group/List and Details/Notes independen
   assert.equal(app.$('spLookupList').getAttribute('aria-pressed'), 'true');
 
   app.click(app.$('spLookupDetails'));
+  const detailsCard = app.$('spLookupResults');
+  assert.ok(detailsCard.classList.contains('stakeoutSpeciesCard-details'),
+    'Details does not switch to the shared full-size species card');
+  assert.ok(detailsCard.querySelector(':scope > li > .bcbody .bcname'),
+    'Details is not using the shared large-card structure');
+  assert.ok(detailsCard.querySelector(':scope > li .bchero'),
+    'Details does not show the page-width species hero photo');
+  assert.match(detailsCard.textContent,
+    /Semipalmated Sandpiper.*sem.*not on your year list/s,
+  'Details lost the bird identity or year-list status');
+  assert.ok(detailsCard.querySelector('.spLookupWatchlist'),
+    'Details lost the watchlist action');
+  assert.ok(detailsCard.querySelector('.qrbtn'),
+    'Details lost the QR action');
+  assert.equal(sightingReads, 1,
+    'switching to Details refetched the selected bird sightings');
   assert.equal(app.$('spLookupDetailsContent').hidden, false);
   assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
     'Details does not enable Notes by default');
@@ -15105,7 +15155,13 @@ test('F463 Stakeout mode controls switch Group/List and Details/Notes independen
     'Notes cannot be disabled independently while Details remains on');
   assert.equal(app.$('spLookupDetails').getAttribute('aria-pressed'), 'true');
   app.click(app.$('spLookupCompact'));
+  assert.ok(app.$('spLookupResults').classList.contains('stakeoutSpeciesCard-compact'),
+    'Compact does not restore its title card');
+  assert.equal(app.$('spLookupResults').querySelector('.bchero'), null,
+    'Compact retained the Details hero photo');
   assert.equal(app.$('spLookupDetailsContent').hidden, true);
+  assert.equal(sightingReads, 1,
+    'switching back to Compact refetched the selected bird sightings');
   assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
     'Compact does not default Notes off');
   app.window.close();
@@ -18934,17 +18990,9 @@ test('docs/CARDS.md matches the code it documents', () => {
   //    picked up by a new section stays labelled unused for a year otherwise.
   const src = { SpeciesCards: HTML, HotspotCards: HTML, ChecklistCards: HTML };
   const documentedUnused = [
-    // SpeciesCards.large left this list on 2026-08-18: My year switched to it.
-    // This is exactly the rot the check exists to catch - a template picked up
-    // by a new section and still labelled unused a year later.
     // HotspotCards.marker briefly left it and came back the same day: the
     // Stakeout "By odds" rows DO carry a number, but build() computes the badge
     // from v.num and ignores a `marker` passed in, so calling it was the bug.
-    // ...and it came BACK on 2026-08-20. My year's container carries the
-    // MEDIUM class (`obs big xl`), so a large-shaped <li> inside it rendered as
-    // a photo stranded on its own row above the name — and the reader asked
-    // for the Needs-verification shape, which IS the medium card.
-    ['SpeciesCards', 'large'],
     // HotspotCards.large left this list on 2026-08-22: 🗺 Stake out a hotspot
     // is the app's only "one place, in depth" view, which is precisely the
     // shape the large card was defined for.
@@ -19778,9 +19826,12 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
   const stakeout = HTML.slice(HTML.indexOf('function renderSpeciesLookup()'),
     HTML.indexOf('var SP_ROWS_MAX'));
   assert.equal((stakeout.match(/SpeciesCards\.medium\(/g) || []).length, 1,
-    'Stakeout rebuilt preserved and live evidence as separate species cards');
-  assert.match(stakeout, /out\.innerHTML = SpeciesCards\.medium\(/,
-    'Stakeout does not render exactly one shared medium title card');
+    'Stakeout Compact rebuilt preserved and live evidence as separate species cards');
+  assert.equal((stakeout.match(/SpeciesCards\.large\(/g) || []).length, 1,
+    'Stakeout Details rebuilt preserved and live evidence as separate species cards');
+  assert.match(stakeout,
+    /out\.innerHTML = detailsOn[\s\S]*\? SpeciesCards\.large\([\s\S]*: SpeciesCards\.medium\(/,
+    'Stakeout does not choose exactly one shared card family for the active mode');
   assert.match(stakeout,
     /recent\.innerHTML = placesHtml[\s\S]*evidenceHost\.innerHTML = stakeoutEvidenceHtml\(evidence\)/,
     'preserved evidence and recent checklists are not owned by the same Stakeout renderer');
@@ -26425,12 +26476,12 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
   app.window.close();
 });
 
-test('F463 Stakeout controls precede the map and Iconic is Details content', () => {
+test('F466 Stakeout map precedes controls and Iconic is Details content', () => {
   const map = HTML.indexOf('id="spLookupMap"');
   const row = HTML.indexOf('id="spLookupSortRow"');
   assert.ok(map > 0 && row > 0, 'the stakeout map or sort row is missing');
-  assert.ok(row < map,
-    'the compact control strip does not precede the map');
+  assert.ok(map < row,
+    'the compact map does not precede the control strip');
 
   assert.doesNotMatch(HTML, /id="spLookupByIconic"/,
     'Iconic survived as a sort mode instead of the final Details section');

@@ -48,12 +48,12 @@ test('release mockups include exactly one section shot per visible menu entry', 
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['stakeoutreachable-f389', 'stakeoutdistance-f389',
-      'stakeoutchecklists-progressive', 'stakeoutampi-answers',
-      'stakeoutampi-details',
+      'stakeoutchecklists-progressive', 'stakeoutspts-compact',
+      'stakeoutspts-details',
       'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
-      'birdspdetail', 'spuhdetail', 'spuhinfo', 'stakeoutdetail',
+      'birdspdetail', 'spuhdetail', 'spuhinfo',
       'stakeoutreports', 'megaaba', 'meganearest'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
@@ -61,15 +61,34 @@ test('release mockups include exactly one section shot per visible menu entry', 
   'the approved medium-card peep result is still capped by the superseded layout');
 });
 
-test('F463 AMPI review mockups exercise Compact and Details modes', () => {
-  const shot = mockups.REVIEW_SHOTS.find((item) => item.id === 'stakeoutampi-answers');
-  assert.ok(shot, 'the AMPI Stakeout review image is registered');
-  assert.match(source,
-    /'American Pipit Stakeout ' \+ \(detailsOn \? 'Details' : 'Compact'\)/);
-  assert.match(source, /durationHrs: 0\.7/);
-  assert.match(source, /durationHrs: 1 \+ 8 \/ 60/);
-  assert.match(source, /stakeoutampi-details/);
-  assert.match(source, /A\.setSpeciesLookupDetails\(!!detailsOn\)/);
+test('F466 release mockups require production-rendered SPTS Compact and Details', () => {
+  const compact = mockups.SECTION_SHOTS.find((item) => item.at === 'spLookupBtn');
+  const details = mockups.EXTRA_SHOTS.find((item) => item.id === 'stakeoutdetail');
+  assert.ok(compact && details, 'both mandatory Stakeout release states are registered');
+  assert.ok(compact.expects.includes(
+    '#spLookupResults.stakeoutSpeciesCard-compact > li'));
+  assert.ok(details.expects.includes(
+    '#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details'));
+  assert.ok(details.expects.includes('#spLookupResults .bchero'));
+  assert.equal(details.fullPage, true,
+    'Details must capture its complete evidence and Iconic-hotspot page');
+  assert.equal(details.freshApp, true,
+    'Details must not inherit Compact lookup state in the release gallery');
+  assert.match(source, /Sharp-tailed Sandpiper Stakeout/);
+  assert.match(source, /userDisplayName: 'Kellie Sagen'/);
+  assert.match(source, /durationHrs: 1 \+ 14 \/ 60/);
+  assert.match(source, /observationComments:/);
+  assert.match(source, /prepareStakeoutSpts\(A, document, sec, true\)/);
+  const mockStyle = source.slice(
+    source.indexOf('function ensureMockStyle'),
+    source.indexOf('function mockPhoto'));
+  assert.doesNotMatch(mockStyle, /stakeoutSpeciesCard|bchero|stakeoutPlaceDetails/,
+    'release fixtures must not restyle the production species/checklist cards');
+  assert.match(postWorkflow, /for WIDTH in 393 402/,
+    'post-release must capture both required Stakeout widths');
+  assert.match(indexSource,
+    /#spLookupResults\.stakeoutSpeciesCard-compact > li > \.name > \.thumb \{[\s\S]*width: 64px/);
+  assert.match(indexSource, /#spLookupMap \{ aspect-ratio: 16 \/ 7; \}/);
 });
 
 test('every menu section declares representative fixture data or an intentional static surface', () => {
@@ -493,10 +512,13 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the release capture is not anchored to the full Stakeout page');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
     '#spLookupQueryHelp:empty',
-    '#spLookupResults > li',
+    '#spLookupResults.stakeoutSpeciesCard-compact > li',
+    '#spLookupResults .thumb',
     '#spLookupSortRow:not([hidden])',
     '#spLookupMap .mockmap',
     '#spLookupRecent .spLookupPlaceList > .hscard-sm',
+    '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm',
+    '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
     '#spLookupIdHelp .spuhpathsentence',
     '#spLookupIdHelp .spuhpathchip[data-spuh]',
     '#spLookupIdHelp .spuhtaxnav',

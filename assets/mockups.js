@@ -107,10 +107,13 @@ const STUB_SPEC = {
   spLookupBtn:    { kind: 'stakeout-merged', host: 'sec-spLookupBtn',
     preserveHost: true, map: 'spLookupMap',
     expects: ['#spLookupQueryHelp:empty',
-      '#spLookupResults > li',
+      '#spLookupResults.stakeoutSpeciesCard-compact > li',
+      '#spLookupResults .thumb',
       '#spLookupSortRow:not([hidden])',
       '#spLookupMap .mockmap',
       '#spLookupRecent .spLookupPlaceList > .hscard-sm',
+      '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm',
+      '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
       '#spLookupIdHelp .spuhpathsentence',
       '#spLookupIdHelp .spuhpathchip[data-spuh]',
       '#spLookupIdHelp .spuhtaxnav',
@@ -193,6 +196,23 @@ const EXTRA_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareCompare(A, document, sec);` },
+  { id: 'stakeoutdetail', at: 'spLookupBtn',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper Details',
+    host: 'sec-spLookupBtn', fullPage: true, freshApp: true,
+    expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
+      '#spLookupResults .bcbody .bcname',
+      '#spLookupResults .bchero',
+      '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
+      '#spLookupEvidenceDetails .bcstats',
+      '#spLookupEvidenceDetails .spreferences',
+      '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm',
+      '#spLookupUnwatched .hscard-sm',
+      '#spLookupDetailsContent:not([hidden])'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareStakeoutSpts(A, document, sec, true);` },
 ];
 
 // Review-only states do not increase the mandatory 34-shot release contract.
@@ -225,22 +245,25 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutChecklistProgressive(A, document, sec);` },
-  { id: 'stakeoutampi-answers', at: 'spLookupBtn',
-    title: 'Stakeout bird — American Pipit Compact',
+  { id: 'stakeoutspts-compact', at: 'spLookupBtn',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper Compact',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
-    expects: ['#spLookupResults.stakeoutAmpiMock',
+    expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-compact',
       '#spLookupRecent .spLookupPlaceList .hscard-sm',
+      '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
       '#spLookupDetails[aria-pressed="false"]',
       '#spLookupNotes[aria-pressed="false"]',
       '#spLookupDetailsContent[hidden]'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
-           return FIX.prepareStakeoutAmpiAnswers(A, document, sec, false);` },
-  { id: 'stakeoutampi-details', at: 'spLookupBtn',
-    title: 'Stakeout bird — American Pipit Details',
+           return FIX.prepareStakeoutSpts(A, document, sec, false);` },
+  { id: 'stakeoutspts-details', at: 'spLookupBtn',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper Details',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
-    expects: ['#spLookupResults.stakeoutAmpiMock',
+    expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
+      '#spLookupResults .bcbody .bcname',
+      '#spLookupResults .bchero',
       '#spLookupDetails[aria-pressed="true"]',
       '#spLookupNotes[aria-pressed="true"]',
       '#spLookupDetailsContent:not([hidden])',
@@ -249,7 +272,7 @@ const REVIEW_SHOTS = [
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
-           return FIX.prepareStakeoutAmpiAnswers(A, document, sec, true);` },
+           return FIX.prepareStakeoutSpts(A, document, sec, true);` },
   { id: 'onboardingregion', menuState: true,
     title: 'First run — choose or find a region',
     prep: `localStorage.removeItem('ebird_display_name');
@@ -535,14 +558,6 @@ const REVIEW_SHOTS = [
            sec.dataset.mockAt = 'spLookupBtn';
            sec.dataset.mockReady = 'true';
            return true;` },
-  { id: 'stakeoutdetail', at: 'spLookupBtn',
-    title: 'Stakeout bird — Detailed view',
-    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
-    prep: `FIX.before('spLookupBtn', A, document);
-           var anchor = document.getElementById('spLookupBtn');
-           var sec = anchor.closest('section');
-           A.showSection(sec.id);
-           return FIX.prepareStakeoutAmpiAnswers(A, document, sec, true);` },
   { id: 'stakeoutreports', at: 'spLookupBtn',
     title: 'Stakeout bird — lazy-expanded recent hotspots',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
@@ -724,6 +739,7 @@ const BOOTSTRAP = `
       + 'display:grid;place-items:center;text-align:center;font-weight:800;margin:8px 0}'
       + '.mockstate{display:inline-block;border:2px dashed var(--warn);border-radius:6px;'
       + 'padding:2px 6px;font-size:calc(11px * var(--s));font-weight:800;margin-left:5px}';
+    style.textContent += '#spLookupMap .mockmap{height:100%;margin:0;box-sizing:border-box}';
     document.head.appendChild(style);
   }
   function mockPhoto(code) {
@@ -945,6 +961,59 @@ const BOOTSTRAP = `
           text: function () { return Promise.resolve(JSON.stringify(rows)); }
         });
       }
+      var checklistMatch = /\\/product\\/checklist\\/view\\/([^/?]+)/.exec(String(url));
+      if (checklistMatch && options.rows) {
+        var checklist = options.rows.find(function (row) {
+          return row.subId === checklistMatch[1];
+        }) || {};
+        var detail = {
+          userDisplayName: checklist.userDisplayName || '',
+          obsDt: checklist.obsDt || '',
+          durationHrs: checklist.durationHrs,
+          numSpecies: checklist.numSpecies,
+          comments: checklist.checklistComments || '',
+          obs: [{
+            speciesCode: code,
+            comments: checklist.observationComments || ''
+          }]
+        };
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: function () { return Promise.resolve(detail); },
+          text: function () { return Promise.resolve(JSON.stringify(detail)); }
+        });
+      }
+      if (options.iconic && /api\\.gbif\\.org\\/v1\\/species\\/match/.test(String(url))) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: function () { return Promise.resolve({ usageKey: 2481763 }); },
+          text: function () { return Promise.resolve('{"usageKey":2481763}'); }
+        });
+      }
+      if (options.iconic && /api\\.gbif\\.org\\/v1\\/occurrence\\/search/.test(String(url))) {
+        var speciesScope = /taxonKey=2481763/.test(String(url));
+        var localityFacet = /facet=locality/.test(String(url));
+        var gbif = localityFacet ? {
+          count: speciesScope ? 301 : 92500,
+          facets: [{
+            field: 'LOCALITY',
+            counts: speciesScope ? [
+              { name: 'Crockett Lake', count: 244 },
+              { name: 'Deer Lagoon', count: 136 },
+              { name: 'Skagit WMA--Wiley Slough', count: 91 }
+            ] : [
+              { name: 'Crockett Lake', count: 980 },
+              { name: 'Deer Lagoon', count: 860 },
+              { name: 'Skagit WMA--Wiley Slough', count: 720 }
+            ]
+          }]
+        } : { count: speciesScope ? 301 : 92500 };
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: function () { return Promise.resolve(gbif); },
+          text: function () { return Promise.resolve(JSON.stringify(gbif)); }
+        });
+      }
       return Promise.resolve({
         ok: true, status: 200,
         json: function () { return Promise.resolve({}); },
@@ -952,9 +1021,29 @@ const BOOTSTRAP = `
       });
     };
     try {
+      if (options.primeChecklistDetails && options.rows) {
+        await Promise.all(options.rows.map(function (row) {
+          return A.checklistView(row.subId, false);
+        }));
+      }
       await A.lookupSpecies(code, name, null, null, null,
         options.finderContext || null);
+      if (options.detailsOn) A.setSpeciesLookupDetails(true);
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
+      if (options.detailsOn && options.rows
+          && options.rows.some(function (row) { return row.hasComments; })) {
+        await new Promise(function (resolve) { setTimeout(resolve, 300); });
+        var pendingNotes = Array.from(document.querySelectorAll(
+          '#spLookupRecent .evnoteloading')).map(function (node) {
+            var row = node.closest('[data-ev-sub]');
+            var sub = row && row.getAttribute('data-ev-sub');
+            return sub + ':' + !!localStorage.getItem('bc_ckl2:' + sub);
+          });
+        if (pendingNotes.length) {
+          throw new Error('Stakeout checklist comments pending '
+            + pendingNotes.join(','));
+        }
+      }
     } finally {
       W.fetch = previousFetch;
     }
@@ -1207,8 +1296,9 @@ const BOOTSTRAP = `
   function wait(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
-  async function waitFor(find, label) {
-    for (var i = 0; i < 50; i++) {
+  async function waitFor(find, label, attempts) {
+    attempts = attempts || 50;
+    for (var i = 0; i < attempts; i++) {
       var found = find();
       if (found) return found;
       await wait(20);
@@ -1406,7 +1496,7 @@ const BOOTSTRAP = `
     } else if (spec.kind === 'mega-index') {
       fillMegaIndex(A, document, label);
     } else if (spec.kind === 'stakeout-merged') {
-      await prepareBirdFinderMerged(A, document, sec);
+      await prepareStakeoutSpts(A, document, sec, false);
     } else if (spec.kind === 'migration') {
       localStorage.setItem(A.firstYearKey('US-WA', 2026), JSON.stringify({
         day: A.todayStr(), region: 'US-WA', year: 2026, declared: 2,
@@ -1652,53 +1742,175 @@ const BOOTSTRAP = `
     sec.dataset.mockReady = 'true';
     return true;
   }
-  async function prepareStakeoutAmpiAnswers(A, document, sec, detailsOn) {
+  async function prepareStakeoutSpts(A, document, sec, detailsOn) {
     ensureMockStyle(document);
-    fixtureStatus(sec, 'American Pipit Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
+    fixtureStatus(sec, 'Sharp-tailed Sandpiper Stakeout '
+      + (detailsOn ? 'Details' : 'Compact'));
     A.setActiveReport('wa');
     localStorage.setItem(A.homeKey('lat'), '47.76');
     localStorage.setItem(A.homeKey('lng'), '-122.14');
     localStorage.setItem(A.homeKey('place'), 'Woodinville, WA');
-    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy([{
-      speciesCode: 'amepip',
-      comName: 'American Pipit',
-      sciName: 'Anthus rubescens',
-      category: 'species',
-      order: 'Passeriformes',
-      familySciName: 'Motacillidae',
-      familyComName: 'Wagtails and Pipits',
-      taxonOrder: 1
-    }]));
+    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy([
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        sciName: 'Calidris acuminata', category: 'species',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1 },
+      { speciesCode: 'wessan', comName: 'Western Sandpiper',
+        sciName: 'Calidris mauri', category: 'species',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 2 },
+      { speciesCode: 'semsan', comName: 'Semipalmated Sandpiper',
+        sciName: 'Calidris pusilla', category: 'species',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 3 },
+      { speciesCode: 'bird1', comName: 'bird sp.', sciName: 'Aves sp.',
+        category: 'spuh', order: '', familySciName: '',
+        familyComName: '', taxonOrder: 1000 },
+      { speciesCode: 'shoreb1', comName: 'shorebird sp.',
+        sciName: 'Charadriiformes sp. (shorebird sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: '',
+        familyComName: '', taxonOrder: 1002 },
+      { speciesCode: 'largesh', comName: 'large shorebird sp.',
+        sciName: 'Charadriiformes sp. (large shorebird sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: '',
+        familyComName: '', taxonOrder: 1002.5 },
+      { speciesCode: 'scolop2', comName: 'Scolopacidae sp.',
+        sciName: 'Scolopacidae sp.', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1003 },
+      { speciesCode: 'calsp', comName: 'Calidris sp.',
+        sciName: 'Calidris sp.', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1004 },
+      { speciesCode: 'calidr', comName: 'peep sp.',
+        sciName: 'Calidris sp. (peep sp.)', category: 'spuh',
+        order: 'Charadriiformes', familySciName: 'Scolopacidae',
+        familyComName: 'Sandpipers and Allies', taxonOrder: 1005 }
+    ]));
+    var mega = megaFixture(
+      'shtsan', 'Sharp-tailed Sandpiper', 'Calidris acuminata');
+    seedMegaFixture(A, mega);
+    localStorage.removeItem(A.ABA_ARCHIVE_KEY);
+    localStorage.setItem('ebird_photos_v2', JSON.stringify({
+      'Sharp-tailed Sandpiper': 'assets/birds/shtsan.jpg'
+    }));
+    localStorage.setItem('ebird_hotspots_v2:US-WA', JSON.stringify({
+      at: Date.now(),
+      rows: [
+        { locId: 'L109065', locName: 'Crockett Lake',
+          lat: 48.2022, lng: -122.6990 },
+        { locId: 'L128530', locName: 'Deer Lagoon',
+          lat: 48.1046, lng: -122.5751 },
+        { locId: 'L260929', locName: 'Skagit WMA--Wiley Slough',
+          lat: 48.3518, lng: -122.4316 }
+      ]
+    }));
     var rows = [
-      { speciesCode: 'amepip', comName: 'American Pipit',
-        locId: 'L-REDMOND', locName: 'Redmond Retention Ponds',
-        lat: 47.68, lng: -122.12, obsDt: mockObservationDate(17),
-        howMany: 5, subId: 'S-AMPI-1', userDisplayName: 'Melinda Milner',
-        durationHrs: 0.7, numSpecies: 31, obsValid: true },
-      { speciesCode: 'amepip', comName: 'American Pipit',
-        locId: 'L-REDMOND', locName: 'Redmond Retention Ponds',
-        lat: 47.68, lng: -122.12, obsDt: mockObservationDate(31),
-        howMany: 3, subId: 'S-AMPI-2', userDisplayName: 'Alex Rivera',
-        durationHrs: 1 + 8 / 60, numSpecies: 27, obsValid: true },
-      { speciesCode: 'amepip', comName: 'American Pipit',
-        locId: 'L-SIKES', locName: 'Sikes Lake',
-        lat: 47.70, lng: -121.98, obsDt: mockObservationDate(55),
-        howMany: 6, subId: 'S-AMPI-3', userDisplayName: 'Sam Chen',
-        durationHrs: 2 + 4 / 60, numSpecies: 42, obsValid: true }
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        sciName: 'Calidris acuminata',
+        locId: 'L-EIDE', locName: 'League Island--Eide Rd.',
+        lat: 48.12, lng: -122.51, obsDt: mockObservationDate(9),
+        howMany: 1, subId: 'S-SPTS-1', userDisplayName: 'Kellie Sagen',
+        durationHrs: 1 + 14 / 60, numSpecies: 38, obsValid: true,
+        evidence: 'P', hasComments: true,
+        observationComments: 'Continuing in the short grass beside the flooded field.',
+        checklistComments: 'Scope views from the roadside pullout; please stay off the dike.' },
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        sciName: 'Calidris acuminata',
+        locId: 'L-EIDE', locName: 'League Island--Eide Rd.',
+        lat: 48.12, lng: -122.51, obsDt: mockObservationDate(27),
+        howMany: 1, subId: 'S-SPTS-2', userDisplayName: 'Second Observer',
+        durationHrs: 2 + 6 / 60, numSpecies: 44, obsValid: true,
+        hasComments: true,
+        observationComments: 'With Pectoral Sandpipers near the west edge of the flock.' },
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        sciName: 'Calidris acuminata',
+        locId: 'L-DAVIS', locName: 'League Island--Davis Slough Access',
+        lat: 48.10, lng: -122.49, obsDt: mockObservationDate(35),
+        howMany: 2, subId: 'S-SPTS-3', userDisplayName: 'Recent Observer',
+        durationHrs: 0.9, numSpecies: 31, obsValid: true,
+        evidence: 'V' },
+      { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+        sciName: 'Calidris acuminata',
+        locId: 'L-FOSTER', locName: 'Foster Island & Marsh Island',
+        lat: 47.65, lng: -122.30, obsDt: mockObservationDate(58),
+        howMany: 1, subId: 'S-SPTS-4', userDisplayName: 'Historical Observer',
+        durationHrs: 2.5, numSpecies: 52, obsValid: true }
     ];
-    await fillStakeoutSpecies(A, document, 'American Pipit Stakeout', rows.length, {
-      code: 'amepip',
-      name: 'American Pipit',
-      rows: rows
+    localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: mega.sid, rows: rows
+    }));
+    var cacheDay = new Date().toISOString().slice(0, 10);
+    rows.forEach(function (row) {
+      localStorage.setItem('bc_ckl2:' + row.subId, JSON.stringify({
+        d: cacheDay,
+        o: String(row.obsDt || '').slice(0, 10),
+        m: !!row.evidence,
+        v: {
+          userDisplayName: row.userDisplayName || '',
+          obsDt: row.obsDt || '',
+          durationHrs: row.durationHrs,
+          groupId: '',
+          comments: row.checklistComments || '',
+          obs: [{
+            speciesCode: 'shtsan',
+            comments: row.observationComments || ''
+          }]
+        }
+      }));
     });
-    A.setSpeciesLookupDetails(!!detailsOn);
-    document.getElementById('spLookupResults').classList.add('stakeoutAmpiMock');
+    await fillStakeoutSpecies(A, document, 'Sharp-tailed Sandpiper Stakeout',
+      rows.length, {
+        code: 'shtsan',
+        name: 'Sharp-tailed Sandpiper',
+        rows: rows,
+        detailsOn: !!detailsOn,
+        primeChecklistDetails: true,
+        iconic: true
+      });
+    var results = document.getElementById('spLookupResults');
+    results.classList.add('stakeoutSptsMock');
+    fillMapHost(document.getElementById('spLookupMap'),
+      'Sharp-tailed Sandpiper recent places');
+    var placeRule = Array.from(document.styleSheets).reduce(function (found, sheet) {
+      if (found) return found;
+      return Array.from(sheet.cssRules || []).find(function (rule) {
+        return rule.selectorText === '.stakeoutPlaceDetails';
+      }) || null;
+    }, null);
+    if (!placeRule || placeRule.style.background || placeRule.style.border
+        || placeRule.style.padding) {
+      throw new Error('Stakeout checklist rows returned to a visual bubble');
+    }
+    if (detailsOn) {
+      await waitFor(function () {
+        return document.querySelector('#spLookupUnwatched .hscard-sm');
+      }, 'Stakeout Iconic hotspots', 250);
+      var hero = results.querySelector('.bchero');
+      if (hero) {
+        hero.textContent = '';
+        var heroPhoto = document.createElement('img');
+        heroPhoto.className = 'birdpic';
+        heroPhoto.alt = 'Sharp-tailed Sandpiper';
+        heroPhoto.src = 'assets/birds/shtsan.jpg';
+        hero.appendChild(heroPhoto);
+      }
+      if (!results.querySelector(':scope > li > .bcbody .bcname') || !hero) {
+        throw new Error('Stakeout Details is not the production large species card');
+      }
+    } else {
+      var thumb = results.querySelector(':scope > li .thumb');
+      if (!thumb || getComputedStyle(thumb).width !== '64px'
+          || results.querySelector('.bchero')) {
+        throw new Error('Stakeout Compact photo drifted from the approved 64px card');
+      }
+    }
 
     if (A.fgProgressReset) A.fgProgressReset();
     var loadBar = document.getElementById('loadBar');
     if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
     markHost(document.getElementById('sec-spLookupBtn'),
-      'American Pipit Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
+      'Sharp-tailed Sandpiper Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
@@ -1975,7 +2187,7 @@ const BOOTSTRAP = `
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,
-    prepareStakeoutAmpiAnswers: prepareStakeoutAmpiAnswers,
+    prepareStakeoutSpts: prepareStakeoutSpts,
     prepareF389Stakeout: prepareF389Stakeout,
     prepareBirdFinderMerged: prepareBirdFinderMerged,
     prepareBirdSp: prepareBirdSp,
@@ -2321,11 +2533,26 @@ async function main() {
         continue;
       }
     }
+    if (shot.fullPage) {
+      await c.send('Runtime.evaluate', {
+        expression: `(function () {
+          var f = document.getElementById('f');
+          var d = f && f.contentDocument;
+          if (!d) return 0;
+          var h = Math.max(600, d.documentElement.scrollHeight);
+          f.style.height = h + 'px';
+          window.scrollTo(0, 0);
+          return h;
+        })()`,
+        returnByValue: true
+      }, sessionId);
+    }
     // Measure the real painted height inside the frame so a short surface is
     // not padded with a screenful of background.
     const hr = await c.send('Runtime.evaluate', {
       expression: `(function () { var d = document.getElementById('f').contentDocument;
-        return Math.min(${HEIGHT}, Math.max(600, d.documentElement.scrollHeight)); })()`,
+        return ${shot.fullPage ? 'Math.max(600, d.documentElement.scrollHeight)'
+          : `Math.min(${HEIGHT}, Math.max(600, d.documentElement.scrollHeight))`}; })()`,
       returnByValue: true }, sessionId);
     const h = Number(hr.result.value) || HEIGHT;
     const png = await c.send('Page.captureScreenshot', {

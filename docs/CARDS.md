@@ -48,11 +48,11 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `small` | `surgeAlertCard` | 🔔 Bird Gen — compact bird, alpha/eBird identifier line, linked facts and reason |
 | `medium` | `refresh` | 🌅 Today's rarity reports |
 | `medium` | `renderMegaIndex` | 🦅 Mega rarities — one species-index row; photo, name, chevron and unclaimed row space route by exact eBird code |
-| `medium` | `renderSpeciesLookup` | 🔎 Stakeout bird — exactly one species card; a Mega launch prepends its complete rarity evidence inside this same card before the ordinary place list |
+| `medium` | `renderSpeciesLookup` | 🔎 Stakeout bird Compact — exactly one scannable species card with its 64×76 photo, nearest distance and actions |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Leader Board Ticks |
 | `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
-| `large` | — | **unused** — went to 📅 My year on 2026-08-18 and came back on 2026-08-20. The section's container is `obs big xl`, the MEDIUM class, so a large-shaped `<li>` inside it rendered as a photo stranded on its own row above the name: *"this is not rendering right"*. The reader then asked for the Needs-verification shape, which is the medium card — a big square photo left, name and facts right |
+| `large` | `renderSpeciesLookup` | 🔎 Stakeout bird Details — one bird in depth, with a page-width hero photo before its checklists, evidence, references and Iconic hotspots |
 
 ### HotspotCards — a row is a place
 
@@ -77,13 +77,15 @@ Sizes are a **rank of attention**, not a rank of importance:
 
 ## The unused ones
 
-`HotspotCards.marker` and `SpeciesCards.large` are defined, styled and tested
-but called from nowhere in `index.html`.
+`HotspotCards.marker` is defined, styled and tested but called from nowhere in
+`index.html`.
 
-> Was "the unused four", then two, and now one and a half. `SpeciesCards.large`
+> Was "the unused four", then two, and now one. `SpeciesCards.large`
 > went to 📅 My year on 2026-08-18 and returned on 2026-08-20, because that
 > section's container carries the MEDIUM class and the reader wanted the
-> Needs-verification shape anyway. `HotspotCards.small` went to the Stakeout
+> Needs-verification shape anyway. It became the Stakeout bird Details card on
+> 2026-09-04, where the section really is one bird in depth.
+> `HotspotCards.small` went to the Stakeout
 > *By odds* view, and **`HotspotCards.large` went to Stake out a hotspot on
 > 2026-08-22** — which is the argument below playing out as intended: the
 > shape was there when a section needed it, so nobody invented a fourth.
@@ -95,7 +97,7 @@ but called from nowhere in `index.html`.
 > `build()` computes the badge from `num`/`icon` and **ignores a `marker`
 > passed in**, so calling it produced rows with no number at all. Pass `num`.
 
-They are **kept deliberately**, not left by accident:
+It is **kept deliberately**, not left by accident:
 
 * They keep the families symmetrical. A family offering only the sizes
   currently in use invites the next section to invent a fourth shape rather

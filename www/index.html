@@ -1192,6 +1192,7 @@
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
     #destMap, #excMap, #fullDayMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap, #stakeHsMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #spLookupMap { aspect-ratio: 16 / 7; }
     #spLookupMap:empty, #stakeHsMap:empty, #destMap:empty, #excMap:empty, #fullDayMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
@@ -1409,9 +1410,7 @@
     .megaorigin .stakeflag { margin: 0; white-space: nowrap; }
     .megahistory:empty, .megawiki:empty { display: none; }
     .megareports { margin-bottom: 12px; }
-    .stakeoutPlaceDetails { margin: 8px 0 2px 44px; padding: 8px 10px;
-                            border: 1px solid var(--line); border-radius: 10px;
-                            background: var(--note-bg); }
+    .stakeoutPlaceDetails { margin: 8px 0 2px 44px; }
     .stakeoutPlaceChecklists { margin: 0; }
     .stakeoutPlaceHistory { margin-top: 8px; }
     .stakeoutHistoryStatus { font-size: calc(12px * var(--s)); color: var(--muted);
@@ -1421,6 +1420,23 @@
     @media (max-width: 360px) {
       .stakeoutPlaceDetails { margin-left: 0; }
     }
+    #spLookupResults.stakeoutSpeciesCard-compact > li > .name > .thumb {
+      width: 64px;
+      height: 76px;
+      flex-basis: 64px;
+      border-radius: 10px;
+    }
+    #spLookupResults.stakeoutSpeciesCard-compact > li > .name > .spprimary {
+      grid-column: 2 / 4;
+      grid-row: 2;
+      align-self: start;
+      justify-self: end;
+      padding: 12px 0 0;
+    }
+    #spLookupResults.stakeoutSpeciesCard-compact > li > .meta { grid-row: 3; }
+    .stakeoutSpeciesActions { display: flex; flex-wrap: wrap; gap: 8px;
+                              margin-top: 12px; }
+    .stakeoutSpeciesActions button { min-height: 44px; }
     .spLookupControlBar { display: flex; flex-wrap: wrap; align-items: center;
                           gap: 8px; margin: 10px 0; }
     .spLookupControlBar .sortpick { flex: 0 0 auto; margin: 0; }
@@ -2734,7 +2750,7 @@
       <div class="row"><button id="spuhMore" class="secondary" type="button" hidden>Show more matches</button></div>
       <div id="spLookupStatus" class="status">Search for any bird or spuh. Birds open recent places and checklists; spuhs open their bird hierarchy and candidates on this same screen.</div>
       <div id="spLookupQueryHelp"></div>
-      <ul id="spLookupResults" class="obs card-md"></ul>
+      <div id="spLookupMap"></div>
       <div class="spLookupControlBar" id="spLookupSortRow" hidden>
         <span class="sortpick">
           <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by date, newest first">🗓 Date</button>
@@ -2761,7 +2777,7 @@
                   aria-pressed="true">Group</button>
         </span>
       </div>
-      <div id="spLookupMap"></div>
+      <ul id="spLookupResults" class="obs card-md"></ul>
       <div id="spLookupRecent" class="spLookupRecent"></div>
       <div id="spLookupDetailsContent" class="spLookupDetailsContent" hidden>
         <div id="spLookupDetailMain"></div>
@@ -3628,7 +3644,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.122.1';
+      var APP_VERSION = '1.123.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12203,21 +12219,42 @@
           : (_spLookupGrouped
             ? spLookupPlacesHtml(g.places, g)
             : spLookupFlatChecklistsHtml(g.places, g));
-        out.innerHTML = SpeciesCards.medium({
-          sci: sciFor((evidence && evidence.sci) || (g && g.code)),
-          icon: photoSlot(g.name, g.code),
-          name: speciesLink(g.name, g.code),
-          code: g.code,
-          alpha: alphaFor(g.code),
-          primary: watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
-          metaAction: qrButton('species', g.code),
-          tags: surgeBirdTag({ kind: evidence && evidence.rarityKind })
-            + (seenIt ? '✅' : needTag(g.code, g.name))
-            + (g.anyUnconfirmed && !watched ? ' ⚠️' : ''),
-          sub: watched ? 'on your watchlist for verification'
-            : (seenIt ? 'already on your year list' : 'not on your year list'),
-          below: ''
-        });
+        var identityTags = surgeBirdTag({ kind: evidence && evidence.rarityKind })
+          + (seenIt ? '✅' : needTag(g.code, g.name))
+          + (g.anyUnconfirmed && !watched ? ' ⚠️' : '');
+        var yearStatus = watched ? 'on your watchlist for verification'
+          : (seenIt ? 'already on your year list' : 'not on your year list');
+        out.className = detailsOn
+          ? 'cards card-lg stakeoutSpeciesCard stakeoutSpeciesCard-details'
+          : 'obs card-md stakeoutSpeciesCard stakeoutSpeciesCard-compact';
+        out.innerHTML = detailsOn
+          ? SpeciesCards.large({
+            sci: sciFor((evidence && evidence.sci) || (g && g.code)),
+            icon: heroSlot(g.name, g.code),
+            name: speciesLink(g.name, g.code),
+            code: g.code,
+            alpha: alphaFor(g.code),
+            distMi: g.distMi,
+            tags: identityTags,
+            sub: yearStatus,
+            below: '<div class="stakeoutSpeciesActions">'
+              + qrButton('species', g.code)
+              + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist')
+              + '</div>'
+          })
+          : SpeciesCards.medium({
+            sci: sciFor((evidence && evidence.sci) || (g && g.code)),
+            icon: photoSlot(g.name, g.code),
+            name: speciesLink(g.name, g.code),
+            code: g.code,
+            alpha: alphaFor(g.code),
+            distMi: g.distMi,
+            primary: watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
+            metaAction: qrButton('species', g.code),
+            tags: identityTags,
+            sub: yearStatus,
+            below: ''
+          });
         var recent = $('spLookupRecent');
         if (recent) {
           recent.innerHTML = placesHtml
