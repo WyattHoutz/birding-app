@@ -20,6 +20,15 @@ test('the release bundle contract requires the current progressive action label'
     'the shipped bundle still requires the removed Show-more label');
 });
 
+test('the release bundle contract requires the current Stakeout chase label', () => {
+  const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  const markers = contract.requiredText['index.html'] || [];
+  assert.ok(markers.includes('Show places within the chase distance'),
+    'the shipped bundle is not required to contain the current chase control');
+  assert.ok(!markers.includes('Filter places to within the chase distance'),
+    'the shipped bundle still requires the removed chase control label');
+});
+
 test('F340 the extracted release bundle contract fails closed on exact mutations', () => {
   assert.ok(fs.existsSync(bundleVerifierPath),
     'the release bundle verifier is missing');
