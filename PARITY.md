@@ -34,6 +34,12 @@ The asymmetry is the point. A section that exists only in the Markdown is a
 section the owner will not see, because the phone is where the birding actually
 gets planned. A section that exists only in the app is simply ahead.
 
+**Report headings represented inside a combined app surface**
+
+| report section | app treatment |
+|---|---|
+| ➖ Twitches this week — Rarities this week | F452 combines this weekly bird/place view with the checklist-by-checklist today view under one **Twitches — Rare Bird Alerts (RBAs)** menu item. The content is present through **Grouped** mode; only the second menu tile was removed. |
+
 **App-only sections today**
 
 | section | why it cannot be a report section |

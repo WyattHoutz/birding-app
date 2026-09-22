@@ -8,6 +8,13 @@
     return [base, extra || ''].join(' ').trim().replace(/\s+/g, ' ');
   }
 
+  function moreLabel(next, remaining) {
+    next = Math.min(10, Math.max(1, Number(next) || 10), remaining);
+    return remaining <= next
+      ? 'Load ' + remaining + ' more'
+      : 'Load ' + next + ' more of ' + remaining;
+  }
+
   function mount(spec) {
     spec = spec || {};
     var host = spec.host;
@@ -19,11 +26,12 @@
     }
     var doc = host.ownerDocument;
     var items = Array.isArray(spec.items) ? spec.items.slice() : [];
-    var batchSize = Math.max(1, Number(spec.batchSize) || 25);
+    var requestedBatchSize = Math.max(1, Number(spec.batchSize) || 25);
+    var batchSize = Math.min(10, requestedBatchSize);
     var noun = String(spec.noun || 'items');
     var id = spec.id || ('progressive-list-' + nextId++);
     var shown = 0;
-    var initialCount = Math.max(0, Number(spec.initialCount) || 0);
+    var initialCount = Math.max(0, Number(spec.initialCount) || requestedBatchSize);
 
     host.innerHTML = '';
     var list = doc.createElement('ul');
@@ -41,22 +49,52 @@
     button.className = classNames('progressive-more', spec.buttonClass);
     button.setAttribute('aria-controls', id);
     host.appendChild(button);
+    var autoObserver = null;
+    var autoBusy = false;
 
     function current() {
       return typeof spec.isCurrent !== 'function' || spec.isCurrent();
+    }
+
+    function stopAuto() {
+      if (autoObserver) {
+        autoObserver.disconnect();
+        autoObserver = null;
+      }
+    }
+
+    function startAuto() {
+      stopAuto();
+      if (spec.autoLoad === false || !button.parentNode) return;
+      var win = doc.defaultView || global;
+      var Obs = win && win.IntersectionObserver;
+      if (typeof Obs !== 'function') return;
+      autoObserver = new Obs(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (!entries[i].isIntersecting) continue;
+          if (autoBusy) return;
+          autoBusy = true;
+          stopAuto();
+          setTimeout(function () {
+            try { append(); }
+            finally { autoBusy = false; }
+          }, 0);
+          return;
+        }
+      }, { rootMargin: '350px 0px' });
+      autoObserver.observe(button);
     }
 
     function update() {
       var remaining = items.length - shown;
       status.textContent = 'Showing ' + shown + ' of ' + items.length + ' ' + noun + '.';
       if (remaining <= 0) {
+        stopAuto();
         if (button.parentNode) button.parentNode.removeChild(button);
         return;
       }
       var next = Math.min(batchSize, remaining);
-      var label = typeof spec.moreLabel === 'function'
-        ? spec.moreLabel(next, remaining, shown, items.length)
-        : 'Load ' + next + ' more ' + noun;
+      var label = moreLabel(next, remaining);
       button.textContent = '';
       var icon = doc.createElement('span');
       icon.className = 'progressive-more-icon';
@@ -69,6 +107,7 @@
       button.appendChild(text);
       button.setAttribute('aria-label', label);
       button.title = label;
+      startAuto();
     }
 
     function append() {
@@ -134,7 +173,7 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  var api = { mount: mount, css: css };
+  var api = { mount: mount, moreLabel: moreLabel, css: css };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.ProgressiveList = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -167,19 +167,18 @@
     },
     "refreshBtn": {
       "report": "## 🌅 Twitches today — Rarities today",
-      "summary": "Every rare-bird checklist filed TODAY in the report's counties, one row per report.",
+      "summary": "One live Rare Bird Alerts surface: checklist-by-checklist List mode or bird/place Grouped mode.",
       "inputs": [
         "/data/obs/{county}/recent/notable for each county",
         "geo notable feed around home"
       ],
       "how": [
-        "Filtered to today's date in the region's local time, deduped by CHECKLIST so two observers reporting the same bird both stand.",
-        "Newest first, and every row carries the clock time — a rarity is chased within hours, so a bare date decides nothing.",
-        "One row per checklist, not per species: a bird found at six places is six places you could drive to.",
-        "The card gives the bird's name a row of its own. Everything else — whether you still need it (🔍), how many were seen, whether it has stayed put (📍 Day N), where, when and who — sits on the line beneath it, because the one thing you scan a rarity list for is WHICH BIRD.",
+        "List mode keeps one row per checklist across the available rarity wave; Grouped mode combines the same evidence by bird and place.",
+        "Newest and Nearest, Unseen and All, chase-radius and Statewide, Compact and Details are independent persisted controls.",
+        "Statewide merges the state's public RBA with the geographic rarity feeds; if that RBA is unavailable, the screen says coverage is incomplete rather than pretending the nearby feed is statewide.",
+        "Every checklist row carries its clock time — a rarity is chased within hours, so a bare date decides nothing.",
         "The bird name and photo open Species Stakeout. The linked date opens the exact supporting checklist, and the public hotspot name opens Stakeout hotspot, so ordinary subject taps stay in the app while evidence remains explicit.",
-        "Reports beyond the chase radius are collapsed into an expander rather than dropped: a bird you still need is worth a longer drive on the right day.",
-        "How rare each species is across the whole snapshot is deliberately NOT here — that is what 🚨 Last 7-Days rarity reports answers."
+        "Compact mode is for scanning; Details restores the richer report cards, checklist evidence and notes without changing which records qualify."
       ],
       "limits": [
         "\"Notable\" is eBird's own review flag for the region; a bird that is rare to YOU but common locally will not appear here."

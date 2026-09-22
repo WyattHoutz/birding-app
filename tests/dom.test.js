@@ -3714,17 +3714,17 @@ test('rankings: your own row on the board is highlighted', async () => {
   app.window.close();
 });
 
-test("Today's rarities render the report's section, not a raw notable feed", () => {
-  // The app read /recent/notable directly, which is eBird's 14-DAY window, so
-  // it listed birds the report never printed. F180 needs the unfiltered merged
-  // records for its All toggle, but the window and checklist dedupe must still
-  // run through BirdLogic's parity-tested rule rather than being rebuilt here.
+test("Unified Twitches renders every rarity-wave row without a second raw feed", () => {
   const src = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function loadTargets('));
-  assert.match(src, /BL\.notableRecent\(\(c\.cv && c\.cv\.merged\) \|\| \[\], Date\.now\(\)\)/,
-    'the complete set still passes through the parity-tested 24-hour rule');
+  assert.match(src, /var sourceRows = \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
+    'the unified surface does not start from the complete shared rarity wave');
+  assert.match(src, /buildActiveRarities\(records, home\)/,
+    'Grouped mode does not project the same rows into the weekly bird/place view');
+  assert.doesNotMatch(src, /BL\.notableRecent\(/,
+    'the unified surface still truncates List mode to the old 24-hour projection');
   assert.ok(!/recent\/notable/.test(src),
-    'no raw notable read: that window is 14 days, the section is today only');
+    'the unified surface started a second raw notable read');
   assert.ok(!/dedupeObs/.test(src),
     'dedupe by checklist, as the report does - not by species+location');
 });
@@ -5315,7 +5315,7 @@ test('F420 Nemesis and Open-target cards progressively append places in one list
   const list = host.querySelector('ul.uplaces');
   const more = host.querySelector('button.speciesPlacesMore');
   assert.equal(list.children.length, 5, 'the first batch is five checklist rows');
-  assert.match(more.textContent, /Load 2 more places/);
+  assert.match(more.textContent, /Load 2 more/);
   more.click();
   assert.strictEqual(host.querySelector('ul.uplaces'), list,
     'Show more replaced the original list');
@@ -6803,7 +6803,8 @@ test('every tile title and subtitle comes from the contract, and the report head
     // Sections the report does not carry have no heading to derive.
     if (!entry.report) continue;
     const reportLabel = entry.reportLabel || entry.label;
-    assert.equal(entry.report, '## ' + reportLabel + ' — ' + entry.sub,
+    const reportSub = entry.reportSub || entry.sub;
+    assert.equal(entry.report, '## ' + reportLabel + ' — ' + reportSub,
       at + ': the report heading is not "title — subtitle". It is DERIVED, '
       + 'not typed — change the title or the subtitle, never the heading.');
   }
@@ -8030,6 +8031,13 @@ test('map links are built by the selected provider', async () => {
     assert.match(A.mapPointUrl('47.75,-122.16'), new RegExp(host.source.split('\\/')[0]),
       p + ' also owns the single-pin links');
   });
+  A.setMapProvider('google');
+  const googlePoint = A.mapPointUrl('47.75,-122.16');
+  assert.match(googlePoint, /google\.com\/maps\/dir\/\?api=1/);
+  assert.match(googlePoint, /destination=47\.75%2C-122\.16/);
+  assert.match(googlePoint, /travelmode=driving/);
+  assert.doesNotMatch(googlePoint, /\/maps\/search/,
+    'Open in Maps still opens a Google search/install path instead of navigation');
 
   // A route with nothing in the middle loses nothing, so even the two-point
   // provider is complete — the warning must not cry wolf.
@@ -11881,7 +11889,12 @@ test('the overflow reporter ignores Leaflet, which overflows by design', async (
 // chase-radius/region. This drives the rendered controls and rows, because a
 // regex cannot prove that a chip actually changes what appears on screen.
 test('F180 filters both twitch sections from one stored preference', async () => {
-  const app = await boot();
+  const app = await boot({
+    fetch(url) {
+      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return '';
+      return null;
+    },
+  });
   const A = app.window.__app;
   const doc = app.window.document;
   const R = A.chaseMaxMi();
@@ -11924,7 +11937,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   assert.deepEqual(
     [...controlRows[0].querySelectorAll('button')].map((b) => b.textContent.trim()),
     ['Newest', 'Nearest', 'Unseen', 'All', `${R} mi`, 'Statewide',
-      'No notes', '💬 Notes'],
+      'No notes', '💬 Notes', 'List', 'Grouped', 'Compact', 'Details'],
     'the one row holds all four pairs in reading order — how it is sorted, '
     + 'then the two things that decide what is in it, including the live '
     + 'radius and the region-derived label, then how much of each row shows. '
@@ -12009,6 +12022,219 @@ test('F180 never renders an unexplained empty twitch list', async () => {
   assert.ok(doc.getElementById('activeControls'),
     'and its controls remain available too');
   assert.equal(doc.querySelectorAll('#activeResults .cardname').length, 0);
+  app.window.close();
+});
+
+test('Twitches this week All immediately surfaces seen rarities', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, ['shtsan'], ['Sharp-tailed Sandpiper']);
+  const day = todayFixtureDate();
+  const rows = [
+    { kind: 'Rarity', code: 'needone', name: 'Need One', distMi: 3,
+      dateStr: day + ' 08:01', loc: 'Near Park', locId: 'L1', subId: 'S1', observer: 'A' },
+    { kind: 'Rarity', code: 'needtwo', name: 'Need Two', distMi: 4,
+      dateStr: day + ' 08:02', loc: 'Near Park', locId: 'L2', subId: 'S2', observer: 'B' },
+    { kind: 'Rarity', code: 'needthr', name: 'Need Three', distMi: 5,
+      dateStr: day + ' 08:03', loc: 'Near Park', locId: 'L3', subId: 'S3', observer: 'C' },
+    { kind: 'Rarity', code: 'needfou', name: 'Need Four', distMi: 6,
+      dateStr: day + ' 08:04', loc: 'Near Park', locId: 'L4', subId: 'S4', observer: 'D' },
+    { kind: 'Rarity', code: 'needfiv', name: 'Need Five', distMi: 7,
+      dateStr: day + ' 08:05', loc: 'Near Park', locId: 'L5', subId: 'S5', observer: 'E' },
+    { kind: 'Rarity', code: 'needsix', name: 'Need Six', distMi: 8,
+      dateStr: day + ' 08:06', loc: 'Near Park', locId: 'L6', subId: 'S6', observer: 'F' },
+    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 9,
+      dateStr: day + ' 14:23', loc: 'League Island--Eide Rd.', locId: 'L-SPTS',
+      subId: 'S-SPTS', observer: 'G' },
+  ];
+  seedRarityChase(app, rows);
+
+  A.loadActiveRarities();
+  await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
+  assert.doesNotMatch(doc.getElementById('activeResults').textContent,
+    /Sharp-tailed Sandpiper/, 'Unseen mode correctly hides the seen rarity');
+  assert.doesNotMatch(doc.getElementById('activeResults').textContent,
+    /Still needed|Already on your year list/,
+    'Unseen mode is also a single ranked weekly list, not a headed group');
+
+  doc.querySelector('#activeYear [data-value="all"]').click();
+  await waitFor(() => /Sharp-tailed Sandpiper/.test(
+    doc.getElementById('activeResults').textContent), 'the seen rarity to surface');
+  assert.match(doc.getElementById('activeResults').textContent,
+    /Sharp-tailed Sandpiper/,
+    'All must use the combined ranking, not hide seen rarities after every unseen row');
+  assert.doesNotMatch(doc.getElementById('activeResults').textContent,
+    /Still needed|Already on your year list/,
+    'All must not split the weekly list into unseen and seen groups');
+  app.window.close();
+});
+
+test('Twitches this week notes toggle preserves the Unseen filter', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, ['seenone'], ['Seen One']);
+  A.setWatchlist([]);
+  const stamp = todayFixtureDate() + ' 14:23';
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'seenone', name: 'Seen One', distMi: 3,
+      dateStr: stamp, loc: 'Park A', locId: 'L1', subId: 'S1', observer: 'A' },
+    { kind: 'Rarity', code: 'newone', name: 'New One', distMi: 4,
+      dateStr: stamp, loc: 'Park B', locId: 'L2', subId: 'S2', observer: 'B' },
+  ]);
+
+  A.loadActiveRarities();
+  await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
+  assert.equal(doc.querySelector('#activeYear [data-value="unseen"]').getAttribute('aria-pressed'),
+    'true', 'fixture starts in Unseen');
+  assert.match(doc.getElementById('activeResults').textContent, /New One/);
+  assert.doesNotMatch(doc.getElementById('activeResults').textContent, /Seen One/);
+
+  doc.querySelector('#activeNotes .raritynotesbtn[data-notes="on"]')
+    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  await waitFor(() => doc.querySelector('#activeNotes .raritynotesbtn[data-notes="on"]')
+    .getAttribute('aria-pressed') === 'true', 'weekly notes to turn on');
+
+  assert.equal(A.rarityNotes(), true, 'the display preference changed');
+  assert.deepEqual(JSON.parse(JSON.stringify(A.rarityFilters())),
+    { year: 'unseen', distance: 'near' },
+    'the Notes display toggle changed the year-list filter');
+  assert.equal(doc.querySelector('#activeYear [data-value="unseen"]').getAttribute('aria-pressed'),
+    'true', 'the Unseen chip stayed pressed after enabling notes');
+  assert.doesNotMatch(doc.getElementById('activeResults').textContent, /Seen One/,
+    'a seen rarity appeared because enabling notes switched to All');
+  app.window.close();
+});
+
+test('Unified Twitches switches between checklist list and grouped hotspot view', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  const today = todayFixtureDate();
+  const older = '2026-09-01';
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'oldrare', name: 'Older Rare Bird', distMi: 3,
+      dateStr: older + ' 08:00', loc: 'Old Park', locId: 'L-OLD',
+      subId: 'S-OLD', observer: 'A' },
+    { kind: 'Rarity', code: 'newrare', name: 'New Rare Bird', distMi: 4,
+      dateStr: today + ' 14:23', loc: 'New Park', locId: 'L-NEW',
+      subId: 'S-NEW', observer: 'B' },
+  ]);
+
+  A.refresh();
+  await waitFor(() => doc.getElementById('todayControls'), 'unified twitch controls');
+  assert.ok(doc.querySelector('#todayView [data-twitchview="list"]'),
+    'the unified Twitches report has no List view option');
+  assert.ok(doc.querySelector('#todayView [data-twitchview="grouped"]'),
+    'the unified Twitches report has no Grouped view option');
+  assert.match(doc.getElementById('results').textContent, /Older Rare Bird/,
+    'List view is still limited to the last day instead of all available rarity rows');
+  assert.equal(doc.querySelectorAll('#results details.ckall').length, 0,
+    'List view should stay one checklist row at a time');
+
+  doc.querySelector('#todayView [data-twitchview="grouped"]').click();
+  await waitFor(() => doc.querySelector('#todayView [data-twitchview="grouped"]')
+    .getAttribute('aria-pressed') === 'true', 'grouped twitch view');
+  assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
+  assert.ok(doc.querySelector('#results details.ckall'),
+    'Grouped view did not expose the Twitches-this-week checklist expander shape');
+  app.window.close();
+});
+
+test('Unified Twitches Details toggle selects rich or compact shared card templates', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'rareone', name: 'Rare One', distMi: 3,
+      dateStr: '2026-09-21 14:00', loc: 'Shared Hotspot', locId: 'L-SHARED',
+      subId: 'S1001', observer: 'A' },
+    { kind: 'Rarity', code: 'raretwo', name: 'Rare Two', distMi: 3,
+      dateStr: '2026-09-21 13:00', loc: 'Shared Hotspot', locId: 'L-SHARED',
+      subId: 'S1002', observer: 'B' },
+  ]);
+
+  A.refresh();
+  await waitFor(() => doc.getElementById('todayDetails'), 'Twitches Details controls');
+  assert.ok(doc.querySelector('#results > li > .name'),
+    'List + Details uses the rich species/checklist report cards');
+
+  doc.querySelector('#todayDetails [data-twitchdetails="compact"]').click();
+  await waitFor(() => doc.querySelector('#results .cklcard-sm'), 'compact checklist cards');
+  assert.equal(doc.querySelector('#results > li > .name'), null,
+    'List + Compact replaces rich species cards');
+
+  doc.querySelector('#todayView [data-twitchview="grouped"]').click();
+  await waitFor(() => doc.querySelector('#results .hscard-sm'), 'compact hotspot cards');
+  assert.equal(doc.querySelectorAll('#results .hscard-sm').length, 1,
+    'Grouped + Compact combines the two rarity reports into one hotspot row');
+
+  doc.querySelector('#todayDetails [data-twitchdetails="details"]').click();
+  await waitFor(() => doc.querySelector('#results > li > .name'), 'grouped rich species cards');
+  assert.ok(doc.querySelector('#results details.ckall'),
+    'Grouped + Details restores the rich bird/place card and checklist evidence');
+  assert.equal(JSON.stringify(A.rarityFilters()),
+    JSON.stringify({ year: 'unseen', distance: 'near' }),
+    'changing detail level does not alter rarity filters');
+  app.window.close();
+});
+
+test('Unified Twitches Statewide includes birds found only in the state RBA feed', async () => {
+  const far = {
+    code: 'farrar', name: 'Far State Rarity', subId: 'S987654321',
+    when: 'Sep 21, 2026 14:23', lat: 46.05, lng: -118.34,
+    place: 'Walla Walla River Delta', count: 1, observer: 'Far Birder',
+  };
+  const app = await boot({
+    storage: {
+      ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region' }),
+    },
+    fetch(url) {
+      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return megaAlertHtml([far]);
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'nearar', name: 'Near Rarity', distMi: 5,
+      dateStr: '2026-09-21 15:00', loc: 'Near Park', locId: 'L-NEAR',
+      subId: 'S-NEAR', observer: 'Near Birder' },
+  ]);
+
+  A.refresh();
+  await waitFor(() => /Far State Rarity/.test(doc.getElementById('results').textContent),
+    'the state RBA-only bird');
+  assert.match(doc.getElementById('results').textContent, /Near Rarity/,
+    'Statewide remains a superset containing the nearby chase rows');
+  assert.ok(app.state.fetches.some((url) => /ebird\.org\/alert\/rba\/US-WA/.test(url)),
+    'Statewide reads the active report state RBA instead of only widening a local filter');
+  app.window.close();
+});
+
+test('Unified Twitches keeps nearby results and names an unavailable statewide RBA', async () => {
+  const app = await boot({
+    storage: {
+      ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region' }),
+    },
+    fetch(url) {
+      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return { __status: 503 };
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'nearar', name: 'Near Rarity', distMi: 5,
+      dateStr: '2026-09-21 15:00', loc: 'Near Park', locId: 'L-NEAR',
+      subId: 'S-NEAR', observer: 'Near Birder' },
+  ]);
+
+  A.refresh();
+  await waitFor(() => /Near Rarity/.test(doc.getElementById('results').textContent),
+    'nearby fallback rarity');
+  assert.match(doc.getElementById('status').textContent,
+    /Statewide RBA unavailable; showing the geographic rarity feed only/,
+    'a failed state alert is disclosed instead of looking like a complete statewide result');
   app.window.close();
 });
 
@@ -12337,7 +12563,7 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   const more = host.querySelector('.recentChecklistMore');
   assert.ok(more, 'large feeds offer a progressive show-more control');
   more.click();
-  assert.equal(progressive.children.length, 200,
+  assert.equal(progressive.children.length, 110,
     'show more appends the next batch without refetching');
   assert.match(doc.querySelector('#sec-recentBtn .sectiondoc').getAttribute('data-note') || '',
     /1200.*2000/, 'the bounded feed and upstream ceiling are stated');
@@ -13147,21 +13373,27 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   });
   const unitList = unit.list;
   assert.equal(unitList.children.length, 25);
-  assert.equal(unit.button.getAttribute('aria-label'), 'Load 25 more birds');
+  assert.equal(unit.button.getAttribute('aria-label'), 'Load 10 more of 30');
   assert.equal(unit.button.querySelector('.progressive-more-icon').textContent, '↓');
   assert.equal(unit.button.querySelector('.progressive-more-text').textContent,
-    'Load 25 more birds', 'the action label must be visible, not screen-reader-only');
+    'Load 10 more of 30', 'the action label must be visible, short, and screen-reader-readable');
   assert.match(ProgressiveList.css,
     /\.progressive-more-text\s*\{[^}]*position:\s*static/,
     'the load-more label is visually hidden');
   assert.match(ProgressiveList.css,
     /\.progressive-status\s*\{[^}]*position:\s*absolute[^}]*clip:/,
     'the live list count remains visible as a second footer sentence');
+  assert.match(String(ProgressiveList.mount),
+    /new Obs[\s\S]*rootMargin: '350px 0px'[\s\S]*autoObserver\.observe\(button\)/,
+    'the progressive list does not automatically append when the labelled button nears view');
   unit.button.click();
   assert.strictEqual(unit.list, unitList,
     'the shared navigation replaced its list instead of appending');
-  assert.equal(unitList.children.length, 50);
-  assert.equal(unit.button.getAttribute('aria-label'), 'Load 5 more birds');
+  assert.equal(unitList.children.length, 35);
+  assert.equal(unit.button.getAttribute('aria-label'), 'Load 10 more of 20');
+  unit.button.click();
+  assert.equal(unitList.children.length, 45);
+  assert.equal(unit.button.getAttribute('aria-label'), 'Load 10 more');
   unit.button.click();
   assert.equal(unitList.children.length, 55);
   assert.equal(unit.button.isConnected, false);
@@ -13178,8 +13410,8 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.equal(staged.list.children.length, 2,
     'a context-sized first batch is ignored');
   staged.button.click();
-  assert.equal(staged.list.children.length, 27,
-    'the shared control does not return to its normal batch size after first paint');
+  assert.equal(staged.list.children.length, 12,
+    'subsequent batches are not capped at ten after a context-sized first paint');
   unitDom.window.close();
 
   const species = Array.from({ length: 31 }, (_, i) => ({
@@ -13230,7 +13462,7 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.doesNotMatch(list.textContent, /Outside Bird/,
     'a bird outside the active regional list entered the common-bird lane');
   assert.equal(host.querySelector('.spuhcandidatemore').getAttribute('aria-label'),
-    'Load 5 more birds');
+    'Load 5 more');
   assert.match(host.querySelector('.spuhcandidatestatus').textContent,
     /Reported in Washington in the last 30 days/,
   'the list does not name its recent-presence evidence');
@@ -13876,7 +14108,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   'the one hotspot row does not link its newest checklist');
 
   const more = card.querySelector('button.spLookupMore');
-  assert.match(more.textContent, /Load 10 more places/);
+  assert.match(more.textContent, /Load 10 more of 45/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
   assert.equal(numberedPins(), 10,
@@ -13891,8 +14123,8 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     'expanded reports are still indented inside a second list');
   assert.equal(numberedPins(), 20,
     'Show more appended rows without appending their map pins');
-  assert.match(more.textContent, /Load 10 more places/,
-    'the Show-more label switched back to reports');
+  assert.match(more.textContent, /Load 10 more of 35/,
+    'the Show-more label does not use the shared short formatter');
   while (card.querySelector('button.spLookupMore')) {
     card.querySelector('button.spLookupMore').click();
   }
@@ -13956,7 +14188,9 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
           userDisplayName: 'Birder One', obsDt: '2026-09-20 09:49',
           durationHrs: 1.5, groupId: 'G1', comments: 'Calm morning.',
           obs: [{ speciesCode: 'amepip', howMany: 5,
-            comments: 'Feeding along the pond edge.' }],
+            comments: 'Feeding along the pond edge.', mediaCounts: { P: 1 } },
+            { speciesCode: 'sonspa', howMany: 2 },
+            { speciesCode: 'amecro', howMany: 4 }],
         };
       }
       if (/product\/checklist\/view\/S2/.test(url)) {
@@ -14007,6 +14241,19 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
   'Details did not lazily read the visible matching checklists');
   assert.match(app.$('spLookupResults').textContent,
     /Checklist details.*Birder One.*Species comment.*Feeding along the pond edge/s);
+  const firstChecklist = app.document.querySelector(
+    '#spLookupResults .stakeoutPlaceChecklists .cklcard-sm');
+  assert.ok(firstChecklist,
+    'Stakeout checklist rows do not use the shared small-checklist template');
+  assert.match(firstChecklist.querySelector('.ckwho')?.textContent || '', /Birder One/,
+    'Stakeout checklist rows omit the birder name');
+  assert.equal(firstChecklist.querySelector('.cksp')?.textContent.trim(), '3 sp',
+    'Stakeout checklist rows omit the checklist species count');
+  assert.match(firstChecklist.querySelector('.ckevid')?.textContent || '', /📷/,
+    'Stakeout checklist rows omit media icons returned by checklist detail');
+  assert.equal(app.document.querySelector(
+    '#spLookupResults .hscard-sm .hslink')?.getAttribute('data-loc'), 'L1',
+    'the Stakeout bird hotspot name does not open that hotspot’s Stakeout report');
   assert.match(app.$('spLookupResults').textContent,
     /Repeat independent reports.*different observers and eBird groups/s);
   app.window.close();
@@ -14034,6 +14281,7 @@ test('F435 matching Stakeout checklists in one eBird group are a convoy, not ind
       return null;
     },
   });
+
   const A = app.window.__app;
   const slot = app.document.createElement('div');
   slot.className = 'stakeoutPlaceHistory';
@@ -14049,6 +14297,34 @@ test('F435 matching Stakeout checklists in one eBird group are a convoy, not ind
   assert.doesNotMatch(slot.textContent, /Repeat independent reports/,
     'a shared group ID was promoted to independent confirmation');
   app.window.close();
+});
+
+test('F456 Stakeout checklist facts are viewport-lazy and use the shared small template', () => {
+  const lazy = HTML.slice(
+    HTML.indexOf('var _stakeoutChecklistObs'),
+    HTML.indexOf('function hydrateChecklistEvidence'));
+  assert.match(lazy, /new IntersectionObserver/,
+    'Stakeout checklist details are not guarded by viewport visibility');
+  assert.match(lazy, /rootMargin: '250px 0px'/,
+    'Stakeout checklist details do not start just before a row reaches the viewport');
+  assert.match(lazy,
+    /unobserve\(entry\.target\)[\s\S]*hydrateChecklistEvidence\(entry\.target\)/,
+    'an intersecting Stakeout row is not handed to shared checklist hydration');
+  assert.match(lazy, /_stakeoutChecklistObs\.observe\(row\)/,
+    'rendered Stakeout checklist rows are not registered with the lazy loader');
+
+  const render = HTML.slice(
+    HTML.indexOf('function renderSpeciesLookup()'),
+    HTML.indexOf('function renderSpeciesLookupMap('));
+  assert.match(render, /hydrateStakeoutChecklistFacts\(out\)/,
+    'Stakeout rendering does not schedule checklist facts');
+  assert.doesNotMatch(render, /hydrateChecklistEvidence\(out\)/,
+    'Stakeout still eagerly parses every rendered checklist');
+  const rows = HTML.slice(
+    HTML.indexOf('function stakeoutChecklistRow('),
+    HTML.indexOf('function loadStakeoutPlaceHistory('));
+  assert.match(rows, /return ChecklistCards\.small\(/,
+    'Stakeout checklist rows stopped using the shared small-checklist template');
 });
 
 test('F378 Stakeout toggles the selected species through the shared watchlist without refetching', async () => {
@@ -15421,8 +15697,8 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   const list = progress.querySelector('ul');
   const more = progress.querySelector('.hotspotChecklistMore');
   assert.ok(more, 'the filtered-out lists survive behind an OPENABLE control');
-  assert.match(more.textContent, /Load 2 more of 2 checklists without a bird you need/,
-    'it states the count and the reason in the shared progressive form');
+  assert.match(more.textContent, /Load 2 more/,
+    'the progressive action stays short when every remaining row fits');
   more.click();
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(list.querySelectorAll('.cklcard-sm').length, 3,
@@ -17054,18 +17330,20 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
     HTML.indexOf('function rarityChecklistDetails('));
   assert.match(render, /rarityChecklistDetails\(r, \{ initialCount: 3 \}\)/,
     'weekly rarity rows eagerly render every checklist behind every bird/place group');
-  assert.match(render, /var shown = 0, batch = 5;/,
+  assert.match(render, /var shown = 0, batch = 10;/,
     'Twitches this week has no bounded initial species-card batch');
   assert.match(render, /activeRarityMore/,
     'Twitches this week has no explicit show-more control for remaining cards');
   assert.match(render,
-    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*Load '[\s\S]*more rare bird\/place results/,
-    'Twitches this week does not use the visible load-more icon and label');
-  assert.match(render, /rareGroup\(visibleNeeded,[\s\S]*rareGroup\(visibleSeen,/,
-    'the weekly batch does not preserve the needed/seen grouping');
+    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*ProgressiveList\.moreLabel/,
+    'Twitches this week does not use the shared short load-more label');
+  assert.match(render, /autoLoadMoreButton\(moreBtn, loadMore\)/,
+    'Twitches this week still requires tapping every five-card batch');
+  assert.match(render, /visibleRows = rows\.slice\(0, shown\)/,
+    'the weekly batch is not a single ranked list');
   assert.doesNotMatch(render,
     /rareGroup\(stillNeeded,[\s\S]*rareGroup\(alreadySeen,/,
-    'Twitches this week still mounts every species card in one render');
+    'Twitches this week still splits the list into needed and already-seen groups');
   const details = HTML.slice(HTML.indexOf('function rarityChecklistDetails('),
     HTML.indexOf('// Last 7-Days rarity reports'));
   assert.match(details, /opts\.initialCount/,
@@ -17077,15 +17355,17 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
 test('Twitches today paints rarity rows in bounded batches', async () => {
   const render = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
-  assert.match(render, /var shown = 0, batch = 5, notePaintSeq = 0;/,
+  assert.match(render, /var shown = 0, batch = 10, notePaintSeq = 0;/,
     'Twitches today has no bounded initial rarity-row batch');
-  assert.match(render, /rows\.slice\(0, shown\)\.map\(card\)\.join\(''\)/,
+  assert.match(render, /rows\.slice\(0, shown\)\.map\(rowCard\)\.join\(''\)/,
     'Twitches today still builds every rare-checklist row before first paint');
   assert.match(render, /class="progressive-more todayRarityMore"/,
     'Twitches today has no explicit show-more control for remaining rows');
   assert.match(render,
-    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*Load '[\s\S]*more rarity reports/,
-    'Twitches today does not use the visible load-more icon and label');
+    /progressive-more-icon" aria-hidden="true">↓<\/span>'[\s\S]*ProgressiveList\.moreLabel/,
+    'Twitches today does not use the shared short load-more label');
+  assert.match(render, /autoLoadMoreButton\(moreBtn, loadMore\)/,
+    'Twitches today still requires tapping every five-row batch');
   assert.match(render, /scheduleTodayNoteHydration\(\)/,
     'Twitches today does not schedule notes after the bounded paint');
   assert.doesNotMatch(render, /hydrateChecklistEvidence\(out\)/,
@@ -17246,8 +17526,8 @@ test('the row carries a named link to the checklist', () => {
   assert.match(src, /class="cklopenrow"/, 'it takes a line of its own');
   assert.equal((HTML.match(/checklist: openChecklistLink\(/g) || []).length, 0,
     'it no longer rides the meta line, where it sat BEFORE the comments');
-  assert.equal((HTML.match(/openChecklistLink\(/g) || []).length, 3,
-    'both rarity sections emit it below their card, or one keeps the bare date');
+  assert.equal((HTML.match(/openChecklistLink\(/g) || []).length, 4,
+    'every rich rarity path emits it below its card, while compact rows keep their row link');
   // A hotspot link must NOT borrow the checklist glyph. Owner: "the link goes
   // to a hotspot, so dont use a checklist icon, keep the link."
   assert.match(HTML, /var EBIRD_LINK_LABEL = '\\uD83D\\uDD17/,
@@ -17482,13 +17762,13 @@ test('Today\u2019s rarities: the icon and name open Stakeout and the date opens 
 
   // The section really wires it that way.
   const src = HTML.slice(HTML.indexOf('function refresh()'),
-    HTML.indexOf('function refresh()') + 12000);
+    HTML.indexOf('function loadTargets('));
   assert.match(src, /photoSlot\(r\.name, r\.code, \{ stakeout: true \}\)/,
     'Today\u2019s rarities routes the icon through Species Stakeout');
   assert.match(src, /name: speciesLink\(r\.name, r\.code\)/,
     'and routes the name through the same in-app destination');
-  assert.match(src, /when: r\.subId \? checklistLink\(r\.subId, when\)/,
-    'the dated evidence link remains available');
+  assert.match(src, /href: r\.subId \? checklistUrl\(r\.subId\) : ''/,
+    'the compact checklist row keeps its dated evidence link');
   app.window.close();
 });
 
@@ -22387,18 +22667,18 @@ test('F381 Open targets bounds first paint and appends into the same live list',
   assert.equal(list.querySelectorAll('.thumb[data-bird]').length, 12,
     'Open targets hydrated more photo slots than the bounded first batch');
   assert.equal(control.button.parentElement.id, 'allUnseenProgress');
-  assert.match(control.button.textContent, /Load 12 more birds/);
+  assert.match(control.button.textContent, /Load 10 more of 18/);
 
   control.button.click();
   assert.strictEqual(app.$('allUnseenResults'), list,
     'Show more replaced the list instead of appending in place');
-  assert.equal(list.children.length, 24);
+  assert.equal(list.children.length, 22);
 
   const replacement = A.renderAllUnseenCards(rows.slice(0, 18));
   const replacementList = app.$('allUnseenResults');
   assert.equal(control.append(), false,
     'a control from an older Open targets paint still appends rows');
-  assert.equal(list.children.length, 24);
+  assert.equal(list.children.length, 22);
   assert.equal(replacementList.children.length, 12);
 
   const section = replacementList.closest('section');
@@ -27878,8 +28158,8 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       if (/product\/lists\//.test(url)) return lists;
       if (/data\/obs\/L1\/recent/.test(url)) {
         return [
-          { speciesCode: 'bird1', comName: 'Bird 1', subId: 'S1' },
-          { speciesCode: 'bird2', comName: 'Bird 2', subId: 'S2' },
+          { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', subId: 'S1' },
+          { speciesCode: 'sonspa', comName: 'Song Sparrow', subId: 'S2' },
         ];
       }
       if (/product\/checklist\/view\//.test(url)) {
@@ -27916,13 +28196,20 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  app.window.localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+    at: Date.now(),
+    rows: [
+      { code: 'shtsan', alpha: 'SPTS' },
+      { code: 'sonspa', alpha: 'SOSP' },
+    ],
+  }));
   A.renderHot({
     hot: [{
       locId: 'L1', name: 'Fixture Hotspot', lat: 47.66, lng: -122.12,
       dist: 8, fresh: 2, checklists: 31, share: 5, latest: '2026-09-16',
       birds: [
-        { name: 'Bird 1', code: 'bird1', unseen: true },
-        { name: 'Bird 2', code: 'bird2', unseen: true },
+        { name: 'Sharp-tailed Sandpiper', code: 'shtsan', unseen: true },
+        { name: 'Song Sparrow', code: 'sonspa', unseen: true },
       ],
     }],
   });
@@ -27935,12 +28222,18 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     'Today’s patches still creates multiple checklist lists');
   assert.equal(list.children.length, 2,
     'the first paint does not stop after the checklists with a bird you need');
+  assert.equal(list.children[0].querySelector('.cktargets')?.textContent.trim(), 'SPTS',
+    'a patch checklist does not name its unseen birds as four-letter codes');
+  assert.equal(list.children[1].querySelector('.cktargets')?.textContent.trim(), 'SOSP',
+    'each checklist does not get its own comma-separated unseen-code list');
+  assert.equal(list.querySelector('.ckdist'), null,
+    'patch checklists repeat distance already shown on the parent hotspot');
   const more = progress.querySelector('.hotspotChecklistMore');
-  assert.match(more.textContent, /Load 25 more of 29 checklists without a bird you need/);
+  assert.match(more.textContent, /Load 10 more of 29/);
   more.click();
   assert.strictEqual(progress.querySelector('ul'), list,
     'Show more replaced the checklist list instead of appending to it');
-  assert.equal(list.children.length, 27);
+  assert.equal(list.children.length, 12);
   assert.equal(progress.querySelectorAll(':scope > ul').length, 1);
   assert.ok(checklistViews > 0, 'the checklist-only comment path never fetched');
   app.window.close();

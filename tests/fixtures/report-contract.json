@@ -131,17 +131,12 @@
     },
     {
       "at": "refreshBtn",
-      "label": "🌅 Twitches today",
+      "label": "🌅 Twitches — Rare Bird Alerts (RBAs)",
       "report": "## 🌅 Twitches today — Rarities today",
+      "reportLabel": "🌅 Twitches today",
+      "reportSub": "Rarities today",
       "map": null,
-      "sub": "Rarities today"
-    },
-    {
-      "at": "activeBtn",
-      "label": "🚨 Twitches this week",
-      "report": "## 🚨 Twitches this week — Rarities this week",
-      "map": null,
-      "sub": "Rarities this week"
+      "sub": "Rare Bird Alerts"
     },
     {
       "at": "abaBtn",
@@ -273,9 +268,11 @@
     "## 🗺️ * unseen — closest first": "BACKLOG (review item 3): overlaps \"Closest spots with unseen birds\" and \"All unseen reports\"; merging the four unseen views is a product decision",
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
     "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
+    "## 🚨 Twitches this week — Rarities this week": "F452: the app combines today's checklist list and the weekly bird/place grouping behind one Twitches — Rare Bird Alerts menu item; refreshBtn maps to the report's today heading and this second report heading is deliberately represented by the same unified app surface",
     "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
   },
   "menuOmittedAts": [
+    "activeBtn",
     "tripBtn",
     "scoutBtn"
   ],

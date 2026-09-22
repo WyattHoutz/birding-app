@@ -207,7 +207,10 @@
     '  font-size: calc(13px * var(--s)); white-space: normal;',
     '  overflow-wrap: anywhere; }',
     '.cklopenrow .extlink { margin-top: 0; font-size: inherit; }',
-    '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
+    '.cklcard .ckwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
+    '.cklcard .cksp { font-variant-numeric: tabular-nums; white-space: nowrap; }',
+    '.cklcard .cktargets { color: var(--accent); font-weight: 800;',
+    '                      letter-spacing: .02em; white-space: normal; }',
 
     /* MEDIUM: laid out exactly like the medium hotspot card — rank | headline |
        the one number that ranks it, over a full-width facts line. Same shape,
@@ -355,6 +358,9 @@
       // heading the name is one of the few facts that distinguishes one row
       // from the next.
       if (v.who && !v.place) bits.push('<span class="ckwho">' + v.who + '</span>');
+      if (v.targets) {
+        bits.push('<span class="cktargets">' + esc(v.targets) + '</span>');
+      }
       // How many SPECIES the checklist held. Not the same fact as `count`,
       // which is how many of ONE bird — keeping them separate is what lets a
       // rarity row drop "×1" while a hotspot row keeps "19 sp".
