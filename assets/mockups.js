@@ -128,8 +128,7 @@ const STUB_SPEC = {
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
   refreshBtn:     { kind: 'bird',          host: 'results' },
   abaBtn:         { kind: 'mega-index',    host: 'abaResults',
-    expects: ['#abaScopePick [data-abascope="state"]',
-      '#abaScopePick [data-abascope="aba"]',
+    expects: ['#abaScopePick.pressbtn[data-abascope]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
@@ -1412,8 +1411,12 @@ const BOOTSTRAP = `
         throw new Error('Bird Gen fixture age drifted: expected 24hr ago, got '
           + (megaAge ? megaAge.textContent.trim() : 'no age'));
       }
-      var toggleGroups = document.querySelectorAll('#surgeResults .surgesortrow .sortpick');
+      var toggleGroups = document.querySelectorAll(
+        '#surgeResults .surgesortrow > .sortpick, '
+          + '#surgeResults .surgesortrow > .pressbtn');
       if (toggleGroups.length !== 2
+          || !toggleGroups[0].classList.contains('twopill')
+          || !toggleGroups[1].classList.contains('pressbtn')
           || Math.abs(toggleGroups[0].getBoundingClientRect().top
             - toggleGroups[1].getBoundingClientRect().top) > 1) {
         throw new Error('Bird Gen toggle pairs wrapped at the exact mockup width');
@@ -1594,8 +1597,10 @@ const BOOTSTRAP = `
         ]));
         A.renderWatch();
         var scopeButtons = document.querySelectorAll('#nvScope .nvscopebtn');
+        var scopeLabel = scopeButtons[0]
+          && scopeButtons[0].querySelector('.presslabel');
         if (scopeButtons.length !== 1
-            || scopeButtons[0].textContent.trim() !== 'Region'
+            || !scopeLabel || scopeLabel.textContent.trim() !== 'Region'
             || scopeButtons[0].getAttribute('aria-pressed') !== 'true'
             || !/Baird's Sandpiper/.test(host.textContent)
             || /Hawaii Amakihi/.test(host.textContent)

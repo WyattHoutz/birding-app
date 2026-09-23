@@ -227,8 +227,7 @@ test('fixture families use shared card components and accessible state labels', 
 test('Mega rarity mockups exercise the real scope and sort controls', () => {
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
-    '#abaScopePick [data-abascope="state"]',
-    '#abaScopePick [data-abascope="aba"]',
+    '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
@@ -321,7 +320,7 @@ test('F384/F385 release mockups expose row actions and regional watch scope', ()
   assert.match(scope, /code: 'hawama'/,
     'the Needs proof release fixture lost its preserved cross-region control');
   assert.match(scope, /scopeButtons\.length !== 1/);
-  assert.match(scope, /scopeButtons\[0\]\.textContent\.trim\(\) !== 'Region'/);
+  assert.match(scope, /scopeLabel\.textContent\.trim\(\) !== 'Region'/);
   assert.match(scope, /scopeButtons\[0\]\.getAttribute\('aria-pressed'\) !== 'true'/);
   assert.match(scope, /\/Hawaii Amakihi\/\.test\(host\.textContent\)/,
     'the release fixture does not reject a cross-region bird leaking into the default view');
@@ -612,8 +611,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
 
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
-    '#abaScopePick [data-abascope="state"]',
-    '#abaScopePick [data-abascope="aba"]',
+    '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
