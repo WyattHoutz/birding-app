@@ -1,0 +1,3638 @@
+{
+  "note": "Drawn by the owner during the F479 ABA review on 2026-09-23.",
+  "cases": {
+    "chitin1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0595,
+        0.0129,
+        0.8056,
+        1.0049
+      ],
+      "file": "chitin1.jpg",
+      "source_sha": "b22b75bdf9e845ab",
+      "output_file": "chitin1.jpg",
+      "output_sha": "d0dbc1cb9ff437f64a2e9c26c2926fd8e878f88a672bf7bd405401bcbfb99094",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "taibeg1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1825,
+        0.0026,
+        0.8373,
+        0.9828
+      ],
+      "file": "taibeg1.jpg",
+      "source_sha": "70d9707ea8447098",
+      "output_file": "taibeg1.jpg",
+      "output_sha": "5674688586f1d4b24d505f7a9f56d5b605e021a2ec3904ae2f6e06d0085fa27c",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "elequa": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.616,
+      "use_slide": true,
+      "box": [
+        0.1071,
+        0.0077,
+        0.9524,
+        1.1437
+      ],
+      "file": "elequa.jpg",
+      "source_sha": "90d09c2591b4f0cc",
+      "output_file": "elequa.jpg",
+      "output_sha": "bcc52a693352efb5db12395d970451dde612a7ffb1ae4d706d11421de3150e69",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "monqua": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1844,
+        0.0033,
+        0.7663,
+        0.8743
+      ],
+      "file": "monqua.jpg",
+      "source_sha": "9e2f91d2a577bae1",
+      "output_file": "monqua.jpg",
+      "output_sha": "a4f822a08c4196350df8f40a164a80c59be0bef3802bf83c5df6f5603acf78ca",
+      "output_size": [
+        145,
+        145
+      ]
+    },
+    "dusgro": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0827,
+        0.0121,
+        0.7154,
+        1.0008
+      ],
+      "file": "dusgro.jpg",
+      "source_sha": "035fdf5e11bec53a",
+      "output_file": "dusgro.jpg",
+      "output_sha": "76352eb410f2621e720faf013123d3ad6443860fc5914e8fb9e5b3d8d675d8fc",
+      "output_size": [
+        158,
+        158
+      ]
+    },
+    "grpchi": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1526,
+        0.0082,
+        0.8871,
+        0.9902
+      ],
+      "file": "grpchi.jpg",
+      "source_sha": "68bf1210326b33ca",
+      "output_file": "grpchi.jpg",
+      "output_sha": "8a719e6d74d20a641cbda9516304d4c236fe9b45be5328bef2d34efeb9dec606",
+      "output_size": [
+        184,
+        184
+      ]
+    },
+    "golphe": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1749,
+        -0.0013,
+        0.9285,
+        1.0061
+      ],
+      "file": "golphe.jpg",
+      "source_sha": "d9b10703b9a0cb6e",
+      "output_file": "golphe.jpg",
+      "output_sha": "3e9e4feb18ab3cdb3b60170d7346d690717301448b1cee4109aaf4e6da7d2b79",
+      "output_size": [
+        187,
+        187
+      ]
+    },
+    "laaphe1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0827,
+        -0.0027,
+        0.744,
+        0.9874
+      ],
+      "file": "laaphe1.jpg",
+      "source_sha": "02f7587039890d97",
+      "output_file": "laaphe1.jpg",
+      "output_sha": "b1aed8bef91980aa7ae97296f3e98d739843674ab92dc16c13e07a5dd5aa786a",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "silphe": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2862,
+        0.0104,
+        0.9507,
+        1.0052
+      ],
+      "file": "silphe.jpg",
+      "source_sha": "76cb657f005a6594",
+      "output_file": "silphe.jpg",
+      "output_sha": "efb92e955ef78d69998fb04b0a917aeb8a13913ceb7609eeb0a676b07c8e8a32",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "compea": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0032,
+        0.1313,
+        0.9952,
+        0.7927
+      ],
+      "file": "compea.jpg",
+      "source_sha": "d9d1f077e344caf5",
+      "output_file": "compea.jpg",
+      "output_sha": "a808bbe24bafb899e15e37b72b34088979cd755d320565fac0436360e34b6521",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "grepea1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0954,
+        0.1274,
+        0.725,
+        1.0067
+      ],
+      "file": "grepea1.jpg",
+      "source_sha": "75ba2e6b256948c1",
+      "output_file": "grepea1.jpg",
+      "output_sha": "b68470b9530327223888cae80eb5eb4440a2c780265219def1e904fbd158d58a",
+      "output_size": [
+        157,
+        157
+      ]
+    },
+    "grypep2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.124,
+        0.0016,
+        0.9984,
+        0.9998
+      ],
+      "file": "grypep2.jpg",
+      "source_sha": "fac5fa5ff4dc440c",
+      "output_file": "grypep2.jpg",
+      "output_sha": "e2c6386cbe6c3b78783b6c8a7f6773fe8951b0bd195cebd5dfb7f7e7282fa104",
+      "output_size": [
+        219,
+        219
+      ]
+    },
+    "japqua": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        -0.0064,
+        0.1368,
+        0.9889,
+        0.942
+      ],
+      "file": "japqua.jpg",
+      "source_sha": "71c381b53b3ae23b",
+      "output_file": "japqua.jpg",
+      "output_sha": "a4b9bb28963da6b67316c4a6a02f6735c35f3c0c0bb9abec23d5e3bd1615b21c",
+      "output_size": [
+        249,
+        249
+      ]
+    },
+    "rocpar2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0604,
+        0.2383,
+        0.9444,
+        0.8276
+      ],
+      "file": "rocpar2.jpg",
+      "source_sha": "b1a87edc70f2ef47",
+      "output_file": "rocpar2.jpg",
+      "output_sha": "5493cc49aa4669578872ed099497f1d2422ab619b63fad93308b96af92c93aea",
+      "output_size": [
+        221,
+        221
+      ]
+    },
+    "whcpig2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        -0.0095,
+        0.0922,
+        0.9984,
+        0.8998
+      ],
+      "file": "whcpig2.jpg",
+      "source_sha": "a20d43b6dc572e7c",
+      "output_file": "whcpig2.jpg",
+      "output_sha": "6f7527a5e341eb31f2327cd153c8bdc2816486deea9a1e8c43f08599fbb89468",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "incdov": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        -0.0095,
+        0.0693,
+        0.9952,
+        0.7391
+      ],
+      "file": "incdov.jpg",
+      "source_sha": "cb941df5da8903df",
+      "output_file": "incdov.jpg",
+      "output_sha": "9791d2af282eee0570d35392d9b9aace9eaffecb125c87cb64f13437e6af80a8",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "hislic1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0604,
+        0.9952,
+        0.6575
+      ],
+      "file": "hislic1.jpg",
+      "source_sha": "d2dfd601a86596d9",
+      "output_file": "hislic1.jpg",
+      "output_sha": "aac4cc6f95454be3a2a2d5f8918a068f49a765db015d8e80a66722fd380d491f",
+      "output_size": [
+        247,
+        247
+      ]
+    },
+    "comnig": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2957,
+        0.0137,
+        0.8458,
+        0.9891
+      ],
+      "file": "comnig.jpg",
+      "source_sha": "033347f6d819f33a",
+      "output_file": "comnig.jpg",
+      "output_sha": "0ea659863b192ffcaa12b9d6a5be45468090c71f3a04bd5c2ad270857636be46",
+      "output_size": [
+        138,
+        138
+      ]
+    },
+    "compau": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.407,
+      "use_slide": true,
+      "box": [
+        0.1272,
+        -0.0015,
+        0.8108,
+        1.0219
+      ],
+      "file": "compau.jpg",
+      "source_sha": "15781884830bc9e1",
+      "output_file": "compau.jpg",
+      "output_sha": "7d859d36a79b6100552d616492b9ca8be225261c224aadda940e60d229b609f0",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "grynig1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1685,
+        0.0022,
+        0.7886,
+        0.9959
+      ],
+      "file": "grynig1.jpg",
+      "source_sha": "f851a017c7cd39ba",
+      "output_file": "grynig1.jpg",
+      "output_sha": "0b50247f2d61c55209fcf1fad2b0d6e8f1b58163003744f215cdd7a792aa8f55",
+      "output_size": [
+        155,
+        155
+      ]
+    },
+    "blkswi": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.3293,
+        0.0045,
+        0.9316,
+        1.0082
+      ],
+      "file": "blkswi.jpg",
+      "source_sha": "8b64a81daeaa6fe9",
+      "output_file": "blkswi.jpg",
+      "output_sha": "84d0ab4dfd1bc36aaea85fc479ef3e7ccbac1568e0eb51c5d56063a6df78622f",
+      "output_size": [
+        600,
+        600
+      ]
+    },
+    "maghum1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.656,
+      "use_slide": true,
+      "box": [
+        0.2099,
+        0.005,
+        0.8935,
+        1.0284
+      ],
+      "file": "maghum1.jpg",
+      "source_sha": "e2480bce6e687739",
+      "output_file": "maghum1.jpg",
+      "output_sha": "93a306af2dafb5fd6217376eb1a78f43b0bad0a4602b60e7ba2ede19351349db",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "sporai": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2576,
+        -0.001,
+        0.8935,
+        1.0181
+      ],
+      "file": "sporai.jpg",
+      "source_sha": "22474cee72debd27",
+      "output_file": "sporai.jpg",
+      "output_sha": "628086232e92e4ac62ab05e972914b8fb4ee584482e51f8aced1b59b6aee3d00",
+      "output_size": [
+        156,
+        156
+      ]
+    },
+    "azugal1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2957,
+        0.1204,
+        0.8426,
+        0.9391
+      ],
+      "file": "azugal1.jpg",
+      "source_sha": "061940818687b1c6",
+      "output_file": "azugal1.jpg",
+      "output_sha": "b7feab14f070ce18b1d794ba942c35b103983cc7025dede003c5d207c1dc98df",
+      "output_size": [
+        137,
+        137
+      ]
+    },
+    "purswa3": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.213,
+        0.0235,
+        0.7758,
+        0.866
+      ],
+      "file": "purswa3.jpg",
+      "source_sha": "dbbc3ef7d1bc562c",
+      "output_file": "purswa3.jpg",
+      "output_sha": "a72a62748a64f6d714f17331e51eed9cad3ca924a9671d24a6193881330c1cd0",
+      "output_size": [
+        141,
+        141
+      ]
+    },
+    "yelrai": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1812,
+        0.0922,
+        0.8362,
+        0.9679
+      ],
+      "file": "yelrai.jpg",
+      "source_sha": "dded811a9786d7f8",
+      "output_file": "yelrai.jpg",
+      "output_sha": "2a12cb41dd5e222d1706e2350072a35206d93b432773f960d75dae6f74cc1355",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "demcra1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0032,
+        0.1981,
+        1.0143,
+        0.8722
+      ],
+      "file": "demcra1.jpg",
+      "source_sha": "3f5618a22a5e0df2",
+      "output_file": "demcra1.jpg",
+      "output_sha": "581e3daecc8d3f36eac01e4fa5db1d40689ca998f0a2dce05c6de9713c6aef24",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "blucra2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0541,
+        0.0097,
+        0.7599,
+        0.9956
+      ],
+      "file": "blucra2.jpg",
+      "source_sha": "01bd9825c91ece30",
+      "output_file": "blucra2.jpg",
+      "output_sha": "d1ef4feff9cfaba997870ab3142d5a83c721d4f0f41d50cd2d4632ab268e3f64",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "eurdot": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.112,
+        0.9952,
+        0.8845
+      ],
+      "file": "eurdot.jpg",
+      "source_sha": "6f22e7b058aa359a",
+      "output_file": "eurdot.jpg",
+      "output_sha": "080f7db90237c409d1eed44677c8495db6642dab652594d6608afb2ea36c3ebb",
+      "output_size": [
+        246,
+        246
+      ]
+    },
+    "corplo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0986,
+        0.0033,
+        0.7631,
+        0.9981
+      ],
+      "file": "corplo.jpg",
+      "source_sha": "ff20000eb3191ae2",
+      "output_file": "corplo.jpg",
+      "output_sha": "28cb8ca9c60f568aef55da829bcba77dac3938a6465f9e2f4b16d8f7c6bf3dbf",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "norjac": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        -0.0223,
+        0.0656,
+        0.9921,
+        0.9223
+      ],
+      "file": "norjac.jpg",
+      "source_sha": "ff2a2be6f784c665",
+      "output_file": "norjac.jpg",
+      "output_sha": "8073f7ac9b2cbb01d5df1790df1245a917d80e1f6aac34a3f95754706465af9c",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "batgod": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.159,
+        0.0092,
+        0.8331,
+        1.0183
+      ],
+      "file": "batgod.jpg",
+      "source_sha": "42fd9d4d441550a5",
+      "output_file": "batgod.jpg",
+      "output_sha": "ec6d908f62da39d47a238f33994f550096ccc2e71981778447e2b9803b46930d",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "jacsni": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2226,
+        0.0081,
+        0.8808,
+        0.9993
+      ],
+      "file": "jacsni.png",
+      "source_sha": "3b542a1dc751f061",
+      "output_file": "jacsni.png",
+      "output_sha": "fe32d35130c093cb8d2b4d6cea3ceac3d213199c9d69cac32bc4ebaf536c5973",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "solsni1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2003,
+        -0.0062,
+        0.868,
+        0.9933
+      ],
+      "file": "solsni1.jpg",
+      "source_sha": "fd2e476aba6b0aaf",
+      "output_file": "solsni1.jpg",
+      "output_sha": "7afa3ddbd2d0c2841c45bda6cda1aab09c48bd656a56b8e86e7f688a9cabe29b",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "pitsni": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1399,
+        0.0164,
+        0.7377,
+        0.9112
+      ],
+      "file": "pitsni.jpg",
+      "source_sha": "eb8e2b6c5ed8aaf8",
+      "output_file": "pitsni.jpg",
+      "output_sha": "e48e92b7c6dd57baef2da347204da6f8689ed6dd2e8436588500f083500a5fbd",
+      "output_size": [
+        149,
+        149
+      ]
+    },
+    "wilpha": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0445,
+        0.0111,
+        0.6582,
+        0.9946
+      ],
+      "file": "wilpha.jpg",
+      "source_sha": "f5d31dcccedeeb8c",
+      "output_file": "wilpha.jpg",
+      "output_sha": "7dc5b9f9107a7b5b9c87dfbe4d7043df5282624554d552115628990e1eee740f",
+      "output_size": [
+        153,
+        153
+      ]
+    },
+    "marsan": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3116,
+        0.1032,
+        0.9126,
+        1.0029
+      ],
+      "file": "marsan.jpg",
+      "source_sha": "99f52e2c866ff0b3",
+      "output_file": "marsan.jpg",
+      "output_sha": "cda22b21168c5ca82a62aa1b2e4d4940d36f2442b4f2140c4d1832cfb5fd9178",
+      "output_size": [
+        150,
+        150
+      ]
+    },
+    "comred1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2067,
+        0.0116,
+        0.8585,
+        0.9874
+      ],
+      "file": "comred1.jpg",
+      "source_sha": "88f55d1d817849e3",
+      "output_file": "comred1.jpg",
+      "output_sha": "ac7671369f29cbb44b40cad033a18673b43c32e475cffa46ddc03e4f3829dfff",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "comgre": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1208,
+        0.0104,
+        0.7822,
+        1.0005
+      ],
+      "file": "comgre.jpg",
+      "source_sha": "b2ec85a0ec0a7fe2",
+      "output_file": "comgre.jpg",
+      "output_sha": "f0bbdd275a1d7f4a419ca17ff39bfa28040df68c2eded8705b9683137c99d90e",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "grekno": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.159,
+        0.0092,
+        0.814,
+        0.9898
+      ],
+      "file": "grekno.jpg",
+      "source_sha": "528561ecd321b538",
+      "output_file": "grekno.jpg",
+      "output_sha": "512a1a1c012e139b1d4f4cafeda59c56fdfe5262176c57383e26c1916f90c9a7",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "cursan": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1494,
+        0.0076,
+        0.8458,
+        0.9967
+      ],
+      "file": "cursan.jpg",
+      "source_sha": "6e5459136643e8c8",
+      "output_file": "cursan.jpg",
+      "output_sha": "dc9f701bdde6866e22600d3b57bc192ed38a5d39e708609e3587a8d0ef180caa",
+      "output_size": [
+        174,
+        174
+      ]
+    },
+    "pursan": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1653,
+        0.0152,
+        0.8362,
+        1.0195
+      ],
+      "file": "pursan.jpg",
+      "source_sha": "2c29776ec00d8d42",
+      "output_file": "pursan.jpg",
+      "output_sha": "892d833720e0e2abcca6d5d8e67379505f2604df03cb742980514e84a203fca1",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "rocsan": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.089,
+        0.0044,
+        0.7599,
+        0.9969
+      ],
+      "file": "rocsan.jpg",
+      "source_sha": "f126564de8115663",
+      "output_file": "rocsan.jpg",
+      "output_sha": "a5b5b5416012c2a2102aad7f1c43f1f68f7680cf972f77762d36ad510e6f940b",
+      "output_size": [
+        168,
+        168
+      ]
+    },
+    "casauk": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2703,
+        0.0093,
+        0.9952,
+        0.9785
+      ],
+      "file": "casauk.jpg",
+      "source_sha": "41e21dc133734d9e",
+      "output_file": "casauk.jpg",
+      "output_sha": "143c682593486a5ea2555dddca455ed03b83d770843a0821e1b46a2661fb6eeb",
+      "output_size": [
+        181,
+        181
+      ]
+    },
+    "xanmur2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0064,
+        0.0209,
+        0.5882,
+        0.9907
+      ],
+      "file": "xanmur2.jpg",
+      "source_sha": "b81116a66fee2c81",
+      "output_file": "xanmur2.jpg",
+      "output_sha": "f324baed51aba702044ed3dbb4f80e4ba64f8aa466805c32b363900174459ad2",
+      "output_size": [
+        145,
+        145
+      ]
+    },
+    "relkit": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2353,
+        0.0092,
+        0.9062,
+        1.0136
+      ],
+      "file": "relkit.jpg",
+      "source_sha": "990a1de1c1149a6f",
+      "output_file": "relkit.jpg",
+      "output_sha": "d65ebe38214a94d57a86e848ec7c04367497020e61c2b4284c51d3cbb1dbe5e8",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "euhgul1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0986,
+        0.0071,
+        0.8426,
+        0.9965
+      ],
+      "file": "euhgul1.jpg",
+      "source_sha": "f7fb10fcfe081aae",
+      "output_file": "euhgul1.jpg",
+      "output_sha": "e94de5befd9b8606a95733a5fbb41ee9ed51d53f022f707d7305c5b81364990b",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "glwgul": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.194,
+        -0.0039,
+        0.8617,
+        0.9957
+      ],
+      "file": "glwgul.jpg",
+      "source_sha": "ffd4b8a3dff294b2",
+      "output_file": "glwgul.jpg",
+      "output_sha": "1a9234ce49a54ad4cc20f2ea5f5879fa93724898184c07c7438a8a7a05029f28",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "litter1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2353,
+        0.0932,
+        0.8426,
+        0.9863
+      ],
+      "file": "litter1.jpg",
+      "source_sha": "1fde7ecb8713df85",
+      "output_file": "litter1.jpg",
+      "output_sha": "edfb150b154e0cbb19e3fbc64f56c36035f7614928e341c3be545ba482c2ede5",
+      "output_size": [
+        152,
+        152
+      ]
+    },
+    "leater1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3625,
+        -0.0003,
+        0.9984,
+        0.9517
+      ],
+      "file": "leater1.jpg",
+      "source_sha": "e25d7b3f1514211e",
+      "output_file": "leater1.jpg",
+      "output_sha": "e90c8456a165e18f213c08498e6c7b54c07cf3d067498d26ba8296e58e0e640d",
+      "output_size": [
+        159,
+        159
+      ]
+    },
+    "incter1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2194,
+        0.0029,
+        0.9666,
+        1.0019
+      ],
+      "file": "incter1.jpg",
+      "source_sha": "6e7574d491614ff8",
+      "output_file": "incter1.jpg",
+      "output_sha": "889f2c0c41b65788d70b009d1c5429758182945cc2fb80c208e5588a23c6a01f",
+      "output_size": [
+        187,
+        187
+      ]
+    },
+    "blkter": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2003,
+        0.0068,
+        0.8712,
+        1.0112
+      ],
+      "file": "blkter.jpg",
+      "source_sha": "10fd15929e618c0c",
+      "output_file": "blkter.jpg",
+      "output_sha": "24e38e45349c9616a86823b0ecfbd00854ed5acb09725e589a7bfda1225cd394",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "whwter": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0668,
+        0.0104,
+        0.725,
+        0.9957
+      ],
+      "file": "whwter.jpg",
+      "source_sha": "7cd2a2bcdc2bd415",
+      "output_file": "whwter.jpg",
+      "output_sha": "14db1f9013261619041e7c0f603d3591537f320f8aa9716ea3be8666a786c443",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "royter1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1526,
+        0.0047,
+        0.779,
+        1.0022
+      ],
+      "file": "royter1.jpg",
+      "source_sha": "7e057715709a6338",
+      "output_file": "royter1.jpg",
+      "output_sha": "c40675681476f6ae04e7b198650549c107743368a5da26959a7e5a37b368f08a",
+      "output_size": [
+        157,
+        157
+      ]
+    },
+    "pibgre": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1286,
+        0.0052,
+        0.8705,
+        0.9944
+      ],
+      "file": "pibgre.jpg",
+      "source_sha": "549b13d63ff69da7",
+      "output_file": "pibgre.jpg",
+      "output_sha": "5f9108db3d84554360c9fc7376284bdb9e9d26de1b5375e40ea7b2d79d7eb561",
+      "output_size": [
+        760,
+        760
+      ]
+    },
+    "rebtro": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1049,
+        0.0117,
+        0.7504,
+        0.9897
+      ],
+      "file": "rebtro.jpg",
+      "source_sha": "328a66f1aca5b691",
+      "output_file": "rebtro.jpg",
+      "output_sha": "0e5959a80db0b765cdc8c001ea435c22b8eec3afdfa00122e775877df68621de",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "arcloo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1812,
+        0.0032,
+        0.8649,
+        1.0026
+      ],
+      "file": "arcloo.jpg",
+      "source_sha": "52275a978264f21a",
+      "output_file": "arcloo.jpg",
+      "output_sha": "80f9487e46502ee7d9df1faa8e5f607a50adfd1ca3ae9efc1746945e97a2ad4a",
+      "output_size": [
+        171,
+        171
+      ]
+    },
+    "comloo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0382,
+        0.0068,
+        0.7027,
+        0.9898
+      ],
+      "file": "comloo.jpg",
+      "source_sha": "75abf8dba6cc7c5e",
+      "output_file": "comloo.jpg",
+      "output_sha": "637e0e4aa4f825472796d8ca488e10c8989452fa9b07f5ebd93f61507f6ed0a3",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "yebloo": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0318,
+        0.0699,
+        0.6518,
+        0.9981
+      ],
+      "file": "yebloo.jpg",
+      "source_sha": "9147bf0880985015",
+      "output_file": "yebloo.jpg",
+      "output_sha": "9f92fe83e3366d987e65c2bb5ba5c2e074937ab8fc31c2051aae25d6439af0ba",
+      "output_size": [
+        155,
+        155
+      ]
+    },
+    "whcalb1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.3052,
+        0.0022,
+        0.9412,
+        0.9896
+      ],
+      "file": "whcalb1.jpg",
+      "source_sha": "1c48c5645d4ad802",
+      "output_file": "whcalb1.jpg",
+      "output_sha": "2177748c637ccd37ba55678b5c22f5620c75a012fdff03a1835420ac9bcfcf03",
+      "output_size": [
+        159,
+        159
+      ]
+    },
+    "bkbalb": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1558,
+        0.008,
+        0.814,
+        0.9933
+      ],
+      "file": "bkbalb.jpg",
+      "source_sha": "2a5a00bf529bc338",
+      "output_file": "bkbalb.jpg",
+      "output_sha": "22909aaa273665f2bbb91ce35b8ffb3669dccaa0b8d8d45e6bf7ddbdd8d5589c",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "bbspet1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3752,
+        0.2478,
+        0.7822,
+        0.8645
+      ],
+      "file": "bbspet1.jpg",
+      "source_sha": "8e014e0a4b0ceb3a",
+      "output_file": "bbspet1.jpg",
+      "output_sha": "723091d44e6084c0f58a58c73060cdd235c0c17616967332cec0c7ded2f8770d",
+      "output_size": [
+        102,
+        102
+      ]
+    },
+    "leastp5": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1685,
+        0.1413,
+        0.6741,
+        0.8981
+      ],
+      "file": "leastp5.jpg",
+      "source_sha": "8386549ac1930a9d",
+      "output_file": "leastp5.jpg",
+      "output_sha": "2cb192dbdd93e837def81c1ff0182a0ec475221f80d2ab9e0c9600df00292917",
+      "output_size": [
+        126,
+        126
+      ]
+    },
+    "bkspet": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1176,
+        0.0722,
+        0.6614,
+        0.8718
+      ],
+      "file": "bkspet.jpg",
+      "source_sha": "4250563cadbc2777",
+      "output_file": "bkspet.jpg",
+      "output_sha": "382f31419ebe5fa770a9a46895d68d00069d8a38e950131d6a3590a1079fcece",
+      "output_size": [
+        136,
+        136
+      ]
+    },
+    "lsspet": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3307,
+        0.1572,
+        0.7091,
+        0.734
+      ],
+      "file": "lsspet.jpg",
+      "source_sha": "b2b64b1098393521",
+      "output_file": "lsspet.jpg",
+      "output_sha": "31667f5a9484835ef75aafad0f4d063aa3ae3f57f7b476cd2332eeb17e6c681c",
+      "output_size": [
+        95,
+        95
+      ]
+    },
+    "herpet2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1049,
+        0.152,
+        0.5151,
+        0.7661
+      ],
+      "file": "herpet2.jpeg",
+      "source_sha": "87a219f996ce39d8",
+      "output_file": "herpet2.jpg",
+      "output_sha": "3062ce577add3aa04bbe343269c4b1518abac9d4d0da62926220cfd44f21db51",
+      "output_size": [
+        103,
+        103
+      ]
+    },
+    "murpet": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2512,
+        0.0114,
+        0.9952,
+        1.0061
+      ],
+      "file": "murpet.jpg",
+      "source_sha": "444431c2becf2618",
+      "output_file": "murpet.jpg",
+      "output_sha": "a89d887bfcf1a137c0813b3565566cf0bfdfaff2b6df4b2c52d4eb76dc3d940e",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "solpet1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1812,
+        0.0497,
+        0.8267,
+        1.016
+      ],
+      "file": "solpet1.jpg",
+      "source_sha": "8a5f5e1d73940880",
+      "output_file": "solpet1.jpg",
+      "output_sha": "243e743f0fed937695efa8c30da31d1f2e366d200875ac60c416f554ac24dd9b",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "bonpet": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1494,
+        0.0104,
+        0.8045,
+        0.991
+      ],
+      "file": "bonpet.jpg",
+      "source_sha": "3085088cc58984bb",
+      "output_file": "bonpet.jpg",
+      "output_sha": "656539090ada29ac0668c281563070637198dfd78a4e3c7f58abeae38736a015",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "bkwpet": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2035,
+        0.113,
+        0.8998,
+        0.6764
+      ],
+      "file": "bkwpet.jpg",
+      "source_sha": "cfb1178ebbf652ad",
+      "output_file": "bkwpet.jpg",
+      "output_sha": "e51be7581d06f05ad2582431b9147377b38a36b39916e08438cabf8a238112cc",
+      "output_size": [
+        174,
+        174
+      ]
+    },
+    "coopet": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.248,
+        0.058,
+        0.7949,
+        0.8767
+      ],
+      "file": "coopet.jpg",
+      "source_sha": "6183665265fc0404",
+      "output_file": "coopet.jpg",
+      "output_sha": "9186d142978bf7b74541307596b9c05c608e4275a42c87876553dafd28aed97a",
+      "output_size": [
+        137,
+        137
+      ]
+    },
+    "stepet": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2162,
+        0.0322,
+        0.7854,
+        0.8644
+      ],
+      "file": "stepet.jpg",
+      "source_sha": "dac1fda7296ce0c4",
+      "output_file": "stepet.jpg",
+      "output_sha": "eaf702885dd142a12f00494dcf138d89b9780a351bb7bdfc72acec16740a6ffc",
+      "output_size": [
+        142,
+        142
+      ]
+    },
+    "bulpet": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.87,
+      "use_slide": true,
+      "box": [
+        0.1526,
+        -0.0012,
+        0.9952,
+        1.052
+      ],
+      "file": "bulpet.jpg",
+      "source_sha": "217c9e78d0668d19",
+      "output_file": "bulpet.jpg",
+      "output_sha": "398f2fed6c1ab1c35c4faab5a869ea00b942d3f711f5863d6abcd5c5e5b19e72",
+      "output_size": [
+        200,
+        200
+      ]
+    },
+    "tahpet1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2766,
+        0.2103,
+        0.8521,
+        1.0719
+      ],
+      "file": "tahpet1.jpg",
+      "source_sha": "a9819faca01afcf7",
+      "output_file": "tahpet1.jpg",
+      "output_sha": "4b2ff15a69adac327088e8abfcb06625e63ae4ff186e9815046ae4026f092505",
+      "output_size": [
+        144,
+        144
+      ]
+    },
+    "parpet1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.407,
+      "use_slide": true,
+      "box": [
+        0.1145,
+        -0.0622,
+        0.8235,
+        0.9993
+      ],
+      "file": "parpet1.jpg",
+      "source_sha": "d4660fe8f51853b5",
+      "output_file": "parpet1.jpg",
+      "output_sha": "d8d76af654475015a468634c6eb30813d2a54df5da97d38653882a81c811de99",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "pifshe": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.318,
+        0.0044,
+        0.8235,
+        1.0155
+      ],
+      "file": "pifshe.jpg",
+      "source_sha": "016150dd8324cbd5",
+      "output_file": "pifshe.jpg",
+      "output_sha": "946ac2308f621f4e7e0b2d86e58184b16b5883ad53dca75075524e235575bb49",
+      "output_size": [
+        125,
+        125
+      ]
+    },
+    "greshe": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1781,
+        0.014,
+        0.8267,
+        0.985
+      ],
+      "file": "greshe.jpg",
+      "source_sha": "27f0368cec8f68af",
+      "output_file": "greshe.jpg",
+      "output_sha": "e164c99fe725aa9a3f7ad6164dc8e17544d3f2ab1b0cbb7c48b04ce44f78024f",
+      "output_size": [
+        162,
+        162
+      ]
+    },
+    "chrshe": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0032,
+        0.1101,
+        0.9952,
+        0.8616
+      ],
+      "file": "chrshe.jpg",
+      "source_sha": "ab948b5ac467183e",
+      "output_file": "chrshe.jpg",
+      "output_sha": "8c68f12ed0cda52693cd56c0dc94b0962bee14f32d4ac7f590f5faa3312e2a92",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "manshe": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1367,
+        -0.0013,
+        0.8744,
+        0.9849
+      ],
+      "file": "manshe.jpg",
+      "source_sha": "aee36b8da9bdee3d",
+      "output_file": "manshe.jpg",
+      "output_sha": "82203065334cbf32cdf57c5b1b5649cc37a3baf8d24d345a12687a971b676e94",
+      "output_size": [
+        184,
+        184
+      ]
+    },
+    "litshe1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1622,
+        0.0228,
+        0.7631,
+        0.992
+      ],
+      "file": "litshe1.jpg",
+      "source_sha": "cc71597672c67474",
+      "output_file": "litshe1.jpg",
+      "output_sha": "c21eb7fc139fed14fa25a5d983265dae37f631e743aac75f121416ebc7cf6d3f",
+      "output_size": [
+        150,
+        150
+      ]
+    },
+    "blnsto1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0159,
+        0.0682,
+        0.9984,
+        0.7232
+      ],
+      "file": "blnsto1.jpg",
+      "source_sha": "07f835f668cb3ed2",
+      "output_file": "blnsto1.jpg",
+      "output_sha": "20d45cfb4a8793825edcd6468c7947964f85f910d6a3d802f77d458e289cb6da",
+      "output_size": [
+        246,
+        246
+      ]
+    },
+    "masboo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        -0.0032,
+        0.0906,
+        0.9889,
+        0.8353
+      ],
+      "file": "masboo.jpg",
+      "source_sha": "76541b4b3a67c0b7",
+      "output_file": "masboo.jpg",
+      "output_sha": "086af98ebbdeed364b87f0169d4355a0df44967f6ea72f1921946483a7effc27",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "bfoboo": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0095,
+        0.0787,
+        0.9889,
+        0.8096
+      ],
+      "file": "bfoboo.jpg",
+      "source_sha": "db924c010aa0a629",
+      "output_file": "bfoboo.jpg",
+      "output_sha": "c848e7819229e9a1d4fbf892081cfdcb25a84c9907e4b60f5bbc6aef903ce940",
+      "output_size": [
+        245,
+        245
+      ]
+    },
+    "anhing": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0,
+        0.1679,
+        0.9952,
+        0.8788
+      ],
+      "file": "anhing.jpg",
+      "source_sha": "7881e61b2f3377c8",
+      "output_file": "anhing.jpg",
+      "output_sha": "39886f853cd315367974bd598ee83231811b2cdac13c04b430e8fea78a4e4d06",
+      "output_size": [
+        249,
+        249
+      ]
+    },
+    "grecor": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1526,
+        0.004,
+        0.8871,
+        0.9859
+      ],
+      "file": "grecor.jpg",
+      "source_sha": "a9022c7f6f9d3df1",
+      "output_file": "grecor.jpg",
+      "output_sha": "0f25cd6a2d5eb88dca4d87b48a67577ce260997002d22f63ce37893ec5c30216",
+      "output_size": [
+        184,
+        184
+      ]
+    },
+    "whiibi": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1145,
+        0.0031,
+        0.8108,
+        0.9979
+      ],
+      "file": "whiibi.jpg",
+      "source_sha": "c0f247e643086dd9",
+      "output_file": "whiibi.jpg",
+      "output_sha": "03211cc0502c9852559caa5d0118f17be4f29b37ab9f8919b1a3459fb574b854",
+      "output_size": [
+        174,
+        174
+      ]
+    },
+    "gloibi": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2734,
+        0.0021,
+        0.9157,
+        0.9636
+      ],
+      "file": "gloibi.png",
+      "source_sha": "b7735ab47750c40a",
+      "output_file": "gloibi.png",
+      "output_sha": "ca24c917479d6cafe53d465cc314f6e2736ea0aefa245fb837efcb7b4a056cf6",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "sacibi2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.159,
+        0.0057,
+        0.8172,
+        0.991
+      ],
+      "file": "sacibi2.jpg",
+      "source_sha": "f2266bc5b9bdaf20",
+      "output_file": "sacibi2.jpg",
+      "output_sha": "bbc40d22d2981937b3797cbb7691f9298d523e88631b8c5047369d9ad7bad940",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "rosspo1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0159,
+        0.1249,
+        0.9571,
+        0.8964
+      ],
+      "file": "rosspo1.jpg",
+      "source_sha": "920847889d6e2745",
+      "output_file": "rosspo1.jpg",
+      "output_sha": "db302f3ebad435374393a513a5b1596b26d33165e73a4d62af7726f40d76b108",
+      "output_size": [
+        235,
+        235
+      ]
+    },
+    "grebit1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.1657,
+        1.0079,
+        0.8335
+      ],
+      "file": "grebit1.jpg",
+      "source_sha": "bd68e2bc95de2841",
+      "output_file": "grebit1.jpg",
+      "output_sha": "c6af5be55bb60d9e79a0b95115a1ddac0488509302dc8fdb1982fb102a917b0e",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "leabit": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0954,
+        0.1187,
+        0.5978,
+        0.8708
+      ],
+      "file": "leabit.png",
+      "source_sha": "5938572c6c0ac8ef",
+      "output_file": "leabit.png",
+      "output_sha": "5e07c5e7ac2c768828927d1380c7dab086c6f8959bde560f16fc29305200fd38",
+      "output_size": [
+        126,
+        126
+      ]
+    },
+    "libher": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2162,
+        0.0039,
+        0.7727,
+        0.9905
+      ],
+      "file": "libher.png",
+      "source_sha": "7f74fcabe1db36ef",
+      "output_file": "libher.png",
+      "output_sha": "4ac0b6e1c750de65b786c50e13f22c0c97c20720b38d2fe0f2e3119a77545842",
+      "output_size": [
+        139,
+        139
+      ]
+    },
+    "triher": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1145,
+        0.0887,
+        0.9253,
+        0.6278
+      ],
+      "file": "triher.jpg",
+      "source_sha": "55f36e9ae608eb95",
+      "output_file": "triher.jpg",
+      "output_sha": "566551965e1a187b320110805c2e118f8decbd64e03e679fb6ce579901e92cc9",
+      "output_size": [
+        203,
+        203
+      ]
+    },
+    "chiegr": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.3243,
+        -0.003,
+        0.9221,
+        0.9933
+      ],
+      "file": "chiegr.jpg",
+      "source_sha": "2fa3b6dbd8d77242",
+      "output_file": "chiegr.jpg",
+      "output_sha": "8cd9c720bdddab9373298abfd2551018fef8fd00ee816a61d964b31ab64a7a69",
+      "output_size": [
+        149,
+        149
+      ]
+    },
+    "eurspa1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0032,
+        0.1099,
+        0.9984,
+        0.7788
+      ],
+      "file": "eurspa1.jpg",
+      "source_sha": "57c99f68f34b3ce9",
+      "output_file": "eurspa1.jpg",
+      "output_sha": "69280da32deacf166a983a1c751b0bf5f312e4e53d05ba6cf1f21a6d6ac14b8b",
+      "output_size": [
+        249,
+        249
+      ]
+    },
+    "wemhar1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0,
+        0.1248,
+        1.0016,
+        0.8402
+      ],
+      "file": "wemhar1.jpg",
+      "source_sha": "a6f4d7bcae3a8410",
+      "output_file": "wemhar1.jpg",
+      "output_sha": "2e937b19a32f94f402f4e41d373d8e814e926172975ef2030b11bda6c0dfe854",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "norhar1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2544,
+        0.014,
+        0.9157,
+        1.0041
+      ],
+      "file": "norhar1.jpg",
+      "source_sha": "020f57fc1785e1f6",
+      "output_file": "norhar1.jpg",
+      "output_sha": "339d9b47b5c6fff57aebcb3243f83feb52849e18edb8709866c3b71806228a56",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "blakit1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0121,
+        0.9984,
+        0.6734
+      ],
+      "file": "blakit1.jpg",
+      "source_sha": "8ec9a21becb07b66",
+      "output_file": "blakit1.jpg",
+      "output_sha": "0696c1009f28fe8ccd6977f66aab9ddf3afc7a2d4993a9b4caa21d21357bf6d8",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "savhaw1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0898,
+        0.9984,
+        0.9277
+      ],
+      "file": "savhaw1.jpg",
+      "source_sha": "17837707d0a766ba",
+      "output_file": "savhaw1.jpg",
+      "output_sha": "c1533a822ecdea1f00c46c4a9e66b071497f49d7ae48039bc3fc392f33e457e6",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "roahaw": {
+      "verdict": "CROPPER CAN DO THIS",
+      "slide": 0.294,
+      "use_slide": true,
+      "box": [
+        0.0032,
+        0.0794,
+        1.0334,
+        0.7948
+      ],
+      "file": "roahaw.jpg",
+      "source_sha": "92d5cafba0d17478",
+      "output_file": "roahaw.jpg",
+      "output_sha": "948558a495f2b4a6e1e9197a9204f9aff9b50b8b60f4b881ac7ba91cf34dc34f",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "hawhaw": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0,
+        0.0666,
+        1.0048,
+        0.7365
+      ],
+      "file": "hawhaw.jpg",
+      "source_sha": "3011aabc532b6841",
+      "output_file": "hawhaw.jpg",
+      "output_sha": "6177c12e58ba141594ff682a0a846a2f2a8d8b7a8c7f208e80be526bdd4c4525",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "lolbuz1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1272,
+        0.2056,
+        0.6518,
+        0.991
+      ],
+      "file": "lolbuz1.jpg",
+      "source_sha": "ea1d07b87a6eac48",
+      "output_file": "lolbuz1.jpg",
+      "output_sha": "fad62f95616993ee97e0678266974bc00e5e215f9b864a4be802c9e002db9eb8",
+      "output_size": [
+        131,
+        131
+      ]
+    },
+    "grhowl": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0989,
+        0.9984,
+        0.8913
+      ],
+      "file": "grhowl.jpg",
+      "source_sha": "6fbc17dec4d62a02",
+      "output_file": "grhowl.jpg",
+      "output_sha": "e27739a95b73bd8fc091a1f25e2712e3677993cbbcbf1c9e0f704c837553f175",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "spoowl": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2671,
+        0.0152,
+        0.9221,
+        0.9957
+      ],
+      "file": "spoowl.jpg",
+      "source_sha": "c732d9ea79e019c5",
+      "output_file": "spoowl.jpg",
+      "output_sha": "21685b0ebec9b90bcac90efe86ce2222ca0dc851eae60791d0d74bcd1476cdf4",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "wrbhor2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2162,
+        0.014,
+        0.8712,
+        0.9945
+      ],
+      "file": "wrbhor2.jpg",
+      "source_sha": "57208305ee928c85",
+      "output_file": "wrbhor2.jpg",
+      "output_sha": "51073a3006382852618a7a69b30ecbbebeeea113c9325582307973af1f05b4e0",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "bawhor2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0064,
+        0.0081,
+        0.9857,
+        0.6882
+      ],
+      "file": "bawhor2.jpg",
+      "source_sha": "572cf9d0fd00d76f",
+      "output_file": "bawhor2.jpg",
+      "output_sha": "a0a6fca12ab5377a6fa5bb6ad63eac89d1102e7ed7c95cea09cfbb6e3a28c357",
+      "output_size": [
+        245,
+        245
+      ]
+    },
+    "librol2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1876,
+        0.0818,
+        0.8362,
+        1.0528
+      ],
+      "file": "librol2.jpg",
+      "source_sha": "1c324de0c842cf9b",
+      "output_file": "librol2.jpg",
+      "output_sha": "f890764a976300a0a85473d2fde3cf6667c7782351cbab8e56bdb174da903684",
+      "output_size": [
+        162,
+        162
+      ]
+    },
+    "yebsap": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1208,
+        0.0894,
+        0.8553,
+        0.9895
+      ],
+      "file": "yebsap.jpg",
+      "source_sha": "498a72a538a8cdd4",
+      "output_file": "yebsap.jpg",
+      "output_sha": "7a6e59a65bda6d1a79e50fac7f94768ce664ac165576f5badd0c6ff0e628fde6",
+      "output_size": [
+        184,
+        184
+      ]
+    },
+    "gofwoo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0023,
+        0.0373,
+        1.0069,
+        0.7365
+      ],
+      "file": "gofwoo.jpg",
+      "source_sha": "b27a72f0829f9415",
+      "output_file": "gofwoo.jpg",
+      "output_sha": "1783f55d41a54fa669321543cdef0d3a09d7827c83bf0565db98f59c51271162",
+      "output_size": [
+        348,
+        348
+      ]
+    },
+    "recwoo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.1434,
+        1.0079,
+        0.6612
+      ],
+      "file": "recwoo.jpg",
+      "source_sha": "2949027ac436a704",
+      "output_file": "recwoo.jpg",
+      "output_sha": "252931df7096dcf629ed9b46a0969385be302f3175c41bb90113b97a3a1020a8",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "lanfal1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0734,
+        0.9984,
+        0.956
+      ],
+      "file": "lanfal1.jpg",
+      "source_sha": "82ceb0edd4bfb9ed",
+      "output_file": "lanfal1.jpg",
+      "output_sha": "d70a64faf6aad235d55b1c41126838c947f86c1fcd5074f457fce80e4a669bce",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "sakfal1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1749,
+        0.0201,
+        0.8362,
+        1.0161
+      ],
+      "file": "sakfal1.jpg",
+      "source_sha": "05e2155799f802d2",
+      "output_file": "sakfal1.jpg",
+      "output_sha": "443ce88da66bf179a64093a11f62562e0c9cd94e5570cf4afee896549c4749c3",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "alepar2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.1848,
+        0.9952,
+        0.8441
+      ],
+      "file": "alepar2.jpg",
+      "source_sha": "a4998d0d41d69f81",
+      "output_file": "alepar2.jpg",
+      "output_sha": "8d17f9661dae0c018f95ad721953d8d505c281dd1514f4abbee40386b24e50fa",
+      "output_size": [
+        247,
+        247
+      ]
+    },
+    "rerpar1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1844,
+        0.0092,
+        0.8458,
+        0.9993
+      ],
+      "file": "rerpar1.jpg",
+      "source_sha": "fc1699fe7cf654bb",
+      "output_file": "rerpar1.jpg",
+      "output_sha": "fb1ab784b0057696acd0b93a00a34bbd8949413305abf555a43579bf779d0814",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "grepar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2671,
+        0.0095,
+        0.814,
+        0.9792
+      ],
+      "file": "grepar.jpg",
+      "source_sha": "7246fd8ae91b76e4",
+      "output_file": "grepar.jpg",
+      "output_sha": "15471e0575796b4a0b9a2420b8906486970a590f834f3d360130d67b97ad7888",
+      "output_size": [
+        137,
+        137
+      ]
+    },
+    "respar2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.0062,
+        0.9984,
+        0.6655
+      ],
+      "file": "respar2.jpg",
+      "source_sha": "be51c241dfe34d0d",
+      "output_file": "respar2.jpg",
+      "output_sha": "7a30cbf402d42250ab96efd781bca30a07fff4f1762240ae99aee29c0e460f44",
+      "output_size": [
+        247,
+        247
+      ]
+    },
+    "recpar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0032,
+        0.0696,
+        0.9952,
+        0.8545
+      ],
+      "file": "recpar.jpg",
+      "source_sha": "adcf211540aef315",
+      "output_file": "recpar.jpg",
+      "output_sha": "508566686ffe244975f48d2eeacc582a742c2f33b390d16f6b4ef1f42f3051cb",
+      "output_size": [
+        248,
+        248
+      ]
+    },
+    "whfpar1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0954,
+        0.1028,
+        0.7536,
+        0.9827
+      ],
+      "file": "whfpar1.jpeg",
+      "source_sha": "62096c528aecbed5",
+      "output_file": "whfpar1.jpg",
+      "output_sha": "0115721f092a6a6ff1d4b2bf026a780293b7f59e071561dd4e3b64ea00023dad",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "blcpar1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1081,
+        0.1097,
+        0.6804,
+        0.8708
+      ],
+      "file": "blcpar1.jpg",
+      "source_sha": "7fde608bda1a5bc2",
+      "output_file": "blcpar1.jpg",
+      "output_sha": "d53784e8df9b1d126f501dfd2266409bf294cc2e7901d55bb92e2af81423471c",
+      "output_size": [
+        143,
+        143
+      ]
+    },
+    "duhpar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0064,
+        0.1281,
+        0.9698,
+        0.8976
+      ],
+      "file": "duhpar.jpg",
+      "source_sha": "5439ec3baeeb9f86",
+      "output_file": "duhpar.jpg",
+      "output_sha": "2c0d8114a4300a684607587534920304669ac81713bd4f71b638477d5be24e13",
+      "output_size": [
+        241,
+        241
+      ]
+    },
+    "refmac1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0827,
+        0.0026,
+        0.9062,
+        0.9924
+      ],
+      "file": "refmac1.jpg",
+      "source_sha": "532aab7476d4410c",
+      "output_file": "refmac1.jpg",
+      "output_sha": "47d55357ced76e72ed9fe3111555f8547383481d937d2cc20fb99a1dad9228ad",
+      "output_size": [
+        206,
+        206
+      ]
+    },
+    "grgmac": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1781,
+        0.0152,
+        0.8362,
+        1.0005
+      ],
+      "file": "grgmac.jpg",
+      "source_sha": "2bf122b6561ec7d7",
+      "output_file": "grgmac.jpg",
+      "output_sha": "88c75d4e3a3c12ae1a1b744aa44131bf2775fafbdc19abb53f1ac0a30a637197",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "dusfly": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2035,
+        0.0656,
+        0.8172,
+        0.9132
+      ],
+      "file": "dusfly.jpg",
+      "source_sha": "c939ea437875c12b",
+      "output_file": "dusfly.jpg",
+      "output_sha": "b72741ac607aee2d85e77ee0b4f285092916558ce38ba9e14b3ad9711dc233ba",
+      "output_size": [
+        153,
+        153
+      ]
+    },
+    "caskin": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0716,
+        0.9952,
+        0.8096
+      ],
+      "file": "caskin.jpg",
+      "source_sha": "da34a6c09475b374",
+      "output_file": "caskin.jpg",
+      "output_sha": "ca4bb50d76f1e6e9f92029bf55d4f220238906e2f3b3e234465a7de62cd551fd",
+      "output_size": [
+        247,
+        247
+      ]
+    },
+    "grykin": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0366,
+        0.9921,
+        0.6684
+      ],
+      "file": "grykin.jpg",
+      "source_sha": "de989ae7a71ab0d2",
+      "output_file": "grykin.jpg",
+      "output_sha": "64fd39dbc2e60c51bde81032ec3c064d81970c0859dd2152033d4b886f8c4f65",
+      "output_size": [
+        246,
+        246
+      ]
+    },
+    "yucvir": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1717,
+        0.0425,
+        0.8013,
+        0.985
+      ],
+      "file": "yucvir.jpg",
+      "source_sha": "4fffe69bcd66261b",
+      "output_file": "yucvir.jpg",
+      "output_sha": "2b2fb1b848bca989dad5b1dfe5d37f5c7176acca530760b2d07dcd67411197e4",
+      "output_size": [
+        157,
+        157
+      ]
+    },
+    "elepai5": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.0097,
+        0.566,
+        1.0104
+      ],
+      "file": "elepai5.jpg",
+      "source_sha": "b0cea43927369f36",
+      "output_file": "elepai5.jpg",
+      "output_sha": "89fdb5f46e2ea68fbd55f0b890d3d603e35db77f75e133f703dbee05f43c642a",
+      "output_size": [
+        139,
+        139
+      ]
+    },
+    "wtmjay1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.194,
+        0.0164,
+        0.8394,
+        0.9826
+      ],
+      "file": "wtmjay1.jpg",
+      "source_sha": "dcb193a05e13e926",
+      "output_file": "wtmjay1.jpg",
+      "output_sha": "1065dcd10928ccfea5a8f51e407b6187ca38eb6663bdec6ab123ed74f229c5ea",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "hoocro1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1335,
+        0.0057,
+        0.7854,
+        0.9814
+      ],
+      "file": "hoocro1.jpg",
+      "source_sha": "2207f06865340ac1",
+      "output_file": "hoocro1.jpg",
+      "output_sha": "01a63481a4a9aad2a7d1c17db1e8bfda2c1f44aab0e552ec43c7fde8172d40ac",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "borchi2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2385,
+        0.0045,
+        0.8967,
+        0.9898
+      ],
+      "file": "borchi2.jpg",
+      "source_sha": "822bd251e4acff7f",
+      "output_file": "borchi2.jpg",
+      "output_sha": "003d84164e178fa43231985a910c810938b64acddf3afb87699c9d58398c917d",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "blctit4": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2353,
+        0.0074,
+        0.9666,
+        0.6378
+      ],
+      "file": "blctit4.jpg",
+      "source_sha": "f8921316975900f7",
+      "output_file": "blctit4.jpg",
+      "output_sha": "9f57ca2e49570a9433655ebc0ece6b420214f3c97c5c36f081f23420e8b31100",
+      "output_size": [
+        183,
+        183
+      ]
+    },
+    "migwar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0636,
+        0.0029,
+        0.8172,
+        1.0104
+      ],
+      "file": "migwar.jpg",
+      "source_sha": "de48963fcb4834a4",
+      "output_file": "migwar.jpg",
+      "output_sha": "9969d1e8a4ea6d299c4dbfcb402cb65b8436a60d9e7cad320d42cc3dfc0c2c37",
+      "output_size": [
+        187,
+        187
+      ]
+    },
+    "lanwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3021,
+        0.1163,
+        0.8362,
+        0.916
+      ],
+      "file": "lanwar.jpg",
+      "source_sha": "28b6ffd1045fc2d9",
+      "output_file": "lanwar.jpg",
+      "output_sha": "f8d953694dce2b809f883cbaba299e43117a8ab3614b8633ea46c619bb33c992",
+      "output_size": [
+        134,
+        134
+      ]
+    },
+    "eurwar2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0859,
+        0.0192,
+        0.7504,
+        0.9796
+      ],
+      "file": "eurwar2.jpg",
+      "source_sha": "cb294ea60bd25a93",
+      "output_file": "eurwar2.jpg",
+      "output_sha": "d3eb88e0151d3fd2ac9c61d94090b0267b1c25374843f21df117953b1fd56720",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "woowar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.283,
+        0.0022,
+        0.9062,
+        0.9821
+      ],
+      "file": "woowar.jpg",
+      "source_sha": "d5d6f6e0e15f4bb8",
+      "output_file": "woowar.jpg",
+      "output_sha": "94474bf6119d9a3ef5f37b88480fc36bc9e4b31367198c50460d1fa510bfdfbc",
+      "output_size": [
+        156,
+        156
+      ]
+    },
+    "yebwar3": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0763,
+        0.2686,
+        0.601,
+        0.97
+      ],
+      "file": "yebwar3.jpg",
+      "source_sha": "ba4f2d8ba8ec7acc",
+      "output_file": "yebwar3.jpg",
+      "output_sha": "875f8d1d257c217793135b1579362d099d7b31e1877d26c15ae2bbf1398cc36e",
+      "output_size": [
+        131,
+        131
+      ]
+    },
+    "arcwar2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.283,
+        0.1711,
+        0.7758,
+        0.9089
+      ],
+      "file": "arcwar2.jpg",
+      "source_sha": "36732d64d8a4ef73",
+      "output_file": "arcwar2.jpg",
+      "output_sha": "27077d945a2700c9943453c7df29e942a9afa77468bb94c39c59b8ccbf0d8690",
+      "output_size": [
+        123,
+        123
+      ]
+    },
+    "jabwar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2226,
+        0.0084,
+        0.8617,
+        1.007
+      ],
+      "file": "jabwar.jpg",
+      "source_sha": "21d64b3baa1f85d2",
+      "output_file": "jabwar.jpg",
+      "output_sha": "c761305d02523a7dd74c035788ceeaeb65e8170a46ebd1e0e8975ebc3a5f42ef",
+      "output_size": [
+        160,
+        160
+      ]
+    },
+    "leswhi4": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1876,
+        0.0199,
+        0.8649,
+        1.0338
+      ],
+      "file": "leswhi4.jpg",
+      "source_sha": "9393b0e9d7964798",
+      "output_file": "leswhi4.jpg",
+      "output_sha": "10c89a6028f6d807b3d37bdfa00ae64dc41045a03ccdfa3a24de219bc871d139",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "wrenti": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2258,
+        0.2858,
+        0.6518,
+        0.996
+      ],
+      "file": "wrenti.jpg",
+      "source_sha": "76683114f03fb435",
+      "output_file": "wrenti.jpg",
+      "output_sha": "5e15ab2402485fb0600dbdb8b312f612380a1056f5c0737c4ed3c26d76642ef0",
+      "output_size": [
+        107,
+        107
+      ]
+    },
+    "reblei": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1622,
+        -0.0003,
+        0.814,
+        0.9755
+      ],
+      "file": "reblei.png",
+      "source_sha": "b4c9b29c9eee616a",
+      "output_file": "reblei.png",
+      "output_sha": "16ee2149392888e14161bc61f61e020cb2c20d4a91cb84db69461925e88c3524",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "ltgsta1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0859,
+        0.004,
+        0.6232,
+        0.9846
+      ],
+      "file": "ltgsta1.jpg",
+      "source_sha": "9278fdebb5c53b7d",
+      "output_file": "ltgsta1.jpg",
+      "output_sha": "cc1b27c72e8cca01e90f08c77301dddb7f025d64fed54fd03218f62dcde85559",
+      "output_size": [
+        134,
+        134
+      ]
+    },
+    "calthr": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2766,
+        0.014,
+        0.8871,
+        0.9279
+      ],
+      "file": "calthr.jpg",
+      "source_sha": "0ec6415ac26ab152",
+      "output_file": "calthr.jpg",
+      "output_sha": "a57390948b63f38583fca4ca0ad726a9ad12b6b26647c6c17a9ec007e659176a",
+      "output_size": [
+        153,
+        153
+      ]
+    },
+    "olomao": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.0097,
+        0.5533,
+        0.9947
+      ],
+      "file": "olomao.jpg",
+      "source_sha": "f2ff1f389a5b0aad",
+      "output_file": "olomao.jpg",
+      "output_sha": "fc89efd11945a7c7abb63dcf801ff51137cef11e4049a0f929292ef802158c22",
+      "output_size": [
+        136,
+        136
+      ]
+    },
+    "obnthr1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1367,
+        0.1842,
+        0.6041,
+        0.8839
+      ],
+      "file": "obnthr1.jpg",
+      "source_sha": "b33292fa4c99a5fa",
+      "output_file": "obnthr1.jpg",
+      "output_sha": "643ab61a8ff351f8e14950b1e50bde5bfe5ad233e003909a860e8eb54af7050f",
+      "output_size": [
+        117,
+        117
+      ]
+    },
+    "bicthr": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2003,
+        0.0212,
+        0.7122,
+        1.0133
+      ],
+      "file": "bicthr.jpg",
+      "source_sha": "da765c53af076c7b",
+      "output_file": "bicthr.jpg",
+      "output_sha": "6d1067d78b692b430edff74d54f4d92ba7e4184f7ee9aabf5d8649491efcd28a",
+      "output_size": [
+        128,
+        128
+      ]
+    },
+    "swathr": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1341,
+        0.0021,
+        0.8844,
+        1.0024
+      ],
+      "file": "swathr.jpg",
+      "source_sha": "f9eb396c4f25592e",
+      "output_file": "swathr.jpg",
+      "output_sha": "d3b12cc08d549cf87963a2d90c1e73bc92644917f0ddea89736386c07073b934",
+      "output_size": [
+        960,
+        960
+      ]
+    },
+    "aztthr": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1463,
+        0.0167,
+        0.8808,
+        0.9987
+      ],
+      "file": "aztthr.jpg",
+      "source_sha": "a5bbb9c4a46080ae",
+      "output_file": "aztthr.jpg",
+      "output_sha": "52125a85285ce808ca8336a709419ca80672ed2fdae3b9c1f097d13544621012",
+      "output_size": [
+        184,
+        184
+      ]
+    },
+    "sonthr1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2194,
+        0.0029,
+        0.9793,
+        1.0028
+      ],
+      "file": "sonthr1.jpg",
+      "source_sha": "6109c7a6b9ff612e",
+      "output_file": "sonthr1.jpg",
+      "output_sha": "051d510e69cc8b74f2b1877cfe6002a8264801b6bfc530609489a21a2dc349e0",
+      "output_size": [
+        190,
+        190
+      ]
+    },
+    "eyethr": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3211,
+        0.0542,
+        0.9698,
+        0.9809
+      ],
+      "file": "eyethr.jpg",
+      "source_sha": "0641bd4d54c92ef2",
+      "output_file": "eyethr.jpg",
+      "output_sha": "83d1920ce5d6b98108fd85ac84abdedab3d75313a0783f3ba33285318e50e050",
+      "output_size": [
+        162,
+        162
+      ]
+    },
+    "dusthr1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2448,
+        0.1092,
+        0.8839,
+        0.9636
+      ],
+      "file": "dusthr1.jpg",
+      "source_sha": "3b1434b42a37332c",
+      "output_file": "dusthr1.jpg",
+      "output_sha": "9de91e3421eeee1deee266e8a894a1d3646699b3e59c1afe2eeeb3b95f49ea71",
+      "output_size": [
+        160,
+        160
+      ]
+    },
+    "rubrob": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0731,
+        0.0143,
+        0.8235,
+        0.9965
+      ],
+      "file": "rubrob.jpg",
+      "source_sha": "9ffd3fc3e98e3aa0",
+      "output_file": "rubrob.jpg",
+      "output_sha": "125a11c7e79b853223a5bed99ef6e67db5597eced65b37414a8776022879b3c7",
+      "output_size": [
+        188,
+        188
+      ]
+    },
+    "clcrob": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1494,
+        0.0009,
+        0.8108,
+        0.991
+      ],
+      "file": "clcrob.jpg",
+      "source_sha": "fd42c7ec9190d2c7",
+      "output_file": "clcrob.jpg",
+      "output_sha": "3deefa2a3f654440ff6ca6542e8b8058c6ecdcacdce7535e149572488c01b8b0",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "dasfly": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0604,
+        0.2541,
+        0.531,
+        0.8424
+      ],
+      "file": "dasfly.jpg",
+      "source_sha": "3f8619abd7411631",
+      "output_file": "dasfly.jpg",
+      "output_sha": "dbf6e97b44c9f59ddfde14c58c7fc735ce0ee33c675a14493cfaa0b8c366d1bb",
+      "output_size": [
+        118,
+        118
+      ]
+    },
+    "spofly1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0636,
+        0.0117,
+        0.7186,
+        0.9981
+      ],
+      "file": "spofly1.jpg",
+      "source_sha": "0f98510e54736df6",
+      "output_file": "spofly1.jpg",
+      "output_sha": "7883355d563b741a76a195df50aad529a5ab8dc29eda39f97576c6fe8ca9e517",
+      "output_size": [
+        164,
+        164
+      ]
+    },
+    "rtrthr1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1145,
+        0.1362,
+        0.5978,
+        0.864
+      ],
+      "file": "rtrthr1.jpg",
+      "source_sha": "a42c8b5f8d60e1e2",
+      "output_file": "rtrthr1.jpg",
+      "output_sha": "d4d0b29c7c946baf00c0696efa3f8aa4a2da683a655d663981aa5cab21dc7a7f",
+      "output_size": [
+        121,
+        121
+      ]
+    },
+    "burthr": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1272,
+        0.0068,
+        0.7854,
+        0.9922
+      ],
+      "file": "burthr.jpg",
+      "source_sha": "f35a530a502b986e",
+      "output_file": "burthr.jpg",
+      "output_sha": "ebb02d6fa9d66a10bc7e7a23dc8fc9fceba2bcec15c9c05776f043cd16915716",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "broman1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2671,
+        0.058,
+        0.8871,
+        0.9862
+      ],
+      "file": "broman1.jpg",
+      "source_sha": "687da9d799cbac23",
+      "output_file": "broman1.jpg",
+      "output_sha": "b9309fe8121a69cb7641fdc6120449ab42d1addf6a001d9fddab37c2728d3909",
+      "output_size": [
+        155,
+        155
+      ]
+    },
+    "bawman1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1367,
+        -0.0003,
+        0.8394,
+        0.9867
+      ],
+      "file": "bawman1.jpg",
+      "source_sha": "3c0daa28699ada81",
+      "output_file": "bawman1.jpg",
+      "output_sha": "8b968860ba89b4de14942f011ff1d38d28972762bb13bcca84c502fd007283bb",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "whrmun": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0509,
+        0.0045,
+        0.6995,
+        0.9755
+      ],
+      "file": "whrmun.jpg",
+      "source_sha": "d0821bef083bf2b0",
+      "output_file": "whrmun.jpg",
+      "output_sha": "c6d1e1c27d43f8fd5728297ee2fdfa54e6f47365129774b7170d5b40f471787d",
+      "output_size": [
+        162,
+        162
+      ]
+    },
+    "trimun": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0223,
+        0.1568,
+        0.9952,
+        0.8873
+      ],
+      "file": "trimun.jpg",
+      "source_sha": "b4ae14483e12e760",
+      "output_file": "trimun.jpg",
+      "output_sha": "60bb5e8ef1f7b373c616e8004d9999eb04653b7a71af931f5e73a8d8030cf4ca",
+      "output_size": [
+        243,
+        243
+      ]
+    },
+    "cutthr1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.07,
+        0.0073,
+        0.9157,
+        1.0094
+      ],
+      "file": "cutthr1.jpg",
+      "source_sha": "96378547638e3914",
+      "output_file": "cutthr1.jpg",
+      "output_sha": "7efafd072f85a6ec7b514aab2c4a67730c922234616997345e8b3fa2bc706df4",
+      "output_size": [
+        211,
+        211
+      ]
+    },
+    "reccor": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1971,
+        0.008,
+        0.849,
+        0.9838
+      ],
+      "file": "reccor.jpg",
+      "source_sha": "19813d7fb114077e",
+      "output_file": "reccor.jpg",
+      "output_sha": "9d8da251fe41b81fd0da0a24eeb31220af10b0cba769c86fcf57be9b25ebacbf",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "grwpyt1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.318,
+        0.0687,
+        0.9316,
+        0.9874
+      ],
+      "file": "grwpyt1.jpg",
+      "source_sha": "3a2507e8228e1c11",
+      "output_file": "grwpyt1.jpg",
+      "output_sha": "a00914c68a211cb071dc32292b624dddb84b4eea4c003d614144a14738eef029",
+      "output_size": [
+        153,
+        153
+      ]
+    },
+    "vilind": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2099,
+        0.0191,
+        0.8744,
+        0.9739
+      ],
+      "file": "vilind.jpg",
+      "source_sha": "2f2060c7bddd8edf",
+      "output_file": "vilind.jpg",
+      "output_sha": "e4ea0e6c6b1670242547095d5cf7ebadfba72b452395ec24a517acf2f64e44dd",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "trepip": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1399,
+        0.0152,
+        0.7917,
+        0.991
+      ],
+      "file": "trepip.jpg",
+      "source_sha": "5b0b46ac7e16ee16",
+      "output_file": "trepip.jpg",
+      "output_sha": "e0d3d533df90f5ec05a508cebe7f9f9b6384c326e8ace4fd2584de9bf53ef7c5",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "brambl": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3116,
+        0.0283,
+        0.9539,
+        0.9898
+      ],
+      "file": "brambl.jpg",
+      "source_sha": "1e08679ad8e837ab",
+      "output_file": "brambl.jpg",
+      "output_sha": "1aa6484b5d6bf8b69074f7b534c23a2407074b8c2eb8eb336667527dbb18f11b",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "hawfin": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2194,
+        0.0176,
+        0.8839,
+        1.0124
+      ],
+      "file": "hawfin.jpg",
+      "source_sha": "d0a12c8ec789ef7b",
+      "output_file": "hawfin.jpg",
+      "output_sha": "c8cbe7c58015725c212e0b080633378f7efca02cfb6c6f5c19cfefad6b7ce733",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "ou": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0159,
+        0.0122,
+        0.9889,
+        0.5942
+      ],
+      "file": "ou.jpg",
+      "source_sha": "9b839a7032a323e6",
+      "output_file": "ou.jpg",
+      "output_sha": "b0cf89bbbd9d36f6194d51a2a3724b5b75384bd776a645724e98d33530fed630",
+      "output_size": [
+        243,
+        243
+      ]
+    },
+    "akiapo": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0099,
+        0.165,
+        1.0298,
+        0.9299
+      ],
+      "file": "akiapo.jpg",
+      "source_sha": "46325e259d8e00a8",
+      "output_file": "akiapo.jpg",
+      "output_sha": "60d9a38a58c2432e62aa5e54c2fbbed88b55e9345ae01c2e138d2a5aff529704",
+      "output_size": [
+        240,
+        240
+      ]
+    },
+    "oahama": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1304,
+        0.0949,
+        0.7409,
+        1.0088
+      ],
+      "file": "oahama.jpg",
+      "source_sha": "fe965c4ec5d2888b",
+      "output_file": "oahama.jpg",
+      "output_sha": "ab055746e1aba42b74c65d3a8ec60248d064b11a9856187b60c2d64c6c8fc5a6",
+      "output_size": [
+        153,
+        153
+      ]
+    },
+    "hawcre": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0731,
+        0.0126,
+        0.7345,
+        0.9852
+      ],
+      "file": "hawcre.jpg",
+      "source_sha": "faa413740e08e3f1",
+      "output_file": "hawcre.jpg",
+      "output_sha": "35a9b382a50fcf4493924e5ba6c93e544f232b73f454ef00228bcbcb54bcd4a8",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "akekee": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1431,
+        0.0173,
+        0.8045,
+        0.9957
+      ],
+      "file": "akekee.jpg",
+      "source_sha": "60717b19de8308ff",
+      "output_file": "akekee.jpg",
+      "output_sha": "3a70ecf38493c7fe7f966a93a5c36a89fe25167201dfc713fc82c384bad82672",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "orabul1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2003,
+        0.2548,
+        0.531,
+        0.6969
+      ],
+      "file": "orabul1.jpg",
+      "source_sha": "a0888b9184559d3b",
+      "output_file": "orabul1.jpg",
+      "output_sha": "a1dfa9991d6341e0ae0f026d9b03b9ae97c8c5c5a29b5d21f529142bb91c08ca",
+      "output_size": [
+        83,
+        83
+      ]
+    },
+    "eurbul": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.124,
+        -0.0003,
+        0.8426,
+        1.0034
+      ],
+      "file": "eurbul.jpg",
+      "source_sha": "ec069dd7d61c9738",
+      "output_file": "eurbul.jpg",
+      "output_sha": "89575c4a4f3387f236abe5f16b800b0d06ace60948f2a2c1c6277ed3b106c6cc",
+      "output_size": [
+        179,
+        179
+      ]
+    },
+    "eurgol": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2957,
+        0.127,
+        0.8426,
+        0.9457
+      ],
+      "file": "eurgol.jpg",
+      "source_sha": "dee768de74444a9a",
+      "output_file": "eurgol.jpg",
+      "output_sha": "59ad48ebdd8769d476fce0639a20bded85eb8b1e42060a98194617adb6b0e778",
+      "output_size": [
+        137,
+        137
+      ]
+    },
+    "eurser1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2385,
+        0.0402,
+        0.8744,
+        0.9922
+      ],
+      "file": "eurser1.jpg",
+      "source_sha": "800b3d4bcb110d29",
+      "output_file": "eurser1.jpg",
+      "output_sha": "3cc716a286d39d897564e52f47b95ad5ee82a2949637cfa0e302d6ab8c7b2273",
+      "output_size": [
+        159,
+        159
+      ]
+    },
+    "comcan": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3561,
+        0.0723,
+        0.9571,
+        0.9719
+      ],
+      "file": "comcan.jpg",
+      "source_sha": "cdf917df879dd782",
+      "output_file": "comcan.jpg",
+      "output_sha": "6e4f065f87186ad437e22f5840215fde7232229761ee9ca2ee1186dd761109a9",
+      "output_size": [
+        150,
+        150
+      ]
+    },
+    "blhsis1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2035,
+        0.287,
+        0.5819,
+        0.8569
+      ],
+      "file": "blhsis1.jpg",
+      "source_sha": "29e58a55b5f3f4e0",
+      "output_file": "blhsis1.jpg",
+      "output_sha": "50261c4cc3c2d5a1666a66c8d962058284ccb5810cf6b76479a6eec763f6a2b6",
+      "output_size": [
+        95,
+        95
+      ]
+    },
+    "mckbun": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2734,
+        0.1878,
+        0.8744,
+        0.9955
+      ],
+      "file": "mckbun.jpg",
+      "source_sha": "1fc5ece3b84c9868",
+      "output_file": "mckbun.jpg",
+      "output_sha": "857769e3dd5e2f3248c49c8b1e7664398ec9dbe488bd4b912cfd34828d0ccda3",
+      "output_size": [
+        150,
+        150
+      ]
+    },
+    "yellow2": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2734,
+        0.1425,
+        0.8521,
+        1.0088
+      ],
+      "file": "yellow2.jpg",
+      "source_sha": "3fa475380ebb9864",
+      "output_file": "yellow2.jpg",
+      "output_sha": "dd61561e34076d36d5b1ebc950c2aa7a03f9f1cefede2761ccf0df6d07aaacc0",
+      "output_size": [
+        145,
+        145
+      ]
+    },
+    "yetbun1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0541,
+        0.0611,
+        0.5405,
+        0.7444
+      ],
+      "file": "yetbun1.jpg",
+      "source_sha": "8861b75233797b44",
+      "output_file": "yetbun1.jpg",
+      "output_sha": "4248d633fe147a02733335c5e2c6ebe128785835a66ca7ec68f6c2d122a52ef5",
+      "output_size": [
+        122,
+        122
+      ]
+    },
+    "bacspa": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1876,
+        -0.0014,
+        0.8935,
+        0.9956
+      ],
+      "file": "bacspa.jpg",
+      "source_sha": "8c4f47072c3a6404",
+      "output_file": "bacspa.jpg",
+      "output_sha": "542f21c8c2011aad24918fa39cb992b46ec7ea42545fc0bf839e624ef3b2d5f7",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "graspa": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1176,
+        -0.0003,
+        0.8617,
+        0.9839
+      ],
+      "file": "graspa.jpg",
+      "source_sha": "f2a0657b28c44ad4",
+      "output_file": "graspa.jpg",
+      "output_sha": "229eb0fd71a18eef4959f5dac6bc2f9c145abbe7aad72b003cd78fbfc08c1313",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "rucspa1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1304,
+        0.0104,
+        0.7631,
+        0.9576
+      ],
+      "file": "rucspa1.jpg",
+      "source_sha": "7a644c279b5ea7ba",
+      "output_file": "rucspa1.jpg",
+      "output_sha": "7cd276669c5ab1d8b58c93f67f263d0aa520a71894e533b4b40bc939cb2a4890",
+      "output_size": [
+        158,
+        158
+      ]
+    },
+    "swaspa": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0064,
+        0.0601,
+        1.0143,
+        0.8237
+      ],
+      "file": "swaspa.jpg",
+      "source_sha": "c838d8d464683560",
+      "output_file": "swaspa.jpg",
+      "output_sha": "a684b60dd9338ea89fc1fc1be5847e7b46b7492ccb6f15de81a00d4070967af4",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "creoro1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2417,
+        -0.0051,
+        0.9126,
+        0.9993
+      ],
+      "file": "creoro1.jpg",
+      "source_sha": "58087a01f6bb1dc7",
+      "output_file": "creoro1.jpg",
+      "output_sha": "c41dd58cdcfd5d48ea0227c29ccebcfb88174cb6821e5f51268870278b68a9a9",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "bkvori": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2162,
+        -0.0104,
+        0.9253,
+        0.9967
+      ],
+      "file": "bkvori.jpg",
+      "source_sha": "b6b37663490cf60e",
+      "output_file": "bkvori.jpg",
+      "output_sha": "8284a11fb43372a1adebe4bcdee85276e028c49e8f8ba04fd32bc850912b82b3",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "audori": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0159,
+        0.09,
+        0.9984,
+        0.9033
+      ],
+      "file": "audori.jpg",
+      "source_sha": "ea2beb280cde96e9",
+      "output_file": "audori.jpg",
+      "output_sha": "593a4c03199e3ddcdd20750eb703ca24379030937131d816400962289e5c7e16",
+      "output_size": [
+        246,
+        246
+      ]
+    },
+    "rewbla": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0127,
+        0.1721,
+        1.0111,
+        0.8377
+      ],
+      "file": "rewbla.png",
+      "source_sha": "d232096df8a017a4",
+      "output_file": "rewbla.png",
+      "output_sha": "afe4d2c6135c69674178c44edfe31ccc0d9056531e3172f58de1c93758814f83",
+      "output_size": [
+        250,
+        250
+      ]
+    },
+    "shicow": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0859,
+        0.0092,
+        0.7536,
+        1.0088
+      ],
+      "file": "shicow.jpg",
+      "source_sha": "85ef7c570239fb53",
+      "output_file": "shicow.jpg",
+      "output_sha": "b9d335dba52a5fec7744a258650014fd126e4ccc187414c426edc058ae0f41a8",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "rusbla": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0095,
+        0.008,
+        0.6709,
+        0.9981
+      ],
+      "file": "rusbla.jpg",
+      "source_sha": "6c87f7abf2848e72",
+      "output_file": "rusbla.jpg",
+      "output_sha": "aa7be9ff6bafaf42176eabe000f1ca440019234a73a58d8e4c7610d64f58aa9c",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "grtgra": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1208,
+        0.0116,
+        0.7854,
+        1.0064
+      ],
+      "file": "grtgra.jpg",
+      "source_sha": "7ed4996818b0c197",
+      "output_file": "grtgra.jpg",
+      "output_sha": "38ff7ba026760e889e4ea1fb07c046ca34abd0aef86629d9d92dc15b2640297c",
+      "output_size": [
+        166,
+        166
+      ]
+    },
+    "norwat": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0572,
+        0.0009,
+        0.7377,
+        1.0195
+      ],
+      "file": "norwat.jpg",
+      "source_sha": "a1c512e0a5962c76",
+      "output_file": "norwat.jpg",
+      "output_sha": "03062e0ad3d914aeaf1b5233daa97d521517d7e71e56c0951ff554635b91e735",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "bacwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3307,
+        0.2903,
+        0.7854,
+        0.5934
+      ],
+      "file": "bacwar.jpg",
+      "source_sha": "2d236b3f298f8c32",
+      "output_file": "bacwar.jpg",
+      "output_sha": "31d7b21457b723926ce7fdf334746afb41787c298185c410555f7e0295eca9d7",
+      "output_size": [
+        114,
+        114
+      ]
+    },
+    "swawar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.124,
+        0.1912,
+        0.6105,
+        0.9283
+      ],
+      "file": "swawar.jpg",
+      "source_sha": "4c221ff87e43e28b",
+      "output_file": "swawar.jpg",
+      "output_sha": "dbecae23cfa174736dbd0a9c112a7c5a20e1fbbdfbb26f40ea82fce4018e9d9f",
+      "output_size": [
+        122,
+        122
+      ]
+    },
+    "crcwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1399,
+        0.013,
+        0.8426,
+        0.9889
+      ],
+      "file": "crcwar.jpg",
+      "source_sha": "1d8043684cb458d8",
+      "output_file": "crcwar.jpg",
+      "output_sha": "9559e0d8a0e4714914d7bd46f35e423f96d6bf4645cab7bb2727649c920dca86",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "colwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.3021,
+        0.2306,
+        0.7599,
+        0.916
+      ],
+      "file": "colwar.jpg",
+      "source_sha": "609e353635da79d1",
+      "output_file": "colwar.jpg",
+      "output_sha": "d7e71101188b83f1175e61006d69250d16b7d9639dc5936aec97140c16ea9638",
+      "output_size": [
+        114,
+        114
+      ]
+    },
+    "kenwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2862,
+        0.0342,
+        0.9285,
+        0.9957
+      ],
+      "file": "kenwar.jpg",
+      "source_sha": "11c4e2ec0cc3ee6c",
+      "output_file": "kenwar.jpg",
+      "output_sha": "e9473770c24d508cecbd9013b6c9aab432cef8ca14e21dbdf5b31478c9b7e62e",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "camwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1399,
+        0.1425,
+        0.7059,
+        0.9898
+      ],
+      "file": "camwar.jpg",
+      "source_sha": "73e8b825c12cd771",
+      "output_file": "camwar.jpg",
+      "output_sha": "adb2fab01b186c52815e7ca0373f02257197bd34acffec8c8b1733cf2951f15d",
+      "output_size": [
+        141,
+        141
+      ]
+    },
+    "cerwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.0922,
+        0.0297,
+        0.8839,
+        0.9905
+      ],
+      "file": "cerwar.jpg",
+      "source_sha": "c33eecb161ebdcd1",
+      "output_file": "cerwar.jpg",
+      "output_sha": "f0aa13ca34629e881509c672e066c8e7bfb202bebe3cdc2e2a1aafe8749a5c4d",
+      "output_size": [
+        198,
+        198
+      ]
+    },
+    "tropar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.07,
+        0.0075,
+        0.7949,
+        1.02
+      ],
+      "file": "tropar.jpg",
+      "source_sha": "bc1c2c16ffbed87b",
+      "output_file": "tropar.jpg",
+      "output_sha": "b2a1144fa6cc3d5688be892cdba9889105ba48236264437bbec382b09ddd184a",
+      "output_size": [
+        179,
+        179
+      ]
+    },
+    "babwar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.2703,
+        0.0021,
+        0.9157,
+        0.9684
+      ],
+      "file": "babwar.jpg",
+      "source_sha": "009de0345abd1b5b",
+      "output_file": "babwar.jpg",
+      "output_sha": "4a986ed677cb059af58f7c3a6ef8ae1b58505f54e3f5fb08f7bb22c01622c9e3",
+      "output_size": [
+        161,
+        161
+      ]
+    },
+    "manwar1": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1176,
+        0.0135,
+        0.8426,
+        0.9827
+      ],
+      "file": "manwar1.jpg",
+      "source_sha": "a9bc162fb595971e",
+      "output_file": "manwar1.jpg",
+      "output_sha": "d1ca8bd5c39645bd17e36f188cf5276fd3b8761719cb761c446b2d23219adad4",
+      "output_size": [
+        181,
+        181
+      ]
+    },
+    "pinwar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1049,
+        -0.0003,
+        0.8076,
+        0.9867
+      ],
+      "file": "pinwar.jpg",
+      "source_sha": "506dc66fe8faa00f",
+      "output_file": "pinwar.jpg",
+      "output_sha": "ca1bc2c9e093b7bbef974b02b692f6e645c2cba7fbe7a0f259016cb33e0015b5",
+      "output_size": [
+        176,
+        176
+      ]
+    },
+    "fatwar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.2289,
+        0.0092,
+        0.8871,
+        0.9945
+      ],
+      "file": "fatwar.jpg",
+      "source_sha": "54a90e95dc60d262",
+      "output_file": "fatwar.jpg",
+      "output_sha": "6e3e4611bae5be684c0dcd7c8b6ad33d08e3bb6a05c2fb55c2654017c49b0149",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "gcrwar": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1272,
+        -0.0015,
+        0.7981,
+        1.0029
+      ],
+      "file": "gcrwar.jpg",
+      "source_sha": "436da666c14c62a5",
+      "output_file": "gcrwar.jpg",
+      "output_sha": "4166c152b54822a27e2f6ecce2b51c37b049e52e954dce99888f4bba59d0f43a",
+      "output_size": [
+        167,
+        167
+      ]
+    },
+    "flctan": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1463,
+        -0.0024,
+        0.8903,
+        0.9923
+      ],
+      "file": "flctan.jpg",
+      "source_sha": "d293c30bc10c8f7f",
+      "output_file": "flctan.jpg",
+      "output_sha": "1f7a1364359b7dea17285adff062d7f1137ace0cd27ba11ec06abce70a73ab0a",
+      "output_size": [
+        186,
+        186
+      ]
+    },
+    "pyrrhu": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1431,
+        0.0049,
+        0.9094,
+        1.0027
+      ],
+      "file": "pyrrhu.jpg",
+      "source_sha": "025683f380dfe181",
+      "output_file": "pyrrhu.jpg",
+      "output_sha": "405e35e45f3095c171a67a899b9ed492fb558d05c2c222580c3b2c87c1854dac",
+      "output_size": [
+        192,
+        192
+      ]
+    },
+    "yebcar": {
+      "verdict": "ZOOM IN",
+      "box": [
+        0.1272,
+        -0.0015,
+        0.779,
+        0.9743
+      ],
+      "file": "yebcar.jpg",
+      "source_sha": "62db2497c607ee18",
+      "output_file": "yebcar.jpg",
+      "output_sha": "4f5671c34f49cae20fbabea73cf7572a0e77e25e012fe7c8aaebfa0968c6a985",
+      "output_size": [
+        163,
+        163
+      ]
+    },
+    "whltan1": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1781,
+        0.0021,
+        0.8362,
+        0.9874
+      ],
+      "file": "whltan1.jpg",
+      "source_sha": "4da97870d57b1964",
+      "output_file": "whltan1.jpg",
+      "output_sha": "e764baa4a9bf9ceaaa22930c901dad045c27c3ebbc0ee18a6a0146c583dd31bf",
+      "output_size": [
+        165,
+        165
+      ]
+    },
+    "sibtan2": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.0827,
+        0.0054,
+        0.7886,
+        1.0138
+      ],
+      "file": "sibtan2.jpg",
+      "source_sha": "ecdba6613a58d2e8",
+      "output_file": "sibtan2.jpg",
+      "output_sha": "5db7456af978f80248f3bfa69842254d536e435266654da9791313c6eee529ed",
+      "output_size": [
+        175,
+        175
+      ]
+    },
+    "bugtan": {
+      "verdict": "CROPPER CAN DO THIS",
+      "box": [
+        0.1145,
+        -0.0003,
+        0.8331,
+        1.0034
+      ],
+      "file": "bugtan.png",
+      "source_sha": "e2bfc8cbeeaa2fa0",
+      "output_file": "bugtan.png",
+      "output_sha": "f42c759bc337a07107e620f4c49d2aa1dddbae0421bcf41060b35ea9343d0706",
+      "output_size": [
+        179,
+        179
+      ]
+    }
+  }
+}

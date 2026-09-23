@@ -3683,7 +3683,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.124.0';
+      var APP_VERSION = '1.125.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9434,7 +9434,7 @@
           function renderPlace(p, i) {
             return hotspotCard({
               n: i + 1, locId: p.locId, locName: p.locName, lat: p.lat, lng: p.lng,
-              distMi: p.distMi,
+              distMi: c.distMi == null ? p.distMi : c.distMi,
               facts: [
                 p.anchor ? anchorNote(p.anchor).trim() : '',
                 p.species.length + ' unseen bird' + (p.species.length === 1 ? '' : 's'),
@@ -9768,8 +9768,10 @@
               distMi: p.distMi,
               // Still one tap to "take me there" — the pin used to hang off
               // the place heading, which no longer exists.
-              map: mapPin(p.lat, p.lon),
-              distQ: distQ(p.lat, p.lon),
+              map: mapPin(c.lat == null ? p.lat : c.lat,
+                c.lon == null ? p.lon : c.lon),
+              distQ: distQ(c.lat == null ? p.lat : c.lat,
+                c.lon == null ? p.lon : c.lon),
               data: {
                 'ev-sub': c.subId || '',
                 'ev-checklist-only': '1'
@@ -26696,7 +26698,18 @@
           d.siteDays[day + '|' + loc] = 1;
           if ((o.obsDt || '') > d.latest) d.latest = o.obsDt || '';
           if (loc) {
-            var s = d.spots[loc] || (d.spots[loc] = { locId: loc, name: o.locName || loc, lat: +o.lat, lng: +o.lng, when: '', sub: '' });
+            var s = d.spots[loc] || (d.spots[loc] = {
+              locId: loc, name: o.locName || loc, lat: +o.lat, lng: +o.lng,
+              when: '', sub: '', checklists: []
+            });
+            if (o.subId && !s.checklists.some(function (c) {
+              return c.subId === o.subId;
+            })) {
+              s.checklists.push({
+                subId: o.subId, dateStr: o.obsDt || '',
+                lat: +o.lat, lng: +o.lng
+              });
+            }
             if ((o.obsDt || '') > s.when) { s.when = o.obsDt || ''; s.sub = o.subId || ''; }
           }
         });
@@ -26715,6 +26728,10 @@
           var spots = Object.keys(d.spots).map(function (k) { return d.spots[k]; });
           spots.forEach(function (s) {
             s.mi = (home && isFinite(s.lat) && isFinite(s.lng)) ? haversineMi(home.lat, home.lng, s.lat, s.lng) : null;
+            (s.checklists || []).forEach(function (c) {
+              c.mi = (home && isFinite(c.lat) && isFinite(c.lng))
+                ? haversineMi(home.lat, home.lng, c.lat, c.lng) : null;
+            });
           });
           spots.sort(function (a, b) { return (a.mi == null ? 1e9 : a.mi) - (b.mi == null ? 1e9 : b.mi); });
           rows.push({
@@ -26818,28 +26835,54 @@
         (spots || []).forEach(function (s) {
           var k = locNameKey(s.name) || s.locId || (s.lat + ',' + s.lng);
           var p = byName[k];
+          var checklists = (s.checklists && s.checklists.length)
+            ? s.checklists.map(function (c) {
+                return {
+                  subId: c.subId || '', dateStr: c.dateStr || s.when,
+                  lat: c.lat, lon: c.lng, distMi: c.mi
+                };
+              })
+            : (s.sub ? [{
+                subId: s.sub, dateStr: s.when,
+                lat: s.lat, lon: s.lng, distMi: s.mi
+              }] : []);
           if (!p) {
             p = byName[k] = {
               loc: s.name, locId: s.locId, lat: s.lat, lon: s.lng,
               distMi: s.mi, dateStr: s.when, nReports: 1, anyUnconfirmed: false,
-              checklists: s.sub ? [{ subId: s.sub, dateStr: s.when }] : []
+              checklists: checklists
             };
             out.push(p);
             return;
           }
           p.nReports++;
-          if (s.sub && !p.checklists.some(function (c) { return c.subId === s.sub; })) {
-            p.checklists.push({ subId: s.sub, dateStr: s.when });
-          }
+          checklists.forEach(function (c) {
+            if (!c.subId || p.checklists.some(function (old) {
+              return old.subId === c.subId;
+            })) return;
+            p.checklists.push(c);
+          });
           if (String(s.when || '') > String(p.dateStr || '')) { p.dateStr = s.when; }
           if (s.mi != null && (p.distMi == null || s.mi < p.distMi)) p.distMi = s.mi;
         });
         out.forEach(function (p) {
           p.checklists.sort(function (a, b) {
+            if (_easySort === 'dist') {
+              var da = a.distMi == null ? Infinity : a.distMi;
+              var db = b.distMi == null ? Infinity : b.distMi;
+              return (da - db)
+                || String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+            }
             return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
           });
         });
         out.sort(function (a, b) {
+          if (_easySort === 'dist') {
+            var da = a.distMi == null ? Infinity : a.distMi;
+            var db = b.distMi == null ? Infinity : b.distMi;
+            return (da - db)
+              || String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+          }
           return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
         });
         return out;

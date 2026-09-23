@@ -4277,8 +4277,9 @@ test('the Go birding anchor now covers seven sections, and rank from it', async 
   // F241: Nemesis birds' own spot distances now follow the same chosen point,
   // not always the house — the one piece of these two sections' OWN ranking
   // (as opposed to the Find-triggered scout box) that this feature touches.
-  const em = HTML.slice(HTML.indexOf('function computeEasyMisses('),
-    HTML.indexOf('function computeEasyMisses(') + 1400);
+  const easyStart = HTML.indexOf('function computeEasyMisses(');
+  const em = HTML.slice(easyStart,
+    HTML.indexOf('// ONE renderer for "a species, and the places it has been"', easyStart));
   assert.match(em, /anchorPoint\(\)/,
     'computeEasyMisses reads the chosen anchor, so Here/Home genuinely '
     + 'change something rather than the switch being decorative');
@@ -5608,6 +5609,53 @@ test('Easy misses maps its spots onto the shared place shape', async () => {
   assert.equal(places[0].checklists.length, 2, 'both checklists kept');
   assert.equal(places[0].checklists[0].subId, 'S2', 'newest checklist first');
   assert.equal(places[0].dateStr, '2026-07-31 15:40', 'the place is dated by its freshest report');
+  app.window.close();
+});
+
+test('F488 Common birds applies the selected sort to hotspots and checklists', async () => {
+  const app = await boot({
+    storage: { ebird_home_lat: '47.60', ebird_home_lng: '-122.10' },
+  });
+  const A = app.window.__app;
+  const spots = [
+    {
+      locId: 'LFAR', name: 'Far Point', lat: 47.90, lng: -122.40,
+      when: '2026-09-22 12:00', mi: 25,
+      checklists: [
+        { subId: 'FNEW', dateStr: '2026-09-22 12:00', lat: 47.90, lng: -122.40, mi: 25 },
+        { subId: 'FNEAR', dateStr: '2026-09-20 12:00', lat: 47.80, lng: -122.30, mi: 18 },
+      ],
+    },
+    {
+      locId: 'LNEAR', name: 'Near Point', lat: 47.61, lng: -122.11,
+      when: '2026-09-20 12:00', mi: 1,
+      checklists: [
+        { subId: 'NOLD', dateStr: '2026-09-18 12:00', lat: 47.62, lng: -122.12, mi: 2 },
+        { subId: 'NNEW', dateStr: '2026-09-20 12:00', lat: 47.63, lng: -122.13, mi: 3 },
+      ],
+    },
+  ];
+
+  A.setEasySort('dist');
+  let places = A.easySpotsToPlaces(spots);
+  assert.equal(places.map((p) => p.loc).join('|'), 'Near Point|Far Point',
+    'Distance sorts hotspots nearest first');
+  assert.equal(places[0].checklists.map((c) => c.subId).join('|'), 'NOLD|NNEW',
+    'Distance sorts a hotspot checklist list nearest first');
+
+  A.setEasySort('date');
+  places = A.easySpotsToPlaces(spots);
+  assert.equal(places.map((p) => p.loc).join('|'), 'Far Point|Near Point',
+    'Date sorts hotspots newest first');
+  assert.equal(places[1].checklists.map((c) => c.subId).join('|'), 'NNEW|NOLD',
+    'Date sorts a hotspot checklist list newest first');
+
+  A.setEasySort('freq');
+  places = A.easySpotsToPlaces(spots);
+  assert.equal(places.map((p) => p.loc).join('|'), 'Far Point|Near Point',
+    'Commonest keeps nested hotspots newest first');
+  assert.equal(places[1].checklists.map((c) => c.subId).join('|'), 'NNEW|NOLD',
+    'Commonest keeps nested checklists newest first');
   app.window.close();
 });
 

@@ -280,6 +280,8 @@ OVERRIDES = {
 # source-edge feathers and bills visibly clear at the 56px card size without
 # introducing the flat grey bars that originally prompted square assets.
 FIT_OVERRIDES = {
+    'eskcur.jpg',
+    'leastp2.jpg',
     'dunlin.png',
     'cubthr.jpg',
     'norcar.jpg',
@@ -300,11 +302,20 @@ FIT_OVERRIDES = {
     'rocpig.jpg',
 }
 
+# Crop museum framing before the contain-with-backdrop treatment. The source
+# remains the exact attributed specimen image; this only removes the ruler and
+# labels below the Ainley's Storm-Petrel before making its square.
+FIT_CROP_OVERRIDES = {
+    'leastp2.jpg': (0.0, 0.035, 1.0, 0.595),
+}
+
 
 # Fingerprint of the SOURCE each override was drawn against, so a changed photo
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    'eskcur.jpg': '2c5423fe92bb7751',
+    'leastp2.jpg': 'e2709ff6931a7491',
     # ---- pinned 2026-08-28, retrospectively ---------------------------
     # ⚠️ These four carried an override and NO fingerprint, which is the
     # very hazard this table exists to stop: the override would have
@@ -402,7 +413,31 @@ OVERRIDE_SRC_SHA = {
     'chukar.jpg': 'b58e9b28ee9e7bfe',
     'woothr.jpg': 'd08e0ac1b2370b00',
     'yetvir.jpg': '1e68afb5315cea89',
+    # F486: reviewed single-bird photograph replacing the Crossley composite.
+    'blksco2.jpg': '732dcd24e999606c',
 }
+
+
+def load_f479_crops():
+    """Load owner-drawn F479 boxes and source pins."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'f479-crops.json')
+    if not os.path.exists(path):
+        return
+    with open(path, encoding='utf-8') as handle:
+        cases = json.load(handle)['cases']
+    for case in cases.values():
+        name = case['file']
+        OVERRIDE_SRC_SHA[name] = case['source_sha']
+        if case.get('use_slide'):
+            OVERRIDES[name] = case['slide']
+        elif case['verdict'] == 'DOES NOT FIT':
+            FIT_OVERRIDES.add(name)
+        else:
+            OVERRIDES[name] = tuple(case['box'])
+
+
+load_f479_crops()
 
 
 def stale_overrides(src_dir):
@@ -783,14 +818,26 @@ def process(path, out_dir, dry=False):
         im = im.convert('RGB') if im.mode not in ('RGB', 'L') else im
         w, h = im.size
         name = os.path.basename(path)
+        stem, extension = os.path.splitext(name)
+        output_name = stem + ('.jpg' if extension.lower() == '.jpeg'
+                              else extension.lower())
+        output_path = os.path.join(out_dir, output_name)
         if name in FIT_OVERRIDES:
+            fit_image = im
+            if name in FIT_CROP_OVERRIDES:
+                left, top, right, bottom = FIT_CROP_OVERRIDES[name]
+                fit_image = im.crop((
+                    int(round(left * w)), int(round(top * h)),
+                    int(round(right * w)), int(round(bottom * h))))
             if not dry:
-                fit_square(im).save(os.path.join(out_dir, name),
-                                    quality=88, optimize=True)
+                fit_square(fit_image).save(
+                    output_path, quality=88, optimize=True)
             return {'file': name, 'already_square': False, 'fit': True,
                     'head_cut': 0.0, 'tail_cut': 0.0, 'kept': 1.0,
                     'size': [w, h], 'box': [0, 0, w, h]}
         if abs(w - h) <= 1:
+            if not dry and not os.path.exists(output_path):
+                im.save(output_path, quality=88, optimize=True)
             return {'file': name, 'already_square': True,
                     'head_cut': 0.0, 'tail_cut': 0.0, 'kept': 1.0}
         a = analyse(im)
@@ -798,7 +845,7 @@ def process(path, out_dir, dry=False):
         head_cut, tail_cut = crop_loss(w, h, box, a)
         kept = energy_kept(im, box)
         if not dry:
-            im.crop(box).save(os.path.join(out_dir, name),
+            im.crop(box).save(output_path,
                               quality=88, optimize=True)
     return {'file': name, 'already_square': False,
             'head_cut': round(head_cut, 3), 'tail_cut': round(tail_cut, 3),

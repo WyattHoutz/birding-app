@@ -56,7 +56,109 @@ function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-test('F376 five reviewed bird crops stay pinned to their approved sources and squares', () => {
+test('F486 Black Scoter uses the reviewed single-bird photograph', () => {
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  const credits = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+
+  assert.match(pins,
+    /['"]blksco2\.jpg['"]\s*:\s*['"]732dcd24e999606c['"]/,
+    'Black Scoter is not pinned to the reviewed single-bird source');
+  assert.match(credits,
+    /\| `blksco2` \| Black Scoter, Barnegat Inlet N\.J\. \| Peter Massas \| CC BY-SA 2\.0 \|/,
+    'Black Scoter lost the reviewed photographer or licence');
+  assert.match(credits, /Melanitta_americana_Barnegat_NJ\.jpg/,
+    'Black Scoter lost the reviewed Wikimedia source');
+  assert.doesNotMatch(credits,
+    /Black_Scoter_From_The_Crossley_ID_Guide_Eastern_Birds/,
+    'the rejected multi-bird Crossley composite returned');
+
+  const output = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'blksco2.jpg'));
+  assert.deepEqual(jpegSize(output), { w: 700, h: 700 },
+    'Black Scoter was not regenerated from the reviewed photograph');
+  assert.equal(sha256Hex(output),
+    'eb3d48a296964de95327390ccbbd5f12d85a1bfba3c6c7e9cbc4d0be02f1d197',
+    'Black Scoter no longer matches the visually reviewed square');
+});
+
+test('F480 and F481 replace ABA distribution maps with reviewed bird images', () => {
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  const fits = CROPPER.match(/^FIT_OVERRIDES = \{([\s\S]*?)^\}/m)[1];
+  const credits = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+  const cases = [
+    {
+      code: 'eskcur',
+      pin: '2c5423fe92bb7751',
+      output: '73b823ce1f5b059c45bc56c9c488a453f23af0d892f063ef0edf83830ad823dc',
+      credit: /\| `eskcur` \| Eskimo Curlew \| Archibald Thorburn \| Public domain \|/,
+      source: /File:Numenius_borealis\.jpg/,
+    },
+    {
+      code: 'leastp2',
+      pin: 'e2709ff6931a7491',
+      output: '67066ab02620ddcc2da0a98a20d8c4213f93fad9802da56415e6bce8ada2c9ff',
+      credit: /\| `leastp2` \| Ainley's Storm-Petrel specimen \| Katie Sayers \| CC0 \|/,
+      source: /occurrence\/1319132502/,
+    },
+  ];
+  for (const item of cases) {
+    assert.match(pins,
+      new RegExp(`['"]${item.code}\\.jpg['"]\\s*:\\s*['"]${item.pin}['"]`),
+      `${item.code} is not pinned to its reviewed bird source`);
+    assert.match(fits, new RegExp(`['"]${item.code}\\.jpg['"]`),
+      `${item.code} can return to a subject-cutting ordinary square crop`);
+    assert.match(credits, item.credit,
+      `${item.code} lost its reviewed creator or licence`);
+    assert.match(credits, item.source,
+      `${item.code} lost its reviewed source`);
+    const output = fs.readFileSync(
+      path.join(ROOT, 'www', 'assets', 'birds', `${item.code}.jpg`));
+    const size = imageSize(output);
+    assert.equal(size.w, size.h, `${item.code} is not square`);
+    assert.equal(sha256Hex(output), item.output,
+      `${item.code} no longer matches its reviewed bird square`);
+    assert.equal(fs.existsSync(
+      path.join(ROOT, 'www', 'assets', 'birds', `${item.code}.png`)), false,
+    `${item.code} retained the rejected map alias`);
+  }
+  assert.doesNotMatch(credits, /Oceanodroma_cheimomnestes_dist\.png/,
+    "Ainley's distribution map returned to the credits");
+});
+
+test('F479 all owner-drawn ABA crops stay pinned to reviewed outputs', () => {
+  const review = JSON.parse(fs.readFileSync(
+    path.join(ROOT, 'assets', 'f479-crops.json'), 'utf8'));
+  const cases = Object.entries(review.cases);
+  assert.equal(cases.length, 213,
+    'F479 must retain every owner-drawn crop except separately replaced blksco2');
+  assert.equal(Object.hasOwn(review.cases, 'blksco2'), false,
+    'Black Scoter is a source replacement guarded by F486, not a crop override');
+
+  for (const [code, item] of cases) {
+    assert.match(item.file, /\.(?:jpe?g|png)$/i,
+      `${code} has no pinned source filename`);
+    assert.match(item.source_sha, /^[0-9a-f]{16}$/,
+      `${code} has no pinned source SHA`);
+    assert.match(item.output_sha, /^[0-9a-f]{64}$/,
+      `${code} has no pinned output SHA`);
+    assert.equal(item.output_size.length, 2,
+      `${code} has no measured output size`);
+    assert.equal(item.output_size[0], item.output_size[1],
+      `${code} output is not square`);
+
+    const output = fs.readFileSync(
+      path.join(ROOT, 'www', 'assets', 'birds', item.output_file));
+    assert.deepEqual(imageSize(output),
+      { w: item.output_size[0], h: item.output_size[1] },
+      `${code} no longer has its reviewed square dimensions`);
+    assert.equal(sha256Hex(output), item.output_sha,
+      `${code} no longer matches the owner's reviewed square`);
+  }
+});
+
+test('F376 reviewed bird crops not superseded by F479 stay pinned', () => {
   const overrides = tableBody('OVERRIDES');
   const pins = tableBody('OVERRIDE_SRC_SHA');
   const credits = fs.readFileSync(
@@ -77,14 +179,6 @@ test('F376 five reviewed bird crops stay pinned to their approved sources and sq
       dimensions: { w: 853, h: 853 },
       outputSha: 'dcb2ed489cb372d8c7cc212ed8becce7404bdb3649ba8cfcf5dadc95190e6927',
       credit: /Red_junglefowl_%28Gallus_gallus%29_Rarotonga\.jpg/,
-    },
-    {
-      file: 'pibgre.jpg',
-      override: /['"]pibgre\.jpg['"]\s*:\s*0\.80\b/,
-      sourcePin: '549b13d63ff69da7',
-      dimensions: { w: 768, h: 768 },
-      outputSha: '97e70397eb16327812700e74d176efc72a4f56d2da30304879a1fc69d78c67ea',
-      credit: /Podilymbus-podiceps-001\.jpg/,
     },
     {
       file: 'wetshe.jpg',
