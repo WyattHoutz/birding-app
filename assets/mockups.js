@@ -251,7 +251,7 @@ const REVIEW_SHOTS = [
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-compact',
       '#spLookupRecent .spLookupPlaceList .hscard-sm',
       '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
-      '#spLookupDetails[aria-pressed="false"]',
+      '#spLookupCompact[aria-pressed="true"]',
       '#spLookupNotes[aria-pressed="false"]',
       '#spLookupDetailsContent[hidden]'],
     prep: `var anchor = document.getElementById('spLookupBtn');
@@ -264,7 +264,7 @@ const REVIEW_SHOTS = [
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
       '#spLookupResults .bcbody .bcname',
       '#spLookupResults .bchero',
-      '#spLookupDetails[aria-pressed="true"]',
+      '#spLookupCompact[aria-pressed="false"]',
       '#spLookupNotes[aria-pressed="true"]',
       '#spLookupDetailsContent:not([hidden])',
       '#spLookupRecent .spLookupPlaceList .cklcard-sm',
@@ -1594,10 +1594,9 @@ const BOOTSTRAP = `
         ]));
         A.renderWatch();
         var scopeButtons = document.querySelectorAll('#nvScope .nvscopebtn');
-        if (scopeButtons.length !== 2
-            || scopeButtons[0].textContent.trim() !== 'This region'
+        if (scopeButtons.length !== 1
+            || scopeButtons[0].textContent.trim() !== 'Region'
             || scopeButtons[0].getAttribute('aria-pressed') !== 'true'
-            || scopeButtons[1].textContent.trim() !== 'All'
             || !/Baird's Sandpiper/.test(host.textContent)
             || /Hawaii Amakihi/.test(host.textContent)
             || !/1 of 2 species awaiting verification/.test(

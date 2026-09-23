@@ -756,6 +756,23 @@
       cursor: pointer; }
     .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink);
       text-decoration: underline; text-underline-offset: 3px; }
+    .twopill > .sortbtn[aria-pressed="true"]::after {
+      content: " ✓"; font-weight: 900; text-decoration: none; }
+    .twopill { width: max-content; max-width: 100%; flex: 0 0 auto; }
+    .twopill > .sortbtn { flex: 0 0 auto; min-height: 44px; }
+    .pressbtn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      width: max-content; max-width: 100%; flex: 0 0 auto;
+      min-height: 44px;
+      border: 1px solid var(--line); border-radius: var(--btn-radius-pill);
+      background: var(--card); color: var(--muted); font-weight: 800; }
+    .pressbtn[aria-pressed="true"] {
+      border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+    .pressbtn[aria-pressed="true"]::after { content: " ✓"; font-weight: 900; }
+    .pressbtn[aria-pressed="true"] .presslabel {
+      text-decoration: underline; text-decoration-thickness: 2px;
+      text-underline-offset: 3px; }
+    .pressicon { line-height: 1; flex: 0 0 auto; }
     /* F180. Sort is one question; the two filters are another row. Keeping
        them separate lets a 402px card breathe, while flex-wrap still protects
        the narrowest large-text layout. All three use the established chip
@@ -1410,30 +1427,29 @@
     .megaorigin .stakeflag { margin: 0; white-space: nowrap; }
     .megahistory:empty, .megawiki:empty { display: none; }
     .megareports { margin-bottom: 12px; }
-    .stakeoutPlaceDetails { margin: 8px 0 2px 44px; }
+    .stakeoutPlaceDetails { margin: 8px 0 2px; }
     .stakeoutPlaceChecklists { margin: 0; }
+    #spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm::before {
+      color: #000000;
+      font-size: calc(20px * var(--s));
+      font-weight: 800;
+    }
     .stakeoutPlaceHistory { margin-top: 8px; }
     .stakeoutHistoryStatus { font-size: calc(12px * var(--s)); color: var(--muted);
                              margin: 5px 0; }
     .stakeoutcklmeta { margin: 4px 0; font-size: calc(12px * var(--s));
                        color: var(--muted); font-weight: 700; }
-    @media (max-width: 360px) {
-      .stakeoutPlaceDetails { margin-left: 0; }
-    }
     #spLookupResults.stakeoutSpeciesCard-compact > li > .name > .thumb {
       width: 64px;
       height: 76px;
       flex-basis: 64px;
       border-radius: 10px;
     }
-    #spLookupResults.stakeoutSpeciesCard-compact > li > .name > .spprimary {
-      grid-column: 2 / 4;
-      grid-row: 2;
-      align-self: start;
-      justify-self: end;
-      padding: 12px 0 0;
+    #spLookupResults.stakeoutSpeciesCard-compact .spLookupWatchlist {
+      min-width: 88px;
+      line-height: 1.05;
+      text-align: center;
     }
-    #spLookupResults.stakeoutSpeciesCard-compact > li > .meta { grid-row: 3; }
     .stakeoutSpeciesActions { display: flex; flex-wrap: wrap; gap: 8px;
                               margin-top: 12px; }
     .stakeoutSpeciesActions button { min-height: 44px; }
@@ -1444,9 +1460,6 @@
     .spLookupControlBar > button { min-height: 0; padding: 5px 10px;
                                    font-size: calc(12px * var(--s)); line-height: 1; }
     .spLookupControlBar > button { border-radius: var(--btn-radius-pill); }
-    .spLookupControlBar > button[aria-pressed="true"] {
-      background: var(--accent); color: var(--accent-ink); }
-    .spLookupControlBar > button[aria-pressed="true"]::after { content: " ✓"; }
     .spLookupRecent > h3, .spLookupDetailsContent > h3 { margin: 14px 0 6px; }
     .spLookupDetailsContent[hidden], .spLookupRecent:empty { display: none; }
     .spLookupIconicSection .hscard-sm .hsdist {
@@ -2742,7 +2755,9 @@
         <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
         <button id="spCodesByCode" class="secondary" type="button" aria-pressed="false">A–Z by code</button>
         <button id="spCodesByCommon" class="secondary" type="button" aria-pressed="false">Most reported</button>
-        <button id="spCodesAll" class="secondary" type="button" aria-pressed="false" hidden>Show all</button>
+        <button id="spCodesAll" class="pressbtn" type="button" aria-pressed="false"
+                aria-label="Rare birds" hidden><span class="pressicon"
+                aria-hidden="true">⭐</span><span class="presslabel">Rare birds</span></button>
       </div>
       <div id="spCodesStatus" class="status" hidden></div>
       <ul id="spCodesList" class="obs picklist" hidden></ul>
@@ -2752,30 +2767,25 @@
       <div id="spLookupQueryHelp"></div>
       <div id="spLookupMap"></div>
       <div class="spLookupControlBar" id="spLookupSortRow" hidden>
-        <span class="sortpick">
-          <button id="spLookupByDate" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by date, newest first">🗓 Date</button>
-          <button id="spLookupByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
+        <span class="sortpick twopill" role="group" aria-label="Sort Stakeout reports">
+          <button id="spLookupByDate" class="sortbtn" type="button" aria-pressed="true" aria-label="Sort by date, newest first">🗓 Date</button>
+          <button id="spLookupByDist" class="sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
         </span>
-        <span class="sortpick">
-          <button id="spLookupWithinChase" class="secondary sortbtn" type="button"
-                  aria-pressed="true" aria-label="Show places within the chase distance">40 mi</button>
-          <button id="spLookupStatewide" class="secondary sortbtn" type="button"
-                  aria-pressed="false" aria-label="Show statewide evidence">Statewide</button>
+        <span class="sortpick twopill" role="group" aria-label="Choose Stakeout range">
+          <button id="spLookupWithinChase" class="sortbtn" type="button"
+                  aria-pressed="true" aria-label="Show places within 40 miles">40mi</button>
+          <button id="spLookupStatewide" class="sortbtn" type="button"
+                  aria-pressed="false" aria-label="Show all statewide evidence">All</button>
         </span>
-        <span class="sortpick">
-          <button id="spLookupCompact" class="secondary sortbtn" type="button"
-                  aria-pressed="true">Compact</button>
-          <button id="spLookupDetails" class="secondary sortbtn" type="button"
-                  aria-pressed="false">Details</button>
-        </span>
-        <button id="spLookupNotes" class="secondary" type="button"
-                aria-pressed="false">💬 Notes</button>
-        <span class="sortpick">
-          <button id="spLookupList" class="secondary sortbtn" type="button"
-                  aria-pressed="false">List</button>
-          <button id="spLookupGroup" class="secondary sortbtn" type="button"
-                  aria-pressed="true">Group</button>
-        </span>
+        <button id="spLookupCompact" class="pressbtn" type="button"
+                aria-pressed="true"><span class="pressicon" aria-hidden="true">▣</span><span
+                class="presslabel">Compact</span></button>
+        <button id="spLookupNotes" class="pressbtn" type="button"
+                aria-pressed="false"><span class="pressicon" aria-hidden="true">💬</span><span
+                class="presslabel">Notes</span></button>
+        <button id="spLookupGroup" class="pressbtn" type="button"
+                aria-pressed="true"><span class="pressicon" aria-hidden="true">▦</span><span
+                class="presslabel">Group</span></button>
       </div>
       <ul id="spLookupResults" class="obs card-md"></ul>
       <div id="spLookupRecent" class="spLookupRecent"></div>
@@ -2885,8 +2895,9 @@
       <div id="recentFilters"></div>
       <div class="row">
         <button id="recentBtn">Load recent checklists</button>
-        <button id="recentDetailsBtn" class="secondary" type="button"
-                aria-pressed="false">Show unseen birds</button>
+        <button id="recentDetailsBtn" class="pressbtn" type="button"
+                aria-pressed="false" aria-label="Unseen birds"><span class="pressicon"
+                aria-hidden="true">🔍</span><span class="presslabel">Unseen birds</span></button>
       </div>
       <div id="recentStatus" class="status">Recent checklists from the selected county feeds; the first 100 are shown initially.</div>
       <div id="recentMap"></div>
@@ -3095,8 +3106,10 @@
         <button id="iconicBtn">Scan hotspots near home</button>
       </div>
       <div class="row" id="iconicSortRow" hidden>
-        <button id="iconicByBird" class="secondary" type="button" aria-pressed="true">By bird</button>
-        <button id="iconicByPlace" class="secondary" type="button" aria-pressed="false">By place</button>
+        <span class="sortpick twopill" role="group" aria-label="Choose Iconic Patches view">
+          <button id="iconicByBird" class="sortbtn" type="button" aria-pressed="true">Bird</button>
+          <button id="iconicByPlace" class="sortbtn" type="button" aria-pressed="false">Patch</button>
+        </span>
       </div>
       <div id="iconicStatus" class="status">Which places near you are unusually good for a particular bird — the signal eBird calls Iconic Birds. Needs your Home location.</div>
       <div id="iconicResults"></div>
@@ -10263,22 +10276,13 @@
       }
 
       function spuhViewToggleHtml() {
-        return ToggleControls.group({
+        return ToggleControls.pressed({
           id: 'spuhViewPick',
           cls: 'spuhviewpick',
-          label: 'Taxonomic hierarchy view',
-          options: [
-            {
-              label: 'Condensed',
-              pressed: true,
-              data: { spuhview: 'condensed' }
-            },
-            {
-              label: 'Detailed',
-              pressed: false,
-              data: { spuhview: 'detailed' }
-            }
-          ]
+          icon: '\u25A3',
+          label: 'Compact',
+          ariaLabel: 'Use compact taxonomic hierarchy',
+          pressed: true
         });
       }
 
@@ -10465,19 +10469,18 @@
               var detailedView = resultDetails.open;
               if (resultCard) {
                 resultCard.classList.toggle('spuhdetailopen', detailedView);
-                [].slice.call(resultCard.querySelectorAll('[data-spuhview]'))
-                  .forEach(function (button) {
-                    button.setAttribute('aria-pressed',
-                      String(button.getAttribute('data-spuhview')
-                        === (detailedView ? 'detailed' : 'condensed')));
-                  });
+                ToggleControls.syncPressed(viewPick, {
+                  icon: '\u25A3',
+                  label: 'Compact',
+                  ariaLabel: 'Use compact taxonomic hierarchy',
+                  pressed: !detailedView
+                });
               }
             };
             resultDetails.addEventListener('toggle', syncSpuhView);
             if (viewPick) viewPick.addEventListener('click', function (ev) {
-              var button = ev.target.closest && ev.target.closest('[data-spuhview]');
-              if (!button) return;
-              resultDetails.open = button.getAttribute('data-spuhview') === 'detailed';
+              if (!(ev.target.closest && ev.target.closest('.spuhviewpick'))) return;
+              resultDetails.open = !resultDetails.open;
               syncSpuhView();
             });
             syncSpuhView();
@@ -11001,8 +11004,9 @@
           // of mine: it describes the BIRDS, which the reader already has a
           // word for, rather than the list's filter state. Matching a
           // convention people already know beats inventing a clearer one.
-          tog.textContent = _spCodesAll ? '\u2713 Rare birds shown' : 'Show rare birds';
-          tog.setAttribute('aria-pressed', _spCodesAll ? 'true' : 'false');
+          ToggleControls.syncPressed(tog, {
+            icon: '\u2b50', label: 'Rare birds', pressed: _spCodesAll
+          });
         }
         if (st) {
           st.hidden = false;
@@ -12248,8 +12252,8 @@
             name: speciesLink(g.name, g.code),
             code: g.code,
             alpha: alphaFor(g.code),
-            distMi: g.distMi,
-            primary: watchlistActionHtml(g.code, g.name, 'spLookupWatchlist'),
+            primary: watchlistActionHtml(
+              g.code, g.name, 'spLookupWatchlist', true),
             metaAction: qrButton('species', g.code),
             tags: identityTags,
             sub: yearStatus,
@@ -12316,20 +12320,22 @@
         if ($('spLookupWithinChase')) {
           $('spLookupWithinChase').setAttribute(
             'aria-pressed', String(_spLookupWithinChase));
-          $('spLookupWithinChase').textContent = chaseMaxMi().toFixed(0) + ' mi';
+          $('spLookupWithinChase').textContent = chaseMaxMi().toFixed(0) + 'mi';
         }
-        if ($('spLookupDetails')) {
-          $('spLookupDetails').setAttribute('aria-pressed', String(detailsOn));
+        if ($('spLookupCompact')) {
+          $('spLookupCompact').setAttribute('aria-pressed', String(!detailsOn));
+          $('spLookupCompact').setAttribute('aria-label', detailsOn
+            ? 'Switch to Compact view' : 'Compact view selected');
         }
-        if ($('spLookupCompact')) $('spLookupCompact').setAttribute('aria-pressed', String(!detailsOn));
         if ($('spLookupStatewide')) $('spLookupStatewide').setAttribute(
           'aria-pressed', String(!_spLookupWithinChase));
         if ($('spLookupNotes')) $('spLookupNotes').setAttribute(
           'aria-pressed', String(_spLookupNotes));
-        if ($('spLookupList')) $('spLookupList').setAttribute(
-          'aria-pressed', String(!_spLookupGrouped));
-        if ($('spLookupGroup')) $('spLookupGroup').setAttribute(
-          'aria-pressed', String(_spLookupGrouped));
+        if ($('spLookupGroup')) {
+          $('spLookupGroup').setAttribute('aria-pressed', String(_spLookupGrouped));
+          $('spLookupGroup').setAttribute('aria-label', _spLookupGrouped
+            ? 'Grouped checklist view selected' : 'Switch to grouped checklist view');
+        }
       }
 
       // F291. One SMALL hotspot card per place, because the bird is already
@@ -13150,6 +13156,17 @@
       }
       function rarityFilterControl(id, kind, leftValue, leftLabel, rightValue, rightLabel) {
         var selected = rarityFilters()[kind];
+        if (kind === 'year' && leftValue === 'unseen' && rightValue === 'all') {
+          return ToggleControls.pressed({
+            id: id, cls: 'rarityfilterbtn', icon: '\uD83D\uDD0D', label: 'Unseen',
+            ariaLabel: 'Show unseen birds only',
+            data: {
+              filter: kind,
+              value: selected === 'unseen' ? 'all' : 'unseen'
+            },
+            pressed: selected === 'unseen'
+          });
+        }
         return ToggleControls.group({
           id: id,
           cls: 'raritypick',
@@ -13175,44 +13192,38 @@
           + raritySortControl(prefix + 'Sort')
           + rarityFilterControl(prefix + 'Year', 'year', 'unseen', 'Unseen', 'all', 'All')
           + rarityFilterControl(prefix + 'Distance', 'distance', 'near',
-              chaseMaxMi() + ' mi', 'region', rarityRegionName())
+              chaseMaxMi() + 'mi', 'region', 'All')
           // F215. A fourth pair, and it wraps like the other three rather than
           // being crushed — the row is already built for that, because six
           // 44px targets cannot fit 233px however they are styled.
           // Both options are LABELLED: "Notes" alone next to a pressed state
           // says what it is, not what it will do, which is the F189 mistake.
-          + ToggleControls.group({
+          + ToggleControls.pressed({
             id: prefix + 'Notes',
-            cls: 'raritypick',
-            label: 'Show or hide observer notes',
-            options: [
-              { label: 'No notes', cls: 'raritynotesbtn',
-                data: { notes: 'off' }, pressed: !rarityNotes() },
-              { label: '\uD83D\uDCAC Notes', cls: 'raritynotesbtn',
-                data: { notes: 'on' }, pressed: rarityNotes() }
-            ]
+            cls: 'raritynotesbtn',
+            icon: '\uD83D\uDCAC',
+            label: 'Notes',
+            ariaLabel: 'Show observer notes',
+            data: { notes: rarityNotes() ? 'off' : 'on' },
+            pressed: rarityNotes()
           })
-          + (opts.view ? ToggleControls.group({
+          + (opts.view ? ToggleControls.pressed({
             id: prefix + 'View',
-            cls: 'raritypick',
-            label: 'Choose twitch layout',
-            options: [
-              { label: 'List', cls: 'twitchviewbtn',
-                data: { twitchview: 'list' }, pressed: twitchView() !== 'grouped' },
-              { label: 'Grouped', cls: 'twitchviewbtn',
-                data: { twitchview: 'grouped' }, pressed: twitchView() === 'grouped' }
-            ]
+            cls: 'twitchviewbtn',
+            icon: '\u25A6',
+            label: 'Group',
+            ariaLabel: 'Group reports by bird and place',
+            data: { twitchview: twitchView() === 'grouped' ? 'list' : 'grouped' },
+            pressed: twitchView() === 'grouped'
           }) : '')
-          + (opts.view ? ToggleControls.group({
+          + (opts.view ? ToggleControls.pressed({
             id: prefix + 'Details',
-            cls: 'raritypick',
-            label: 'Choose twitch detail level',
-            options: [
-              { label: 'Compact', cls: 'twitchdetailsbtn',
-                data: { twitchdetails: 'compact' }, pressed: !twitchDetails() },
-              { label: 'Details', cls: 'twitchdetailsbtn',
-                data: { twitchdetails: 'details' }, pressed: twitchDetails() }
-            ]
+            cls: 'twitchdetailsbtn',
+            icon: '\u25A3',
+            label: 'Compact',
+            ariaLabel: 'Use compact report cards',
+            data: { twitchdetails: twitchDetails() ? 'compact' : 'details' },
+            pressed: !twitchDetails()
           }) : '')
           + '</div></div>';
       }
@@ -16635,15 +16646,20 @@
       function isWatched(code) {
         return !!(code && watchCodes()[String(code).toLowerCase()]);
       }
-      function watchlistActionHtml(code, name, extraClass) {
+      function watchlistActionHtml(code, name, extraClass, stacked) {
         var c = String(code || '').toLowerCase();
         if (!c) return '';
         var watched = isWatched(c);
+        var label = watched ? 'Remove from watchlist' : 'Add to watchlist';
+        var body = stacked
+          ? (watched ? 'Remove from<br>Watchlist' : 'Add to<br>Watchlist')
+          : label;
         return '<button type="button" class="secondary speciesWatchlistAction'
           + (extraClass ? ' ' + extraClass : '') + '"'
           + ' data-code="' + esc(c) + '" data-name="' + esc(name || '') + '"'
+          + ' aria-label="' + label + '"'
           + ' aria-pressed="' + (watched ? 'true' : 'false') + '">'
-          + (watched ? 'Remove from watchlist' : 'Add to watchlist') + '</button>';
+          + body + '</button>';
       }
       function toggleWatchlistSpecies(code, name) {
         var c = String(code || '').toLowerCase();
@@ -16931,15 +16947,14 @@
       var _watchRecs = {};
       var _watchScope = 'region';
       function watchScopeControl() {
-        return ToggleControls.group({
+        return ToggleControls.pressed({
           id: 'nvScopePick',
-          label: 'Watchlist scope',
-          options: [
-            { label: 'This region', cls: 'nvscopebtn',
-              data: { 'nv-scope': 'region' }, pressed: _watchScope === 'region' },
-            { label: 'All', cls: 'nvscopebtn',
-              data: { 'nv-scope': 'all' }, pressed: _watchScope === 'all' }
-          ]
+          cls: 'nvscopebtn',
+          icon: '\u25CE',
+          label: 'Region',
+          ariaLabel: 'Show watchlist for this region only',
+          data: { 'nv-scope': _watchScope === 'region' ? 'all' : 'region' },
+          pressed: _watchScope === 'region'
         });
       }
       function watchNameKey(value) {
@@ -18017,16 +18032,14 @@
         ].forEach(function (pair) {
           var host = $(pair[0]);
           if (!host) return;
-          host.innerHTML = ToggleControls.group({
+          host.innerHTML = ToggleControls.pressed({
             id: pair[1],
-            cls: 'raritypick',
-            label: 'Filter patch birds by year-list need',
-            options: [
-              { label: 'Unseen', cls: 'patchSpeciesFilterBtn',
-                data: { scope: 'unseen' }, pressed: patchSpeciesFilter() === 'unseen' },
-              { label: 'All', cls: 'patchSpeciesFilterBtn',
-                data: { scope: 'all' }, pressed: patchSpeciesFilter() === 'all' }
-            ]
+            cls: 'patchSpeciesFilterBtn',
+            icon: '\uD83D\uDD0D',
+            label: 'Unseen',
+            ariaLabel: 'Show unseen patch birds only',
+            data: { scope: patchSpeciesFilter() === 'unseen' ? 'all' : 'unseen' },
+            pressed: patchSpeciesFilter() === 'unseen'
           });
         });
         [].slice.call(document.querySelectorAll('.patchSpeciesFilterBtn')).forEach(
@@ -18547,25 +18560,24 @@
       function renderRecentChecklistFilters() {
         var host = $('recentFilters');
         if (!host) return;
-        host.innerHTML = ToggleControls.group({
+        host.innerHTML = ToggleControls.pressed({
           id: 'recentSpeciesFilter',
-          cls: 'raritypick',
-          label: 'Filter recent checklists by birds you still need',
-          options: [
-            { label: 'All', data: { filter: 'all' },
-              pressed: _recentChecklistSpeciesFilter === 'all' },
-            { label: 'Unseen', data: { filter: 'unseen' },
-              pressed: _recentChecklistSpeciesFilter === 'unseen' }
-          ]
+          icon: '\uD83D\uDD0D',
+          label: 'Unseen',
+          ariaLabel: 'Show checklists with unseen birds only',
+          data: {
+            filter: _recentChecklistSpeciesFilter === 'unseen' ? 'all' : 'unseen'
+          },
+          pressed: _recentChecklistSpeciesFilter === 'unseen'
         }) + ToggleControls.group({
           id: 'recentDistanceFilter',
           cls: 'raritypick',
           label: 'Filter recent checklists by chase distance',
           options: [
-            { label: 'All distances', data: { distance: 'all' },
-              pressed: _recentChecklistDistanceFilter === 'all' },
-            { label: 'Within chase distance', data: { distance: 'chase' },
-              pressed: _recentChecklistDistanceFilter === 'chase' }
+            { label: chaseMaxMi() + 'mi', data: { distance: 'chase' },
+              pressed: _recentChecklistDistanceFilter === 'chase' },
+            { label: 'All', data: { distance: 'all' },
+              pressed: _recentChecklistDistanceFilter === 'all' }
           ]
         });
         host.querySelectorAll('[data-filter]').forEach(function (button) {
@@ -18745,9 +18757,10 @@
         _recentChecklistDetails = !_recentChecklistDetails;
         var btn = $('recentDetailsBtn');
         if (btn) {
-          btn.setAttribute('aria-pressed', _recentChecklistDetails ? 'true' : 'false');
-          btn.textContent = _recentChecklistDetails
-            ? 'Hide unseen birds' : 'Show unseen birds';
+          ToggleControls.syncPressed(btn, {
+            icon: '\uD83D\uDD0D', label: 'Unseen birds',
+            pressed: _recentChecklistDetails
+          });
         }
         var host = $('recentResults');
         if (!host) return;
@@ -20974,16 +20987,14 @@
       function renderQuickSpeciesFilter() {
         var host = $('quickSpeciesFilter');
         if (!host) return;
-        host.innerHTML = ToggleControls.group({
+        host.innerHTML = ToggleControls.pressed({
           id: 'quickSpeciesScope',
-          cls: 'raritypick',
-          label: 'Nearby patches view',
-          options: [
-            { label: 'All', cls: 'quickSpeciesFilterBtn',
-              data: { scope: 'all' }, pressed: quickSpeciesFilter() === 'all' },
-            { label: 'Unseen', cls: 'quickSpeciesFilterBtn',
-              data: { scope: 'unseen' }, pressed: quickSpeciesFilter() === 'unseen' },
-          ]
+          cls: 'quickSpeciesFilterBtn',
+          icon: '\uD83D\uDD0D',
+          label: 'Unseen',
+          ariaLabel: 'Show nearby patches with unseen birds only',
+          data: { scope: quickSpeciesFilter() === 'unseen' ? 'all' : 'unseen' },
+          pressed: quickSpeciesFilter() === 'unseen'
         });
         [].slice.call(host.querySelectorAll('.quickSpeciesFilterBtn')).forEach(
           function (button) {
@@ -23422,10 +23433,12 @@
         bar.className = 'hint';
         bar.style.margin = '0 0 8px';
         bar.innerHTML = freshN
-          ? '<button type="button" id="rankNewOnly" class="ranknewbtn" '
-            + 'aria-pressed="' + (_rankNewOnly ? 'true' : 'false') + '">'
-            + '\uD83C\uDD95 ' + (_rankNewOnly ? 'Showing only' : 'Show only') + ' the '
-            + freshN + ' added in the last ' + RANK_FRESH_DAYS + ' days</button>'
+          ? ToggleControls.pressed({
+            id: 'rankNewOnly', cls: 'ranknewbtn', icon: '\uD83C\uDD95',
+            label: 'Recent',
+            ariaLabel: freshN + ' additions from the last ' + RANK_FRESH_DAYS + ' days',
+            pressed: _rankNewOnly
+          })
           : 'No new ticks on the board in the last ' + RANK_FRESH_DAYS + ' days.';
         out.appendChild(bar);
         var h = '<div class="rankrow rankhdr"><span class="rk">#</span>' +
@@ -24754,16 +24767,15 @@
       // twitch scope control follows - "Statewide" on a section that can also
       // show a continent is ambiguous about which one you are looking at.
       function abaScopeControl(id) {
-        var m = abaScope(), p = getReport();
-        var near = /^US-[A-Z]{2}$/i.test(p.stateCode || getRegion() || '')
-          ? (BL.stateNameFor(p) || p.label || 'This state') : (p.label || 'This region');
-        return ToggleControls.group({
+        var m = abaScope();
+        return ToggleControls.pressed({
           id: id,
-          label: 'Choose rarity area',
-          options: [
-            { label: near, data: { abascope: 'state' }, pressed: m !== 'aba' },
-            { label: 'ABA area', data: { abascope: 'aba' }, pressed: m === 'aba' }
-          ]
+          cls: 'abascopebtn',
+          icon: '\u25CE',
+          label: 'Region',
+          ariaLabel: 'Show mega rarities in this region only',
+          data: { abascope: m === 'aba' ? 'state' : 'aba' },
+          pressed: m !== 'aba'
         });
       }
       function wireAbaScope(id, reload) {
@@ -28082,16 +28094,14 @@
           below += '<div class="rankhead"><b>\ud83d\uddd3 Recent checklists</b>'
             + '<span class="rankwhy">' + lists.length + ' in the last '
             + (span || nDays) + ' days \u00b7 newest first</span></div>';
-          below += ToggleControls.group({
+          below += ToggleControls.pressed({
             id: 'stakeHsNotes',
-            cls: 'raritypick',
-            label: 'Show or hide checklist comments',
-            options: [
-              { label: 'No comments', cls: 'stakeHsNotesBtn',
-                data: { notes: 'off' }, pressed: !rarityNotes() },
-              { label: '\uD83D\uDCAC Comments', cls: 'stakeHsNotesBtn',
-                data: { notes: 'on' }, pressed: rarityNotes() }
-            ]
+            cls: 'stakeHsNotesBtn',
+            icon: '\uD83D\uDCAC',
+            label: 'Comments',
+            ariaLabel: 'Show checklist comments',
+            data: { notes: rarityNotes() ? 'off' : 'on' },
+            pressed: rarityNotes()
           });
           // THE CHECKLIST CARD'S OWN FIELD NAMES. This passed `{name, sub}`,
           // which belong to the SPECIES card — ChecklistCards.small reads
@@ -29756,14 +29766,13 @@
       }
 
       function surgeFilterControl() {
-        return ToggleControls.group({
-          label: 'Bird alerts shown',
-          options: [
-            { label: 'Unseen', cls: 'surgefilterbtn',
-              data: { 'surge-filter': 'unseen' }, pressed: _surgeFilter === 'unseen' },
-            { label: 'All', cls: 'surgefilterbtn',
-              data: { 'surge-filter': 'all' }, pressed: _surgeFilter === 'all' }
-          ]
+        return ToggleControls.pressed({
+          cls: 'surgefilterbtn',
+          icon: '\uD83D\uDD0D',
+          label: 'Unseen',
+          ariaLabel: 'Show unseen bird alerts only',
+          data: { 'surge-filter': _surgeFilter === 'unseen' ? 'all' : 'unseen' },
+          pressed: _surgeFilter === 'unseen'
         });
       }
 
@@ -30026,10 +30035,14 @@
           }
         });
         [].forEach.call(box.querySelectorAll('.surgefilterbtn'), function (b) {
-          var on = b.getAttribute('data-surge-filter') === _surgeFilter;
-          var label = b.getAttribute('data-label') || '';
-          b.setAttribute('aria-pressed', on ? 'true' : 'false');
-          b.textContent = label;
+          ToggleControls.syncPressed(b, {
+            icon: '\uD83D\uDD0D',
+            label: 'Unseen',
+            ariaLabel: 'Show unseen bird alerts only',
+            pressed: _surgeFilter === 'unseen'
+          });
+          b.setAttribute('data-surge-filter',
+            _surgeFilter === 'unseen' ? 'all' : 'unseen');
         });
         return visible;
       }
@@ -32449,7 +32462,10 @@
         // reload.
         var offered = [];
         Array.prototype.forEach.call(buttons, function (b) {
-          if (!b.hidden && !b.classList.contains('secondary')) offered.push(b);
+          if (!b.hidden
+              && !b.classList.contains('secondary')
+              && !b.classList.contains('pressbtn')
+              && !b.classList.contains('sortbtn')) offered.push(b);
         });
         if (offered.length !== 1) return;
         var load = offered[0];
@@ -35682,19 +35698,13 @@
         setSpeciesLookupWithinChase(false);
       });
       $('spLookupCompact').addEventListener('click', function () {
-        setSpeciesLookupDetails(false);
-      });
-      $('spLookupDetails').addEventListener('click', function () {
-        setSpeciesLookupDetails(true);
+        setSpeciesLookupDetails(!speciesLookupDetails());
       });
       $('spLookupNotes').addEventListener('click', function () {
         setSpeciesLookupNotes(!_spLookupNotes);
       });
-      $('spLookupList').addEventListener('click', function () {
-        setSpeciesLookupGrouped(false);
-      });
       $('spLookupGroup').addEventListener('click', function () {
-        setSpeciesLookupGrouped(true);
+        setSpeciesLookupGrouped(!_spLookupGrouped);
       });
       // The match list is rebuilt on every search, so the handler is delegated
       // to the container rather than bound per row.

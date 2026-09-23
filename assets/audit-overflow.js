@@ -425,6 +425,53 @@ const AUDIT = `<script>
       }
     }
 
+    // F467. Shared state controls are a visual contract, not just class names.
+    // Measure the actual rendered controls so a later flex rule cannot stretch
+    // them across the row, clip a label, wrap one side of a joined pill, or
+    // shrink the tap target below 44px while the DOM tests remain green.
+    var sharedControls = [];
+    var controls = document.querySelectorAll('.pressbtn, .twopill');
+    for (var sc = 0; sc < controls.length; sc++) {
+      var control = controls[sc];
+      if (!control.offsetParent) continue;
+      var cr = control.getBoundingClientRect();
+      var ccs = getComputedStyle(control);
+      var problem = [];
+      if (cr.height < 43.5) problem.push('height ' + cr.height.toFixed(1) + 'px');
+      if (control.scrollWidth > control.clientWidth + 1) problem.push('content clipped');
+      if (parseFloat(ccs.flexGrow || '0') > 0) problem.push('flex-grow ' + ccs.flexGrow);
+      if (cr.right > vw + 0.5 || cr.left < -0.5) problem.push('outside viewport');
+      if (control.classList.contains('pressbtn')) {
+        if (!control.querySelector('.pressicon') || !control.querySelector('.presslabel')) {
+          problem.push('missing icon or text label');
+        }
+      } else {
+        var sides = control.querySelectorAll(':scope > .sortbtn');
+        if (sides.length !== 2) problem.push(sides.length + ' pill sides');
+        var top = null;
+        for (var ss = 0; ss < sides.length; ss++) {
+          var sr = sides[ss].getBoundingClientRect();
+          if (top == null) top = sr.top;
+          if (Math.abs(sr.top - top) > 1) problem.push('sides wrapped');
+          if (sr.height < 43.5) problem.push('side height ' + sr.height.toFixed(1) + 'px');
+          if (sides[ss].scrollWidth > sides[ss].clientWidth + 1) problem.push('side clipped');
+          var range = document.createRange();
+          range.selectNodeContents(sides[ss]);
+          var lineTops = {};
+          [].slice.call(range.getClientRects()).forEach(function (line) {
+            if (line.width || line.height) lineTops[Math.round(line.top)] = 1;
+          });
+          if (Object.keys(lineTops).length > 1) problem.push('side label wrapped');
+        }
+      }
+      if (problem.length) {
+        sharedControls.push({
+          sel: chain(control), issue: problem.join(', '),
+          w: +cr.width.toFixed(1), h: +cr.height.toFixed(1)
+        });
+      }
+    }
+
     var vis = document.querySelector('section.panel:not([hidden])');
     return {
       label: label, vw: vw, n: all.length,
@@ -439,7 +486,8 @@ const AUDIT = `<script>
       items: items.slice(0, 8),
       small: small.slice(0, 8),
       unnamed: unnamed.slice(0, 10),
-      controlRows: controlRows
+      controlRows: controlRows,
+      sharedControls: sharedControls.slice(0, 12)
     };
   }
   function run() {
@@ -773,6 +821,14 @@ server.listen(0, '127.0.0.1', () => {
               + ' differs from field center=' + it.actionCenter
               + '  #spLookup and #spLookupBtn must stay on one line');
           }
+        });
+      }
+      var sharedControls = r.sharedControls || [];
+      if (sharedControls.length) {
+        bad++;
+        sharedControls.forEach(function (it) {
+          console.log('   SHARED CONTROL ' + it.issue + '  '
+            + it.w + 'x' + it.h + '  ' + it.sel);
         });
       }
       if (r.over <= 0.5 && !r.items.length) return;

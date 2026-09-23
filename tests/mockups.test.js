@@ -320,9 +320,9 @@ test('F384/F385 release mockups expose row actions and regional watch scope', ()
   assert.match(scope, /code: 'baisan'/);
   assert.match(scope, /code: 'hawama'/,
     'the Needs proof release fixture lost its preserved cross-region control');
-  assert.match(scope, /scopeButtons\[0\]\.textContent\.trim\(\) !== 'This region'/);
+  assert.match(scope, /scopeButtons\.length !== 1/);
+  assert.match(scope, /scopeButtons\[0\]\.textContent\.trim\(\) !== 'Region'/);
   assert.match(scope, /scopeButtons\[0\]\.getAttribute\('aria-pressed'\) !== 'true'/);
-  assert.match(scope, /scopeButtons\[1\]\.textContent\.trim\(\) !== 'All'/);
   assert.match(scope, /\/Hawaii Amakihi\/\.test\(host\.textContent\)/,
     'the release fixture does not reject a cross-region bird leaking into the default view');
   assert.match(scope, /1 of 2 species awaiting verification/,
@@ -540,8 +540,8 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     /\.spuhdetailopen[^{}]*\.spuhcandidatelane[^{}]*\{[^}]*display:\s*none/,
     'expanded Detailed view hides the shared regional bird list');
   assert.match(indexSource,
-    /ToggleControls\.group\(\{[\s\S]*id: 'spuhViewPick'[\s\S]*label: 'Condensed'[\s\S]*label: 'Detailed'/,
-    'bird sp. does not reuse the shared segmented-toggle template');
+    /ToggleControls\.pressed\(\{[\s\S]*id: 'spuhViewPick'[\s\S]*label: 'Compact'/,
+    'bird sp. does not reuse the shared Compact toggle template');
   assert.match(source,
     /id: 'birdspcompact'[\s\S]*id: 'birdspdetail'/,
     'the focused review set does not render both hierarchy-view selections');

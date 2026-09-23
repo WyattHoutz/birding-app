@@ -7856,15 +7856,15 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
   A.setActiveReport('wa');
   A.renderWatch();
   let buttons = [...app.document.querySelectorAll('#nvScope .nvscopebtn')];
-  assert.deepEqual(buttons.map((button) => button.textContent.trim()),
-    ['This region', 'All'], 'Needs proof does not use the requested scope labels');
+  assert.deepEqual(buttons.map((button) => button.querySelector('.presslabel').textContent),
+    ['Region'], 'Needs proof does not use the shared Region toggle');
   assert.deepEqual(buttons.map((button) => button.getAttribute('aria-pressed')),
-    ['true', 'false'], 'This region is not the default scope');
+    ['true'], 'Region is not the default scope');
   assert.match(app.$('nvResults').textContent, /Washington control/);
   assert.doesNotMatch(app.$('nvResults').textContent, /Hawaii control/,
     'the Washington view includes a bird absent from its year list');
 
-  app.click(buttons[1]);
+  app.click(buttons[0]);
   assert.match(app.$('nvResults').textContent, /Washington control/);
   assert.match(app.$('nvResults').textContent, /Hawaii control/,
     'All does not reveal the retained cross-region watchlist');
@@ -7883,8 +7883,8 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
 
   const source = HTML.slice(HTML.indexOf('function watchScopeControl'),
     HTML.indexOf('function renderWatch'));
-  assert.match(source, /ToggleControls\.group\(/,
-    'Needs proof hand-rolls another two-state toggle');
+  assert.match(source, /ToggleControls\.pressed\(/,
+    'Needs proof does not use the shared pressed-toggle template');
   const chaseSource = HTML.slice(HTML.indexOf('function computeChaseRows('),
     HTML.indexOf('function destinationFallbackRows'));
   assert.match(chaseSource, /watch:\s*watchCodes\(\)/,
@@ -7969,10 +7969,9 @@ test('the Needs-verification section renders the tracked list with controls', as
   app.open(/Watch List/);
   assert.equal(app.$('nvResults').querySelectorAll('li:not(.nvdropped)').length, 0,
     'This region hides tracked species absent from the active year list');
-  const allScope = [...app.document.querySelectorAll('#nvScope .nvscopebtn')]
-    .find((button) => button.textContent.trim() === 'All');
-  assert.ok(allScope, 'the complete global watchlist remains reachable');
-  app.click(allScope);
+  const regionScope = app.document.querySelector('#nvScope .nvscopebtn');
+  assert.ok(regionScope, 'the regional watchlist toggle is missing');
+  app.click(regionScope);
   const rows = [...app.$('nvResults').querySelectorAll('li:not(.nvdropped)')];
   assert.equal(rows.length, 3, 'every tracked species gets a row, resolved or not');
   // A name that resolves to no eBird code still ships, because silently
@@ -12059,15 +12058,14 @@ test('F180 filters both twitch sections from one stored preference', async () =>
     + 'that is the accepted cost of the notes toggle, and the layout audit '
     + 'is what proves wrapping never becomes overflow');
   assert.deepEqual(
-    [...controlRows[0].querySelectorAll('button')].map((b) => b.textContent.trim()),
-    ['Newest', 'Nearest', 'Unseen', 'All', `${R} mi`, 'Statewide',
-      'No notes', '💬 Notes', 'List', 'Grouped', 'Compact', 'Details'],
-    'the one row holds all four pairs in reading order — how it is sorted, '
-    + 'then the two things that decide what is in it, including the live '
-    + 'radius and the region-derived label, then how much of each row shows. '
-    + 'BOTH notes options are labelled: a lone "Notes" would say what the '
-    + 'control is rather than what it will do, which is the F189 mistake');
-  assert.equal(doc.querySelector('#todayYear [data-value="unseen"]').getAttribute('aria-pressed'),
+    [...controlRows[0].querySelectorAll('button')].map((b) => {
+      const label = b.querySelector('.presslabel');
+      return label ? label.textContent : b.textContent.trim();
+    }),
+    ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All',
+      'Notes', 'Group', 'Compact'],
+    'the one row does not use the approved pill and positive-toggle inventory');
+  assert.equal(doc.querySelector('#todayYear').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
   assert.equal(doc.querySelector('#todayDistance [data-value="near"]').getAttribute('aria-pressed'),
     'true', 'the chase radius is the default');
@@ -12083,7 +12081,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
     'the header distinguishes the filtered set from the total set');
 
   // All widens the YEAR axis but leaves the distance axis untouched.
-  doc.querySelector('#todayYear [data-value="all"]').click();
+  doc.querySelector('#todayYear[data-value="all"]').click();
   await waitFor(() => /Dark-eyed Junco/.test(out.textContent), 'All to include a seen bird');
   assert.doesNotMatch(out.textContent, /Far Bird/,
     'All is not also a hidden distance change');
@@ -12091,7 +12089,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   // Statewide widens the DISTANCE axis to a superset: near rows stay and the
   // far row joins them. It never swaps in only the remainder.
   doc.querySelector('#todayDistance [data-value="region"]').click();
-  await waitFor(() => /Far Bird/.test(out.textContent), 'Statewide to include the far bird');
+  await waitFor(() => /Far Bird/.test(out.textContent), 'All to include the far bird');
   for (const name of ['Dark-eyed Junco', 'Watch Bird', 'New Bird', 'Far Bird']) {
     assert.match(out.textContent, new RegExp(name), `wide All keeps ${name}`);
   }
@@ -12104,8 +12102,8 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   A.loadActiveRarities();
   await waitFor(() => doc.getElementById('activeControls'),
     'This week\u2019s F180 controls to render');
-  assert.equal(doc.querySelector('#activeYear [data-value="all"]').getAttribute('aria-pressed'),
-    'true', 'the All choice carries into the weekly list');
+  assert.equal(doc.querySelector('#activeYear').getAttribute('aria-pressed'),
+    'false', 'the plain Unseen toggle carries the All choice into the weekly list');
   assert.equal(doc.querySelector('#activeDistance [data-value="region"]').getAttribute('aria-pressed'),
     'true', 'the wide choice carries into the weekly list');
   assert.match(doc.getElementById('activeResults').textContent, /Far Bird/);
@@ -12181,7 +12179,7 @@ test('Twitches this week All immediately surfaces seen rarities', async () => {
     /Still needed|Already on your year list/,
     'Unseen mode is also a single ranked weekly list, not a headed group');
 
-  doc.querySelector('#activeYear [data-value="all"]').click();
+  doc.querySelector('#activeYear[data-value="all"]').click();
   await waitFor(() => /Sharp-tailed Sandpiper/.test(
     doc.getElementById('activeResults').textContent), 'the seen rarity to surface');
   assert.match(doc.getElementById('activeResults').textContent,
@@ -12208,21 +12206,21 @@ test('Twitches this week notes toggle preserves the Unseen filter', async () => 
 
   A.loadActiveRarities();
   await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
-  assert.equal(doc.querySelector('#activeYear [data-value="unseen"]').getAttribute('aria-pressed'),
+  assert.equal(doc.querySelector('#activeYear').getAttribute('aria-pressed'),
     'true', 'fixture starts in Unseen');
   assert.match(doc.getElementById('activeResults').textContent, /New One/);
   assert.doesNotMatch(doc.getElementById('activeResults').textContent, /Seen One/);
 
-  doc.querySelector('#activeNotes .raritynotesbtn[data-notes="on"]')
+  doc.querySelector('#activeNotes.raritynotesbtn[data-notes="on"]')
     .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  await waitFor(() => doc.querySelector('#activeNotes .raritynotesbtn[data-notes="on"]')
+  await waitFor(() => doc.querySelector('#activeNotes')
     .getAttribute('aria-pressed') === 'true', 'weekly notes to turn on');
 
   assert.equal(A.rarityNotes(), true, 'the display preference changed');
   assert.deepEqual(JSON.parse(JSON.stringify(A.rarityFilters())),
     { year: 'unseen', distance: 'near' },
     'the Notes display toggle changed the year-list filter');
-  assert.equal(doc.querySelector('#activeYear [data-value="unseen"]').getAttribute('aria-pressed'),
+  assert.equal(doc.querySelector('#activeYear').getAttribute('aria-pressed'),
     'true', 'the Unseen chip stayed pressed after enabling notes');
   assert.doesNotMatch(doc.getElementById('activeResults').textContent, /Seen One/,
     'a seen rarity appeared because enabling notes switched to All');
@@ -12246,17 +12244,15 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
 
   A.refresh();
   await waitFor(() => doc.getElementById('todayControls'), 'unified twitch controls');
-  assert.ok(doc.querySelector('#todayView [data-twitchview="list"]'),
-    'the unified Twitches report has no List view option');
-  assert.ok(doc.querySelector('#todayView [data-twitchview="grouped"]'),
-    'the unified Twitches report has no Grouped view option');
+  assert.equal(doc.querySelector('#todayView').getAttribute('aria-pressed'), 'false',
+    'the unified Twitches report does not default to List');
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/,
     'List view is still limited to the last day instead of all available rarity rows');
   assert.equal(doc.querySelectorAll('#results details.ckall').length, 0,
     'List view should stay one checklist row at a time');
 
-  doc.querySelector('#todayView [data-twitchview="grouped"]').click();
-  await waitFor(() => doc.querySelector('#todayView [data-twitchview="grouped"]')
+  doc.querySelector('#todayView').click();
+  await waitFor(() => doc.querySelector('#todayView')
     .getAttribute('aria-pressed') === 'true', 'grouped twitch view');
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
   assert.ok(doc.querySelector('#results details.ckall'),
@@ -12282,17 +12278,17 @@ test('Unified Twitches Details toggle selects rich or compact shared card templa
   assert.ok(doc.querySelector('#results > li > .name'),
     'List + Details uses the rich species/checklist report cards');
 
-  doc.querySelector('#todayDetails [data-twitchdetails="compact"]').click();
+  doc.querySelector('#todayDetails').click();
   await waitFor(() => doc.querySelector('#results .cklcard-sm'), 'compact checklist cards');
   assert.equal(doc.querySelector('#results > li > .name'), null,
     'List + Compact replaces rich species cards');
 
-  doc.querySelector('#todayView [data-twitchview="grouped"]').click();
+  doc.querySelector('#todayView').click();
   await waitFor(() => doc.querySelector('#results .hscard-sm'), 'compact hotspot cards');
   assert.equal(doc.querySelectorAll('#results .hscard-sm').length, 1,
     'Grouped + Compact combines the two rarity reports into one hotspot row');
 
-  doc.querySelector('#todayDetails [data-twitchdetails="details"]').click();
+  doc.querySelector('#todayDetails').click();
   await waitFor(() => doc.querySelector('#results > li > .name'), 'grouped rich species cards');
   assert.ok(doc.querySelector('#results details.ckall'),
     'Grouped + Details restores the rich bird/place card and checklist evidence');
@@ -12371,7 +12367,7 @@ test('F180 distance labels follow the live radius and active region', async () =
   host.innerHTML = A.rarityControls('probe');
   assert.deepEqual(
     [...host.querySelectorAll('#probeDistance button')].map((b) => b.textContent.trim()),
-    ['75 mi', 'Statewide'],
+    ['75mi', 'All'],
     'the near chip reads the setting now in force, never a 35 mi literal');
 
   for (const [slug, expected] of [
@@ -12643,10 +12639,10 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   A.renderRecentChecklistBatch(first, 1, 2);
   const host = doc.getElementById('recentResults');
   const list = host;
-  assert.ok(doc.querySelector('#recentSpeciesFilter [data-filter="all"]'),
-    'Recent checklists offers an All bird filter');
-  assert.ok(doc.querySelector('#recentSpeciesFilter [data-filter="unseen"]'),
-    'Recent checklists offers an Unseen bird filter');
+  const unseenFilter = doc.querySelector('#recentSpeciesFilter[data-filter]');
+  assert.ok(unseenFilter, 'Recent checklists has no Unseen toggle');
+  assert.equal(unseenFilter.querySelector('.presslabel').textContent, 'Unseen');
+  assert.equal(unseenFilter.getAttribute('aria-pressed'), 'false');
   assert.ok(doc.querySelector('#recentDistanceFilter [data-distance="chase"]'),
     'Recent checklists offers a chase-distance filter');
   const original = list.querySelector('[data-recent-sub="S1"]');
@@ -12998,7 +12994,7 @@ test('F365 condensed and detailed spuh hierarchy controls navigate in-app', asyn
     && !syntheticOrder.hasAttribute('data-spuh'),
   'the synthetic order label still promises a nonexistent destination');
   app.click(app.document.querySelector(
-    '#spLookupQueryHelp [data-spuhview="detailed"]'));
+    '#spLookupQueryHelp .spuhviewpick'));
   const detailedShorebird = app.document.querySelector(
     '#spLookupQueryHelp .spuhtaxmarked[data-spuh="shore"]');
   assert.ok(detailedShorebird, 'the real detailed hierarchy route is missing');
@@ -13327,7 +13323,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   const hierarchyInfo = hierarchyBlock.querySelector(
     ':scope > .spuhhierarchyhead > .spuhhierarchyinfo');
   const viewPick = hierarchyBlock.querySelector(
-    ':scope > .spuhhierarchytoggle > .spuhviewpick.sortpick');
+    ':scope > .spuhhierarchytoggle > .spuhviewpick.pressbtn');
   assert.equal(hierarchyHeading && hierarchyHeading.textContent,
     'TAXONOMIC HIERARCHY',
   'the approved full-size hierarchy heading is missing');
@@ -13336,7 +13332,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   'the hierarchy has no named information control');
   assert.ok(hierarchyHeading.compareDocumentPosition(viewPick)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the Condensed/Detailed control is not on the row below the heading');
+  'the Compact control is not on the row below the heading');
   assert.match(HTML,
     /\.spuhhierarchyhead h3\s*\{[^}]*font-size:\s*calc\(18px[^}]*white-space:\s*nowrap/,
   'the hierarchy heading is not full-size and protected from wrapping');
@@ -13594,18 +13590,11 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   const hierarchyBlock = hero.querySelector('.spuhhierarchyblock');
   const path = hierarchyBlock && hierarchyBlock.querySelector('.spuhresultpath');
   const viewPick = hierarchyBlock && hierarchyBlock.querySelector(
-    '.spuhviewpick.sortpick');
-  const condensed = viewPick && viewPick.querySelector(
-    '[data-spuhview="condensed"]');
-  const detailed = viewPick && viewPick.querySelector(
-    '[data-spuhview="detailed"]');
+    '.spuhviewpick.pressbtn');
   const firstPathBird = path.querySelector('.spuhpathcontent .spuhpathchip');
-  assert.ok(viewPick && condensed && detailed,
-    'bird sp. does not use the shared two-state pill toggle');
-  assert.deepEqual([condensed.textContent, detailed.textContent],
-    ['Condensed', 'Detailed']);
-  assert.equal(condensed.getAttribute('aria-pressed'), 'true');
-  assert.equal(detailed.getAttribute('aria-pressed'), 'false');
+  assert.ok(viewPick, 'bird sp. does not use the shared Compact toggle');
+  assert.equal(viewPick.querySelector('.presslabel').textContent, 'Compact');
+  assert.equal(viewPick.getAttribute('aria-pressed'), 'true');
   assert.ok(hierarchyBlock.querySelector('.spuhhierarchyhead')
     .compareDocumentPosition(viewPick)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
@@ -13615,9 +13604,8 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   'the view toggle is not before the bird-sp hierarchy');
   assert.doesNotMatch(path.textContent, /Detailed view/,
     'the old Detailed view text link remains beside the new toggle');
-  detailed.click();
-  assert.equal(condensed.getAttribute('aria-pressed'), 'false');
-  assert.equal(detailed.getAttribute('aria-pressed'), 'true');
+  viewPick.click();
+  assert.equal(viewPick.getAttribute('aria-pressed'), 'false');
   assert.equal(hero.querySelector('.spuhresultdetails').open, true);
   assert.equal(hero.classList.contains('spuhdetailopen'), true);
   const releasedHierarchy = hero.querySelector(
@@ -13637,7 +13625,7 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.equal(app.window.getComputedStyle(
     hero.querySelector('.spuhcandidatelane')).display, 'block',
   'Detailed hides the bird list instead of keeping it below the hierarchy');
-  condensed.click();
+  viewPick.click();
   assert.equal(hero.querySelector('.spuhresultdetails').open, false);
   assert.equal(hero.classList.contains('spuhdetailopen'), false);
   const beforeFetches = commonnessFetches;
@@ -14341,10 +14329,10 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
     'the default Stakeout lookup made checklist-detail calls');
   assert.equal(app.$('spLookupDetailsContent').hidden, true,
     'Compact shows the Details-only answer content');
-  assert.equal(app.$('spLookupDetails').getAttribute('aria-pressed'), 'false');
+  assert.equal(app.$('spLookupCompact').getAttribute('aria-pressed'), 'true');
   assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false');
 
-  app.click(app.$('spLookupDetails'));
+  app.click(app.$('spLookupCompact'));
   async function waitLong(check, label) {
     for (let i = 0; i < 180; i++) {
       if (check()) return;
@@ -14475,7 +14463,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
 
   let button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.ok(button, 'the Stakeout species card has no watchlist action');
-  assert.equal(button.textContent.trim(), 'Add to watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   assert.match(app.$('spLookupResults').textContent, /already on your year list/i);
   const before = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
@@ -14487,7 +14475,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
     code: 'sem', name: 'Semipalmated Sandpiper',
   }], 'the action bypassed the shared watchlist store');
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
-  assert.equal(button.textContent.trim(), 'Remove from watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Remove from watchlist');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
   assert.match(app.$('spLookupResults').textContent, /on your watchlist for verification/i);
   assert.doesNotMatch(app.$('spLookupResults').textContent, /not on your year list/i);
@@ -14495,7 +14483,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
-  assert.equal(button.textContent.trim(), 'Add to watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
   assert.match(app.$('spLookupResults').textContent, /already on your year list/i,
     'removing the hold did not reveal the underlying seen tick');
   const after = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
@@ -15092,11 +15080,25 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
 
   const compactCard = app.$('spLookupResults');
   assert.equal(sightingReads, 1, 'the initial bird lookup fetched sightings more than once');
+  assert.equal(app.$('spLookupDetails'), null,
+    'Compact/Details expanded back into two buttons');
+  assert.equal(app.$('spLookupList'), null,
+    'List/Group expanded back into two buttons');
   assert.ok(app.$('spLookupMap').compareDocumentPosition(compactCard)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'the compact orientation map no longer precedes the selected-bird card');
   assert.equal(app.window.getComputedStyle(app.$('spLookupMap')).aspectRatio, '16 / 7',
     'the Stakeout map returned to the oversized shared-map ratio');
+  const dateDistance = app.$('spLookupByDate').parentElement;
+  assert.ok(dateDistance.classList.contains('sortpick'),
+    'Date/Distance is not the shared joined two-sided toggle');
+  assert.deepEqual([...dateDistance.children].map((button) => button.id),
+    ['spLookupByDate', 'spLookupByDist'],
+  'Date/Distance is not one two-sided control');
+  assert.equal(app.$('spLookupByDate').classList.contains('secondary'), false,
+    'Date retains the standalone-pill styling inside the joined toggle');
+  assert.equal(app.$('spLookupByDist').classList.contains('secondary'), false,
+    'Distance retains the standalone-pill styling inside the joined toggle');
   assert.ok(compactCard.classList.contains('stakeoutSpeciesCard-compact'),
     'Compact does not use the approved Stakeout title card');
   assert.ok(compactCard.querySelector(':scope > li .thumb'),
@@ -15104,6 +15106,16 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
   assert.equal(app.window.getComputedStyle(
     compactCard.querySelector(':scope > li .thumb')).width, '64px',
   'Compact does not use the approved 64px bird-photo width');
+  assert.equal(compactCard.querySelector(':scope > li .spdist'), null,
+    'Compact still uses the right column for distance instead of the watchlist action');
+  const compactWatchlist = compactCard.querySelector(
+    ':scope > li .spprimary .spLookupWatchlist');
+  assert.ok(compactWatchlist,
+    'Compact does not put Add to Watchlist in the former distance column');
+  assert.equal(compactWatchlist.innerHTML, 'Add to<br>Watchlist',
+    'Compact watchlist text does not break after "Add to"');
+  assert.equal(compactWatchlist.getAttribute('aria-label'), 'Add to watchlist',
+    'the two-line Compact action lost its unbroken accessible label');
   assert.ok(app.document.querySelector('#spLookupRecent .spLookupPlaceList'),
     'Group is not the initial checklist presentation');
   const checklistPanel = app.document.querySelector(
@@ -15115,6 +15127,8 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
     'Recent Checklists are still enclosed by a bubble border');
   assert.equal(checklistStyle.paddingTop, '0',
     'Recent Checklists are still padded like a separate bubble');
+  assert.equal(checklistStyle.marginLeft, '0px',
+    'Recent Checklist rows still waste width on left indentation');
   const checklistRule = [...app.document.styleSheets]
     .flatMap((sheet) => [...sheet.cssRules])
     .find((rule) => rule.selectorText === '.stakeoutPlaceDetails');
@@ -15124,13 +15138,27 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
     'Recent Checklists still declare a bubble border');
   assert.equal(checklistRule.style.getPropertyValue('padding'), '',
     'Recent Checklists still declare bubble padding');
+  assert.equal(checklistRule.style.marginLeft, '0px',
+    'Recent Checklists do not explicitly zero their left indent');
+  const checklistBulletRule = [...app.document.styleSheets]
+    .flatMap((sheet) => [...sheet.cssRules])
+    .find((rule) => rule.selectorText
+      === '#spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm::before');
+  assert.ok(checklistBulletRule,
+    'Stakeout checklist bullets have no mode-shared emphasis rule');
+  assert.equal(checklistBulletRule.style.color, 'rgb(0, 0, 0)',
+    'Stakeout checklist bullets are not dark enough');
+  assert.equal(checklistBulletRule.style.fontSize, 'calc(20px * var(--s))',
+    'Stakeout checklist bullets are not the requested larger size');
+  assert.equal(checklistBulletRule.style.fontWeight, '800',
+    'Stakeout checklist bullets are not visibly heavier');
   assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'true');
-  app.click(app.$('spLookupList'));
+  app.click(app.$('spLookupGroup'));
   assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'),
     'List does not replace grouped hotspot rows with flat checklist cards');
-  assert.equal(app.$('spLookupList').getAttribute('aria-pressed'), 'true');
+  assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'false');
 
-  app.click(app.$('spLookupDetails'));
+  app.click(app.$('spLookupCompact'));
   const detailsCard = app.$('spLookupResults');
   assert.ok(detailsCard.classList.contains('stakeoutSpeciesCard-details'),
     'Details does not switch to the shared full-size species card');
@@ -15145,6 +15173,10 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
     'Details lost the watchlist action');
   assert.ok(detailsCard.querySelector('.qrbtn'),
     'Details lost the QR action');
+  app.click(app.$('spLookupGroup'));
+  assert.equal(app.window.getComputedStyle(app.document.querySelector(
+    '#spLookupRecent .stakeoutPlaceDetails')).marginLeft, '0px',
+  'Details restores the wasted checklist-row left indentation');
   assert.equal(sightingReads, 1,
     'switching to Details refetched the selected bird sightings');
   assert.equal(app.$('spLookupDetailsContent').hidden, false);
@@ -15153,7 +15185,7 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
   app.click(app.$('spLookupNotes'));
   assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
     'Notes cannot be disabled independently while Details remains on');
-  assert.equal(app.$('spLookupDetails').getAttribute('aria-pressed'), 'true');
+  assert.equal(app.$('spLookupCompact').getAttribute('aria-pressed'), 'false');
   app.click(app.$('spLookupCompact'));
   assert.ok(app.$('spLookupResults').classList.contains('stakeoutSpeciesCard-compact'),
     'Compact does not restore its title card');
@@ -17475,8 +17507,9 @@ test('the notes button is actually wired, and is not stored as a filter', async 
   assert.equal(JSON.stringify(A.rarityFilters()), before,
     'the row filters are untouched by a display preference');
 
-  const off = [...host.querySelectorAll('.raritynotesbtn')]
-    .find((b) => b.getAttribute('data-notes') === 'off');
+  host.innerHTML = A.rarityControls('probe');
+  A.wireRarityControls('probe', () => { reloads++; });
+  const off = host.querySelector('.raritynotesbtn[data-notes="off"]');
   off.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   assert.equal(A.rarityNotes(), false, 'and it turns back off — a one-way toggle is a trap');
   assert.equal(reloads, 2, 'repainting both ways');
@@ -19992,15 +20025,15 @@ test('F326 a late Mega repaint keeps the selected ABA scope with F304 routing', 
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
     ['Ruff'], 'the state projection starts with Washington rows only');
 
-  doc.querySelector('#abaScopePick [data-abascope="aba"]')
+  doc.querySelector('#abaScopePick[data-abascope="aba"]')
     .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
   assert.equal(paints, 2, 'changing scope repaints locally instead of scraping again');
   assert.deepEqual(
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
     ['Limpkin', 'Ruff'], 'the ABA projection includes the out-of-state species');
   assert.equal(
-    doc.querySelector('#abaScopePick [data-abascope="aba"]').getAttribute('aria-pressed'),
-    'true', 'the selected scope is explicit without relying on colour');
+    doc.querySelector('#abaScopePick').getAttribute('aria-pressed'),
+    'false', 'the ABA-wide scope is explicit without relying on colour');
 
   paint();
   assert.deepEqual(
@@ -23298,14 +23331,14 @@ test('Nearby Patches defaults to All and switches Unseen to closest-target place
 
   const cards = () => [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
   assert.equal(app.document.querySelector(
-    '#quickSpeciesScope [data-scope="all"]').getAttribute('aria-pressed'), 'true');
+    '#quickSpeciesScope').getAttribute('aria-pressed'), 'false');
   assert.equal(cards().length, 2, 'All shows the existing nearby-hotspot content');
-  app.click(app.document.querySelector('#quickSpeciesScope [data-scope="unseen"]'));
+  app.click(app.document.querySelector('#quickSpeciesScope[data-scope="unseen"]'));
   await waitFor(() => calls.some((u) => /data\/obs|notable|geo/.test(u))
     && /No unlogged|target|caught up/i.test(app.$('quickStatus').textContent),
   'the Unseen target pipeline');
   assert.equal(app.document.querySelector(
-    '#quickSpeciesScope [data-scope="unseen"]').getAttribute('aria-pressed'), 'true');
+    '#quickSpeciesScope').getAttribute('aria-pressed'), 'true');
   app.window.close();
 });
 
@@ -24708,34 +24741,70 @@ test('the species code rides on every species-card size', () => {
     'something structural survived the species-code slot: ' + slot[1]);
 });
 
-test('two-state report controls share one accessible toggle template', () => {
+test('F467 compatible controls share accessible pressed and pill templates', () => {
   const controlsPath = path.join(__dirname, '..', 'www', 'controls-toggle.js');
   assert.ok(fs.existsSync(controlsPath), 'the shared toggle template file is missing');
   const ToggleControls = require(controlsPath);
-  const html = ToggleControls.group({
+  const html = ToggleControls.pill({
     label: 'Sort alert feed',
     options: [
       { label: 'Buzz', pressed: true, data: { 'surge-sort': 'priority' } },
       { label: 'Newest', pressed: false, data: { 'surge-sort': 'newest' } },
     ],
   });
-  assert.match(html, /class="sortpick"/);
+  assert.match(html, /class="sortpick twopill"/);
   assert.match(html, /role="group" aria-label="Sort alert feed"/);
   assert.match(html, /data-surge-sort="priority"[^>]*aria-pressed="true">Buzz<\/button>/);
   assert.match(html, /data-surge-sort="newest"[^>]*aria-pressed="false">Newest<\/button>/);
   assert.doesNotMatch(html, /selected/i,
     'the template reintroduced a visible suffix that makes compact toggles wrap');
+  assert.throws(() => ToggleControls.pill({
+    label: 'Invalid', options: [{ label: 'Only one' }],
+  }), /exactly two options/);
+  const pressed = ToggleControls.pressed({
+    id: 'unseen', icon: '\uD83D\uDD0D', label: 'Unseen', pressed: true,
+  });
+  assert.match(pressed, /class="pressbtn"/);
+  assert.match(pressed, /aria-pressed="true"/);
+  assert.match(pressed, /class="pressicon"[^>]*aria-hidden="true">/);
+  assert.match(pressed, /class="presslabel">Unseen<\/span>/);
   assert.match(HTML, /<script src="controls-toggle\.js"><\/script>/,
     'the app does not load the shared control template');
-  for (const name of [
-    'rarityFilterControl', 'raritySortControl', 'patchBoardControl',
-    'abaScopeControl', 'surgeSortControl', 'surgeFilterControl',
-  ]) {
+  for (const name of ['raritySortControl', 'patchBoardControl', 'surgeSortControl']) {
     const start = HTML.indexOf('function ' + name + '(');
     assert.ok(start >= 0, name + ' is missing');
     assert.match(HTML.slice(start, start + 1800), /ToggleControls\.group\(/,
       name + ' still hand-rolls the shared toggle markup');
   }
+  for (const name of [
+    'watchScopeControl', 'renderPatchSpeciesFilters', 'renderRecentChecklistFilters',
+    'renderQuickSpeciesFilter', 'abaScopeControl', 'surgeFilterControl',
+  ]) {
+    const start = HTML.indexOf('function ' + name + '(');
+    assert.ok(start >= 0, name + ' is missing');
+    assert.match(HTML.slice(start, start + 2200), /ToggleControls\.pressed\(/,
+      name + ' does not use the shared pressed-toggle markup');
+  }
+  for (const rejected of [
+    'Unseen</button><button', 'List</button><button', 'Grouped</button>',
+    'Condensed</button><button', 'Detailed</button>', 'No comments',
+  ]) {
+    assert.doesNotMatch(HTML, new RegExp(rejected),
+      'a rejected paired control returned: ' + rejected);
+  }
+  assert.match(HTML, /\.twopill\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
+    'two-sided pills can stretch to fill their row');
+  assert.match(HTML, /\.pressbtn\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
+    'pressed toggles can stretch to fill their row');
+  assert.match(HTML,
+    /\.pressbtn\[aria-pressed="true"\] \.presslabel\s*\{[^}]*text-decoration:\s*underline/,
+    'selected pressed toggles do not underline their text label');
+  assert.match(HTML,
+    /\.pressbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
+    'selected pressed toggles do not show a checkmark');
+  assert.match(HTML,
+    /\.twopill > \.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
+    'selected pill sides do not show a checkmark');
 });
 
 // ---- F32: a bird you NEED just turned up near you ---------------------------
@@ -24878,7 +24947,7 @@ test('F274 Buzz and Newest reorder existing alert rows without refetching', asyn
   assert.equal(newest.getAttribute('aria-pressed'), 'false');
   assert.equal(newest.textContent, 'Newest');
   assert.equal(app.document.querySelector('.surgesortrow').textContent.replace(/\s+/g, ''),
-    'BuzzNewestUnseenAll', 'the two compact toggle pairs carry no visible prefixes or suffixes');
+    'BuzzNewest🔍Unseen', 'the sort pill and Unseen toggle carry no inverse label');
   assert.equal(app.document.querySelector('.surgesortselected'), null,
     'the selected-word suffix still makes the controls wrap');
 
@@ -24969,8 +25038,7 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
   const feed = app.$('surgeFeed');
   const visible = () => [...feed.children].filter((row) => !row.hidden);
   const visibleKinds = () => visible().map((row) => row.dataset.alertKind);
-  const unseen = app.document.querySelector('[data-surge-filter="unseen"]');
-  const all = app.document.querySelector('[data-surge-filter="all"]');
+  const unseen = app.document.querySelector('.surgefilterbtn');
   assert.deepEqual(visibleKinds(), ['need', 'crowd', 'hotspot'],
     'seen MEGA, CROWD and CASCADE rows leaked into the default view');
   assert.equal(feed.querySelector('[data-alert-kind="mega"]').dataset.surgeSeen, 'seen',
@@ -24978,9 +25046,8 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
   assert.equal(feed.querySelector('[data-alert-kind="hotspot"]').dataset.surgeSeen,
     'not-applicable', 'the species-blind hotspot was falsely called unseen');
   assert.equal(unseen.getAttribute('aria-pressed'), 'true');
-  assert.equal(unseen.textContent.trim(), 'Unseen');
-  assert.equal(all.getAttribute('aria-pressed'), 'false');
-  assert.equal(all.textContent.trim(), 'All');
+  assert.equal(unseen.querySelector('.presslabel').textContent, 'Unseen');
+  assert.equal(unseen.getAttribute('data-surge-filter'), 'all');
   assert.doesNotMatch(app.document.querySelector('.surgesortrow').textContent, /Sort|Birds/,
     'self-explanatory toggle groups still carry visible prefixes');
   assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '3 alerts');
@@ -24994,13 +25061,13 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
     'category counts describe all rows instead of the visible unseen view');
 
   const before = app.state.fetches.length;
-  all.click();
+  unseen.click();
   assert.deepEqual(visibleKinds(), ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
     'All did not reveal every already-rendered bird alert');
   assert.equal(app.state.fetches.length, before, 'the local filter refetched Bird Gen');
-  assert.equal(all.getAttribute('aria-pressed'), 'true');
-  assert.equal(all.textContent.trim(), 'All');
   assert.equal(unseen.getAttribute('aria-pressed'), 'false');
+  assert.equal(unseen.querySelector('.presslabel').textContent, 'Unseen');
+  assert.equal(unseen.getAttribute('data-surge-filter'), 'unseen');
   assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
   assert.equal(app.document.querySelector('[data-surge-hidden-count]').textContent, '');
   assert.deepEqual(counts(), {
@@ -26492,8 +26559,10 @@ test('F466 Stakeout map precedes controls and Iconic is Details content', () => 
   assert.ok(/spLookupWithinChase'\)\.addEventListener/.test(HTML),
     'the chase-distance filter is not wired');
 
-  assert.match(HTML, /id="spLookupDetails"[\s\S]*id="spLookupNotes"[\s\S]*id="spLookupGroup"/,
-    'Compact/Details, Notes, and List/Group controls are missing');
+  assert.match(HTML, /id="spLookupCompact"[\s\S]*id="spLookupNotes"[\s\S]*id="spLookupGroup"/,
+    'Compact, Notes, and Group toggles are missing');
+  assert.doesNotMatch(HTML, /id="spLookupDetails"|id="spLookupList"/,
+    'the removed Details or List companion button returned');
 
   // Controls must actually change what the list renders, not just relabel it.
   const at = HTML.indexOf('function renderSpeciesLookup');
@@ -26902,7 +26971,8 @@ test('the code list hides rare birds by default, and says how to see them', () =
   assert.ok(/id="spCodesAll"/.test(HTML), 'no way to reveal the rare ones');
   // Merlin's wording, because a birder already knows what "rare birds" means
   // and it describes the BIRDS rather than the filter state.
-  assert.ok(/Show rare birds/.test(HTML), 'the toggle does not use familiar wording');
+  assert.ok(/class="presslabel">Rare birds/.test(HTML),
+    'the toggle does not use the approved familiar wording');
   const r = HTML.slice(HTML.indexOf('function renderSpCodes'),
     HTML.indexOf('function renderSpCodes') + 2600);
   assert.ok(/_spCodesHaveSeen/.test(r),
@@ -28217,9 +28287,7 @@ test('a watched bird outside the report is filtered, not accused of being droppe
     'This region showed a watched bird absent from its year list');
   assert.doesNotMatch(app.$('nvStatus').textContent, /dropped|withdrawn/i,
     'an unseen watched bird was presented as a moderation failure');
-  const all = [...app.document.querySelectorAll('#nvScope .nvscopebtn')]
-    .find((button) => button.textContent.trim() === 'All');
-  app.click(all);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.match(app.$('nvResults').textContent, /Ghost Bird/,
     'All did not reveal the valid unseen watched bird');
   assert.equal(A.watchCodes().zzzfake, 1,
@@ -28499,13 +28567,13 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   assert.doesNotMatch(stakeRow.textContent, /Species comment/);
 
   const noComments = app.document.querySelector(
-    '#stakeHsNotes .stakeHsNotesBtn[data-notes="off"]');
+    '#stakeHsNotes.stakeHsNotesBtn');
   app.click(noComments);
   assert.equal(app.document.querySelector('#stakeHsResults .evnoterow'), null,
     'No comments leaves an old hydrated comment in the row');
 
   const onComments = app.document.querySelector(
-    '#stakeHsNotes .stakeHsNotesBtn[data-notes="on"]');
+    '#stakeHsNotes.stakeHsNotesBtn');
   app.click(onComments);
   await waitFor(() => /Park in the lower lot/.test(app.$('stakeHsResults').textContent),
     'restored cached Stakeout hotspot comment');
@@ -30376,10 +30444,11 @@ test('Leader Board Ticks can be filtered to unseen and to chase range', async ()
   // It must be there from the FIRST paint - the ~46 per-species checklist
   // feeds take minutes, and the device screenshot was taken mid-load.
   const chips = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
-    .map((b) => b.textContent.trim());
-  assert.ok(chips.indexOf('Unseen') > -1 && chips.indexOf('All') > -1,
-    `the year-list pair: ${chips.join(', ')}`);
-  assert.ok(chips.some((c) => /mi$/.test(c)),
+    .map((b) => b.querySelector('.presslabel')
+      ? b.querySelector('.presslabel').textContent : b.textContent.trim());
+  assert.deepEqual(chips.filter((c) => c === 'Unseen'), ['Unseen'],
+    `the year-list toggle: ${chips.join(', ')}`);
+  assert.ok(chips.some((c) => /\d+mi$/.test(c)),
     `and the distance pair, whose label states the bar: ${chips.join(', ')}`);
 
   function names() {
@@ -30877,10 +30946,9 @@ test('the twitch controls are one row that wraps rather than crushes', async () 
   assert.equal(rows.length, 1,
     `all four pairs share one row, not a sort row above a filter row: ${rows.length}`);
   const groups = host.querySelectorAll('.sortpick');
-  // FOUR since F215 added the notes toggle. The count is asserted so a pair
-  // cannot go missing unnoticed; the properties below are what actually keep
-  // the narrow case readable, and they apply to every group whatever the count.
-  assert.equal(groups.length, 4, 'sort, year list, distance and notes');
+  assert.equal(groups.length, 2, 'sort and distance remain true two-choice pills');
+  assert.equal(host.querySelectorAll('.pressbtn').length, 2,
+    'Unseen and Notes are the positive boolean toggles');
 
   // Never shrink. This is the guard that keeps the 320px/Easy read case
   // wrapping instead of collapsing to one letter per line.
@@ -30896,7 +30964,7 @@ test('the twitch controls are one row that wraps rather than crushes', async () 
   // The distance chip still STATES the bar. F180 chose "35 mi" as the label
   // precisely because it does, and the prose that repeated it has moved.
   const labels = [].slice.call(host.querySelectorAll('.sortbtn')).map((b) => b.textContent.trim());
-  assert.ok(labels.some((l) => /^\d+ mi$/.test(l)),
+  assert.ok(labels.some((l) => /^\d+mi$/.test(l)),
     `the chip carries the number now that the sentence does not: ${labels.join(', ')}`);
   app.window.close();
 });
@@ -31360,7 +31428,7 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
 
   app.open(/Nearby Patches/);
   await new Promise((r) => setTimeout(r, 40));
-  app.click(app.document.querySelector('#quickSpeciesScope [data-scope="unseen"]'));
+  app.click(app.document.querySelector('#quickSpeciesScope[data-scope="unseen"]'));
   await new Promise((r) => setTimeout(r, 40));
   const chip = app.window.document.querySelector('#sec-quickBtn .secscope, .secscope');
   assert.ok(!chip, 'Nearby Patches does not claim a county scope for its All view');
@@ -33488,7 +33556,7 @@ test('F415 Today patches switches cached Hāpuna evidence from Unseen to All', a
   const before = app.state.fetches.length;
 
   app.click(app.document.querySelector(
-    '#destPatchSpeciesScope [data-scope="all"]'));
+    '#destPatchSpeciesScope[data-scope="all"]'));
   const text = app.$('destResults').textContent.replace(/\s+/g, ' ');
   assert.match(text, /Hāpuna Beach State Recreation Area/);
   assert.match(text, /Great Frigatebird/);
