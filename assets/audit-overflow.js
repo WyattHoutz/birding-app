@@ -428,7 +428,8 @@ const AUDIT = `<script>
     // F467. Shared state controls are a visual contract, not just class names.
     // Measure the actual rendered controls so a later flex rule cannot stretch
     // them across the row, clip a label, wrap one side of a joined pill, or
-    // shrink the tap target below 44px while the DOM tests remain green.
+    // drift from the compact ordinary size or the 44px Easy-read size while
+    // the DOM tests remain green.
     var sharedControls = [];
     var controls = document.querySelectorAll('.pressbtn, .twopill');
     for (var sc = 0; sc < controls.length; sc++) {
@@ -437,10 +438,24 @@ const AUDIT = `<script>
       var cr = control.getBoundingClientRect();
       var ccs = getComputedStyle(control);
       var problem = [];
-      if (cr.height < 43.5) problem.push('height ' + cr.height.toFixed(1) + 'px');
+      var expectedControlHeight = document.documentElement.getAttribute('data-a11y') === 'on'
+        ? 44 : 30;
+      if (Math.abs(cr.height - expectedControlHeight) > 0.5) {
+        problem.push('SHARED CONTROL SIZE height ' + cr.height.toFixed(1) + 'px');
+      }
       if (control.scrollWidth > control.clientWidth + 1) problem.push('content clipped');
       if (parseFloat(ccs.flexGrow || '0') > 0) problem.push('flex-grow ' + ccs.flexGrow);
       if (cr.right > vw + 0.5 || cr.left < -0.5) problem.push('outside viewport');
+      var typeEl = control.classList.contains('pressbtn')
+        ? control : control.querySelector(':scope > .sortbtn');
+      var typeSize = typeEl ? parseFloat(getComputedStyle(typeEl).fontSize || '0') : 0;
+      var scale = parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--s') || '1');
+      var expectedTypeSize = 12 * scale;
+      if (Math.abs(typeSize - expectedTypeSize) > 0.25) {
+        problem.push('SHARED CONTROL SIZE font ' + typeSize.toFixed(1)
+          + 'px, expected ' + expectedTypeSize.toFixed(1) + 'px');
+      }
       if (control.classList.contains('pressbtn')) {
         if (!control.querySelector('.pressicon') || !control.querySelector('.presslabel')) {
           problem.push('missing icon or text label');
@@ -453,7 +468,9 @@ const AUDIT = `<script>
           var sr = sides[ss].getBoundingClientRect();
           if (top == null) top = sr.top;
           if (Math.abs(sr.top - top) > 1) problem.push('sides wrapped');
-          if (sr.height < 43.5) problem.push('side height ' + sr.height.toFixed(1) + 'px');
+          if (Math.abs(sr.height - expectedControlHeight) > 0.5) {
+            problem.push('side height ' + sr.height.toFixed(1) + 'px');
+          }
           if (sides[ss].scrollWidth > sides[ss].clientWidth + 1) problem.push('side clipped');
           var range = document.createRange();
           range.selectNodeContents(sides[ss]);

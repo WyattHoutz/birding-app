@@ -2,7 +2,7 @@
   "_comment": [
     "How every report section is CALCULATED, in one place.",
     "",
-    "Sections that look thin ('why is Easy misses only two rows?') or surprising",
+    "Sections that look thin ('why is Common birds only two rows?') or surprising",
     "('why is the top spot a private yard?') are usually correct and just opaque.",
     "This file is the answer, and it is shared so the answer cannot differ",
     "between the Markdown report and the app:",
@@ -341,7 +341,7 @@
         "Each hotspot must classify as full day from its own coordinates. Half-day options remain in Half-day; anything in the trip band is not offered as a day outing.",
         "On Hawaii Island, a measured 30-minute west/east road cost keeps Laupahoehoe in Half-day, puts Hilo and Volcano in Full-day, and leaves Chain of Craters in the trip band.",
         "Fresh rows remain first; older fallback cards are explicitly age-labelled, and the list keeps searching rather than claiming it is empty while that bounded request is active.",
-        "The county-wide 30-day endpoint collapses each species to its latest report and can therefore erase useful hotspots. Full-day additively reuses daily-history entries already cached by Nemesis birds, but only when a cached public-hotspot directory confirms the location ID. The zero-call directory reader accepts both the county chase cache and the ordinary state hotspot-search cache, so whichever section warmed the directory can prove membership without admitting personal locations.",
+        "The county-wide 30-day endpoint collapses each species to its latest report and can therefore erase useful hotspots. Full-day additively reuses daily-history entries already cached by Common birds, but only when a cached public-hotspot directory confirms the location ID. The zero-call directory reader accepts both the county chase cache and the ordinary state hotspot-search cache, so whichever section warmed the directory can prove membership without admitting personal locations.",
         "From the Woodinville Home, the measured Washington Full-day envelope is 18 counties: 18 recent feeds plus 18 notable feeds, 36 calls total and no county-metadata calls because the bounds are bundled.",
         "A useful county paints as soon as its feed lands. The status keeps saying so far and still checking until all selected feeds settle, and reopening the same report and Home leaves the valid cached cards visible while the owned cache is checked.",
         "This board ranks independently, so dense nearby parks cannot bury the long-drive options the section exists to compare.",
@@ -352,7 +352,7 @@
         "Completing a first cold load may take several minutes because every selected county contributes recent and notable feeds, but the screen no longer waits for the last feed before showing an eligible result. Cached bounds and in-session eBird responses make later opens cheaper.",
         "The model uses measured fixed route friction rather than a live routing API.",
         "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination.",
-        "Cached daily history is additive rather than guaranteed: if Nemesis birds has not sampled those days, or the public-hotspot directory is not cached, Full-day falls back to the bounded live feed alone.",
+        "Cached daily history is additive rather than guaranteed: if Common birds has not sampled those days, or the public-hotspot directory is not cached, Full-day falls back to the bounded live feed alone.",
         "A forced refresh keeps the matching tier snapshot and visible cards until live county feeds provide a replacement; unavailable feeds are labelled as cached rather than rendered as empty."
       ]
     },
@@ -463,7 +463,7 @@
       ]
     },
     "allUnseenBtn": {
-      "report": "## 🎯 Open targets — Unseen birds reported nearby",
+      "report": "## 🎯 Nemesis birds — Closest unseen birds reported now",
       "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"
@@ -555,7 +555,7 @@
       ]
     },
     "easyBtn": {
-      "report": "## 🥚 Nemesis birds — Common birds you still need",
+      "report": "## 🐦 Common birds — Common birds you still need",
       "summary": "Common birds you should already have — the highest hit-rate chase list.",
       "inputs": [
         "the accumulated history of daily report snapshots for this region"
@@ -582,7 +582,7 @@
       ],
       "how": [
         "Each name is resolved to an eBird species code against your birdlists first, then against the full eBird taxonomy, so a bird you have never recorded anywhere still resolves. A name that resolves to nothing is reported rather than dropped.",
-        "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Closest spots, Easy misses and everywhere else - it is deliberately not counted as seen.",
+        "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Nemesis birds, Common birds and everywhere else - it is deliberately not counted as seen.",
         "This region is the default display: it intersects the global watchlist with the active report's merged year list. All reveals every stored watched bird. Switching scope is local, deletes nothing, and visible Up/Down controls reorder adjacent visible birds inside the same global list.",
         "The scope control filters this screen only. Every watched code, including a bird absent from the current region's year list, remains an unseen patch/chase input at the established quarter weight.",
         "The section then shows the nearest report of each visible tracked species in the current window, closest first, with the checklist it came from. Species with no report in range are still listed, so the selected scope is a complete inventory rather than only the ones that happen to be showing."

@@ -184,18 +184,18 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "🎯 Open targets",
-      "report": "## 🎯 Open targets — Unseen birds reported nearby",
+      "label": "🎯 Nemesis birds",
+      "report": "## 🎯 Nemesis birds — Closest unseen birds reported now",
       "map": null,
-      "why": "every unseen report collapsed to one row per species-per-place at 250 m, nearest first; mapless because it is a full dump and each row links its own hotspot. F233 let the TILE and the REPORT heading differ here; F236 then made the heading derived (label + sub), so they no longer do. Renamed from \"Near misses\" at the owner's request 2026-08-29 - a near miss is a bird you ALMOST got, and these are birds being reported that you have not gone for at all",
-      "sub": "Unseen birds reported nearby"
+      "why": "F474 consolidates Open targets and the proposed Closest unseen birds report into one bird-first current-sightings report. Every unseen report is collapsed to one row per species-per-place at 250 m and species are ranked nearest first. It remains mapless because every place row links its hotspot and checklist directly.",
+      "sub": "Closest unseen birds reported now"
     },
     {
       "at": "easyBtn",
-      "label": "🥚 Nemesis birds",
-      "report": "## 🥚 Nemesis birds — Common birds you still need",
+      "label": "🐦 Common birds",
+      "report": "## 🐦 Common birds — Common birds you still need",
       "map": null,
-      "why": "F233: a tile of its own again, by owner request. It shares a data-modes=\"unseen\" switch with Near misses and the two render through the same card, but they are different ERRANDS - \"what is being reported near me now\" versus \"what does everyone else have that I don't\" - and a chip only offers the second to someone who already went looking for the first",
+      "why": "F474 gives the historical prevalence report the literal name Common birds. It answers what commonly reported species are still absent from the year list, which is distinct from Nemesis birds' current nearby reports.",
       "sub": "Common birds you still need"
     },
     {

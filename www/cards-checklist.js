@@ -8,7 +8,8 @@
  * modules were created to stop. This is the third of those modules and it
  * exists for the same reason.
  *
- * THE FIVE FACTS a checklist row has to carry, and why each earns its place:
+ * The compact card is one wrapping sentence with a hanging indent: place,
+ * date, evidence, observer, checklist count, bird count, distance, duration.
  *
  *   place   WHERE it was — the thing you actually drive to. Condensed,
  *           because eBird names run to
@@ -17,8 +18,8 @@
  *   date    WHEN — decides whether the bird is still there.
  *   count   HOW MANY birds. One is a glimpse; forty is a flock you can find.
  *   map     the pin, so you can leave for it without another tap.
- *   id      the checklist itself, because every claim here should be
- *           checkable at its source.
+ * The checklist destination remains on the row link; its raw submission id is
+ * not printed because it is evidence plumbing rather than readable context.
  *
  * Presentation only, exactly like cards-species.js and cards-hotspot.js: the
  * caller passes ready-made HTML for anything that needs a link, because the
@@ -34,29 +35,23 @@
 
   /* ---------------------------------------------------------------- markup */
 
-  /* SMALL — ONE LINE that never wraps.
-     The line is: place · short date/time · count · distance. A plain `place`
-     keeps the historical checklist-link behavior. `placeHtml` lets the app
-     supply an in-app hotspot link instead; in that form `dateHref` carries the
-     checklist destination on the date, so the subject stays in the app and
-     the evidence remains one explicit tap away.
+  /* SMALL — one compact wrapping summary with a hanging indent.
+     A plain `place` keeps the historical
+     checklist-link behavior. `placeHtml` lets the app supply an in-app hotspot
+     link instead; in that form `dateHref` carries the checklist destination on
+     the date, so the subject stays in the app and the evidence remains one
+     explicit tap away.
      Every field is optional, because the caller's context decides what is
      redundant. When a row stands on its own - as it does in All unseen, where
      the checklist IS the row - it carries all four facts: name, date, count,
      distance. A caller that already prints a place heading above the list
      leaves the name out, and the row leads with the date instead.
 
-     THE OBSERVER IS NOT ON THIS ROW, and that is a measured decision rather
-     than an oversight. The layout sweep at 320px / 1.75× text scale caught the
-     observer name hanging 247px past the row: it is the one field of
-     unbounded width, and a clipped name is worse than an absent one. It is
-     also the least decision-relevant thing here — you drive to a place at a
-     time, not to a person. The medium card, which has a whole line, keeps it.
-     The count is kept but written "×42", not "42 birds": same fact, a quarter
-     of the width. */
+     The count is written "×42", not "42 birds": same fact, a quarter of the
+     width. */
   var SMALL = [
     '<li class="cklcard cklcard-sm"{{rowlink}}>',
-    '{{row}}',
+    '<div class="cksummary">{{summary}}{{meta}}</div>',
     '</li>'
   ].join('');
 
@@ -81,38 +76,21 @@
     /* Sits against the place name it qualifies, and never wraps away from
        it onto a line of its own. */
     '.cklcard-sm .ckevid { margin-left: 4px; white-space: nowrap; }',
-    /* ONE LINE, and the HOTSPOT NAME is what truncates to keep it there.
-       `flex-basis: 0` on the lead is the whole fix, and it is one word. With
-       `auto` the lead claimed its content width first and only then shrank in
-       proportion to it, so a long name kept a slice of the row it should have
-       surrendered and shoved the facts onto a second line — which is exactly
-       what was reported. With `0` the lead asks for nothing, takes only what
-       is left after the short facts, and ellipsises.
-       `flex-wrap: wrap` remains as the LAST RESORT, and only bites at the
-       largest accessibility text scale on the narrowest phone: at 1.75× on a
-       320px screen the facts ALONE measure wider than the screen, so there is
-       no one-line answer left — and wrapping keeps every fact readable where
-       clipping would silently delete the distance. The layout sweep measures
-       exactly that case. At every normal size the row is one line.
-       Each cell keeps `white-space: nowrap`, so a date or a count never
-       splits down the middle; only whole facts can move. */
+    /* The sentence wraps at field boundaries. Each fact keeps `white-space:
+       nowrap`, so a date or count can move whole without splitting. */
     '.cklcards-sm > .cklcard-sm {',
-    /* F226. A SENTENCE, NOT A TABLE.
-       "Remove the lines seperating each item. Id rather have a sentence of
-        text that can wrap with a reverse indent rather than show a table."
-       The row was a wrapping FLEX line whose cells were divided by drawn "·"
-       separators, which is what made it read as a table: every field became a
-       cell, cells aligned down the list, and a long observer name pushed the
-       facts around rather than simply flowing on. As block text the facts read
-       in order and wrap where they run out of room.
-       The reverse (hanging) indent is what keeps it a LIST while it is prose:
-       the bullet sits out at the margin and every continuation line clears it,
-       so a two-line row still reads as one item rather than as two. */
+    /* A sentence, not a table: no row dividers or fixed columns. */
     '  display: block; white-space: normal; overflow-wrap: anywhere;',
-    '  min-width: 0; padding: 3px 0; text-indent: 0;',
+    '  min-width: 0; padding: 3px 0;',
     '  border: 0;',
-    '  font-size: calc(16px * var(--s)); line-height: 1.4;',
     '  color: var(--muted); }',
+    '.cklcards-sm > .cklcard-sm > .cksummary {',
+    '  font-size: calc(16px * var(--s)); line-height: 1.35;',
+    '  padding-left: 1em; text-indent: -1em;',
+    '  white-space: normal; overflow-wrap: anywhere; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta {',
+    '  display: inline; font-size: calc(14px * var(--s));',
+    '  color: var(--muted); white-space: normal; }',
     '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',
     '.cklcards-sm > .cklcard-sm[data-href]:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }',
     /* Every field is now an inline run separated by a space. `nowrap` per
@@ -120,16 +98,24 @@
        move to the next line whole, but must never split down the middle.
        The distance is a bare <a>, not a span — it has to be named or it is
        the one fact that can break in half. */
-    '.cklcards-sm > .cklcard-sm > span,',
-    '.cklcards-sm > .cklcard-sm > a.ckdist {',
+    '.cklcards-sm > .cklcard-sm > .cksummary > span,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a.ckdist {',
     '  display: inline; white-space: nowrap; }',
-    '.cklcards-sm > .cklcard-sm > .cklead {',
+    '.cklcards-sm .cknote { white-space: nowrap; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary > span + span { margin-left: .25em; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta:not(:empty)::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + span:not(:empty)::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + a.ckdist::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a.ckdist + span:not(:empty)::before {',
+    '  content: "\\00b7"; margin: 0 .35em; color: var(--dim); }',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead {',
     '  font-weight: 600; white-space: normal; }',
     /* The lead is inline now, so it wraps with the sentence instead of
        claiming a flex track. `display: block` on the anchor was there to make
        `text-overflow: ellipsis` work inside a flex item; nothing is truncated
        any more, so the anchor is simply part of the text. */
-    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo {',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo {',
     '  display: inline; white-space: normal; }',
     /* Tabular figures so dates, counts and distances line up down the list. */
     '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
@@ -151,14 +137,14 @@
        rows: remove the line". The underline IS the line. Everything else the
        app links is accent-green and undecorated; the row is already tappable
        edge to edge, so the name does not need to advertise it twice. */
-    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo,',
-    '.cklcards-sm > .cklcard-sm > .cklead > .ckgo:visited {',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo,',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo:visited {',
     '  color: var(--accent); text-decoration: none; }',
     /* ...and a bullet in place of the rule, so a row still reads as one item
        in a list without a horizontal line per row. It is a marker, not a
        fact: it never shrinks, never wraps, and is not part of the flex
        content. */
-    '.cklcards-sm > .cklcard-sm::before {',
+    '.cklcards-sm > .cklcard-sm > .cksummary::before {',
     '  content: "\\2022"; color: #E69F00; margin-right: 0.25em;',
     '  font-size: calc(15px * var(--s)); }',
     /* F215. The observer's note, painted under its row when notes are switched
@@ -197,6 +183,8 @@
     '.evnotebq { display: block; text-indent: 0; margin: 0; padding-left: 10px;',
     '  border-left: 3px solid var(--line); white-space: normal;',
     '  overflow-wrap: anywhere; color: var(--ink); font-style: normal; }',
+    '.evnotecombined .evnoteitem + .evnoteitem { margin-top: 12px; }',
+    '.evnotecombined .evnotehd { margin-top: 0; }',
     /* The waiting state carries the SAME label so the row does not reflow into
        a different shape when the note lands. */
     '.evnoteloading .evnotehd { font-weight: 600; opacity: .85; }',
@@ -339,7 +327,8 @@
   }
 
   function build(tpl, v, isMedium) {
-    v = v || {};    var bits = [];
+    v = v || {};
+    var bits = [], summary = [], meta = [];
     if (isMedium) {
       // MEDIUM: a plain-place card keeps the historical headline checklist
       // link. When `placeHtml` supplies an in-app hotspot name, `dateHref`
@@ -365,7 +354,7 @@
       var leadText = v.place ? condense(v.place, v.max || SMALL_NAME_MAX)
                              : shortWhen(v.date, true);
       if (leadText) {
-        bits.push('<span class="cklead">' + (v.placeHtml
+        summary.push('<span class="cklead">' + (v.placeHtml
           ? v.placeHtml
           : v.href
           ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
@@ -374,7 +363,7 @@
       }
       if (!v.place) {
         var leadAge = ageText(v.observedAt, v.nowMs);
-        if (leadAge) bits.push('<span class="ckage">(' + leadAge + ')</span>');
+        if (leadAge) summary.push('<span class="ckage">(' + leadAge + ')</span>');
       }
       // Evidence marks sit RIGHT AFTER the place, not at the end of the row.
       // They qualify the sighting you just read the location of - "there is a
@@ -382,26 +371,26 @@
       // reads as though it belongs to the mileage. Pre-escaped by the caller:
       // this is a fixed set of marks the app builds, not user text.
       if (v.icons) {
-        bits.push('<span class="ckevid">' + v.icons + '</span>');
+        summary.push('<span class="ckevid">' + v.icons + '</span>');
       }
       if (v.place && v.date) {
         var dateText = esc(shortWhen(v.date, true));
-        bits.push('<span class="ckdate">' + (v.dateHref
+        summary.push('<span class="ckdate">' + (v.dateHref
           ? '<a class="ckgo" target="_blank" rel="noopener" href="'
             + esc(v.dateHref) + '">' + dateText + '</a>'
           : dateText) + '</span>');
         var datedAge = ageText(v.observedAt, v.nowMs);
-        if (datedAge) bits.push('<span class="ckage">(' + datedAge + ')</span>');
+        if (datedAge) summary.push('<span class="ckage">(' + datedAge + ')</span>');
       }
-      if (v.who) bits.push('<span class="ckwho">' + v.who + '</span>');
+      if (v.who) meta.push('<span class="ckwho">' + v.who + '</span>');
       if (v.targets) {
-        bits.push('<span class="cktargets">' + esc(v.targets) + '</span>');
+        meta.push('<span class="cktargets">' + esc(v.targets) + '</span>');
       }
       // How many SPECIES the checklist held. Not the same fact as `count`,
       // which is how many of ONE bird — keeping them separate is what lets a
       // rarity row drop "×1" while a hotspot row keeps "19 sp".
       if (v.sp != null && v.sp !== '') {
-        bits.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
+        meta.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
       }
     }
     // COUNT ON A SMALL ROW. Three requests that look opposed and are not:
@@ -438,7 +427,7 @@
       // a null count sailed through the numeric branch and printed "×null".
       // The type has to be checked, not just the finiteness.
       var _num = (typeof _n === 'number' && isFinite(_n));
-      bits.push('<span class="ckcount">' + (isMedium
+      (isMedium ? bits : meta).push('<span class="ckcount">' + (isMedium
         ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
         : '\u00d7' + (_num ? _n : 'X')) + '</span>');
     }
@@ -450,7 +439,7 @@
       // Tappable when the caller knows where the place is: `distQ` is a plain
       // "lat,lng" and the app's delegated `.maplink` handler owns the URL.
       var dtxt = Number(v.distMi).toFixed(1) + ' mi';
-      bits.push(v.distQ
+      (isMedium ? bits : meta).push(v.distQ
         ? '<a class="ckdist maplink" data-q="' + coordQ(v.distQ)
           + '" aria-label="Open in Maps">' + dtxt + '</a>'
         : '<span class="ckdist">' + dtxt + '</span>');
@@ -459,23 +448,20 @@
        a line of its own because it qualifies the whole claim, and it is last
        so it cannot push the name or the date around. Raw HTML, like `map` and
        `who`: the caller owns the glyph and any title on it. */
-    if (v.flag) bits.push('<span class="ckflag">' + v.flag + '</span>');
-    if (v.map) bits.push('<span class="ckmapwrap">' + v.map + '</span>');
+    if (v.flag) (isMedium ? bits : meta).push('<span class="ckflag">' + v.flag + '</span>');
+    if (v.map) (isMedium ? bits : meta).push('<span class="ckmapwrap">' + v.map + '</span>');
     // QR is optional and supplied by the app's route builder. It lives beside
     // the map pin/action in the compact facts line, but is a real 44px button
     // rather than an icon-shaped dead target.
-    if (v.qr) bits.push('<span class="ckqrwrap">' + v.qr + '</span>');
-    if (!isMedium && v.checklistId) {
-      bits.push('<span class="ckid">' + esc(v.checklistId) + '</span>');
-    }
+    if (v.qr) (isMedium ? bits : meta).push('<span class="ckqrwrap">' + v.qr + '</span>');
     // Small rows drop the observer entirely — see the note on SMALL.
     if (v.who && isMedium) bits.push('<span class="ckwho">' + v.who + '</span>');
     if (!isMedium) {
       var duration = durationText(v.durationHrs);
       if (duration || v.durationPending) {
-        bits.push('<span class="ckduration"'
+        meta.push('<span class="ckduration"'
           + (!duration && v.durationPending ? ' data-pending="1"' : '')
-          + '>' + (duration ? '\u00b7 ' + duration : '') + '</span>');
+          + '>' + duration + '</span>');
       }
     }
 
@@ -488,6 +474,9 @@
     }
     return tpl
       .replace('{{row}}', bits.join('\n'))
+      .replace('{{summary}}', summary.join('\n'))
+      .replace('{{meta}}', meta.length
+        ? '<span class="ckmeta">' + meta.join('\n') + '</span>' : '')
       // THE WHOLE ROW IS THE LINK. On a phone the name is a ~10px-tall target
       // in a 30px-tall row, and the rest of the row was dead space that looked
       // tappable. `data-href` rather than wrapping the row in an <a>, because

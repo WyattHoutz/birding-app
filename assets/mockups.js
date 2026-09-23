@@ -205,7 +205,7 @@ const EXTRA_SHOTS = [
       '#spLookupEvidenceDetails .bcstats',
       '#spLookupEvidenceDetails .spreferences',
       '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm',
-      '#spLookupUnwatched .hscard-sm',
+      '#spLookupUnwatched .hscard-md',
       '#spLookupDetailsContent:not([hidden])'],
     prep: `FIX.before('spLookupBtn', A, document);
            var anchor = document.getElementById('spLookupBtn');
@@ -272,6 +272,22 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutSpts(A, document, sec, true);` },
+  { id: 'stakeoutnotes-popup', at: 'spLookupBtn',
+    title: 'Stakeout bird — checklist comments',
+    host: 'appSheet', fullPage: true, freshApp: true,
+    expects: ['#appSheet:not([hidden]) .evnotecombined',
+      '#appSheet .evnotecombined > .evnoteitem:nth-child(2)'],
+    prep: `var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepareStakeoutSpts(A, document, sec, true);
+           var note = sec.querySelector('.cknote .evidbtn');
+           if (!note) throw new Error('Stakeout checklist note button did not render');
+           note.click();
+           var sheet = document.getElementById('appSheet');
+           if (!sheet || sheet.hidden) throw new Error('Checklist comments sheet did not open');
+           sheet.setAttribute('data-mock-data', 'true');
+           return true;` },
   { id: 'onboardingregion', menuState: true,
     title: 'First run — choose or find a region',
     prep: `localStorage.removeItem('ebird_display_name');
@@ -839,11 +855,35 @@ const BOOTSTRAP = `
     var examples = {
       destBtn: [
         { name: 'Kealakehe WTP', distance: 23.0,
-          sub: 'fresh today · 1 target' },
+          sub: 'fresh today · 2 targets',
+          unseen: [
+            { name: 'Hawaiian Goose', code: 'hawgoo', count: 4, when: 'Today 8:14a' },
+            { name: 'Hawaiian Coot', code: 'hawcoo', count: 2, when: 'Today 8:14a' }
+          ],
+          checklists: [
+            { date: 'Sep 22 8:14 AM', sp: 31, targets: 'HAGO ×4, HACO ×2', durationHrs: 1.5,
+              note: true },
+            { date: 'Sep 22 6:42 AM', sp: 24, targets: 'HAGO ×1', durationHrs: 0.8 }
+          ],
+          moreChecklists: 4 },
         { name: 'Waikoloa Village hotspot', distance: 2.5,
-          sub: 'Older evidence · last report 3 days ago · 2 targets' },
+          sub: 'Older evidence · last report 3 days ago · 2 targets',
+          unseen: [
+            { name: 'Pacific Golden-Plover', code: 'pagplo', count: 3, when: 'Sep 20' },
+            { name: 'Saffron Finch', code: 'saffin', count: 1, when: 'Sep 20' }
+          ],
+          checklists: [
+            { date: 'Sep 20 7:35 AM', sp: 28, targets: 'PAGO ×3, SAFI ×1', durationHrs: 1.2 }
+          ],
+          moreChecklists: 2 },
         { name: 'Puako Petroglyph trail', distance: 4.1,
-          sub: 'Older evidence · last report 5 days ago · 1 target' },
+          sub: 'Older evidence · last report 5 days ago · 1 target',
+          unseen: [
+            { name: 'Apapane', code: 'apapan', count: 6, when: 'Sep 18' }
+          ],
+          checklists: [
+            { date: 'Sep 18 9:02 AM', sp: 19, targets: 'APAP ×6', durationHrs: 0.7 }
+          ] },
         { name: 'Holoholokai Beach Park', distance: 4.8,
           sub: 'Older evidence · last report 4 days ago · 1 target' },
         { name: 'Puʻu Lāʻau / Palila Discovery Trail', distance: 19.0,
@@ -885,8 +925,43 @@ const BOOTSTRAP = `
       '9 target species · unusually active today'];
     if (examples) {
       return examples.map(function (row, i) {
+        var unseen = (row.unseen || []).map(function (bird) {
+          return window.SpeciesCards.small({
+            icon: mockPhoto(bird.code),
+            name: bird.name,
+            code: bird.code,
+            count: bird.count,
+            when: bird.when,
+            tags: '<span class="mockstate">UNSEEN</span>'
+          });
+        });
+        var checklists = (row.checklists || []).map(function (checklist) {
+          var value = Object.assign({}, checklist);
+          if (value.note) {
+            value.flag = '<span class="cknote"><button type="button" class="evidbtn"'
+              + ' aria-label="Show checklist comments">\ud83d\udccb</button></span>';
+          }
+          return window.ChecklistCards.small(value);
+        });
         return HC.medium({
-          num: i + 1, name: row.name, distance: row.distance, sub: row.sub
+          num: i + 1, name: row.name, distance: row.distance, sub: row.sub,
+          unseen: unseen.length
+            ? window.SpeciesCards.list('small', unseen, 'sppl') : '',
+          unseenLabel: unseen.length
+            ? unseen.length + ' unseen \ud83d\udd0d' : '',
+          below: checklists.length
+            ? '<div class="hsckl"><details class="ckall" open><summary>'
+              + checklists.length + ' checklist'
+              + (checklists.length === 1 ? '' : 's')
+              + ' with a bird you need</summary>'
+              + window.ChecklistCards.list('small', checklists, 'mockfixture')
+              + (row.moreChecklists
+                ? '<button type="button" class="progressive-more hotspotChecklistMore">'
+                  + '<span class="progressive-more-text">Load ' + row.moreChecklists
+                  + ' more checklists</span></button>'
+                : '')
+              + '</details></div>'
+            : ''
         });
       });
     }
@@ -1228,7 +1303,7 @@ const BOOTSTRAP = `
       + '<div class="helpdoc"><p><b>Reads:</b> recent alerts, leaderboard and hotspot activity.</p>'
       + '<p><b>Limit:</b> incomplete sources are labelled rather than treated as empty.</p>'
       + '</div></details><details class="helpitem"><summary>'
-      + '<span class="helpglyph">🥚</span><span class="helpname">Nemesis birds</span>'
+      + '<span class="helpglyph">🐦</span><span class="helpname">Common birds</span>'
       + '<span class="helpone">Common birds you still need</span>'
       + '</summary></details></div>';
     markHost(host, label);
@@ -1888,7 +1963,7 @@ const BOOTSTRAP = `
     }
     if (detailsOn) {
       await waitFor(function () {
-        return document.querySelector('#spLookupUnwatched .hscard-sm');
+        return document.querySelector('#spLookupUnwatched .hscard-md');
       }, 'Stakeout Iconic hotspots', 250);
       var hero = results.querySelector('.bchero');
       if (hero) {

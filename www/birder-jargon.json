@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "terms": {
+    "home patch": {
+      "definition": "The place you bird regularly and know better than anyone else does.",
+      "usedIn": "Your local area"
+    },
+    "patch tick": {
+      "definition": "A bird new for your patch - not a lifer, but the one that makes a local birder's day.",
+      "usedIn": "Your local area"
+    },
+    "twitch": {
+      "definition": "To travel for one specific rare bird that somebody else has already found.",
+      "usedIn": "Twitches and rarity reports"
+    },
+    "self-found": {
+      "definition": "A rarity you found yourself instead of twitching. Worth more to most birders.",
+      "usedIn": "Rarity reports"
+    },
+    "mega": {
+      "definition": "A seriously rare bird - the kind people drive through the night for.",
+      "usedIn": "Mega rarities"
+    },
+    "stakeout": {
+      "definition": "A known bird sitting still enough at one spot that you can go and get it.",
+      "usedIn": "Stakeout bird and Stakeout Patch"
+    },
+    "tick": {
+      "definition": "A species added to a list. A year tick counts for the year, not for life.",
+      "usedIn": "Fresh ticks and My Year List"
+    },
+    "lifer": {
+      "definition": "A bird seen for the first time ever. Once only, and never again.",
+      "usedIn": "My Year List and species cards"
+    },
+    "nemesis bird": {
+      "definition": "An unseen species being reported close enough to chase now.",
+      "usedIn": "Nemesis birds"
+    },
+    "dip": {
+      "definition": "To go for a bird and not see it. The risk every chase carries.",
+      "usedIn": "Twitch weather"
+    },
+    "big day": {
+      "definition": "A day run to see as many species as possible, usually on a planned route.",
+      "usedIn": "Big days"
+    },
+    "fallout": {
+      "definition": "Weather forcing migrating birds down in numbers, all at once.",
+      "usedIn": "BirdCast and On passage"
+    },
+    "vagrant": {
+      "definition": "A bird well outside its normal range - lost, blown off course, or exploring.",
+      "usedIn": "Rarity reports"
+    },
+    "armchair tick": {
+      "definition": "A species you gain because taxonomists split one bird into two - without seeing anything new.",
+      "usedIn": "My Year List"
+    },
+    "spark bird": {
+      "definition": "The bird that turned you into a birder.",
+      "usedIn": "Your profile"
+    },
+    "peep": {
+      "definition": "Any of the small, maddeningly similar Calidris sandpipers.",
+      "usedIn": "Stakeout bird"
+    }
+  }
+}

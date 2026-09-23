@@ -94,13 +94,17 @@
         return;
       }
       var next = Math.min(batchSize, remaining);
-      var label = moreLabel(next, remaining);
+      var label = typeof spec.moreLabel === 'function'
+        ? spec.moreLabel(next, remaining, noun)
+        : moreLabel(next, remaining);
       button.textContent = '';
-      var icon = doc.createElement('span');
-      icon.className = 'progressive-more-icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = '↓';
-      button.appendChild(icon);
+      if (!spec.hideIcon) {
+        var icon = doc.createElement('span');
+        icon.className = 'progressive-more-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = '↓';
+        button.appendChild(icon);
+      }
       var text = doc.createElement('span');
       text.className = 'progressive-more-text';
       text.textContent = label;

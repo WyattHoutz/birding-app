@@ -49,7 +49,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['stakeoutreachable-f389', 'stakeoutdistance-f389',
       'stakeoutchecklists-progressive', 'stakeoutspts-compact',
-      'stakeoutspts-details',
+      'stakeoutspts-details', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
@@ -263,7 +263,7 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   }
   const rows = source.slice(source.indexOf('destBtn: ['),
     source.indexOf('excBtn: [', source.indexOf('destBtn: [')));
-  assert.equal((rows.match(/\{ name:/g) || []).length, 5,
+  assert.equal((rows.match(/^        \{ name:/gm) || []).length, 5,
     'Today’s patches review still shows fewer than the five useful Hawaii choices');
   const halfRows = source.slice(source.indexOf('excBtn: ['),
     source.indexOf('fullDayBtn: [', source.indexOf('excBtn: [')));

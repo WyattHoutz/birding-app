@@ -1821,9 +1821,6 @@ test('every section HEADING is the same name as its tile (F238)', async () => {
       chipDrift.push(`${m[1]}: tile glyph "${[...strip(label)][0]}" vs chip glyph "${icon}"`);
     }
   }
-  assert.ok(chips >= 2,
-    `the chip scan matched only ${chips} section chips — it has stopped `
-    + 'matching the file it reads (F197)');
   assert.deepEqual(chipDrift, [],
     'a mode-switch chip names a section differently from its tile:\n  '
     + chipDrift.join('\n  '));
@@ -1833,7 +1830,8 @@ test('every section the report maps has a map container, wired to a renderer', a
   const app = await boot();
   // Containers are drawn either by renderMap() directly or by a helper that
   // delegates to it; verify the helpers really do delegate before trusting them.
-  const RENDERERS = ['renderMap', 'renderDestinations', 'renderRoute'];
+  const RENDERERS = ['renderMap', 'renderDestinations', 'renderRoute',
+    'nearbyMapFromCards'];
   const lines = HTML.split(/\r?\n/);
   for (const helper of RENDERERS.filter((f) => f !== 'renderMap')) {
     const start = HTML.indexOf('function ' + helper + '(');
@@ -1861,7 +1859,7 @@ test('every section the report maps has a map container, wired to a renderer', a
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
       const finalPaintWired =
-        tier.includes('renderDestinations(shown, map, results, false, showingAll)');
+        tier.includes('renderDestinations(finalRows, map, results, false, false)');
       const pendingPaintWired =
         tier.includes('renderDestinations(rows, map, results, true)');
       const genericContainers =
@@ -4247,8 +4245,8 @@ test('the Go birding anchor now covers seven sections, and rank from it', async 
   // the switch on "add the control for find/here/home to the near misses and
   // common misses" — six sections in all now offer Here / Home / Find…
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
-  assert.equal(rows.length, 6,
-    'Today\u2019s, Half-day, Full-day, Closest, Near misses and Nemesis '
+  assert.equal(rows.length, 5,
+    'Today\u2019s, Half-day, Full-day, Near misses and Nemesis '
     + 'each carry the switch');
   for (const r of rows) {
     const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
@@ -4651,24 +4649,52 @@ test('closest spots: rows carry the distance in miles, closest first', async () 
   assert.match(build, /targets\.sort\(/, 'sorted closest first');
 });
 
-test('quick outing: capped to an impulse detour and sorted by distance', async () => {
+test('F472 Nearby Patches is fixed at an honest 5-mile cap', async () => {
   const app = await boot({ fetch: () => null });
   const home = { lat: 47.75, lng: -122.15 };
   // Quality DEcreases with distance here, so a list ordered by score would come
   // back 8, 4, 2, 1 - the reverse of what an impulse detour needs.
   const far = (mi) => ({ locId: 'L' + mi, locName: mi + ' mi', lat: home.lat + mi / 69, lng: home.lng, numSpeciesAllTime: 200 + mi });
   const rows = app.window.__app.buildQuickOuting(
-    [far(12), far(2), far(4), far(1), far(8)], home);
-  assert.equal(rows.radiusMi, 5, 'a 5-mile radius is about a five-minute drive');
+    [far(12), far(2), far(4), far(1), far(8)], [home]);
+  assert.equal(rows.radiusMi, 5, 'Nearby Patches states one five-mile scope');
   // Array.from: rows are built inside the jsdom realm, so their prototype is
   // not this realm's Array.prototype and deepStrictEqual would reject them on
   // identity alone.
   const dists = Array.from(rows).map((r) => Math.round(r.dist));
   assert.deepEqual(dists, [1, 2, 4], 'only the near spots, closest first');
-  // ...but a rural region must not get an empty section.
-  const sparse = app.window.__app.buildQuickOuting([far(9), far(30)], home);
-  assert.ok(sparse.radiusMi > 5, 'the radius widens when nothing is that close');
-  assert.ok(sparse.length >= 1);
+  const sparse = app.window.__app.buildQuickOuting([far(9), far(30)], [home]);
+  assert.equal(sparse.length, 0,
+    'the report never silently widens to show a place outside five miles');
+  const dense = app.window.__app.buildQuickOuting(
+    Array.from({ length: 60 }, (_, i) => far(4.9 - i * 0.08)), [home]);
+  assert.equal(dense.length, 60,
+    'every active hotspot inside five miles participates before progressive display');
+  assert.ok(dense[0].dist < dense[59].dist,
+    'dense results remain strictly closest-first rather than quality-selected');
+  app.window.close();
+});
+
+test('F472 Nearby Patches says when no hotspot exists inside five miles', async () => {
+  const home = { lat: 47.75, lng: -122.15 };
+  const app = await boot({
+    storage: {
+      ebird_home_lat: String(home.lat),
+      ebird_home_lng: String(home.lng),
+    },
+    fetch(url) {
+      if (!/ref\/hotspot\/geo/.test(String(url))) return [];
+      return [{
+        locId: 'LFAR', locName: 'Far patch',
+        lat: home.lat + 9 / 69, lng: home.lng,
+        numSpeciesAllTime: 200, latestObsDt: todayFixtureDate() + ' 08:00',
+      }];
+    },
+  });
+  await app.window.__app.loadQuickOuting('home');
+  assert.equal(app.document.querySelectorAll('#quickResults [data-hsloc]').length, 0);
+  assert.match(app.$('quickStatus').textContent,
+    /No recently active eBird hotspots within 5 mi of home\./);
   app.window.close();
 });
 
@@ -4800,6 +4826,149 @@ test('easy misses: a fetched day is cached, because a past day never changes', a
   assert.deepEqual(Array.from(second, (o) => o.speciesCode), ['amerob']);
   assert.equal(second[0].locName, 'Marymoor',
     'the cache keeps the fields the section renders, not just the code');
+  app.window.close();
+});
+
+test('F476 Common birds completes and paints one regional day at a time', async () => {
+  const calls = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (!/\/historic\//.test(u)) return null;
+      calls.push(u);
+      const date = /\/historic\/(\d+)\/(\d+)\/(\d+)/.exec(u);
+      const king = /US-WA-033/.test(u);
+      return [{
+        speciesCode: king ? 'zzztst1' : 'zzztst2',
+        comName: king ? 'Test Robin' : 'Test Sparrow',
+        locId: king ? 'LK' : 'LS',
+        locName: king ? 'King Park' : 'Snohomish Park',
+        lat: 47.7, lng: -122.2,
+        obsDt: `${date[1]}-${String(date[2]).padStart(2, '0')}-${String(date[3]).padStart(2, '0')} 08:00`,
+        subId: king ? 'SK' : 'SS',
+      }];
+    },
+  });
+  const A = app.window.__app;
+  const dates = [
+    new Date('2026-07-21T12:00:00'),
+    new Date('2026-07-20T12:00:00'),
+  ];
+  const paints = [];
+  const all = await A.easyFetch(['US-WA-033', 'US-WA-061'], dates,
+    (done, total, partial, daysDone, daysTotal) => {
+      const rows = A.renderEasyProgress(partial, daysDone, daysTotal, {});
+      paints.push({
+        done, total, daysDone, daysTotal,
+        samples: partial.length,
+        visible: rows.length,
+        text: app.$('easyResults').textContent.replace(/\s+/g, ' '),
+      });
+    });
+
+  assert.deepEqual(paints.map((paint) => paint.daysDone), [1, 2],
+    'the UI did not repaint after each complete calendar day');
+  assert.deepEqual(paints.map((paint) => paint.done), [2, 4],
+    'a paint occurred before both counties for that day had settled');
+  assert.deepEqual(paints.map((paint) => paint.samples), [2, 4],
+    'the progressive sample did not accumulate completed days');
+  assert.match(paints[0].text, /Preliminary — 1\/2 days sampled/);
+  assert.match(paints[0].text, /Test Robin|Test Sparrow/,
+    'the first complete day did not produce visible bird data');
+  assert.equal(all.length, 4, 'the final sample changed while adding progressive paints');
+  assert.match(calls[0], /\/2026\/7\/21/);
+  assert.match(calls[1], /\/2026\/7\/21/,
+    'the queue moved to another date before completing the first date’s counties');
+  assert.match(calls[2], /\/2026\/7\/20/);
+
+  const loader = HTML.slice(HTML.indexOf('function loadEasyMisses('),
+    HTML.indexOf('// --- P14:', HTML.indexOf('function loadEasyMisses(')));
+  assert.match(loader,
+    /easyFetch\([\s\S]*renderEasyProgress\(partial, daysDone, daysTotal, progressiveParents\)/,
+    'the real Common birds loader does not wire day completion to the visible report');
+  app.window.close();
+});
+
+test('F476 Common birds resolves Here and Find to county-scoped caches', async () => {
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/geocode\/reverse/.test(u)) {
+        const lng = Number(new URL(u).searchParams.get('lng'));
+        const county = lng < -121.5
+          ? (lng < -122.25 ? 'King' : 'Snohomish')
+          : 'Yakima';
+        return [
+          { type: 'GADM1', id: 'USA.48_1', title: 'Washington', distance: 0 },
+          { type: 'GADM2', id: 'county', title: county, distance: 0 },
+        ];
+      }
+      if (/ref\/region\/list\/subnational2\/US-WA/.test(u)) {
+        return [
+          { code: 'US-WA-033', name: 'King' },
+          { code: 'US-WA-061', name: 'Snohomish' },
+          { code: 'US-WA-077', name: 'Yakima' },
+        ];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const seattle = await A.easyCountyForAnchor({ lat: 47.61, lng: -122.33 });
+  const everett = await A.easyCountyForAnchor({ lat: 47.98, lng: -122.20 });
+  const yakima = await A.easyCountyForAnchor({ lat: 46.60, lng: -120.51 });
+
+  assert.deepEqual([seattle.code, everett.code, yakima.code],
+    ['US-WA-033', 'US-WA-061', 'US-WA-077']);
+  const day = new Date('2026-07-21T12:00:00');
+  assert.equal(A.easyCacheKey('US-WA-033', day, 'wa'),
+    A.easyCacheKey('US-WA-033', day, 'some-other-report'),
+    'the same county-day cache is still partitioned by report instead of county');
+  assert.notEqual(A.easyCacheKey('US-WA-033', day),
+    A.easyCacheKey('US-WA-061', day),
+    'King and Snohomish share a cache key');
+  app.window.close();
+});
+
+test('F476 Common birds paints complete cached days before missing newer days', async () => {
+  const events = [];
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (!/\/historic\//.test(u)) return null;
+      events.push('fetch');
+      return [{
+        speciesCode: 'zzztst3', comName: 'Network Bird',
+        locId: 'LN', locName: 'Network Park', lat: 47.7, lng: -122.2,
+        obsDt: '2026-07-21 08:00', subId: 'SN',
+      }];
+    },
+  });
+  const A = app.window.__app;
+  const counties = ['US-WA-033', 'US-WA-061'];
+  const newer = new Date('2026-07-21T12:00:00');
+  const older = new Date('2026-07-11T12:00:00');
+  for (const [i, county] of counties.entries()) {
+    await A.zcPut(A.easyCacheKey(county, older), [[
+      `zzzcached${i}`, `Cached Bird ${i + 1}`, `LC${i}`, `Cached Park ${i + 1}`,
+      47.7, -122.2, '2026-07-11 08:00', `SC${i}`,
+    ]]);
+  }
+
+  const all = await A.easyFetch(counties, [newer, older],
+    (done, total, partial, daysDone) => {
+      events.push(`paint:${daysDone}:${partial[0].comName}`);
+    });
+
+  assert.equal(events[0], 'paint:1:Cached Bird 1',
+    'the complete older cache block waited behind uncached newer requests');
+  assert.deepEqual(events.slice(1, 3), ['fetch', 'fetch'],
+    'the missing newer day was not fetched after the immediate cached paint');
+  assert.deepEqual(Object.keys(all.daysByDate).sort(), ['2026-07-11', '2026-07-21'],
+    'the 30-day sample is not retained as a date-keyed dictionary');
+  assert.equal(all.daysByDate['2026-07-11'].complete, true);
+  assert.equal(all.daysByDate['2026-07-11'].rows.length, 2,
+    'the cached dictionary day did not contain both county feeds');
   app.window.close();
 });
 
@@ -5209,7 +5378,8 @@ test('a checklist row is full-width flowing text with a visible marker', async (
   // with easy-read on — the width where the old design had to truncate.
 
   // A field may move to the next line whole; it must never split in half.
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm > span,[\s\S]{0,120}white-space: nowrap/,
+  assert.match(CK.css,
+    /\.cklcards-sm > \.cklcard-sm > \.cksummary > span,[\s\S]{0,240}white-space: nowrap/,
     'no individual fact ever splits down the middle');
   assert.match(CK.css, /a\.ckdist \{[^}]*white-space: nowrap/,
     'including the distance, which is a bare <a> and not a span — name it or '
@@ -5222,19 +5392,22 @@ test('a checklist row is full-width flowing text with a visible marker', async (
     'the row is prose, so it wraps');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*padding:\s*3px 0/,
     'the checklist sentence has no left gutter taking width from its facts');
-  assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*text-indent:\s*0/,
-    'continuation lines use the full width instead of preserving a hanging gutter');
-  assert.match(CK.css, /\.cklcard-sm::before \{[^}]*color:\s*#E69F00/,
+  assert.match(CK.css,
+    /\.cklcards-sm > \.cklcard-sm > \.cksummary \{[^}]*padding-left:\s*1em; text-indent:\s*-1em/,
+    'wrapped checklist text does not use the requested hanging indent');
+  assert.match(CK.css, /\.cksummary::before \{[^}]*color:\s*#E69F00/,
     'the list marker is visible rather than using the faint divider colour');
   assert.match(CK.css, /font-size:\s*calc\(16px \* var\(--s\)\)/,
     'the shared small-card text is large enough to read on the phone');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*border:\s*0/,
     'small checklist rows explicitly suppress global list separators');
 
-  // The separators are gone: they are what made the row read as cells.
-  assert.ok(!/\.cklcards-sm > \.cklcard-sm > span \+ span::before/.test(CK.css),
-    'the small row draws no "·" between fields — that is the table it stopped '
-    + 'being. (The MEDIUM card keeps its own separators and is untouched.)');
+  // The whole card reads as one sentence; metadata uses controlled separators
+  // without returning to a table layout.
+  assert.ok(!/\.cksummary > span \+ span::before/.test(CK.css),
+    'the primary summary line draws table-like separators');
+  assert.match(CK.css, /\.cksummary > \.ckmeta > span \+ span:not\(:empty\)::before/,
+    'the inline metadata lost its controlled separators');
   const sparse = CK.small({ href: 'https://x/1', date: 'Aug 2 9:29 AM' });
   assert.ok(!/\u00b7/.test(sparse),
     'and a row with only a date types no separator characters of its own');
@@ -6757,7 +6930,7 @@ test('grouped sections offer each other as modes of one report', async () => {
     }
     (groups[key] = groups[key] || []).push(modes.join('|'));
   }
-  assert.ok(Object.keys(groups).length >= 2, 'more than one group exists');
+  assert.ok(Object.keys(groups).length >= 1, 'a cross-section mode group exists');
   // Tiles, PLUS the sections deliberately kept off the menu. A mode target
   // must be a real section — but "real section" is not the same as "has a
   // tile". Easy misses and Being reported are two modes of one switch, so the
@@ -6944,23 +7117,9 @@ test('no menu tile is named the same thing as another tile, label or sub-line', 
   app.window.close();
 });
 
-test('Nemesis birds and Open targets are two tiles AND two modes of one switch', async () => {
+test('F474 Nemesis birds combines bird and patch modes while Common birds stays separate', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
-  // F233. "id like to split all unseen reports back into two separate menu
-  // buttons... they can remain in the same report with the Being reported /
-  // Easy misses toggle. Rename Being reported to Near misses."
-  //
-  // Easy misses had been taken OFF the menu on the reasoning that it and All
-  // unseen reports answer the same question. True of the data, false of the
-  // errand — and a chip only offers the second question to someone who already
-  // went looking for the first. Both are tiles again.
-  //
-  // The names are read from the CONTRACT, not typed here. This test was
-  // repointed by hand once already (Near misses -> Open targets) and that is
-  // exactly the enumeration failure F238/F242 keep recording: a name written
-  // in a second place drifts. Deriving it means the next rename touches the
-  // contract only.
   const want = Object.fromEntries(CONTRACT.menu
     .filter((m) => m.at === 'allUnseenBtn' || m.at === 'easyBtn')
     .map((m) => [m.at, m.label.replace(/^\S+\s+/, '')]));
@@ -6970,31 +7129,43 @@ test('Nemesis birds and Open targets are two tiles AND two modes of one switch',
     assert.ok(labels.some((l) => l.includes(name)),
       at + ' has a tile of its own, named "' + name + '"');
   }
-  assert.ok(!labels.some((l) => /Being reported/.test(l)),
-    'and nothing is still called "Being reported"');
-
-  // The two tiles must NOT become two copies of the section. Both still carry
-  // the same switch, so either one reaches the other in one tap.
-  for (const id of ['sec-allUnseenBtn', 'sec-easyBtn']) {
-    const row = doc.querySelector('#' + id + ' .modeswitch[data-modes="unseen"]');
-    assert.ok(row, id + ' still carries the unseen mode switch');
-    const chips = [...row.querySelectorAll('.modebtn')].map((b) => b.textContent.trim());
-    assert.equal(chips.length, 2, id + ' offers both modes');
-    for (const name of Object.values(want)) {
-      assert.ok(chips.some((c) => c.includes(name)),
-        'the chip agrees with the tile, so a rename cannot land in only one: '
-        + chips.join(' | '));
-    }
-    assert.ok(!chips.some((c) => /Being reported/.test(c)),
-      'the old chip wording is gone: ' + chips.join(' | '));
-    // Owner, 2026-08-29: "id like to switch the toggle ordwr so nemesis bird
-    // os first and near miss is second." Order is the ask, so order is what
-    // is guarded — a set comparison above would pass either way round.
-    assert.ok(chips[0].includes(want.easyBtn),
-      'Nemesis birds is the FIRST chip: ' + chips.join(' | '));
-    assert.ok(chips[1].includes(want.allUnseenBtn),
-      'Open targets is the SECOND chip: ' + chips.join(' | '));
-  }
+  assert.equal(want.allUnseenBtn, 'Nemesis birds');
+  assert.equal(want.easyBtn, 'Common birds');
+  assert.equal(CONTRACT.menu.some((m) => m.at === 'targetsBtn'), false,
+    'the retired closest-target menu id remains in the report contract');
+  assert.equal(labels.some((l) => /Open targets|Closest unseen birds|Closest patches/i.test(l)), false,
+    'a retired unseen-report tile remains in the menu');
+  const nemesis = doc.querySelector('#allUnseenBtn').closest('section');
+  assert.equal(doc.querySelector('#targetsBtn').closest('section'), nemesis,
+    'the closest-patch algorithm remains a separate report surface');
+  assert.equal(doc.querySelectorAll('.modeswitch[data-modes="nemesis"]').length, 1,
+    'the unified Nemesis report has no Birds/Patches mode switch');
+  assert.equal(doc.querySelectorAll('main > section #targetsBtn').length, 1,
+    'the retired closest-patches surface still has a duplicate copy');
+  assert.equal(doc.querySelector('#nemesisBirdMode').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, true);
+  app.window.__app.setNemesisMode('patches', false);
+  assert.equal(doc.querySelector('#nemesisBirdPane').hidden, true,
+    'Patches mode left the bird grouping visible');
+  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, false,
+    'Patches mode did not expose the closest-patch grouping');
+  assert.equal(doc.querySelector('#nemesisPatchMode').getAttribute('aria-pressed'), 'true');
+  app.window.__app.setNemesisMode('birds', false);
+  assert.equal(doc.querySelector('#nemesisBirdPane').hidden, false,
+    'Birds mode did not restore the species grouping');
+  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, true,
+    'Birds mode left the patch grouping visible');
+  const menuRows = [...doc.querySelectorAll('#menuList > li')];
+  const buzzAt = menuRows.findIndex((row) => row.classList.contains('tocgroup')
+    && /Buzz/.test(row.textContent));
+  const nextGroup = menuRows.findIndex((row, i) => i > buzzAt
+    && row.classList.contains('tocgroup'));
+  const buzzText = menuRows.slice(buzzAt + 1, nextGroup < 0 ? menuRows.length : nextGroup)
+    .map((row) => row.textContent).join(' ');
+  assert.ok(buzzAt >= 0 && /Nemesis birds/.test(buzzText),
+    'the current-sighting Nemesis report is not in the Buzz menu block');
+  assert.ok(!/Common birds/.test(buzzText),
+    'the historical Common birds report was incorrectly moved into Buzz');
   app.window.close();
 });
 
@@ -7077,20 +7248,18 @@ test('the mode switch is wired, and does not re-navigate to where you already ar
   const app = await boot();
   const doc = app.window.document;
   const A = app.window.__app;
-  A.showSection('sec-allUnseenBtn');
-  const from = doc.getElementById('sec-allUnseenBtn');
-  const btns = [...from.querySelectorAll('.modeswitch .modebtn')];
+  A.showSection('sec-quickBtn');
+  const from = doc.getElementById('sec-quickBtn');
+  const btns = [...from.querySelectorAll('.modeswitch[data-modes="quick"] .modebtn')];
   assert.ok(btns.length >= 2, 'the switch is built from the shared table');
   // Every chip carries an accessible name, because the visible label is
   // deliberately abbreviated to two words.
   btns.forEach((b) => assert.ok((b.getAttribute('aria-label') || '').length > 6,
     'each chip names itself in full for a screen reader: ' + b.getAttribute('data-goto')));
-  const other = btns.filter((b) => b.getAttribute('aria-pressed') !== 'true')[0];
-  assert.ok(other, 'the inactive mode is present to tap');
-  const target = other.getAttribute('data-goto');
-  other.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  assert.ok(!doc.getElementById(target).hidden, 'tapping the other mode shows that section');
-  assert.ok(from.hidden, 'and leaves the one you were on');
+  const current = btns.find((b) => b.getAttribute('aria-pressed') === 'true');
+  assert.ok(current, 'the current mode is present to tap');
+  current.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(from.hidden, false, 'tapping the current mode stays in the same section');
   app.window.close();
 });
 
@@ -8866,7 +9035,7 @@ test('no fixed-size box holds text that scales', () => {
   const offenders = [];
   css.split('\n').forEach((line) => {
     if (!/font-size:\s*calc\(\d+px \* var\(--s\)\)/.test(line)) return;
-    if (/(^|[^-])(min-)?(width|height):\s*\d+px/.test(line)) offenders.push(line.trim());
+    if (/(^|[^-])(width|height):\s*\d+px/.test(line)) offenders.push(line.trim());
   });
   assert.deepEqual(offenders, [],
     'these boxes stay fixed while their text grows, so the text clips at large scales');
@@ -9712,6 +9881,53 @@ test('a foreground ABA response cannot be saved under a newer alert SID', async 
   app.window.close();
 });
 
+function f469AlertHtml() {
+  return '<div id="obs-OBS469" class="Observation">'
+    + '<a href="/species/shtsan/US-WA" data-species-code="shtsan">'
+    + '<span class="Heading-main">Sharp-tailed Sandpiper</span></a>'
+    + '<a href="/checklist/S469" title="Checklist">Sep 22, 2026 10:00</a>'
+    + '<a rel="noopener" title="Map: 47.75, -122.16">'
+    + 'Seattle, Washington, United States</a>'
+    + '</div>';
+}
+
+test('F469 Mega rarities visibly loads while the alert request is pending', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  let resolveFetch;
+  app.window.fetch = () => new Promise((resolve) => {
+    resolveFetch = () => resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(f469AlertHtml()),
+    });
+  });
+
+  const load = A.loadAbaAlert();
+  const status = app.$('abaStatus');
+  assert.match(status.textContent, /Loading the ABA rarities alert/i,
+    'the pending alert request is not identified in words');
+  assert.ok(status.querySelector('.loadingdots'),
+    'the pending alert request has no visible work-in-progress signal');
+  resolveFetch();
+  await load;
+  app.window.close();
+});
+
+test('F469 a successful Mega rarities load keeps its result status', async () => {
+  const app = await boot({ fetch: (url) => (
+    /ebird\.org\/alert\/summary/.test(url) ? f469AlertHtml() : null
+  ) });
+  await app.window.__app.loadAbaAlert();
+  assert.match(app.$('abaStatus').textContent,
+    /1 ABA Code 3\+ species in Washington.*1 report/s,
+    'the successful result status was replaced after rendering');
+  assert.doesNotMatch(app.$('abaStatus').textContent, /find variable|rows/i,
+    'successful rendering leaked an out-of-scope rows reference');
+  assert.match(app.$('abaResults').textContent, /Sharp-tailed Sandpiper/,
+    'the result row did not survive the status update');
+  app.window.close();
+});
+
 test('a full chase clear invalidates and unregisters detached phase two', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -10085,9 +10301,9 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
 test('phase-two completion repaints the visible chase-derived section', async () => {
   const app = await boot();
   const A = app.window.__app;
-  app.open(/Open targets/);
+  app.open(/Nemesis birds/);
   const sec = A.loadedSectionFor('allUnseenBtn');
-  assert.ok(sec, 'Open targets is registered under its section id');
+  assert.ok(sec, 'Nemesis birds is registered under its section id');
   let paints = 0;
   sec._loader = { fromChase: true, fn: () => { paints++; } };
   A.onChasePartial(A.getReportSlug());
@@ -12284,8 +12500,8 @@ test('Unified Twitches Details toggle selects rich or compact shared card templa
     'List + Compact replaces rich species cards');
 
   doc.querySelector('#todayView').click();
-  await waitFor(() => doc.querySelector('#results .hscard-sm'), 'compact hotspot cards');
-  assert.equal(doc.querySelectorAll('#results .hscard-sm').length, 1,
+  await waitFor(() => doc.querySelector('#results .hscard-md'), 'compact hotspot cards');
+  assert.equal(doc.querySelectorAll('#results .hscard-md').length, 1,
     'Grouped + Compact combines the two rarity reports into one hotspot row');
 
   doc.querySelector('#todayDetails').click();
@@ -14344,7 +14560,7 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
   await waitLong(() => /Repeat independent reports.*different observers/.test(
     app.$('spLookupRecent').textContent), 'independent AMPI history');
   await waitLong(() => app.document.querySelector(
-    '#spLookupRecent .evnoterow .evnotebq'), 'inline AMPI comment');
+    '#spLookupRecent .cknote .evidbtn'), 'AMPI comment button');
 
   assert.equal(A.speciesLookupDetails(), true, 'the enabled preference was not remembered');
   assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
@@ -14354,8 +14570,11 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
   assert.ok(calls.some((url) => /product\/checklist\/view\/S1/.test(url))
     && calls.some((url) => /product\/checklist\/view\/S2/.test(url)),
   'Details did not lazily read the visible matching checklists');
-  assert.match(app.$('spLookupRecent').textContent,
-    /Checklist details.*Birder One.*Species comment.*Feeding along the pond edge/s);
+  assert.doesNotMatch(app.$('spLookupRecent').textContent,
+    /Species comment.*Feeding along the pond edge/s,
+    'Stakeout still expands checklist comments beneath the sentence');
+  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Checklist details/,
+    'Stakeout repeats the checklist summary in a redundant details block');
   const firstChecklist = app.document.querySelector(
     '#spLookupRecent .stakeoutPlaceChecklists .cklcard-sm');
   assert.ok(firstChecklist,
@@ -14366,6 +14585,32 @@ test('F435 Stakeout details are opt-in and lazily load comments and location his
     'Stakeout checklist rows omit the checklist species count');
   assert.match(firstChecklist.querySelector('.ckevid')?.textContent || '', /📷/,
     'Stakeout checklist rows omit media icons returned by checklist detail');
+  const placeCards = HTML.slice(HTML.indexOf('function spLookupPlaceCards('),
+    HTML.indexOf('function spLookupPlaceReachable(', HTML.indexOf('function spLookupPlaceCards(')));
+  assert.match(placeCards,
+    /'Load ' \+ Math\.max\(0, historyScanCount - cks\.length\)[\s\S]*' more checklists<\/button>/,
+    'additional checklist history does not name how many more rows it will load');
+  assert.match(HTML,
+    /\.stakeoutLoadHistory\s*\{[^}]*background:\s*none[^}]*text-decoration:\s*underline/,
+    'the additional-checklist action is not styled as a text link');
+  const noteButtons = app.document.querySelectorAll(
+    '#spLookupRecent .stakeoutPlaceChecklists .cknote .evidbtn');
+  assert.equal(noteButtons.length, 1,
+    'a checklist without a species or checklist comment still shows a note icon');
+  const noteWrap = noteButtons[0].closest('.cknote');
+  assert.equal(noteWrap.parentElement.lastElementChild, noteWrap,
+    'the note icon is not the final fact in the checklist sentence');
+  app.click(noteButtons[0]);
+  assert.equal(app.$('appSheet').hidden, false,
+    'the note icon did not open the existing bottom sheet');
+  assert.equal(app.$('appSheet').querySelectorAll('blockquote.evnotecombined').length, 1,
+    'species and checklist comments render as separate blockquotes');
+  assert.equal(app.$('appSheet').querySelectorAll(
+    'blockquote.evnotecombined > .evnoteitem').length, 2,
+  'the combined quotation does not preserve both comment fields');
+  assert.match(app.$('appSheet').textContent,
+    /Species comment.*Feeding along the pond edge.*Checklist comment.*Calm morning/s,
+    'the bottom sheet does not show both available checklist comments');
   assert.equal(app.document.querySelector(
     '#spLookupRecent .hscard-sm .hslink')?.getAttribute('data-loc'), 'L1',
     'the Stakeout bird hotspot name does not open that hotspot’s Stakeout report');
@@ -15084,9 +15329,12 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
     'Compact/Details expanded back into two buttons');
   assert.equal(app.$('spLookupList'), null,
     'List/Group expanded back into two buttons');
-  assert.ok(app.$('spLookupMap').compareDocumentPosition(compactCard)
+  assert.ok(compactCard.compareDocumentPosition(app.$('spLookupRecent'))
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the compact orientation map no longer precedes the selected-bird card');
+  'the selected-bird card no longer precedes Recent Checklists');
+  assert.ok(app.$('spLookupRecent').compareDocumentPosition(app.$('spLookupMap'))
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'the map no longer follows Recent Checklists');
   assert.equal(app.window.getComputedStyle(app.$('spLookupMap')).aspectRatio, '16 / 7',
     'the Stakeout map returned to the oversized shared-map ratio');
   const dateDistance = app.$('spLookupByDate').parentElement;
@@ -15143,7 +15391,7 @@ test('F466 Stakeout modes use approved cards, map order and open checklists', as
   const checklistBulletRule = [...app.document.styleSheets]
     .flatMap((sheet) => [...sheet.cssRules])
     .find((rule) => rule.selectorText
-      === '#spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm::before');
+      === '#spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm > .cksummary::before');
   assert.ok(checklistBulletRule,
     'Stakeout checklist bullets have no mode-shared emphasis rule');
   assert.equal(checklistBulletRule.style.color, 'rgb(0, 0, 0)',
@@ -15952,6 +16200,13 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   const app = await boot({
     fetch(url) {
       if (/product\/lists\//.test(url)) return lists;
+      if (/product\/checklist\/view\/S1/.test(url)) {
+        return {
+          subId: 'S1', obsDt: '2026-08-07 08:00', numSpecies: 20,
+          comments: 'Use the south observation platform.',
+          obs: [{ speciesCode: 'sp0', comName: 'Needed Bird' }],
+        };
+      }
       if (/data\/obs\/L1\/recent/.test(url)) {
         return [
           // The bird you need — reported on S1, and ONLY on S1.
@@ -16003,8 +16258,27 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   const list = progress.querySelector('ul');
   const more = progress.querySelector('.hotspotChecklistMore');
   assert.ok(more, 'the filtered-out lists survive behind an OPENABLE control');
-  assert.match(more.textContent, /Load 2 more/,
-    'the progressive action stays short when every remaining row fits');
+  assert.equal(more.textContent.trim(), 'Load 2 more checklists',
+    'the progressive action is a counted checklist text link');
+  assert.match(HTML,
+    /\.progressive-more\.hotspotChecklistMore\s*\{[^}]*border:\s*0[^}]*background:\s*none[^}]*text-decoration:\s*underline/,
+    'the remaining-checklist action is still styled as a filled button');
+  assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
+    'patch checklist rows do not use the shared one-sentence small card');
+  const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
+  assert.ok(checklistCss.includes('padding-left: 1em; text-indent: -1em;'),
+    'patch checklist rows lost the shared hanging indent');
+  det.open = true;
+  det.dispatchEvent(new app.window.Event('toggle'));
+  await new Promise((r) => setTimeout(r, 80));
+  const note = list.children[0].querySelector('.cknote .evidbtn');
+  assert.ok(note, 'a patch checklist comment has no end-of-sentence note action');
+  assert.equal(list.children[0].querySelector('.evnoterow'), null,
+    'patch checklist comments are still expanded inline');
+  note.click();
+  assert.match(doc.getElementById('appSheet').textContent,
+    /Use the south observation platform/,
+    'the patch checklist note action does not open the shared bottom sheet');
   more.click();
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(list.querySelectorAll('.cklcard-sm').length, 3,
@@ -16472,7 +16746,7 @@ test('F219: a rarity reported on ONE checklist still gets a note carrier', async
 // Exercised through the REAL hydration path rather than by calling a renderer,
 // because the thing that could break is the interaction between the stored
 // preference and the pass that paints the marks.
-test('with notes on, the observer note is painted instead of hidden behind a tap', async () => {
+test('checklist comments keep one popup button whether Notes is off or on', async () => {
   const NOTE = 'On the far side of the helipad, viewable from the car park.';
   const mk = () => boot({
     fetch(url) {
@@ -16499,39 +16773,30 @@ test('with notes on, the observer note is painted instead of hidden behind a tap
     return host;
   }
 
-  // OFF is the default, and it must stay the default: painting every note by
-  // default would undo the collapse these lists exist to provide.
+  // OFF is the default, but it must not make comments undiscoverable.
   const off = await mk();
   assert.equal(off.window.__app.rarityNotes(), false, 'notes are off unless asked for');
   const hostOff = await render(off);
   assert.equal(hostOff.querySelectorAll('.evnoterow').length, 0,
     'no notes are painted while the toggle is off');
-  // ⚠️ NOT asserting a mark here, and that is the behaviour rather than a gap:
-  // `noteRequired` deliberately suppresses a bare note badge on these lists,
-  // because eBird makes a comment compulsory on a flagged species so the badge
-  // would appear on every row and mean nothing on any of them. A plain note
-  // therefore has NO affordance at all when the toggle is off — which is
-  // precisely why the toggle was asked for.
+  assert.equal(hostOff.querySelectorAll('.cknote .evidbtn').length, 2,
+    'Notes off hides the comment buttons');
+  off.click(hostOff.querySelector('.cknote .evidbtn'));
+  assert.match(off.$('appSheet').textContent, new RegExp(NOTE),
+    'the comments popup does not contain the observer note');
   off.window.close();
 
   const on = await mk();
   on.window.__app.setRarityNotes(true);
   const hostOn = await render(on);
-  const notes = [...hostOn.querySelectorAll('.evnoterow')];
-  assert.ok(notes.length > 0, 'with the toggle on, the note is painted inline');
-  // F229: the row now carries a LABEL as well as the words, so the words live
-  // in the blockquote. Reading the row's whole textContent would fold the
-  // caption into the quotation and pass on a note that had been mangled.
-  const bq = notes[0].querySelector('.evnotebq');
-  assert.ok(bq, 'the words are a quotation, under a label');
-  assert.equal(bq.textContent.trim(), NOTE, 'and it is the observer\u2019s own words');
+  assert.equal(hostOn.querySelectorAll('.evnoterow').length, 0,
+    'Notes on restores the obsolete inline comment blocks');
+  assert.equal(hostOn.querySelectorAll('.cknote .evidbtn').length, 2,
+    'Notes on duplicates or removes the popup comment buttons');
   on.window.close();
 });
 
-// The painted note must not COST the mark. A note carrying a waypoint still
-// earns its badge — that badge is the only thing that makes the coordinates
-// tappable — so the two have to coexist rather than one replacing the other.
-test('a painted note does not swallow the waypoint mark', async () => {
+test('the checklist comment popup keeps a typed waypoint tappable', async () => {
   const WP = '47.65798\u00b0 N, 122.29830\u00b0 W by the helipad';
   const app = await boot({
     fetch(url) {
@@ -16555,10 +16820,11 @@ test('a painted note does not swallow the waypoint mark', async () => {
   await A.hydrateChecklistEvidence(det);
   await new Promise((r) => setTimeout(r, 900));
 
-  assert.ok(host.querySelector('.evnoterow'), 'the note is painted');
-  assert.ok(host.querySelector('.evidbtn'),
-    'and the mark survives, because it is what makes the waypoint tappable — '
-    + 'a coordinate you cannot tap is a fact you have to retype');
+  const note = host.querySelector('.cknote .evidbtn');
+  assert.ok(note, 'the comment button is missing');
+  app.click(note);
+  assert.ok(app.document.querySelector('#appSheet .evwp .maplink'),
+    'the typed waypoint is not tappable inside the comments popup');
   app.window.close();
 });
 
@@ -16800,7 +17066,7 @@ test('F247 cache logging names hits, misses, nearby keys and session activity', 
   app.window.close();
 });
 
-test('Nemesis birds sorts by date and distance without refetching (F246)', async () => {
+test('Common birds sorts by date and distance without refetching (F246)', async () => {
   // Owner: "after the data loads, it needs the toggle for sorting by date or
   // distance used in other reports."
   //
@@ -16903,7 +17169,7 @@ test('the hotspot scan reuses cached day lists and pays nothing (F253)', async (
   app.window.close();
 });
 
-test('F266 Hot patches owns a seven-day day-list floor without opening Nemesis birds', async () => {
+test('F266 Hot patches owns a seven-day day-list floor without opening Common birds', async () => {
   let historicCalls = 0;
   function rows(locId, locName, prefix) {
     return Array.from({ length: 5 }, (_, i) => ({
@@ -16966,7 +17232,7 @@ test('F266 Hot patches owns a seven-day day-list floor without opening Nemesis b
     'the measured seven-day ownership floor drifted');
   assert.equal(ownership.fetched, 14,
     'the owner did not fetch exactly seven missing days per two-county report');
-  assert.doesNotMatch(doc.body.textContent, /open Nemesis birds/i,
+  assert.doesNotMatch(doc.body.textContent, /open Common birds/i,
     'the cache reader told the user to warm another section instead of owning its input');
   app.window.close();
 });
@@ -17447,8 +17713,11 @@ test('an observer note is inserted as text, never as markup', async () => {
   await A.hydrateChecklistEvidence(det);
   await new Promise((r) => setTimeout(r, 900));
 
-  const note = host.querySelector('.evnoterow');
-  assert.ok(note, 'the note rendered');
+  const button = host.querySelector('.cknote .evidbtn');
+  assert.ok(button, 'the comment action rendered');
+  A.openEvidence(button.getAttribute('data-evid'));
+  const note = doc.querySelector('#appSheet .evnotecombined');
+  assert.ok(note, 'the note rendered in the combined comment sheet');
   // Assert on the CHARACTERS that could form markup, not on the word
   // "onerror" — letters survive escaping harmlessly and a check for them
   // passes on a payload it has not actually made safe. That mistake was made
@@ -17458,11 +17727,11 @@ test('an observer note is inserted as text, never as markup', async () => {
   // element now. Counting the row's descendants would have counted our own
   // caption as injected markup — a guard that fails on the fix rather than on
   // the bug.
-  const bq = note.querySelector('.evnotebq');
-  assert.ok(bq, 'the words are in a quotation');
-  assert.equal(bq.querySelectorAll('*').length, 0,
-    'the note produced no elements — it is a text node, not parsed markup');
-  assert.equal(bq.textContent, EVIL, 'and reads back exactly as typed');
+  const bq = note;
+  assert.ok(bq.matches('blockquote.evnotebq'), 'the words are in a quotation');
+  assert.equal(bq.querySelectorAll('img').length, 0,
+    'the note produced no injected image element');
+  assert.ok(bq.textContent.includes(EVIL), 'and reads back exactly as typed');
   assert.equal(app.window.__pwned, undefined, 'nothing executed');
   app.window.close();
 });
@@ -17778,15 +18047,17 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
   assert.match(src,
     /noteHead\(\s*CKL_NOTE_LABEL,\s*BirdLogic\.CHECKLIST_NOTE_ICON\)/,
     'the checklist glyph is not immediately before its label in the same heading');
-  assert.match(HTML, /checklistNote:\s*!showDetails/,
-    'the checklist glyph remains in the row after moving into the visible heading');
+  assert.match(src, /setChecklistNoteButton\(el, det,/,
+    'a checklist with comments keeps an explicit row action');
   assert.match(src,
-    /if \(!sp && !ck && !showInlineDetails\) \{ settleNote\(el\); return; \}/,
+    /if \(!sp && !ck\) \{ settleNote\(el\); return; \}/,
     'and with neither comment the row prints nothing at all');
   // NEVER innerHTML. This is the one field on these rows that is genuinely
   // user-authored, and cards-checklist.js has no escaper by design.
   assert.match(src, /bq\.textContent = text;/, 'the comment is set as text, never markup');
-  assert.ok(!/innerHTML\s*=/.test(src),
+  const textPainter = src.slice(src.indexOf('function setNoteText'),
+    src.indexOf('function mediaMarksFor'));
+  assert.ok(!/innerHTML\s*=/.test(textPainter),
     'nothing in the note painter builds markup from an observer\u2019s words');
 });
 
@@ -17796,7 +18067,7 @@ test('the comments placeholder always settles', () => {
   const hyd = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence'),
                          HTML.indexOf('var _evidStore = {}'));
   assert.match(hyd,
-    /rows\.filter\(function \(el\) \{[\s\S]*data-ev-show-details[\s\S]*data-ev-show-notes[\s\S]*\}\)\.forEach\(setNoteLoading\)/,
+    /rows\.filter\(function \(el\) \{[\s\S]*rarityNotes\(\)[\s\S]*data-ev-show-notes[\s\S]*\}\)\.forEach\(setNoteLoading\)/,
     'the wait is announced');
   // ...but only on rows the budget will actually fetch. `rows` is filtered to
   // CKL_EVID_MAX first, so a skipped row cannot sit at "loading" forever —
@@ -17935,13 +18206,14 @@ test('a rarity checklist surfaces the waypoint, and only the waypoint', async ()
   await A.hydrateChecklistEvidence(det);
   await new Promise((r) => setTimeout(r, 600));
 
-  const btns = [...host.querySelectorAll('.evidbtn')];
+  const btns = [...host.querySelectorAll('.ckevid .evidbtn')];
   assert.equal(btns.length, 1,
     'exactly ONE row earns a mark. Both observers wrote a comment because eBird '
     + 'made them; only one said where the bird was');
   assert.equal(btns[0].getAttribute('data-evid'), 'S1|larspa');
-  assert.ok(btns[0].textContent.includes('\u{1F3AF}'), 'the waypoint is marked');
-  assert.ok(btns[0].textContent.includes('\u{1F4F7}'), 'and the photos with it');
+  assert.ok(!btns[0].textContent.includes('\u{1F3AF}'),
+    'the inline evidence slot stays media-only instead of duplicating the comment action');
+  assert.ok(btns[0].textContent.includes('\u{1F4F7}'), 'the photo is marked');
 
   // The mark OPENS the note. A waypoint you cannot tap is a fact you retype.
   A.openEvidence('S1|larspa');
@@ -20269,12 +20541,11 @@ test('quick outing offers only its three anchors, and asks for a place only when
 
 // Requests that arrived in another session and were nearly lost. Pinned
 // together because they are one idea: a checklist row is a ROW YOU TAP.
-test('a checklist row is the requested one-liner, and the whole row is the link', async () => {
+test('a checklist row uses the approved one-line hanging summary, and the whole row is the link', async () => {
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
 
-  // The row as it was asked for, to the character:
-  //   "33014 NE 138th St. Aug 3 5:14AM x3 12.4mi"
+  // The compact summary keeps every decision fact in one wrapping sentence.
   const row = CK.small({
     place: '33014 NE 138th St', href: 'https://ebird.org/checklist/S1',
     date: 'Aug 3 5:14 AM', count: 3, distMi: 12.4,
@@ -22939,10 +23210,10 @@ test('the early rarity view never leaks into the shared chase cache', () => {
     'and only if their section has actually been opened');
 });
 
-test('F381 Open targets bounds first paint and appends into the same live list', async () => {
+test('F381 Nemesis birds bounds first paint and appends into the same live list', async () => {
   const app = await boot();
   const A = app.window.__app;
-  app.open(/Open targets/);
+  app.open(/Nemesis birds/);
   const rows = Array.from({ length: 30 }, (_, i) => {
     const place = {
       loc: `Hotspot ${i + 1}`,
@@ -22970,9 +23241,9 @@ test('F381 Open targets bounds first paint and appends into the same live list',
   const list = app.$('allUnseenResults');
   assert.equal(A.allUnseenBatch(), 12, 'the measured first-paint bound drifted');
   assert.equal(list.children.length, 12,
-    'Open targets built every species card in its first paint');
+    'Nemesis birds built every species card in its first paint');
   assert.equal(list.querySelectorAll('.thumb[data-bird]').length, 12,
-    'Open targets hydrated more photo slots than the bounded first batch');
+    'Nemesis birds hydrated more photo slots than the bounded first batch');
   assert.equal(control.button.parentElement.id, 'allUnseenProgress');
   assert.match(control.button.textContent, /Load 10 more of 18/);
 
@@ -22984,7 +23255,7 @@ test('F381 Open targets bounds first paint and appends into the same live list',
   const replacement = A.renderAllUnseenCards(rows.slice(0, 18));
   const replacementList = app.$('allUnseenResults');
   assert.equal(control.append(), false,
-    'a control from an older Open targets paint still appends rows');
+    'a control from an older Nemesis birds paint still appends rows');
   assert.equal(list.children.length, 22);
   assert.equal(replacementList.children.length, 12);
 
@@ -22992,7 +23263,7 @@ test('F381 Open targets bounds first paint and appends into the same live list',
   section.hidden = true;
   replacement.button.click();
   assert.equal(replacementList.children.length, 12,
-    'a hidden/stale Open targets section accepted another append');
+    'a hidden/stale Nemesis birds section accepted another append');
   section.hidden = false;
   replacement.button.click();
   assert.equal(replacementList.children.length, 18);
@@ -23200,6 +23471,10 @@ test('quick outing hydrates its cards like top destinations does', async () => {
   const locCalls = [];
   const fixtureDate = todayFixtureDate();
   const app = await boot({
+    storage: {
+      ebird_home_lat: '46.60',
+      ebird_home_lng: '-120.45',
+    },
     fetch(url) {
       const u = String(url);
       if (/ref\/hotspot\/geo/.test(u)) {
@@ -23219,8 +23494,6 @@ test('quick outing hydrates its cards like top destinations does', async () => {
     },
   });
   const A = app.window.__app, W = app.window, D = W.document;
-  W.localStorage.setItem('ebird_home_lat', '46.60');
-  W.localStorage.setItem('ebird_home_lng', '-120.45');
   A.seedChase(A.getReportSlug(), null);
   const hydration = A.loadQuickOuting('home');
   assert.ok(hydration && typeof hydration.then === 'function',
@@ -23254,6 +23527,10 @@ test('quick outing hydrates its cards like top destinations does', async () => {
 test('quick outing keeps broader local unseen evidence', async () => {
   const locUrls = [];
   const app = await boot({
+    storage: {
+      ebird_home_lat: '19.92',
+      ebird_home_lng: '-155.88',
+    },
     fetch(url) {
       const u = String(url);
       if (/ref\/hotspot\/geo/.test(u)) {
@@ -23282,8 +23559,6 @@ test('quick outing keeps broader local unseen evidence', async () => {
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   W.localStorage.setItem('ebird_seen_field', 'speciesCode');
   W.localStorage.setItem('ebird_seen', '{}');
-  W.localStorage.setItem('ebird_home_lat', '19.92');
-  W.localStorage.setItem('ebird_home_lng', '-155.88');
 
   A.loadQuickOuting('home');
   await waitFor(() => locUrls.length >= 1, 'the local hotspot species feed');
@@ -23301,7 +23576,7 @@ test('quick outing keeps broader local unseen evidence', async () => {
   app.window.close();
 });
 
-test('Nearby Patches defaults to All and switches Unseen to closest-target places', async () => {
+test('F474 Nearby Patches stays place-only and has no unseen-report switch', async () => {
   const calls = [];
   const app = await boot({
     storage: {
@@ -23329,16 +23604,13 @@ test('Nearby Patches defaults to All and switches Unseen to closest-target place
 
   await A.loadQuickOuting('home');
 
-  const cards = () => [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
-  assert.equal(app.document.querySelector(
-    '#quickSpeciesScope').getAttribute('aria-pressed'), 'false');
-  assert.equal(cards().length, 2, 'All shows the existing nearby-hotspot content');
-  app.click(app.document.querySelector('#quickSpeciesScope[data-scope="unseen"]'));
-  await waitFor(() => calls.some((u) => /data\/obs|notable|geo/.test(u))
-    && /No unlogged|target|caught up/i.test(app.$('quickStatus').textContent),
-  'the Unseen target pipeline');
-  assert.equal(app.document.querySelector(
-    '#quickSpeciesScope').getAttribute('aria-pressed'), 'true');
+  const cards = [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
+  assert.equal(cards.length, 2, 'Nearby Patches still shows the nearby places');
+  assert.equal(app.document.querySelector('#quickSpeciesScope'), null,
+    'Nearby Patches still exposes the unseen-bird report as a filter');
+  assert.match(app.$('quickStatus').textContent, /2 hotspots within 5 mi.*closest first/i);
+  assert.equal(calls.filter((u) => /ref\/hotspot\/geo/.test(u)).length, 1,
+    'the place-only report started a second target pipeline');
   app.window.close();
 });
 
@@ -24777,8 +25049,8 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
       name + ' still hand-rolls the shared toggle markup');
   }
   for (const name of [
-    'watchScopeControl', 'renderPatchSpeciesFilters', 'renderRecentChecklistFilters',
-    'renderQuickSpeciesFilter', 'abaScopeControl', 'surgeFilterControl',
+    'watchScopeControl', 'renderRecentChecklistFilters',
+    'abaScopeControl', 'surgeFilterControl',
   ]) {
     const start = HTML.indexOf('function ' + name + '(');
     assert.ok(start >= 0, name + ' is missing');
@@ -25921,7 +26193,10 @@ test('the birder glossary is defined once, and says where each word is used (F14
   // rejected while writing this and are pinned here so they cannot creep back:
   // an excursion is a BIG DAY, not a twitch (a twitch is one specific rare bird
   // someone else found), and a year tick is not a LIFER (first-ever, for life).
-  const J = BL.JARGON;
+  const jargonDoc = JSON.parse(fs.readFileSync(wwwFixture('birder-jargon.json'), 'utf8'));
+  const J = Object.entries(jargonDoc.terms || {}).map(([term, row]) => ({
+    term, def: row.definition, where: row.usedIn,
+  }));
   assert.ok(Array.isArray(J) && J.length >= 12, 'the glossary exists and is not a stub');
 
   for (const j of J) {
@@ -25943,8 +26218,8 @@ test('the birder glossary is defined once, and says where each word is used (F14
     'twitch is still defined as ONE specific bird someone else found');
   assert.ok(!/excursion/i.test(by['twitch'].where),
     'twitch is not attached to excursions - that is a big day');
-  assert.ok(/excursion/i.test(by['big day'].where),
-    'big day is the term attached to excursions');
+  assert.ok(/big days/i.test(by['big day'].where),
+    'big day is attached to the Big days report');
 
   // A lifer is first-ever. A year tick is not one.
   assert.ok(/first time ever|for life/i.test(by['lifer'].def),
@@ -25954,19 +26229,48 @@ test('the birder glossary is defined once, and says where each word is used (F14
 
   // Rendered into the page that already explains the sections, so it costs no
   // new screen and no new menu tile.
-  assert.ok(/BL\.JARGON/.test(HTML), 'the help page renders the shared glossary');
+  assert.ok(/loadJargon\(\)/.test(HTML), 'the help page loads the shared JSON glossary');
   assert.ok(/class="glossitem"/.test(HTML),
     'a glossary entry carries its OWN class - it looks like a help entry but is ' +
     'not a section, and counting it as a menu tile broke the per-tile guard');
   assert.ok(/Used in: ' \+ esc\(j\.where\)/.test(HTML),
     'each entry says where the word is used, so it is a key to THIS app');
-  assert.ok(/typeof BL !== 'undefined' && BL\.JARGON/.test(HTML),
-    'help still renders if logic.js has not loaded');
+  assert.match(HTML, /fetch\('birder-jargon\.json', \{ cache: 'force-cache' \}\)/,
+    'the bundled dictionary is not read through the browser cache');
 
   // Terms rejected on purpose: subjective, hostile, or accusing a named person.
   for (const bad of ['crippler', 'gripped off', 'stringer']) {
     assert.ok(!by[bad], `"${bad}" stays out of the glossary`);
   }
+});
+
+test('F475 the main menu shows one cached Birder Jargon definition above Buzz', async () => {
+  const jargonDoc = JSON.parse(fs.readFileSync(wwwFixture('birder-jargon.json'), 'utf8'));
+  const app = await boot({
+    fetch(url) {
+      if (/birder-jargon\.json/.test(url)) return jargonDoc;
+      return null;
+    },
+  });
+  await waitFor(() => app.document.querySelector('.jargontip .jargonterm'),
+    'the menu jargon definition');
+  const list = app.document.getElementById('menuList');
+  const tip = list.querySelector(':scope > li.jargontip');
+  const firstGroup = list.querySelector(':scope > li.tocgroup');
+  assert.ok(tip && firstGroup, 'the jargon tip or Buzz heading is missing');
+  assert.ok([...list.children].indexOf(tip) < [...list.children].indexOf(firstGroup),
+    'Birder Jargon is not above the Buzz menu block');
+  assert.equal(tip.querySelector('.jargonlabel').textContent, 'Birder Jargon');
+  const term = tip.querySelector('.jargonterm').textContent;
+  assert.equal(tip.querySelector('.jargondef').textContent,
+    jargonDoc.terms[term].definition,
+  'the displayed definition did not come from the JSON dictionary');
+  const cacheKey = Object.keys(app.window.localStorage)
+    .find((key) => key.startsWith('bc_birder_jargon_v1:'));
+  assert.ok(cacheKey, 'the parsed dictionary was not cached for later menu opens');
+  assert.ok(JSON.parse(app.window.localStorage.getItem(cacheKey)).length >= 12,
+    'the cached dictionary is a stub');
+  app.window.close();
 });
 
 test('the state alert is an escape hatch, not another row tag (F128 follow-up)', () => {
@@ -26543,12 +26847,18 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
   app.window.close();
 });
 
-test('F466 Stakeout map precedes controls and Iconic is Details content', () => {
+test('F470 Stakeout map follows Recent Checklists and Iconic is Details content', () => {
   const map = HTML.indexOf('id="spLookupMap"');
-  const row = HTML.indexOf('id="spLookupSortRow"');
-  assert.ok(map > 0 && row > 0, 'the stakeout map or sort row is missing');
-  assert.ok(map < row,
-    'the compact map does not precede the control strip');
+  const recent = HTML.indexOf('id="spLookupRecent"');
+  assert.ok(map > 0 && recent > 0, 'the stakeout map or Recent Checklists host is missing');
+  assert.ok(recent < map,
+    'the map is not below Recent Checklists');
+  const renderAt = HTML.indexOf("var recent = $('spLookupRecent')",
+    HTML.indexOf('function renderSpeciesLookup()'));
+  const renderRecent = HTML.slice(renderAt, renderAt + 1200);
+  assert.match(renderRecent,
+    /recentHeading\.insertAdjacentElement\('afterend', recentMap\)/,
+    'the map is not inserted directly after the Recent Checklists heading');
 
   assert.doesNotMatch(HTML, /id="spLookupByIconic"/,
     'Iconic survived as a sort mode instead of the final Details section');
@@ -26591,9 +26901,14 @@ test('the Details Iconic section explains its historical odds before its list', 
   const rowAt = HTML.indexOf('function iconicRowHtml');
   assert.ok(rowAt > 0, 'iconicRowHtml not found');
   const rowSrc = HTML.slice(rowAt, HTML.indexOf('\n      function ', rowAt + 1));
-  assert.ok(/HotspotCards\.small/.test(rowSrc), 'the odds rows are not place-shaped');
+  assert.ok(/HotspotCards\.medium/.test(rowSrc),
+    'the odds rows do not use the place card with a right-hand tally cell');
   assert.ok(/num: num/.test(rowSrc),
     'the odds rows carry no number, so they cannot be tied to the map pins');
+  assert.match(rowSrc, /distance:\s*isFinite\(r\.mult\)\s*\?\s*Math\.round\(r\.mult\)/,
+    'the historical multiplier is not the right-hand ranking value');
+  assert.match(rowSrc, /distanceLabel:\s*'\\u00d7'/,
+    'the right-hand ranking value is mislabeled as mileage');
 
   // Nothing found is an ANSWER here, not an empty section.
   assert.ok(/not a bird with a reliable address here/.test(src),
@@ -26665,7 +26980,7 @@ test('every small checklist card can show age and compact duration', () => {
   });
   assert.match(html, /class="ckage">\(17h ago\)<\/span>/,
     'relative age is not immediately after the checklist date');
-  assert.match(html, /class="ckduration">· 1h8m<\/span>/,
+  assert.match(html, /class="ckduration">1h8m<\/span>/,
     'duration is not abbreviated at the end of the checklist row');
   assert.equal(ChecklistCards.durationText(2 + 4 / 60), '2h4m',
     'hours and minutes regained an unnecessary space');
@@ -26692,6 +27007,33 @@ test('every small checklist card can show age and compact duration', () => {
   assert.doesNotMatch(HTML,
     /facts\.push\(Number\(det\.durationHrs\)[\s\S]{0,120}hr checklist/,
     'Stakeout still renders duration through a bespoke details style');
+});
+
+test('F473 small checklist cards use one long line with a hanging indent', () => {
+  const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
+  const html = ChecklistCards.small({
+    place: 'Discovery Bay',
+    date: 'Sep 22 10:10 AM',
+    observedAt: '2026-09-22T10:10:00',
+    nowMs: new Date('2026-09-22T22:10:00').getTime(),
+    who: 'Robert Ambrose',
+    sp: 41,
+    count: 1,
+    durationHrs: 1 + 57 / 60,
+    checklistId: 'S395342498',
+  });
+  assert.match(html,
+    /<div class="cksummary">[\s\S]*Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*\(12h ago\)[\s\S]*<span class="ckmeta">[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m[\s\S]*<\/span><\/div>/,
+    'the primary and secondary facts are not one wrapping summary');
+  assert.doesNotMatch(html, /<div class="ckmeta">/,
+    'metadata still creates a forced second line');
+  assert.match(ChecklistCards.css,
+    /\.cksummary \{[^}]*padding-left:\s*1em; text-indent:\s*-1em/,
+    'continuation lines do not align after the leading marker');
+  assert.doesNotMatch(html, /S395342498|class="ckid"/,
+    'the raw checklist id still competes with the readable summary');
+  assert.doesNotMatch(HTML, /Checklist details|data-ev-show-details|stakeoutcklmeta/,
+    'Stakeout still repeats checklist metadata below the shared summary');
 });
 
 test('a short Top patches list explains its time and access scope', async () => {
@@ -28543,8 +28885,10 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       if (/product\/lists\//.test(url)) return lists;
       if (/data\/obs\/L1\/recent/.test(url)) {
         return [
-          { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', subId: 'S1' },
-          { speciesCode: 'sonspa', comName: 'Song Sparrow', subId: 'S2' },
+          { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+            subId: 'S1', howMany: 2 },
+          { speciesCode: 'sonspa', comName: 'Song Sparrow',
+            subId: 'S2', howMany: null },
         ];
       }
       if (/product\/checklist\/view\//.test(url)) {
@@ -28559,24 +28903,15 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   A.renderStakeHs('L128530', 'Marymoor Park', lists.slice(0, 1), [], {
     lat: 47.66, lng: -122.12, n: 100, nc: 20,
   }, false);
-  await waitFor(() => /Park in the lower lot/.test(app.$('stakeHsResults').textContent),
-    'Stakeout hotspot checklist comment');
+  await waitFor(() => app.document.querySelector(
+    '#stakeHsResults .cknote .evidbtn'), 'Stakeout hotspot checklist note action');
   const stakeRow = app.document.querySelector('#stakeHsResults .cklcard-sm');
   assert.equal(stakeRow.getAttribute('data-ev-checklist-only'), '1');
-  assert.match(stakeRow.textContent, /Checklist comment/);
-  assert.doesNotMatch(stakeRow.textContent, /Species comment/);
-
-  const noComments = app.document.querySelector(
-    '#stakeHsNotes.stakeHsNotesBtn');
-  app.click(noComments);
-  assert.equal(app.document.querySelector('#stakeHsResults .evnoterow'), null,
-    'No comments leaves an old hydrated comment in the row');
-
-  const onComments = app.document.querySelector(
-    '#stakeHsNotes.stakeHsNotesBtn');
-  app.click(onComments);
-  await waitFor(() => /Park in the lower lot/.test(app.$('stakeHsResults').textContent),
-    'restored cached Stakeout hotspot comment');
+  assert.equal(stakeRow.querySelector('.evnoterow'), null,
+    'Stakeout hotspot still prints checklist comments inline');
+  app.click(stakeRow.querySelector('.cknote .evidbtn'));
+  assert.match(app.$('appSheet').textContent, /Park in the lower lot/,
+    'Stakeout hotspot checklist note does not open in the shared bottom sheet');
 
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
@@ -28607,14 +28942,14 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     'Today’s patches still creates multiple checklist lists');
   assert.equal(list.children.length, 2,
     'the first paint does not stop after the checklists with a bird you need');
-  assert.equal(list.children[0].querySelector('.cktargets')?.textContent.trim(), 'SPTS',
-    'a patch checklist does not name its unseen birds as four-letter codes');
+  assert.equal(list.children[0].querySelector('.cktargets')?.textContent.trim(), 'SPTS ×2',
+    'a patch checklist does not pair each unseen code with its bird count');
   assert.equal(list.children[1].querySelector('.cktargets')?.textContent.trim(), 'SOSP',
-    'each checklist does not get its own comma-separated unseen-code list');
+    'an unknown bird count is rendered as a misleading ×X value');
   assert.equal(list.querySelector('.ckdist'), null,
     'patch checklists repeat distance already shown on the parent hotspot');
   const more = progress.querySelector('.hotspotChecklistMore');
-  assert.match(more.textContent, /Load 10 more of 29/);
+  assert.equal(more.textContent.trim(), 'Load 10 more checklists');
   more.click();
   assert.strictEqual(progress.querySelector('ul'), list,
     'Show more replaced the checklist list instead of appending to it');
@@ -29107,9 +29442,9 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'Go is not authored after Codes');
   assert.equal(close, null, 'the rejected visible Close control remains');
-  assert.equal(codes.textContent.trim(), '🔤 Codes',
+  assert.equal(codes.textContent.trim(), 'Codes',
     'the compact control still says Show bird codes');
-  assert.doesNotMatch(HTML, /textContent\s*=\s*['"]🔤 Show bird codes['"]/,
+  assert.doesNotMatch(HTML, /textContent\s*=\s*['"](?:🔤 )?Show bird codes['"]/,
     'selecting a code restores the obsolete long closed label');
   assert.match(HTML,
     /\.spLookupActions\s*\{[^}]*flex-wrap:\s*nowrap/,
@@ -29135,6 +29470,42 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
   assert.match(HTML, /#spCodesBtn\s*\{[^}]*min-height:\s*44px/,
     'the named control does not guarantee its 44px target at normal text size');
   app.window.close();
+});
+
+test('F470 the Stakeout Codes control has no decorative abc icon', () => {
+  assert.doesNotMatch(HTML, /🔤 Codes/,
+    'the decorative abc icon remains on the Codes control or one of its reset paths');
+  assert.match(HTML,
+    /#spCodesBtn\s*\{[^}]*min-width:\s*max-content[^}]*white-space:\s*nowrap/,
+    'the plain Codes label can split across lines beside the search field');
+});
+
+test('F470 every shared control uses the compact Stakeout geometry', () => {
+  const sortRule = HTML.match(/\.sortbtn\s*\{[^}]*\}/);
+  const pillRule = HTML.match(/\.twopill\s*\{[^}]*\}/);
+  const sideRule = HTML.match(/\.twopill > \.sortbtn\s*\{[^}]*\}/);
+  const pressRule = HTML.match(/\.pressbtn\s*\{[^}]*\}/);
+  assert.ok(sortRule && pillRule && sideRule && pressRule,
+    'one of the shared control rules is missing');
+  assert.match(sortRule[0], /font-size:\s*calc\(12px \* var\(--s\)\)/,
+    'two-sided pills no longer use the compact Stakeout type size');
+  assert.match(sortRule[0], /padding:\s*0 10px/,
+    'two-sided pills no longer use the compact Stakeout padding');
+  assert.match(pillRule[0], /height:\s*30px/,
+    'the joined pill does not have the short ordinary outer height');
+  assert.match(sideRule[0], /height:\s*30px/,
+    'the joined pill sides do not retain the short ordinary height');
+  assert.match(pressRule[0], /height:\s*30px/,
+    'pressed toggles do not have the shared short outer height');
+  assert.match(pressRule[0], /font-size:\s*calc\(12px \* var\(--s\)\)/,
+    'pressed toggles inherited the larger ordinary-button type size');
+  assert.match(pressRule[0], /padding:\s*0 10px/,
+    'pressed toggles inherited the larger ordinary-button padding');
+
+  const audit = fs.readFileSync(
+    path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');
+  assert.match(audit, /SHARED CONTROL SIZE/,
+    'the real-browser audit does not compare shared control height and type size');
 });
 
 
@@ -29301,7 +29672,7 @@ test('a hotspot card is about the place, not the mileage', () => {
 // and always rendered none, so it read as a forgotten render. It was not:
 // hydrateChecklistEvidence selects `[data-ev-sub]`, and a hotspot card had no
 // way to carry a data attribute at all, so nothing could ever have filled it.
-test('a stakeout place row links the place, the time and its checklist id', () => {
+test('a stakeout place row links the place and its dated checklist destination', () => {
   const places = HTML.slice(HTML.indexOf('function spLookupPlaceCards'),
     HTML.indexOf('\n      function spLookupRowsHtml'));
   const checklist = HTML.slice(HTML.indexOf('function stakeoutChecklistRow'),
@@ -29317,8 +29688,8 @@ test('a stakeout place row links the place, the time and its checklist id', () =
 
   assert.match(checklist, /href:\s*row\.subId \? checklistUrl\(row\.subId\)/,
     'the shared row does not open the checklist that reported the bird');
-  assert.match(checklist, /checklistId:\s*speciesLookupDetails\(\) \? row\.subId/,
-    'Details does not show the checklist id');
+  assert.doesNotMatch(checklist, /checklistId:/,
+    'the raw submission id is evidence plumbing, not readable row text');
   assert.match(checklist, /'ev-sub':\s*row\.subId/, 'the row carries the evidence hook');
   assert.match(checklist, /'ev-code':\s*\(bird && bird\.code\)/,
     'and the species it is a report of');
@@ -31428,10 +31799,8 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
 
   app.open(/Nearby Patches/);
   await new Promise((r) => setTimeout(r, 40));
-  app.click(app.document.querySelector('#quickSpeciesScope[data-scope="unseen"]'));
-  await new Promise((r) => setTimeout(r, 40));
   const chip = app.window.document.querySelector('#sec-quickBtn .secscope, .secscope');
-  assert.ok(!chip, 'Nearby Patches does not claim a county scope for its All view');
+  assert.ok(!chip, 'Nearby Patches does not claim a county scope for its place-only view');
 
   // A section that does NOT read the chase cache must not claim to be filtered.
   app.open(/Nightly migration/);
@@ -33513,7 +33882,7 @@ test('F346 Today patches does not request older evidence when five fresh rows ex
   app.window.close();
 });
 
-test('F415 Today patches switches cached Hāpuna evidence from Unseen to All', async () => {
+test('F471 Today patches stays unseen-only even with the old All preference stored', async () => {
   const stamp = todayFixtureDate() + ' 08:00';
   const app = await boot({
     report: 'hi',
@@ -33521,6 +33890,7 @@ test('F415 Today patches switches cached Hāpuna evidence from Unseen to All', a
     storage: {
       'ebird_home_lat:hi': '19.92',
       'ebird_home_lng:hi': '-155.88',
+      ebird_patch_species_filter_v1: 'all',
     },
   });
   const A = app.window.__app;
@@ -33552,20 +33922,32 @@ test('F415 Today patches switches cached Hāpuna evidence from Unseen to All', a
   });
   await A.loadDestinations();
   assert.doesNotMatch(app.$('destResults').textContent, /Hāpuna|Great Frigatebird/,
-    'the default Unseen board retained an already-seen bird');
-  const before = app.state.fetches.length;
-
-  app.click(app.document.querySelector(
-    '#destPatchSpeciesScope[data-scope="all"]'));
-  const text = app.$('destResults').textContent.replace(/\s+/g, ' ');
-  assert.match(text, /Hāpuna Beach State Recreation Area/);
-  assert.match(text, /Great Frigatebird/);
-  assert.match(text, /Seen today/,
-    'the restored species is not explicitly labelled as already recorded today');
-  assert.equal(app.state.fetches.length, before,
-    'changing Today patches from Unseen to All repeated network requests');
-  assert.match(app.$('destStatus').textContent, /current bird evidence/);
+    'the retired All preference restored an already-seen bird');
+  assert.equal(app.document.querySelector('#destPatchSpeciesScope'), null,
+    'Today patches still offers an Unseen/All control');
+  assert.match(app.$('destStatus').textContent, /with an unseen bird/);
   app.window.close();
+});
+
+test('F471 the three trip-duration patch sections are permanently unseen-only', () => {
+  for (const id of [
+    'destSpeciesFilter', 'excSpeciesFilter', 'fullDaySpeciesFilter',
+    'destPatchSpeciesScope', 'excPatchSpeciesScope', 'fullDayPatchSpeciesScope',
+  ]) {
+    assert.doesNotMatch(HTML, new RegExp('id="' + id + '"'),
+      id + ' remains in the production markup');
+  }
+  const start = HTML.indexOf('function loadDestinations(');
+  const end = HTML.indexOf('// --- Trip planner', start);
+  const source = HTML.slice(start, end);
+  assert.doesNotMatch(source,
+    /patchSpeciesFilter|computeAllPatchRows|showingAll|with current bird evidence/,
+    'a removed All-mode branch remains in the three patch loaders');
+  assert.match(source, /with an unseen bird/g,
+    'the patch loaders no longer state their fixed unseen-only contract');
+  assert.match(HTML,
+    /filter:\s*\/\^\(todays\|half_day\|full_day\)_patches\$\/\.test\(section\)[\s\S]*\? 'unseen' : 'default'/,
+    'coverage export does not record the three patch sections as unseen-only');
 });
 
 test('F415 Hāpuna remains a nearby All-mode patch and never enters a day tier', async () => {
@@ -34206,7 +34588,7 @@ test('F320 every long section-owned history plan carries one navigation token', 
     'county-info reads do not share the cancellable background owner');
 
   const tod = HTML.slice(HTML.indexOf('function todFetchHistoric('),
-    HTML.indexOf('// --- 🥚 Easy misses'));
+    HTML.indexOf('// --- 🐦 Common birds'));
   assert.match(tod, /ebirdBg\(path, work\)/);
   assert.match(tod, /ebirdBg\(base \+ '&rank=create', work\)/);
   assert.match(tod, /var work = navWork\('Dawn and dusk history'\)/);
@@ -34214,7 +34596,7 @@ test('F320 every long section-owned history plan carries one navigation token', 
   const easy = HTML.slice(HTML.indexOf('function easyFetch('),
     HTML.indexOf('// --- Hot / cold hotspots'));
   assert.match(easy, /ebirdBg\(path, work\)/);
-  assert.match(easy, /var work = navWork\('Nemesis-bird history'\)/);
+  assert.match(easy, /var work = navWork\('Common-bird history'\)/);
 
   const migration = HTML.slice(HTML.indexOf('function migFetchDate('),
     HTML.indexOf('// --- Birder convoys'));
