@@ -53,7 +53,7 @@
       "myYearEbirdLink",
       "spLookupPlaceReachable",
       "Sort by date, newest first",
-      "Show places within the chase distance",
+      "Show places within 40 miles",
       "setSpeciesLookupWithinChase",
       "No physically reachable reports are within",
       "PERSIST_DELAY_MS = 750",

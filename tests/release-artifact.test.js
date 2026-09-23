@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
+const PUBLIC_ROOT = path.join(ROOT, 'www');
 const bundleVerifierPath = path.join(ROOT, 'assets', 'verify-release-bundle.js');
 const assetsVerifierPath = path.join(ROOT, 'assets', 'verify-release-assets.js');
 const releaseContractPath = path.join(ROOT, 'assets', 'release-contract.json');
@@ -20,13 +21,20 @@ test('the release bundle contract requires the current progressive action label'
     'the shipped bundle still requires the removed Show-more label');
 });
 
-test('the release bundle contract requires the current Stakeout chase label', () => {
+test('the release bundle contract requires the current Stakeout distance label', () => {
   const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
   const markers = contract.requiredText['index.html'] || [];
-  assert.ok(markers.includes('Show places within the chase distance'),
-    'the shipped bundle is not required to contain the current chase control');
-  assert.ok(!markers.includes('Filter places to within the chase distance'),
-    'the shipped bundle still requires the removed chase control label');
+  assert.ok(markers.includes('Show places within 40 miles'),
+    'the shipped bundle is not required to contain the current distance control');
+  assert.ok(!markers.includes('Show places within the chase distance'),
+    'the shipped bundle still requires the removed chase-distance label');
+});
+
+test('the checked-in public tree satisfies the release bundle contract', () => {
+  const { verifyBundle } = require(bundleVerifierPath);
+  const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  const version = require(path.join(ROOT, 'package.json')).version;
+  assert.doesNotThrow(() => verifyBundle(PUBLIC_ROOT, version, contract));
 });
 
 test('F340 the extracted release bundle contract fails closed on exact mutations', () => {
