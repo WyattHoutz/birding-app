@@ -12327,7 +12327,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
       return label ? label.textContent : b.textContent.trim();
     }),
     ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All',
-      'Notes', 'Group', 'Compact'],
+      'Notes', 'Group', 'Compact', 'Recent'],
     'the one row does not use the approved pill and positive-toggle inventory');
   assert.equal(doc.querySelector('#todayYear').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
