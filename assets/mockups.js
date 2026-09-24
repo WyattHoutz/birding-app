@@ -133,7 +133,7 @@ const STUB_SPEC = {
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
       '#abaResults .megaphoto', '#abaResults .megajump',
-      '#abaResults .spdist', '#abaResults .abadist'] },
+      '#abaResults .spmetric-age', '#abaResults .spmetric-distance'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
@@ -1496,8 +1496,8 @@ const BOOTSTRAP = `
       var hiddenCodes = alertRows.filter(function (row) {
         return row.hidden;
       }).map(function (row) { return row.getAttribute('data-species-code'); });
-      if (visibleCodes.join(',') !== 'nazboo1,amgplo,vesspa,comter'
-          || hiddenCodes.join(',') !== 'baisan') {
+      if (visibleCodes.join(',') !== 'nazboo1,baisan,amgplo,vesspa,comter'
+          || hiddenCodes.length) {
         throw new Error('Bird Gen fixture species/filter state drifted: visible='
           + visibleCodes.join(',') + ' hidden=' + hiddenCodes.join(','));
       }
@@ -1507,15 +1507,11 @@ const BOOTSTRAP = `
         throw new Error('Bird Gen fixture age drifted: expected 24hr ago, got '
           + (megaAge ? megaAge.textContent.trim() : 'no age'));
       }
-      var toggleGroups = document.querySelectorAll(
-        '#surgeResults .surgesortrow > .sortpick, '
-          + '#surgeResults .surgesortrow > .pressbtn');
-      if (toggleGroups.length !== 2
-          || !toggleGroups[0].classList.contains('twopill')
-          || !toggleGroups[1].classList.contains('pressbtn')
-          || Math.abs(toggleGroups[0].getBoundingClientRect().top
-            - toggleGroups[1].getBoundingClientRect().top) > 1) {
-        throw new Error('Bird Gen toggle pairs wrapped at the exact mockup width');
+      var sortControl = document.querySelector(
+        '#surgeResults .surgesortrow > .sortpick.twopill');
+      if (!sortControl
+          || document.querySelector('#surgeResults .surgesortrow > .pressbtn')) {
+        throw new Error('Bird Gen controls drifted from the single Buzz/Newest pill');
       }
       if (document.querySelector('[data-surge-notes], .surgenotesrow, .surgenote')) {
         throw new Error('Bird Gen release fixture still contains the removed Notes UI');

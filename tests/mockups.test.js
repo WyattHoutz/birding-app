@@ -250,8 +250,8 @@ test('Mega rarity mockups exercise the real scope and sort controls', () => {
     '#abaResults li[data-mega-code][data-mega-view]',
     '#abaResults .megaphoto',
     '#abaResults .megajump',
-    '#abaResults .spdist',
-    '#abaResults .abadist',
+    '#abaResults .spmetric-age',
+    '#abaResults .spmetric-distance',
   ]);
   const setup = source.slice(source.indexOf('function fillMegaIndex('),
     source.indexOf('function fillRankingHost('));
@@ -445,10 +445,10 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release fixture no longer renders in the Washington timezone');
   assert.match(source, /Bird Gen fixture age drifted[\s\S]{0,120}24hr ago/,
     'the release renderer does not behaviorally guard its approved relative age');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,baisan,amgplo,vesspa,comter'/,
     'the release gate does not assert its exact visible Bird Gen species');
-  assert.match(source, /hiddenCodes\.join\(','\) !== 'baisan'/,
-    'the release gate no longer proves a seen Bird Gen row is hidden');
+  assert.match(source, /\|\| hiddenCodes\.length/,
+    'the release gate no longer proves that Bird Gen hides no species');
 });
 
 test('F302 Bird Gen mockup shows the approved three-line cards', () => {
@@ -472,7 +472,7 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
     'the release fixture does not pin the bird code flush-left');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,
     'the release fixture does not fail if a report drawer returns');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,amgplo,vesspa,comter'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,baisan,amgplo,vesspa,comter'/,
     'the release gate does not assert the new Cascade row');
   assert.match(paint, /still links to All Mega rarities/,
     'the release fixture does not fail if the removed Mega link returns');
@@ -606,8 +606,8 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the lazy-expanded Stakeout fixture leaves its app-wide loading bar visible');
   assert.match(source, /ready\.missing\.length/,
     'the capture must fail if a section-specific production shape is absent');
-  assert.match(source, /Bird Gen toggle pairs wrapped at the exact mockup width/,
-    'the exact 393px/402px release render does not guard the requested one-line controls');
+  assert.match(source, /Bird Gen controls drifted from the single Buzz\/Newest pill/,
+    'the exact 393px/402px release render does not guard the one remaining control');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
   const mergedStart = source.indexOf('async function prepareBirdFinderMerged');
@@ -634,8 +634,8 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     '#abaResults li[data-mega-code][data-mega-view]',
     '#abaResults .megaphoto',
     '#abaResults .megajump',
-    '#abaResults .spdist',
-    '#abaResults .abadist',
+    '#abaResults .spmetric-age',
+    '#abaResults .spmetric-distance',
   ]);
   assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
     'the Mega release shot must use the production list renderer');
