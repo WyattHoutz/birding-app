@@ -722,10 +722,13 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
   const exactCheckoutCount = (postWorkflow.match(
     /uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha\s*\}\}/g
   ) || []).length;
-  assert.equal(checkoutCount, 2,
-    'the post-release workflow should have one checkout in each job');
-  assert.equal(exactCheckoutCount, checkoutCount,
-    'every post-release checkout must use the exact released commit');
+  assert.equal(checkoutCount, 3,
+    'the post-release workflow should check out both jobs and the Pages branch');
+  assert.equal(exactCheckoutCount, 2,
+    'the production checkouts must use the exact released commit');
+  assert.match(postWorkflow,
+    /uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*gh-pages\s*\n\s*path:\s*pages-site/,
+    'the browsable gallery does not preserve the existing Pages history');
   assert.match(postWorkflow,
     /check-release-tag\.js[\s\S]*workflow_run\.head_sha/,
     'the Release is not identity-checked against the triggering commit');
@@ -750,6 +753,9 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
   assert.match(postWorkflow,
     /EXPECTED_DIGEST=.*BirdChaser-mockups\.zip[\s\S]*ACTUAL_DIGEST=.*sha256sum published\/BirdChaser-mockups\.zip[\s\S]*test "\$ACTUAL_DIGEST" = "\$EXPECTED_DIGEST"/,
     'the re-downloaded gallery bytes are not compared with GitHub\'s recorded digest');
+  assert.match(postWorkflow,
+    /build-mockup-gallery\.js[\s\S]*--input published\/mockups\/mockups[\s\S]*--version "\$\{\{ needs\.verify\.outputs\.version \}\}"[\s\S]*git push origin HEAD:gh-pages/,
+    'the digest-verified release gallery is not published as versioned browsable HTML');
   assert.doesNotMatch(postWorkflow, /continue-on-error:/,
     'the independent workflow hides its own failures instead of reporting them');
   assert.doesNotMatch(postWorkflow, /repository:\s*WyattHoutz\/birding(?:\s|$)/,

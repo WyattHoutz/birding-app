@@ -2264,8 +2264,8 @@ test('every Wikimedia width the app asks for is on the served ladder', async () 
 //   Today's rarities = the DAY'S LIST, one row per checklist. SMALL card, so a
 //                      long day scans as evenly spaced lines; every field the
 //                      markdown table prints is kept, labelled, below the row.
-//   Mega rarities    = a species index whose exact-code links open Stakeout,
-//                      where its evidence joins the one medium species card.
+//   Mega rarities    = the same List/Group report display, fed by the ABA alert;
+//                      exact-code links still open Stakeout with Mega evidence.
 // Rendering the day's list as 13 full-screen baseball cards buried the next
 // report under evidence nobody asked for. What must NOT drift is that Mega
 // keeps its evidence after routing, and that today's list keeps the columns the
@@ -2279,8 +2279,8 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
     HTML.indexOf('function megaHydrateFinder('));
   const lookup = HTML.slice(HTML.indexOf('function lookupSpecies('),
     HTML.indexOf('// ---- warming a region'));
-  assert.match(index, /SpeciesCards\.medium\(\{/,
-    'Mega remains a medium-card species index');
+  assert.match(index, /renderBirdReportProgress\(/,
+    'Mega does not use the shared Twitches/Nemesis report renderer');
   assert.match(index, /data-mega-code/, 'the index carries the exact eBird code');
   assert.match(evidence,
     /megaLatestHtml\(entry\)[\s\S]*megaFinderHtml\(entry\)[\s\S]*megaStatsHtml\(entry\)/,
@@ -5400,12 +5400,11 @@ test('F500 a checklist row wraps without bullets, hanging indentation, or border
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*border:\s*0/,
     'small checklist rows explicitly suppress global list separators');
 
-  // The whole card reads as one sentence; metadata uses controlled separators
-  // without returning to a table layout.
+  // The whole card reads as one compact sentence without table-like markers.
   assert.ok(!/\.cksummary > span \+ span::before/.test(CK.css),
     'the primary summary line draws table-like separators');
-  assert.match(CK.css, /\.cksummary \.ckmeta > span \+ span:not\(:empty\)::before/,
-    'the inline metadata lost its controlled separators');
+  assert.doesNotMatch(CK.css, /cksummary[^{]*::before/,
+    'the inline metadata regained width-consuming separators');
   const sparse = CK.small({ href: 'https://x/1', date: 'Aug 2 9:29 AM' });
   assert.ok(!/\u00b7/.test(sparse),
     'and a row with only a date types no separator characters of its own');
@@ -7506,6 +7505,42 @@ test('F506 Nemesis always renders the shared medium card', () => {
     'Nemesis bypasses the shared bird-first report renderer');
 });
 
+test('F519 Nemesis shares the right-edge pending Notes action in both views', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) return new Promise(() => {});
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  app.open(/Nemesis birds/);
+
+  app.window.localStorage.setItem('ebird_twitch_view_v1', 'list');
+  A.renderAllUnseenCards([{
+    code: 'nemlist', name: 'List Nemesis', subId: 'SNEMLIST',
+    dateStr: '2026-09-24 08:00', loc: 'List Park', locId: 'LNEMLIST',
+    lat: 47.6, lon: -122.3, distMi: 4,
+  }]);
+  assert.ok(app.document.querySelector(
+    '#allUnseenResults > li > .meta > .spmetaact .cknote-pending'),
+  'ungrouped Nemesis has no right-edge pending Notes action');
+
+  app.window.localStorage.setItem('ebird_twitch_view_v1', 'grouped');
+  const place = {
+    loc: 'Grouped Park', locId: 'LNEMGROUP', lat: 47.61, lon: -122.31,
+    distMi: 5, dateStr: '2026-09-24 08:10', nReports: 1,
+    checklists: [{ subId: 'SNEMGROUP', dateStr: '2026-09-24 08:10' }],
+  };
+  A.renderAllUnseenCards([{
+    code: 'nemgroup', name: 'Grouped Nemesis',
+    near: [place], places: [place], distMi: 5,
+  }]);
+  assert.ok(app.document.querySelector(
+    '#allUnseenResults .birdreportplaces .cklcard-sm .cknote-pending'),
+  'grouped Nemesis has no right-edge pending Notes action');
+  app.window.close();
+});
+
 // That is exactly how the unseen list ended up with 20px names in a 29px card.
 test('every medium-card list carries the medium wrapper, not a lookalike', () => {
   const wrapper = (CARDS_SPECIES.match(/medium: *'([^']+)'/)
@@ -8697,8 +8732,8 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   const reportLinks = [
     ...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm [href*="/checklist/"]'),
   ];
-  assert.equal(reportLinks.length, 12,
-    'each Mega checklist does not expose both its date and printed id action');
+  assert.equal(reportLinks.length, 6,
+    'each Mega checklist does not expose its date action');
   assert.equal(new Set(reportLinks.map((link) =>
     link.getAttribute('data-href') || link.getAttribute('href'))).size, 6,
   'the unified Stakeout list repeats a Mega checklist');
@@ -10502,8 +10537,8 @@ test('there are exactly three card templates and each one is really used', () =>
   assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
   const mega = HTML.slice(HTML.indexOf('function renderMegaIndex('),
     HTML.indexOf('function renderAbaAlert('));
-  assert.match(mega, /SpeciesCards\.medium\(\{/,
-    'the Mega species index uses the shared medium template');
+  assert.match(mega, /renderBirdReportProgress\(/,
+    'the Mega report does not use the shared bird-report card pipeline');
   assert.doesNotMatch(mega, /SpeciesCards\.large|birdCard\(/,
     'Mega no longer owns a parallel large detail card');
   // index.html must not keep a second copy of any card rule — one definition
@@ -11024,7 +11059,7 @@ test('F372 an authoritative empty Hawaii list stays empty in My Ticks and Bird G
   assert.equal(spotted.dataset.surgeSeen, 'unseen',
     'Bird Gen inherited a Spotted Sandpiper tick from another region');
   assert.equal(spotted.hidden, false,
-    'the default Unseen filter hid a bird never seen in Hawaii');
+    'Bird Gen hid a bird never seen in Hawaii');
   assert.doesNotMatch(app.$('surgeResults').textContent, /1 seen hidden/i,
     'Bird Gen still advertises a false Hawaii tick');
   app.window.close();
@@ -12457,7 +12492,12 @@ test('Twitches this week notes toggle preserves the Unseen filter', async () => 
 });
 
 test('Unified Twitches switches between checklist list and grouped hotspot view', async () => {
-  const app = await boot();
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\//.test(url)) return new Promise(() => {});
+      return null;
+    },
+  });
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
   const today = todayFixtureDate();
@@ -12479,6 +12519,14 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
     'List view is still limited to the last day instead of all available rarity rows');
   assert.equal(doc.querySelectorAll('#results details.ckall').length, 0,
     'List view should stay one checklist row at a time');
+  assert.ok(doc.querySelector('#results > li > .meta > .spmetaact .cknote-pending'),
+    'ungrouped Twitches has no pending Notes action');
+  assert.match(app.window.SpeciesCards.css,
+    /\.obs\.xl > li > \.meta > \.spmetaact,[\s\S]*float: right;/,
+    'ungrouped Twitches Notes action is not pinned to the card edge');
+  assert.match(app.window.ChecklistCards.css,
+    /\.cknote \.evidbtn \{[\s\S]*width: 44px;[\s\S]*height: 44px;/,
+    'Twitches Notes actions do not use the shared large target');
 
   doc.querySelector('#todayView').click();
   await waitFor(() => doc.querySelector('#todayView')
@@ -12486,6 +12534,9 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
   assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
     'Grouped view is not bird → numbered hotspot → checklist');
+  assert.ok(doc.querySelector(
+    '#results .birdreportplaces .hscard-sm .cklcard-sm .cknote-pending'),
+  'grouped Twitches has no pending Notes action');
   app.window.close();
 });
 
@@ -12610,10 +12661,11 @@ test('F494 Twitches evidence leads with time and ends with one combined-comments
     'the hotspot is not inline and bold');
   assert.equal(evidence.querySelector('br'), null, 'the hotspot is forced onto another line');
   await A.hydrateChecklistEvidence(doc.getElementById('results'));
-  const notes = evidence.querySelectorAll('.cknote .evidbtn');
+  const noteSlot = doc.querySelector('#results > li > .meta > .spmetaact');
+  const notes = noteSlot.querySelectorAll('.cknote .evidbtn[data-evid]');
   assert.equal(notes.length, 1, 'Notes off did not produce exactly one comments action');
-  assert.equal(notes[0].closest('.cknote'), evidence.lastElementChild,
-    'the comments action is not the final evidence fact');
+  assert.ok(notes[0].closest('.spmetaact'),
+    'the comments action is not pinned to the right-edge action slot');
   app.click(notes[0]);
   assert.match(doc.getElementById('appSheet').textContent,
     /Species comment.*Species location detail.*Checklist comment.*Checklist context/s);
@@ -15184,8 +15236,8 @@ test('F461 Stakeout merges retained Mega checklists into one complete place list
     'the Twitches, retained, and live Mega places did not merge into one hotspot list');
   const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
     .map((link) => link.getAttribute('href'));
-  assert.equal(links.length, 80,
-    'each unified checklist does not expose both its date and printed id action');
+  assert.equal(links.length, 40,
+    'each unified checklist does not expose its date action');
   assert.equal(new Set(links).size, 40,
     'the unified place list repeats a Mega checklist');
   app.window.close();
@@ -15390,8 +15442,8 @@ test('F498-F506 Stakeout uses the full card, explicit checklist actions, Notes, 
   assert.ok(row);
   assert.equal(row.getAttribute('data-href'), null);
   assert.match(row.querySelector('.ckdate a')?.getAttribute('href') || '', /checklist\/S1$/);
-  assert.equal(row.querySelector('.ckid a')?.textContent, 'S1');
-  assert.equal(row.querySelector('.cksummary')?.textContent.includes('•'), false);
+  assert.equal(row.querySelector('.ckid'), null);
+  assert.doesNotMatch(row.querySelector('.cksummary')?.textContent || '', /[•·]/);
   app.click(app.$('spLookupGroup'));
   assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'));
   app.click(app.$('spLookupNotes'));
@@ -16217,13 +16269,17 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
     'the remaining-checklist action is still styled as a filled button');
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
+  assert.ok(list.children[0].querySelector(
+    '.cksummary > .cknote .cknote-pending[data-note-pending="1"]'),
+  'patch checklist rows do not show the shared right-edge pending Notes action');
   const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
   assert.doesNotMatch(checklistCss, /padding-left:\s*1em;\s*text-indent:\s*-1em/,
     'patch checklist rows restored the removed hanging indent');
   det.open = true;
   det.dispatchEvent(new app.window.Event('toggle'));
-  await new Promise((r) => setTimeout(r, 80));
-  const note = list.children[0].querySelector('.cknote .evidbtn');
+  await waitFor(() => list.children[0].querySelector('.cknote .evidbtn[data-evid]'),
+    'loaded patch checklist Notes action');
+  const note = list.children[0].querySelector('.cknote .evidbtn[data-evid]');
   assert.ok(note, 'a patch checklist comment has no end-of-sentence note action');
   assert.equal(list.children[0].querySelector('.evnoterow'), null,
     'patch checklist comments are still expanded inline');
@@ -18003,7 +18059,7 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
   assert.match(src, /setChecklistNoteButton\(el, det,/,
     'a checklist with comments keeps an explicit row action');
   assert.match(src,
-    /if \(!sp && !ck\) \{ settleNote\(el\); return; \}/,
+    /if \(!sp && !ck && !speciesNotes\.length\) \{ settleNote\(el\); return; \}/,
     'and with neither comment the row prints nothing at all');
   // NEVER innerHTML. This is the one field on these rows that is genuinely
   // user-authored, and cards-checklist.js has no escaper by design.
@@ -18045,7 +18101,7 @@ test('the comments placeholder always settles', () => {
 // happens to be a link is not a LINK — it names a time and offers no reason to
 // press it. Same complaint F221 fixed for "on eBird": a caption sitting where
 // an action belongs, beside siblings that are actions.
-test('the row carries named date and checklist-id links to the checklist', () => {
+test('the row carries one named date link to the checklist', () => {
   const CK = require(path.join(WWW, 'cards-checklist.js'));
   const row = CK.small({
     date: 'Aug 8 2:26 PM',
@@ -18054,8 +18110,10 @@ test('the row carries named date and checklist-id links to the checklist', () =>
   });
   const links = [...row.matchAll(/<a[^>]*href="https:\/\/ebird\.org\/checklist\/S1"[^>]*>(.*?)<\/a>/g)]
     .map((match) => match[1]);
-  assert.deepEqual(links, ['8/8 2:26p', 'S1'],
-    'the date and printed checklist ID are independent named checklist actions');
+  assert.deepEqual(links, ['8/8 2:26p'],
+    'the compact row did not retain exactly one named checklist action');
+  assert.doesNotMatch(row, /class="ckid"|>S1<\/a>/,
+    'the removed printed checklist id returned');
   assert.doesNotMatch(row, /cklopenrow|Open checklist/,
     'the removed long checklist action row returned');
   // A hotspot link must NOT borrow the checklist glyph. Owner: "the link goes
@@ -19439,16 +19497,6 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     'an unopened Mega species does not fetch its Wikipedia extract');
 
   const oldView = megaRow.dataset.megaView;
-  A.renderAbaAlert(f.earliestHeld.rows,
-    `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
-      reportSlug: f.reportSlug,
-      region: f.region,
-      sid: f.sid,
-      scope: f.scope,
-    });
-  const heldRow = D.querySelector('#abaResults li[data-mega-code="tersan"]');
-  assert.notEqual(heldRow.dataset.megaView, oldView,
-    'a new Mega load receives a new generation-scoped view key');
   app.window.fetch = (url) => {
     const u = String(url);
     const body = /product\/checklist\/view\/S-OLD/.test(u)
@@ -19462,7 +19510,19 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
       json: () => Promise.resolve(body),
     });
   };
+  A.renderAbaAlert(f.earliestHeld.rows,
+    `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
+      reportSlug: f.reportSlug,
+      region: f.region,
+      sid: f.sid,
+      scope: f.scope,
+    });
+  const heldRow = D.querySelector('#abaResults li[data-mega-code="tersan"]');
+  assert.notEqual(heldRow.dataset.megaView, oldView,
+    'a new Mega load receives a new generation-scoped view key');
   app.click(heldRow.querySelector('.megajump'));
+  assert.equal(A.megaViewState().active?.code, 'tersan',
+    'the refreshed shared Mega card did not preserve exact-code routing');
   await waitFor(() => /Earliest Held Observer/.test(
     stakeoutSurfaceText(app)), 'earliest-held checklist hydration');
   const heldCard = D.querySelector('#spLookupResults > li');
@@ -20071,7 +20131,9 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
   const index = HTML.slice(HTML.indexOf('function renderMegaIndex('),
     HTML.indexOf('function renderAbaAlert('));
   assert.match(index, /data-mega-code/);
-  assert.match(index, /data-mega-view/);
+  assert.match(index, /megaView:\s*view\.key/);
+  assert.match(index, /renderBirdReportProgress\(/,
+    'Mega did not move onto the Twitches/Nemesis rendering seam');
   assert.doesNotMatch(index, /birdCard\(|hidden\s*=\s*true/,
     'the index must not prebuild hidden detail');
   const route = HTML.slice(HTML.indexOf('function openMegaIndexRow('),
@@ -20182,7 +20244,8 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
       'the row carries an exact code and opaque view key');
     assert.ok(li.querySelector('.megaphoto'), 'the photo is a Stakeout target');
     assert.ok(li.querySelector('.ntext a.megajump'), 'the name is a Stakeout target');
-    assert.ok(li.querySelector('.spdist'), 'the chevron remains visible');
+    assert.ok(li.querySelector('.spmetricstack'),
+      'the shared age/distance metrics are missing');
   });
   const jumps = items.map((li) => li.querySelector('.ntext a.megajump'));
   assert.deepEqual(JSON.stringify(jumps.map((a) => a.textContent)),
@@ -20213,8 +20276,8 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
   await settleMegaEntry(app, 'whiwag');
   A.navBack();
 
-  app.click(items[2].querySelector('.spdist'));
-  assert.equal(A.megaViewState().active.code, 'litgul', 'chevron dead space routes too');
+  app.click(items[2].querySelector('.ntext'));
+  assert.equal(A.megaViewState().active.code, 'litgul', 'card dead space routes too');
   await settleMegaEntry(app, 'litgul');
   A.navBack();
 
@@ -20346,10 +20409,57 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   assert.deepEqual(
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
     ['Old Near Bird', 'New Far Bird'], 'the rendered list follows Nearest');
-  assert.match(doc.getElementById('abaResults').textContent, /\d+\.\d mi/,
-    'distance is visible on the rows whose order it explains');
-  assert.ok(doc.querySelector('#abaResults .abadist'),
-    'mileage has its own release-fixture marker rather than borrowing the chevron class');
+  assert.deepEqual(
+    [...doc.querySelectorAll('#abaResults .spmetric-distance strong')].map((el) => el.textContent),
+    ['0.8', '120.9'], 'distance is visible on the rows whose order it explains');
+  app.window.close();
+});
+
+test('F524 Mega rarities uses the Twitches and Nemesis List/Group report display', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper',
+      obsDt: '2026-09-24 10:00', locName: 'North Marsh', locId: 'L1',
+      lat: 47.8, lng: -122.2, subId: 'S1', howMany: 2, userDisplayName: 'A Birder' },
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper',
+      obsDt: '2026-09-23 09:00', locName: 'South Marsh', locId: 'L2',
+      lat: 47.6, lng: -122.3, subId: 'S2', howMany: 1, userDisplayName: 'B Birder' },
+    { speciesCode: 'whiwag', comName: 'White Wagtail',
+      obsDt: '2026-09-22 08:00', locName: 'Jetty', locId: 'L3',
+      lat: 47.7, lng: -122.4, subId: 'S3', howMany: 1, userDisplayName: 'C Birder' },
+  ];
+  let paints = 0;
+  function paint() {
+    paints++;
+    A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X',
+      true, false, paint);
+  }
+
+  A.setTwitchView('list');
+  paint();
+  let cards = [...app.document.querySelectorAll('#abaReportResults > li')];
+  assert.equal(cards.length, 3, 'List does not show one shared medium card per Mega report');
+  assert.ok(cards.every((card) => card.querySelector('.spmetricstack')),
+    'Mega List is missing the shared age/distance metric stack');
+  assert.ok(cards.every((card) => card.querySelector('.rarewhere')),
+    'Mega List is missing the shared evidence row');
+  assert.ok(cards.every((card) => card.dataset.megaCode && card.dataset.megaView),
+    'Mega List lost exact-code Stakeout routing');
+
+  const group = app.document.querySelector('#abaViewPick');
+  assert.equal(group.getAttribute('aria-pressed'), 'false');
+  app.click(group);
+  assert.equal(paints, 2, 'Group refetched instead of repainting rows already in hand');
+  assert.equal(A.twitchView(), 'grouped');
+  cards = [...app.document.querySelectorAll('#abaReportResults > li')];
+  assert.equal(cards.length, 2, 'Group does not collapse Mega reports by bird');
+  const terek = cards.find((card) => /Terek Sandpiper/.test(card.textContent));
+  assert.ok(terek.querySelector('.birdreportplaces'),
+    'Mega Group does not use the shared bird → place → checklist hierarchy');
+  assert.equal(terek.querySelectorAll('.cklcard-sm').length, 2,
+    'Mega Group dropped one of the bird’s supporting checklists');
+  assert.equal(app.document.querySelector('#abaViewPick').getAttribute('aria-pressed'), 'true');
   app.window.close();
 });
 
@@ -20532,12 +20642,16 @@ test('F498 checklist facts have separate destinations and the row itself is iner
   assert.equal(li.querySelector('.ckdate a')?.getAttribute('href'),
     'https://ebird.org/checklist/S1',
     'the date does not open the source checklist');
-  assert.equal(li.querySelector('.ckid a')?.textContent, 'S1',
-    'the printed checklist id does not open the source checklist');
+  assert.equal(li.querySelector('.ckid'), null,
+    'the checklist id still spends a full fact slot after the date became its action');
+  assert.doesNotMatch(li.querySelector('.cksummary')?.textContent || '', /[•·]/,
+    'small checklist facts still spend width on bullet separators');
+  assert.doesNotMatch(CK.css, /cksummary[^{]*::before/,
+    'small checklist CSS still injects separators before facts');
   assert.doesNotMatch(CK.css, /text-indent:\s*-1em|cksummary::before/,
     'the removed hanging indent or bullet returned');
   assert.match(CK.css,
-    /\.cklcards-sm \.cknote \.evidbtn \{[\s\S]*width: 44px;[\s\S]*height: 44px;/,
+    /\.cknote \.evidbtn \{[\s\S]*width: 44px;[\s\S]*height: 44px;/,
     'the dedicated Notes action is not a 44px target');
   const hydration = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence('),
     HTML.indexOf('var _evidStore'));
@@ -25015,7 +25129,7 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
   }
   for (const name of [
     'watchScopeControl', 'renderRecentChecklistFilters',
-    'abaScopeControl', 'surgeFilterControl',
+    'abaScopeControl',
   ]) {
     const start = HTML.indexOf('function ' + name + '(');
     assert.ok(start >= 0, name + ' is missing');
@@ -25184,7 +25298,7 @@ test('F274 Buzz and Newest reorder existing alert rows without refetching', asyn
   assert.equal(newest.getAttribute('aria-pressed'), 'false');
   assert.equal(newest.textContent, 'Newest');
   assert.equal(app.document.querySelector('.surgesortrow').textContent.replace(/\s+/g, ''),
-    'BuzzNewest🔍Unseen', 'the sort pill and Unseen toggle carry no inverse label');
+    'BuzzNewest', 'the sort pill carries no inverse label');
   assert.equal(app.document.querySelector('.surgesortselected'), null,
     'the selected-word suffix still makes the controls wrap');
 
@@ -25217,7 +25331,7 @@ test('F274 Buzz and Newest reorder existing alert rows without refetching', asyn
   app.window.close();
 });
 
-test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', async () => {
+test('F523 Bird Gen has no unseen filter and always shows every alert', async () => {
   const localStamp = (minsAgo) => {
     const d = new Date(Date.now() - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
@@ -25275,46 +25389,24 @@ test('F281 Bird Gen defaults to unseen and locally reveals seen bird alerts', as
   const feed = app.$('surgeFeed');
   const visible = () => [...feed.children].filter((row) => !row.hidden);
   const visibleKinds = () => visible().map((row) => row.dataset.alertKind);
-  const unseen = app.document.querySelector('.surgefilterbtn');
-  assert.deepEqual(visibleKinds(), ['need', 'crowd', 'hotspot'],
-    'seen MEGA, CROWD and CASCADE rows leaked into the default view');
+  assert.equal(app.document.querySelector('.surgefilterbtn'), null,
+    'Bird Gen still renders an Unseen filter');
+  assert.deepEqual(visibleKinds(), ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
+    'Bird Gen hides seen alerts instead of showing the complete report');
   assert.equal(feed.querySelector('[data-alert-kind="mega"]').dataset.surgeSeen, 'seen',
     'a newly discovered mega was not rechecked against the active report after merging');
   assert.equal(feed.querySelector('[data-alert-kind="hotspot"]').dataset.surgeSeen,
     'not-applicable', 'the species-blind hotspot was falsely called unseen');
-  assert.equal(unseen.getAttribute('aria-pressed'), 'true');
-  assert.equal(unseen.querySelector('.presslabel').textContent, 'Unseen');
-  assert.equal(unseen.getAttribute('data-surge-filter'), 'all');
   assert.doesNotMatch(app.document.querySelector('.surgesortrow').textContent, /Sort|Birds/,
     'self-explanatory toggle groups still carry visible prefixes');
-  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '3 alerts');
-  assert.equal(app.document.querySelector('[data-surge-hidden-count]').textContent.trim(),
-    '· 3 seen hidden');
+  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
+  assert.equal(app.document.querySelector('[data-surge-hidden-count]'), null);
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
     .map((el) => [el.dataset.countKind, Number(el.querySelector('b').textContent)]));
   assert.deepEqual(counts(), {
-    mega: 0, need: 1, crowd: 1, cascade: 0, hotspot: 1, patch: 0,
-  },
-    'category counts describe all rows instead of the visible unseen view');
-
-  const before = app.state.fetches.length;
-  unseen.click();
-  assert.deepEqual(visibleKinds(), ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
-    'All did not reveal every already-rendered bird alert');
-  assert.equal(app.state.fetches.length, before, 'the local filter refetched Bird Gen');
-  assert.equal(unseen.getAttribute('aria-pressed'), 'false');
-  assert.equal(unseen.querySelector('.presslabel').textContent, 'Unseen');
-  assert.equal(unseen.getAttribute('data-surge-filter'), 'unseen');
-  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
-  assert.equal(app.document.querySelector('[data-surge-hidden-count]').textContent, '');
-  assert.deepEqual(counts(), {
     mega: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
   },
-    'All did not restore the full category counts');
-
-  unseen.click();
-  assert.deepEqual(visibleKinds(), ['need', 'crowd', 'hotspot']);
-  assert.equal(app.state.fetches.length, before, 'switching back to Unseen refetched Bird Gen');
+    'category counts do not describe the complete Bird Gen report');
 
   const mega = feed.querySelector('[data-alert-kind="mega"]');
   const identifier = mega.querySelector('.surgefacts');
@@ -26932,12 +27024,25 @@ test('every small checklist card can show age and compact duration', () => {
     nowMs: now,
     durationHrs: 1 + 8 / 60
   });
-  assert.match(html, /class="ckage">17h ago<\/span>/,
+  assert.match(html,
+    /class="ckage"><span class="ckageunit">17h<\/span> ago<\/span>/,
     'relative age is not immediately after the checklist date');
   assert.match(html, /class="ckduration">1h8m<\/span>/,
     'duration is not abbreviated at the end of the checklist row');
   assert.equal(ChecklistCards.durationText(2 + 4 / 60), '2h4m',
     'hours and minutes regained an unnecessary space');
+
+  const twoHours = ChecklistCards.small({
+    date: 'Sep 22 8:30 AM',
+    observedAt: '2026-09-22T08:30:00',
+    nowMs: now
+  });
+  assert.match(twoHours,
+    /class="ckage"><span class="ckageunit">2h<\/span> ago<\/span>/,
+    'relative age can split the number from its unit instead of before "ago"');
+  assert.match(ChecklistCards.css,
+    /\.cklcard \.ckageunit, \.cklcard \.ckduration \{ white-space: nowrap; \}/,
+    'the relative-age number and unit are not kept together');
 
   const pending = ChecklistCards.small({
     date: 'Sep 21 5:17 PM',
@@ -26963,6 +27068,97 @@ test('every small checklist card can show age and compact duration', () => {
     'Stakeout still renders duration through a bespoke details style');
 });
 
+test('F515 unchecked checklist notes use a labelled ellipsis action', () => {
+  const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
+  const pending = ChecklistCards.small({
+    date: 'Sep 22 8:30 AM',
+    data: { 'ev-sub': 'S515', 'ev-checklist-only': '1' }
+  });
+  assert.match(pending,
+    /class="evidbtn cknote-pending" data-note-pending="1" aria-label="Checking for notes; activate to load now" aria-busy="true"><span aria-hidden="true">…<\/span>/,
+    'an unchecked checklist has no accessible pending-notes indicator');
+  assert.match(pending, /<button type="button"/,
+    'the pending-notes indicator cannot be activated to prioritize its fetch');
+  assert.doesNotMatch(ChecklistCards.small({
+    date: 'Sep 22 8:30 AM',
+    data: { 'ev-sub': 'S515' }
+  }), /cknote-pending/,
+  'a row that does not hydrate checklist notes shows a false pending state');
+
+  const setterAt = HTML.indexOf('function setChecklistNoteButton');
+  const setter = HTML.slice(setterAt, HTML.indexOf('\n      var _stakeoutChecklistObs', setterAt));
+  assert.match(setter,
+    /target\.querySelector\('\.cknote'\)[\s\S]*removeChild\(old\)[\s\S]*hasSpeciesNotes[\s\S]*if \(!det \|\| \(!det\.c && !det\.k && !hasSpeciesNotes\)\) \{[\s\S]*return false;/,
+    'a completed no-notes check leaves the pending ellipsis visible');
+  const settleAt = HTML.indexOf('function settleNote');
+  const settle = HTML.slice(settleAt, setterAt);
+  assert.match(settle,
+    /pending\.closest\('\.cknote'\)[\s\S]*removeChild\(pendingWrap\)/,
+    'settling a pending lookup leaves an empty action column beside the checklist');
+  assert.match(HTML,
+    /data-note-pending[\s\S]*openPendingChecklistNote\(pendingNote\)/,
+    'activating the pending ellipsis does not request that checklist');
+});
+
+test('F515 activating the pending ellipsis fetches and opens checklist notes', async () => {
+  let views = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S515/.test(url)) {
+        views++;
+        return {
+          comments: 'Look below the cottonwoods.',
+          obs: [],
+          numSpecies: 17,
+          durationHrs: 1,
+        };
+      }
+      return null;
+    },
+  });
+  const host = app.document.createElement('div');
+  host.innerHTML = app.window.ChecklistCards.small({
+    date: 'Sep 22 8:30 AM',
+    data: { 'ev-sub': 'S515', 'ev-checklist-only': '1' }
+  });
+  app.document.body.appendChild(host);
+  app.click(host.querySelector('.cknote-pending'));
+  await waitFor(() => host.querySelector('.evidbtn[data-evid]'),
+    'loaded checklist Notes action');
+  assert.equal(views, 1, 'activating the ellipsis did not fetch exactly one checklist');
+  await waitFor(() => /Look below the cottonwoods/.test(app.$('appSheet').textContent),
+    'opened checklist note sheet');
+  assert.equal(host.querySelector('.cknote-pending'), null,
+    'the loading ellipsis remained after notes loaded');
+  app.window.close();
+});
+
+test('F515 a completed no-notes lookup gives the checklist back the full row', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S515EMPTY/.test(url)) {
+        return { comments: '', obs: [], numSpecies: 17, durationHrs: 1 };
+      }
+      return null;
+    },
+  });
+  const host = app.document.createElement('div');
+  host.innerHTML = app.window.ChecklistCards.small({
+    date: 'Sep 22 8:30 AM',
+    data: { 'ev-sub': 'S515EMPTY', 'ev-checklist-only': '1' }
+  });
+  app.document.body.appendChild(host);
+  app.click(host.querySelector('.cknote-pending'));
+  await waitFor(() => !host.querySelector('.cknote-pending'),
+    'settled no-notes checklist');
+  const summary = host.querySelector('.cksummary');
+  assert.equal(summary.querySelector('.cknote'), null,
+    'an empty Notes wrapper still reserves the right-side action column');
+  assert.equal(summary.children.length, 1,
+    'the checklist content did not expand into the removed Notes-button space');
+  app.window.close();
+});
+
 test('F498 small checklist cards use explicit actions without bullets or hanging indentation', () => {
   const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
   const html = ChecklistCards.small({
@@ -26977,10 +27173,12 @@ test('F498 small checklist cards use explicit actions without bullets or hanging
     checklistId: 'S395342498',
   });
   assert.match(html,
-    /Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*S395342498[\s\S]*12h ago[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m/,
+    /Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*12h<\/span> ago[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m/,
     'the shared row omits a required checklist fact');
-  assert.match(html, /class="ckid"/,
-    'the checklist id is not an explicit action');
+  assert.doesNotMatch(html, /S395342498|class="ckid"/,
+    'the compact row still prints the checklist id after the date became its action');
+  assert.doesNotMatch(ChecklistCards.css, /cksummary[^{]*::before/,
+    'the compact row still injects separators before facts');
   assert.doesNotMatch(ChecklistCards.css, /text-indent:\s*-1em|::before[^}]*\\2022/,
     'the removed hanging indentation or bullet marker returned');
   assert.doesNotMatch(HTML, /Checklist details|data-ev-show-details|stakeoutcklmeta/,
@@ -28854,18 +29052,22 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
 });
 
 test('F403 hotspot checklist rows share formatting, comments, and one progressive list', async () => {
-  const lists = Array.from({ length: 31 }, (_, i) => ({
-    subId: 'S' + (i + 1),
-    obsDt: '2026-09-' + String(16 - (i % 10)).padStart(2, '0') + ' 08:15',
-    isoObsDate: '2026-09-' + String(16 - (i % 10)).padStart(2, '0') + ' 08:15',
-    numSpecies: 10 + i,
-    userDisplayName: 'Birder ' + (i + 1),
-    loc: {
-      locId: 'L1', locName: 'Fixture Hotspot',
-      latitude: 47.66, longitude: -122.12,
-      lat: 47.66, lng: -122.12,
-    },
-  }));
+  const lists = Array.from({ length: 31 }, (_, i) => {
+    const obsDt = new Date(Date.UTC(2026, 8, 30 - i, 8, 15))
+      .toISOString().slice(0, 16).replace('T', ' ');
+    return {
+      subId: 'S' + (i + 1),
+      obsDt,
+      isoObsDate: obsDt,
+      numSpecies: 10 + i,
+      userDisplayName: 'Birder ' + (i + 1),
+      loc: {
+        locId: 'L1', locName: 'Fixture Hotspot',
+        latitude: 47.66, longitude: -122.12,
+        lat: 47.66, lng: -122.12,
+      },
+    };
+  });
   let checklistViews = 0;
   const app = await boot({
     storage: { ebird_rarity_notes_v1: 'on' },
@@ -28875,13 +29077,26 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
         return [
           { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
             subId: 'S1', howMany: 2 },
+          { speciesCode: 'whcspa', comName: 'White-crowned Sparrow',
+            subId: 'S1', howMany: 3 },
           { speciesCode: 'sonspa', comName: 'Song Sparrow',
             subId: 'S2', howMany: null },
-        ];
+        ].concat(Array.from({ length: 10 }, (_, i) => ({
+          speciesCode: 'fixture' + (i + 3),
+          comName: 'Fixture Bird ' + (i + 3),
+          subId: 'S' + (i + 3),
+          howMany: 1,
+        })));
       }
       if (/product\/checklist\/view\//.test(url)) {
         checklistViews++;
-        return { comments: 'Park in the lower lot and walk past the gate.', obs: [] };
+        return {
+          comments: 'Park in the lower lot and walk past the gate.',
+          obs: [
+            { speciesCode: 'shtsan', comments: 'Sandpipers fed beside the mudflat.' },
+            { speciesCode: 'whcspa', comments: 'Sparrows stayed under the willows.' },
+          ],
+        };
       }
       return null;
     },
@@ -28892,7 +29107,8 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     lat: 47.66, lng: -122.12, n: 100, nc: 20,
   }, false);
   await waitFor(() => app.document.querySelector(
-    '#stakeHsResults .cknote .evidbtn'), 'Stakeout hotspot checklist note action');
+    '#stakeHsResults .cknote .evidbtn[data-evid]'),
+  'Stakeout hotspot loaded checklist note action');
   const stakeRow = app.document.querySelector('#stakeHsResults .cklcard-sm');
   assert.equal(stakeRow.getAttribute('data-ev-checklist-only'), '1');
   assert.ok(stakeRow.querySelector('.evnoterow blockquote'),
@@ -28908,8 +29124,12 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     at: Date.now(),
     rows: [
       { code: 'shtsan', alpha: 'SPTS' },
+      { code: 'whcspa', alpha: 'WCSP' },
       { code: 'sonspa', alpha: 'SOSP' },
-    ],
+    ].concat(Array.from({ length: 10 }, (_, i) => ({
+      code: 'fixture' + (i + 3),
+      alpha: 'F' + String(i + 3).padStart(3, '0'),
+    }))),
   }));
   A.renderHot({
     hot: [{
@@ -28918,7 +29138,11 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       birds: [
         { name: 'Sharp-tailed Sandpiper', code: 'shtsan', unseen: true },
         { name: 'Song Sparrow', code: 'sonspa', unseen: true },
-      ],
+      ].concat(Array.from({ length: 10 }, (_, i) => ({
+        name: 'Fixture Bird ' + (i + 3),
+        code: 'fixture' + (i + 3),
+        unseen: true,
+      }))),
     }],
   });
   await waitFor(() => app.document.querySelector('.hotspotChecklistProgress'),
@@ -28928,11 +29152,19 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   assert.ok(list, 'Today’s patches did not mount the shared progressive list');
   assert.equal(progress.querySelectorAll(':scope > ul').length, 1,
     'Today’s patches still creates multiple checklist lists');
-  assert.equal(list.children.length, 2,
-    'the first paint does not stop after the checklists with a bird you need');
-  assert.equal(list.children[0].querySelector('.cktargets')?.textContent.trim(), 'SPTS ×2',
+  assert.equal(list.children.length, 10,
+    'the first paint is not capped at ten useful checklists');
+  assert.deepEqual(Array.from(list.children, (row) => row.getAttribute('data-ckl-sub')),
+    Array.from({ length: 10 }, (_, i) => 'S' + (i + 1)),
+    'the first ten useful checklists are not newest first');
+  const multiSpeciesRow = Array.from(list.children).find((row) =>
+    /SPTS ×2/.test(row.querySelector('.cktargets')?.textContent || ''));
+  assert.equal(multiSpeciesRow?.querySelector('.cktargets')?.textContent.trim(),
+    'SPTS ×2, WCSP ×3',
     'a patch checklist does not pair each unseen code with its bird count');
-  assert.equal(list.children[1].querySelector('.cktargets')?.textContent.trim(), 'SOSP',
+  const unknownCountRow = Array.from(list.children).find((row) =>
+    row.querySelector('.cktargets')?.textContent.trim() === 'SOSP');
+  assert.ok(unknownCountRow,
     'an unknown bird count is rendered as a misleading ×X value');
   assert.equal(list.querySelector('.ckdist'), null,
     'patch checklists repeat distance already shown on the parent hotspot');
@@ -28941,9 +29173,23 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   more.click();
   assert.strictEqual(progress.querySelector('ul'), list,
     'Show more replaced the checklist list instead of appending to it');
-  assert.equal(list.children.length, 12);
+  assert.equal(list.children.length, 20);
+  assert.equal(Array.from(list.children).slice(0, 12).filter((row) =>
+    row.querySelector('.cktargets')?.textContent.trim()).length, 12,
+  'ordinary recent checklists appeared before all useful checklists');
   assert.equal(progress.querySelectorAll(':scope > ul').length, 1);
   assert.ok(checklistViews > 0, 'the checklist-only comment path never fetched');
+  await waitFor(() => multiSpeciesRow.querySelector('.cknote .evidbtn[data-evid]'),
+    'Today’s patches loaded multi-species Notes action');
+  app.click(multiSpeciesRow.querySelector('.cknote .evidbtn[data-evid]'));
+  const patchNotes = app.$('appSheet');
+  assert.match(patchNotes.textContent, /SPTS ×2 · Species comment/);
+  assert.match(patchNotes.textContent, /Sandpipers fed beside the mudflat/);
+  assert.match(patchNotes.textContent, /WCSP ×3 · Species comment/);
+  assert.match(patchNotes.textContent, /Sparrows stayed under the willows/);
+  assert.match(patchNotes.textContent, /Park in the lower lot and walk past the gate/);
+  assert.equal(patchNotes.querySelector('.extlink')?.textContent.trim(),
+    'Open eBird checklist for more details');
   app.window.close();
 });
 

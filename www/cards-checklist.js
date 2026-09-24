@@ -103,18 +103,15 @@
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span,',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > a.ckdist {',
     '  display: inline; white-space: nowrap; }',
-    '.cklcards-sm .cknote { align-self: center; white-space: nowrap; }',
-    '.cklcards-sm .cknote .evidbtn {',
+    '.cknote { align-self: center; white-space: nowrap; }',
+    '.cknote .cknote-pending { color: var(--muted);',
+    '  font-size: calc(22px * var(--s)); font-weight: 800; }',
+    '.cknote .evidbtn {',
     '  display: inline-flex; align-items: center; justify-content: center;',
     '  width: 44px; height: 44px; padding: 0; margin: 0;',
     '  border: 1px solid var(--line); border-radius: 10px;',
     '  background: var(--card); color: var(--ink); font-size: calc(20px * var(--s)); }',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span + span { margin-left: .25em; }',
-    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta:not(:empty)::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span + span:not(:empty)::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span + a.ckdist::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > a.ckdist + span:not(:empty)::before {',
-    '  content: "\\00b7"; margin: 0 .35em; color: var(--dim); }',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead {',
     '  font-weight: 600; white-space: normal; }',
     /* The lead is inline now, so it wraps with the sentence instead of
@@ -124,12 +121,13 @@
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead > .ckgo {',
     '  display: inline; white-space: normal; }',
     /* Tabular figures so dates, counts and distances line up down the list. */
-    '.cklcard .ckdate, .cklcard .ckid { font-variant-numeric: tabular-nums; }',
-    '.cklcard .ckdate > a, .cklcard .ckid > a {',
+    '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
+    '.cklcard .ckdate > a {',
     '  color: var(--link); font-weight: 700; text-decoration: none; }',
     '.cklcard .ckbird { display: block; margin-bottom: 1px; font-weight: 800; }',
     '.cklcard .ckage, .cklcard .ckduration {',
-    '  color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }',
+    '  color: var(--muted); font-variant-numeric: tabular-nums; }',
+    '.cklcard .ckageunit, .cklcard .ckduration { white-space: nowrap; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
     '                    color: var(--ink); }',
     '.cklcard .ckdist { font-variant-numeric: tabular-nums; }',
@@ -320,6 +318,15 @@
     return Math.floor(months / 12) + 'y ago';
   }
 
+  function ageHtml(s, nowMs) {
+    var text = ageText(s, nowMs);
+    if (!text) return '';
+    var parts = /^(\S+)(\s+ago)$/.exec(text);
+    return parts
+      ? '<span class="ckageunit">' + esc(parts[1]) + '</span>' + parts[2]
+      : esc(text);
+  }
+
   function durationText(hours) {
     if (hours == null || hours === '') return '';
     var total = Math.round(Number(hours) * 60);
@@ -328,11 +335,16 @@
     return (h ? h + 'h' : '') + (m || !h ? m + 'm' : '');
   }
 
+  function pendingNoteAction() {
+    return '<span class="cknote"><button type="button"'
+      + ' class="evidbtn cknote-pending" data-note-pending="1"'
+      + ' aria-label="Checking for notes; activate to load now" aria-busy="true"'
+      + '><span aria-hidden="true">\u2026</span></button></span>';
+  }
+
   function build(tpl, v, isMedium) {
     v = v || {};
     var bits = [], summary = [], meta = [], trailingIcons = '';
-    var checklistId = v.checklistId
-      || (v.data && (v.data['ev-sub'] || v.data['ckl-sub'])) || '';
     if (isMedium) {
       // MEDIUM: a plain-place card keeps the historical headline checklist
       // link. When `placeHtml` supplies an in-app hotspot name, `dateHref`
@@ -366,15 +378,9 @@
           : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
       }
       if (!v.place) {
-        var leadAge = ageText(v.observedAt, v.nowMs);
+        var leadAge = ageHtml(v.observedAt, v.nowMs);
         if (leadAge) summary.push('<span class="ckage">' + leadAge + '</span>');
         if (v.review) summary.push(v.review);
-        if (checklistId) {
-          summary.push('<span class="ckid">' + (v.href
-            ? '<a target="_blank" rel="noopener" href="' + esc(v.href) + '">'
-              + esc(checklistId) + '</a>'
-            : esc(checklistId)) + '</span>');
-        }
       }
       // Evidence marks sit RIGHT AFTER the place, not at the end of the row.
       // They qualify the sighting you just read the location of - "there is a
@@ -392,14 +398,7 @@
           ? '<a class="ckgo" target="_blank" rel="noopener" href="'
             + esc(checklistHref) + '">' + dateText + '</a>'
           : dateText) + '</span>');
-        if (checklistId) {
-          var idHref = checklistHref;
-          summary.push('<span class="ckid">' + (idHref
-            ? '<a target="_blank" rel="noopener" href="' + esc(idHref) + '">'
-              + esc(checklistId) + '</a>'
-            : esc(checklistId)) + '</span>');
-        }
-        var datedAge = ageText(v.observedAt, v.nowMs);
+        var datedAge = ageHtml(v.observedAt, v.nowMs);
         if (datedAge) summary.push('<span class="ckage">' + datedAge + '</span>');
         if (v.review) summary.push(v.review);
       }
@@ -488,6 +487,11 @@
         meta.push('<span class="ckevid">' + trailingIcons + '</span>');
       }
     }
+    var pendingNote = !isMedium && v.data && v.data['ev-sub']
+      && (v.data['ev-checklist-only'] === '1'
+        || v.data['ev-note-pending'] === '1')
+      ? pendingNoteAction()
+      : '';
 
     // The headline IS the link to the checklist. `placeHtml` lets a caller
     // pass ready-made HTML (a hotspot link plus its 🗺) instead of plain text.
@@ -506,7 +510,7 @@
       .replace('{{rowlink}}', attrsHtml(v))
       .replace('{{bird}}', v.birdHtml
         ? '<span class="ckbird">' + v.birdHtml + '</span>' : '')
-      .replace('{{action}}', v.action || '')
+      .replace('{{action}}', v.action || pendingNote)
       .replace('{{num}}', v.num != null && v.num !== ''
         ? '<span class="cknum">' + esc(v.num) + '</span>' : '')
       .replace('{{tally}}', (v.species != null && v.species !== '')
@@ -545,6 +549,7 @@
     condense: condense,
     ageText: ageText,
     durationText: durationText,
+    pendingNoteAction: pendingNoteAction,
     small: function (v) { return build(SMALL, v, false); },
     medium: function (v) { return build(MEDIUM, v, true); },
     list: function (size, items, extraCls) {

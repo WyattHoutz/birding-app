@@ -75,11 +75,11 @@ test('F486 Black Scoter uses the reviewed single-bird photograph', () => {
 
   const output = fs.readFileSync(
     path.join(ROOT, 'www', 'assets', 'birds', 'blksco2.jpg'));
-  assert.deepEqual(jpegSize(output), { w: 700, h: 700 },
-    'Black Scoter was not regenerated from the reviewed photograph');
+  assert.deepEqual(jpegSize(output), { w: 240, h: 240 },
+    'Black Scoter app derivative was not generated from the reviewed square');
   assert.equal(sha256Hex(output),
-    'eb3d48a296964de95327390ccbbd5f12d85a1bfba3c6c7e9cbc4d0be02f1d197',
-    'Black Scoter no longer matches the visually reviewed square');
+    '8c28aeb56f5f65ddf051289deec0f3ad54b662ba7ad8726920869a96a3f6d5d5',
+    'Black Scoter no longer matches the optimized reviewed square');
 });
 
 test('F480 and F481 replace ABA distribution maps with reviewed bird images', () => {
@@ -91,14 +91,14 @@ test('F480 and F481 replace ABA distribution maps with reviewed bird images', ()
     {
       code: 'eskcur',
       pin: '2c5423fe92bb7751',
-      output: '73b823ce1f5b059c45bc56c9c488a453f23af0d892f063ef0edf83830ad823dc',
+      output: 'f499d57512046897756a7cd4c0741ac4b0272b785c84e98aec2ae7db52eeddb1',
       credit: /\| `eskcur` \| Eskimo Curlew \| Archibald Thorburn \| Public domain \|/,
       source: /File:Numenius_borealis\.jpg/,
     },
     {
       code: 'leastp2',
       pin: 'e2709ff6931a7491',
-      output: '67066ab02620ddcc2da0a98a20d8c4213f93fad9802da56415e6bce8ada2c9ff',
+      output: 'd45dc46f5ccc1c607507b9cdf42b7ee34b031322ddb23cd8986fd79f2b4b3172',
       credit: /\| `leastp2` \| Ainley's Storm-Petrel specimen \| Katie Sayers \| CC0 \|/,
       source: /occurrence\/1319132502/,
     },
@@ -168,32 +168,32 @@ test('F376 reviewed bird crops not superseded by F479 stay pinned', () => {
       file: 'rinphe1.jpg',
       override: /['"]rinphe1\.jpg['"]\s*:\s*0\.34\b/,
       sourcePin: '1e69885ae2ba8ab8',
-      dimensions: { w: 1018, h: 1018 },
-      outputSha: 'ce8a6c3a330b3677f8ba45e899561fa2c762892a63969d2f5ab120982b06e541',
+      dimensions: { w: 240, h: 240 },
+      outputSha: 'cb6fd7bccb00105277d3731286f30693775ea9ce8d9c05f7d04a7234df319740',
       credit: /Phasianus_colchicus_in_Tashkent_botanical_garden\.jpg/,
     },
     {
       file: 'redjun.jpg',
       override: /['"]redjun\.jpg['"]\s*:\s*0\.613\b/,
       sourcePin: 'f43d62dc0e60f719',
-      dimensions: { w: 853, h: 853 },
-      outputSha: 'dcb2ed489cb372d8c7cc212ed8becce7404bdb3649ba8cfcf5dadc95190e6927',
+      dimensions: { w: 240, h: 240 },
+      outputSha: '2c5d0fc156e2634ed58d5fd0c94bdcb0959e85d38bcc4bc6537440ddc5bbafdb',
       credit: /Red_junglefowl_%28Gallus_gallus%29_Rarotonga\.jpg/,
     },
     {
       file: 'wetshe.jpg',
       override: /['"]wetshe\.jpg['"]\s*:\s*\(\s*0\.18761,\s*0\.16888,\s*0\.64779,\s*0\.83419\s*\)/,
       sourcePin: 'dc96eb8806cacdd7',
-      dimensions: { w: 589, h: 589 },
-      outputSha: 'a91e7b8848900227f241837dfec1a31d7a703a071d3eb422fbc24add422239d8',
+      dimensions: { w: 240, h: 240 },
+      outputSha: 'f08642af9297d034be7a5d63bab5215f1d3f9088c4cf5410fc0ad009a4189a1c',
       credit: /WEDGE-TAILED_SHEARWATER_%284-27-2018%29/,
     },
     {
       file: 'hawgoo.jpg',
       override: /['"]hawgoo\.jpg['"]\s*:\s*0\.10\b/,
       sourcePin: 'e51062c2dfd80911',
-      dimensions: { w: 853, h: 853 },
-      outputSha: '8afe6950a42db258a7f0399594a3eb6ab351de7959b56c9ee5d80e1782fc8a15',
+      dimensions: { w: 240, h: 240 },
+      outputSha: 'a7e956093dfd62566face441277d549d5eb9cb6af2c3311e91b0fc5b5b996e78',
       credit: /Animals_%2820120211-APHIS-WS-001%29\.jpg/,
     },
   ];
@@ -257,32 +257,32 @@ test('F290 Vesper Sparrow crop keeps the whole head clear of the 56px left edge'
 
   const output = fs.readFileSync(
     path.join(ROOT, 'www', 'assets', 'birds', 'vesspa.jpg'));
-  assert.deepEqual(jpegSize(output), { w: cropSide, h: cropSide },
-    'the public Vesper icon was not regenerated from the 1070x756 source');
+  assert.deepEqual(jpegSize(output), { w: 240, h: 240 },
+    'the public Vesper derivative was not optimized from the reviewed crop');
 });
 
 test('F395 reported full-bird icons use pinned fit crops instead of clipping', () => {
   const fitted = tableBody('FIT_OVERRIDES');
   const pins = tableBody('OVERRIDE_SRC_SHA');
   const outputs = {
-    'dunlin.png': ['35f0aa39c9cc715b96003f57ca6136193c515b504b6da66d4a6f00ba21efe481', 512],
-    'cubthr.jpg': ['e402b8264d439ee736f5b2fb0dcfe09994286dbdf1d25fcaa3c56bb32252c050', 512],
-    'norcar.jpg': ['b9938649b5712b4ec1c48d40edba0d6333b9e18bdecbf69a3ab50407f0d6392d', 512],
-    'plsvir.jpg': ['a41c4badc431b1f96c3542a6e06b9f45b550ed8b64de2898a053162f57c21100', 380],
-    'virwar.jpg': ['4358a27f3dd1199cce562148356dea93aecc96b080086267a4ecffe08b7e1d06', 512],
-    'crithr.jpg': ['0031250d711c0a48d755a37258a9b29256774d07e2158e92a2e7948fc2e26bed', 512],
-    'comblh1.jpg': ['cb2be81c6a302f0d574b0bb8647ed0360082033049c29fd95eecf88d7e604c29', 512],
-    'ameavo.jpg': ['1e511db395128265cc128b0de10dfcd4fa8337c46c654a70086e038bf023dfb3', 512],
-    'whfibi.jpg': ['ce27b4060c7cdf62a59a849f4fbb2710107824d4b68b760a18b8c7af9cc5853b', 512],
-    'calqua.jpg': ['29f895d6e4b7c0a7e24d9695cd315b079072adea6c6faadf63c9e4919986e702', 512],
-    'brnboo.jpg': ['c0aea3209aad889cf8135faf29c2f9284cb0a85b5115b81cff74b29909c48ba4', 512],
-    'easpho.jpg': ['37c96732a4e503110116819e675bebb35006f34eff6b890d4c641c6e23812804', 512],
-    'yetvir.jpg': ['b5666cab3def6232c82041b36e292fd4a8bb8a260300b6cc7cbc4ea4cb36bdc7', 512],
-    'easmea.jpg': ['73d991b45e956667fc4c51605d6c0d97c51736d10dde8dbee45ea8b0df1c6735', 512],
-    'whevir.jpg': ['59691a8b5886f4b738a044d74d6108a9ee5cf68c935aba610b31812a6f4777eb', 512],
-    'woothr.jpg': ['7e3ff1c0c6e4cc001d424c15418bbb0de117f5a37db8b4727fd26f0690621f77', 512],
-    'brwhaw.jpg': ['2dfcf5a4a01c73fa6a1deefb1f413fdc511b58816fe2e8b90929a8f66857aecc', 358],
-    'rocpig.jpg': ['5b452338fbd38dec33adf7e3307281f0beb65e76c55986dbb68b7303b48f4290', 512],
+    'dunlin.png': ['cb8c3116337d517f3553a526949b367cb517e5492ddf339c1377c6932d25cc87', 240],
+    'cubthr.jpg': ['97582dc48c764d3da20383cd62cb598784b829a79c304192d39d8f33128d132d', 240],
+    'norcar.jpg': ['5f8bb7968ee0fd491587634b8c54a6147ed5fee58258d6aaa1a98e80df254e60', 240],
+    'plsvir.jpg': ['5a22346046336ed890d7e9b05b0cf0f5928d5c1bb6ec7d1f4c5464eb58109625', 240],
+    'virwar.jpg': ['39cabcdda55092903a842d82bc755530786ddb45da850558f8aec24d4907b117', 240],
+    'crithr.jpg': ['fc7bc6c6f890ca5666a09c78eabea134c140bdd211f954368406d424ae370aef', 240],
+    'comblh1.jpg': ['da5c011fa091911939fe9e5520f1bb73c9736d7711d0713d3ea492080b6c09c2', 240],
+    'ameavo.jpg': ['b78435a77d7c34c710115e36462ac58b1d1a3c8f49b49622cf7d33942b7b6022', 240],
+    'whfibi.jpg': ['63d7fe5ecb4a160db3ba7512c19024eab90dcb55b91f8023f7da8c2414dbdfa5', 240],
+    'calqua.jpg': ['f06d2c78699e81569c651ffbc4c87f10320d6b6b956e8774e6ca08bec51bcaf6', 240],
+    'brnboo.jpg': ['d53d9a0416a10d41f534b7c78f935a8c147fab6506d1984c568515d559530448', 240],
+    'easpho.jpg': ['a76021c6e7b12cf764c42b937b7fb63eb1650c007bb3dc3df1b698eee91c8163', 240],
+    'yetvir.jpg': ['92d9cc89fea07f9cc49b03ee249eb9ad7c18b482004e63bc2dfca093b0431d47', 240],
+    'easmea.jpg': ['a0dae5876670acad6ef5cadb218a98265499224a526a7f990d23820a6471ef87', 240],
+    'whevir.jpg': ['726053899158c89b9492efa0037d81bb1dd3e449137f7e3b6064ff2ad3b886fe', 240],
+    'woothr.jpg': ['9d7c3d78b10be1efbabc1e05f7673f1a04a23351ef7f4f4ad15a310d9ba11c89', 240],
+    'brwhaw.jpg': ['7acad07d808f1ee09eeae7b257bb4cc16c1532728d53803a76558d448b1823f4', 240],
+    'rocpig.jpg': ['6d8ee27565813b273d00b51a2e57e2ec6f50ded9033f3d6c3a56f800882d01d5', 240],
   };
 
   for (const [file, [hash, side]] of Object.entries(outputs)) {
@@ -311,16 +311,16 @@ test('F412 Wild Turkey and Chukar keep their reviewed complete-bird squares', ()
       file: 'wiltur.jpg',
       override: /['"]wiltur\.jpg['"]\s*:\s*0\.386\b/,
       sourcePin: 'a9d62263900aee3c',
-      dimensions: { w: 640, h: 640 },
-      outputSha: '43e6b6dbc5d388f68aeeb24d6df826310b5d708e280efc3d4afa083dcd692260',
+      dimensions: { w: 240, h: 240 },
+      outputSha: 'ad6dcd87da11de77fac97e944ee0c65a0c7f13b48ef6fe54bece56e206677fbd',
       credit: /20260428_tom_wild_turkey_matthaei_botanical_gardens_PD08952/,
     },
     {
       file: 'chukar.jpg',
       override: /['"]chukar\.jpg['"]\s*:\s*0\.35\b/,
       sourcePin: 'b58e9b28ee9e7bfe',
-      dimensions: { w: 638, h: 638 },
-      outputSha: '36e6fd7b113bd8981b5b75f3bbde19282562019fcb0c5636cb92c377888ed0d2',
+      dimensions: { w: 240, h: 240 },
+      outputSha: '99901ba7702acf75577493dce3dcf2cc5a933e39a342e170e68184e72a400ad7',
       credit: /Chukarhuhn_Weltvogelpark_Walsrode_2010/,
     },
   ];
@@ -386,6 +386,6 @@ test('F250 Sharp-shinned Hawk trades tail for measured crown clearance', () => {
 
   const output = fs.readFileSync(
     path.join(ROOT, 'www', 'assets', 'birds', 'shshaw.jpg'));
-  assert.deepEqual(jpegSize(output), { w: cropSide, h: cropSide },
-    'the public Sharp-shinned Hawk icon was not regenerated as a 250px square');
+  assert.deepEqual(jpegSize(output), { w: 240, h: 240 },
+    'the public Sharp-shinned Hawk derivative was not optimized from its reviewed crop');
 });

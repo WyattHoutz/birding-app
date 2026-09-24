@@ -3694,7 +3694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.127.0';
+      var APP_VERSION = '1.127.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9828,8 +9828,8 @@
           return copy;
         });
       }
-      function sortBirdReportGroups(groups) {
-        var byDistance = raritySort() === 'distance';
+      function sortBirdReportGroups(groups, sortMode) {
+        var byDistance = (sortMode || raritySort()) === 'distance';
         function cmp(a, b) {
           if (byDistance) {
             var ad = isFinite(a.distMi) ? +a.distMi : Infinity;
@@ -9847,8 +9847,9 @@
         });
         return (groups || []).sort(cmp);
       }
-      function buildBirdReportGroups(records, anchor) {
-        return sortBirdReportGroups(buildAllUnseen(prepareBirdReportRows(records, anchor)));
+      function buildBirdReportGroups(records, anchor, sortMode) {
+        return sortBirdReportGroups(
+          buildAllUnseen(prepareBirdReportRows(records, anchor)), sortMode);
       }
       function birdReportData(r, code, name) {
         if (!r || !r.subId) return null;
@@ -9858,7 +9859,8 @@
           'ev-place': r.loc || r.locName || '',
           'ev-media': r.evidence || '',
           'ev-when': fmtDateTime(r.dateStr),
-          'ev-bird': name || r.name || ''
+          'ev-bird': name || r.name || '',
+          'ev-note-pending': '1'
         };
       }
       function birdReportEvidence(r, opts) {
@@ -9870,10 +9872,11 @@
           icons: BirdLogic.recordIcons(r),
           loc: recLocLink(r),
           alert: opts.rare ? countyAlertLink(r) : '',
-          observer: r.observer || ''
+          observer: r.observer || '',
+          noteAction: opts.noteAction || ''
         });
       }
-      function birdReportMetric(r) {
+      function birdReportMetric(r, sortMode) {
         var age = ChecklistCards.ageText(r && r.dateStr);
         var ageMatch = /^(\d+|now)(.*)$/.exec(age || '');
         var ageNumber = ageMatch ? ageMatch[1] : '\u2014';
@@ -9890,22 +9893,39 @@
             + esc(distQ(r.lat, r.lon != null ? r.lon : r.lng))
             + '"><strong>' + distance + '</strong><small>mi</small></a>'
           : '<span class="spmetric spmetric-distance"><strong>\u2014</strong><small>mi</small></span>';
-        var newest = raritySort() !== 'distance';
+        var newest = (sortMode || raritySort()) !== 'distance';
         return '<span class="spmetricstack" data-primary="' + (newest ? 'age' : 'distance') + '">'
           + (newest ? ageHtml + distHtml : distHtml + ageHtml) + '</span>';
       }
       function birdReportListCard(r, opts) {
         opts = opts || {};
-        var common = speciesLink(r.name || r.code, r.code);
-        var evidence = birdReportEvidence(r, opts);
+        var megaView = opts.megaView || r.megaView || '';
+        var common = megaView
+          ? '<a class="megajump" href="#" data-mega-code="' + esc(r.code)
+            + '" data-mega-view="' + esc(megaView) + '">' + esc(r.name || r.code) + '</a>'
+          : speciesLink(r.name || r.code, r.code);
         var data = birdReportData(r, r.code, r.name);
+        if (megaView) {
+          data = data || {};
+          data['mega-code'] = r.code;
+          data['mega-view'] = megaView;
+          data['mega-name'] = r.name || r.code;
+        }
+        var evidence = birdReportEvidence(r, {
+          rare: opts.rare
+        });
         return SpeciesCards.medium({
-          sci: sciFor(r.code),
-          icon: photoSlot(r.name, r.code, { stakeout: true }),
+          sci: sciFor(r.sci || r.code),
+          icon: megaView
+            ? '<a class="megajump megaphoto" href="#" data-mega-code="' + esc(r.code)
+              + '" data-mega-view="' + esc(megaView) + '" aria-label="Stake out '
+              + esc(r.name || r.code) + '">' + photoSlot(r.name, r.code) + '</a>'
+            : photoSlot(r.name, r.code, { stakeout: true }),
           name: common,
           tags: birdReportTags([r], opts.rare) + reviewFlag(r),
-          primary: birdReportMetric(r),
+          primary: birdReportMetric(r, opts.sortMode),
           sub: evidence,
+          metaAction: data ? ChecklistCards.pendingNoteAction() : '',
           data: data
         });
       }
@@ -9961,6 +9981,7 @@
       }
       function birdReportGroupCard(group, opts) {
         opts = opts || {};
+        var megaView = opts.megaView || group.megaView || '';
         var groupRows = recordsFromGroup(group);
         var places = HotspotCards.list('small', (group.places || []).map(function (place, i) {
           return birdReportPlaceCard(place, group, i);
@@ -9973,16 +9994,28 @@
         var below = '<div class="birdreportplaces">' + places + '</div>';
         var representative = groupRows[0] || {};
         return SpeciesCards.medium({
-          sci: sciFor(group.code),
-          icon: photoSlot(group.name, group.code, { stakeout: true }),
-          name: speciesLink(group.name, group.code),
+          sci: sciFor(group.sci || group.code),
+          icon: megaView
+            ? '<a class="megajump megaphoto" href="#" data-mega-code="' + esc(group.code)
+              + '" data-mega-view="' + esc(megaView) + '" aria-label="Stake out '
+              + esc(group.name || group.code) + '">' + photoSlot(group.name, group.code) + '</a>'
+            : photoSlot(group.name, group.code, { stakeout: true }),
+          name: megaView
+            ? '<a class="megajump" href="#" data-mega-code="' + esc(group.code)
+              + '" data-mega-view="' + esc(megaView) + '">' + esc(group.name) + '</a>'
+            : speciesLink(group.name, group.code),
           code: group.code,
           alpha: alphaFor(group.code),
           codeInSci: true,
           tags: tags,
-          primary: birdReportMetric(representative),
+          primary: birdReportMetric(representative, opts.sortMode),
           sub: '',
-          below: below
+          below: below,
+          data: megaView ? {
+            'mega-code': group.code,
+            'mega-view': megaView,
+            'mega-name': group.name || group.code
+          } : null
         });
       }
       function renderBirdReportProgress(host, rows, opts) {
@@ -10000,15 +10033,18 @@
           renderItem: function (row) {
             return grouped
               ? birdReportGroupCard(row, {
-                  need: opts.need, rare: opts.rare
+                  need: opts.need, rare: opts.rare,
+                  sortMode: opts.sortMode, megaView: opts.megaView
                 })
               : birdReportListCard(row, {
-                  need: opts.need, rare: opts.rare
+                  need: opts.need, rare: opts.rare,
+                  sortMode: opts.sortMode, megaView: opts.megaView
                 });
           },
           isCurrent: opts.isCurrent,
           afterAppend: function (list, start, end) {
             for (var i = start; i < end; i++) hydratePhotos(list.children[i]);
+            if (opts.autoHydrateEvidence === false) return;
             Promise.resolve(hydrateChecklistEvidence(list)).catch(function (e) {
               log('Bird report evidence hydration failed: ' + netErr(e));
             });
@@ -17795,26 +17831,11 @@
       // How many checklists a hotspot card lists before the rest go behind an
       // expander.
       //
-      // ⚠️ WAS 5, WHICH SPLIT SIX INTO FIVE-PLUS-ONE. Reported from the device
-      // at Juanita Bay Park: a heading of "6 recent checklists", five rows, and
-      // then a SECOND disclosure holding the single remaining one. The owner:
-      // *"This is awkward, and it would be better to show all the checklists as
-      // long as its less than a large number like 25. Also, if there's one
-      // more, like 26, then just add it to the list."*
-      //
-      // A split is only worth its cost when it saves the reader something. At
-      // n=6 it saved one row and charged a whole extra control, a second
-      // heading and the question "why are these two lists different?" — the
-      // answer being nothing but an arbitrary boundary. The cap belongs where
-      // a list genuinely stops being scannable, not at the first opportunity
-      // to hide something.
-      //
-      // 25 is the owner's number and the slack is deliberate: SLACK means a
-      // remainder of 1 or 2 is absorbed rather than promoted to its own
-      // disclosure, so the pathological "…and 1 more" cannot recur just above
-      // the new boundary the way it did at the old one.
-      var HOTSPOT_CKL_SHOWN = 25;
-      var HOTSPOT_CKL_SLACK = 3;
+      // Patch reports put every checklist containing an unseen target first,
+      // newest first, but the initial evidence remains a scannable ten rows.
+      // The same progressive list reveals the remaining useful rows before
+      // ordinary recent checklists.
+      var HOTSPOT_CKL_SHOWN = 10;
       function hotspotChecklistIndex() {
         return recentLists().then(function (lists) {
           var by = {};
@@ -17835,6 +17856,10 @@
         return hotspotChecklistIndex().then(function (by) {
           var mkCkl = function (chk, targets) {
             var sub = chk.subId || chk.subID || '';
+            var targetItems = (targets || []).map(function (target) {
+              return (target && typeof target === 'object')
+                ? target : { code: '', label: String(target || '') };
+            });
             return ChecklistCards.small({
               // NO PLACE. These rows sit under the hotspot's own heading, so
               // the name was printed once per row to say nothing — and it was
@@ -17846,7 +17871,9 @@
               durationPending: !!sub && chk.durationHrs == null,
               href: sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : '',
               sp: chk.numSpecies != null ? chk.numSpecies : '',
-              targets: (targets || []).join(', '),
+              targets: targetItems.map(function (target) {
+                return target.label;
+              }).filter(Boolean).join(', '),
               who: chk.userDisplayName ? esc(chk.userDisplayName) : '',
               // Hook for the media pass, which only runs once the list is
               // opened — the county day-list carries no media, and one
@@ -17855,7 +17882,8 @@
               data: {
                 'ckl-sub': sub,
                 'ev-sub': sub,
-                'ev-checklist-only': '1'
+                'ev-checklist-only': '1',
+                'ev-targets': JSON.stringify(targetItems)
               }
             });
           };
@@ -17910,6 +17938,14 @@
                 rest = got.filter(function (chk) {
                   return want.indexOf(chk.subId || chk.subID || '') < 0;
                 });
+                hit.sort(function (a, b) {
+                  return String(b.obsDt || b.isoObsDate || '')
+                    .localeCompare(String(a.obsDt || a.isoObsDate || ''));
+                });
+                rest.sort(function (a, b) {
+                  return String(b.obsDt || b.isoObsDate || '')
+                    .localeCompare(String(a.obsDt || a.isoObsDate || ''));
+                });
                 got = hit; kept = true;
               }
             }
@@ -17921,8 +17957,7 @@
             // SLACK: a remainder small enough to absorb never earns a control
             // of its own. Splitting 26 into 25-plus-1 is the same defect as
             // splitting 6 into 5-plus-1, just further along the list.
-            var shown = (got.length <= HOTSPOT_CKL_SHOWN + HOTSPOT_CKL_SLACK)
-              ? got.length : HOTSPOT_CKL_SHOWN;
+            var shown = Math.min(got.length, HOTSPOT_CKL_SHOWN);
             // The label says WHAT was kept, or a reader who knows the place
             // had twelve lists today reads a count of three as a bug.
             var label = kept
@@ -17931,7 +17966,7 @@
               : 'recent checklist';
             var CKL_NOUN = { one: 'checklist', many: 'checklists' };
             var initial = got.slice(0, shown);
-            var ordered = initial.concat(got.slice(shown), rest);
+            var ordered = got.concat(rest);
             var open = rarityNotes() ? ' open' : '';
             slot.innerHTML = '<details class="ckall"' + open + '><summary>'
               + got.length + ' '
@@ -18116,7 +18151,9 @@
               var codes = unseenCodes[u.subId] || (unseenCodes[u.subId] = []);
               var counted = alpha + (u.count == null || u.count === ''
                 ? '' : ' \u00d7' + u.count);
-              if (codes.indexOf(counted) < 0) codes.push(counted);
+              if (!codes.some(function (item) { return item.code === u.code; })) {
+                codes.push({ code: u.code, label: counted });
+              }
             });
             el.setAttribute('data-unseen-subs', wantSubs.join(','));
             el.setAttribute('data-unseen-codes', JSON.stringify(unseenCodes));
@@ -19713,6 +19750,12 @@
             if (det.open) hydrateChecklistEvidence(det);
           }, 0);
         }
+        var pendingNote = t.closest('.evidbtn[data-note-pending]');
+        if (pendingNote) {
+          ev.preventDefault();
+          openPendingChecklistNote(pendingNote);
+          return;
+        }
         var b = t.closest('.evidbtn[data-evid]');
         if (b) { ev.preventDefault(); openEvidence(b.getAttribute('data-evid')); }
       });
@@ -20596,11 +20639,18 @@
       // label that teaches the reader to skip the section.
       function setNoteText(el, det) {
         var sp = det && det.c, ck = det && det.k;
+        var speciesNotes = (det && Array.isArray(det.speciesNotes))
+          ? det.speciesNotes.filter(function (item) { return item && item.text; }) : [];
         var inline = el && el.getAttribute('data-ev-inline') === '1';
         var showNotes = !inline || el.getAttribute('data-ev-show-notes') === '1';
         if (!showNotes) { settleNote(el); return; }
-        if (!sp && !ck) { settleNote(el); return; }
+        if (!sp && !ck && !speciesNotes.length) { settleNote(el); return; }
         var row = noteRowFor(el);
+        speciesNotes.forEach(function (item) {
+          row.appendChild(noteHead(
+            (item.label ? item.label + ' \u00b7 ' : '') + NOTE_LABEL));
+          row.appendChild(noteQuote(item.text));
+        });
         if (showNotes && sp) {
           row.appendChild(noteHead(NOTE_LABEL));
           var bq = noteQuote(sp);
@@ -20652,15 +20702,60 @@
       function settleNote(el) {
         var row = el && el.querySelector('.evnoterow.evnoteloading');
         if (row && row.parentNode) row.parentNode.removeChild(row);
+        var pending = el && el.querySelector('.cknote-pending');
+        var pendingWrap = pending && pending.closest('.cknote');
+        var pendingSlot = pendingWrap && pendingWrap.parentNode;
+        if (pendingWrap && pendingWrap.parentNode) {
+          pendingWrap.parentNode.removeChild(pendingWrap);
+        }
+        if (pendingSlot && pendingSlot.classList
+            && pendingSlot.classList.contains('spmetaact')
+            && !pendingSlot.children.length) {
+          pendingSlot.parentNode.removeChild(pendingSlot);
+        }
+      }
+      function openPendingChecklistNote(button) {
+        var row = button && button.closest('[data-ev-sub]');
+        if (!row) return;
+        button.disabled = true;
+        function finish() {
+          var loaded = row.querySelector('.evidbtn[data-evid]');
+          if (loaded) openEvidence(loaded.getAttribute('data-evid'));
+        }
+        function waitForResult(tries) {
+          if (!row.querySelector('.cknote-pending')) {
+            finish();
+            return;
+          }
+          if (tries <= 0) {
+            button.disabled = false;
+            return;
+          }
+          setTimeout(function () { waitForResult(tries - 1); }, 50);
+        }
+        Promise.resolve(hydrateChecklistEvidence(row))
+          .catch(function (e) {
+            log('Checklist note hydration failed: ' + netErr(e));
+          })
+          .then(function () { waitForResult(200); });
       }
       function setChecklistNoteButton(el, det, key) {
-        if (!el || !det || (!det.c && !det.k)) return false;
+        if (!el) return false;
         var summary = el.querySelector('.cksummary');
+        var metaAction = el.querySelector('.spmetaact');
         var speciesEvidence = el.querySelector('.rarewhere');
-        if (!summary && !speciesEvidence) return false;
-        var target = summary || speciesEvidence;
+        if (!summary && !metaAction && !speciesEvidence) return false;
+        var target = summary || metaAction || speciesEvidence;
         var old = target.querySelector('.cknote');
         if (old && old.parentNode) old.parentNode.removeChild(old);
+        var hasSpeciesNotes = det && Array.isArray(det.speciesNotes)
+          && det.speciesNotes.some(function (item) { return item && item.text; });
+        if (!det || (!det.c && !det.k && !hasSpeciesNotes)) {
+          if (target.classList.contains('spmetaact') && target.parentNode) {
+            target.parentNode.removeChild(target);
+          }
+          return false;
+        }
         _evidStore[key] = {
           det: det,
           place: el.getAttribute('data-ev-place') || '',
@@ -20776,9 +20871,29 @@
               }
             }
             if (el.getAttribute('data-ev-checklist-only') === '1') {
+              var targetItems = [];
+              try {
+                targetItems = JSON.parse(el.getAttribute('data-ev-targets') || '[]');
+              } catch (e) {}
+              var speciesNotes = [], firstWaypoint = null, media = '';
+              targetItems.forEach(function (target) {
+                if (!target || !target.code) return;
+                var targetOb = got.obs[target.code];
+                if (!targetOb) return;
+                var targetDet = BirdLogic.checklistDetail(targetOb, null, '');
+                if (targetDet.c) {
+                  speciesNotes.push({
+                    label: target.label || alphaFor(target.code) || target.code,
+                    text: targetDet.c
+                  });
+                }
+                if (!firstWaypoint && targetDet.w) firstWaypoint = targetDet.w;
+                if (targetDet.m) media += targetDet.m;
+              });
               var checklistDet = {
                 k: got.note || '', who: got.who || '',
-                durationHrs: got.durationHrs, groupId: got.groupId || ''
+                durationHrs: got.durationHrs, groupId: got.groupId || '',
+                speciesNotes: speciesNotes, w: firstWaypoint, m: media
               };
               setChecklistNoteButton(el, checklistDet, sub + '|checklist');
               if (rarityNotes()) setNoteText(el, checklistDet);
@@ -20908,8 +21023,15 @@
                 : '')
             + '</div>';
         }
-        if (d.c || d.k) {
+        var speciesNotes = Array.isArray(d.speciesNotes)
+          ? d.speciesNotes.filter(function (item) { return item && item.text; }) : [];
+        if (d.c || d.k || speciesNotes.length) {
           body += '<blockquote class="evnotebq evnotecombined">';
+          speciesNotes.forEach(function (item) {
+            body += '<div class="evnoteitem"><div class="evnotehd">'
+              + esc((item.label ? item.label + ' \u00b7 ' : '') + NOTE_LABEL)
+              + '</div>' + esc(item.text) + '</div>';
+          });
           if (d.c) {
             body += '<div class="evnoteitem"><div class="evnotehd">'
               + esc(NOTE_LABEL) + '</div>' + esc(d.c) + '</div>';
@@ -20934,7 +21056,7 @@
             + '</div>';
         }
         body += '<a class="extlink" data-href="' + esc(checklistUrl(e.sub))
-          + '">Open the checklist on eBird ↗</a>';
+          + '">Open eBird checklist for more details</a>';
         showExcludedSheet('observer-notes', (e.place || 'Observer notes'),
           (e.when || ''), body);
       }
@@ -24921,6 +25043,25 @@
           reload();
         });
       }
+      function megaViewControl(id) {
+        return ToggleControls.pressed({
+          id: id,
+          cls: 'twitchviewbtn',
+          icon: '\u25A6',
+          label: 'Group',
+          ariaLabel: 'Group reports by bird and place',
+          data: { twitchview: twitchView() === 'grouped' ? 'list' : 'grouped' },
+          pressed: twitchView() === 'grouped'
+        });
+      }
+      function wireMegaView(id, repaint) {
+        var host = document.getElementById(id);
+        if (!host) return;
+        host.addEventListener('click', function () {
+          setTwitchView(twitchView() === 'grouped' ? 'list' : 'grouped');
+          repaint();
+        });
+      }
 
       // F304. Mega is a species INDEX; Stakeout owns the species detail. The
       // hand-off carries an opaque reference into this in-memory registry.
@@ -25792,39 +25933,90 @@
         }).filter(function (entry) {
           return (entry.alertRows || []).length;
         });
-        entries = abaSortGroups(entries);
+        function reportRow(row, entry) {
+          var dist = null;
+          if (home && row && isFinite(row.lat) && isFinite(row.lng)) {
+            dist = haversineMi(home.lat, home.lng, +row.lat, +row.lng);
+          }
+          var result = {
+            code: entry.code,
+            name: entry.name,
+            sci: entry.sci || '',
+            dateStr: row.obsDt || '',
+            subId: row.subId || '',
+            count: row.howMany,
+            observer: row.userDisplayName || '',
+            evidence: row.evidence || '',
+            hasComments: !!row.hasComments,
+            lat: row.lat,
+            lon: row.lng,
+            loc: row.locName || '',
+            locId: row.locId || '',
+            locationPrivate: row.locationPrivate || row.location_private,
+            distMi: dist,
+            megaView: view.key
+          };
+          if (row.obsReviewed === true) {
+            result.valid = true;
+            result.reviewState = 'confirmed';
+          } else if (row.obsReviewed === false) {
+            result.valid = false;
+            result.reviewState = 'pending';
+          }
+          return result;
+        }
+        var records = [];
+        entries.forEach(function (entry) {
+          (wide ? entry.alertRows : entry.stateRows).forEach(function (row) {
+            records.push(reportRow(row, entry));
+          });
+        });
+        var mode = abaSort();
+        function byMegaOrder(a, b) {
+          if (mode === 'distance') {
+            var ad = isFinite(a.distMi) ? +a.distMi : Infinity;
+            var bd = isFinite(b.distMi) ? +b.distMi : Infinity;
+            if (ad !== bd) return ad - bd;
+          }
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
+        }
+        records.sort(byMegaOrder);
+        var grouped = twitchView() === 'grouped';
+        var rows = grouped
+          ? buildBirdReportGroups(records, home, mode)
+          : records;
+        var entryByCode = {};
+        entries.forEach(function (entry) { entryByCode[entry.code] = entry; });
+        rows.forEach(function (row) {
+          row.megaView = view.key;
+          if (entryByCode[row.code]) row.sci = entryByCode[row.code].sci || '';
+        });
         var el = $('abaResults');
         el.className = 'obs';
         el.innerHTML = '<div class="raritycontrolrow abascoperow">'
           + abaScopeControl('abaScopePick')
-          + abaSortControl('abaSortPick') + '</div>'
-          + '<ul class="obs big xl">'
-          + entries.map(function (entry) {
-            var latest = entry.latest || {};
-            var count = wide ? entry.alertRows.length : entry.stateRows.length;
-            var ref = { 'mega-code': entry.code, 'mega-view': view.key,
-                        'mega-name': entry.name };
-            return SpeciesCards.medium({
-              data: ref,
-              icon: '<a class="megajump megaphoto" href="#" data-mega-code="'
-                + esc(entry.code) + '" data-mega-view="' + esc(view.key)
-                + '" aria-label="Stake out ' + esc(entry.name) + '">'
-                + photoSlot(entry.name, entry.code) + '</a>',
-              name: '<a class="megajump" href="#" data-mega-code="' + esc(entry.code)
-                + '" data-mega-view="' + esc(view.key) + '">' + esc(entry.name) + '</a>',
-              code: entry.code,
-              alpha: alphaFor(entry.code),
-              sci: sciFor(entry.sci),
-              tags: needTag(entry.code, entry.name),
-              sub: esc(fmtDate(latest.obsDt))
-                + (wide ? ' · ' + esc(abaWhereLabel(entry.alertRows)) : '')
-                + (entry.distMi != null && isFinite(entry.distMi)
-                  ? ' <span class="abadist">· ' + entry.distMi.toFixed(1) + ' mi</span>' : '')
-                + ' · ' + count + ' report' + (count === 1 ? '' : 's'),
-              lead: '\u203A'
-            });
-          }).join('')
-          + '</ul>';
+          + abaSortControl('abaSortPick')
+          + megaViewControl('abaViewPick') + '</div>'
+          + '<div id="abaProgress"></div>';
+        renderBirdReportProgress($('abaProgress'), rows, {
+          id: 'abaReportResults',
+          grouped: grouped,
+          rare: true,
+          initialCount: ABA_CARD_REPORTS,
+          batchSize: ABA_CARD_REPORTS,
+          buttonClass: 'abaReportMore',
+          sortMode: mode,
+          megaView: view.key,
+          // Mega opens the selected species in Stakeout, whose finder evidence
+          // is the urgent checklist read. Do not spend the checklist budget on
+          // background Notes first and leave that tap waiting on the same
+          // low-priority promise. The visible ellipsis still loads Notes on
+          // demand, exactly like every other pending checklist action.
+          autoHydrateEvidence: false,
+          isCurrent: function () {
+            return el.isConnected && view.key === _megaViewKey;
+          }
+        });
         [].slice.call(el.querySelectorAll('li[data-mega-code]')).forEach(function (row) {
           row.tabIndex = 0;
           row.setAttribute('role', 'link');
@@ -25835,6 +26027,7 @@
         var rerender = repaint || function () { loadAbaAlert(); };
         wireAbaScope('abaScopePick', rerender);
         wireAbaSort('abaSortPick', rerender);
+        wireMegaView('abaViewPick', rerender);
         var foot = document.createElement('div');
         foot.className = 'status';
         foot.innerHTML = extA(url, 'View alert on eBird');
@@ -29791,7 +29984,6 @@
         patch:   { priority: 5, word: 'TOP PATCH',   glyph: '🥇' }
       };
       var _surgeSort = 'priority';
-      var _surgeFilter = 'unseen';
       var _surgeEarlyPaint = null;
       var _surgeLoadGeneration = 0;
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
@@ -30044,20 +30236,9 @@
         });
       }
 
-      function surgeFilterControl() {
-        return ToggleControls.pressed({
-          cls: 'surgefilterbtn',
-          icon: '\uD83D\uDD0D',
-          label: 'Unseen',
-          ariaLabel: 'Show unseen bird alerts only',
-          data: { 'surge-filter': _surgeFilter === 'unseen' ? 'all' : 'unseen' },
-          pressed: _surgeFilter === 'unseen'
-        });
-      }
-
       function surgeControls() {
         return '<div class="surgesortrow" aria-label="Alert feed controls">'
-          + surgeSortControl() + surgeFilterControl() + '</div>';
+          + surgeSortControl() + '</div>';
       }
 
       function surgeReasons(a) {
@@ -30277,55 +30458,6 @@
         });
       }
 
-      function applySurgeFilter(mode) {
-        _surgeFilter = mode === 'all' ? 'all' : 'unseen';
-        var box = $('surgeResults'), list = $('surgeFeed');
-        if (!box || !list) return 0;
-        var rows = [].slice.call(list.children);
-        var visible = 0, hiddenSeen = 0;
-        var counts = {
-          mega: 0, need: 0, crowd: 0, cascade: 0, hotspot: 0, patch: 0
-        };
-        rows.forEach(function (row) {
-          var hide = _surgeFilter === 'unseen'
-            && row.getAttribute('data-surge-seen') === 'seen';
-          row.hidden = hide;
-          if (hide) {
-            hiddenSeen++;
-            return;
-          }
-          visible++;
-          var kind = row.getAttribute('data-alert-kind');
-          if (Object.prototype.hasOwnProperty.call(counts, kind)) counts[kind]++;
-        });
-        var total = box.querySelector('[data-surge-visible-count]');
-        if (total) {
-          var pending = box.getAttribute('data-sources-complete') !== 'true';
-          total.textContent = visible + (pending ? ' loaded alert' : ' alert')
-            + (visible === 1 ? '' : 's');
-        }
-        var hidden = box.querySelector('[data-surge-hidden-count]');
-        if (hidden) hidden.textContent = hiddenSeen
-          ? ' · ' + hiddenSeen + ' seen hidden' : '';
-        [].forEach.call(box.querySelectorAll('.surgecount'), function (el) {
-          var count = el.querySelector('b'), kind = el.getAttribute('data-count-kind');
-          if (count && Object.prototype.hasOwnProperty.call(counts, kind)) {
-            count.textContent = counts[kind];
-          }
-        });
-        [].forEach.call(box.querySelectorAll('.surgefilterbtn'), function (b) {
-          ToggleControls.syncPressed(b, {
-            icon: '\uD83D\uDD0D',
-            label: 'Unseen',
-            ariaLabel: 'Show unseen bird alerts only',
-            pressed: _surgeFilter === 'unseen'
-          });
-          b.setAttribute('data-surge-filter',
-            _surgeFilter === 'unseen' ? 'all' : 'unseen');
-        });
-        return visible;
-      }
-
       function wireSurgeHeadlines() {
         var feed = $('surgeFeed');
         if (!feed) return;
@@ -30376,13 +30508,7 @@
             applySurgeSort(b.getAttribute('data-surge-sort'));
           });
         });
-        [].forEach.call(document.querySelectorAll('#surgeResults .surgefilterbtn'), function (b) {
-          b.addEventListener('click', function () {
-            applySurgeFilter(b.getAttribute('data-surge-filter'));
-          });
-        });
         applySurgeSort(_surgeSort);
-        applySurgeFilter(_surgeFilter);
         wireSurgeHeadlines();
       }
 
@@ -30748,8 +30874,7 @@
         var html = surgeControls()
           + '<div class="surgefeedhead"><div class="surgefeedcount">'
           + '<span data-surge-visible-count>' + rows.length + ' alert'
-          + (rows.length === 1 ? '' : 's') + '</span>'
-          + '<span class="surgehidden" data-surge-hidden-count></span></div>'
+          + (rows.length === 1 ? '' : 's') + '</span></div>'
           + laneHelpBtn('feed') + '</div>'
           + sourceWarning + sourceProgress + surgeCountHtml(rows)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'

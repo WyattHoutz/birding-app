@@ -234,7 +234,8 @@
     '  font-size: calc(23px * var(--s)); color: var(--ink); }',
     '.spmetricstack > .spmetric:first-child small { font-size: calc(12px * var(--s)); }',
     '.spmetricstack a.spmetric { color: var(--accent); }',
-    '.obs.card-md > li > .meta > .spmetaact { float: right; margin: -3px 0 2px 8px; }',
+    '.obs.xl > li > .meta > .spmetaact, .obs.card-md > li > .meta > .spmetaact {',
+    '  float: right; margin: -3px 0 2px 8px; }',
     /* When the distance is a MAP LINK it keeps the column's typography — the
        number is what you scan down the edge of the list, and shrinking it to
        the app's 13px link size would hide it — but takes the accent colour so

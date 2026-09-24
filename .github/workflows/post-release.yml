@@ -191,3 +191,33 @@ jobs:
             echo "Published ${WIDTH}px gallery: $ACTUAL_COUNT/$EXPECTED_COUNT PNGs"
             test "$ACTUAL_COUNT" -eq "$EXPECTED_COUNT"
           done
+
+      - name: Checkout the browsable gallery site
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages-site
+
+      - name: Build the versioned HTML gallery
+        run: |
+          set -euo pipefail
+          node assets/build-mockup-gallery.js \
+            --input published/mockups/mockups \
+            --site pages-site \
+            --version "${{ needs.verify.outputs.version }}" \
+            --release-url "https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify.outputs.tag }}"
+          test -f "pages-site/mockups/${{ needs.verify.outputs.tag }}/index.html"
+
+      - name: Publish the browsable gallery
+        working-directory: pages-site
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .
+          if git diff --cached --quiet; then
+            echo "Gallery is already current"
+            exit 0
+          fi
+          git commit -m "Publish ${{ needs.verify.outputs.tag }} mockup gallery"
+          git push origin HEAD:gh-pages
