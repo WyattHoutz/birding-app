@@ -3731,15 +3731,15 @@ test('rankings: your own row on the board is highlighted', async () => {
   app.window.close();
 });
 
-test("Unified Twitches renders every rarity-wave row without a second raw feed", () => {
+test("Unified Twitches starts from every rarity-wave row without a second raw feed", () => {
   const src = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function loadTargets('));
   assert.match(src, /var sourceRows = \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
     'the unified surface does not start from the complete shared rarity wave');
   assert.match(src, /buildActiveRarities\(records, home\)/,
     'Grouped mode does not project the same rows into the weekly bird/place view');
-  assert.doesNotMatch(src, /BL\.notableRecent\(/,
-    'the unified surface still truncates List mode to the old 24-hour projection');
+  assert.match(src, /if \(twitchRecent\(\)\)[\s\S]*BL\.notableRecent\(sourceRows, Date\.now\(\)\)/,
+    'the recovered short window is not an explicit optional filter over shared rows');
   assert.ok(!/recent\/notable/.test(src),
     'the unified surface started a second raw notable read');
   assert.ok(!/dedupeObs/.test(src),
@@ -12521,6 +12521,73 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
   assert.ok(doc.querySelector('#results details.ckall'),
     'Grouped view did not expose the Twitches-this-week checklist expander shape');
+  app.window.close();
+});
+
+test('F489 Unified Twitches Recent restores the former rolling 24-hour filter', async () => {
+  let calls = 0;
+  const now = Date.now();
+  const at = (hoursAgo) => {
+    const d = new Date(now - hoursAgo * 3600000);
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  const app = await boot({
+    fetch(url) {
+      if (/api\.ebird\.org/.test(url)) calls++;
+      return [];
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'freshra', name: 'Fresh Rarity', distMi: 3,
+      dateStr: at(23),
+      loc: 'Fresh Park', locId: 'L-FRESH', subId: 'S-FRESH', observer: 'A' },
+    { kind: 'Rarity', code: 'gracera', name: 'Grace Rarity', distMi: 4,
+      dateStr: at(28),
+      loc: 'Grace Park', locId: 'L-GRACE', subId: 'S-GRACE', observer: 'B' },
+    { kind: 'Rarity', code: 'oldrare', name: 'Older Rarity', distMi: 5,
+      dateStr: at(30),
+      loc: 'Older Park', locId: 'L-OLD', subId: 'S-OLD', observer: 'B' },
+  ]);
+
+  A.refresh();
+  await waitFor(() => doc.getElementById('todayRecent'), 'Recent twitch control');
+  assert.equal(doc.getElementById('todayRecent').getAttribute('aria-pressed'), 'false',
+    'Recent is an optional filter, not an unexplained default');
+  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/);
+  assert.match(doc.getElementById('results').textContent, /Grace Rarity/);
+  assert.match(doc.getElementById('results').textContent, /Older Rarity/);
+
+  const before = calls;
+  doc.getElementById('todayRecent').click();
+  await waitFor(() => doc.getElementById('todayRecent')
+    .getAttribute('aria-pressed') === 'true', 'Recent filter to become selected');
+  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/,
+    'a report inside the former 24-hour window remains');
+  assert.match(doc.getElementById('results').textContent, /Grace Rarity/,
+    'the former five-hour old-edge grace remains part of the recovered rule');
+  assert.doesNotMatch(doc.getElementById('results').textContent, /Older Rarity/,
+    'a report outside the complete former window is removed');
+  assert.equal(calls, before,
+    'Recent refetched eBird instead of filtering the cached rarity rows');
+  assert.equal(A.twitchRecent(), true, 'the Recent preference persists');
+
+  doc.getElementById('todayView').click();
+  await waitFor(() => doc.getElementById('todayView')
+    .getAttribute('aria-pressed') === 'true', 'Grouped view with Recent selected');
+  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/);
+  assert.match(doc.getElementById('results').textContent, /Grace Rarity/);
+  assert.doesNotMatch(doc.getElementById('results').textContent, /Older Rarity/,
+    'Grouped and List must consume the same Recent-filtered source');
+
+  doc.getElementById('todayRecent').click();
+  await waitFor(() => /Older Rarity/.test(doc.getElementById('results').textContent),
+    'All reports to return');
+  assert.equal(doc.getElementById('todayRecent').getAttribute('aria-pressed'), 'false');
+  assert.equal(calls, before, 'turning Recent off refetched eBird');
   app.window.close();
 });
 

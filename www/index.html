@@ -3683,7 +3683,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.125.0';
+      var APP_VERSION = '1.125.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8908,6 +8908,12 @@
           if (filters.distance === 'region') {
             sourceRows = mergeRarityRecords(sourceRows, stateSource.rows || []);
           }
+          if (twitchRecent()) {
+            // F489 restores the exact pre-unification Twitches today rule:
+            // a rolling 24-hour window, with the same checklist-level
+            // deduplication BirdLogic.notableRecent has always parity-tested.
+            sourceRows = BL.notableRecent(sourceRows, Date.now());
+          }
           var statewideIncomplete = filters.distance === 'region' && !stateSource.complete;
           var days = stakeoutDays(sourceRows);
           var all = rarityFilterRecords(
@@ -13192,6 +13198,15 @@
           localStorage.setItem(TWITCH_DETAILS_KEY, v === 'compact' ? 'compact' : 'details');
         } catch (e) {}
       }
+      var TWITCH_RECENT_KEY = 'ebird_twitch_recent_v1';
+      function twitchRecent() {
+        try { return localStorage.getItem(TWITCH_RECENT_KEY) === 'on'; }
+        catch (e) { return false; }
+      }
+      function setTwitchRecent(on) {
+        try { localStorage.setItem(TWITCH_RECENT_KEY, on ? 'on' : 'off'); }
+        catch (e) {}
+      }
       // F180. These are preferences about the rarity lists, not about one
       // time window, so Today's and Last 7-Days read one stored object. The
       // localStorage shim above makes it per profile without a second key
@@ -13318,6 +13333,15 @@
             data: { twitchdetails: twitchDetails() ? 'compact' : 'details' },
             pressed: !twitchDetails()
           }) : '')
+          + (opts.view ? ToggleControls.pressed({
+            id: prefix + 'Recent',
+            cls: 'twitchrecentbtn',
+            icon: '\uD83D\uDD52',
+            label: 'Recent',
+            ariaLabel: 'Show reports from the former Twitches today window',
+            data: { twitchrecent: twitchRecent() ? 'off' : 'on' },
+            pressed: twitchRecent()
+          }) : '')
           + '</div></div>';
       }
       function wireRarityControls(prefix, reload) {
@@ -13359,6 +13383,14 @@
             ev.preventDefault();
             ev.stopPropagation();
             setTwitchDetails(d.getAttribute('data-twitchdetails'));
+            reload();
+            return;
+          }
+          var recent = t.closest('.twitchrecentbtn[data-twitchrecent]');
+          if (recent) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            setTwitchRecent(recent.getAttribute('data-twitchrecent') === 'on');
             reload();
             return;
           }
@@ -36622,6 +36654,7 @@
         rarityFilters: rarityFilters, setRarityFilter: setRarityFilter,
         rarityFilterRecords: rarityFilterRecords, rarityRegionName: rarityRegionName,
         rarityControls: rarityControls, RARITY_FILTER_KEY: RARITY_FILTER_KEY,
+        twitchRecent: twitchRecent, setTwitchRecent: setTwitchRecent,
         rarityChecklistDetails: rarityChecklistDetails,
         loadActiveRarities: loadActiveRarities,
         raritySeenIds: raritySeenIds, markRaritySeen: markRaritySeen,
