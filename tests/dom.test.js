@@ -3737,8 +3737,8 @@ test("Unified Twitches starts from every rarity-wave row without a second raw fe
     'the unified surface does not start from the complete shared rarity wave');
   assert.match(src, /buildBirdReportGroups\(records, home\)/,
     'Grouped mode does not project the same rows into the shared bird/hotspot/checklist view');
-  assert.match(src, /if \(twitchRecent\(\)\)[\s\S]*BL\.notableRecent\(sourceRows, Date\.now\(\)\)/,
-    'the recovered short window is not an explicit optional filter over shared rows');
+  assert.doesNotMatch(src, /twitchRecent|notableRecent\(sourceRows/,
+    'the removed Recent filter still narrows the shared rarity rows');
   assert.ok(!/recent\/notable/.test(src),
     'the unified surface started a second raw notable read');
   assert.ok(!/dedupeObs/.test(src),
@@ -5335,7 +5335,7 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
   assert.match(CK.medium({ place: 'P', count: 1 }), /1 bird</,
     'the medium card has a whole line, so it spells it out and pluralises');
   assert.match(full, /class="ckdist">4\.2 mi/, 'and how far, when the caller has it');
-  assert.match(full, /class="ckdate">7\/30 9:29a/,
+  assert.match(full, /class="ckdate">(?:<a[^>]*>)?7\/30 9:29a/,
     'the time is shortened AND the month is numeric — "7/30 9:29a" against '
     + '"Jul 30 9:29 AM" is six characters a 320px row cannot spare');
   assert.match(CK.small({ place: 'P', who: 'Neil Pankey' }),
@@ -5352,7 +5352,7 @@ test('All unseen reports: one hotspot NAME is one place, with every checklist un
 
 // Reported from the device with a screenshot: the checklist list under a place
 // showed the same name over and over and wrapped onto three lines per row.
-test('a checklist row is full-width flowing text with a visible marker', async () => {
+test('F500 a checklist row wraps without bullets, hanging indentation, or borders', async () => {
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
   // ⚠️ THIS TEST REPLACES ONE THAT ASSERTED THE OPPOSITE DESIGN, and the
@@ -5366,10 +5366,9 @@ test('a checklist row is full-width flowing text with a visible marker', async (
   // heading already names it, and a name carrying a sub-area is condensed.
   // Those assertions live in the test above and are untouched.
   //
-  // What changed is the format the owner wants: "Remove the lines seperating
-  // each item. Id rather have a sentence of text that can wrap with a reverse
-  // indent rather than show a table." Truncation and drawn separators are
-  // exactly what made it a table, so they go.
+  // What changed is the format the owner wants: one wrapping sentence without
+  // table lines, bullets, or hanging indentation. Truncation and drawn
+  // separators are exactly what made it a table, so they go.
   //
   // ⚠️ THE REAL OVERFLOW CHECK IS `npm run test:layout`, NOT THIS FILE.
   // jsdom has no layout engine, so nothing here can measure a pixel; these are
@@ -5379,7 +5378,7 @@ test('a checklist row is full-width flowing text with a visible marker', async (
 
   // A field may move to the next line whole; it must never split in half.
   assert.match(CK.css,
-    /\.cklcards-sm > \.cklcard-sm > \.cksummary > span,[\s\S]{0,240}white-space: nowrap/,
+    /\.cksummary \.ckmeta > span,[\s\S]{0,180}white-space: nowrap/,
     'no individual fact ever splits down the middle');
   assert.match(CK.css, /a\.ckdist \{[^}]*white-space: nowrap/,
     'including the distance, which is a bare <a> and not a span — name it or '
@@ -5392,11 +5391,10 @@ test('a checklist row is full-width flowing text with a visible marker', async (
     'the row is prose, so it wraps');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*padding:\s*3px 0/,
     'the checklist sentence has no left gutter taking width from its facts');
-  assert.match(CK.css,
-    /\.cklcards-sm > \.cklcard-sm > \.cksummary \{[^}]*padding-left:\s*1em; text-indent:\s*-1em/,
-    'wrapped checklist text does not use the requested hanging indent');
-  assert.match(CK.css, /\.cksummary::before \{[^}]*color:\s*#E69F00/,
-    'the list marker is visible rather than using the faint divider colour');
+  assert.doesNotMatch(CK.css, /text-indent:\s*-1em/,
+    'wrapped checklist text retained hanging indentation');
+  assert.doesNotMatch(CK.css, /\.cksummary::before/,
+    'the removed checklist bullet returned');
   assert.match(CK.css, /font-size:\s*calc\(16px \* var\(--s\)\)/,
     'the shared small-card text is large enough to read on the phone');
   assert.match(CK.css, /\.cklcards-sm > \.cklcard-sm \{[^}]*border:\s*0/,
@@ -5406,7 +5404,7 @@ test('a checklist row is full-width flowing text with a visible marker', async (
   // without returning to a table layout.
   assert.ok(!/\.cksummary > span \+ span::before/.test(CK.css),
     'the primary summary line draws table-like separators');
-  assert.match(CK.css, /\.cksummary > \.ckmeta > span \+ span:not\(:empty\)::before/,
+  assert.match(CK.css, /\.cksummary \.ckmeta > span \+ span:not\(:empty\)::before/,
     'the inline metadata lost its controlled separators');
   const sparse = CK.small({ href: 'https://x/1', date: 'Aug 2 9:29 AM' });
   assert.ok(!/\u00b7/.test(sparse),
@@ -7497,12 +7495,13 @@ test('the favourites controls never wrap below the card', async () => {
 // birds are rare: most have no bundled seed, miss tier 1, and fall through to
 // a full-size network photo. The seed size is the real constraint, so the card
 // that shows seeds is sized to it.
-test('F496 Nemesis selects the shared card size at render time', () => {
+test('F506 Nemesis always renders the shared medium card', () => {
   const src = HTML.slice(HTML.indexOf('function renderBirdReportProgress('),
     HTML.indexOf('function distQ(', HTML.indexOf('function renderBirdReportProgress(')));
-  assert.match(src,
-    /listClass: details \? 'obs big xl' : 'obs card-sm birdreportcompact'/,
-    'Nemesis does not share Twitches Details/Compact wrapper selection');
+  assert.match(src, /listClass: 'obs big xl'/,
+    'Nemesis does not always use the shared medium-card wrapper');
+  assert.doesNotMatch(src, /details|birdreportcompact/,
+    'the removed Compact presentation branch remains in the shared renderer');
   assert.match(src, /birdReportListCard\(/,
     'Nemesis bypasses the shared bird-first report renderer');
 });
@@ -8684,7 +8683,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
     'the mega card did not open Stakeout bird');
   assert.equal(app.$('spLookup').value, 'Sharp-tailed Sandpiper');
   const card = app.document.querySelector('#spLookupResults > li');
-  assert.deepEqual([...card.querySelectorAll(':scope > .meta .spcode, :scope > .meta .spalpha')]
+  assert.deepEqual([...card.querySelectorAll(':scope > .bcbody .spcode, :scope > .bcbody .spalpha')]
     .map((el) => el.textContent), ['shtsan', 'SPTS'],
     'Stakeout omitted the four-letter bird code');
   assert.match(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity').textContent,
@@ -8698,8 +8697,8 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   const reportLinks = [
     ...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm [href*="/checklist/"]'),
   ];
-  assert.equal(reportLinks.length, 6,
-    'Bird Gen discarded a Mega checklist while building the unified list');
+  assert.equal(reportLinks.length, 12,
+    'each Mega checklist does not expose both its date and printed id action');
   assert.equal(new Set(reportLinks.map((link) =>
     link.getAttribute('data-href') || link.getAttribute('href'))).size, 6,
   'the unified Stakeout list repeats a Mega checklist');
@@ -12293,8 +12292,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
       const label = b.querySelector('.presslabel');
       return label ? label.textContent : b.textContent.trim();
     }),
-    ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All',
-      'Notes', 'Group', 'Compact', 'Recent'],
+    ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All', 'Notes', 'Group'],
     'the one row does not use the approved pill and positive-toggle inventory');
   assert.equal(doc.querySelector('#todayYear').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
@@ -12491,151 +12489,92 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   app.window.close();
 });
 
-test('F489 Unified Twitches Recent restores the former rolling 24-hour filter', async () => {
-  let calls = 0;
-  const now = Date.now();
-  const at = (hoursAgo) => {
-    const d = new Date(now - hoursAgo * 3600000);
-    const p = (n) => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-  };
-  const app = await boot({
-    fetch(url) {
-      if (/api\.ebird\.org/.test(url)) calls++;
-      return [];
-    },
-  });
-  const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [
-    { kind: 'Rarity', code: 'freshra', name: 'Fresh Rarity', distMi: 3,
-      dateStr: at(23),
-      loc: 'Fresh Park', locId: 'L-FRESH', subId: 'S-FRESH', observer: 'A' },
-    { kind: 'Rarity', code: 'gracera', name: 'Grace Rarity', distMi: 4,
-      dateStr: at(28),
-      loc: 'Grace Park', locId: 'L-GRACE', subId: 'S-GRACE', observer: 'B' },
-    { kind: 'Rarity', code: 'oldrare', name: 'Older Rarity', distMi: 5,
-      dateStr: at(30),
-      loc: 'Older Park', locId: 'L-OLD', subId: 'S-OLD', observer: 'B' },
-  ]);
-
-  A.refresh();
-  await waitFor(() => doc.getElementById('todayRecent'), 'Recent twitch control');
-  assert.equal(doc.getElementById('todayRecent').getAttribute('aria-pressed'), 'false',
-    'Recent is an optional filter, not an unexplained default');
-  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/);
-  assert.match(doc.getElementById('results').textContent, /Grace Rarity/);
-  assert.match(doc.getElementById('results').textContent, /Older Rarity/);
-
-  const before = calls;
-  doc.getElementById('todayRecent').click();
-  await waitFor(() => doc.getElementById('todayRecent')
-    .getAttribute('aria-pressed') === 'true', 'Recent filter to become selected');
-  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/,
-    'a report inside the former 24-hour window remains');
-  assert.match(doc.getElementById('results').textContent, /Grace Rarity/,
-    'the former five-hour old-edge grace remains part of the recovered rule');
-  assert.doesNotMatch(doc.getElementById('results').textContent, /Older Rarity/,
-    'a report outside the complete former window is removed');
-  assert.equal(calls, before,
-    'Recent refetched eBird instead of filtering the cached rarity rows');
-  assert.equal(A.twitchRecent(), true, 'the Recent preference persists');
-
-  doc.getElementById('todayView').click();
-  await waitFor(() => doc.getElementById('todayView')
-    .getAttribute('aria-pressed') === 'true', 'Grouped view with Recent selected');
-  assert.match(doc.getElementById('results').textContent, /Fresh Rarity/);
-  assert.match(doc.getElementById('results').textContent, /Grace Rarity/);
-  assert.doesNotMatch(doc.getElementById('results').textContent, /Older Rarity/,
-    'Grouped and List must consume the same Recent-filtered source');
-
-  doc.getElementById('todayRecent').click();
-  await waitFor(() => /Older Rarity/.test(doc.getElementById('results').textContent),
-    'All reports to return');
-  assert.equal(doc.getElementById('todayRecent').getAttribute('aria-pressed'), 'false');
-  assert.equal(calls, before, 'turning Recent off refetched eBird');
-  app.window.close();
+test('F511 removes the Recent filter but keeps the shared NEW eligibility predicate', () => {
+  assert.doesNotMatch(HTML,
+    /todayRecent|allUnseenRecent|twitchRecent|setTwitchRecent|ebird_twitch_recent_v1/,
+    'a Recent control, branch, preference, or export remains');
+  const tags = HTML.slice(HTML.indexOf('function birdReportTags('),
+    HTML.indexOf('function recordsFromGroup('));
+  assert.match(tags, /BL\.notableRecentEligible\(r, Date\.now\(\)\)/,
+    'NEW no longer uses the shared recent predicate');
 });
 
-test('Unified Twitches Details toggle selects rich or compact shared card templates', async () => {
+test('F506 Twitches has no Compact control and always renders medium cards', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
-  seedRarityChase(app, [
-    { kind: 'Rarity', code: 'rareone', name: 'Rare One', distMi: 3,
-      dateStr: '2026-09-21 14:00', loc: 'Shared Hotspot', locId: 'L-SHARED',
-      subId: 'S1001', observer: 'A' },
-    { kind: 'Rarity', code: 'raretwo', name: 'Rare Two', distMi: 3,
-      dateStr: '2026-09-21 13:00', loc: 'Shared Hotspot', locId: 'L-SHARED',
-      subId: 'S1002', observer: 'B' },
-  ]);
-
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'rareone', name: 'Rare One', distMi: 3,
+    dateStr: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    loc: 'Shared Hotspot', locId: 'L-SHARED', subId: 'S1001',
+  }]);
   A.refresh();
-  await waitFor(() => doc.getElementById('todayDetails'), 'Twitches Details controls');
-  assert.ok(doc.querySelector('#results > li > .name'),
-    'List + Details uses the rich species/checklist report cards');
-
-  doc.querySelector('#todayDetails').click();
-  await waitFor(() => doc.querySelector('#results.card-sm > li .thumb'),
-    'compact species cards');
-  assert.ok(doc.querySelector('#results.card-sm > li > .name'),
-    'List + Compact does not use SpeciesCards.small');
-  assert.equal(doc.querySelector('#results.card-sm > li > .meta'), null,
-    'List + Compact still uses the medium-card anatomy');
-
-  doc.querySelector('#todayView').click();
-  await waitFor(() => doc.querySelector('#results .birdreportplaces .hscard-sm'),
-    'compact grouped hierarchy');
-  assert.equal(doc.querySelectorAll('#results > li:not(.farhost)').length, 2,
-    'Grouped + Compact is not bird-first');
-
-  doc.querySelector('#todayDetails').click();
-  await waitFor(() => doc.querySelector('#results > li > .name'), 'grouped rich species cards');
-  assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
-    'Grouped + Details does not retain nested checklist evidence');
-  assert.equal(JSON.stringify(A.rarityFilters()),
-    JSON.stringify({ year: 'unseen', distance: 'near' }),
-    'changing detail level does not alter rarity filters');
+  await waitFor(() => doc.querySelector('#results > li > .name'), 'medium rarity card');
+  assert.equal(doc.getElementById('todayDetails'), null);
+  assert.equal(doc.getElementById('todayRecent'), null);
+  assert.ok(doc.getElementById('results').classList.contains('xl'));
+  assert.equal(doc.querySelector('#results.card-sm'), null);
   app.window.close();
 });
 
-test('F492 Twitches and Nemesis print RECENT from the exact F489 boundary', async () => {
-  const now = Date.now();
-  const stamp = (hoursAgo) => {
-    const d = new Date(now - hoursAgo * 3600000);
-    const p = (n) => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-  };
+test('F509 Twitches prints NEW and RARE after the bird name and never RECENT or R', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
-  seedRarityChase(app, [
-    { kind: 'Rarity', code: 'inside', name: 'Inside Bird', distMi: 3,
-      dateStr: stamp(23), loc: 'Inside Park', locId: 'L1', subId: 'S1' },
-    { kind: 'Rarity', code: 'grace', name: 'Grace Bird', distMi: 4,
-      dateStr: stamp(28), loc: 'Grace Park', locId: 'L2', subId: 'S2' },
-    { kind: 'Rarity', code: 'expired', name: 'Expired Bird', distMi: 5,
-      dateStr: stamp(30), loc: 'Expired Park', locId: 'L3', subId: 'S3' },
-  ]);
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'inside', name: 'Inside Bird', distMi: 3,
+    dateStr: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    loc: 'Inside Park', locId: 'L1', subId: 'S1',
+  }]);
   A.refresh();
   await waitFor(() => /Inside Bird/.test(doc.getElementById('results').textContent),
-    'Twitches recent-tag rows');
-  const rowFor = (root, name) => [...root.querySelectorAll('li')]
-    .find((row) => row.textContent.includes(name));
-  assert.match(rowFor(doc.getElementById('results'), 'Inside Bird').textContent, /RECENT/);
-  assert.match(rowFor(doc.getElementById('results'), 'Grace Bird').textContent, /RECENT/,
-    'the five-hour old-edge grace drifted from F489');
-  assert.doesNotMatch(rowFor(doc.getElementById('results'), 'Expired Bird').textContent, /RECENT/);
+    'Twitches tagged row');
+  const title = doc.querySelector('#results > li > .name > .ntext');
+  assert.match(title.textContent, /Inside Bird.*NEW.*RARE/s);
+  assert.doesNotMatch(title.textContent, /RECENT|\bR\b/);
+  app.window.close();
+});
 
-  A.showSection(doc.querySelector('#allUnseenBtn').closest('section').id);
-  A.loadAllUnseen();
-  await waitFor(() => doc.getElementById('nemesisControls'), 'Nemesis controls');
-  const nemesis = doc.getElementById('allUnseenResults');
-  assert.match(rowFor(nemesis, 'Inside Bird').textContent, /RECENT/);
-  assert.match(rowFor(nemesis, 'Grace Bird').textContent, /RECENT/);
-  assert.doesNotMatch(rowFor(nemesis, 'Expired Bird').textContent, /RECENT/);
+test('F507-F508 medium cards always show the selected metric first and link each fact correctly', async () => {
+  const SpeciesCards = require(path.join(WWW, 'cards-species.js'));
+  assert.match(SpeciesCards.css, /\.spmetricstack \{ display: grid; gap: 5px;/);
+  assert.match(SpeciesCards.css,
+    /\.spmetricstack > \.spmetric:first-child strong \{[\s\S]*font-size: calc\(23px/);
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'metric', name: 'Metric Bird', distMi: 3.2,
+    lat: 47.6, lon: -122.1, dateStr: new Date(Date.now() - 45 * 60000)
+      .toISOString().slice(0, 16).replace('T', ' '),
+    loc: 'Metric Park', locId: 'L-METRIC', subId: 'S-METRIC',
+  }]);
+  A.setRaritySort('date');
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results .spmetricstack'),
+    'Newest metric stack');
+  let metrics = [...doc.querySelectorAll('#results .spmetricstack > .spmetric')];
+  assert.equal(metrics.length, 2, 'age and distance are not both present');
+  metrics.forEach((metric) => {
+    assert.equal(metric.querySelectorAll(':scope > strong, :scope > small').length, 2,
+      'each metric is not a number/unit pair');
+  });
+  assert.ok(metrics[0].classList.contains('spmetric-age'));
+  assert.match(metrics[0].getAttribute('href') || '', /checklist\/S-METRIC$/);
+  assert.ok(metrics[1].classList.contains('spmetric-distance'));
+  assert.match(metrics[1].getAttribute('data-q') || '', /^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$/,
+    'distance does not retain a Maps coordinate action');
+  assert.doesNotMatch(doc.getElementById('results').textContent,
+    /Open checklist S-METRIC in eBird/);
+
+  A.setRaritySort('distance');
+  A.refresh();
+  await waitFor(() => doc.querySelector(
+    '#results .spmetricstack[data-primary="distance"]'), 'Nearest metric stack');
+  metrics = [...doc.querySelectorAll('#results .spmetricstack > .spmetric')];
+  assert.ok(metrics[0].classList.contains('spmetric-distance'));
+  assert.ok(metrics[1].classList.contains('spmetric-age'));
+  assert.match(metrics[1].getAttribute('href') || '', /checklist\/S-METRIC$/);
   app.window.close();
 });
 
@@ -12681,24 +12620,15 @@ test('F494 Twitches evidence leads with time and ends with one combined-comments
   app.window.close();
 });
 
-test('F495 grouped Twitches is bird → numbered hotspot → small checklist', async () => {
+test('F510 Notes on renders separately labelled species and checklist blockquotes', async () => {
   const app = await boot({
-    storage: {
-      'ebird_species_v2:US-WA': JSON.stringify({
-        at: Date.now(),
-        rows: [{
-          name: 'Sharp-tailed Sandpiper', code: 'shtsan',
-          alpha: 'SPTS', sci: 'Calidris acuminata',
-        }],
-      }),
-    },
     fetch(url) {
-      if (/product\/checklist\/view\/S1/.test(url)) {
+      if (/product\/checklist\/view\/S-INLINE/.test(url)) {
         return {
-          userDisplayName: 'Birder One', obsDt: '2026-09-23 12:00',
+          userDisplayName: 'Birder One', obsDt: '2026-09-23 09:49',
           comments: 'Checklist context.',
-          obs: [{ speciesCode: 'shtsan', howMany: 2,
-            mediaCounts: { P: 1 }, comments: 'Species location detail.' }],
+          obs: [{ speciesCode: 'inline', howMany: 2,
+            comments: 'Species location detail.' }],
         };
       }
       if (/api\.ebird\.org/.test(url)) return [];
@@ -12707,181 +12637,87 @@ test('F495 grouped Twitches is bird → numbered hotspot → small checklist', a
   });
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
-  seedRarityChase(app, [
-    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 3,
-      dateStr: '2026-09-23 12:00', loc: 'First Hotspot', locId: 'L1', subId: 'S1',
-      evidence: 'P', count: 2, observer: 'Birder One' },
-    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 4,
-      dateStr: '2026-09-23 11:00', loc: 'First Hotspot', locId: 'L1', subId: 'S2' },
-    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 8,
-      dateStr: '2026-09-23 10:00', loc: 'Second Hotspot', locId: 'L2', subId: 'S3' },
-    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 9,
-      dateStr: '2026-09-23 09:00', loc: 'Private yard', locId: '', subId: 'S4' },
-  ]);
-  A.setTwitchView('grouped');
-  A.setTwitchDetails('details');
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'inline', name: 'Inline Bird', distMi: 3,
+    dateStr: '2026-09-23 09:49', loc: 'Notes Park', locId: 'L-INLINE',
+    subId: 'S-INLINE', observer: 'Birder One',
+  }]);
+  A.setRarityNotes(true);
   A.refresh();
-  await waitFor(() => doc.querySelector('#results .birdreportplaces'), 'grouped hierarchy');
-  assert.equal(doc.querySelectorAll('#results > li:not(.farhost)').length, 1,
-    'the bird header repeats for each hotspot');
-  assert.equal(doc.querySelectorAll('#results .birdreportplaces .hscard-sm').length, 3);
-  assert.deepEqual([...doc.querySelectorAll('#results .hsnum')].map((n) => n.textContent),
-    ['1', '2', '3'], 'hotspot rows do not use the patch-report number anatomy');
-  const css = [...doc.querySelectorAll('style')].map((s) => s.textContent).join('\n');
-  const placesRule = /\.birdreportplaces \{([^}]*)\}/.exec(css);
-  assert.ok(placesRule && !/margin-left/.test(placesRule[1])
-    && /margin:\s*8px 0 0\s*;/.test(placesRule[1]),
-  'hotspot rows are shifted right instead of spanning the bird card');
-  const checklistRule = /\.birdreportplaces \.cklcards-sm \{([^}]*)\}/.exec(css);
-  assert.ok(checklistRule && !/margin-left/.test(checklistRule[1])
-    && /margin:\s*2px 0 6px\s*;/.test(checklistRule[1]),
-  'nested checklists waste width on a left indent and wrap evidence early');
-  assert.match(css,
-    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary\s*\{[^}]*padding-left:\s*0[^}]*text-indent:\s*0/s,
-    'nested checklists retain a bullet or hanging indent');
-  assert.match(css,
-    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary::before\s*\{[^}]*content:\s*none/s,
-    'nested checklists retain the leading bullet');
-  assert.match(css,
-    /\.birdreportplaces \.cklcards-sm \.ckdist::before\s*\{[^}]*content:\s*"\\A"/s,
-    'distance and duration are not kept on the compact second line');
-  assert.equal(doc.querySelectorAll('#results .cklcard-sm').length, 4,
-    'a checklist was duplicated or dropped');
-  assert.ok(doc.querySelector('#results .privateplace strong'),
-    'a private location was presented as a public hotspot link');
-  const publicHotspot = doc.querySelector('#results .hscard-sm:not(.privateplace) .ntext > a');
-  const privateHotspot = doc.querySelector('#results .hscard-sm.privateplace .ntext > strong');
-  assert.equal(app.window.getComputedStyle(publicHotspot).fontSize,
-    'calc(18px * var(--s))', 'grouped hotspot names are not enlarged');
-  assert.equal(app.window.getComputedStyle(privateHotspot).color,
-    app.window.getComputedStyle(publicHotspot).color,
-    'private and public hotspot names use inconsistent text colours');
-  const codes = doc.querySelector('#results .spsci > .spcodes-inline');
-  assert.equal(codes?.textContent, 'SPTS / SHTSAN',
-    'the grouped bird codes are not directly below the scientific name');
-  assert.equal(doc.querySelector('#results > li > .meta').textContent.trim(), '',
-    'the grouped bird repeats codes or report counts in a separate metadata line');
-  const first = doc.querySelector('#results .cklcard-sm');
-  const summary = first.querySelector('.cksummary');
-  const meta = summary.querySelector('.ckmeta');
-  assert.equal(app.window.getComputedStyle(summary).fontSize, 'calc(16px * var(--s))');
-  assert.equal(app.window.getComputedStyle(meta).fontSize,
-    app.window.getComputedStyle(summary).fontSize,
-    'checklist metadata is still smaller than the date');
-  assert.match(css,
-    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary > \.cklead\s*\{[^}]*font-weight:\s*800/s,
-    'the date is not the one emphasized checklist fact');
-  assert.match(css,
-    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary > \.ckmeta > span[^}]*font-weight:\s*400/s,
-    'checklist facts retain competing font weights');
-  assert.equal(meta.querySelector('.ckdist').textContent, '3.0mi',
-    'the compact checklist distance retains a space before mi');
-  await A.hydrateChecklistEvidence(first);
-  const facts = [...meta.children];
-  assert.ok(facts.at(-2).classList.contains('ckevid'),
-    'media is not at the end of the checklist facts');
-  assert.ok(facts.at(-1).classList.contains('cknote'),
-    'the notes action is not the final checklist fact');
-  const actions = first.querySelectorAll('.evidbtn');
-  assert.equal(actions.length, 2, 'media and note are not both explicit actions');
-  app.click(actions[0]);
-  assert.match(doc.getElementById('appSheet').textContent,
-    /Species location detail.*Checklist context.*photos/s,
-    'the media action does not open the combined bottom sheet');
-  A.hideSheet();
-  app.click(actions[1]);
-  assert.match(doc.getElementById('appSheet').textContent,
-    /Species location detail.*Checklist context.*photos/s,
-    'the final note action does not open the combined bottom sheet');
+  await waitFor(() => doc.querySelector('#results [data-ev-sub="S-INLINE"]'),
+    'Notes-on checklist');
+  await A.hydrateChecklistEvidence(doc.getElementById('results'));
+  const evidence = doc.querySelector('#results [data-ev-sub="S-INLINE"]');
+  assert.equal(evidence.querySelectorAll('.evnoterow blockquote').length, 2,
+    'species and checklist prose are not separate blockquotes');
+  assert.match(evidence.textContent, /Species comment.*Species location detail/s);
+  assert.match(evidence.textContent, /Checklist comment.*Checklist context/s);
+  assert.ok(evidence.querySelector('.cknote .evidbtn'),
+    'Notes on removed the persistent combined-comments button');
   app.window.close();
 });
 
-test('F496 Nemesis shares Twitches controls, preserves bird/report rows, and loads progressively', async () => {
-  let apiCalls = 0;
-  const app = await boot({
-    fetch(url) {
-      if (/api\.ebird\.org/.test(url)) apiCalls++;
-      return [];
-    },
-  });
-  const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  const rows = [];
-  for (let i = 0; i < 14; i++) {
-    rows.push({
-      kind: 'Rarity', code: 'bird' + i, name: 'Bird ' + i, distMi: i + 1,
-      dateStr: '2026-09-23 ' + String(23 - i).padStart(2, '0') + ':00',
-      loc: i < 2 ? 'Shared Checklist Hotspot' : 'Hotspot ' + i,
-      locId: i < 2 ? 'LS' : 'L' + i,
-      subId: i < 2 ? 'S-SHARED' : 'S' + i,
-    });
-  }
-  seedRarityChase(app, rows);
-  A.setTwitchView('list');
-  A.setTwitchDetails('compact');
-  A.showSection(doc.querySelector('#allUnseenBtn').closest('section').id);
-  A.loadAllUnseen();
-  await waitFor(() => doc.getElementById('nemesisControls'), 'Nemesis parity controls');
-  for (const id of ['nemesisSort', 'nemesisDistance', 'nemesisNotes',
-                    'nemesisView', 'nemesisDetails', 'nemesisRecent']) {
-    assert.ok(doc.getElementById(id), id + ' is missing');
-  }
-  const segmentedFont = app.window.getComputedStyle(
-    doc.querySelector('#nemesisSort .sortbtn'));
-  const pressedFont = app.window.getComputedStyle(doc.getElementById('nemesisView'));
-  assert.equal(pressedFont.fontFamily, segmentedFont.fontFamily,
-    'toggle buttons use inconsistent typefaces');
-  assert.equal(pressedFont.fontSize, segmentedFont.fontSize,
-    'toggle buttons use inconsistent text sizes');
-  assert.equal(pressedFont.fontWeight, segmentedFont.fontWeight,
-    'toggle buttons use inconsistent text weights');
-  assert.equal(doc.getElementById('nemesisYear'), null,
-    'Nemesis added a redundant Unseen filter');
-  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 12,
-    'the first paint eagerly mounted every unseen report');
-  assert.ok(doc.getElementById('allUnseenResults').classList.contains('birdreportcompact'),
-    'compact bird reports lack their shared typography scope');
-  const sharedCss = [...doc.querySelectorAll('style')].map((s) => s.textContent).join('\n');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm > li > \.name\s*\{[^}]*font-size:\s*calc\(16px \* var\(--s\)\)/s,
-    'compact bird names do not use the approved shared size');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm > li > \.name > \.ntext \*[^}]*font-size:\s*inherit/s,
-    'compact tags, codes, and evidence do not inherit the same size');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm > li > \.name > \.ntext\s*\{[^}]*font-weight:\s*800/s,
-    'compact bird names are not bold');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm > li > \.name > \.ntext > \.spalpha[^}]*font-weight:\s*400/s,
-    'the compact four-letter code is bold');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm > li > \.name > \.ntext > \.sub\s*\{[^}]*display:\s*inline/s,
-    'compact evidence forces a line break before the date');
-  assert.match(sharedCss,
-    /\.birdreportcompact\.card-sm \.recentflag\s*\{[^}]*font-size:\s*calc\(10px \* var\(--s\)\)/s,
-    'the compact RECENT label is still full text size');
-  const compactRecent = doc.querySelector(
-    '#allUnseenResults .raretail:last-child .recentflag');
-  assert.ok(compactRecent,
-    'compact RECENT is not the final labelled evidence fact');
-  assert.ok(doc.querySelector('.allUnseenMore'), 'the progressive-load control is missing');
-  const before = apiCalls;
-  app.click(doc.querySelector('.allUnseenMore'));
-  await waitFor(() => doc.querySelectorAll('#allUnseenResults > li').length === 14,
-    'remaining unseen reports');
-  assert.equal(apiCalls, before, 'revealing another batch refetched eBird');
-  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 14,
-    'one row per unseen bird/report relationship was not preserved');
+test('F504-F505 grouped Twitches places review icons correctly and caps each hotspot at ten', () => {
+  const appSource = HTML.slice(HTML.indexOf('function birdReportChecklistCard('),
+    HTML.indexOf('function renderBirdReportProgress('));
+  assert.match(appSource, /review:\s*reviewFlag\(row\)/,
+    'each grouped checklist does not place review state after its age');
+  assert.match(appSource, /slice\(0, 10\)/,
+    'a grouped hotspot does not start with ten newest checklists');
+  assert.match(appSource,
+    /moreDetails\(rest, \{ one: 'checklist', many: 'checklists' \}/,
+    'per-hotspot remaining counts do not use the independent checklist expander');
+  assert.match(appSource,
+    /anyConfirmed[\s\S]*reviewState: anyConfirmed \? 'confirmed' : 'pending'/,
+    'the grouped bird lacks the confirmed-if-any aggregate');
+  const review = HTML.slice(HTML.indexOf('function reviewFlag('),
+    HTML.indexOf('var CHASE_NS'));
+  assert.match(review, /valid === true\) \? 'confirmed' : 'pending'/,
+    'an unreviewed checklist is not explicitly pending');
+  assert.doesNotMatch(review, /denied|rejected/i,
+    'pending review was conflated with denial');
+});
 
-  app.click(doc.getElementById('nemesisView'));
-  await waitFor(() => doc.querySelector('#allUnseenResults .birdreportplaces'),
-    'Nemesis grouped hierarchy');
-  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 12,
-    'group mode also mounted every bird eagerly');
-  assert.ok(doc.querySelector('#allUnseenResults .hscard-sm .cklcard-sm'));
-  assert.equal(doc.querySelectorAll('#allUnseenResults .hsnum').length >= 12, true,
-    'group mode is not bird → numbered hotspot → checklist');
-  app.window.close();
+test('F502 Today’s Patches keeps mileage in the hotspot title row right column', () => {
+  const HotspotCards = require(path.join(WWW, 'cards-hotspot.js'));
+  const html = HotspotCards.medium({
+    num: 1, name: 'Marymoor Park', distance: 8.4, distQ: '47.6,-122.1',
+  });
+  assert.match(html,
+    /<div class="name">[\s\S]*Marymoor Park[\s\S]*class="hsdist maplink"/,
+    'mileage is not beside the hotspot name');
+  assert.match(HotspotCards.css,
+    /\.hscard-md > \.name > \.hsdist \{[\s\S]*grid-column: 3; grid-row: 1;[\s\S]*justify-self: end;/,
+    'mileage is not right-aligned in the title row');
+  const destinationRenderer = HTML.slice(HTML.indexOf('function renderDestinations('),
+    HTML.indexOf('function rarityRedirect('));
+  assert.match(destinationRenderer, /distMi: d\.dist/,
+    'Today’s Patches does not pass mileage to the shared hotspot title column');
+});
+
+test('F503 Stakeout uses measured ten-row batches with accurate progressive counts', () => {
+  const flat = HTML.slice(HTML.indexOf('function spLookupFlatChecklistsHtml('),
+    HTML.indexOf('function spLookupPlacesHtmlInner('));
+  assert.match(flat, /initialCount: 10/);
+  assert.match(flat, /batchSize: 10/);
+  assert.match(flat, /items: rows/);
+  assert.match(flat, /noun: 'checklists'/);
+  const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
+    HTML.indexOf('function hydrateStakeoutPlaceHistories('));
+  assert.match(history, /\.slice\(0, 10\)/,
+    'history scanning does not use the measured ten-checklist threshold');
+});
+
+test('F504-F511 Nemesis shares Group and Notes without Compact or Recent', () => {
+  const controls = HTML.slice(HTML.indexOf('function rarityControls('),
+    HTML.indexOf('function wireRarityControls('));
+  assert.match(controls, /label: 'Notes'/);
+  assert.match(controls, /label: 'Group'/);
+  assert.doesNotMatch(controls, /Compact|Recent|twitchdetails|twitchrecent/);
+  const loader = HTML.slice(HTML.indexOf('function loadAllUnseen('),
+    HTML.indexOf('function unseenPlacesHtml('));
+  assert.doesNotMatch(loader, /twitchRecent|notableRecentEligible/);
+  assert.match(loader, /renderAllUnseenCards\(rows\)/);
 });
 
 test('Unified Twitches Statewide includes birds found only in the state RBA feed', async () => {
@@ -13579,8 +13415,10 @@ test('F365 condensed and detailed spuh hierarchy controls navigate in-app', asyn
   assert.ok(syntheticOrder && syntheticOrder.tagName === 'SPAN'
     && !syntheticOrder.hasAttribute('data-spuh'),
   'the synthetic order label still promises a nonexistent destination');
-  app.click(app.document.querySelector(
-    '#spLookupQueryHelp .spuhviewpick'));
+  const details = app.document.querySelector(
+    '#spLookupQueryHelp .spuhresultdetails');
+  details.open = true;
+  details.dispatchEvent(new app.window.Event('toggle'));
   const detailedShorebird = app.document.querySelector(
     '#spLookupQueryHelp .spuhtaxmarked[data-spuh="shore"]');
   assert.ok(detailedShorebird, 'the real detailed hierarchy route is missing');
@@ -13916,9 +13754,8 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.equal(hierarchyInfo && hierarchyInfo.getAttribute('aria-label'),
     'About marked spuh names',
   'the hierarchy has no named information control');
-  assert.ok(hierarchyHeading.compareDocumentPosition(viewPick)
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the Compact control is not on the row below the heading');
+  assert.equal(viewPick, null,
+    'the removed Compact hierarchy control returned');
   assert.match(HTML,
     /\.spuhhierarchyhead h3\s*\{[^}]*font-size:\s*calc\(18px[^}]*white-space:\s*nowrap/,
   'the hierarchy heading is not full-size and protected from wrapping');
@@ -14018,10 +13855,9 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.equal(app.$('spLookupQueryHelp').textContent, '',
     'the selected bird still carries the redundant peep sp. candidate panel');
   const stakeoutCard = app.document.querySelector('#spLookupResults > li');
-  const stakeoutMeta = stakeoutCard && stakeoutCard.querySelector(':scope > .meta');
   const stakeoutSummary = app.$('spLookupDetailMain')
     .querySelector('.splookupsummary');
-  assert.match(stakeoutMeta && stakeoutMeta.textContent, /on your year list/,
+  assert.match(stakeoutCard && stakeoutCard.textContent, /on your year list/,
     'the species card lost the year-list state');
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
     /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by distance/,
@@ -14178,20 +14014,16 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   const viewPick = hierarchyBlock && hierarchyBlock.querySelector(
     '.spuhviewpick.pressbtn');
   const firstPathBird = path.querySelector('.spuhpathcontent .spuhpathchip');
-  assert.ok(viewPick, 'bird sp. does not use the shared Compact toggle');
-  assert.equal(viewPick.querySelector('.presslabel').textContent, 'Compact');
-  assert.equal(viewPick.getAttribute('aria-pressed'), 'true');
+  assert.equal(viewPick, null, 'the removed Compact hierarchy control returned');
   assert.ok(hierarchyBlock.querySelector('.spuhhierarchyhead')
-    .compareDocumentPosition(viewPick)
+    .compareDocumentPosition(firstPathBird)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the view toggle is not below the taxonomic hierarchy heading');
-  assert.ok(viewPick.compareDocumentPosition(firstPathBird)
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the view toggle is not before the bird-sp hierarchy');
+  'the bird-sp hierarchy is not below its heading');
   assert.doesNotMatch(path.textContent, /Detailed view/,
     'the old Detailed view text link remains beside the new toggle');
-  viewPick.click();
-  assert.equal(viewPick.getAttribute('aria-pressed'), 'false');
+  hero.querySelector('.spuhresultdetails').open = true;
+  hero.querySelector('.spuhresultdetails')
+    .dispatchEvent(new app.window.Event('toggle'));
   assert.equal(hero.querySelector('.spuhresultdetails').open, true);
   assert.equal(hero.classList.contains('spuhdetailopen'), true);
   const releasedHierarchy = hero.querySelector(
@@ -14211,7 +14043,9 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   assert.equal(app.window.getComputedStyle(
     hero.querySelector('.spuhcandidatelane')).display, 'block',
   'Detailed hides the bird list instead of keeping it below the hierarchy');
-  viewPick.click();
+  hero.querySelector('.spuhresultdetails').open = false;
+  hero.querySelector('.spuhresultdetails')
+    .dispatchEvent(new app.window.Event('toggle'));
   assert.equal(hero.querySelector('.spuhresultdetails').open, false);
   assert.equal(hero.classList.contains('spuhdetailopen'), false);
   const beforeFetches = commonnessFetches;
@@ -14862,171 +14696,27 @@ test('a stale Stakeout Show-more control cannot append after a newer species loo
   app.window.close();
 });
 
-test('F435 Stakeout details are opt-in and lazily load comments and location history', async () => {
-  const calls = [];
-  const app = await boot({
-    fetch(url) {
-      calls.push(url);
-      if (/data\/obs\/.*\/recent\/amepip/.test(url)) {
-        return [{
-          speciesCode: 'amepip', comName: 'American Pipit',
-          locName: 'Redmond Retention Ponds', locId: 'L1',
-          lat: 47.68, lng: -122.12, obsDt: '2026-09-20 09:49',
-          subId: 'S1', howMany: 5, obsValid: true,
-        }];
-      }
-      if (/product\/lists\/L1/.test(url)) {
-        return [
-          { subId: 'S1', obsDt: '2026-09-20 09:49', userDisplayName: 'Birder One' },
-          { subId: 'S2', obsDt: '2026-09-19 08:12', userDisplayName: 'Birder Two' },
-        ];
-      }
-      if (/product\/checklist\/view\/S1/.test(url)) {
-        return {
-          userDisplayName: 'Birder One', obsDt: '2026-09-20 09:49',
-          durationHrs: 1.5, groupId: 'G1', comments: 'Calm morning.',
-          obs: [{ speciesCode: 'amepip', howMany: 5,
-            comments: 'Feeding along the pond edge.', mediaCounts: { P: 1 } },
-            { speciesCode: 'sonspa', howMany: 2 },
-            { speciesCode: 'amecro', howMany: 4 }],
-        };
-      }
-      if (/product\/checklist\/view\/S2/.test(url)) {
-        return {
-          userDisplayName: 'Birder Two', obsDt: '2026-09-19 08:12',
-          durationHrs: 1, groupId: 'G2',
-          obs: [{ speciesCode: 'amepip', howMany: 3,
-            mediaCounts: { P: 1 } }],
-        };
-      }
-      if (/recent\/notable/.test(url)) return [];
-      if (/wikipedia\.org/.test(url)) return {};
-      if (/api\.ebird\.org/.test(url)) return [];
-      return null;
-    },
-  });
-  installSpuhFixture(app);
-  const A = app.window.__app;
-  assert.equal(A.speciesLookupDetails(), false,
-    'a fresh profile spends checklist calls before Details is requested');
-
-  await A.lookupSpecies('amepip', 'American Pipit');
-  assert.equal(calls.filter((url) => /product\/(?:lists|checklist\/view)/.test(url)).length, 0,
-    'the default Stakeout lookup made checklist-detail calls');
-  assert.equal(app.$('spLookupDetailsContent').hidden, true,
-    'Compact shows the Details-only answer content');
-  assert.equal(app.$('spLookupCompact').getAttribute('aria-pressed'), 'true');
-  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false');
-
-  app.click(app.$('spLookupCompact'));
-  async function waitLong(check, label) {
-    for (let i = 0; i < 180; i++) {
-      if (check()) return;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error(`timed out waiting for ${label}: calls=${calls.join(' | ')}; `
-      + `history=${app.document.querySelector('.stakeoutPlaceHistory')?.textContent}`);
-  }
-  await waitLong(() => /Repeat independent reports.*different observers/.test(
-    app.$('spLookupRecent').textContent), 'independent AMPI history');
-  await waitLong(() => app.document.querySelector(
-    '#spLookupRecent .cknote .evidbtn'), 'AMPI comment button');
-
-  assert.equal(A.speciesLookupDetails(), true, 'the enabled preference was not remembered');
-  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
-    'Details did not enable Notes by default');
-  assert.ok(calls.some((url) => /product\/lists\/L1/.test(url)),
-    'Details did not start the bounded location-history read');
-  assert.ok(calls.some((url) => /product\/checklist\/view\/S1/.test(url))
-    && calls.some((url) => /product\/checklist\/view\/S2/.test(url)),
-  'Details did not lazily read the visible matching checklists');
-  assert.doesNotMatch(app.$('spLookupRecent').textContent,
-    /Species comment.*Feeding along the pond edge/s,
-    'Stakeout still expands checklist comments beneath the sentence');
-  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Checklist details/,
-    'Stakeout repeats the checklist summary in a redundant details block');
-  const firstChecklist = app.document.querySelector(
-    '#spLookupRecent .stakeoutPlaceChecklists .cklcard-sm');
-  assert.ok(firstChecklist,
-    'Stakeout checklist rows do not use the shared small-checklist template');
-  assert.match(firstChecklist.querySelector('.ckwho')?.textContent || '', /Birder One/,
-    'Stakeout checklist rows omit the birder name');
-  assert.equal(firstChecklist.querySelector('.cksp')?.textContent.trim(), '3 sp',
-    'Stakeout checklist rows omit the checklist species count');
-  assert.match(firstChecklist.querySelector('.ckevid')?.textContent || '', /📷/,
-    'Stakeout checklist rows omit media icons returned by checklist detail');
-  const placeCards = HTML.slice(HTML.indexOf('function spLookupPlaceCards('),
-    HTML.indexOf('function spLookupPlaceReachable(', HTML.indexOf('function spLookupPlaceCards(')));
-  assert.match(placeCards,
-    /'Load ' \+ Math\.max\(0, historyScanCount - cks\.length\)[\s\S]*' more checklists<\/button>/,
-    'additional checklist history does not name how many more rows it will load');
-  assert.match(HTML,
-    /\.stakeoutLoadHistory\s*\{[^}]*background:\s*none[^}]*text-decoration:\s*underline/,
-    'the additional-checklist action is not styled as a text link');
-  const noteButtons = app.document.querySelectorAll(
-    '#spLookupRecent .stakeoutPlaceChecklists .cknote .evidbtn');
-  assert.equal(noteButtons.length, 1,
-    'a checklist without a species or checklist comment still shows a note icon');
-  const noteWrap = noteButtons[0].closest('.cknote');
-  assert.equal(noteWrap.parentElement.lastElementChild, noteWrap,
-    'the note icon is not the final fact in the checklist sentence');
-  app.click(noteButtons[0]);
-  assert.equal(app.$('appSheet').hidden, false,
-    'the note icon did not open the existing bottom sheet');
-  assert.equal(app.$('appSheet').querySelectorAll('blockquote.evnotecombined').length, 1,
-    'species and checklist comments render as separate blockquotes');
-  assert.equal(app.$('appSheet').querySelectorAll(
-    'blockquote.evnotecombined > .evnoteitem').length, 2,
-  'the combined quotation does not preserve both comment fields');
-  assert.match(app.$('appSheet').textContent,
-    /Species comment.*Feeding along the pond edge.*Checklist comment.*Calm morning/s,
-    'the bottom sheet does not show both available checklist comments');
-  assert.equal(app.document.querySelector(
-    '#spLookupRecent .hscard-sm .hslink')?.getAttribute('data-loc'), 'L1',
-    'the Stakeout bird hotspot name does not open that hotspot’s Stakeout report');
-  assert.match(app.$('spLookupRecent').textContent,
-    /Repeat independent reports.*different observers and eBird groups/s);
-  app.window.close();
+test('F501-F510 Stakeout always shows details, merges history, and keeps Notes independent', () => {
+  assert.doesNotMatch(HTML, /id="spLookupCompact"|ebird_stakeout_details_v1/);
+  assert.match(HTML, /function speciesLookupDetails\(\) \{ return true; \}/);
+  const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
+    HTML.indexOf('function hydrateStakeoutPlaceHistories('));
+  assert.doesNotMatch(history, /Repeat independent reports|Same eBird group \/ convoy/);
+  assert.match(history, /existing\[row\.getAttribute\('data-ev-sub'\)\] = 1/);
+  assert.match(history, /localeCompare\(String\(a\.getAttribute\('data-ev-sort'/);
+  assert.match(history, /list\.appendChild\(row\)/,
+    'matching history is not merged into the current checklist list');
+  const hydrate = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence('),
+    HTML.indexOf('var _evidStore'));
+  assert.match(hydrate, /if \(showDetails && det\) setNoteText\(el, det\)/);
+  assert.doesNotMatch(hydrate, /!hasCommentButton/);
 });
 
-test('F435 matching Stakeout checklists in one eBird group are a convoy, not independent reports', async () => {
-  const app = await boot({
-    fetch(url) {
-      if (/product\/lists\/L-CONVOY/.test(url)) {
-        return [{ subId: 'SC1' }, { subId: 'SC2' }];
-      }
-      if (/product\/checklist\/view\/SC1/.test(url)) {
-        return {
-          userDisplayName: 'Birder One', obsDt: '2026-09-20 08:00', groupId: 'G-SAME',
-          obs: [{ speciesCode: 'amepip', howMany: 4 }],
-        };
-      }
-      if (/product\/checklist\/view\/SC2/.test(url)) {
-        return {
-          userDisplayName: 'Birder Two', obsDt: '2026-09-20 08:05', groupId: 'G-SAME',
-          obs: [{ speciesCode: 'amepip', howMany: 4 }],
-        };
-      }
-      if (/api\.ebird\.org/.test(url)) return [];
-      return null;
-    },
-  });
-
-  const A = app.window.__app;
-  const slot = app.document.createElement('div');
-  slot.className = 'stakeoutPlaceHistory';
-  slot.setAttribute('data-loc', 'L-CONVOY');
-  slot.setAttribute('data-code', 'amepip');
-  slot.setAttribute('data-place', 'Convoy Marsh');
-  slot.setAttribute('data-lat', '47.6');
-  slot.setAttribute('data-lng', '-122.2');
-  app.document.body.appendChild(slot);
-
-  await A.loadStakeoutPlaceHistory(slot, { code: 'amepip' });
-  assert.match(slot.textContent, /Same eBird group \/ convoy/);
-  assert.doesNotMatch(slot.textContent, /Repeat independent reports/,
-    'a shared group ID was promoted to independent confirmation');
-  app.window.close();
+test('F501 Stakeout history renders no independent-or-convoy classification', () => {
+  const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
+    HTML.indexOf('function hydrateStakeoutPlaceHistories('));
+  assert.doesNotMatch(history,
+    /Repeat independent reports|Same eBird group \/ convoy|stakeoutHistoryCards/);
 });
 
 test('F456 Stakeout checklist facts are viewport-lazy and use the shared small template', () => {
@@ -15494,8 +15184,8 @@ test('F461 Stakeout merges retained Mega checklists into one complete place list
     'the Twitches, retained, and live Mega places did not merge into one hotspot list');
   const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
     .map((link) => link.getAttribute('href'));
-  assert.equal(links.length, 40,
-    'the unified place list omitted Twitches/RBA Mega checklists');
+  assert.equal(links.length, 80,
+    'each unified checklist does not expose both its date and printed id action');
   assert.equal(new Set(links).size, 40,
     'the unified place list repeats a Mega checklist');
   app.window.close();
@@ -15675,145 +15365,37 @@ test('F402 Stakeout separates date sorting from the chase-distance filter', asyn
   app.window.close();
 });
 
-test('F466 Stakeout modes use approved cards, map order and open checklists', async () => {
-  let sightingReads = 0;
+test('F498-F506 Stakeout uses the full card, explicit checklist actions, Notes, and Group', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) {
-        sightingReads += 1;
         return [{
           speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
           locName: 'Marymoor Park', locId: 'L1', lat: 47.7, lng: -122.2,
           obsDt: '2026-09-02 08:00', subId: 'S1', obsValid: true,
         }];
       }
+      if (/api\.ebird\.org/.test(url)) return [];
       return null;
     },
   });
   installSpuhFixture(app);
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
-
-  const compactCard = app.$('spLookupResults');
-  assert.equal(sightingReads, 1, 'the initial bird lookup fetched sightings more than once');
-  assert.equal(app.$('spLookupDetails'), null,
-    'Compact/Details expanded back into two buttons');
-  assert.equal(app.$('spLookupList'), null,
-    'List/Group expanded back into two buttons');
-  assert.ok(compactCard.compareDocumentPosition(app.$('spLookupRecent'))
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the selected-bird card no longer precedes Recent Checklists');
-  assert.ok(app.$('spLookupRecent').compareDocumentPosition(app.$('spLookupMap'))
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-  'the map no longer follows Recent Checklists');
-  assert.equal(app.window.getComputedStyle(app.$('spLookupMap')).aspectRatio, '16 / 7',
-    'the Stakeout map returned to the oversized shared-map ratio');
-  const dateDistance = app.$('spLookupByDate').parentElement;
-  assert.ok(dateDistance.classList.contains('sortpick'),
-    'Date/Distance is not the shared joined two-sided toggle');
-  assert.deepEqual([...dateDistance.children].map((button) => button.id),
-    ['spLookupByDate', 'spLookupByDist'],
-  'Date/Distance is not one two-sided control');
-  assert.equal(app.$('spLookupByDate').classList.contains('secondary'), false,
-    'Date retains the standalone-pill styling inside the joined toggle');
-  assert.equal(app.$('spLookupByDist').classList.contains('secondary'), false,
-    'Distance retains the standalone-pill styling inside the joined toggle');
-  assert.ok(compactCard.classList.contains('stakeoutSpeciesCard-compact'),
-    'Compact does not use the approved Stakeout title card');
-  assert.ok(compactCard.querySelector(':scope > li .thumb'),
-    'Compact lost the bird photo');
-  assert.equal(app.window.getComputedStyle(
-    compactCard.querySelector(':scope > li .thumb')).width, '64px',
-  'Compact does not use the approved 64px bird-photo width');
-  assert.equal(compactCard.querySelector(':scope > li .spdist'), null,
-    'Compact still uses the right column for distance instead of the watchlist action');
-  const compactWatchlist = compactCard.querySelector(
-    ':scope > li .spprimary .spLookupWatchlist');
-  assert.ok(compactWatchlist,
-    'Compact does not put Add to Watchlist in the former distance column');
-  assert.equal(compactWatchlist.innerHTML, 'Add to<br>Watchlist',
-    'Compact watchlist text does not break after "Add to"');
-  assert.equal(compactWatchlist.getAttribute('aria-label'), 'Add to watchlist',
-    'the two-line Compact action lost its unbroken accessible label');
-  assert.ok(app.document.querySelector('#spLookupRecent .spLookupPlaceList'),
-    'Group is not the initial checklist presentation');
-  const checklistPanel = app.document.querySelector(
-    '#spLookupRecent .stakeoutPlaceDetails');
-  const checklistStyle = app.window.getComputedStyle(checklistPanel);
-  assert.equal(checklistStyle.backgroundColor, 'rgba(0, 0, 0, 0)',
-    'Recent Checklists are still enclosed in a coloured bubble');
-  assert.equal(checklistStyle.borderTopStyle, 'none',
-    'Recent Checklists are still enclosed by a bubble border');
-  assert.equal(checklistStyle.paddingTop, '0',
-    'Recent Checklists are still padded like a separate bubble');
-  assert.equal(checklistStyle.marginLeft, '0px',
-    'Recent Checklist rows still waste width on left indentation');
-  const checklistRule = [...app.document.styleSheets]
-    .flatMap((sheet) => [...sheet.cssRules])
-    .find((rule) => rule.selectorText === '.stakeoutPlaceDetails');
-  assert.equal(checklistRule.style.getPropertyValue('background'), '',
-    'Recent Checklists still declare a bubble background');
-  assert.equal(checklistRule.style.getPropertyValue('border'), '',
-    'Recent Checklists still declare a bubble border');
-  assert.equal(checklistRule.style.getPropertyValue('padding'), '',
-    'Recent Checklists still declare bubble padding');
-  assert.equal(checklistRule.style.marginLeft, '0px',
-    'Recent Checklists do not explicitly zero their left indent');
-  const checklistBulletRule = [...app.document.styleSheets]
-    .flatMap((sheet) => [...sheet.cssRules])
-    .find((rule) => rule.selectorText
-      === '#spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm > .cksummary::before');
-  assert.ok(checklistBulletRule,
-    'Stakeout checklist bullets have no mode-shared emphasis rule');
-  assert.equal(checklistBulletRule.style.color, 'rgb(0, 0, 0)',
-    'Stakeout checklist bullets are not dark enough');
-  assert.equal(checklistBulletRule.style.fontSize, 'calc(20px * var(--s))',
-    'Stakeout checklist bullets are not the requested larger size');
-  assert.equal(checklistBulletRule.style.fontWeight, '800',
-    'Stakeout checklist bullets are not visibly heavier');
-  assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'true');
-  app.click(app.$('spLookupGroup'));
-  assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'),
-    'List does not replace grouped hotspot rows with flat checklist cards');
-  assert.equal(app.$('spLookupGroup').getAttribute('aria-pressed'), 'false');
-
-  app.click(app.$('spLookupCompact'));
-  const detailsCard = app.$('spLookupResults');
-  assert.ok(detailsCard.classList.contains('stakeoutSpeciesCard-details'),
-    'Details does not switch to the shared full-size species card');
-  assert.ok(detailsCard.querySelector(':scope > li > .bcbody .bcname'),
-    'Details is not using the shared large-card structure');
-  assert.ok(detailsCard.querySelector(':scope > li .bchero'),
-    'Details does not show the page-width species hero photo');
-  assert.match(detailsCard.textContent,
-    /Semipalmated Sandpiper.*sem.*not on your year list/s,
-  'Details lost the bird identity or year-list status');
-  assert.ok(detailsCard.querySelector('.spLookupWatchlist'),
-    'Details lost the watchlist action');
-  assert.ok(detailsCard.querySelector('.qrbtn'),
-    'Details lost the QR action');
-  app.click(app.$('spLookupGroup'));
-  assert.equal(app.window.getComputedStyle(app.document.querySelector(
-    '#spLookupRecent .stakeoutPlaceDetails')).marginLeft, '0px',
-  'Details restores the wasted checklist-row left indentation');
-  assert.equal(sightingReads, 1,
-    'switching to Details refetched the selected bird sightings');
+  const card = app.$('spLookupResults');
+  assert.ok(card.classList.contains('stakeoutSpeciesCard-details'));
+  assert.ok(card.querySelector('.bchero'));
+  assert.equal(app.$('spLookupCompact'), null);
   assert.equal(app.$('spLookupDetailsContent').hidden, false);
-  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true',
-    'Details does not enable Notes by default');
+  const row = app.document.querySelector('#spLookupRecent .cklcard-sm');
+  assert.ok(row);
+  assert.equal(row.getAttribute('data-href'), null);
+  assert.match(row.querySelector('.ckdate a')?.getAttribute('href') || '', /checklist\/S1$/);
+  assert.equal(row.querySelector('.ckid a')?.textContent, 'S1');
+  assert.equal(row.querySelector('.cksummary')?.textContent.includes('•'), false);
+  app.click(app.$('spLookupGroup'));
+  assert.ok(app.document.querySelector('#spLookupRecent .stakeoutFlatChecklists'));
   app.click(app.$('spLookupNotes'));
-  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
-    'Notes cannot be disabled independently while Details remains on');
-  assert.equal(app.$('spLookupCompact').getAttribute('aria-pressed'), 'false');
-  app.click(app.$('spLookupCompact'));
-  assert.ok(app.$('spLookupResults').classList.contains('stakeoutSpeciesCard-compact'),
-    'Compact does not restore its title card');
-  assert.equal(app.$('spLookupResults').querySelector('.bchero'), null,
-    'Compact retained the Details hero photo');
-  assert.equal(app.$('spLookupDetailsContent').hidden, true);
-  assert.equal(sightingReads, 1,
-    'switching back to Compact refetched the selected bird sightings');
-  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'false',
-    'Compact does not default Notes off');
+  assert.equal(app.$('spLookupNotes').getAttribute('aria-pressed'), 'true');
   app.window.close();
 });
 
@@ -16636,8 +16218,8 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
   const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
-  assert.ok(checklistCss.includes('padding-left: 1em; text-indent: -1em;'),
-    'patch checklist rows lost the shared hanging indent');
+  assert.doesNotMatch(checklistCss, /padding-left:\s*1em;\s*text-indent:\s*-1em/,
+    'patch checklist rows restored the removed hanging indent');
   det.open = true;
   det.dispatchEvent(new app.window.Event('toggle'));
   await new Promise((r) => setTimeout(r, 80));
@@ -17158,8 +16740,10 @@ test('checklist comments keep one popup button whether Notes is off or on', asyn
   const on = await mk();
   on.window.__app.setRarityNotes(true);
   const hostOn = await render(on);
-  assert.equal(hostOn.querySelectorAll('.evnoterow').length, 0,
-    'Notes on restores the obsolete inline comment blocks');
+  assert.equal(hostOn.querySelectorAll('.evnoterow').length, 2,
+    'Notes on does not restore separately labelled inline comment blocks');
+  assert.equal(hostOn.querySelectorAll('.evnoterow blockquote').length, 2,
+    'Notes on prose is not rendered as readable blockquotes');
   assert.equal(hostOn.querySelectorAll('.cknote .evidbtn').length, 2,
     'Notes on duplicates or removes the popup comment buttons');
   on.window.close();
@@ -18461,21 +18045,19 @@ test('the comments placeholder always settles', () => {
 // happens to be a link is not a LINK — it names a time and offers no reason to
 // press it. Same complaint F221 fixed for "on eBird": a caption sitting where
 // an action belongs, beside siblings that are actions.
-test('the row carries a named link to the checklist', () => {
-  const src = HTML.slice(HTML.indexOf('var CKL_OPEN_ICON'),
-                         HTML.indexOf('var CKL_OPEN_ICON') + 900);
-  assert.match(src, /Open checklist ' \+ sub \+ ' in eBird/,
-    'it says what it opens AND which checklist');
-  assert.match(src, /\\u2197/, 'and marks itself as leaving the app, like its siblings');
-  // LAST, after the comments — and emitted by the CARD, not by the comment
-  // hydration, so it survives with notes off and on a silent checklist. The
-  // owner drew that case: "If the comments are toggled off, then it should
-  // look like #4."
-  assert.match(src, /class="cklopenrow"/, 'it takes a line of its own');
-  assert.equal((HTML.match(/checklist: openChecklistLink\(/g) || []).length, 0,
-    'it no longer rides the meta line, where it sat BEFORE the comments');
-  assert.ok((HTML.match(/openChecklistLink\(/g) || []).length >= 5,
-    'every rich rarity path emits it below its card, while compact rows keep their row link');
+test('the row carries named date and checklist-id links to the checklist', () => {
+  const CK = require(path.join(WWW, 'cards-checklist.js'));
+  const row = CK.small({
+    date: 'Aug 8 2:26 PM',
+    href: 'https://ebird.org/checklist/S1',
+    checklistId: 'S1',
+  });
+  const links = [...row.matchAll(/<a[^>]*href="https:\/\/ebird\.org\/checklist\/S1"[^>]*>(.*?)<\/a>/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(links, ['8/8 2:26p', 'S1'],
+    'the date and printed checklist ID are independent named checklist actions');
+  assert.doesNotMatch(row, /cklopenrow|Open checklist/,
+    'the removed long checklist action row returned');
   // A hotspot link must NOT borrow the checklist glyph. Owner: "the link goes
   // to a hotspot, so dont use a checklist icon, keep the link."
   assert.match(HTML, /var EBIRD_LINK_LABEL = '\\uD83D\\uDD17/,
@@ -18495,8 +18077,7 @@ test('sibling actions on a patch card share one size and baseline', () => {
   assert.match(rule[1], /margin-top: 0/, 'and neither action is pushed down');
 });
 
-// The media mark rides with the comment, and links to the checklist rather
-// than to a photo — because the photo is not addressable from here.
+// The media mark comes from feed evidence and remains inert on the card.
 test('media marks come from the feed, not from the checklist fetch', () => {
   const src = HTML.slice(HTML.indexOf('function mediaMarksFor'),
                          HTML.indexOf('function mediaMarksFor') + 500);
@@ -18507,13 +18088,14 @@ test('media marks come from the feed, not from the checklist fetch', () => {
   // no asset id. So `det.m` is empty in practice and cannot be the source.
   assert.ok((HTML.match(/'ev-media': /g) || []).length >= 3,
     'every row that can show a note carries the evidence to mark it');
-  const paint = HTML.slice(HTML.indexOf('function setNoteText'),
-                           HTML.indexOf('function mediaMarksFor'));
-  assert.match(paint, /checklistUrl\(el\.getAttribute\('data-ev-sub'\)/,
-    'and the mark opens the CHECKLIST, which is the page that actually holds '
-    + 'the photo — a link built from a guessed Macaulay id would be a dead one');
-  assert.match(paint, /aria-label/,
-    'the glyph is not the only carrier of its meaning');
+  const paintAt = HTML.indexOf(
+    'var marks = mediaMarksFor(el, det)',
+    HTML.indexOf('function hydrateChecklistEvidence'));
+  const paint = HTML.slice(paintAt, paintAt + 1000);
+  assert.doesNotMatch(paint, /class="evidbtn"[^>]*data-evid/,
+    'the small inline media mark became interactive again');
+  assert.match(paint, /className = 'ckevid'/,
+    'the media mark no longer rides as inert evidence text');
 });
 
 
@@ -18575,17 +18157,15 @@ test('a rarity checklist surfaces the waypoint, and only the waypoint', async ()
   await A.hydrateChecklistEvidence(det);
   await new Promise((r) => setTimeout(r, 600));
 
-  const btns = [...host.querySelectorAll('.ckevid .evidbtn')];
-  assert.equal(btns.length, 1,
-    'exactly ONE row earns a mark. Both observers wrote a comment because eBird '
-    + 'made them; only one said where the bird was');
-  assert.equal(btns[0].getAttribute('data-evid'), 'S1|larspa');
-  assert.ok(!btns[0].textContent.includes('\u{1F3AF}'),
-    'the inline evidence slot stays media-only instead of duplicating the comment action');
-  assert.ok(btns[0].textContent.includes('\u{1F4F7}'), 'the photo is marked');
+  const marks = [...host.querySelectorAll('.ckevid')];
+  assert.equal(marks.length, 1,
+    'exactly ONE row earns a media mark');
+  assert.equal(marks[0].querySelector('button, a'), null,
+    'the inline media mark is interactive');
+  assert.ok(marks[0].textContent.includes('\u{1F4F7}'), 'the photo is marked');
 
-  // The mark OPENS the note. A waypoint you cannot tap is a fact you retype.
-  A.openEvidence('S1|larspa');
+  // The dedicated note action opens the combined sheet.
+  host.querySelector('[data-ev-sub="S1"] .cknote .evidbtn').click();
   const sheet = doc.getElementById('appSheet');
   assert.equal(sheet.hidden, false, 'the sheet opens');
   assert.equal(sheet.querySelector('.sheettitle').textContent, 'Union Bay Natural Area');
@@ -18739,7 +18319,8 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   // 1. THE WORD IS THERE, not just a colour and not just a glyph. The owner is
   //    red-green colour blind, so the text is the channel that must carry it.
   assert.match(conf, /Confirmed/, 'a confirmed rarity says so in words');
-  assert.match(pend, /Unreviewed/, 'an unreviewed one says so in words');
+  assert.match(pend, /Pending review; not reviewed yet/,
+    'a pending one says explicitly that it has not been reviewed yet');
 
   // 2. ...and the two are distinguishable with NO colour at all: different
   //    words and different glyph shapes (check vs triangle).
@@ -18750,16 +18331,17 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
                   'the two states must not read identically without colour');
 
   // 3. THE ONE THAT WOULD TELL THE USER SOMETHING UNTRUE.
-  assert.equal(A.reviewFlag({ reviewState: 'unknown' }), '',
-    'a row with no review fields claims nothing');
-  assert.equal(A.reviewFlag({}), '', 'and neither does an empty row');
-  assert.equal(A.reviewFlag({ comName: 'Ruff', subId: 'S1' }), '',
-    'an ABA-alert row carries no review fields and must not claim "Confirmed"');
+  assert.match(A.reviewFlag({ reviewState: 'unknown' }), /Pending review/,
+    'unknown review state is pending, never denied');
+  assert.match(A.reviewFlag({}), /Pending review/,
+    'an empty review state is pending, never denied');
+  assert.match(A.reviewFlag({ comName: 'Ruff', subId: 'S1' }), /Pending review/,
+    'a row without review fields remains pending');
 
   // 4. The legacy shape still works: rows built before this change carry
   //    `valid` and no reviewState.
-  assert.match(A.reviewFlag({ valid: false }), /Unreviewed/,
-    'a legacy row with valid=false still reports as unreviewed');
+  assert.match(A.reviewFlag({ valid: false }), /Pending review/,
+    'a legacy row with valid=false remains pending');
 
   // 5. It really reaches the screen — the badge must survive into a rendered
   //    card, not merely exist as a string.
@@ -18773,9 +18355,11 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   doc.body.appendChild(host);
   const pill = host.querySelector('.revpend');
   assert.ok(pill, 'the pending badge renders inside a real card');
-  assert.match(pill.textContent, /Unreviewed/);
-  // A pill is ONE token; a two-word badge that breaks across lines renders as
-  // half a badge. The same rule .stakeflag already follows.
+  assert.equal(pill.textContent, '\u26a0',
+    'the visible pending marker is the distinct warning glyph');
+  assert.match(pill.getAttribute('aria-label'), /Pending review; not reviewed yet/,
+    'the glyph has explicit accessible pending semantics');
+  // The icon is one token and must not split at a line break.
   const cs = w.getComputedStyle(pill);
   assert.equal(cs.whiteSpace, 'nowrap', 'the badge cannot break in half');
   assert.equal(cs.display, 'inline-block',
@@ -19798,7 +19382,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.match(immediateText, /Cape Flattery overlook/);
   assert.match(immediateText, /×3/);
   assert.match(immediateText, /Latest Observer/);
-  assert.ok(D.querySelector('#spLookupRecent [data-href*="/checklist/S-LATEST"]'),
+  assert.ok(D.querySelector('#spLookupRecent [href*="/checklist/S-LATEST"]'),
     'the exact latest checklist survives the route');
   const evidence = D.getElementById('spLookupEvidenceDetails');
   assert.match(evidence.querySelector('.megalatest .evid').textContent, /📷/);
@@ -20499,13 +20083,12 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
     'row dead-space routing must yield to every nested action');
   const stakeout = HTML.slice(HTML.indexOf('function renderSpeciesLookup()'),
     HTML.indexOf('var SP_ROWS_MAX'));
-  assert.equal((stakeout.match(/SpeciesCards\.medium\(/g) || []).length, 1,
+  assert.equal((stakeout.match(/SpeciesCards\.medium\(/g) || []).length, 0,
     'Stakeout Compact rebuilt preserved and live evidence as separate species cards');
   assert.equal((stakeout.match(/SpeciesCards\.large\(/g) || []).length, 1,
     'Stakeout Details rebuilt preserved and live evidence as separate species cards');
-  assert.match(stakeout,
-    /out\.innerHTML = detailsOn[\s\S]*\? SpeciesCards\.large\([\s\S]*: SpeciesCards\.medium\(/,
-    'Stakeout does not choose exactly one shared card family for the active mode');
+  assert.doesNotMatch(stakeout, /detailsOn[\s\S]*SpeciesCards\.(?:large|medium)/,
+    'Stakeout restored the removed Compact/Details card-family branch');
   assert.match(stakeout,
     /recent\.innerHTML = placesHtml[\s\S]*evidenceHost\.innerHTML = stakeoutEvidenceHtml\(evidence\)/,
     'preserved evidence and recent checklists are not owned by the same Stakeout renderer');
@@ -20520,7 +20103,8 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
     fetch(url) {
       if (/data\/obs\/.*\/recent\//.test(url)) return [];
       if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
-      return null;
+      if (/product\/checklist\/view\//.test(url)) return { obs: [] };
+      return [];
     },
   });
   installSpuhFixture(app);
@@ -20539,22 +20123,26 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
   }
 
   openMega();
+  await settleMegaEntry(app, 'semsan');
   await A.openStakeSpecies('solsan', 'Solitary Sandpiper');
   assert.equal(A.megaViewState().origin, null,
     'a generic species link cannot inherit Mega Back or evidence');
   assert.equal(A.megaViewState().active, null);
 
   openMega();
+  await settleMegaEntry(app, 'semsan');
   A.clearSpeciesLookup();
   assert.equal(A.megaViewState().origin, null, 'Close clears the Mega origin');
 
   openMega();
+  await settleMegaEntry(app, 'semsan');
   A.setAbaScope('aba');
   assert.equal(A.megaViewState().view, null, 'scope change invalidates the view registry');
   assert.equal(A.megaViewState().origin, null);
   A.setAbaScope('state');
 
   openMega();
+  await settleMegaEntry(app, 'semsan');
   A.setActiveReport('az');
   assert.equal(A.megaViewState().view, null, 'report change invalidates Mega context');
   assert.equal(A.megaViewState().origin, null);
@@ -20566,7 +20154,8 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
     fetch(url) {
       if (/data\/obs\/.*\/recent\//.test(url)) return [];
       if (/wikipedia\.org|api\.gbif\.org/.test(url)) return {};
-      return null;
+      if (/product\/checklist\/view\//.test(url)) return { obs: [] };
+      return [];
     },
   });
   installSpuhFixture(app);
@@ -20612,6 +20201,7 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
 
   app.click(items[0].querySelector('.megaphoto'));
   assert.equal(A.megaViewState().active.code, 'tersan', 'photo uses the exact row code');
+  await settleMegaEntry(app, 'tersan');
   assert.equal(doc.getElementById('sec-spLookupBtn').hidden, false);
   assert.match(doc.getElementById('navBack').getAttribute('aria-label'), /Mega rarities/);
   A.navBack();
@@ -20620,14 +20210,17 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
 
   app.click(items[1].querySelector('.ntext a.megajump'));
   assert.equal(A.megaViewState().active.code, 'whiwag', 'name uses the exact row code');
+  await settleMegaEntry(app, 'whiwag');
   A.navBack();
 
   app.click(items[2].querySelector('.spdist'));
   assert.equal(A.megaViewState().active.code, 'litgul', 'chevron dead space routes too');
+  await settleMegaEntry(app, 'litgul');
   A.navBack();
 
   app.click(items[1].querySelector('.meta'));
   assert.equal(A.megaViewState().active.code, 'whiwag', 'unclaimed row space routes too');
+  await settleMegaEntry(app, 'whiwag');
   const oldOrigin = A.megaViewState().origin.viewKey;
   A.renderAbaAlert([rows[0]], 'https://ebird.org/alert/summary?sid=X', true);
   assert.notEqual(A.megaViewState().key, oldOrigin, 'a newer list invalidates the origin key');
@@ -20908,16 +20501,16 @@ test('quick outing offers only its three anchors, and asks for a place only when
   app.window.close();
 });
 
-// Requests that arrived in another session and were nearly lost. Pinned
-// together because they are one idea: a checklist row is a ROW YOU TAP.
-test('a checklist row uses the approved one-line hanging summary, and the whole row is the link', async () => {
+test('F498 checklist facts have separate destinations and the row itself is inert', async () => {
   const CK = require(require('node:path')
     .join(__dirname, '..', 'www', 'cards-checklist.js'));
 
-  // The compact summary keeps every decision fact in one wrapping sentence.
   const row = CK.small({
-    place: '33014 NE 138th St', href: 'https://ebird.org/checklist/S1',
+    place: '33014 NE 138th St',
+    placeHtml: '<a class="hslink" data-loc="L1">33014 NE 138th St</a>',
+    href: 'https://ebird.org/checklist/S1',
     date: 'Aug 3 5:14 AM', count: 3, distMi: 12.4,
+    data: { 'ev-sub': 'S1' },
   });
   const app = await boot();
   const d = app.window.document;
@@ -20926,34 +20519,37 @@ test('a checklist row uses the approved one-line hanging summary, and the whole 
   const txt = li.textContent.replace(/\s+/g, ' ').trim();
   assert.match(txt, /33014 NE 138th St/, 'the hotspot name leads');
   assert.match(txt, /8\/3 5:14a/, 'then when — numerically, to leave room for the name');
-  // Three birds is worth knowing; one is not. The rule changed from "never"
-  // to "only when greater than one" - see the checklist card for why both
-  // requests were right about different numbers.
   assert.match(txt, /×3/, 'a count of three is hidden, which is information lost');
   assert.match(txt, /12\.4 mi/,
     'then how far, to ONE DECIMAL — it used to round anything over 10mi to '
     + '"12 mi", and on a list you scan to pick a drive the tenth is what '
     + 'separates two hotspots ten minutes apart');
 
-  // The WHOLE ROW is the link, not just the name: on a phone the name is a
-  // ~10px target in a 30px row and the rest looked tappable but was not.
-  assert.equal(li.getAttribute('data-href'), 'https://ebird.org/checklist/S1',
-    'the row carries the checklist link');
-  // ...via data-href, NOT by wrapping the row in an <a>: the row also holds a
-  // map pin, and an <a> inside an <a> is invalid HTML that browsers silently
-  // un-nest, which would break the pin.
-  assert.ok(!/^<li[^>]*>\s*<a /.test(row), 'the row is not wrapped in an anchor');
-  // The name stays a REAL link so keyboard and screen-reader users get one.
-  assert.ok(li.querySelector('a.ckgo'), 'the name is still a proper link');
-  assert.match(CK.css, /\.cklcard-sm\[data-href\] \{ cursor: pointer/,
-    'and the row looks tappable, because it is');
-
-  // The handler must let a real link inside the row win, or the map pin would
-  // open the checklist instead of the map.
-  const src = HTML.slice(HTML.indexOf(".cklcard-sm[data-href]'"),
-    HTML.indexOf(".cklcard-sm[data-href]'") + 400);
-  assert.match(src, /!ev\.target\.closest\('a'\)/,
-    'a click on a link inside the row is left alone');
+  assert.equal(li.getAttribute('data-href'), null,
+    'the whole checklist row remains a catch-all link');
+  assert.equal(li.querySelector('.hslink')?.getAttribute('data-loc'), 'L1',
+    'the hotspot does not retain its Stakeout action');
+  assert.equal(li.querySelector('.ckdate a')?.getAttribute('href'),
+    'https://ebird.org/checklist/S1',
+    'the date does not open the source checklist');
+  assert.equal(li.querySelector('.ckid a')?.textContent, 'S1',
+    'the printed checklist id does not open the source checklist');
+  assert.doesNotMatch(CK.css, /text-indent:\s*-1em|cksummary::before/,
+    'the removed hanging indent or bullet returned');
+  assert.match(CK.css,
+    /\.cklcards-sm \.cknote \.evidbtn \{[\s\S]*width: 44px;[\s\S]*height: 44px;/,
+    'the dedicated Notes action is not a 44px target');
+  const hydration = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence('),
+    HTML.indexOf('var _evidStore'));
+  assert.match(hydration, /slot\.textContent = marks;/,
+    'media is not appended as inert evidence text');
+  assert.doesNotMatch(hydration,
+    /slot\.innerHTML\s*=|slot\.appendChild\([^)]*(?:button|anchor|link)/,
+    'media evidence became an independent action');
+  const stakeoutRow = HTML.slice(HTML.indexOf('function stakeoutChecklistRow('),
+    HTML.indexOf('function loadStakeoutPlaceHistory('));
+  assert.match(stakeoutRow, /birdHtml: flat \? speciesLink\(/,
+    'the bird fact does not retain its Stakeout Bird action');
   app.window.close();
 });
 
@@ -22488,7 +22084,7 @@ test('a checklist under a hotspot names the visit, not the place again', () => {
   const txt = row.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
   assert.match(txt, /8\/8 2:26p/, 'the DATE leads, and carries the link');
-  assert.match(row, /class="cklead"><a[^>]*checklist\/S1[^>]*>8\/8 2:26p</,
+  assert.match(row, /class="cklead ckdate"><a[^>]*checklist\/S1[^>]*>8\/8 2:26p</,
     'so the row still has something to tap without repeating the heading');
   assert.match(txt, /Barb Chan/, 'who filed it — one of the few facts that differs per row');
   assert.match(txt, /5 sp/, 'how many SPECIES they found');
@@ -27214,7 +26810,7 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
   assert.equal(rows.length, 1,
     `three checklists at one hotspot must remain one place row, got ${rows.length}`);
   const links = [...rows[0].querySelectorAll('.cklcard-sm')]
-    .map((card) => card.getAttribute('data-href'));
+    .map((card) => card.querySelector('.ckdate a')?.getAttribute('href'));
   assert.ok(links.some((href) => /\/checklist\/S1$/.test(href)),
     `the newest 09:20 checklist is missing, got ${JSON.stringify(links)}`);
   assert.ok(links.some((href) => /\/checklist\/S2$/.test(href))
@@ -27234,40 +26830,11 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
   app.window.close();
 });
 
-test('F470 Stakeout map follows Recent Checklists and Iconic is Details content', () => {
-  const map = HTML.indexOf('id="spLookupMap"');
-  const recent = HTML.indexOf('id="spLookupRecent"');
-  assert.ok(map > 0 && recent > 0, 'the stakeout map or Recent Checklists host is missing');
-  assert.ok(recent < map,
-    'the map is not below Recent Checklists');
-  const renderAt = HTML.indexOf("var recent = $('spLookupRecent')",
-    HTML.indexOf('function renderSpeciesLookup()'));
-  const renderRecent = HTML.slice(renderAt, renderAt + 1200);
-  assert.match(renderRecent,
-    /recentHeading\.insertAdjacentElement\('afterend', recentMap\)/,
-    'the map is not inserted directly after the Recent Checklists heading');
-
-  assert.doesNotMatch(HTML, /id="spLookupByIconic"/,
-    'Iconic survived as a sort mode instead of the final Details section');
-  assert.match(HTML, /<div id="spLookupUnwatched"[^>]*><\/div>/,
-    'Details has no final Iconic hotspot host');
-  assert.ok(/id="spLookupWithinChase"/.test(HTML),
-    'there is no independent chase-distance filter');
-  assert.ok(/spLookupWithinChase'\)\.addEventListener/.test(HTML),
-    'the chase-distance filter is not wired');
-
-  assert.match(HTML, /id="spLookupCompact"[\s\S]*id="spLookupNotes"[\s\S]*id="spLookupGroup"/,
-    'Compact, Notes, and Group toggles are missing');
-  assert.doesNotMatch(HTML, /id="spLookupDetails"|id="spLookupList"/,
-    'the removed Details or List companion button returned');
-
-  // Controls must actually change what the list renders, not just relabel it.
-  const at = HTML.indexOf('function renderSpeciesLookup');
-  const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
-  assert.match(src, /iconicHost\.innerHTML = spLookupIconicHtml/,
-    'Iconic hotspots do not render in their Details-only host');
-  assert.ok(src.indexOf('evidenceHost.innerHTML') < src.indexOf('iconicHost.innerHTML'),
-    'Iconic hotspots are not the final Details section');
+test('F506 Stakeout retains Notes and Group while removing Compact', () => {
+  assert.ok(/id="spLookupNotes"/.test(HTML));
+  assert.ok(/id="spLookupGroup"/.test(HTML));
+  assert.doesNotMatch(HTML, /id="spLookupCompact"|setSpeciesLookupDetails/);
+  assert.match(HTML, /<div id="spLookupUnwatched"[^>]*><\/div>/);
 });
 
 test('the Details Iconic section explains its historical odds before its list', () => {
@@ -27365,7 +26932,7 @@ test('every small checklist card can show age and compact duration', () => {
     nowMs: now,
     durationHrs: 1 + 8 / 60
   });
-  assert.match(html, /class="ckage">\(17h ago\)<\/span>/,
+  assert.match(html, /class="ckage">17h ago<\/span>/,
     'relative age is not immediately after the checklist date');
   assert.match(html, /class="ckduration">1h8m<\/span>/,
     'duration is not abbreviated at the end of the checklist row');
@@ -27396,7 +26963,7 @@ test('every small checklist card can show age and compact duration', () => {
     'Stakeout still renders duration through a bespoke details style');
 });
 
-test('F473 small checklist cards use one long line with a hanging indent', () => {
+test('F498 small checklist cards use explicit actions without bullets or hanging indentation', () => {
   const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
   const html = ChecklistCards.small({
     place: 'Discovery Bay',
@@ -27410,15 +26977,12 @@ test('F473 small checklist cards use one long line with a hanging indent', () =>
     checklistId: 'S395342498',
   });
   assert.match(html,
-    /<div class="cksummary">[\s\S]*Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*\(12h ago\)[\s\S]*<span class="ckmeta">[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m[\s\S]*<\/span><\/div>/,
-    'the primary and secondary facts are not one wrapping summary');
-  assert.doesNotMatch(html, /<div class="ckmeta">/,
-    'metadata still creates a forced second line');
-  assert.match(ChecklistCards.css,
-    /\.cksummary \{[^}]*padding-left:\s*1em; text-indent:\s*-1em/,
-    'continuation lines do not align after the leading marker');
-  assert.doesNotMatch(html, /S395342498|class="ckid"/,
-    'the raw checklist id still competes with the readable summary');
+    /Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*S395342498[\s\S]*12h ago[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m/,
+    'the shared row omits a required checklist fact');
+  assert.match(html, /class="ckid"/,
+    'the checklist id is not an explicit action');
+  assert.doesNotMatch(ChecklistCards.css, /text-indent:\s*-1em|::before[^}]*\\2022/,
+    'the removed hanging indentation or bullet marker returned');
   assert.doesNotMatch(HTML, /Checklist details|data-ev-show-details|stakeoutcklmeta/,
     'Stakeout still repeats checklist metadata below the shared summary');
 });
@@ -29331,8 +28895,8 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     '#stakeHsResults .cknote .evidbtn'), 'Stakeout hotspot checklist note action');
   const stakeRow = app.document.querySelector('#stakeHsResults .cklcard-sm');
   assert.equal(stakeRow.getAttribute('data-ev-checklist-only'), '1');
-  assert.equal(stakeRow.querySelector('.evnoterow'), null,
-    'Stakeout hotspot still prints checklist comments inline');
+  assert.ok(stakeRow.querySelector('.evnoterow blockquote'),
+    'Stakeout hotspot Notes-on prose is not printed as a labelled blockquote');
   app.click(stakeRow.querySelector('.cknote .evidbtn'));
   assert.match(app.$('appSheet').textContent, /Park in the lower lot/,
     'Stakeout hotspot checklist note does not open in the shared bottom sheet');
@@ -30212,113 +29776,42 @@ test('the choice patch section computes nothing of its own', async () => {
     'and does not reimplement the bound it depends on');
 });
 
-test('the choice patch section states what it cannot see', async () => {
+test('F499 Pro patches methodology, score, and coverage live in the info dialog only', async () => {
+  const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
+  const doc = docs.docs.patchBtn;
+  assert.match(doc.summary, /disproportionately/);
+  assert.match(doc.how.join(' '), /score is a LIFT|5x means/i);
+  assert.match(doc.limits.join(' '), /Coverage is part of the answer/i);
   const app = await boot();
-  const A = app.window.__app;
-  const data = A.choicePatchData && A.choicePatchData();
-  assert.ok(data && data.birders && data.birders.length,
-    'the bundled table loaded from choice-patches.js');
-
-  // Coverage is part of the ANSWER here, not a footnote. A birder who keeps
-  // their checklists private looks identical to a birder with no patch, and
-  // only one of those is true - so the ones that could not be placed are
-  // NAMED rather than silently ranked low. Ryan Merrill is the recorded
-  // example: on the board at rank 11, nothing public in these counties.
-  assert.ok(data.coverage && /publishes/.test(data.coverage),
-    'the data carries its own coverage sentence');
-  assert.ok(Array.isArray(data.unmatched) && data.unmatched.length,
-    'and names the board birders it could not place');
-
-  await A.loadChoicePatches();
-  const cov = app.$('patchLead') || app.$('patchStatus');
-  assert.ok(cov && /publish/i.test(cov.textContent),
-    'the rendered section says what it is measured over');
-
-  const unplaced = app.$('patchUnplaced');
-  assert.ok(unplaced && /says nothing about where they bird/i.test(unplaced.textContent),
-    'and refuses to let an absence read as an answer');
-
-  // The two populations are not the same thing, and the section must not
-  // imply they are: only about a fifth of the local-effort hundred appear on
-  // the statewide species board.
-  assert.ok(data.on_board < data.population,
-    'local effort is not merely a copy of the statewide board');
-
-  const placed = new Set(data.birders.map((b) => b.n));
-  const overlap = data.unmatched.filter((n) => placed.has(n));
-  // `.length`, not deepEqual against []: these arrays come from the jsdom
-  // realm, and a cross-realm deepEqual fails with the uniquely unhelpful
-  // "actual: [] expected: []".
-  assert.equal(overlap.length, 0,
-    'nobody is both ranked and reported as unplaced: ' + overlap.join(', '));
-
+  await app.window.__app.loadChoicePatches();
+  assert.equal(app.$('patchLead').textContent.trim(), '',
+    'methodology prose remains above the results');
+  assert.ok(app.$('patchResults').querySelector('.hscard-md'),
+    'removing prose also removed the Pro Patches results');
   app.window.close();
 });
 
-test('Pro patches builds a live Hawaii home-county table instead of showing the WA harvest', async () => {
-  const rows = [
-    {
-      subId: 'S-hi-1', userDisplayName: 'Hawaii Regular',
-      locId: 'L-hilo', locName: 'Hilo Bayfront',
-      lat: 19.73, lng: -155.08, isoObsDate: '2026-09-16T08:00:00',
-    },
-    {
-      subId: 'S-hi-2', userDisplayName: 'Hawaii Regular',
-      locId: 'L-hilo', locName: 'Hilo Bayfront',
-      lat: 19.73, lng: -155.08, isoObsDate: '2026-09-15T08:00:00',
-    },
-    {
-      subId: 'S-hi-3', userDisplayName: 'Hawaii Regular',
-      locId: 'L-volcano', locName: 'Volcano Steam Vents',
-      lat: 19.43, lng: -155.26, isoObsDate: '2026-09-14T08:00:00',
-    },
-    {
-      subId: 'S-hi-4', userDisplayName: 'Kona Patch Birder',
-      locId: 'L-kona', locName: 'Old Kona Airport',
-      lat: 19.64, lng: -156.00, isoObsDate: '2026-09-16T09:00:00',
-    },
-  ];
+test('F499 Pro patches live fallback names scope in status without restoring methodology prose', async () => {
+  const rows = [{
+    subId: 'S-hi-1', userDisplayName: 'Hawaii Regular',
+    locId: 'L-hilo', locName: 'Hilo Bayfront',
+    lat: 19.73, lng: -155.08, isoObsDate: '2026-09-16T08:00:00',
+  }];
   const app = await boot({
-    report: 'hi',
-    sample: false,
+    report: 'hi', sample: false,
     storage: {
       'ebird_home_lat:hi': '19.92222',
       'ebird_home_lng:hi': '-155.88404',
     },
     fetch: (url) => /product\/lists\/US-HI-001\?maxResults=1200/.test(url) ? rows : [],
   });
-  const A = app.window.__app;
-  await A.loadChoicePatches();
-
-  assert.ok(app.state.fetches.some((url) =>
-    /product\/lists\/US-HI-001\?maxResults=1200/.test(url)),
-  'US-HI falls back to the home county checklist feed, not the bundled WA counties');
-  assert.doesNotMatch(app.$('patchResults').textContent, /King and Snohomish/,
-    'the incompatible WA harvest is not presented as the Hawaii answer');
-  assert.match(app.$('patchLead').textContent, /Hawaii County \(Big Island\)/,
-    'the live fallback names the selected home county');
-  assert.match(app.$('patchResults').textContent, /Hilo Bayfront/,
-    'the live fallback renders ranked Hawaii hotspots');
-  assert.match(app.$('patchLead').textContent, /statewide board rank is not joined/,
-    'the fallback says exactly what the live one-call table cannot know');
-  assert.equal(A.patchOpenBirder('Hawaii Regular'), true,
-    'a live fallback birder opens from the same table the list rendered');
-  assert.match(app.$('patchDetailBody').textContent, /Volcano Steam Vents/,
-    'the detail page uses Hawaii live rows, not the bundled WA table');
+  await app.window.__app.loadChoicePatches();
+  assert.match(app.$('patchStatus').textContent, /Hawaii County \(Big Island\)/);
+  assert.equal(app.$('patchLead').textContent.trim(), '');
+  assert.match(app.$('patchResults').textContent, /Hawaii Regular/);
   app.window.close();
 });
 
-// ── F138: the palette, before any theme ─────────────────────────────────────
-//
-// Audited 2026-08-25: 70 of 96 colour literals in <style> sat outside a theme
-// block. "Move them all into variables" is the WRONG fix and the audit is what
-// shows why - 16 of them are Okabe-Ito hues chosen for colour-blindness
-// safety, and a theme that re-tints those silently removes the property they
-// exist for.
-//
-// These two guards are the ones that must exist BEFORE a theme picker, because
-// a theme is only safe once (a) no accent is duplicated as a literal and (b)
-// the colour-blind-safe hues are provably out of scope.
 test('no theme colour is also hard-coded somewhere else', () => {
   const style = /<style>([\s\S]*?)<\/style>/.exec(HTML);
   assert.ok(style, 'index.html has a <style> block');

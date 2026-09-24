@@ -832,6 +832,10 @@
        yet, and cannot be forgotten. :not(:first-child) so a badge that still
        leads its line is not pushed off its own left edge. */
     .newflag:not(:first-child) { margin-left: 6px; }
+    .rareflag { display: inline-block; margin-left: 6px; padding: 2px 5px;
+      border: 1px solid var(--safe-blue); border-radius: 4px;
+      color: var(--safe-blue); font-size: calc(10px * var(--s));
+      font-weight: 900; letter-spacing: .04em; white-space: nowrap; }
     .recentflag { display: inline-block; margin-left: 6px; padding: 1px 5px;
       border: 1px solid var(--safe-blue); border-radius: 5px; color: var(--safe-blue);
       font-size: calc(10px * var(--s)); font-weight: 900; letter-spacing: .04em;
@@ -1483,17 +1487,6 @@
     .progressive-more.hotspotChecklistMore .progressive-more-icon { display: none; }
     .stakeoutHistoryStatus { font-size: calc(12px * var(--s)); color: var(--muted);
                              margin: 5px 0; }
-    #spLookupResults.stakeoutSpeciesCard-compact > li > .name > .thumb {
-      width: 64px;
-      height: 76px;
-      flex-basis: 64px;
-      border-radius: 10px;
-    }
-    #spLookupResults.stakeoutSpeciesCard-compact .spLookupWatchlist {
-      min-width: 88px;
-      line-height: 1.05;
-      text-align: center;
-    }
     .stakeoutSpeciesActions { display: flex; flex-wrap: wrap; gap: 8px;
                               margin-top: 12px; }
     .stakeoutSpeciesActions button { min-height: 30px; padding-block: 0; }
@@ -2050,41 +2043,6 @@
     }
     .birdreportplaces .cklcards-sm { margin: 2px 0 6px; }
     .birdreportplaces .cklcards-sm > .cklcard-sm { padding: 5px 0; }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary {
-      padding-left: 0; text-indent: 0; font-size: calc(16px * var(--s));
-      line-height: 1.35;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary::before {
-      content: none;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta {
-      margin-left: 0; font-size: inherit;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > span,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a {
-      font-family: inherit; font-size: inherit; font-style: normal;
-      font-weight: 400; line-height: inherit;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .cklead {
-      font-weight: 800;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > span + span,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a {
-      margin-left: 0;
-    }
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta:not(:empty)::before,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + span:not(:empty)::before,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + a.ckdist::before,
-    .birdreportplaces .cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a.ckdist + span:not(:empty)::before {
-      content: none; margin: 0;
-    }
-    .birdreportplaces .cklcards-sm .ckdist::before {
-      content: "\A"; white-space: pre;
-    }
-    .birdreportplaces .cklcards-sm .ckevid { margin-left: 0; }
-    .birdreportplaces .cklcards-sm .cknote { margin-left: .25em; }
     .birdreportplaces .hscard-sm > .name > .ntext > a,
     .birdreportplaces .hscard-sm > .name > .ntext > strong {
       font-weight: 800; color: var(--accent); }
@@ -2127,20 +2085,13 @@
                  border-radius: 999px; padding: 2px 8px; margin-left: 4px;
                  white-space: nowrap; display: inline-block;
                  text-transform: uppercase; letter-spacing: .03em; }
-    /* Review status. NEVER colour alone: each pill carries a distinct GLYPH
-       shape (check vs triangle) AND the word itself, so the meaning survives
-       with no colour perception at all — the colour is the third channel, not
-       the first.
-       Hues are Okabe-Ito, and the text variants are DARKENED on purpose: the
-       Q29 audit measured raw #E69F00 at 2.3:1 on white, which fails 4.5:1, so
-       the palette is used for the FILL while the text takes a darker variant
-       of the same hue (#8a5a00 measures 13.8:1). #0072B2 passes at 5.2:1 and
-       is used as-is. Deliberately not green-vs-red. */
-    .revok, .revpend { font-size: calc(12px * var(--s)); font-weight: 800;
-                 border-radius: 999px; padding: 2px 7px; margin-left: 4px;
-                 white-space: nowrap; display: inline-block; }
-    .revok   { color: var(--safe-blue); background: color-mix(in srgb, var(--safe-blue) 12%, transparent); }
-    .revpend { color: #8a5a00; background: color-mix(in srgb, #E69F00 18%, transparent); }
+    /* Review status uses a distinct glyph and accessible name in addition to
+       colour. Confirmed is bluish-green; pending is orange and never denied. */
+    .revok, .revpend { display: inline-block; margin-left: 5px;
+      font-size: calc(16px * var(--s)); font-weight: 900; line-height: 1;
+      white-space: nowrap; vertical-align: baseline; }
+    .revok   { color: #009E73; }
+    .revpend { color: #E69F00; }
     /* F176. eBird marks an escapee with a filled circle carrying a white
        asterisk; this is the same idea in one glyph, and it is ALWAYS printed
        beside a word — the circle is the third channel, never the only one.
@@ -2871,9 +2822,6 @@
           <button id="spLookupStatewide" class="sortbtn" type="button"
                   aria-pressed="false" aria-label="Show all statewide evidence">All</button>
         </span>
-        <button id="spLookupCompact" class="pressbtn" type="button"
-                aria-pressed="true"><span class="pressicon" aria-hidden="true">▣</span><span
-                class="presslabel">Compact</span></button>
         <button id="spLookupNotes" class="pressbtn" type="button"
                 aria-pressed="false"><span class="pressicon" aria-hidden="true">💬</span><span
                 class="presslabel">Notes</span></button>
@@ -3746,7 +3694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.126.0';
+      var APP_VERSION = '1.127.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8971,12 +8919,6 @@
           if (filters.distance === 'region') {
             sourceRows = mergeRarityRecords(sourceRows, stateSource.rows || []);
           }
-          if (twitchRecent()) {
-            // F489 restores the exact pre-unification Twitches today rule:
-            // a rolling 24-hour window, with the same checklist-level
-            // deduplication BirdLogic.notableRecent has always parity-tested.
-            sourceRows = BL.notableRecent(sourceRows, Date.now());
-          }
           var statewideIncomplete = filters.distance === 'region' && !stateSource.complete;
           var days = stakeoutDays(sourceRows);
           var all = rarityFilterRecords(
@@ -8992,7 +8934,6 @@
           var order = { dist: function (r) { return r.distMi; },
                         date: function (r) { return r.dateStr; } };
           var grouped = twitchView() === 'grouped';
-          var detailed = twitchDetails();
           var rows = grouped
             ? buildBirdReportGroups(records, home)
             : raritySorted(records, order);
@@ -9331,16 +9272,16 @@
                     Math.min(batch, rows.length - shown), rows.length - shown))
                 + '</span></button></li>'
               : '';
-            out.className = detailed ? 'obs big xl' : 'obs card-sm birdreportcompact';
+            out.className = 'obs big xl';
             var rowCard = grouped
               ? function (row) {
                   return birdReportGroupCard(row, {
-                    details: detailed, need: filters.year === 'unseen', rare: true
+                    need: filters.year === 'unseen', rare: true
                   });
                 }
               : function (row) {
                   return birdReportListCard(row, {
-                    details: detailed, need: filters.year === 'unseen', rare: true
+                    need: filters.year === 'unseen', rare: true
                   });
                 };
             out.innerHTML = rows.slice(0, shown).map(rowCard).join('')
@@ -9710,7 +9651,6 @@
         return renderBirdReportProgress(host, rows, {
           id: 'allUnseenResults',
           grouped: twitchView() === 'grouped',
-          details: twitchDetails(),
           need: true,
           initialCount: ALL_UNSEEN_BATCH,
           batchSize: ALL_UNSEEN_BATCH,
@@ -9741,9 +9681,7 @@
             return filters.distance === 'region'
               || r.distMi == null || r.distMi <= chaseMaxMi();
           });
-          var visible = scopeAll.filter(function (r) {
-            return !twitchRecent() || BL.notableRecentEligible(r, Date.now());
-          });
+          var visible = scopeAll;
           var grouped = twitchView() === 'grouped';
           var rows = grouped
             ? buildBirdReportGroups(visible, anchor)
@@ -9763,10 +9701,9 @@
             + (filters.distance === 'near'
               ? ' · within ' + chaseMaxMi() + ' mi'
               : ' · scope: ' + rarityRegionName())
-            + (twitchRecent() ? ' · Recent window' : '')
             + ' · ' + nowTime();
           if (!rows.length) {
-            summary = 'No unseen reports match the selected scope and Recent filter.';
+            summary = 'No unseen reports match the selected scope.';
           }
           st.innerHTML = '<div class="twitchhead"><b>' + rows.length + '</b>'
             + '<small>unseen ' + (grouped ? 'birds' : 'bird reports') + '</small></div>'
@@ -9851,13 +9788,13 @@
         return ChecklistCards.list('small', unseenPlaceRows(places), 'uplaces');
       }
 
-      function recentReportTag(records, nowMs) {
-        var recent = (records || []).some(function (r) {
-          return BL.notableRecentEligible(r, nowMs);
+      function birdReportTags(records, rare) {
+        records = records || [];
+        var fresh = records.some(function (r) {
+          return BL.notableRecentEligible(r, Date.now());
         });
-        return recent
-          ? '<span class="recentflag" aria-label="Reported recently">RECENT</span>'
-          : '';
+        return (fresh ? newRarityTag() : '')
+          + (rare ? '<span class="rareflag">RARE</span>' : '');
       }
       function recordsFromGroup(group) {
         var rows = [];
@@ -9926,51 +9863,50 @@
       }
       function birdReportEvidence(r, opts) {
         opts = opts || {};
-        var recent = recentReportTag([r]);
-        var flags = (BL.isFresh(r.dateStr) ? newRarityTag() : '')
-          + (opts.details ? recent : '')
-          + (opts.need ? needTag(r.code, r.name, r.parentOf) : '')
-          + (opts.rare ? rareTag('Rarity') : '')
-          + reviewFlag(r);
         return speciesMetaRow({
           when: r.subId
             ? checklistLink(r.subId, fmtDateTime(r.dateStr))
             : esc(fmtDateTime(r.dateStr)),
-          flags: flags,
           icons: BirdLogic.recordIcons(r),
           loc: recLocLink(r),
           alert: opts.rare ? countyAlertLink(r) : '',
-          observer: r.observer || '',
-          tail: opts.details ? '' : recent
+          observer: r.observer || ''
         });
+      }
+      function birdReportMetric(r) {
+        var age = ChecklistCards.ageText(r && r.dateStr);
+        var ageMatch = /^(\d+|now)(.*)$/.exec(age || '');
+        var ageNumber = ageMatch ? ageMatch[1] : '\u2014';
+        var ageUnit = ageMatch ? (ageMatch[2].trim() || 'age') : 'age';
+        var distance = r && isFinite(r.distMi) ? Number(r.distMi).toFixed(1) : '\u2014';
+        var ageHtml = r && r.subId
+          ? '<a class="spmetric spmetric-age" target="_blank" rel="noopener" href="'
+            + esc(checklistUrl(r.subId)) + '"><strong>' + ageNumber
+            + '</strong><small>' + esc(ageUnit) + '</small></a>'
+          : '<span class="spmetric spmetric-age"><strong>' + ageNumber
+            + '</strong><small>' + esc(ageUnit) + '</small></span>';
+        var distHtml = r && isFinite(r.distMi)
+          ? '<a class="spmetric spmetric-distance maplink" data-q="'
+            + esc(distQ(r.lat, r.lon != null ? r.lon : r.lng))
+            + '"><strong>' + distance + '</strong><small>mi</small></a>'
+          : '<span class="spmetric spmetric-distance"><strong>\u2014</strong><small>mi</small></span>';
+        var newest = raritySort() !== 'distance';
+        return '<span class="spmetricstack" data-primary="' + (newest ? 'age' : 'distance') + '">'
+          + (newest ? ageHtml + distHtml : distHtml + ageHtml) + '</span>';
       }
       function birdReportListCard(r, opts) {
         opts = opts || {};
         var common = speciesLink(r.name || r.code, r.code);
         var evidence = birdReportEvidence(r, opts);
         var data = birdReportData(r, r.code, r.name);
-        if (!opts.details) {
-          return SpeciesCards.small({
-            icon: photoSlot(r.name, r.code, { stakeout: true }),
-            name: common,
-            code: r.code,
-            alpha: alphaFor(r.code),
-            alphaOnly: true,
-            tags: '',
-            sub: evidence,
-            data: data
-          });
-        }
         return SpeciesCards.medium({
           sci: sciFor(r.code),
           icon: photoSlot(r.name, r.code, { stakeout: true }),
           name: common,
-          tags: '',
-          distMi: r.distMi,
-          distQ: distQ(r.lat, r.lon != null ? r.lon : r.lng),
+          tags: birdReportTags([r], opts.rare) + reviewFlag(r),
+          primary: birdReportMetric(r),
           sub: evidence,
-          data: data,
-          below: openChecklistLink(r.subId)
+          data: data
         });
       }
       function birdReportChecklistCard(row, place, group) {
@@ -9997,24 +9933,30 @@
           icons: BirdLogic.recordIcons(dataRow),
           iconsAtEnd: true,
           compactDistance: true,
-          flag: row.valid === false ? '\u26a0\ufe0f' : '',
+          review: reviewFlag(row),
           data: checklistData
         });
       }
       function birdReportPlaceCard(place, group, index) {
         var publicHotspot = place.locId && !place.locationPrivate;
-        var reports = (place.checklists || []).map(function (row) {
+        var allReports = (place.checklists || []).map(function (row) {
           return birdReportChecklistCard(row, place, group);
         });
+        var reports = allReports.slice(0, 10);
+        var rest = allReports.length - reports.length;
+        var reportList = ChecklistCards.list('small', reports)
+          + moreDetails(rest, { one: 'checklist', many: 'checklists' }, function () {
+              return ChecklistCards.list('small', allReports.slice(10));
+            });
         return HotspotCards.small({
           num: index + 1,
           cls: publicHotspot ? '' : 'privateplace',
           name: publicHotspot
             ? stakeHotspotLink(place.locId, place.loc || place.locId)
             : '<strong>' + esc(place.loc || 'Private location') + '</strong>',
-          sub: (reports.length || place.nReports || 0) + ' checklist'
-            + ((reports.length || place.nReports || 0) === 1 ? '' : 's'),
-          below: ChecklistCards.list('small', reports)
+          sub: (allReports.length || place.nReports || 0) + ' checklist'
+            + ((allReports.length || place.nReports || 0) === 1 ? '' : 's'),
+          below: reportList
         });
       }
       function birdReportGroupCard(group, opts) {
@@ -10023,20 +9965,13 @@
         var places = HotspotCards.list('small', (group.places || []).map(function (place, i) {
           return birdReportPlaceCard(place, group, i);
         }));
-        var tags = recentReportTag(groupRows)
-          + (opts.need ? needTag(group.code, group.name) : '');
+        var anyConfirmed = groupRows.some(function (row) {
+          return row.reviewState === 'confirmed' || row.valid === true;
+        });
+        var tags = birdReportTags(groupRows, opts.rare)
+          + reviewFlag({ reviewState: anyConfirmed ? 'confirmed' : 'pending' });
         var below = '<div class="birdreportplaces">' + places + '</div>';
-        if (!opts.details) {
-          return SpeciesCards.small({
-            icon: photoSlot(group.name, group.code, { stakeout: true }),
-            name: speciesLink(group.name, group.code),
-            code: group.code, alpha: alphaFor(group.code), alphaOnly: true,
-            tags: tags,
-            sub: (group.places || []).length + ' hotspot'
-              + ((group.places || []).length === 1 ? '' : 's'),
-            below: below
-          });
-        }
+        var representative = groupRows[0] || {};
         return SpeciesCards.medium({
           sci: sciFor(group.code),
           icon: photoSlot(group.name, group.code, { stakeout: true }),
@@ -10045,7 +9980,7 @@
           alpha: alphaFor(group.code),
           codeInSci: true,
           tags: tags,
-          distMi: group.distMi,
+          primary: birdReportMetric(representative),
           sub: '',
           below: below
         });
@@ -10053,7 +9988,6 @@
       function renderBirdReportProgress(host, rows, opts) {
         opts = opts || {};
         var grouped = !!opts.grouped;
-        var details = opts.details !== false;
         return ProgressiveList.mount({
           host: host,
           id: opts.id,
@@ -10061,15 +9995,15 @@
           initialCount: opts.initialCount || 10,
           batchSize: opts.batchSize || 10,
           noun: grouped ? 'birds' : 'reports',
-          listClass: details ? 'obs big xl' : 'obs card-sm birdreportcompact',
+          listClass: 'obs big xl',
           buttonClass: opts.buttonClass || 'birdReportMore',
           renderItem: function (row) {
             return grouped
               ? birdReportGroupCard(row, {
-                  details: details, need: opts.need, rare: opts.rare
+                  need: opts.need, rare: opts.rare
                 })
               : birdReportListCard(row, {
-                  details: details, need: opts.need, rare: opts.rare
+                  need: opts.need, rare: opts.rare
                 });
           },
           isCurrent: opts.isCurrent,
@@ -10621,14 +10555,7 @@
       }
 
       function spuhViewToggleHtml() {
-        return ToggleControls.pressed({
-          id: 'spuhViewPick',
-          cls: 'spuhviewpick',
-          icon: '\u25A3',
-          label: 'Compact',
-          ariaLabel: 'Use compact taxonomic hierarchy',
-          pressed: true
-        });
+        return '';
       }
 
       var _spuhRandom = Math.random;
@@ -10814,20 +10741,9 @@
               var detailedView = resultDetails.open;
               if (resultCard) {
                 resultCard.classList.toggle('spuhdetailopen', detailedView);
-                ToggleControls.syncPressed(viewPick, {
-                  icon: '\u25A3',
-                  label: 'Compact',
-                  ariaLabel: 'Use compact taxonomic hierarchy',
-                  pressed: !detailedView
-                });
               }
             };
             resultDetails.addEventListener('toggle', syncSpuhView);
-            if (viewPick) viewPick.addEventListener('click', function (ev) {
-              if (!(ev.target.closest && ev.target.closest('.spuhviewpick'))) return;
-              resultDetails.open = !resultDetails.open;
-              syncSpuhView();
-            });
             syncSpuhView();
           }
           var compare = detail.querySelector('.spuhcompare');
@@ -11148,26 +11064,9 @@
       var SP_LOOKUP_BACK = 30;
       var _spLookupSort = 'date';
       var _spLookupWithinChase = true;
-      var SP_LOOKUP_DETAILS_KEY = 'ebird_stakeout_details_v1';
-      function speciesLookupDetails() {
-        try { return localStorage.getItem(SP_LOOKUP_DETAILS_KEY) === 'on'; }
-        catch (e) { return false; }
-      }
-      function setSpeciesLookupDetails(on) {
-        try { localStorage.setItem(SP_LOOKUP_DETAILS_KEY, on ? 'on' : 'off'); } catch (e) {}
-        _spLookupNotes = !!on;
-        renderSpeciesLookup();
-        if (on) {
-          [].forEach.call($('spLookupRecent').querySelectorAll('[data-ev-inline="1"]'),
-            function (row) {
-              row.setAttribute('data-ev-show-notes', '1');
-              row.removeAttribute('data-ev-done');
-            });
-          hydrateStakeoutChecklistFacts($('spLookupRecent'));
-        }
-      }
+      function speciesLookupDetails() { return true; }
       var _spLookupGrouped = true;
-      var _spLookupNotes = speciesLookupDetails();
+      var _spLookupNotes = false;
       function setSpeciesLookupGrouped(on) {
         _spLookupGrouped = !!on;
         renderSpeciesLookup();
@@ -12555,7 +12454,6 @@
         if (!out || !g) return;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
         var evidence = _spLookupEvidence;
-        var detailsOn = speciesLookupDetails();
         var lookupSummary = '';
         var sightingsFailure = '';
         sortSpeciesPlaces(g, _spLookupSort);
@@ -12602,11 +12500,8 @@
           + (g.anyUnconfirmed && !watched ? ' ⚠️' : '');
         var yearStatus = watched ? 'on your watchlist for verification'
           : (seenIt ? 'already on your year list' : 'not on your year list');
-        out.className = detailsOn
-          ? 'cards card-lg stakeoutSpeciesCard stakeoutSpeciesCard-details'
-          : 'obs card-md stakeoutSpeciesCard stakeoutSpeciesCard-compact';
-        out.innerHTML = detailsOn
-          ? SpeciesCards.large({
+        out.className = 'cards card-lg stakeoutSpeciesCard stakeoutSpeciesCard-details';
+        out.innerHTML = SpeciesCards.large({
             sci: sciFor((evidence && evidence.sci) || (g && g.code)),
             icon: heroSlot(g.name, g.code),
             name: speciesLink(g.name, g.code),
@@ -12619,19 +12514,6 @@
               + qrButton('species', g.code)
               + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist')
               + '</div>'
-          })
-          : SpeciesCards.medium({
-            sci: sciFor((evidence && evidence.sci) || (g && g.code)),
-            icon: photoSlot(g.name, g.code),
-            name: speciesLink(g.name, g.code),
-            code: g.code,
-            alpha: alphaFor(g.code),
-            primary: watchlistActionHtml(
-              g.code, g.name, 'spLookupWatchlist', true),
-            metaAction: qrButton('species', g.code),
-            tags: identityTags,
-            sub: yearStatus,
-            below: ''
           });
         var recent = $('spLookupRecent');
         if (recent) {
@@ -12662,9 +12544,9 @@
             + speciesReferenceLinks(g.name, g.code);
         }
         var detailsHost = $('spLookupDetailsContent');
-        if (detailsHost) detailsHost.hidden = !detailsOn;
+        if (detailsHost) detailsHost.hidden = false;
         var iconicHost = $('spLookupUnwatched');
-        if (iconicHost && detailsOn && _spLookupIconic !== null) {
+        if (iconicHost && _spLookupIconic !== null) {
           iconicHost.innerHTML = spLookupIconicHtml(g.name);
         }
         hydratePhotos(out);
@@ -12675,7 +12557,7 @@
         // rather than a second one invented for this section.
         if (recent) {
           hydrateStakeoutChecklistFacts(recent);
-          if (detailsOn) hydrateStakeoutPlaceHistories(recent, g).then(function () {
+          hydrateStakeoutPlaceHistories(recent, g).then(function () {
             hydrateStakeoutChecklistFacts(recent);
           });
         }
@@ -12705,11 +12587,6 @@
           $('spLookupWithinChase').setAttribute(
             'aria-pressed', String(_spLookupWithinChase));
           $('spLookupWithinChase').textContent = chaseMaxMi().toFixed(0) + 'mi';
-        }
-        if ($('spLookupCompact')) {
-          $('spLookupCompact').setAttribute('aria-pressed', String(!detailsOn));
-          $('spLookupCompact').setAttribute('aria-label', detailsOn
-            ? 'Switch to Compact view' : 'Compact view selected');
         }
         if ($('spLookupStatewide')) $('spLookupStatewide').setAttribute(
           'aria-pressed', String(!_spLookupWithinChase));
@@ -12867,6 +12744,7 @@
           placeHtml: flat && place.locId && !place.locationPrivate
             ? stakeHotspotLink(place.locId, place.loc || place.locId || '') : '',
           date: fmtDateTime(row.obsDt || row.isoObsDate || ''),
+          dateHref: row.subId ? checklistUrl(row.subId) : '',
           observedAt: row.obsDt || row.isoObsDate || '',
           durationHrs: row.durationHrs,
           durationPending: !!row.subId && row.durationHrs == null,
@@ -12878,6 +12756,9 @@
           // This early slot is media-only or the same checklist would show a
           // static note glyph near the place and a clickable one at the end.
           icons: BirdLogic.recordIcons({ evidence: evidence }),
+          iconsAtEnd: true,
+          birdHtml: flat ? speciesLink((bird && bird.name) || (bird && bird.code) || '',
+            (bird && bird.code) || '') : '',
           data: {
             'ev-sub': row.subId || '',
             'ev-code': (bird && bird.code) || '',
@@ -12885,6 +12766,7 @@
             'ev-lng': (place.lon != null ? place.lon : place.lng),
             'ev-place': place.loc || place.locId || '',
             'ev-when': fmtWhenShort(row.obsDt || row.isoObsDate || ''),
+            'ev-sort': row.obsDt || row.isoObsDate || '',
             'ev-inline': '1',
             'ev-show-notes': _spLookupNotes ? '1' : '0'
           }
@@ -12899,11 +12781,10 @@
         var code = slot.getAttribute('data-code') || (bird && bird.code) || '';
         if (!locId || !code) return Promise.resolve();
         slot.setAttribute('data-loading', '1');
-        slot.innerHTML = '<div class="stakeoutHistoryStatus">Checking the six newest '
-          + 'checklists at this location…</div>';
+        slot.innerHTML = '<div class="stakeoutHistoryStatus">Checking recent checklists…</div>';
         return ebird('product/lists/' + encodeURIComponent(locId) + '?maxResults=12')
           .then(function (rows) {
-            rows = (rows || []).slice(0, 6);
+            rows = (rows || []).slice(0, 10);
             var matches = [];
             return pool(rows, 3, function (row) {
               var sub = row.subId || row.subID || '';
@@ -12925,39 +12806,40 @@
             }).then(function () { return { checked: rows.length, matches: matches }; });
           })
           .then(function (result) {
-            var current = slot.getAttribute('data-current') || '';
             var seen = {}, allMatches = (result.matches || []).filter(function (r) {
               if (!r.subId || seen[r.subId]) return false;
               seen[r.subId] = 1; return true;
             }).sort(function (a, b) {
               return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
             });
-            var matches = allMatches.filter(function (r) { return r.subId !== current; });
-            var observers = {}, groups = {};
-            allMatches.forEach(function (r) {
-              if (r.userDisplayName) observers[r.userDisplayName] = 1;
-              if (r.groupId) groups[r.groupId] = (groups[r.groupId] || 0) + 1;
-            });
-            var nObs = Object.keys(observers).length;
-            var convoy = Object.keys(groups).some(function (k) { return groups[k] > 1; });
-            var label = allMatches.length
-              ? (nObs > 1 && !convoy
-                  ? '<b>Repeat independent reports</b> · different observers and eBird groups'
-                  : convoy
-                    ? '<b>Same eBird group / convoy</b>'
-                    : allMatches.length + ' matching checklist'
-                      + (allMatches.length === 1 ? '' : 's'))
-              : 'No additional match in the ' + result.checked + ' newest checklists checked.';
             var place = {
               loc: slot.getAttribute('data-place') || locId,
               locId: locId,
               lat: parseFloat(slot.getAttribute('data-lat')),
               lon: parseFloat(slot.getAttribute('data-lng'))
             };
-            slot.innerHTML = '<div class="stakeoutHistoryStatus">' + label + '</div>'
-              + (matches.length ? ChecklistCards.list('small', matches.slice(0, 3)
-                .map(function (r, i) { return stakeoutChecklistRow(r, place, bird, i + 2); }),
-                'stakeoutHistoryCards') : '');
+            var list = slot.closest('.stakeoutPlaceDetails');
+            list = list && list.querySelector('.stakeoutPlaceChecklists');
+            if (list) {
+              var existing = {};
+              [].forEach.call(list.querySelectorAll('[data-ev-sub]'), function (row) {
+                existing[row.getAttribute('data-ev-sub')] = 1;
+              });
+              allMatches.forEach(function (match) {
+                if (existing[match.subId]) return;
+                var holder = document.createElement('ul');
+                holder.innerHTML = stakeoutChecklistRow(match, place, bird, 0);
+                var row = holder.firstElementChild;
+                if (row) list.appendChild(row);
+                existing[match.subId] = 1;
+              });
+              [].slice.call(list.children).sort(function (a, b) {
+                return String(b.getAttribute('data-ev-sort') || '')
+                  .localeCompare(String(a.getAttribute('data-ev-sort') || ''));
+              }).forEach(function (row) { list.appendChild(row); });
+            }
+            slot.innerHTML = '';
+            slot.hidden = true;
             slot.setAttribute('data-done', '1');
             slot.removeAttribute('data-loading');
             hydrateStakeoutChecklistFacts(slot);
@@ -12984,7 +12866,9 @@
             });
           }
         });
-        return slots.length ? loadStakeoutPlaceHistory(slots[0], bird) : Promise.resolve();
+        return pool(slots, 2, function (slot) {
+          return loadStakeoutPlaceHistory(slot, bird);
+        });
       }
 
       // A LIST RENDERER MUST NOT TAKE DOWN ITS CALLER.
@@ -13031,20 +12915,32 @@
           return String(b.checklist.dateStr || b.place.dateStr || '')
             .localeCompare(String(a.checklist.dateStr || a.place.dateStr || ''));
         });
-        return ChecklistCards.list('small', rows.map(function (item, i) {
-          var ck = item.checklist, place = item.place;
-          return stakeoutChecklistRow({
-            subId: ck.subId || '',
-            obsDt: ck.dateStr || place.dateStr,
-            userDisplayName: ck.observer || '',
-            numSpecies: ck.numSpecies,
-            durationHrs: ck.durationHrs,
-            count: Object.prototype.hasOwnProperty.call(ck, 'count')
-              ? ck.count : undefined,
-            evidence: ck.evidence || '',
-            hasComments: !!ck.hasComments
-          }, place, bird, i + 1, true);
-        }), 'stakeoutFlatChecklists');
+        return progressiveListHtml({
+          items: rows,
+          initialCount: 10,
+          batchSize: 10,
+          noun: 'checklists',
+          listClass: 'cklcards cklcards-sm stakeoutFlatChecklists',
+          buttonClass: 'stakeoutChecklistMore',
+          renderItem: function (item, i) {
+            var ck = item.checklist, place = item.place;
+            return stakeoutChecklistRow({
+              subId: ck.subId || '',
+              obsDt: ck.dateStr || place.dateStr,
+              userDisplayName: ck.observer || '',
+              numSpecies: ck.numSpecies,
+              durationHrs: ck.durationHrs,
+              count: Object.prototype.hasOwnProperty.call(ck, 'count')
+                ? ck.count : undefined,
+              evidence: ck.evidence || '',
+              hasComments: !!ck.hasComments
+            }, place, bird, i + 1, true);
+          },
+          isCurrent: function () { return true; },
+          afterAppend: function (list) {
+            hydrateStakeoutChecklistFacts(list);
+          }
+        });
       }
       function spLookupPlacesHtmlInner(places, bird) {
         var all = spLookupOrderedPlaces(places || []);
@@ -13405,17 +13301,13 @@
       // the tooltip says it is not a doubt about the bird.
       function reviewFlag(r) {
         var s = r && r.reviewState;
-        if (!s) s = (r && r.valid === false) ? 'pending' : '';
-        if (s === 'confirmed') {
-          return '<span class="revok" title="a reviewer has accepted this record">'
-               + '\u2713 Confirmed</span>';
+        if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
+        if (s === 'confirmed' || s === 'accepted') {
+          return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
+               + ' title="Confirmed by an eBird reviewer">\u2713</span>';
         }
-        if (s === 'pending') {
-          return '<span class="revpend" title="nobody has reviewed this record yet '
-               + '\u2014 usual for a fresh rarity, and not a doubt about the bird">'
-               + '\u26a0\ufe0f Unreviewed</span>';
-        }
-        return '';
+        return '<span class="revpend" role="img" aria-label="Pending review; not reviewed yet"'
+             + ' title="Pending review; not reviewed yet">\u26a0</span>';
       }
 
       var CHASE_NS = 'ebird_chase_v1:';
@@ -13473,25 +13365,6 @@
       }
       function setTwitchView(v) {
         try { localStorage.setItem(TWITCH_VIEW_KEY, v === 'grouped' ? 'grouped' : 'list'); } catch (e) {}
-      }
-      var TWITCH_DETAILS_KEY = 'ebird_twitch_details_v1';
-      function twitchDetails() {
-        try { return localStorage.getItem(TWITCH_DETAILS_KEY) !== 'compact'; }
-        catch (e) { return true; }
-      }
-      function setTwitchDetails(v) {
-        try {
-          localStorage.setItem(TWITCH_DETAILS_KEY, v === 'compact' ? 'compact' : 'details');
-        } catch (e) {}
-      }
-      var TWITCH_RECENT_KEY = 'ebird_twitch_recent_v1';
-      function twitchRecent() {
-        try { return localStorage.getItem(TWITCH_RECENT_KEY) === 'on'; }
-        catch (e) { return false; }
-      }
-      function setTwitchRecent(on) {
-        try { localStorage.setItem(TWITCH_RECENT_KEY, on ? 'on' : 'off'); }
-        catch (e) {}
       }
       // F180. These are preferences about the rarity lists, not about one
       // time window, so Today's and Last 7-Days read one stored object. The
@@ -13611,24 +13484,6 @@
             data: { twitchview: twitchView() === 'grouped' ? 'list' : 'grouped' },
             pressed: twitchView() === 'grouped'
           }) : '')
-          + (opts.view ? ToggleControls.pressed({
-            id: prefix + 'Details',
-            cls: 'twitchdetailsbtn',
-            icon: '\u25A3',
-            label: 'Compact',
-            ariaLabel: 'Use compact report cards',
-            data: { twitchdetails: twitchDetails() ? 'compact' : 'details' },
-            pressed: !twitchDetails()
-          }) : '')
-          + (opts.view ? ToggleControls.pressed({
-            id: prefix + 'Recent',
-            cls: 'twitchrecentbtn',
-            icon: '\uD83D\uDD52',
-            label: 'Recent',
-            ariaLabel: 'Show reports from the former Twitches today window',
-            data: { twitchrecent: twitchRecent() ? 'off' : 'on' },
-            pressed: twitchRecent()
-          }) : '')
           + '</div></div>';
       }
       function wireRarityControls(prefix, reload) {
@@ -13662,22 +13517,6 @@
             ev.preventDefault();
             ev.stopPropagation();
             setTwitchView(v.getAttribute('data-twitchview'));
-            reload();
-            return;
-          }
-          var d = t.closest('.twitchdetailsbtn[data-twitchdetails]');
-          if (d) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            setTwitchDetails(d.getAttribute('data-twitchdetails'));
-            reload();
-            return;
-          }
-          var recent = t.closest('.twitchrecentbtn[data-twitchrecent]');
-          if (recent) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            setTwitchRecent(recent.getAttribute('data-twitchrecent') === 'on');
             reload();
             return;
           }
@@ -20819,13 +20658,7 @@
         var summary = el.querySelector('.cksummary');
         var speciesEvidence = el.querySelector('.rarewhere');
         if (!summary && !speciesEvidence) return false;
-        var meta = summary && summary.querySelector('.ckmeta');
-        if (summary && !meta) {
-          meta = document.createElement('span');
-          meta.className = 'ckmeta';
-          summary.appendChild(meta);
-        }
-        var target = meta || speciesEvidence;
+        var target = summary || speciesEvidence;
         var old = target.querySelector('.cknote');
         if (old && old.parentNode) old.parentNode.removeChild(old);
         _evidStore[key] = {
@@ -20837,7 +20670,7 @@
         var wrap = document.createElement('span');
         wrap.className = 'cknote';
         wrap.innerHTML = '<button type="button" class="evidbtn" data-evid="'
-          + esc(key) + '" aria-label="Show checklist comments">'
+          + esc(key) + '" aria-label="Show notes and checklist details">'
           + (BirdLogic.CHECKLIST_NOTE_ICON || '\ud83d\udccb') + '</button>';
         target.appendChild(wrap);
         return true;
@@ -20948,6 +20781,7 @@
                 durationHrs: got.durationHrs, groupId: got.groupId || ''
               };
               setChecklistNoteButton(el, checklistDet, sub + '|checklist');
+              if (rarityNotes()) setNoteText(el, checklistDet);
               return;
             }
             var ob = got.obs[code];
@@ -20980,10 +20814,9 @@
             // A comment remains discoverable with Notes off. The toggle may
             // control automatic prose elsewhere, but it must never erase the
             // explicit end-of-sentence action on a checklist that has words.
-            var hasCommentButton = det
-              ? setChecklistNoteButton(el, det, sub + '|' + code) : false;
+            if (det) setChecklistNoteButton(el, det, sub + '|' + code);
             var showDetails = rarityNotes();
-            if (showDetails && det && !hasCommentButton) setNoteText(el, det);
+            if (showDetails && det) setNoteText(el, det);
             // The comment action was installed at the end of the sentence.
             // This evidence slot is media-only so the row cannot grow a
             // second note icon during hydration.
@@ -21003,15 +20836,8 @@
               else if (summary) summary.insertBefore(slot, summary.firstChild);
               else el.appendChild(slot);
             }
-            // The marks OPEN the note rather than merely announcing it: a
-            // waypoint you cannot tap is a fact you have to retype.
-            _evidStore[sub + '|' + code] = {
-              det: det, place: el.getAttribute('data-ev-place') || '',
-              when: el.getAttribute('data-ev-when') || '', sub: sub
-            };
-            slot.innerHTML = '<button type="button" class="evidbtn" data-evid="'
-              + esc(sub + '|' + code) + '" aria-label="Show the observer\u2019s notes">'
-              + marks + '</button>';
+            slot.textContent = marks;
+            slot.setAttribute('aria-label', 'Media attached to this checklist');
           }).catch(function () {
             // A failed call is not "no comment". Swallowed so one bad checklist
             // cannot fail the whole pool, but the placeholder still has to go.
@@ -21055,12 +20881,13 @@
             // weaker one.
             var marks = BirdLogic.checklistIcons({ m: m });
             if (!marks) return;
-            var lead = el.querySelector('.cklead');
-            if (!lead) return;
+            var meta = el.querySelector('.ckmeta');
+            if (!meta) return;
             var span = document.createElement('span');
             span.className = 'ckevid';
-            span.innerHTML = marks;
-            lead.insertAdjacentElement('afterend', span);
+            span.textContent = marks;
+            span.setAttribute('aria-label', 'Media attached to this checklist');
+            meta.appendChild(span);
           }).catch(function () {});
         });
       }
@@ -24163,23 +23990,7 @@
       }
 
       function patchLeadHtml(d) {
-        var board = d.board
-          ? ' Of these ' + esc(d.matched) + ' birders, '
-            + '<b>' + esc(d.on_board) + ' of ' + esc(d.population) + '</b> also sit on the '
-            + 'statewide top-' + esc(d.board) + ' board \u2014 the two are nearly different '
-            + 'populations, because that board ranks species for the year and this ranks '
-            + 'effort on the ground.'
-          : ' This live table ranks local public checklist effort only; statewide board '
-            + 'rank is not joined on this fallback path.';
-        return '<p class="patchlead-eg">The ' + esc(d.population) + ' birders who file the '
-          + 'most checklists in ' + esc(d.scope) + ', ranked by <b>where they choose to '
-          + 'go</b> rather than by how many lists a place holds.</p>'
-          + '<p>A score of <b>5\u00d7</b> means they file five times the share of their '
-          + 'checklists there that these counties as a whole do \u2014 so a quiet patch '
-          + 'can beat a famous park, which is the point. Tap a birder to see every '
-          + 'hotspot they used.</p>'
-          + '<div class="patchcov">\u2139\uFE0F <b>Coverage is part of the answer.</b> '
-          + 'Measured ' + esc(d.coverage) + '.' + board + '</div>';
+        return '';
       }
 
       // NAMED, not ranked low. A birder with no public lists here has no patch
@@ -36257,9 +36068,6 @@
       $('spLookupStatewide').addEventListener('click', function () {
         setSpeciesLookupWithinChase(false);
       });
-      $('spLookupCompact').addEventListener('click', function () {
-        setSpeciesLookupDetails(!speciesLookupDetails());
-      });
       $('spLookupNotes').addEventListener('click', function () {
         setSpeciesLookupNotes(!_spLookupNotes);
       });
@@ -36924,9 +36732,7 @@
         rarityFilters: rarityFilters, setRarityFilter: setRarityFilter,
         rarityFilterRecords: rarityFilterRecords, rarityRegionName: rarityRegionName,
         rarityControls: rarityControls, RARITY_FILTER_KEY: RARITY_FILTER_KEY,
-        twitchRecent: twitchRecent, setTwitchRecent: setTwitchRecent,
         twitchView: twitchView, setTwitchView: setTwitchView,
-        twitchDetails: twitchDetails, setTwitchDetails: setTwitchDetails,
         rarityChecklistDetails: rarityChecklistDetails,
         loadActiveRarities: loadActiveRarities,
         raritySeenIds: raritySeenIds, markRaritySeen: markRaritySeen,
@@ -37015,7 +36821,7 @@
         birdReportListCard: birdReportListCard,
         birdReportGroupCard: birdReportGroupCard,
         renderBirdReportProgress: renderBirdReportProgress,
-        recentReportTag: recentReportTag,
+        birdReportTags: birdReportTags,
         prepareBirdReportRows: prepareBirdReportRows,
         loadAllUnseen: loadAllUnseen,
         unseenPlacesHtml: unseenPlacesHtml, UNSEEN_PLACES_SHOWN: UNSEEN_PLACES_SHOWN,
@@ -37150,7 +36956,6 @@
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
         setSpeciesLookupWithinChase: setSpeciesLookupWithinChase,
         speciesLookupDetails: speciesLookupDetails,
-        setSpeciesLookupDetails: setSpeciesLookupDetails,
         setSpeciesLookupGrouped: setSpeciesLookupGrouped,
         setSpeciesLookupNotes: setSpeciesLookupNotes,
         loadStakeoutPlaceHistory: loadStakeoutPlaceHistory,

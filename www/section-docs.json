@@ -174,11 +174,11 @@
       ],
       "how": [
         "List mode keeps one row per checklist across the available rarity wave; Grouped mode combines the same evidence by bird and place.",
-        "Newest and Nearest, Unseen and All, chase-radius and Statewide, Compact and Details are independent persisted controls.",
+        "Newest and Nearest, Unseen and All, chase-radius and Statewide are independent persisted controls. Reports always use the full medium card; Group only changes whether matching checklists are collected beneath each bird and hotspot.",
         "Statewide merges the state's public RBA with the geographic rarity feeds; if that RBA is unavailable, the screen says coverage is incomplete rather than pretending the nearby feed is statewide.",
         "Every checklist row carries its clock time — a rarity is chased within hours, so a bare date decides nothing.",
-        "The bird name and photo open Species Stakeout. The linked date opens the exact supporting checklist, and the public hotspot name opens Stakeout hotspot, so ordinary subject taps stay in the app while evidence remains explicit.",
-        "Compact mode is for scanning; Details restores the richer report cards, checklist evidence and notes without changing which records qualify."
+        "The bird name and photo open Species Stakeout. The linked date and Newest age metric open the exact supporting checklist; the public hotspot name opens Stakeout hotspot; the primary distance opens Maps.",
+        "NEW and RARE are printed after the bird name. Review state is a confirmed checkmark or pending warning icon; pending means not reviewed yet, never denied."
       ],
       "limits": [
         "\"Notable\" is eBird's own review flag for the region; a bird that is rare to YOU but common locally will not appear here."

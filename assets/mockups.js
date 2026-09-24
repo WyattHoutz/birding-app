@@ -107,7 +107,7 @@ const STUB_SPEC = {
   spLookupBtn:    { kind: 'stakeout-merged', host: 'sec-spLookupBtn',
     preserveHost: true, map: 'spLookupMap',
     expects: ['#spLookupQueryHelp:empty',
-      '#spLookupResults.stakeoutSpeciesCard-compact > li',
+      '#spLookupResults.stakeoutSpeciesCard-details > li',
       '#spLookupResults .thumb',
       '#spLookupSortRow:not([hidden])',
       '#spLookupMap .mockmap',
@@ -196,7 +196,7 @@ const EXTRA_SHOTS = [
            A.showSection(sec.id);
            return FIX.prepareCompare(A, document, sec);` },
   { id: 'stakeoutdetail', at: 'spLookupBtn',
-    title: 'Stakeout bird — Sharp-tailed Sandpiper Details',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes on',
     host: 'sec-spLookupBtn', fullPage: true, freshApp: true,
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
       '#spLookupResults .bcbody .bcname',
@@ -244,26 +244,24 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutChecklistProgressive(A, document, sec);` },
-  { id: 'stakeoutspts-compact', at: 'spLookupBtn',
-    title: 'Stakeout bird — Sharp-tailed Sandpiper Compact',
+  { id: 'stakeoutspts-notes-off', at: 'spLookupBtn',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes off',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
-    expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-compact',
+    expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
       '#spLookupRecent .spLookupPlaceList .hscard-sm',
       '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
-      '#spLookupCompact[aria-pressed="true"]',
       '#spLookupNotes[aria-pressed="false"]',
-      '#spLookupDetailsContent[hidden]'],
+      '#spLookupDetailsContent:not([hidden])'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutSpts(A, document, sec, false);` },
-  { id: 'stakeoutspts-details', at: 'spLookupBtn',
-    title: 'Stakeout bird — Sharp-tailed Sandpiper Details',
+  { id: 'stakeoutspts-notes-on', at: 'spLookupBtn',
+    title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes on',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
       '#spLookupResults .bcbody .bcname',
       '#spLookupResults .bchero',
-      '#spLookupCompact[aria-pressed="false"]',
       '#spLookupNotes[aria-pressed="true"]',
       '#spLookupDetailsContent:not([hidden])',
       '#spLookupRecent .spLookupPlaceList .cklcard-sm',
@@ -778,6 +776,20 @@ const BOOTSTRAP = `
   }
   function speciesRows(window, at) {
     var SC = window.SpeciesCards;
+    function metric(age, distance) {
+      return '<span class="spmetricstack" data-primary="age">'
+        + '<a class="spmetric spmetric-age" href="https://ebird.org/checklist/S-MOCK">'
+        + '<strong>' + age + '</strong><small>ago</small></a>'
+        + '<a class="spmetric spmetric-distance maplink" data-q="47.6,-122.1">'
+        + '<strong>' + distance + '</strong><small>mi</small></a></span>';
+    }
+    function reportTags(isRare, confirmed) {
+      return '<span class="newflag">NEW</span>'
+        + (isRare ? '<span class="rareflag">RARE</span>' : '')
+        + (confirmed
+          ? '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer">✓</span>'
+          : '<span class="revpend" role="img" aria-label="Pending review; not reviewed yet">⚠</span>');
+    }
     function stubBird(code) {
       return WA_SEEN_STUB.birds.filter(function (bird) {
         return bird.code === code;
@@ -818,26 +830,35 @@ const BOOTSTRAP = `
     var secondBird = stubBird(secondCode);
     var firstBird = stubBird(cfg[1]);
     var isMyYear = at === 'myYearBody';
+    var isBirdReport = at === 'refreshBtn' || at === 'allUnseenBtn';
     return [
       SC.medium({ sci: cfg[2], icon: mockPhoto(cfg[1]),
         name: (isMyYear ? '<span class="yrnum">216.</span>' : '') + cfg[0],
         code: cfg[1], alpha: firstBird.alpha || '',
-        tags: '<span class="mockstate">' + cfg[3] + '</span>', distMi: 8.4,
+        tags: isBirdReport
+          ? reportTags(at === 'refreshBtn', true)
+          : '<span class="mockstate">' + cfg[3] + '</span>',
+        distMi: isBirdReport ? null : 8.4,
+        primary: isBirdReport ? metric('2h', '8.4') : '',
         actions: isMyYear
           ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
             + ' aria-pressed="false">Add to watchlist</button>'
           : '',
-        sub: cfg[4] }),
+        sub: isBirdReport ? 'Today 8:14 AM · Marymoor Park · 3 reports' : cfg[4] }),
       SC.medium({ sci: secondBird.sci || 'Tringa solitaria', icon: mockPhoto(secondCode),
         name: (isMyYear ? '<span class="yrnum">214.</span>' : '')
           + (secondBird.name || 'Solitary Sandpiper'), code: secondCode,
         alpha: secondBird.alpha || '',
-        tags: '<span class="mockstate">' + secondTag + '</span>', distMi: 17.2,
+        tags: isBirdReport
+          ? reportTags(false, false)
+          : '<span class="mockstate">' + secondTag + '</span>',
+        distMi: isBirdReport ? null : 17.2,
+        primary: isBirdReport ? metric('11h', '17.2') : '',
         actions: isMyYear
           ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
             + ' aria-pressed="true">Remove from watchlist</button>'
           : '',
-        sub: secondSub })
+        sub: isBirdReport ? 'Today 1:05 AM · Discovery Park · 2 checklists' : secondSub })
     ];
   }
   function fillSpeciesHost(host, window, label, at) {
@@ -1102,7 +1123,7 @@ const BOOTSTRAP = `
       }
       await A.lookupSpecies(code, name, null, null, null,
         options.finderContext || null);
-      if (options.detailsOn) A.setSpeciesLookupDetails(true);
+      A.setSpeciesLookupNotes(!!options.detailsOn);
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
       if (options.detailsOn && options.rows
           && options.rows.some(function (row) { return row.hasComments; })) {
@@ -1823,8 +1844,8 @@ const BOOTSTRAP = `
   }
   async function prepareStakeoutSpts(A, document, sec, detailsOn) {
     ensureMockStyle(document);
-    fixtureStatus(sec, 'Sharp-tailed Sandpiper Stakeout '
-      + (detailsOn ? 'Details' : 'Compact'));
+    fixtureStatus(sec, 'Sharp-tailed Sandpiper Stakeout, Notes '
+      + (detailsOn ? 'on' : 'off'));
     A.setActiveReport('wa');
     localStorage.setItem(A.homeKey('lat'), '47.76');
     localStorage.setItem(A.homeKey('lng'), '-122.14');
@@ -1977,19 +1998,16 @@ const BOOTSTRAP = `
       if (!results.querySelector(':scope > li > .bcbody .bcname') || !hero) {
         throw new Error('Stakeout Details is not the production large species card');
       }
-    } else {
-      var thumb = results.querySelector(':scope > li .thumb');
-      if (!thumb || getComputedStyle(thumb).width !== '64px'
-          || results.querySelector('.bchero')) {
-        throw new Error('Stakeout Compact photo drifted from the approved 64px card');
-      }
+    } else if (!results.querySelector(':scope > li > .bcbody .bcname')
+        || !results.querySelector('.bchero')) {
+      throw new Error('Stakeout Notes-off state is not the production large species card');
     }
 
     if (A.fgProgressReset) A.fgProgressReset();
     var loadBar = document.getElementById('loadBar');
     if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
     markHost(document.getElementById('sec-spLookupBtn'),
-      'Sharp-tailed Sandpiper Stakeout ' + (detailsOn ? 'Details' : 'Compact'));
+      'Sharp-tailed Sandpiper Stakeout, Notes ' + (detailsOn ? 'on' : 'off'));
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;

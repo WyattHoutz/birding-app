@@ -8,7 +8,7 @@
  * modules were created to stop. This is the third of those modules and it
  * exists for the same reason.
  *
- * The compact card is one wrapping sentence with a hanging indent: place,
+ * The small card is one wrapping fact block with an optional action column: place,
  * date, evidence, observer, checklist count, bird count, distance, duration.
  *
  *   place   WHERE it was — the thing you actually drive to. Condensed,
@@ -18,8 +18,8 @@
  *   date    WHEN — decides whether the bird is still there.
  *   count   HOW MANY birds. One is a glimpse; forty is a flock you can find.
  *   map     the pin, so you can leave for it without another tap.
- * The checklist destination remains on the row link; its raw submission id is
- * not printed because it is evidence plumbing rather than readable context.
+ * The checklist date and id are explicit actions; the row itself is never a
+ * catch-all link.
  *
  * Presentation only, exactly like cards-species.js and cards-hotspot.js: the
  * caller passes ready-made HTML for anything that needs a link, because the
@@ -35,7 +35,7 @@
 
   /* ---------------------------------------------------------------- markup */
 
-  /* SMALL — one compact wrapping summary with a hanging indent.
+  /* SMALL — one compact wrapping summary with an optional action column.
      A plain `place` keeps the historical
      checklist-link behavior. `placeHtml` lets the app supply an in-app hotspot
      link instead; in that form `dateHref` carries the checklist destination on
@@ -51,7 +51,8 @@
      width. */
   var SMALL = [
     '<li class="cklcard cklcard-sm"{{rowlink}}>',
-    '<div class="cksummary">{{summary}}{{meta}}</div>',
+    '<div class="cksummary"><div class="ckmain">{{bird}}{{summary}}{{meta}}</div>{{action}}</div>',
+    '{{below}}',
     '</li>'
   ].join('');
 
@@ -73,8 +74,7 @@
 
   var CSS = [
     '.cklcards { list-style: none; margin: 6px 0 4px; padding: 0; }',
-    /* Sits against the place name it qualifies, and never wraps away from
-       it onto a line of its own. */
+    /* Media is evidence, not an action. It stays small and trails the facts. */
     '.cklcard-sm .ckevid { margin-left: 4px; white-space: nowrap; }',
     /* The sentence wraps at field boundaries. Each fact keeps `white-space:
        nowrap`, so a date or count can move whole without splitting. */
@@ -85,40 +85,49 @@
     '  border: 0;',
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm > .cksummary {',
+    '  display: grid; grid-template-columns: minmax(0, 1fr) auto;',
+    '  gap: 8px; align-items: start; min-height: 44px;',
     '  font-size: calc(16px * var(--s)); line-height: 1.35;',
-    '  padding-left: 1em; text-indent: -1em;',
+    '  padding: 0; text-indent: 0;',
     '  white-space: normal; overflow-wrap: anywhere; }',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta {',
+    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmain { min-width: 0; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta {',
     '  display: inline; font-size: calc(14px * var(--s));',
     '  color: var(--muted); white-space: normal; }',
-    '.cklcards-sm > .cklcard-sm[data-href] { cursor: pointer; }',
-    '.cklcards-sm > .cklcard-sm[data-href]:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }',
     /* Every field is now an inline run separated by a space. `nowrap` per
        field is kept for the same reason it always was: a date or a count may
        move to the next line whole, but must never split down the middle.
        The distance is a bare <a>, not a span — it has to be named or it is
        the one fact that can break in half. */
-    '.cklcards-sm > .cklcard-sm > .cksummary > span,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a.ckdist {',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span:not(.cklead):not(.ckmeta):not(.ckbird),',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span,',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > a.ckdist {',
     '  display: inline; white-space: nowrap; }',
-    '.cklcards-sm .cknote { white-space: nowrap; }',
-    '.cklcards-sm > .cklcard-sm > .cksummary > span + span { margin-left: .25em; }',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta:not(:empty)::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + span:not(:empty)::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > span + a.ckdist::before,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .ckmeta > a.ckdist + span:not(:empty)::before {',
+    '.cklcards-sm .cknote { align-self: center; white-space: nowrap; }',
+    '.cklcards-sm .cknote .evidbtn {',
+    '  display: inline-flex; align-items: center; justify-content: center;',
+    '  width: 44px; height: 44px; padding: 0; margin: 0;',
+    '  border: 1px solid var(--line); border-radius: 10px;',
+    '  background: var(--card); color: var(--ink); font-size: calc(20px * var(--s)); }',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span + span { margin-left: .25em; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta:not(:empty)::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span + span:not(:empty)::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span + a.ckdist::before,',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > a.ckdist + span:not(:empty)::before {',
     '  content: "\\00b7"; margin: 0 .35em; color: var(--dim); }',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead {',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead {',
     '  font-weight: 600; white-space: normal; }',
     /* The lead is inline now, so it wraps with the sentence instead of
        claiming a flex track. `display: block` on the anchor was there to make
        `text-overflow: ellipsis` work inside a flex item; nothing is truncated
        any more, so the anchor is simply part of the text. */
-    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo {',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead > .ckgo {',
     '  display: inline; white-space: normal; }',
     /* Tabular figures so dates, counts and distances line up down the list. */
-    '.cklcard .ckdate { font-variant-numeric: tabular-nums; }',
+    '.cklcard .ckdate, .cklcard .ckid { font-variant-numeric: tabular-nums; }',
+    '.cklcard .ckdate > a, .cklcard .ckid > a {',
+    '  color: var(--link); font-weight: 700; text-decoration: none; }',
+    '.cklcard .ckbird { display: block; margin-bottom: 1px; font-weight: 800; }',
     '.cklcard .ckage, .cklcard .ckduration {',
     '  color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',
@@ -137,16 +146,9 @@
        rows: remove the line". The underline IS the line. Everything else the
        app links is accent-green and undecorated; the row is already tappable
        edge to edge, so the name does not need to advertise it twice. */
-    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo,',
-    '.cklcards-sm > .cklcard-sm > .cksummary > .cklead > .ckgo:visited {',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead > .ckgo,',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span.cklead > .ckgo:visited {',
     '  color: var(--accent); text-decoration: none; }',
-    /* ...and a bullet in place of the rule, so a row still reads as one item
-       in a list without a horizontal line per row. It is a marker, not a
-       fact: it never shrinks, never wraps, and is not part of the flex
-       content. */
-    '.cklcards-sm > .cklcard-sm > .cksummary::before {',
-    '  content: "\\2022"; color: #E69F00; margin-right: 0.25em;',
-    '  font-size: calc(15px * var(--s)); }',
     /* F215. The observer's note, painted under its row when notes are switched
        on. `flex-basis: 100%` is the whole trick: the small card is a wrapping
        flex row, so a full-basis child takes a line of its own instead of
@@ -329,6 +331,8 @@
   function build(tpl, v, isMedium) {
     v = v || {};
     var bits = [], summary = [], meta = [], trailingIcons = '';
+    var checklistId = v.checklistId
+      || (v.data && (v.data['ev-sub'] || v.data['ckl-sub'])) || '';
     if (isMedium) {
       // MEDIUM: a plain-place card keeps the historical headline checklist
       // link. When `placeHtml` supplies an in-app hotspot name, `dateHref`
@@ -354,16 +358,23 @@
       var leadText = v.place ? condense(v.place, v.max || SMALL_NAME_MAX)
                              : shortWhen(v.date, true);
       if (leadText) {
-        summary.push('<span class="cklead">' + (v.placeHtml
+        summary.push('<span class="cklead' + (!v.place ? ' ckdate' : '') + '">' + (v.placeHtml
           ? v.placeHtml
-          : v.href
+          : (v.href && !v.place)
           ? '<a class="ckgo" target="_blank" rel="noopener" href="' + esc(v.href) + '">'
             + esc(leadText) + '</a>'
           : '<span class="ckgo">' + esc(leadText) + '</span>') + '</span>');
       }
       if (!v.place) {
         var leadAge = ageText(v.observedAt, v.nowMs);
-        if (leadAge) summary.push('<span class="ckage">(' + leadAge + ')</span>');
+        if (leadAge) summary.push('<span class="ckage">' + leadAge + '</span>');
+        if (v.review) summary.push(v.review);
+        if (checklistId) {
+          summary.push('<span class="ckid">' + (v.href
+            ? '<a target="_blank" rel="noopener" href="' + esc(v.href) + '">'
+              + esc(checklistId) + '</a>'
+            : esc(checklistId)) + '</span>');
+        }
       }
       // Evidence marks sit RIGHT AFTER the place, not at the end of the row.
       // They qualify the sighting you just read the location of - "there is a
@@ -376,12 +387,21 @@
       }
       if (v.place && v.date) {
         var dateText = esc(shortWhen(v.date, true));
-        summary.push('<span class="ckdate">' + (v.dateHref
+        var checklistHref = v.dateHref || v.href || '';
+        summary.push('<span class="ckdate">' + (checklistHref
           ? '<a class="ckgo" target="_blank" rel="noopener" href="'
-            + esc(v.dateHref) + '">' + dateText + '</a>'
+            + esc(checklistHref) + '">' + dateText + '</a>'
           : dateText) + '</span>');
+        if (checklistId) {
+          var idHref = checklistHref;
+          summary.push('<span class="ckid">' + (idHref
+            ? '<a target="_blank" rel="noopener" href="' + esc(idHref) + '">'
+              + esc(checklistId) + '</a>'
+            : esc(checklistId)) + '</span>');
+        }
         var datedAge = ageText(v.observedAt, v.nowMs);
-        if (datedAge) summary.push('<span class="ckage">(' + datedAge + ')</span>');
+        if (datedAge) summary.push('<span class="ckage">' + datedAge + '</span>');
+        if (v.review) summary.push(v.review);
       }
       if (v.who) meta.push('<span class="ckwho">' + v.who + '</span>');
       if (v.targets) {
@@ -481,15 +501,12 @@
       .replace('{{summary}}', summary.join('\n'))
       .replace('{{meta}}', meta.length
         ? '<span class="ckmeta">' + meta.join('\n') + '</span>' : '')
-      // THE WHOLE ROW IS THE LINK. On a phone the name is a ~10px-tall target
-      // in a 30px-tall row, and the rest of the row was dead space that looked
-      // tappable. `data-href` rather than wrapping the row in an <a>, because
-      // the row also contains a map pin, and an <a> inside an <a> is invalid
-      // HTML that browsers silently un-nest — which would break the pin. The
-      // name stays a REAL link, so keyboard and screen-reader users still get
-      // one; the row click is an enhancement over it, not a replacement.
-      .replace('{{rowlink}}', ((v.href && !isMedium && !v.placeHtml)
-        ? ' data-href="' + esc(v.href) + '"' : '') + attrsHtml(v))
+      // The row is deliberately inert. Each fact owns its intended action:
+      // hotspot, date, checklist id, bird, and Notes remain independent targets.
+      .replace('{{rowlink}}', attrsHtml(v))
+      .replace('{{bird}}', v.birdHtml
+        ? '<span class="ckbird">' + v.birdHtml + '</span>' : '')
+      .replace('{{action}}', v.action || '')
       .replace('{{num}}', v.num != null && v.num !== ''
         ? '<span class="cknum">' + esc(v.num) + '</span>' : '')
       .replace('{{tally}}', (v.species != null && v.species !== '')

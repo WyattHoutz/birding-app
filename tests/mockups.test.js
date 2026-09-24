@@ -48,8 +48,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['stakeoutreachable-f389', 'stakeoutdistance-f389',
-      'stakeoutchecklists-progressive', 'stakeoutspts-compact',
-      'stakeoutspts-details', 'stakeoutnotes-popup',
+      'stakeoutchecklists-progressive', 'stakeoutspts-notes-off',
+      'stakeoutspts-notes-on', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
@@ -61,19 +61,19 @@ test('release mockups include exactly one section shot per visible menu entry', 
   'the approved medium-card peep result is still capped by the superseded layout');
 });
 
-test('F466 release mockups require production-rendered SPTS Compact and Details', () => {
-  const compact = mockups.SECTION_SHOTS.find((item) => item.at === 'spLookupBtn');
-  const details = mockups.EXTRA_SHOTS.find((item) => item.id === 'stakeoutdetail');
-  assert.ok(compact && details, 'both mandatory Stakeout release states are registered');
-  assert.ok(compact.expects.includes(
-    '#spLookupResults.stakeoutSpeciesCard-compact > li'));
-  assert.ok(details.expects.includes(
+test('F506 release mockups require the full Stakeout card with Notes off and on', () => {
+  const notesOff = mockups.SECTION_SHOTS.find((item) => item.at === 'spLookupBtn');
+  const notesOn = mockups.EXTRA_SHOTS.find((item) => item.id === 'stakeoutdetail');
+  assert.ok(notesOff && notesOn, 'both mandatory Stakeout Notes states are registered');
+  assert.ok(notesOff.expects.includes(
+    '#spLookupResults.stakeoutSpeciesCard-details > li'));
+  assert.ok(notesOn.expects.includes(
     '#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details'));
-  assert.ok(details.expects.includes('#spLookupResults .bchero'));
-  assert.equal(details.fullPage, true,
-    'Details must capture its complete evidence and Iconic-hotspot page');
-  assert.equal(details.freshApp, true,
-    'Details must not inherit Compact lookup state in the release gallery');
+  assert.ok(notesOn.expects.includes('#spLookupResults .bchero'));
+  assert.equal(notesOn.fullPage, true,
+    'Notes on must capture its complete evidence and Iconic-hotspot page');
+  assert.equal(notesOn.freshApp, true,
+    'Notes on must not inherit Notes-off lookup state in the release gallery');
   assert.match(source, /Sharp-tailed Sandpiper Stakeout/);
   assert.match(source, /userDisplayName: 'Kellie Sagen'/);
   assert.match(source, /durationHrs: 1 \+ 14 \/ 60/);
@@ -86,8 +86,8 @@ test('F466 release mockups require production-rendered SPTS Compact and Details'
     'release fixtures must not restyle the production species/checklist cards');
   assert.match(postWorkflow, /for WIDTH in 393 402/,
     'post-release must capture both required Stakeout widths');
-  assert.match(indexSource,
-    /#spLookupResults\.stakeoutSpeciesCard-compact > li > \.name > \.thumb \{[\s\S]*width: 64px/);
+  assert.doesNotMatch(indexSource, /stakeoutSpeciesCard-compact/,
+    'the removed top-level Compact Stakeout card is still shipped');
   assert.match(indexSource, /#spLookupMap \{ aspect-ratio: 16 \/ 7; \}/);
 });
 
@@ -222,6 +222,23 @@ test('fixture families use shared card components and accessible state labels', 
     'fixture states are written in words, not encoded by colour alone');
   assert.match(source, /border:2px dashed var\(--warn\)/,
     'the state also carries a non-colour border-style channel');
+});
+
+test('F504-F509 release fixtures show the current Twitches and Nemesis card contract', () => {
+  const speciesFixture = source.slice(
+    source.indexOf('function speciesRows('),
+    source.indexOf('function fillSpeciesHost('));
+  assert.match(speciesFixture, /reportTags\(at === 'refreshBtn', true\)/,
+    'Twitches does not show NEW, RARE, and confirmed review state inline');
+  assert.match(speciesFixture, /reportTags\(false, false\)/,
+    'Nemesis does not show NEW and pending review state inline');
+  assert.match(speciesFixture, /spmetricstack[\s\S]*spmetric-age[\s\S]*spmetric-distance/,
+    'the release fixture does not exercise the age-first two-metric stack');
+  const reportTagFixture = speciesFixture.slice(
+    speciesFixture.indexOf('function reportTags('),
+    speciesFixture.indexOf('function stubBird('));
+  assert.doesNotMatch(reportTagFixture, /RECENT/,
+    'the removed RECENT tag returned to the release fixture');
 });
 
 test('Mega rarity mockups exercise the real scope and sort controls', () => {
@@ -511,7 +528,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the release capture is not anchored to the full Stakeout page');
   assert.deepEqual(mockups.STUB_SPEC.spLookupBtn.expects, [
     '#spLookupQueryHelp:empty',
-    '#spLookupResults.stakeoutSpeciesCard-compact > li',
+    '#spLookupResults.stakeoutSpeciesCard-details > li',
     '#spLookupResults .thumb',
     '#spLookupSortRow:not([hidden])',
     '#spLookupMap .mockmap',
@@ -538,9 +555,9 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   assert.doesNotMatch(indexSource,
     /\.spuhdetailopen[^{}]*\.spuhcandidatelane[^{}]*\{[^}]*display:\s*none/,
     'expanded Detailed view hides the shared regional bird list');
-  assert.match(indexSource,
+  assert.doesNotMatch(indexSource,
     /ToggleControls\.pressed\(\{[\s\S]*id: 'spuhViewPick'[\s\S]*label: 'Compact'/,
-    'bird sp. does not reuse the shared Compact toggle template');
+    'the removed Compact hierarchy control is still shipped');
   assert.match(source,
     /id: 'birdspcompact'[\s\S]*id: 'birdspdetail'/,
     'the focused review set does not render both hierarchy-view selections');
