@@ -167,10 +167,10 @@
       "file": "compea.jpg",
       "source_sha": "d9d1f077e344caf5",
       "output_file": "compea.jpg",
-      "output_sha": "a808bbe24bafb899e15e37b72b34088979cd755d320565fac0436360e34b6521",
+      "output_sha": "35d6c3ad400652145569daea8c1c7e2bbf99d501c7f8a411c5cf7bc1c6cb80eb",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "grepea1": {
@@ -218,10 +218,10 @@
       "file": "japqua.jpg",
       "source_sha": "71c381b53b3ae23b",
       "output_file": "japqua.jpg",
-      "output_sha": "a4b9bb28963da6b67316c4a6a02f6735c35f3c0c0bb9abec23d5e3bd1615b21c",
+      "output_sha": "92fce4233dfcbbf67dca6cf95956880bc1afb1586d6c348dc455a89d9c063f78",
       "output_size": [
-        249,
-        249
+        240,
+        240
       ]
     },
     "rocpar2": {
@@ -252,10 +252,10 @@
       "file": "whcpig2.jpg",
       "source_sha": "a20d43b6dc572e7c",
       "output_file": "whcpig2.jpg",
-      "output_sha": "6f7527a5e341eb31f2327cd153c8bdc2816486deea9a1e8c43f08599fbb89468",
+      "output_sha": "21ad4c286a816aa8799fc0e9f49f8ed6052be7fccca36093f86ffa4080358391",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "incdov": {
@@ -269,10 +269,10 @@
       "file": "incdov.jpg",
       "source_sha": "cb941df5da8903df",
       "output_file": "incdov.jpg",
-      "output_sha": "9791d2af282eee0570d35392d9b9aace9eaffecb125c87cb64f13437e6af80a8",
+      "output_sha": "9b2ff9c30f227913528b99dc87d800243b674016a554d3ea6078f563ef043f07",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "hislic1": {
@@ -286,10 +286,10 @@
       "file": "hislic1.jpg",
       "source_sha": "d2dfd601a86596d9",
       "output_file": "hislic1.jpg",
-      "output_sha": "aac4cc6f95454be3a2a2d5f8918a068f49a765db015d8e80a66722fd380d491f",
+      "output_sha": "5a942662c66fc7f94c6b89864a42ac4a2436d1bebda056594e41a8ddc18c082b",
       "output_size": [
-        247,
-        247
+        240,
+        240
       ]
     },
     "comnig": {
@@ -356,10 +356,10 @@
       "file": "blkswi.jpg",
       "source_sha": "8b64a81daeaa6fe9",
       "output_file": "blkswi.jpg",
-      "output_sha": "84d0ab4dfd1bc36aaea85fc479ef3e7ccbac1568e0eb51c5d56063a6df78622f",
+      "output_sha": "23cb9af0776f4b42e95117f2887ade95f980ef7c42a3aea8037da5c907121996",
       "output_size": [
-        600,
-        600
+        240,
+        240
       ]
     },
     "maghum1": {
@@ -460,10 +460,10 @@
       "file": "demcra1.jpg",
       "source_sha": "3f5618a22a5e0df2",
       "output_file": "demcra1.jpg",
-      "output_sha": "581e3daecc8d3f36eac01e4fa5db1d40689ca998f0a2dce05c6de9713c6aef24",
+      "output_sha": "5b2577e7c2b5b3e77f11ecf4aeebe38167f3500573b4e6c6957caa8e91cd74f0",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "blucra2": {
@@ -494,10 +494,10 @@
       "file": "eurdot.jpg",
       "source_sha": "6f22e7b058aa359a",
       "output_file": "eurdot.jpg",
-      "output_sha": "080f7db90237c409d1eed44677c8495db6642dab652594d6608afb2ea36c3ebb",
+      "output_sha": "6bc43f973be2e4a47f6722160c0aa1068da27da81e43f4b757c3a8b329182c3a",
       "output_size": [
-        246,
-        246
+        240,
+        240
       ]
     },
     "corplo": {
@@ -528,10 +528,10 @@
       "file": "norjac.jpg",
       "source_sha": "ff2a2be6f784c665",
       "output_file": "norjac.jpg",
-      "output_sha": "8073f7ac9b2cbb01d5df1790df1245a917d80e1f6aac34a3f95754706465af9c",
+      "output_sha": "9fad102119ad57058526ce7a6904bf9797bae7bbf412dfcc6e1fe7749843a4f5",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "batgod": {
@@ -936,10 +936,10 @@
       "file": "pibgre.jpg",
       "source_sha": "549b13d63ff69da7",
       "output_file": "pibgre.jpg",
-      "output_sha": "5f9108db3d84554360c9fc7376284bdb9e9d26de1b5375e40ea7b2d79d7eb561",
+      "output_sha": "14223a13b5a3bd839368ac15805b2ec16cbe50b3768b1c62468401772eecb147",
       "output_size": [
-        760,
-        760
+        240,
+        240
       ]
     },
     "rebtro": {
@@ -1331,10 +1331,10 @@
       "file": "chrshe.jpg",
       "source_sha": "ab948b5ac467183e",
       "output_file": "chrshe.jpg",
-      "output_sha": "8c68f12ed0cda52693cd56c0dc94b0962bee14f32d4ac7f590f5faa3312e2a92",
+      "output_sha": "627fdb3e0af064fe8d63ca5038e30b753059bdd05197585f2da56b7a362566ed",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "manshe": {
@@ -1382,10 +1382,10 @@
       "file": "blnsto1.jpg",
       "source_sha": "07f835f668cb3ed2",
       "output_file": "blnsto1.jpg",
-      "output_sha": "20d45cfb4a8793825edcd6468c7947964f85f910d6a3d802f77d458e289cb6da",
+      "output_sha": "37c19ca4779dda32426a4e116e9bd2eaf70eec37575471b0eeb537c874dbd5c8",
       "output_size": [
-        246,
-        246
+        240,
+        240
       ]
     },
     "masboo": {
@@ -1399,10 +1399,10 @@
       "file": "masboo.jpg",
       "source_sha": "76541b4b3a67c0b7",
       "output_file": "masboo.jpg",
-      "output_sha": "086af98ebbdeed364b87f0169d4355a0df44967f6ea72f1921946483a7effc27",
+      "output_sha": "940a3b1c101f910f4c2d7c9e2735d77cafd7755a4a6362bba472c792867949ff",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "bfoboo": {
@@ -1416,10 +1416,10 @@
       "file": "bfoboo.jpg",
       "source_sha": "db924c010aa0a629",
       "output_file": "bfoboo.jpg",
-      "output_sha": "c848e7819229e9a1d4fbf892081cfdcb25a84c9907e4b60f5bbc6aef903ce940",
+      "output_sha": "c6ab4f3275e65493f2676ba947b14ccec1f51559276e1aa127d6c72c1b69fb02",
       "output_size": [
-        245,
-        245
+        240,
+        240
       ]
     },
     "anhing": {
@@ -1433,10 +1433,10 @@
       "file": "anhing.jpg",
       "source_sha": "7881e61b2f3377c8",
       "output_file": "anhing.jpg",
-      "output_sha": "39886f853cd315367974bd598ee83231811b2cdac13c04b430e8fea78a4e4d06",
+      "output_sha": "0c90a713b6cd9b6b5961acd9d4e671484d2e7baee9688221e79cd27ea9685548",
       "output_size": [
-        249,
-        249
+        240,
+        240
       ]
     },
     "grecor": {
@@ -1535,10 +1535,10 @@
       "file": "grebit1.jpg",
       "source_sha": "bd68e2bc95de2841",
       "output_file": "grebit1.jpg",
-      "output_sha": "c6af5be55bb60d9e79a0b95115a1ddac0488509302dc8fdb1982fb102a917b0e",
+      "output_sha": "85bc7085332f2377936370947188b6233f782d5fa7cda04be9b343c560d94bd7",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "leabit": {
@@ -1620,10 +1620,10 @@
       "file": "eurspa1.jpg",
       "source_sha": "57c99f68f34b3ce9",
       "output_file": "eurspa1.jpg",
-      "output_sha": "69280da32deacf166a983a1c751b0bf5f312e4e53d05ba6cf1f21a6d6ac14b8b",
+      "output_sha": "d6e797b3c73b2e1d006cc2ee650ad11e82b0f815e6569e6e4d42232ff09e58b9",
       "output_size": [
-        249,
-        249
+        240,
+        240
       ]
     },
     "wemhar1": {
@@ -1637,10 +1637,10 @@
       "file": "wemhar1.jpg",
       "source_sha": "a6f4d7bcae3a8410",
       "output_file": "wemhar1.jpg",
-      "output_sha": "2e937b19a32f94f402f4e41d373d8e814e926172975ef2030b11bda6c0dfe854",
+      "output_sha": "4c8e3fec6d5eec407a303e763b5577237a1f7970143012f408ca76da8f080e94",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "norhar1": {
@@ -1671,10 +1671,10 @@
       "file": "blakit1.jpg",
       "source_sha": "8ec9a21becb07b66",
       "output_file": "blakit1.jpg",
-      "output_sha": "0696c1009f28fe8ccd6977f66aab9ddf3afc7a2d4993a9b4caa21d21357bf6d8",
+      "output_sha": "60188dd9577ec8805ebe045e9e4f997670bc0d906bec26bb19ff0a71da9a312f",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "savhaw1": {
@@ -1688,10 +1688,10 @@
       "file": "savhaw1.jpg",
       "source_sha": "17837707d0a766ba",
       "output_file": "savhaw1.jpg",
-      "output_sha": "c1533a822ecdea1f00c46c4a9e66b071497f49d7ae48039bc3fc392f33e457e6",
+      "output_sha": "208f5699d25d52bebcfd4eb761cc337b19864fc272f034fb07b52e96d5b8a7c3",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "roahaw": {
@@ -1707,10 +1707,10 @@
       "file": "roahaw.jpg",
       "source_sha": "92d5cafba0d17478",
       "output_file": "roahaw.jpg",
-      "output_sha": "948558a495f2b4a6e1e9197a9204f9aff9b50b8b60f4b881ac7ba91cf34dc34f",
+      "output_sha": "cb93f0ddace0976a79f31bb4576016e05deaf328cef7e5f8af0bccd433a39414",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "hawhaw": {
@@ -1724,10 +1724,10 @@
       "file": "hawhaw.jpg",
       "source_sha": "3011aabc532b6841",
       "output_file": "hawhaw.jpg",
-      "output_sha": "6177c12e58ba141594ff682a0a846a2f2a8d8b7a8c7f208e80be526bdd4c4525",
+      "output_sha": "484009c2e46576603ddc40078537ebcc2930c11e57efd2fe64bc7dc1bc597a61",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "lolbuz1": {
@@ -1758,10 +1758,10 @@
       "file": "grhowl.jpg",
       "source_sha": "6fbc17dec4d62a02",
       "output_file": "grhowl.jpg",
-      "output_sha": "e27739a95b73bd8fc091a1f25e2712e3677993cbbcbf1c9e0f704c837553f175",
+      "output_sha": "656a0e151ab6635896e7c6229c17f0a7a7c2b44b331c0e606a58a769c3177bdd",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "spoowl": {
@@ -1809,10 +1809,10 @@
       "file": "bawhor2.jpg",
       "source_sha": "572cf9d0fd00d76f",
       "output_file": "bawhor2.jpg",
-      "output_sha": "a0a6fca12ab5377a6fa5bb6ad63eac89d1102e7ed7c95cea09cfbb6e3a28c357",
+      "output_sha": "c65b120858cabe7c961a2a9723d800bf82e04d50be8331fec2c1b1995be2dd40",
       "output_size": [
-        245,
-        245
+        240,
+        240
       ]
     },
     "librol2": {
@@ -1860,10 +1860,10 @@
       "file": "gofwoo.jpg",
       "source_sha": "b27a72f0829f9415",
       "output_file": "gofwoo.jpg",
-      "output_sha": "1783f55d41a54fa669321543cdef0d3a09d7827c83bf0565db98f59c51271162",
+      "output_sha": "03bcef824d272348745e20702f54e500c5d3eac8ff197d93c72f2843117827a9",
       "output_size": [
-        348,
-        348
+        240,
+        240
       ]
     },
     "recwoo": {
@@ -1877,10 +1877,10 @@
       "file": "recwoo.jpg",
       "source_sha": "2949027ac436a704",
       "output_file": "recwoo.jpg",
-      "output_sha": "252931df7096dcf629ed9b46a0969385be302f3175c41bb90113b97a3a1020a8",
+      "output_sha": "85ac02da044d04cef3b7fedd3a9501871e36fc500ac0c1341c675d1cf5d9e6f1",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "lanfal1": {
@@ -1894,10 +1894,10 @@
       "file": "lanfal1.jpg",
       "source_sha": "82ceb0edd4bfb9ed",
       "output_file": "lanfal1.jpg",
-      "output_sha": "d70a64faf6aad235d55b1c41126838c947f86c1fcd5074f457fce80e4a669bce",
+      "output_sha": "022637a47aeea944f557bd9a098fc2f9d03516a838d83410cbf98ebb52477265",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "sakfal1": {
@@ -1928,10 +1928,10 @@
       "file": "alepar2.jpg",
       "source_sha": "a4998d0d41d69f81",
       "output_file": "alepar2.jpg",
-      "output_sha": "8d17f9661dae0c018f95ad721953d8d505c281dd1514f4abbee40386b24e50fa",
+      "output_sha": "c2ba85d98134c0008a06b0e7925f34fda8e23291b7a2eecd81e4fa5661217502",
       "output_size": [
-        247,
-        247
+        240,
+        240
       ]
     },
     "rerpar1": {
@@ -1979,10 +1979,10 @@
       "file": "respar2.jpg",
       "source_sha": "be51c241dfe34d0d",
       "output_file": "respar2.jpg",
-      "output_sha": "7a30cbf402d42250ab96efd781bca30a07fff4f1762240ae99aee29c0e460f44",
+      "output_sha": "cf2de41336746298c1f40b9f2d6e3f307a33b2a81117d587e89328d79601bcf9",
       "output_size": [
-        247,
-        247
+        240,
+        240
       ]
     },
     "recpar": {
@@ -1996,10 +1996,10 @@
       "file": "recpar.jpg",
       "source_sha": "adcf211540aef315",
       "output_file": "recpar.jpg",
-      "output_sha": "508566686ffe244975f48d2eeacc582a742c2f33b390d16f6b4ef1f42f3051cb",
+      "output_sha": "29d0aed50802009fc9f8c722f4b34a4ce878d0251017171f5c065a7694ed921f",
       "output_size": [
-        248,
-        248
+        240,
+        240
       ]
     },
     "whfpar1": {
@@ -2047,10 +2047,10 @@
       "file": "duhpar.jpg",
       "source_sha": "5439ec3baeeb9f86",
       "output_file": "duhpar.jpg",
-      "output_sha": "2c0d8114a4300a684607587534920304669ac81713bd4f71b638477d5be24e13",
+      "output_sha": "22279fc63933aa3f3e765e2d3cce121a102d65ff220598be4b3b769dc52dd4b3",
       "output_size": [
-        241,
-        241
+        240,
+        240
       ]
     },
     "refmac1": {
@@ -2115,10 +2115,10 @@
       "file": "caskin.jpg",
       "source_sha": "da34a6c09475b374",
       "output_file": "caskin.jpg",
-      "output_sha": "ca4bb50d76f1e6e9f92029bf55d4f220238906e2f3b3e234465a7de62cd551fd",
+      "output_sha": "f1882caba6b6d9be389d3863b42b367cb482f6c60299f0181b0305c1bf667225",
       "output_size": [
-        247,
-        247
+        240,
+        240
       ]
     },
     "grykin": {
@@ -2132,10 +2132,10 @@
       "file": "grykin.jpg",
       "source_sha": "de989ae7a71ab0d2",
       "output_file": "grykin.jpg",
-      "output_sha": "64fd39dbc2e60c51bde81032ec3c064d81970c0859dd2152033d4b886f8c4f65",
+      "output_sha": "352a7bad3afaca1875fa1ae4e1e19548d2b3bc41e371c929f9b9cec6864aa08d",
       "output_size": [
-        246,
-        246
+        240,
+        240
       ]
     },
     "yucvir": {
@@ -2506,10 +2506,10 @@
       "file": "swathr.jpg",
       "source_sha": "f9eb396c4f25592e",
       "output_file": "swathr.jpg",
-      "output_sha": "d3b12cc08d549cf87963a2d90c1e73bc92644917f0ddea89736386c07073b934",
+      "output_sha": "eb039a3afe09c5d7b61709896046130464206722f5be8b1f369f0b6ce56acf3c",
       "output_size": [
-        960,
-        960
+        240,
+        240
       ]
     },
     "aztthr": {
@@ -2744,10 +2744,10 @@
       "file": "trimun.jpg",
       "source_sha": "b4ae14483e12e760",
       "output_file": "trimun.jpg",
-      "output_sha": "60bb5e8ef1f7b373c616e8004d9999eb04653b7a71af931f5e73a8d8030cf4ca",
+      "output_sha": "a16a353dcc36298d136025cfa9bc7bf79734bb06419af12c2a2b7e8000afc005",
       "output_size": [
-        243,
-        243
+        240,
+        240
       ]
     },
     "cutthr1": {
@@ -2880,10 +2880,10 @@
       "file": "ou.jpg",
       "source_sha": "9b839a7032a323e6",
       "output_file": "ou.jpg",
-      "output_sha": "b0cf89bbbd9d36f6194d51a2a3724b5b75384bd776a645724e98d33530fed630",
+      "output_sha": "1e8236545376f8b61f0c46772635fd873ea6c051f12f77840a4256206c90a286",
       "output_size": [
-        243,
-        243
+        240,
+        240
       ]
     },
     "akiapo": {
@@ -3169,10 +3169,10 @@
       "file": "swaspa.jpg",
       "source_sha": "c838d8d464683560",
       "output_file": "swaspa.jpg",
-      "output_sha": "a684b60dd9338ea89fc1fc1be5847e7b46b7492ccb6f15de81a00d4070967af4",
+      "output_sha": "a42046a7f8cba62694619b26bafd11aff9fa08e4b2bd76fa089e806c1f52fb32",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "creoro1": {
@@ -3220,10 +3220,10 @@
       "file": "audori.jpg",
       "source_sha": "ea2beb280cde96e9",
       "output_file": "audori.jpg",
-      "output_sha": "593a4c03199e3ddcdd20750eb703ca24379030937131d816400962289e5c7e16",
+      "output_sha": "bdbd3ba909e5e5f392a50e04ad3ef022b3257b2fae5bc1890ae7debbc8c21ffd",
       "output_size": [
-        246,
-        246
+        240,
+        240
       ]
     },
     "rewbla": {
@@ -3237,10 +3237,10 @@
       "file": "rewbla.png",
       "source_sha": "d232096df8a017a4",
       "output_file": "rewbla.png",
-      "output_sha": "afe4d2c6135c69674178c44edfe31ccc0d9056531e3172f58de1c93758814f83",
+      "output_sha": "fc65b515a58a101a8f156e8208ba5cbc5676178283d16d507044664514631144",
       "output_size": [
-        250,
-        250
+        240,
+        240
       ]
     },
     "shicow": {
