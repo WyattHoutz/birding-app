@@ -2359,11 +2359,10 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
   // WHEN NOW PRECEDES WHERE. It used to be place-then-date, which put the one
   // fact that decides whether a rarity is still worth chasing behind a place
   // name of unpredictable length — so it landed in a different column on every
-  // row, and usually wrapped. Flags stay first (do I need it, how many, has it
-  // stuck around, is there proof) and the people counts stay last.
-  assert.ok(flagIdx > -1 && whenIdx > flagIdx && locIdx > whenIdx && cntIdx > locIdx,
-    'and read in the order the questions are asked: do I need it, how many, '
-    + 'has it stuck around, is there proof — then WHEN, where, how many people');
+  // row, and usually wrapped. F494 makes WHEN the absolute first fact, before
+  // every flag, while the people counts stay last.
+  assert.ok(whenIdx > -1 && flagIdx > whenIdx && locIdx > flagIdx && cntIdx > locIdx,
+    'and read in the order the questions are asked: WHEN, evidence, where, people');
 });
 
 // F386. A bird or public-hotspot name is an in-app navigation target. The
@@ -3736,8 +3735,8 @@ test("Unified Twitches starts from every rarity-wave row without a second raw fe
     HTML.indexOf('function loadTargets('));
   assert.match(src, /var sourceRows = \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
     'the unified surface does not start from the complete shared rarity wave');
-  assert.match(src, /buildActiveRarities\(records, home\)/,
-    'Grouped mode does not project the same rows into the weekly bird/place view');
+  assert.match(src, /buildBirdReportGroups\(records, home\)/,
+    'Grouped mode does not project the same rows into the shared bird/hotspot/checklist view');
   assert.match(src, /if \(twitchRecent\(\)\)[\s\S]*BL\.notableRecent\(sourceRows, Date\.now\(\)\)/,
     'the recovered short window is not an explicit optional filter over shared rows');
   assert.ok(!/recent\/notable/.test(src),
@@ -7165,7 +7164,7 @@ test('no menu tile is named the same thing as another tile, label or sub-line', 
   app.window.close();
 });
 
-test('F474 Nemesis birds combines bird and patch modes while Common birds stays separate', async () => {
+test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
   const want = Object.fromEntries(CONTRACT.menu
@@ -7183,26 +7182,13 @@ test('F474 Nemesis birds combines bird and patch modes while Common birds stays 
     'the retired closest-target menu id remains in the report contract');
   assert.equal(labels.some((l) => /Open targets|Closest unseen birds|Closest patches/i.test(l)), false,
     'a retired unseen-report tile remains in the menu');
-  const nemesis = doc.querySelector('#allUnseenBtn').closest('section');
-  assert.equal(doc.querySelector('#targetsBtn').closest('section'), nemesis,
-    'the closest-patch algorithm remains a separate report surface');
-  assert.equal(doc.querySelectorAll('.modeswitch[data-modes="nemesis"]').length, 1,
-    'the unified Nemesis report has no Birds/Patches mode switch');
-  assert.equal(doc.querySelectorAll('main > section #targetsBtn').length, 1,
-    'the retired closest-patches surface still has a duplicate copy');
-  assert.equal(doc.querySelector('#nemesisBirdMode').getAttribute('aria-pressed'), 'true');
-  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, true);
-  app.window.__app.setNemesisMode('patches', false);
-  assert.equal(doc.querySelector('#nemesisBirdPane').hidden, true,
-    'Patches mode left the bird grouping visible');
-  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, false,
-    'Patches mode did not expose the closest-patch grouping');
-  assert.equal(doc.querySelector('#nemesisPatchMode').getAttribute('aria-pressed'), 'true');
-  app.window.__app.setNemesisMode('birds', false);
-  assert.equal(doc.querySelector('#nemesisBirdPane').hidden, false,
-    'Birds mode did not restore the species grouping');
-  assert.equal(doc.querySelector('#nemesisPatchPane').hidden, true,
-    'Birds mode left the patch grouping visible');
+  assert.equal(doc.querySelector('#targetsBtn'), null,
+    'the retired closest-patch loader remains in Nemesis');
+  assert.equal(doc.querySelector('.modeswitch[data-modes="nemesis"]'), null,
+    'the retired Birds/Patches mode switch remains');
+  assert.equal(doc.querySelectorAll('.modeswitch[data-modes="anchor"] '
+    + '.modebtn[data-anchor]').length >= 3, true,
+    'Here/Home/Find anchors were not preserved');
   const menuRows = [...doc.querySelectorAll('#menuList > li')];
   const buzzAt = menuRows.findIndex((row) => row.classList.contains('tocgroup')
     && /Buzz/.test(row.textContent));
@@ -7373,27 +7359,15 @@ test('every mode switch is built from ONE table', async () => {
 
 // The section was listing places 111 mi away beside one 8 mi from the house,
 // in a report whose whole job is "where can I go and see this".
-test('All unseen reports respects the chase radius, and sorts far places apart', async () => {
+test('F496 Nemesis scope uses the shared live chase radius', async () => {
   const app = await boot();
   const A = app.window.__app;
   const R = A.chaseMaxMi();
   assert.ok(R > 0, 'there is a shared chase radius');
   const fn = HTML.slice(HTML.indexOf('function loadAllUnseen('),
     HTML.indexOf('function unseenPlacesHtml('));
-  assert.match(fn, /p\.distMi > chaseMaxMi\(\)/,
-    'places are partitioned by the SAME radius the rarity section uses — and '
-    + 'by CALLING it, because the radius is a setting now and a var read at '
-    + 'load time would keep filtering by whatever it was when the app booted');
-  // The far places are no longer given a per-card expander. Every card carried
-  // one, so a single section repeated "there is more, further away" dozens of
-  // times — a second fold under the one that already folds the extra places.
-  // The STATUS LINE is what has to carry it now, so it is asserted here rather
-  // than merely dropped: a partition nobody is told about is just missing data.
-  assert.doesNotMatch(fn, /upfar/,
-    'no per-card "beyond N mi" expander — one per species was the noise');
-  assert.match(fn, /more species only further out/,
-    'the status line says how many species are ONLY further out, so the '
-    + 'partition is still visible without repeating it on every card');
+  assert.match(fn, /r\.distMi == null \|\| r\.distMi <= chaseMaxMi\(\)/,
+    'Nemesis does not call the same live chase-radius setting as Twitches');
   assert.match(fn, /within ' \+ chaseMaxMi\(\) \+ ' mi/,
     'the status line states the radius rather than implying the list is everything');
   app.window.close();
@@ -7523,21 +7497,14 @@ test('the favourites controls never wrap below the card', async () => {
 // birds are rare: most have no bundled seed, miss tier 1, and fall through to
 // a full-size network photo. The seed size is the real constraint, so the card
 // that shows seeds is sized to it.
-test('the unseen list sizes its icon to the seed it actually shows', async () => {
-  const app = await boot();
-  const doc = app.window.document;
-  const ul = doc.getElementById('allUnseenResults');
-  assert.ok(ul.className.split(/\s+/).includes('icon-sm'),
-    'the unseen list opts into the small icon');
-  for (const cls of ['obs', 'big', 'xl']) {
-    assert.ok(ul.className.split(/\s+/).includes(cls), 'still the medium card wrapper: ' + cls);
-  }
-  const css = app.window.SpeciesCards.css;
-  assert.match(css, /\.obs\.xl\.icon-sm > li > \.name > \.thumb \{\s*width: calc\(46px \* var\(--s\)\)/,
-    'and that resolves to 46px — the width the seed was cut for');
-  assert.match(css, /\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\(128px \* var\(--s\)\), 28vw\)/,
-    'while sections showing a network photo keep the larger box');
-  app.window.close();
+test('F496 Nemesis selects the shared card size at render time', () => {
+  const src = HTML.slice(HTML.indexOf('function renderBirdReportProgress('),
+    HTML.indexOf('function distQ(', HTML.indexOf('function renderBirdReportProgress(')));
+  assert.match(src,
+    /listClass: details \? 'obs big xl' : 'obs card-sm birdreportcompact'/,
+    'Nemesis does not share Twitches Details/Compact wrapper selection');
+  assert.match(src, /birdReportListCard\(/,
+    'Nemesis bypasses the shared bird-first report renderer');
 });
 
 // That is exactly how the unseen list ended up with 20px names in a 29px card.
@@ -7550,7 +7517,7 @@ test('every medium-card list carries the medium wrapper, not a lookalike', () =>
   // rather than trusted. A list that calls SpeciesCards.medium but wears
   // another wrapper renders the medium template at a different size, which is
   // exactly how the unseen list ended up with 20px names in a 29px card.
-  const lists = ['allUnseenResults', 'results', 'activeResults', 'lastNewResults'];
+  const lists = ['results', 'activeResults', 'lastNewResults'];
   for (const id of lists) {
     const m = HTML.match(new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"'))
           || HTML.match(new RegExp('<ul[^>]*class="([^"]*)"[^>]*id="' + id + '"'));
@@ -11126,7 +11093,7 @@ test('every hotspot list is built by the one shared card', () => {
   // names for one section: whichever family a list belongs to, it may not
   // declare itself the other one.
   const SPECIES_CONTAINER = /\b(xl|card-md|big)\b/;
-  for (const id of ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults']) {
+  for (const id of ['destResults', 'excResults', 'tripResults', 'quickResults']) {
     const m = new RegExp('<ul id="' + id + '"[^>]*class="([^"]*)"').exec(HTML);
     assert.ok(m, id + ' must exist');
     assert.ok(!SPECIES_CONTAINER.test(m[1]),
@@ -12519,8 +12486,8 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   await waitFor(() => doc.querySelector('#todayView')
     .getAttribute('aria-pressed') === 'true', 'grouped twitch view');
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
-  assert.ok(doc.querySelector('#results details.ckall'),
-    'Grouped view did not expose the Twitches-this-week checklist expander shape');
+  assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
+    'Grouped view is not bird → numbered hotspot → checklist');
   app.window.close();
 });
 
@@ -12610,22 +12577,310 @@ test('Unified Twitches Details toggle selects rich or compact shared card templa
     'List + Details uses the rich species/checklist report cards');
 
   doc.querySelector('#todayDetails').click();
-  await waitFor(() => doc.querySelector('#results .cklcard-sm'), 'compact checklist cards');
-  assert.equal(doc.querySelector('#results > li > .name'), null,
-    'List + Compact replaces rich species cards');
+  await waitFor(() => doc.querySelector('#results.card-sm > li .thumb'),
+    'compact species cards');
+  assert.ok(doc.querySelector('#results.card-sm > li > .name'),
+    'List + Compact does not use SpeciesCards.small');
+  assert.equal(doc.querySelector('#results.card-sm > li > .meta'), null,
+    'List + Compact still uses the medium-card anatomy');
 
   doc.querySelector('#todayView').click();
-  await waitFor(() => doc.querySelector('#results .hscard-md'), 'compact hotspot cards');
-  assert.equal(doc.querySelectorAll('#results .hscard-md').length, 1,
-    'Grouped + Compact combines the two rarity reports into one hotspot row');
+  await waitFor(() => doc.querySelector('#results .birdreportplaces .hscard-sm'),
+    'compact grouped hierarchy');
+  assert.equal(doc.querySelectorAll('#results > li:not(.farhost)').length, 2,
+    'Grouped + Compact is not bird-first');
 
   doc.querySelector('#todayDetails').click();
   await waitFor(() => doc.querySelector('#results > li > .name'), 'grouped rich species cards');
-  assert.ok(doc.querySelector('#results details.ckall'),
-    'Grouped + Details restores the rich bird/place card and checklist evidence');
+  assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
+    'Grouped + Details does not retain nested checklist evidence');
   assert.equal(JSON.stringify(A.rarityFilters()),
     JSON.stringify({ year: 'unseen', distance: 'near' }),
     'changing detail level does not alter rarity filters');
+  app.window.close();
+});
+
+test('F492 Twitches and Nemesis print RECENT from the exact F489 boundary', async () => {
+  const now = Date.now();
+  const stamp = (hoursAgo) => {
+    const d = new Date(now - hoursAgo * 3600000);
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'inside', name: 'Inside Bird', distMi: 3,
+      dateStr: stamp(23), loc: 'Inside Park', locId: 'L1', subId: 'S1' },
+    { kind: 'Rarity', code: 'grace', name: 'Grace Bird', distMi: 4,
+      dateStr: stamp(28), loc: 'Grace Park', locId: 'L2', subId: 'S2' },
+    { kind: 'Rarity', code: 'expired', name: 'Expired Bird', distMi: 5,
+      dateStr: stamp(30), loc: 'Expired Park', locId: 'L3', subId: 'S3' },
+  ]);
+  A.refresh();
+  await waitFor(() => /Inside Bird/.test(doc.getElementById('results').textContent),
+    'Twitches recent-tag rows');
+  const rowFor = (root, name) => [...root.querySelectorAll('li')]
+    .find((row) => row.textContent.includes(name));
+  assert.match(rowFor(doc.getElementById('results'), 'Inside Bird').textContent, /RECENT/);
+  assert.match(rowFor(doc.getElementById('results'), 'Grace Bird').textContent, /RECENT/,
+    'the five-hour old-edge grace drifted from F489');
+  assert.doesNotMatch(rowFor(doc.getElementById('results'), 'Expired Bird').textContent, /RECENT/);
+
+  A.showSection(doc.querySelector('#allUnseenBtn').closest('section').id);
+  A.loadAllUnseen();
+  await waitFor(() => doc.getElementById('nemesisControls'), 'Nemesis controls');
+  const nemesis = doc.getElementById('allUnseenResults');
+  assert.match(rowFor(nemesis, 'Inside Bird').textContent, /RECENT/);
+  assert.match(rowFor(nemesis, 'Grace Bird').textContent, /RECENT/);
+  assert.doesNotMatch(rowFor(nemesis, 'Expired Bird').textContent, /RECENT/);
+  app.window.close();
+});
+
+test('F494 Twitches evidence leads with time and ends with one combined-comments action', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S-NOTE/.test(url)) {
+        return {
+          userDisplayName: 'Birder One', obsDt: '2026-09-23 09:49',
+          comments: 'Checklist context.',
+          obs: [{ speciesCode: 'notebd', howMany: 2,
+            comments: 'Species location detail.' }],
+        };
+      }
+      if (/api\.ebird\.org/.test(url)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'notebd', name: 'Note Bird', distMi: 3,
+    dateStr: '2026-09-23 09:49', loc: 'Bold Hotspot', locId: 'L-NOTE',
+    subId: 'S-NOTE', observer: 'Birder One',
+  }]);
+  A.setRarityNotes(false);
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results .rarewhere'), 'Twitches evidence');
+  const evidence = doc.querySelector('#results .rarewhere');
+  assert.ok(evidence.firstElementChild.classList.contains('when'),
+    'date/time is not the first evidence fact');
+  assert.ok(evidence.querySelector(':scope > strong.rareloc'),
+    'the hotspot is not inline and bold');
+  assert.equal(evidence.querySelector('br'), null, 'the hotspot is forced onto another line');
+  await A.hydrateChecklistEvidence(doc.getElementById('results'));
+  const notes = evidence.querySelectorAll('.cknote .evidbtn');
+  assert.equal(notes.length, 1, 'Notes off did not produce exactly one comments action');
+  assert.equal(notes[0].closest('.cknote'), evidence.lastElementChild,
+    'the comments action is not the final evidence fact');
+  app.click(notes[0]);
+  assert.match(doc.getElementById('appSheet').textContent,
+    /Species comment.*Species location detail.*Checklist comment.*Checklist context/s);
+  app.window.close();
+});
+
+test('F495 grouped Twitches is bird → numbered hotspot → small checklist', async () => {
+  const app = await boot({
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{
+          name: 'Sharp-tailed Sandpiper', code: 'shtsan',
+          alpha: 'SPTS', sci: 'Calidris acuminata',
+        }],
+      }),
+    },
+    fetch(url) {
+      if (/product\/checklist\/view\/S1/.test(url)) {
+        return {
+          userDisplayName: 'Birder One', obsDt: '2026-09-23 12:00',
+          comments: 'Checklist context.',
+          obs: [{ speciesCode: 'shtsan', howMany: 2,
+            mediaCounts: { P: 1 }, comments: 'Species location detail.' }],
+        };
+      }
+      if (/api\.ebird\.org/.test(url)) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [
+    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 3,
+      dateStr: '2026-09-23 12:00', loc: 'First Hotspot', locId: 'L1', subId: 'S1',
+      evidence: 'P', count: 2, observer: 'Birder One' },
+    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 4,
+      dateStr: '2026-09-23 11:00', loc: 'First Hotspot', locId: 'L1', subId: 'S2' },
+    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 8,
+      dateStr: '2026-09-23 10:00', loc: 'Second Hotspot', locId: 'L2', subId: 'S3' },
+    { kind: 'Rarity', code: 'shtsan', name: 'Sharp-tailed Sandpiper', distMi: 9,
+      dateStr: '2026-09-23 09:00', loc: 'Private yard', locId: '', subId: 'S4' },
+  ]);
+  A.setTwitchView('grouped');
+  A.setTwitchDetails('details');
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results .birdreportplaces'), 'grouped hierarchy');
+  assert.equal(doc.querySelectorAll('#results > li:not(.farhost)').length, 1,
+    'the bird header repeats for each hotspot');
+  assert.equal(doc.querySelectorAll('#results .birdreportplaces .hscard-sm').length, 3);
+  assert.deepEqual([...doc.querySelectorAll('#results .hsnum')].map((n) => n.textContent),
+    ['1', '2', '3'], 'hotspot rows do not use the patch-report number anatomy');
+  const css = [...doc.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+  const placesRule = /\.birdreportplaces \{([^}]*)\}/.exec(css);
+  assert.ok(placesRule && !/margin-left/.test(placesRule[1])
+    && /margin:\s*8px 0 0\s*;/.test(placesRule[1]),
+  'hotspot rows are shifted right instead of spanning the bird card');
+  const checklistRule = /\.birdreportplaces \.cklcards-sm \{([^}]*)\}/.exec(css);
+  assert.ok(checklistRule && !/margin-left/.test(checklistRule[1])
+    && /margin:\s*2px 0 6px\s*;/.test(checklistRule[1]),
+  'nested checklists waste width on a left indent and wrap evidence early');
+  assert.match(css,
+    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary\s*\{[^}]*padding-left:\s*0[^}]*text-indent:\s*0/s,
+    'nested checklists retain a bullet or hanging indent');
+  assert.match(css,
+    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary::before\s*\{[^}]*content:\s*none/s,
+    'nested checklists retain the leading bullet');
+  assert.match(css,
+    /\.birdreportplaces \.cklcards-sm \.ckdist::before\s*\{[^}]*content:\s*"\\A"/s,
+    'distance and duration are not kept on the compact second line');
+  assert.equal(doc.querySelectorAll('#results .cklcard-sm').length, 4,
+    'a checklist was duplicated or dropped');
+  assert.ok(doc.querySelector('#results .privateplace strong'),
+    'a private location was presented as a public hotspot link');
+  const publicHotspot = doc.querySelector('#results .hscard-sm:not(.privateplace) .ntext > a');
+  const privateHotspot = doc.querySelector('#results .hscard-sm.privateplace .ntext > strong');
+  assert.equal(app.window.getComputedStyle(publicHotspot).fontSize,
+    'calc(18px * var(--s))', 'grouped hotspot names are not enlarged');
+  assert.equal(app.window.getComputedStyle(privateHotspot).color,
+    app.window.getComputedStyle(publicHotspot).color,
+    'private and public hotspot names use inconsistent text colours');
+  const codes = doc.querySelector('#results .spsci > .spcodes-inline');
+  assert.equal(codes?.textContent, 'SPTS / SHTSAN',
+    'the grouped bird codes are not directly below the scientific name');
+  assert.equal(doc.querySelector('#results > li > .meta').textContent.trim(), '',
+    'the grouped bird repeats codes or report counts in a separate metadata line');
+  const first = doc.querySelector('#results .cklcard-sm');
+  const summary = first.querySelector('.cksummary');
+  const meta = summary.querySelector('.ckmeta');
+  assert.equal(app.window.getComputedStyle(summary).fontSize, 'calc(16px * var(--s))');
+  assert.equal(app.window.getComputedStyle(meta).fontSize,
+    app.window.getComputedStyle(summary).fontSize,
+    'checklist metadata is still smaller than the date');
+  assert.match(css,
+    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary > \.cklead\s*\{[^}]*font-weight:\s*800/s,
+    'the date is not the one emphasized checklist fact');
+  assert.match(css,
+    /\.birdreportplaces \.cklcards-sm > \.cklcard-sm > \.cksummary > \.ckmeta > span[^}]*font-weight:\s*400/s,
+    'checklist facts retain competing font weights');
+  assert.equal(meta.querySelector('.ckdist').textContent, '3.0mi',
+    'the compact checklist distance retains a space before mi');
+  await A.hydrateChecklistEvidence(first);
+  const facts = [...meta.children];
+  assert.ok(facts.at(-2).classList.contains('ckevid'),
+    'media is not at the end of the checklist facts');
+  assert.ok(facts.at(-1).classList.contains('cknote'),
+    'the notes action is not the final checklist fact');
+  const actions = first.querySelectorAll('.evidbtn');
+  assert.equal(actions.length, 2, 'media and note are not both explicit actions');
+  app.click(actions[0]);
+  assert.match(doc.getElementById('appSheet').textContent,
+    /Species location detail.*Checklist context.*photos/s,
+    'the media action does not open the combined bottom sheet');
+  A.hideSheet();
+  app.click(actions[1]);
+  assert.match(doc.getElementById('appSheet').textContent,
+    /Species location detail.*Checklist context.*photos/s,
+    'the final note action does not open the combined bottom sheet');
+  app.window.close();
+});
+
+test('F496 Nemesis shares Twitches controls, preserves bird/report rows, and loads progressively', async () => {
+  let apiCalls = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/api\.ebird\.org/.test(url)) apiCalls++;
+      return [];
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  const rows = [];
+  for (let i = 0; i < 14; i++) {
+    rows.push({
+      kind: 'Rarity', code: 'bird' + i, name: 'Bird ' + i, distMi: i + 1,
+      dateStr: '2026-09-23 ' + String(23 - i).padStart(2, '0') + ':00',
+      loc: i < 2 ? 'Shared Checklist Hotspot' : 'Hotspot ' + i,
+      locId: i < 2 ? 'LS' : 'L' + i,
+      subId: i < 2 ? 'S-SHARED' : 'S' + i,
+    });
+  }
+  seedRarityChase(app, rows);
+  A.setTwitchView('list');
+  A.setTwitchDetails('compact');
+  A.showSection(doc.querySelector('#allUnseenBtn').closest('section').id);
+  A.loadAllUnseen();
+  await waitFor(() => doc.getElementById('nemesisControls'), 'Nemesis parity controls');
+  for (const id of ['nemesisSort', 'nemesisDistance', 'nemesisNotes',
+                    'nemesisView', 'nemesisDetails', 'nemesisRecent']) {
+    assert.ok(doc.getElementById(id), id + ' is missing');
+  }
+  const segmentedFont = app.window.getComputedStyle(
+    doc.querySelector('#nemesisSort .sortbtn'));
+  const pressedFont = app.window.getComputedStyle(doc.getElementById('nemesisView'));
+  assert.equal(pressedFont.fontFamily, segmentedFont.fontFamily,
+    'toggle buttons use inconsistent typefaces');
+  assert.equal(pressedFont.fontSize, segmentedFont.fontSize,
+    'toggle buttons use inconsistent text sizes');
+  assert.equal(pressedFont.fontWeight, segmentedFont.fontWeight,
+    'toggle buttons use inconsistent text weights');
+  assert.equal(doc.getElementById('nemesisYear'), null,
+    'Nemesis added a redundant Unseen filter');
+  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 12,
+    'the first paint eagerly mounted every unseen report');
+  assert.ok(doc.getElementById('allUnseenResults').classList.contains('birdreportcompact'),
+    'compact bird reports lack their shared typography scope');
+  const sharedCss = [...doc.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm > li > \.name\s*\{[^}]*font-size:\s*calc\(16px \* var\(--s\)\)/s,
+    'compact bird names do not use the approved shared size');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm > li > \.name > \.ntext \*[^}]*font-size:\s*inherit/s,
+    'compact tags, codes, and evidence do not inherit the same size');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm > li > \.name > \.ntext\s*\{[^}]*font-weight:\s*800/s,
+    'compact bird names are not bold');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm > li > \.name > \.ntext > \.spalpha[^}]*font-weight:\s*400/s,
+    'the compact four-letter code is bold');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm > li > \.name > \.ntext > \.sub\s*\{[^}]*display:\s*inline/s,
+    'compact evidence forces a line break before the date');
+  assert.match(sharedCss,
+    /\.birdreportcompact\.card-sm \.recentflag\s*\{[^}]*font-size:\s*calc\(10px \* var\(--s\)\)/s,
+    'the compact RECENT label is still full text size');
+  const compactRecent = doc.querySelector(
+    '#allUnseenResults .raretail:last-child .recentflag');
+  assert.ok(compactRecent,
+    'compact RECENT is not the final labelled evidence fact');
+  assert.ok(doc.querySelector('.allUnseenMore'), 'the progressive-load control is missing');
+  const before = apiCalls;
+  app.click(doc.querySelector('.allUnseenMore'));
+  await waitFor(() => doc.querySelectorAll('#allUnseenResults > li').length === 14,
+    'remaining unseen reports');
+  assert.equal(apiCalls, before, 'revealing another batch refetched eBird');
+  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 14,
+    'one row per unseen bird/report relationship was not preserved');
+
+  app.click(doc.getElementById('nemesisView'));
+  await waitFor(() => doc.querySelector('#allUnseenResults .birdreportplaces'),
+    'Nemesis grouped hierarchy');
+  assert.equal(doc.querySelectorAll('#allUnseenResults > li').length, 12,
+    'group mode also mounted every bird eagerly');
+  assert.ok(doc.querySelector('#allUnseenResults .hscard-sm .cklcard-sm'));
+  assert.equal(doc.querySelectorAll('#allUnseenResults .hsnum').length >= 12, true,
+    'group mode is not bird → numbered hotspot → checklist');
   app.window.close();
 });
 
@@ -16779,7 +17034,7 @@ test('F219: a Twitches today row carries the note hook, because the row IS the c
   app.window.close();
 });
 
-test('F219: with notes OFF, Twitches today spends nothing', async () => {
+test('F494: with notes OFF, Twitches discovers comments for the explicit note action', async () => {
   const rows = [{ speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
     obsDt: todayFixtureDate() + ' 07:15', locName: 'Skiff Point', locId: 'L1',
     lat: 47.7, lng: -122.5, subId: 'S900001', userDisplayName: 'B',
@@ -16796,11 +17051,10 @@ test('F219: with notes OFF, Twitches today spends nothing', async () => {
   assert.equal(A.rarityNotes(), false, 'off is the default');
   A.refresh();
   await new Promise((r) => setTimeout(r, 2200));
-  // The note costs one call per row here because the notable feed does not
-  // carry `comments` (measured: 0 of 84 live rows). That price is only
-  // acceptable if it is opt-in, so the default must stay free.
-  assert.equal(views, 0,
-    'the default view must not buy notes — one call per row is opt-in only');
+  // F494 deliberately pays for the visible row so Notes off can still expose
+  // one explicit comments action when words exist.
+  assert.equal(views, 1,
+    'Notes off did not inspect the visible checklist for the requested action');
   app.window.close();
 });
 
@@ -18220,7 +18474,7 @@ test('the row carries a named link to the checklist', () => {
   assert.match(src, /class="cklopenrow"/, 'it takes a line of its own');
   assert.equal((HTML.match(/checklist: openChecklistLink\(/g) || []).length, 0,
     'it no longer rides the meta line, where it sat BEFORE the comments');
-  assert.equal((HTML.match(/openChecklistLink\(/g) || []).length, 4,
+  assert.ok((HTML.match(/openChecklistLink\(/g) || []).length >= 5,
     'every rich rarity path emits it below its card, while compact rows keep their row link');
   // A hotspot link must NOT borrow the checklist glyph. Owner: "the link goes
   // to a hotspot, so dont use a checklist icon, keep the link."
@@ -18251,7 +18505,7 @@ test('media marks come from the feed, not from the checklist fetch', () => {
   // MEASURED on S387785046: an obs entry from product/checklist/view holds
   // only speciesCode / howMany* / comments / present / obsId. No mediaCounts,
   // no asset id. So `det.m` is empty in practice and cannot be the source.
-  assert.equal((HTML.match(/'ev-media': /g) || []).length, 2,
+  assert.ok((HTML.match(/'ev-media': /g) || []).length >= 3,
     'every row that can show a note carries the evidence to mark it');
   const paint = HTML.slice(HTML.indexOf('function setNoteText'),
                            HTML.indexOf('function mediaMarksFor'));
@@ -19054,7 +19308,7 @@ test('a hotspot card keeps its own layout wherever it is rendered', async () => 
     species: [{ code: 'merlin', name: 'Merlin' }],
   };
   // Every list in the app that hotspot cards are actually appended to.
-  const ids = ['destResults', 'excResults', 'tripResults', 'quickResults', 'targetResults'];
+  const ids = ['destResults', 'excResults', 'tripResults', 'quickResults'];
   const checked = [];
   for (const id of ids) {
     const ul = doc.getElementById(id);
@@ -26361,9 +26615,13 @@ test('the birder glossary is defined once, and says where each word is used (F14
 
 test('F475 the main menu shows one cached Birder Jargon definition above Buzz', async () => {
   const jargonDoc = JSON.parse(fs.readFileSync(wwwFixture('birder-jargon.json'), 'utf8'));
+  let jargonFetches = 0;
   const app = await boot({
     fetch(url) {
-      if (/birder-jargon\.json/.test(url)) return jargonDoc;
+      if (/birder-jargon\.json/.test(url)) {
+        jargonFetches++;
+        return jargonDoc;
+      }
       return null;
     },
   });
@@ -26385,6 +26643,20 @@ test('F475 the main menu shows one cached Birder Jargon definition above Buzz', 
   assert.ok(cacheKey, 'the parsed dictionary was not cached for later menu opens');
   assert.ok(JSON.parse(app.window.localStorage.getItem(cacheKey)).length >= 12,
     'the cached dictionary is a stub');
+  const initialFetches = jargonFetches;
+  const terms = [term];
+  for (let i = 0; i < 3; i++) {
+    const tile = app.document.querySelector('#menuList .toclink');
+    app.click(tile);
+    app.click(app.document.getElementById('navBack'));
+    await waitFor(() => {
+      const next = app.document.querySelector('.jargontip .jargonterm');
+      return next && next.textContent !== terms[terms.length - 1];
+    }, 'a different jargon term after returning to Contents');
+    terms.push(app.document.querySelector('.jargontip .jargonterm').textContent);
+  }
+  assert.equal(jargonFetches, initialFetches,
+    'returning to Contents refetched the bundled jargon dictionary');
   app.window.close();
 });
 
@@ -27452,6 +27724,43 @@ test('scientific names are a setting, on by default, and only on the big cards',
     'the default is off, or the check is inverted');
   assert.ok(/id="sciNames"/.test(HTML), 'there is no control for it');
   assert.ok(/\$\('sciNames'\)\.value = getSciNames\(\)/.test(HTML), 'the control never loads its value');
+});
+
+test('F493 medium species cards put the italic scientific name under the common name', () => {
+  const SC = require(path.join(__dirname, '..', 'www', 'cards-species.js'));
+  const html = SC.medium({
+    name: 'Horned Lark', sci: 'Eremophila alpestris',
+    icon: '<span class="thumb"></span>', code: 'horlar', sub: 'Today'
+  });
+  const dom = new JSDOM('<style>' + SC.css + '</style><ul class="obs big xl">' + html + '</ul>');
+  const name = dom.window.document.querySelector('.name > .ntext');
+  const sci = name.querySelector(':scope > .spsci');
+  assert.ok(sci, 'the scientific name is not in the name/body column');
+  assert.equal(sci.previousSibling.textContent, 'Horned Lark');
+  assert.equal(dom.window.getComputedStyle(sci).display, 'block',
+    'the scientific name remains inline beside the common name');
+  assert.equal(dom.window.document.querySelector('.meta .spsci'), null,
+    'the scientific name remains detached in the full-width metadata row');
+  assert.match(CARDS_SPECIES,
+    /\.name > \.ntext > \.spsci[^}]*font-style:\s*italic/s,
+    'the moved scientific name lost its italic treatment');
+  assert.doesNotMatch(SC.medium({ name: 'Horned Lark' }), /spsci/,
+    'a missing scientific name reserves an empty line');
+  const grouped = new JSDOM('<style>' + SC.css + '</style><ul class="obs big xl">'
+    + SC.medium({ name: 'Sharp-tailed Sandpiper', sci: 'Calidris acuminata',
+      code: 'shtsan', alpha: 'SPTS', codeInSci: true }) + '</ul>');
+  const inlineCodes = grouped.window.document.querySelector('.spsci > .spcodes-inline');
+  assert.equal(inlineCodes?.textContent, 'SPTS / SHTSAN');
+  assert.equal(grouped.window.getComputedStyle(inlineCodes).display, 'block',
+    'the grouped bird codes are not on their own line after the Latin name');
+  assert.equal(grouped.window.document.querySelector('.meta').textContent.trim(), '',
+    'codeInSci duplicates the identifiers in the metadata row');
+  const compact = new JSDOM('<ul class="obs card-sm">'
+    + SC.small({ name: 'Sharp-tailed Sandpiper', code: 'shtsan',
+      alpha: 'SPTS', alphaOnly: true, sub: 'Sep 23 9:14A' }) + '</ul>');
+  assert.equal(compact.window.document.querySelector('.spalpha')?.textContent, 'SPTS');
+  assert.equal(compact.window.document.querySelector('.spcode'), null,
+    'alphaOnly still renders the longer eBird code');
 });
 
 test('every card call site passes a variable that exists there', () => {

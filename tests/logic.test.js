@@ -835,6 +835,7 @@ test('computeChaseViews: the rarity view is a rolling 24 hours, one row per chec
       OBS({ obsId: 'o-d', subId: 'S4', speciesCode: 'gadwal', comName: 'Gadwall', obsDt: '2026-01-13 12:00' })
     ]
   });
+
   const cv = BL.computeChaseViews(wa, {
     rowsToday: today, rowsPrior: waSnapshot({}), nowMs: NOW,
     seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: wa.home, dailyDriveMi: wa.dailyDriveMi
@@ -858,6 +859,20 @@ test('computeChaseViews: the rarity view is a rolling 24 hours, one row per chec
   });
   assert.deepEqual(later.notableToday.map((r) => r.subId), [],
     'the window really is rolling, not a date comparison in disguise');
+});
+
+test('F492 Recent tags and filters share the exact notableRecent eligibility boundary', () => {
+  const now = Date.parse('2026-09-23T20:00:00');
+  const row = (hours) => ({
+    kind: 'Rarity', code: 'boundary', name: 'Boundary Bird',
+    dateStr: new Date(now - hours * 3600000).toISOString().slice(0, 16).replace('T', ' ') + 'Z'
+  });
+  assert.equal(BL.notableRecentEligible(row(23), now), true);
+  assert.equal(BL.notableRecentEligible(row(28), now), true,
+    'the existing five-hour old-edge grace was lost');
+  assert.equal(BL.notableRecentEligible(row(30), now), false);
+  assert.equal(BL.notableRecent([row(23), row(28), row(30)], now).length, 2,
+    'the list filter drifted from the exported eligibility predicate');
 });
 
 // The old calendar-day helper is KEPT, and still means one calendar day. An

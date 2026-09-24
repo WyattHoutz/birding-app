@@ -49,8 +49,8 @@
 
   var MEDIUM = [
     '<li class="{{cls}}"{{attrs}}>',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}</span>{{dist}}{{primary}}</div>',
-    '  <div class="meta">{{metaaction}}{{code}}{{sci}}{{when}}{{sub}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{sci}}{{tags}}{{actions}}</span>{{dist}}{{primary}}</div>',
+    '  <div class="meta">{{metaaction}}{{code}}{{when}}{{sub}}</div>',
     '  {{conf}}',
     '  {{below}}',
     '</li>'
@@ -245,7 +245,14 @@
        who knows the convention reads it as a scientific name without being
        told. Quieter than the common name because it is the SECOND answer to
        "what is this bird", never the first. */
-    '.obs.card-md > li > .meta > .spsci { font-style: italic; color: var(--muted); }',
+    '.obs.xl > li > .name > .ntext > .spsci,',
+    '.obs.card-md > li > .name > .ntext > .spsci {',
+    '  display: block; font-style: italic; color: var(--muted);',
+    '  font-size: calc(14px * var(--s)); font-weight: 500; line-height: 1.25;',
+    '  margin-top: 1px; }',
+    '.obs.xl > li > .name > .ntext > .spsci > .spcodes-inline,',
+    '.obs.card-md > li > .name > .ntext > .spsci > .spcodes-inline {',
+    '  display: block; font-style: normal; font-weight: 600; }',
     /* Child-scoped, like every other card rule here. A descendant selector
        leaks into the SMALL cards nested inside a large one - which is the
        exact failure the guard on this file exists to catch, and it caught
@@ -610,9 +617,13 @@
 
   function codeHtml(v, tpl) {
     if (tpl !== MEDIUM && tpl !== SMALL && tpl !== LARGE) return '';
+    if (v.codeInSci && tpl === MEDIUM && sciText(v.sci)) return '';
     var c = codeText(v.code);
     if (!c) return '';
     var a = alphaText(v.alpha);
+    if (tpl === SMALL && v.alphaOnly) {
+      return a ? '<span class="spalpha">' + a + '</span>' : '';
+    }
     // A SEPARATOR, because without one the two codes fuse into a word that is
     // neither: the device showed "norwatNOWA" and "eleter1ELTE". They are two
     // different identifiers — eBird's and the banding code a birder says out
@@ -663,8 +674,16 @@
     var n = sciText(v.sci);
     if (!n) return '';
     if (tpl === LARGE) return '<div class="bcsci">' + n + '</div>';
-    var sep = subHtml(v, false) ? '<span class="spcodesep"> \u00b7 </span>' : '';
-    return '<span class="spsci">' + n + '</span>' + sep;
+    var codes = '';
+    if (v.codeInSci) {
+      var alpha = alphaText(v.alpha);
+      var code = codeText(v.code).toUpperCase();
+      if (alpha || code) {
+        codes = '<span class="spcodes-inline">'
+          + [alpha, code].filter(Boolean).join(' / ') + '</span>';
+      }
+    }
+    return '<span class="spsci">' + n + codes + '</span>';
   }
 
   function confHtml(v, tpl) {

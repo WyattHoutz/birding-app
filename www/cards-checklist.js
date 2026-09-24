@@ -328,7 +328,7 @@
 
   function build(tpl, v, isMedium) {
     v = v || {};
-    var bits = [], summary = [], meta = [];
+    var bits = [], summary = [], meta = [], trailingIcons = '';
     if (isMedium) {
       // MEDIUM: a plain-place card keeps the historical headline checklist
       // link. When `placeHtml` supplies an in-app hotspot name, `dateHref`
@@ -371,7 +371,8 @@
       // reads as though it belongs to the mileage. Pre-escaped by the caller:
       // this is a fixed set of marks the app builds, not user text.
       if (v.icons) {
-        summary.push('<span class="ckevid">' + v.icons + '</span>');
+        if (v.iconsAtEnd) trailingIcons = v.icons;
+        else summary.push('<span class="ckevid">' + v.icons + '</span>');
       }
       if (v.place && v.date) {
         var dateText = esc(shortWhen(v.date, true));
@@ -438,7 +439,7 @@
       // two hotspots ten minutes apart.
       // Tappable when the caller knows where the place is: `distQ` is a plain
       // "lat,lng" and the app's delegated `.maplink` handler owns the URL.
-      var dtxt = Number(v.distMi).toFixed(1) + ' mi';
+      var dtxt = Number(v.distMi).toFixed(1) + (v.compactDistance ? 'mi' : ' mi');
       (isMedium ? bits : meta).push(v.distQ
         ? '<a class="ckdist maplink" data-q="' + coordQ(v.distQ)
           + '" aria-label="Open in Maps">' + dtxt + '</a>'
@@ -462,6 +463,9 @@
         meta.push('<span class="ckduration"'
           + (!duration && v.durationPending ? ' data-pending="1"' : '')
           + '>' + duration + '</span>');
+      }
+      if (trailingIcons) {
+        meta.push('<span class="ckevid">' + trailingIcons + '</span>');
       }
     }
 

@@ -1302,22 +1302,22 @@
     return sub + ':' + (r.code || r.speciesCode || '');
   }
 
-  function notableRecent(records, nowMs, hours) {
+  function notableRecentEligible(r, nowMs, hours) {
     var now = isFinite(nowMs) ? nowMs : Date.now();
     var span = (isFinite(hours) ? hours : NOTABLE_WINDOW_H) * 3600000;
     var grace = NOTABLE_GRACE_H * 3600000;
+    if (!r) return false;
+    var t = Date.parse(String(r.dateStr || '').replace(' ', 'T'));
+    if (!isFinite(t)) return false;
+    var age = now - t;
+    return age <= span + grace && age >= -span;
+  }
+
+  function notableRecent(records, nowMs, hours) {
     var seenSubs = {}, out = [];
     (records || []).forEach(function (r) {
       if (r.kind !== 'Rarity') return;
-      var t = Date.parse(String(r.dateStr || '').replace(' ', 'T'));
-      // An unreadable date is DROPPED, not kept: this list is a claim about
-      // when something happened, and a row that cannot support the claim has
-      // no business leading it.
-      if (!isFinite(t)) return;
-      var age = now - t;
-      // The grace applies only to the OLD edge. A future-dated row is a clock
-      // problem, not a long walk, and widening that side would let one in.
-      if (age > span + grace || age < -span) return;
+      if (!notableRecentEligible(r, nowMs, hours)) return;
       var sub = obsDedupKey(r);
       if (sub && seenSubs[sub]) return;
       if (sub) seenSubs[sub] = 1;
@@ -4739,7 +4739,8 @@
     FULL_DAY_TOP: FULL_DAY_TOP,
     excursions: excursions,
     notableToday: notableToday,
-    notableRecent: notableRecent, NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,
+    notableRecent: notableRecent, notableRecentEligible: notableRecentEligible,
+    NOTABLE_WINDOW_H: NOTABLE_WINDOW_H,
     NOTABLE_GRACE_H: NOTABLE_GRACE_H,
     SURGE: SURGE,
     surgeEvents: surgeEvents,
