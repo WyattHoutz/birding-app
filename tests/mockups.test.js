@@ -241,14 +241,14 @@ test('F504-F509 release fixtures show the current Twitches and Nemesis card cont
     'the removed RECENT tag returned to the release fixture');
 });
 
-test('Mega rarity mockups exercise the real scope and sort controls', () => {
+test('F551 Mega rarity mockups exercise the current direct photo slot and controls', () => {
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
     '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
-    '#abaResults .megaphoto',
+    '#abaResults li[data-mega-code] > .name > .thumb',
     '#abaResults .megajump',
     '#abaResults .spmetric-age',
     '#abaResults .spmetric-distance',
@@ -632,7 +632,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
-    '#abaResults .megaphoto',
+    '#abaResults li[data-mega-code] > .name > .thumb',
     '#abaResults .megajump',
     '#abaResults .spmetric-age',
     '#abaResults .spmetric-distance',

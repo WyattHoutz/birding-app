@@ -132,7 +132,7 @@ const STUB_SPEC = {
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
-      '#abaResults .megaphoto', '#abaResults .megajump',
+      '#abaResults li[data-mega-code] > .name > .thumb', '#abaResults .megajump',
       '#abaResults .spmetric-age', '#abaResults .spmetric-distance'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
