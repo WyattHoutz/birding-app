@@ -2247,42 +2247,19 @@
        `margin-top: 8px` from that same rule is also cancelled: inside a
        block name line it opens a gap that belongs to nothing. */
     .rankrow .wholine a.extlink { font-size: inherit; margin-top: 0; }
-    /* The last bird this birder added. A tap target, so it clears the 40px
-       rule by padding rather than by font size — the code itself must stay
-       small or it competes with the name it sits under.
-
-       IT WRAPS NOW, and that is deliberate. The line carried one four-letter
-       code and could afford `nowrap`; it now carries a full common name, the
-       code and a date, and "Black-throated Gray Warbler (BTYW) · Aug 24" does
-       not fit 320px at any text scale. `word-break: normal` is the F181 guard:
-       break at a SPACE and take two lines, never one letter per line, which is
-       the collapse that scored a PASS in the overflow audit because crushed
-       text is not clipped text. */
-    .rankrow .ranklast { display: block; margin-top: 2px;
-                         /* ⚠️ F262. HANGING INDENT, so the wrap point stops
-                            looking arbitrary. Owner, from the device: *"the
-                            bird name and details are wrapping at a midpoint
-                            that doesnt make sense."*
-
-                            It was not a midpoint — it was the THUMB. The icon
-                            is `inline-block` in a block of text, so the first
-                            line is short by the icon's width and every line
-                            after it runs the full width, starting UNDER the
-                            icon. "+ American / Golden-Plover" breaks after one
-                            word while the line below has room to spare, which
-                            is exactly what an unexplained break looks like.
-
-                            padding-left + a matching negative text-indent is
-                            the standard fix: line one still begins at the icon,
-                            and continuation lines align with the NAME. Derived
-                            from the same expression the thumb is sized by, so
-                            the two cannot drift — a second copy of that number
-                            is how F259's namespaces came apart. */
-                         padding-left: calc((20px * var(--s) * var(--rf)) + 6px);
-                         text-indent: calc(-1 * ((20px * var(--s) * var(--rf)) + 6px));
-                         font-size: calc(12px * var(--s) * var(--rfc)); font-weight: 700;
-                         color: var(--muted); white-space: normal;
-                         overflow-wrap: break-word; word-break: normal; }
+    /* The newest bird is a second full-width grid row. Keeping it inside the
+       birder-name column made a wide phone behave like a narrow badge: the
+       image consumed the first line and the bird wrapped in the unused space
+       beneath the movement/species columns. */
+    .rankrow .ranklast { grid-column: 1 / -1; grid-row: 2; display: flex;
+                         align-items: center; gap: 7px; min-width: 0;
+                         margin-top: 4px; font-size: calc(13px * var(--s) * var(--rfc));
+                         font-weight: 700; color: var(--muted);
+                         white-space: nowrap; }
+    .rankrow .rankbird { display: flex; align-items: baseline; gap: 6px;
+                         min-width: 0; flex: 1 1 auto; white-space: nowrap; }
+    .rankrow .rankbird > a { min-width: 0; overflow: hidden;
+                             text-overflow: ellipsis; white-space: nowrap; }
     .rankrow .ranklast small { font-weight: 600; opacity: .8;
                                white-space: nowrap; }
     .rankrow .ranklast a { color: var(--accent); text-decoration: none;
@@ -2293,11 +2270,9 @@
        size derived from the SAME --rf the row's type uses, and it keeps
        scaling with --s so it cannot clip at a large text setting (the fixed-
        box rule the CSS-wide guard enforces). */
-    .rankrow .ranklast .thumb { float: none; display: inline-block;
-                                vertical-align: -0.28em; margin: 0 6px 0 0;
-                                width: calc(20px * var(--s) * var(--rf));
-                                height: calc(20px * var(--s) * var(--rf));
-                                border-radius: 5px; }
+    .rankrow .ranklast .thumb { float: none; display: block; flex: 0 0 auto;
+                                margin: 0; width: calc(36px * var(--s));
+                                height: calc(36px * var(--s)); border-radius: 7px; }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
@@ -3719,7 +3694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.128.0';
+      var APP_VERSION = '1.129.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6161,7 +6136,8 @@
         if (el) el.hidden = true;
       }
       function fgProgressSync() {
-        var busy = _fgWaiters.length + _fgBgWaiters.length + _fgActive;
+        var busy = _fgWaiters.length
+          + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0);
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
         var stall = fgVisibleStall();
         if (_stage || busy || stall) {
@@ -13068,7 +13044,8 @@
         var nearby = (places || []).filter(spLookupPlaceReachable);
         var regionalFallback = _spLookupWithinChase && !nearby.length;
         var intro = regionalFallback
-          ? '<div class="hint">Nothing is within <b>' + chaseMaxMi().toFixed(0)
+          ? '<div class="hint">No physically reachable reports are within <b>'
+            + chaseMaxMi().toFixed(0)
             + ' mi</b>; showing all regional evidence so this Stakeout search '
             + 'does not hide available checklists.</div>'
           : '';
@@ -17806,6 +17783,8 @@
           // as a number and must NOT also appear in `facts`.
           distance: (o.distMi != null && isFinite(o.distMi)) ? o.distMi : null,
           distanceLabel: o.distanceLabel || null,
+          distanceTop: o.distanceTop || '',
+          distanceTopLabel: o.distanceTopLabel || '',
           // ...and it is the thing that takes you there. One line here covers
           // every hotspot list in the app, because they all build through this.
           distQ: distQ(o.lat, o.lng),
@@ -23553,8 +23532,9 @@
       : '';
     return '<span class="ranklast' + (fresh ? ' isnew' : '')
       + '" title="' + esc('newest: ' + p.species
-      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + mark + pic + '+ ' + inner
-      + (tail ? ' <small>' + esc(tail) + '</small>' : '') + '</span>';
+      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + mark + pic
+      + '<span class="rankbird">' + inner
+      + (tail ? '<small>' + esc(tail) + '</small>' : '') + '</span></span>';
   }
   // F262. "the last week", one definition, used by the mark and the filter —
   // two copies of a threshold is how F259's namespaces drifted.
@@ -23825,14 +23805,18 @@
           var p = lastNewParse(r && r.recent);
           if (p && p.date && rankTickIsFresh(p.date)) freshN++;
         });
+        if (!freshN) _rankNewOnly = false;
         var bar = document.createElement('div');
         bar.className = 'hint';
         bar.style.margin = '0 0 8px';
         bar.innerHTML = freshN
           ? ToggleControls.pressed({
             id: 'rankNewOnly', cls: 'ranknewbtn', icon: '\uD83C\uDD95',
-            label: 'Recent',
-            ariaLabel: freshN + ' additions from the last ' + RANK_FRESH_DAYS + ' days',
+            label: _rankNewOnly ? 'Show all' : 'Recent only (' + freshN + ')',
+            ariaLabel: _rankNewOnly
+              ? 'Show all Top 100 rows'
+              : 'Show ' + freshN + ' additions from the last '
+                + RANK_FRESH_DAYS + ' days only',
             pressed: _rankNewOnly
           })
           : 'No new ticks on the board in the last ' + RANK_FRESH_DAYS + ' days.';
@@ -23856,10 +23840,10 @@
           h += '<div class="rankrow' + (mine ? ' rankme' : '') + '">' +
             '<span class="rk">' + esc(r.rank) + '</span>' +
             '<span class="who"><span class="wholine">' + who
-              + (mine ? ' <span class="star">you</span>' : '') + '</span>'
-              + rankLastNewHTML(r) + '</span>' +
+              + (mine ? ' <span class="star">you</span>' : '') + '</span></span>' +
               boardMoveHTML(boardDeltasFor(bhist, r.name, bnow)) +
-              '<span class="n">' + esc(rankNum(r.species)) + '</span></div>';
+              '<span class="n">' + esc(rankNum(r.species)) + '</span>'
+              + rankLastNewHTML(r) + '</div>';
         });
         tbl.innerHTML = h;
         out.appendChild(tbl);
@@ -27806,11 +27790,14 @@
       // Hot and Cold rows are hotspots with birds at them, which is the exact
       // question hotspotCard answers — so they render through it rather than
       // through a fourth hand-rolled row shape.
-      function hotspotRow(h, extra, n) {
+      function hotspotRow(h, extra, n, opts) {
+        opts = opts || {};
         var sp = splitHotspotBirds(h);
         var card = hotspotCard({
           n: n, locId: h.locId, locName: h.name, lat: h.lat, lng: h.lng,
           distMi: h.dist,
+          distanceTop: opts.distanceTop || '',
+          distanceTopLabel: opts.distanceTopLabel || '',
           facts: [extra],
           species: sp.unseen, seenSpecies: sp.seen
         });
@@ -28045,11 +28032,17 @@
             // The sub-header answers "how alive is this place, and when was
             // anyone last here" — the date leads because a 42-species haul
             // from nine days ago is a different proposition from one today.
-            var bits = (h.latest ? 'latest ' + esc(fmtDate(h.latest)) : '')
-              + (h.latest ? ' · ' : '') + h.fresh + ' species';
-            if (h.checklists) bits += ' · ' + h.checklists + ' recent checklist' + (h.checklists === 1 ? '' : 's');
-            bits += ' · ' + h.share.toFixed(0) + '% of region';
-            html += hotspotRow(h, bits, i + 1);
+            var hotFacts = [];
+            if (h.latest) hotFacts.push('latest ' + esc(fmtDate(h.latest)));
+            if (h.checklists) hotFacts.push(h.checklists + ' recent checklist'
+              + (h.checklists === 1 ? '' : 's'));
+            hotFacts.push(h.share.toFixed(0) + '% of region');
+            var bits = hotFacts.join(' · ');
+            html += hotspotRow(h, bits, i + 1, {
+              distanceTop: '🔥 ' + h.fresh + ' species / ' + HOTSPOT_OWN_DAYS + 'd',
+              distanceTopLabel: h.fresh + ' species reported in the last '
+                + HOTSPOT_OWN_DAYS + ' days'
+            });
           });
           html += '</ul>';
         } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';

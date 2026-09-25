@@ -296,6 +296,10 @@
     '.hscard-md > .name > .hsdist small {',
     '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
     '  color: var(--muted); letter-spacing: .02em; }',
+    '.hscard-md > .name > .hsdist .hsdisttop {',
+    '  display: block; margin-bottom: 3px; font-size: calc(10px * var(--s));',
+    '  font-weight: 800; line-height: 1.1; color: #D55E00;',
+    '  letter-spacing: 0; white-space: nowrap; }',
     /* Species lists, the expander and the actions row all span every column. */
     '.hscard-md > * { grid-column: 1 / -1; }',
     /* .meta is NOT reset here — it is meant to span, and this rule would
@@ -385,7 +389,15 @@
     // same class of bug as a sub-header that repeated the distance it already
     // had a column for.
     var unit = v.distanceLabel || 'mi';
-    var body = (n < 10 ? n.toFixed(1) : String(Math.round(n))) + '<small>' + unit + '</small>';
+    var top = v.distanceTop
+      ? '<span class="hsdisttop"'
+        + (v.distanceTopLabel ? ' aria-label="' + String(v.distanceTopLabel)
+          .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"' : '')
+        + '>' + v.distanceTop + '</span>'
+      : '';
+    var body = top + (n < 10 ? n.toFixed(1) : String(Math.round(n)))
+      + '<small>' + unit + '</small>';
     // Tappable, for the same reason as the species card: the distance is the
     // fact that answers "can I go", so it is also the thing that takes you.
     // `distQ` is a plain "lat,lng", not a URL — see cards-species.js.

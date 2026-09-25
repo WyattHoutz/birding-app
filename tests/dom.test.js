@@ -186,6 +186,8 @@ function seedRarityChase(app, rows) {
     locId: row.locId,
     subId: row.subId,
     userDisplayName: row.observer,
+    howMany: row.count,
+    evidence: row.evidence,
     subnational2Code: 'US-WA-033',
     subnational2Name: 'King',
   }));
@@ -6182,6 +6184,32 @@ test('a long wave reports staged progress instead of a moving total', async () =
   assert.equal(A.progressState(), null, 'and the stage clears when it is done');
 });
 
+test('F539 background checklist notes do not toggle the global progress bar', async () => {
+  let release;
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S-NOTE-BG-0/.test(url)) {
+        return new Promise((resolve) => { release = () => resolve({ obs: [] }); });
+      }
+      if (/product\/checklist\/view\/S-NOTE-BG-/.test(url)) return { obs: [] };
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const pending = Promise.all([
+    A.ebirdBg('product/checklist/view/S-NOTE-BG-0'),
+    A.ebirdBg('product/checklist/view/S-NOTE-BG-1'),
+    A.ebirdBg('product/checklist/view/S-NOTE-BG-2'),
+  ]);
+  await waitFor(() => typeof release === 'function', 'background checklist request');
+  A.fgProgressSync();
+  assert.equal(app.$('loadBar').hidden, true,
+    'background note hydration inserted the global bar and shifted the view');
+  release();
+  await pending;
+  app.window.close();
+});
+
 // "I would the loading progress bar to show more granular progress with more
 // detailed descriptions or more specific descriptions of what its doing. its
 // not clear what its loading."
@@ -7549,6 +7577,56 @@ test('F519 Nemesis shares the right-edge pending Notes action in both views', as
   assert.ok(app.document.querySelector(
     '#allUnseenResults .birdreportplaces .cklcard-sm .cknote-pending'),
   'grouped Nemesis has no right-edge pending Notes action');
+  app.window.close();
+});
+
+test('F541-F545 Mega uses the shared report cards in both views', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [{
+    speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+    sciName: 'Calidris acuminata', obsDt: '2026-09-24 15:49',
+    locName: 'Leque Island--Davis Slough Access', locId: 'L-MEGA',
+    subId: 'S-MEGA', howMany: 2, userDisplayName: 'Scott Ramos',
+    evidence: 'P', lat: 47.75, lng: -122.65, subnational1Code: 'US-WA',
+  }];
+  const meta = {
+    reportSlug: 'wa', region: 'US-WA', sid: 'SN10489',
+    scope: 'state', reportLabel: 'Washington', stateName: 'Washington',
+    country: 'US', stateRows: rows,
+  };
+
+  app.window.localStorage.setItem('ebird_twitch_view_v1', 'list');
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=SN10489',
+    true, false, meta);
+  let card = app.document.querySelector('#abaReportResults > li');
+  assert.ok(card.querySelector(':scope > .name > .thumb'),
+    'Mega wraps its photo outside the shared medium-card thumbnail selector');
+  assert.ok(card.querySelector(':scope > .meta > .spmetaact .cknote-pending'),
+    'ungrouped Mega has no shared pending Notes action');
+  assert.match(card.querySelector('.rarewhere').textContent, /×2/,
+    'ungrouped Mega omits the checklist bird count');
+  assert.equal(card.querySelectorAll('.rareflags').length, 1,
+    'ungrouped Mega duplicates its media evidence');
+  assert.equal(card.querySelectorAll('.spmetric').length, 2,
+    'ungrouped Mega omits the relative-age or distance metric');
+
+  app.window.localStorage.setItem('ebird_twitch_view_v1', 'grouped');
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=SN10489',
+    true, false, meta);
+  card = app.document.querySelector('#abaReportResults > li');
+  const checklist = card.querySelector('.birdreportplaces .cklcard-sm');
+  assert.ok(card.querySelector(':scope > .name > .thumb'),
+    'grouped Mega does not use the shared medium-card thumbnail path');
+  assert.ok(checklist, 'grouped Mega does not use the shared small checklist card');
+  assert.match(checklist.textContent, /9\/24 3:49p/i);
+  assert.match(checklist.textContent, /Scott Ramos/);
+  assert.match(checklist.textContent, /×2/);
+  assert.match(checklist.textContent, /mi/);
+  assert.equal(checklist.querySelector('.ckmap'), null,
+    'grouped Mega invented a separate map pin beside the shared distance action');
+  assert.ok(checklist.querySelector('.cknote-pending'),
+    'grouped Mega checklist has no shared pending Notes action');
   app.window.close();
 });
 
@@ -12589,6 +12667,35 @@ test('F506 Twitches has no Compact control and always renders medium cards', asy
   app.window.close();
 });
 
+test('F545 ungrouped Twitches keeps count, age, and one media mark', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  app.window.localStorage.setItem('ebird_twitch_view_v1', 'list');
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'fieldbird', name: 'Field Bird', distMi: 3,
+    lat: 47.6, lon: -122.1, dateStr: new Date(Date.now() - 2 * 3600000)
+      .toISOString().slice(0, 16).replace('T', ' '),
+    loc: 'Field Park', locId: 'L-FIELD', subId: 'S-FIELD',
+    count: 4, evidence: 'P', observer: 'Field Observer',
+  }]);
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results > li'), 'ungrouped Twitches row');
+  const row = doc.querySelector('#results > li');
+  assert.match(row.querySelector('.rarewhere').textContent, /×4/);
+  assert.match(row.querySelector('.spmetric-age').textContent, /^(?:now|[0-9]+[mhd] ago)age$/,
+    'ungrouped Twitches omits the relative-age metric');
+  assert.equal(row.querySelectorAll('.rareflags').length, 1,
+    'media evidence appears more than once');
+  app.window.close();
+});
+
+test('F546 Twitches status starts directly below its header controls', async () => {
+  const app = await boot();
+  assert.equal(app.window.getComputedStyle(app.$('status')).paddingTop, '0px',
+    'the empty status padding leaves a blank line below the RBA header');
+  app.window.close();
+});
 test('F509 Twitches prints NEW and RARE after the bird name and never RECENT or R', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
@@ -12964,6 +13071,29 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
   // other leaves the card contradicting itself on its own line.
   assert.ok(!/\b2 species\b/.test(card.querySelector('.meta').textContent),
     'the species count is re-stated from the corrected list, not left at the feed sample size');
+  app.window.close();
+});
+
+test('F550 Hot patches says why each patch is hot above its distance', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  A.renderHot({
+    hot: [{
+      locId: 'L-HOT', name: 'Burst Marsh', lat: 47.7, lng: -122.2, dist: 8,
+      fresh: 12, checklists: 4, share: 18, latest: todayFixtureDate(),
+      birds: [{ name: 'Tufted Puffin', code: 'tufpuf', unseen: true }],
+    }],
+  });
+  const card = doc.querySelector('#hotResults .hscard-md');
+  const metric = card.querySelector('.hsdist .hsdisttop');
+  assert.ok(metric, 'the Hot patches header gives no reason for its ranking');
+  assert.equal(metric.textContent.trim(), `🔥 12 species / ${A.HOTSPOT_OWN_DAYS}d`);
+  assert.equal(metric.getAttribute('aria-label'),
+    `12 species reported in the last ${A.HOTSPOT_OWN_DAYS} days`);
+  assert.equal(metric.parentElement.classList.contains('hsdist'), true,
+    'the surge metric is not above the large distance in the header');
+  assert.doesNotMatch(card.querySelector('.meta').textContent, /\b12 species\b/,
+    'the same surge count is repeated in the sub-header');
   app.window.close();
 });
 
@@ -20338,7 +20468,7 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
   app.window.close();
 });
 
-test('the Mega index routes every row target to exact-code Stakeout and Back', async () => {
+test('the Mega index routes every row and species name to exact-code Stakeout and Back', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\//.test(url)) return [];
@@ -20369,7 +20499,8 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
   items.forEach((li) => {
     assert.ok(li.dataset.megaCode && li.dataset.megaView,
       'the row carries an exact code and opaque view key');
-    assert.ok(li.querySelector('.megaphoto'), 'the photo is a Stakeout target');
+    assert.ok(li.querySelector(':scope > .name > .thumb'),
+      'the photo uses the shared medium-card thumbnail slot');
     assert.ok(li.querySelector('.ntext a.megajump'), 'the name is a Stakeout target');
     assert.ok(li.querySelector('.spmetricstack'),
       'the shared age/distance metrics are missing');
@@ -20389,8 +20520,8 @@ test('the Mega index routes every row target to exact-code Stakeout and Back', a
     'a nested QR/checklist/map/hotspot-style action is not stolen by row navigation');
   qr.remove();
 
-  app.click(items[0].querySelector('.megaphoto'));
-  assert.equal(A.megaViewState().active.code, 'tersan', 'photo uses the exact row code');
+  app.click(items[0]);
+  assert.equal(A.megaViewState().active.code, 'tersan', 'row uses the exact species code');
   await settleMegaEntry(app, 'tersan');
   assert.equal(doc.getElementById('sec-spLookupBtn').hidden, false);
   assert.match(doc.getElementById('navBack').getAttribute('aria-label'), /Mega rarities/);
@@ -29287,6 +29418,10 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       if (/product\/lists\//.test(url)) return lists;
       if (/data\/obs\/L1\/recent/.test(url)) {
         return [
+          { speciesCode: 'mallar3', comName: 'Mallard',
+            subId: 'S1', howMany: 4 },
+          { speciesCode: 'amecro', comName: 'American Crow',
+            subId: 'S2', howMany: 2 },
           { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
             subId: 'S11', howMany: 2 },
           { speciesCode: 'whcspa', comName: 'White-crowned Sparrow',
@@ -29305,12 +29440,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
             subId: 'S17', howMany: 1 },
           { speciesCode: 'fixture8', comName: 'Fixture Bird 8',
             subId: 'S18', howMany: 1 },
-        ].concat(Array.from({ length: 10 }, (_, i) => ({
-          speciesCode: 'fixture' + (i + 3),
-          comName: 'Fixture Bird ' + (i + 3),
-          subId: 'S' + (i + 3),
-          howMany: 1,
-        })));
+        ];
       }
       if (/product\/checklist\/view\//.test(url)) {
         checklistViews++;
@@ -29356,10 +29486,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       { code: 'fixture6', alpha: 'F006' },
       { code: 'fixture7', alpha: 'F007' },
       { code: 'fixture8', alpha: 'F008' },
-    ].concat(Array.from({ length: 10 }, (_, i) => ({
-      code: 'fixture' + (i + 3),
-      alpha: 'F' + String(i + 3).padStart(3, '0'),
-    }))),
+    ],
   }));
   A.renderHot({
     hot: [{
@@ -29374,11 +29501,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
         { name: 'Fixture Bird 6', code: 'fixture6', unseen: true },
         { name: 'Fixture Bird 7', code: 'fixture7', unseen: true },
         { name: 'Fixture Bird 8', code: 'fixture8', unseen: true },
-      ].concat(Array.from({ length: 10 }, (_, i) => ({
-        name: 'Fixture Bird ' + (i + 3),
-        code: 'fixture' + (i + 3),
-        unseen: true,
-      }))),
+      ],
     }],
   });
   await waitFor(() => app.document.querySelector('.hotspotChecklistProgress'),
@@ -31073,15 +31196,65 @@ test('the top 100 board names the newest bird, not just its banding code', async
   assert.ok(codes.every((c) => /\(/.test(c)),
     `the banding code rides along in a small tail: ${codes.join(' | ')}`);
 
-  // F181: a longer label must be allowed to take a second LINE. `nowrap` was
-  // affordable for four letters and is not affordable for a full name plus a
-  // code plus a date - and the failure mode of getting this wrong is one
-  // letter per line, which the overflow audit scores as a PASS.
+  assert.doesNotMatch(txt[0], /\+\s+Common/,
+    'the obsolete plus sign still precedes the named bird');
+  // F549: the newest bird owns the full width beneath the numeric row rather
+  // than wrapping inside the birder-name column.
   const st = app.window.getComputedStyle(last[0]);
-  assert.notEqual(st.whiteSpace, 'nowrap',
-    'a full common name cannot be held on one line at 320px');
-  assert.equal(st.wordBreak, 'normal',
-    'and it must break at a SPACE, never mid-word');
+  assert.equal(st.whiteSpace, 'nowrap');
+  assert.ok(last[0].parentElement.classList.contains('rankrow'),
+    'the newest bird is still trapped inside the birder-name column');
+  assert.match(HTML,
+    /\.rankrow \.ranklast \{ grid-column: 1 \/ -1; grid-row: 2; display: flex;/,
+    'the newest bird does not span the available row width');
+  const thumb = last[0].querySelector('.thumb');
+  assert.ok(thumb, 'the newest-bird image is missing');
+  assert.match(HTML,
+    /\.rankrow \.ranklast \.thumb \{[\s\S]{0,180}width: calc\(36px \* var\(--s\)\)/,
+    'the newest-bird image is still the old 30px-or-smaller badge');
+  app.window.close();
+});
+
+test('F549 Top 100 Recent filters by addition date and visibly changes state', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function recent(name, daysAgo) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - daysAgo);
+    return `${name} (${month[d.getMonth()]}. ${d.getDate()}, ${d.getFullYear()})`;
+  }
+  app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
+    JSON.stringify({ t: Date.now(), rows: [
+      { name: 'Fresh Bird', code: 'shtsan', alpha: 'SPTS' },
+      { name: 'Old Bird', code: 'pecsan', alpha: 'PESA' },
+    ] }));
+  const board = { me: null, rows: [
+    { rank: 1, name: 'Fresh Birder', species: 352,
+      recent: recent('Fresh Bird', 2) },
+    { rank: 2, name: 'Old Birder', species: 351,
+      recent: recent('Old Bird', 12) },
+  ] };
+  A.renderRankings(board, 'US-WA', 'https://ebird.org/top100', 'Washington');
+  let rows = [...doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].querySelectorAll('.ranknew').length, 1,
+    'a date inside the seven-day window lacks NEW');
+  assert.equal(rows[1].querySelectorAll('.ranknew').length, 0,
+    'an old addition is incorrectly tagged NEW');
+  app.click(doc.getElementById('rankNewOnly'));
+  rows = [...doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
+  assert.deepEqual(rows.map((row) => row.querySelector('.wholine').textContent.trim()),
+    ['Fresh Birder'], 'Recent did not filter out the older addition');
+  const pressed = doc.getElementById('rankNewOnly');
+  assert.equal(pressed.getAttribute('aria-pressed'), 'true');
+  assert.match(pressed.textContent, /Show all/,
+    'the pressed filter gives no textual indication that the board changed');
+  app.click(pressed);
+  assert.equal(doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)').length, 2,
+    'Show all did not restore the full board');
   app.window.close();
 });
 
@@ -33535,14 +33708,16 @@ test('F262: a birder name is sized like every other name in a list', () => {
   const n = /\.rankrow \.n \{([^}]*)\}/.exec(HTML);
   assert.match(n[1], /--rf/, 'the species count still scales with the row');
 
-  // The wrap fix: a hanging indent, DERIVED from the thumb's own size so the
-  // two cannot drift apart.
+  // F549 reverses F262's hanging indent by moving the bird out of the narrow
+  // name cell altogether. It must now own a second full-width, non-wrapping
+  // grid row; the birder-name sizing rule above remains unchanged.
   const rl = /\.rankrow \.ranklast \{([\s\S]*?)\}/.exec(HTML);
   assert.ok(rl, '.rankrow .ranklast still exists');
-  assert.match(rl[1], /padding-left: calc\(\(20px \* var\(--s\) \* var\(--rf\)\) \+ 6px\)/,
-    'continuation lines are indented past the icon');
-  assert.match(rl[1], /text-indent: calc\(-1 \* \(\(20px \* var\(--s\) \* var\(--rf\)\) \+ 6px\)\)/,
-    'and the first line still starts at the icon — that is what makes it hang');
+  assert.match(rl[1], /grid-column: 1 \/ -1/,
+    'the bird details are still constrained to the birder-name cell');
+  assert.match(rl[1], /grid-row: 2/);
+  assert.match(rl[1], /white-space: nowrap/,
+    'the full-width bird details wrap despite owning a separate row');
 });
 
 
