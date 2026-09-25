@@ -105,6 +105,12 @@
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span,',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > a.ckdist {',
     '  display: inline; white-space: nowrap; }',
+    /* A malformed or unexpectedly verbose hydrated observer value must not
+       widen the whole document. This selector intentionally outranks the
+       generic `.ckmeta > span` rule above so clipping can actually apply. */
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span.ckwho {',
+    '  display: inline-block; max-width: min(100%, 18em); overflow: hidden;',
+    '  text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }',
     '.cknote { align-self: center; white-space: nowrap; }',
     '.cknote .cknote-pending { color: var(--muted);',
     '  font-size: calc(22px * var(--s)); font-weight: 800; }',

@@ -661,6 +661,7 @@
         "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
         "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Year List immediately without refetching or removing the year-list row.",
         "Opening My Year List paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
+        "If Reload cannot run because the API key or account identity is missing, it names that prerequisite and offers the corresponding Settings or Fetch my name action instead of silently returning unchanged.",
         "The heading's Reload control repeats that owned refresh without using the web view's HTTP cache. Its visible year-list button, CSV request and page fallback all use the same explicit-year eBird query, and the button opens through the installed in-app browser.",
         "Starting or failing a refresh updates only the status message, leaving the existing cards responsive. An unchanged refresh removes that message without rebuilding and rehydrating the entire list.",
         "Rows learned from the signed-in year-list are labelled as year-list refresh results, not recent checklist additions. Because that source's date is not established as a first-seen date, those rows never receive a NEW badge; checklist-backed and bundled first-seen rows retain the seven-day rule.",
@@ -673,16 +674,18 @@
       ],
       "limits": [
         "The export remains the year-wide baseline for ordinary county reports. Their automatic updates can see only your public checklists in the counties the report scans.",
-        "eBird's county list feed identifies an observer by display name rather than user id, so ordinary regional refreshes require the exact eBird display name in Settings.",
+        "eBird's county list feed identifies an observer by display name rather than user id. Bird Chaser learns the current name from an imported eBird data file or the signed-in bird-list page and retains prior trusted names as same-profile aliases after a rename.",
         "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; ABA also reads US-HI because eBird excludes Hawaii from the ABA reporting region. If that session is unavailable, My Year List keeps the last known rows and names Sign in plus Refresh as the recovery."
       ]
     },
     "settingsPanel": {
       "report": null,
-      "summary": "App-only: API key, region, anchors, text size and seen list.",
+      "summary": "App-only: account profile, API key, region, anchors, text size and seen list.",
       "inputs": [],
       "how": [
         "Everything here is stored on this device only.",
+        "Main and Test 2–4 are isolated local storage slots, not eBird accounts discovered by the app. Imported or signed-in identity labels the selected slot automatically.",
+        "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
         "You can add your own regions. They live only in the app because the Markdown report's regions are compiled into it, and each new region starts with an empty seen list until its year list is imported."
       ],
@@ -739,6 +742,7 @@
       ],
       "how": [
         "The search field and Go action share the primary row. Here lists the nearest public hotspots from the cached regional directory; Close clears the query, choices and selected hotspot and rejects any late result from that cleared lookup.",
+        "The heading refresh is unavailable until a hotspot is open. It then reloads that same selected place and bypasses the session memo for both the live checklist headers and recent-observation feed.",
         "The PATTERN leads, not today rows. How many checklists, across how many days, and what a visit is typically worth are true all day - unlike what was seen today, which is empty every morning by eBird own design.",
         "The selected place leads with a map and explicit Open in Maps, Open eBird hotspot, QR, and add/remove favorite actions. Favorite changes use the same on-device favorite-hotspot list as Favorite patches.",
         "MEASURED 2026-08-22 at 10:10: three target species returned ZERO reports from that day across the whole state. eBird embargoes checklists for an hour (its hotspot page says so) and people submit hours after the walk.",

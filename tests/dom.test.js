@@ -19,6 +19,7 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 
 const DEFAULT_TEST_TIMEOUT_MS = 120000;
@@ -530,8 +531,8 @@ test('F527 fetched identity replaces stale stored overrides', async () => {
   assert.equal(A.getDisplayName(), 'Sample Observer');
   assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
   assert.equal(A.profileLabel(''), 'Sample Observer');
-  assert.equal(app.$('bcProfileName').value, 'Sample Observer',
-    'an untouched Settings profile-label field follows the captured identity');
+  assert.equal(app.$('bcProfileName'), null,
+    'Settings does not expose the fetched profile identity as an empty text box');
   app.window.__app.persistSettings();
   assert.equal(A.profileLabel(''), 'Sample Observer',
     'a later unchanged Save cannot erase the captured profile label');
@@ -566,7 +567,7 @@ test('F527 fetched identity replaces stale stored overrides', async () => {
 test('F527 profile identity is read-only and follows eBird', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
-  app.$('bcProfileName').value = 'My testing slot';
+  assert.equal(app.$('bcProfileName'), null);
 
   const applied = A.applyCapturedIdentity({
     status: 'ok', displayName: 'Sample Observer',
@@ -574,8 +575,6 @@ test('F527 profile identity is read-only and follows eBird', async () => {
   });
   assert.equal(applied.status, 'applied');
   assert.equal(A.getDisplayName(), 'Sample Observer');
-  assert.equal(app.$('bcProfileName').readOnly, true);
-  assert.equal(app.$('bcProfileName').value, 'Sample Observer');
   assert.equal(A.profileLabel(''), 'Sample Observer');
 
   A.persistSettings();
@@ -587,7 +586,7 @@ test('F527 profile identity is read-only and follows eBird', async () => {
 test('F527 eBird identity replaces stale display-field contents', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
-  app.$('ebirdName').value = 'Unsaved Manual';
+  assert.equal(app.$('ebirdName'), null);
   app.$('homePlace').value = 'Unsaved home';
   app.$('abaSid').value = 'SN99999';
 
@@ -597,8 +596,6 @@ test('F527 eBird identity replaces stale display-field contents', async () => {
   });
   assert.equal(retained.status, 'applied');
   assert.equal(A.getDisplayName(), 'Captured Observer');
-  assert.equal(app.$('ebirdName').readOnly, true);
-  assert.equal(app.$('ebirdName').value, 'Captured Observer');
   assert.equal(app.$('homePlace').value, 'Unsaved home');
   assert.equal(app.$('abaSid').value, 'SN99999',
     'identity completion updates only identity UI, never reloads all Settings');
@@ -609,11 +606,11 @@ test('F317 Fetch my name uses the persistent bird-list WebView session', async (
   const app = await boot({ sample: false });
   const A = app.window.__app;
   const handlers = {};
-  let openOptions = null, injections = 0;
+  let openOptions = null, injections = 0, removals = 0;
   const fake = {
     addListener(name, fn) {
       handlers[name] = fn;
-      return Promise.resolve({ remove() {} });
+      return { remove() { removals++; } };
     },
     openWebView(options) {
       openOptions = options;
@@ -658,6 +655,8 @@ test('F317 Fetch my name uses the persistent bird-list WebView session', async (
   assert.equal(openOptions.persistWebViewData, true,
     'the identity capture explicitly uses the persistent WKWebView cookie jar');
   assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+  assert.equal(removals, 4,
+    'direct plugin handles are retained and removed after identity capture');
   app.window.close();
 });
 
@@ -1468,7 +1467,8 @@ test('F527 a read-only field cannot suppress an in-flight eBird identity', async
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   const before = A.identityRevision();
-  app.$('ebirdName').value = '';
+  assert.equal(app.$('ebirdName'), null,
+    'there is no stale Settings identity field to overwrite an in-flight capture');
   A.persistSettings();
   assert.equal(A.getDisplayName(), 'Old Observer');
   assert.equal(A.identityRevision(), before,
@@ -8842,6 +8842,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
     /Mega rarity.*ABA Code 3, 4 or 5/s);
   assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
     'Bird Gen opened a second Mega-only hotspot/checklist list');
+  app.$('spLookupRecent').querySelector('button.spLookupMore').click();
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .hscard-sm').length, 6,
     'the unified Stakeout list is not grouped into one row per supporting hotspot');
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm').length, 6,
@@ -11695,13 +11696,16 @@ test('F527: the display-name follow-up offers only the eBird fetch', async () =>
   assert.match(app.$('keyBanner').textContent, /Fetch your eBird display name/);
   assert.ok(app.$('nameFetchBtn'));
   assert.equal(app.$('nameBannerBtn'), null);
-  assert.equal(app.$('ebirdName').readOnly, true);
+  assert.equal(app.$('ebirdName'), null);
+  assert.equal(app.$('bcProfileName'), null);
+  assert.match(app.$('settingsPanel').textContent,
+    /separate local storage slots.*not eBird accounts/is);
 });
 
 test('F527 Settings cannot persist a programmatic identity override', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
-  app.$('ebirdName').value = 'Manual Observer';
+  assert.equal(app.$('ebirdName'), null);
   A.persistSettings();
 
   assert.equal(A.getDisplayName(), '');
@@ -11727,7 +11731,7 @@ test('F315: a clean install stays empty until sample data or a CSV is chosen', a
   assert.ok(A.reportYearList().length > 0);
 });
 
-test('F527: CSV imports birds but cannot replace eBird identity', async () => {
+test('F560: CSV import restores birds and the selected profile identity', async () => {
   const app = await boot();
   const A = app.window.__app;
   const csv = [
@@ -11735,9 +11739,9 @@ test('F527: CSV imports birds but cannot replace eBird identity', async () => {
     'American Robin,Turdus migratorius,2026-09-04,Sample,Birder',
   ].join('\n');
   assert.equal(A.importCSV(csv), 1);
-  assert.equal(A.getDisplayName(), '');
-  assert.equal(A.getIdentityMeta(), null);
-  assert.equal(A.profileLabel(''), 'Main');
+  assert.equal(A.getDisplayName(), 'Sample Birder');
+  assert.equal(A.getIdentityMeta().source, 'ebird-csv');
+  assert.equal(A.profileLabel(''), 'Sample Birder');
   assert.equal(A.usesBundledSeed(), false,
     'an imported account list, not the bundled owner sample, is authoritative');
   assert.equal(A.reportYearList().length, 0,
@@ -11749,10 +11753,174 @@ test('F527: CSV imports birds but cannot replace eBird identity', async () => {
   }).amerob, 1,
   'the chase algorithm receives species codes resolved from imported names');
   A.renderMenuIdentity();
-  assert.doesNotMatch(app.$('hdrId').textContent, /Sample Birder/,
-    'CSV metadata cannot masquerade as the authenticated eBird account');
+  assert.match(app.$('hdrId').textContent, /Sample Birder/,
+    'the selected account export supplies the identity used by its own profile');
   assert.match(app.$('hdrId').textContent, /1sp/,
     'the imported year-list count remains available');
+});
+
+test('F562: a trusted eBird rename preserves same-profile identity continuity', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  A.setDisplayNameValue('Wyatt Houtz', 'ebird-bird-list');
+  A.setProfileName('', 'Wyatt Houtz');
+  A.setDisplayNameValue('Birder Wyatt', 'ebird-bird-list');
+  A.setProfileName('', 'Birder Wyatt');
+
+  assert.equal(A.getDisplayName(), 'Birder Wyatt');
+  assert.deepEqual(Array.from(A.getIdentityAliases()), ['Birder Wyatt', 'Wyatt Houtz']);
+  assert.equal(A.sameDisplayName('Birder Wyatt'), true);
+  assert.equal(A.sameDisplayName('Wyatt Houtz'), true,
+    'cached checklists under the previous trusted name still belong to this profile');
+  const movement = A.boardDeltasFor([
+    { d: '2026-09-24', r: { 'Wyatt Houtz': 180 } },
+    { d: '2026-09-25', r: { 'Birder Wyatt': 175 } },
+  ], 'Birder Wyatt', Date.parse('2026-09-25T12:00:00'));
+  assert.equal(movement.day.places, 5,
+    'the current board row continues across the historical display-name change');
+
+  app.window.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+  assert.deepEqual(Array.from(A.getIdentityAliases()), [],
+    'another profile cannot see Main identity aliases');
+  app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');
+  A.setDisplayNameValue('', 'ebird-sign-out');
+  assert.deepEqual(Array.from(A.getIdentityAliases()), [],
+    'clearing identity removes its historical aliases too');
+});
+
+function makeSingleEntryZip(filename, text) {
+  const name = Buffer.from(filename);
+  const plain = Buffer.from(text);
+  const compressed = zlib.deflateRawSync(plain);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(compressed.length, 18);
+  local.writeUInt32LE(plain.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(compressed.length, 20);
+  central.writeUInt32LE(plain.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  const centralOffset = local.length + name.length + compressed.length;
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(central.length + name.length, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([local, name, compressed, central, name, eocd]);
+}
+
+test('F560: Settings separates download from local ZIP or CSV import', async () => {
+  const app = await boot({ key: null, sample: false });
+  const A = app.window.__app;
+  assert.equal(app.$('csvFile').getAttribute('accept'),
+    '.zip,.csv,application/zip,text/csv');
+  assert.match(app.$('csvDownloadBtn').textContent, /Download my eBird data/);
+  const steps = Array.from(app.document.querySelectorAll('#csvSteps > li'))
+    .map((li) => li.textContent.trim());
+  assert.equal(steps.length, 4);
+  assert.match(steps[0], /Account profile/);
+  assert.match(steps[1], /Download my eBird data/);
+  assert.match(steps[2], /Download my data/);
+  assert.match(steps[3], /Import eBird data/);
+  assert.match(HTML, /https:\/\/ebird\.org\/downloadMyData/);
+
+  app.window.TextDecoder = TextDecoder;
+  app.window.DecompressionStream = DecompressionStream;
+  app.window.Response = Response;
+  app.window.Blob = Blob;
+  const fetchesBeforeImport = app.state.fetches.length;
+  const csv = [
+    'Common Name,Scientific Name,Date,First Name,Last Name',
+    'American Robin,Turdus migratorius,2026-09-04,ZIP,Observer',
+  ].join('\n');
+  const extracted = await A.unzipEbirdCsv(makeSingleEntryZip('MyEBirdData.csv', csv));
+  assert.equal(extracted, csv);
+  assert.equal(A.importCSV(extracted), 1);
+  assert.equal(A.getDisplayName(), 'ZIP Observer');
+  assert.equal(app.state.fetches.length, fetchesBeforeImport,
+    'local recovery does not require an API key or send export contents anywhere');
+  await assert.rejects(
+    A.unzipEbirdCsv(makeSingleEntryZip('something-else.csv', csv)),
+    /does not contain MyEBirdData\.csv/,
+  );
+});
+
+test('F557: profile switches preserve both namespaces and restore a refused selector', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const raw = app.window.localStorage;
+  raw.setItem('ebird_api_key', 'MAIN-KEY');
+  raw.setItem('ebird_home_lat', '47.12345');
+  raw.setItem('ebird_display_name', 'Main Observer');
+  raw.setItem('ebird_rank_cache_v2', '{"main":"exact bytes"}');
+  raw.setItem('ebird_rankhist:US-WA', '[{"d":"2026-09-24","rank":180}]');
+  raw.setItem('bc_board_v1:US-WA', '[{"d":"2026-09-24","r":{"Main Observer":180}}]');
+  raw.setItem('ebird_favs', '["L123"]');
+  raw.setItem('ebird_seen', '{"amerob":1}');
+  raw.setItem('bcp:2:ebird_api_key', 'TEST-KEY');
+  const before = new Map(Array.from(
+    { length: raw.length },
+    (_, i) => [raw.key(i), raw.getItem(raw.key(i))],
+  ));
+  app.window.Capacitor = {
+    Plugins: {
+      CapgoInAppBrowser: {
+        clearAllBrowsingData() { return Promise.resolve(); },
+      },
+    },
+  };
+  A.bcSetProfile('2');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(A.bcProfile(), '2');
+  A.bcSetProfile('');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(A.bcProfile(), '');
+  for (const [key, value] of before) {
+    if (key !== A.BC_PROFILE_PTR) assert.equal(raw.getItem(key), value, `${key} changed during round trip`);
+  }
+
+  app.$('bcProfileSel').value = '2';
+  app.window.Capacitor.Plugins.CapgoInAppBrowser.clearAllBrowsingData =
+    () => Promise.reject(new Error('fixture clear failure'));
+  A.bcSetProfile('2');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(A.bcProfile(), '');
+  assert.equal(app.$('bcProfileSel').value, '',
+    'a refused switch restores the selector to the active Main namespace');
+  assert.match(app.$('keyStatus').textContent, /Profile was not switched/);
+});
+
+test('F559: My Year Reload names missing prerequisites without making checklist calls', async () => {
+  const missingName = await boot({ sample: false });
+  const nameFetches = missingName.state.fetches.length;
+  await missingName.window.__app.loadMyYear();
+  assert.match(missingName.$('myYearBody').textContent,
+    /needs your eBird display name/i);
+  assert.ok(missingName.$('myYearNameBtn'));
+  assert.match(missingName.$('myYearBody').textContent, /importing your complete eBird data/i);
+  assert.equal(missingName.state.fetches.length, nameFetches);
+
+  const missingKey = await boot({ key: null, sample: false });
+  const keyFetches = missingKey.state.fetches.length;
+  await missingKey.window.__app.loadMyYear();
+  assert.match(missingKey.$('myYearBody').textContent, /needs an eBird API key/i);
+  assert.ok(missingKey.$('myYearKeyBtn'));
+  assert.equal(missingKey.state.fetches.length, keyFetches);
+});
+
+test('F561: hydrated observer metadata has an effective width bound', () => {
+  const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
+  assert.match(ChecklistCards.css,
+    /\.ckmeta > span\.ckwho \{[\s\S]*display: inline-block;[\s\S]*max-width: min\(100%, 18em\);[\s\S]*text-overflow: ellipsis;/,
+    'the stronger metadata selector must make observer clipping effective');
 });
 
 
@@ -12909,7 +13077,7 @@ test('F502 Today’s Patches keeps mileage in the hotspot title row right column
     'Today’s Patches does not pass mileage to the shared hotspot title column');
 });
 
-test('F503 Stakeout uses measured ten-row batches with accurate progressive counts', () => {
+test('F503/F554 Stakeout keeps flat ten-row batches and bounds selected history at six', () => {
   const flat = HTML.slice(HTML.indexOf('function spLookupFlatChecklistsHtml('),
     HTML.indexOf('function spLookupPlacesHtmlInner('));
   assert.match(flat, /initialCount: 10/);
@@ -12918,8 +13086,9 @@ test('F503 Stakeout uses measured ten-row batches with accurate progressive coun
   assert.match(flat, /noun: 'checklists'/);
   const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
     HTML.indexOf('function hydrateStakeoutPlaceHistories('));
-  assert.match(history, /\.slice\(0, 10\)/,
-    'history scanning does not use the measured ten-checklist threshold');
+  assert.match(HTML, /var STAKEOUT_HISTORY_SCAN = 6;/);
+  assert.match(history, /\.slice\(0, STAKEOUT_HISTORY_SCAN\)/,
+    'selected history scanning does not use the shared six-candidate bound');
 });
 
 test('F504-F511 Nemesis shares Group and Notes without Compact or Recent', () => {
@@ -14864,11 +15033,11 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   const card = app.document.querySelector('#spLookupResults > li');
   const list = app.document.querySelector('#spLookupRecent ul.spLookupPlaceList');
   assert.ok(list, 'recent reports do not have one stable list');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 10,
-    'the first lazy batch is not 10 shared small hotspot cards');
+  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 5,
+    'the first lazy batch is not 5 shared small hotspot cards');
   assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 0,
     'the old medium hotspot template survived');
-  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 10,
+  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 5,
     'the first batch does not expose each place’s complete checklist list');
   assert.equal(list.querySelectorAll(':scope > [data-ev-place="Hotspot 1"]').length, 1,
     'two checklists at one hotspot rendered two hotspot rows');
@@ -14877,22 +15046,22 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   'the one hotspot row does not link its newest checklist');
 
   const more = app.$('spLookupRecent').querySelector('button.spLookupMore');
-  assert.match(more.textContent, /Load 10 more of 45/);
+  assert.match(more.textContent, /Load 5 more of 50/);
   const numberedPins = () => [...app.$('spLookupMap').querySelectorAll('.pinbubble')]
     .filter((pin) => /^\d+$/.test(pin.textContent.trim())).length;
-  assert.equal(numberedPins(), 10,
-    'the initial map does not match the 10 visible numbered rows');
+  assert.equal(numberedPins(), 5,
+    'the initial map does not match the 5 visible numbered rows');
   const beforeFetches = fetches;
   more.click();
   assert.strictEqual(app.$('spLookupRecent').querySelector('ul.spLookupPlaceList'), list,
     'Show more replaced the list instead of appending to it');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 20);
+  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 10);
   assert.equal(app.$('spLookupRecent').querySelectorAll('ul.spLookupPlaceList').length, 1);
-  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 20,
+  assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 10,
     'expanded places did not append their checklist lists');
-  assert.equal(numberedPins(), 20,
+  assert.equal(numberedPins(), 10,
     'Show more appended rows without appending their map pins');
-  assert.match(more.textContent, /Load 10 more of 35/,
+  assert.match(more.textContent, /Load 5 more of 45/,
     'the Show-more label does not use the shared short formatter');
   while (app.$('spLookupRecent').querySelector('button.spLookupMore')) {
     app.$('spLookupRecent').querySelector('button.spLookupMore').click();
@@ -14925,10 +15094,10 @@ test('a stale Stakeout Show-more control cannot append after a newer species loo
   await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
   const staleList = app.document.querySelector('ul.spLookupPlaceList');
   const staleMore = app.document.querySelector('button.spLookupMore');
-  assert.equal(staleList.children.length, 10);
+  assert.equal(staleList.children.length, 5);
   app.window.__app.lookupSpecies('sol', 'Solitary Sandpiper').catch(() => {});
   staleMore.click();
-  assert.equal(staleList.children.length, 10,
+  assert.equal(staleList.children.length, 5,
     'a detached control from the previous lookup appended stale hotspots');
   app.window.close();
 });
@@ -14947,6 +15116,88 @@ test('F501-F510 Stakeout always shows details, merges history, and keeps Notes i
     HTML.indexOf('var _evidStore'));
   assert.match(hydrate, /if \(showDetails && det\) setNoteText\(el, det\)/);
   assert.doesNotMatch(hydrate, /!hasCommentButton/);
+});
+
+test('F554 Stakeout prompts before scanning checklist history for each place', async () => {
+  const listCalls = [];
+  const places = Array.from({ length: 18 }, (_, i) => ({
+    speciesCode: 'amepip',
+    comName: 'American Pipit',
+    locName: `Pipit hotspot ${i + 1}`,
+    locId: `L${i + 1}`,
+    lat: 47.7 + i / 100,
+    lng: -122.2,
+    obsDt: `2026-09-25 08:${String(i).padStart(2, '0')}`,
+    subId: `S-current-${i + 1}`,
+    howMany: 1,
+    obsValid: true,
+  }));
+  places[0].obsDt = '2026-09-25 23:00';
+  for (let i = 1; i < 7; i++) {
+    places.push({
+      ...places[0],
+      obsDt: `2026-09-${25 - i} 08:00`,
+      subId: `S-history-${i}`,
+    });
+  }
+  const app = await boot({
+    fetch(url) {
+      const path = String(url);
+      if (/data\/obs\/US-WA\/recent\/amepip/.test(path)) return places;
+      if (/product\/lists\/L\d+\?maxResults=12/.test(path)) {
+        listCalls.push(path);
+        return [];
+      }
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('amepip', 'American Pipit');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const visiblePlaces = app.document.querySelectorAll(
+    '#spLookupRecent .spLookupPlaceList > .hscard-sm');
+  assert.equal(visiblePlaces.length, 5,
+    'Stakeout did not stop at the requested initial five-place batch');
+  assert.equal(listCalls.length, 0,
+    'rendering places automatically launched one checklist-history request per hotspot');
+  const prompts = app.document.querySelectorAll(
+    '#spLookupRecent .stakeoutLoadHistory');
+  assert.equal(prompts.length, 4,
+    'only places below the six-known-checklist scan cap offer history actions');
+  assert.doesNotMatch(visiblePlaces[0].textContent, /Private-location evidence/,
+    'a public hotspot with enough known checklists is mislabeled private');
+  assert.equal(prompts[0].getAttribute('data-wired'), '1',
+    'the visible history action was not wired');
+
+  const firstChecklistList = visiblePlaces[0].querySelector('.stakeoutPlaceChecklists');
+  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 1,
+    'a hotspot exposed more than its newest checklist before its load-more action');
+  const moreChecklists = visiblePlaces[0].querySelector('.stakeoutChecklistMore');
+  assert.match(moreChecklists.textContent, /Load 3 more of 6 checklists/);
+  moreChecklists.click();
+  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 4,
+    'the per-hotspot action did not reveal the next three fetched checklists');
+  assert.equal(listCalls.length, 0,
+    'revealing fetched checklist rows unnecessarily contacted eBird');
+
+  app.document.querySelector('#spLookupRecent .spLookupMore').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(app.document.querySelectorAll(
+    '#spLookupRecent .spLookupPlaceList > .hscard-sm').length, 10);
+  assert.equal(listCalls.length, 0,
+    'loading more places automatically launched their checklist-history scans');
+  const selectedSlot = prompts[0].closest('.stakeoutPlaceHistory');
+  prompts[0].click();
+  assert.equal(selectedSlot.getAttribute('data-loading'), '1',
+    'the explicit history action did not enter its loading state');
+  assert.equal(app.document.querySelectorAll(
+    '#spLookupRecent .stakeoutPlaceHistory[data-loading]').length, 1,
+    'one explicit history action started scans for more than its selected hotspot');
+  assert.match(HTML, /var STAKEOUT_HISTORY_SCAN = 6;/);
+  assert.match(HTML, /rows = \(rows \|\| \[\]\)\.slice\(0, STAKEOUT_HISTORY_SCAN\);/,
+    'the selected hotspot scan is not bounded by the same six-candidate limit as its action');
+  app.window.close();
 });
 
 test('F501 Stakeout history renders no independent-or-convoy classification', () => {
@@ -19808,6 +20059,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     'immediate Mega evidence rendered a second hotspot/checklist list');
   const places = D.querySelector('#spLookupRecent .spLookupPlaceList');
   assert.ok(places, 'the unified Mega report list did not render immediately');
+  D.querySelector('#spLookupRecent button.spLookupMore').click();
   assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 6,
     'the unified Mega reports are not grouped into one row per hotspot');
   assert.equal(places.querySelectorAll('.cklcard-sm').length, 14,
@@ -21878,7 +22130,7 @@ test('F317 erase is a write barrier against stale Save and pending capture', asy
   }
 
   A.scrubPersonalData();
-  app.$('ebirdName').value = 'Private Observer';
+  assert.equal(app.$('ebirdName'), null);
   A.persistSettings();
   assert.equal(A.getDisplayName(), '',
     'Save cannot rewrite a value after erase has started');
@@ -21926,8 +22178,8 @@ test('the app ships with no identity baked in', async () => {
   assert.equal(A.getDisplayName(), '',
     'an unconfigured install has NO display name; a default would be someone else\u2019s identity');
 
-  // Saving a blank field must not quietly restore a hardcoded fallback.
-  app.$('ebirdName').value = '';
+  // Saving Settings must not quietly restore a hardcoded fallback.
+  assert.equal(app.$('ebirdName'), null);
   A.persistSettings();
   // Assert the effect, not the storage representation: an unset key reads back
   // as null and a saved-blank one as '', and both mean "no identity".
@@ -29391,6 +29643,63 @@ test('Stake out a hotspot leads with the pattern, and names who birds there', as
     'no way back out to eBird');
 });
 
+test('F555 Stakeout Patch refreshes the selected hotspot and bypasses live-feed memoization', async () => {
+  let listCalls = 0;
+  let obsCalls = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\/L-REFRESH/.test(url)) {
+        listCalls++;
+        return [{
+          subId: 'S' + listCalls,
+          obsDt: '2026-09-25 08:0' + listCalls,
+          userDisplayName: listCalls === 1 ? 'First Birder' : 'Second Birder',
+          numSpecies: 10 + listCalls,
+        }];
+      }
+      if (/data\/obs\/L-REFRESH\/recent/.test(url)) {
+        obsCalls++;
+        return [{
+          speciesCode: obsCalls === 1 ? 'first1' : 'second1',
+          comName: obsCalls === 1 ? 'First Bird' : 'Second Bird',
+          subId: 'S' + obsCalls,
+          howMany: obsCalls,
+        }];
+      }
+      return null;
+    },
+  });
+  const refresh = app.$('stakeHsRefresh');
+  assert.ok(refresh, 'Stakeout Patch has no heading refresh action');
+  assert.equal(refresh.disabled, true,
+    'Stakeout Patch refresh is available before a hotspot is selected');
+
+  await app.window.__app.stakeHsOpen('L-REFRESH', 'Refresh Marsh');
+  await waitFor(() => /First Bird/.test(app.$('stakeHsResults').textContent),
+    'the first selected-hotspot observation response');
+  assert.equal(refresh.disabled, false,
+    'Stakeout Patch refresh did not become available for the selected hotspot');
+
+  app.click(refresh);
+  await waitFor(() => listCalls === 2 && obsCalls === 2
+    && /Second Bird/.test(app.$('stakeHsResults').textContent),
+  'the force-refreshed hotspot responses');
+  assert.equal(listCalls, 2,
+    'refresh reused the selected hotspot checklist promise');
+  assert.equal(obsCalls, 2,
+    'refresh reused the selected hotspot observation promise');
+  assert.match(app.$('stakeHsResults').textContent, /Second Birder/);
+  assert.doesNotMatch(app.$('stakeHsResults').textContent, /First Birder|First Bird/,
+    'refresh left the first live responses rendered');
+  assert.equal(app.$('stakeHs').value, 'Refresh Marsh',
+    'refresh lost the selected hotspot name');
+
+  app.click(app.$('stakeHsClear'));
+  assert.equal(refresh.disabled, true,
+    'closing Stakeout Patch left refresh available without a selected hotspot');
+  app.window.close();
+});
+
 test('F380 Stake out a hotspot uses one compact search row and leads with place tools', async () => {
   const app = await boot({
     location: { lat: 47.66, lng: -122.12 },
@@ -33105,9 +33414,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
 });
 
 test('F188: the picker sits beside the key it scopes, and says when it acts', () => {
-  // It was the 13th labelled control in Settings, behind uiScale, sciNames,
-  // themeMode, a11yMode, mapProvider, chaseMi, apiKey, reportSelect, tripName,
-  // region, ebirdName and abaSid — which is why it could not be found.
+  // It used to sit behind unrelated controls, which is why it could not be found.
   const labels = [...HTML.matchAll(/<label for="([^"]+)"/g)].map((m) => m[1]);
   const iKey = labels.indexOf('apiKey');
   const iProf = labels.indexOf('bcProfileSel');
@@ -33123,7 +33430,10 @@ test('F188: the picker sits beside the key it scopes, and says when it acts', ()
                            HTML.indexOf('<label for="abaSid">'));
   assert.match(panel, /Changes save automatically.*Switching profiles reloads the app/s,
     'the control must say when it takes effect');
-  assert.match(panel, /id="bcProfileName"/, 'and offer a name field');
+  assert.doesNotMatch(panel, /id="(?:bcProfileName|ebirdName)"/,
+    'read-only identity must not look like an unfinished editable setting');
+  assert.match(panel, /separate local storage slots.*not eBird accounts/is,
+    'the fixed slots are explained instead of presented as discovered accounts');
   assert.ok(!/<option value="2">Test 2<\/option>/.test(panel),
     'the options are built from the stored names, not hard-coded slot numbers');
 });

@@ -161,6 +161,8 @@ const AUDIT = `<script>
       + '<ul class="cklcards cklcards-sm"><li class="cklcard cklcard-sm">'
       + '<div class="cksummary"><div class="ckmain"><span class="cklead">2:00 PM</span>'
       + '<span class="ckmeta"><span class="fixtureplace">Discovery Park</span>'
+      + '<span class="ckwho">Louis Kreemer AMEGFI ×30, AMEPIP ×2, AMRO ×18, '
+      + 'BARSWA ×4, BCCH ×12, BEKI ×3, BHCO ×40, BLJA ×8, BOHEWA ×16</span>'
       + '<span class="ckage"><span class="ckageunit">12h</span> ago</span></span>'
       + '</div></div></li></ul>';
     panel.appendChild(host);
