@@ -1229,6 +1229,7 @@
     .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                  overflow-wrap: anywhere; }
     .status { font-size: calc(13px * var(--s)); color: var(--muted); padding: 10px 0 2px; }
+    .panel > #status { padding-top: 0; }
     /* `.feedwarn` used to live here — a yellow block above Birdiest checklists
        and above Birder convoys carrying the same eBird-cap caveat. Both now
        render it as a live note inside the ℹ dialog (setSectionNote), which is
@@ -9889,6 +9890,10 @@
       }
       function birdReportEvidence(r, opts) {
         opts = opts || {};
+        var count = '';
+        if (Object.prototype.hasOwnProperty.call(r || {}, 'count')) {
+          count = '\u00d7' + (r.count == null || r.count === '' ? 'X' : r.count);
+        }
         return speciesMetaRow({
           when: r.subId
             ? checklistLink(r.subId, fmtDateTime(r.dateStr))
@@ -9897,6 +9902,7 @@
           loc: recLocLink(r),
           alert: opts.rare ? countyAlertLink(r) : '',
           observer: r.observer || '',
+          tail: count,
           noteAction: opts.noteAction || ''
         });
       }
@@ -9940,11 +9946,7 @@
         });
         return SpeciesCards.medium({
           sci: sciFor(r.sci || r.code),
-          icon: megaView
-            ? '<a class="megajump megaphoto" href="#" data-mega-code="' + esc(r.code)
-              + '" data-mega-view="' + esc(megaView) + '" aria-label="Stake out '
-              + esc(r.name || r.code) + '">' + photoSlot(r.name, r.code) + '</a>'
-            : photoSlot(r.name, r.code, { stakeout: true }),
+          icon: photoSlot(r.name, r.code, megaView ? null : { stakeout: true }),
           name: common,
           tags: birdReportTags([r], opts.rare) + reviewFlag(r),
           primary: birdReportMetric(r, opts.sortMode),
@@ -10019,11 +10021,7 @@
         var representative = groupRows[0] || {};
         return SpeciesCards.medium({
           sci: sciFor(group.sci || group.code),
-          icon: megaView
-            ? '<a class="megajump megaphoto" href="#" data-mega-code="' + esc(group.code)
-              + '" data-mega-view="' + esc(megaView) + '" aria-label="Stake out '
-              + esc(group.name || group.code) + '">' + photoSlot(group.name, group.code) + '</a>'
-            : photoSlot(group.name, group.code, { stakeout: true }),
+          icon: photoSlot(group.name, group.code, megaView ? null : { stakeout: true }),
           name: megaView
             ? '<a class="megajump" href="#" data-mega-code="' + esc(group.code)
               + '" data-mega-view="' + esc(megaView) + '">' + esc(group.name) + '</a>'
