@@ -12612,6 +12612,9 @@ test('F507-F508 medium cards always show the selected metric first and link each
   assert.match(SpeciesCards.css, /\.spmetricstack \{ display: grid; gap: 5px;/);
   assert.match(SpeciesCards.css,
     /\.spmetricstack > \.spmetric:first-child strong \{[\s\S]*font-size: calc\(23px/);
+  assert.match(SpeciesCards.css,
+    /\.spmetric \{ display: inline-flex; align-items: baseline;[\s\S]*white-space: nowrap; \}/,
+    'the Mega metric keeps its number and unit together on one line');
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
