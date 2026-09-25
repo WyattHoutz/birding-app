@@ -19512,6 +19512,13 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     return baseFetch(url);
   };
 
+  // This test opens a second Mega species after exercising a fourteen-report
+  // first species. Cache the first species' checklist rows so its unrelated
+  // evidence hydration cannot occupy the production foreground limiter and
+  // delay the second species beyond this guard's timeout.
+  f.stateRows.forEach((row) => {
+    A.cklWrite(row.subId, { obsDt: row.obsDt }, false, []);
+  });
   A.renderAbaAlert(f.alertRows.concat([f.earliestHeld.rows[1]]),
     `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
       reportSlug: f.reportSlug,
@@ -19603,11 +19610,14 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     'an unopened Mega species does not fetch its Wikipedia extract');
 
   const oldView = megaRow.dataset.megaView;
+  A.cklWrite('S-OLD', { obsDt: f.earliestHeld.rows[0].obsDt }, true,
+    f.earliestHeld.checklist);
+  let heldChecklistCalls = 0;
   app.window.fetch = (url) => {
     const u = String(url);
-    const body = /product\/checklist\/view\/S-OLD/.test(u)
-      ? f.earliestHeld.checklist
-      : [];
+    const heldChecklist = /product\/checklist\/view\/S-OLD/.test(u);
+    if (heldChecklist) heldChecklistCalls++;
+    const body = heldChecklist ? f.earliestHeld.checklist : [];
     return Promise.resolve({
       ok: true,
       status: 200,
@@ -19629,6 +19639,12 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   app.click(heldRow.querySelector('.megajump'));
   assert.equal(A.megaViewState().active?.code, 'tersan',
     'the refreshed shared Mega card did not preserve exact-code routing');
+  const earliestRow = await waitFor(() => D.querySelector(
+    '#spLookupRecent [data-ev-sub="S-OLD"]'), 'earliest-held checklist row');
+  earliestRow.removeAttribute('data-ev-done');
+  await A.hydrateChecklistEvidence(earliestRow);
+  assert.equal(heldChecklistCalls, 0,
+    'cached earliest-held evidence made an unnecessary eBird request');
   await waitFor(() => /Earliest Held Observer/.test(
     stakeoutSurfaceText(app)), 'earliest-held checklist hydration');
   const heldCard = D.querySelector('#spLookupResults > li');
