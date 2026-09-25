@@ -1507,11 +1507,9 @@ const BOOTSTRAP = `
         throw new Error('Bird Gen fixture age drifted: expected 24hr ago, got '
           + (megaAge ? megaAge.textContent.trim() : 'no age'));
       }
-      var sortControl = document.querySelector(
-        '#surgeResults .surgesortrow > .sortpick.twopill');
-      if (!sortControl
-          || document.querySelector('#surgeResults .surgesortrow > .pressbtn')) {
-        throw new Error('Bird Gen controls drifted from the single Buzz/Newest pill');
+      if (document.querySelector(
+          '#surgeResults .surgesortrow, #surgeResults [data-surge-sort]')) {
+        throw new Error('Bird Gen release fixture restored the removed order controls');
       }
       if (document.querySelector('[data-surge-notes], .surgenotesrow, .surgenote')) {
         throw new Error('Bird Gen release fixture still contains the removed Notes UI');

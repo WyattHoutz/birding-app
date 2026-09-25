@@ -280,6 +280,11 @@ OVERRIDES = {
 # source-edge feathers and bills visibly clear at the 56px card size without
 # introducing the flat grey bars that originally prompted square assets.
 FIT_OVERRIDES = {
+    # F529. The portrait source's automatic 250px square leaves the crown too
+    # close to the top edge. Preserve the full 250x295 frame over the existing
+    # blurred backdrop so the same credited photograph gains deterministic
+    # headroom without replacing or enlarging the source.
+    'reshaw.jpg',
     'eskcur.jpg',
     'leastp2.jpg',
     'dunlin.png',
@@ -314,6 +319,7 @@ FIT_CROP_OVERRIDES = {
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    'reshaw.jpg': '0c528c1c259026f4',
     'eskcur.jpg': '2c5423fe92bb7751',
     'leastp2.jpg': 'e2709ff6931a7491',
     # ---- pinned 2026-08-28, retrospectively ---------------------------

@@ -86,7 +86,7 @@
     '  color: var(--muted); }',
     '.cklcards-sm > .cklcard-sm > .cksummary {',
     '  display: grid; grid-template-columns: minmax(0, 1fr) auto;',
-    '  gap: 8px; align-items: start; min-height: 44px;',
+    '  gap: 8px; align-items: start;',
     '  font-size: calc(16px * var(--s)); line-height: 1.35;',
     '  padding: 0; text-indent: 0;',
     '  white-space: normal; overflow-wrap: anywhere; }',
@@ -94,6 +94,8 @@
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta {',
     '  display: inline; font-size: calc(14px * var(--s));',
     '  color: var(--muted); white-space: normal; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span + .ckmeta {',
+    '  margin-left: .25em; }',
     /* Every field is now an inline run separated by a space. `nowrap` per
        field is kept for the same reason it always was: a date or a count may
        move to the next line whole, but must never split down the middle.
@@ -126,6 +128,7 @@
     '  color: var(--link); font-weight: 700; text-decoration: none; }',
     '.cklcard .ckbird { display: block; margin-bottom: 1px; font-weight: 800; }',
     '.cklcard .ckage, .cklcard .ckduration {',
+    '  white-space: nowrap;',
     '  color: var(--muted); font-variant-numeric: tabular-nums; }',
     '.cklcard .ckageunit, .cklcard .ckduration { white-space: nowrap; }',
     '.cklcard .ckcount { font-variant-numeric: tabular-nums; font-weight: 700;',

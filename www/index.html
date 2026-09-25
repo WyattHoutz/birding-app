@@ -740,7 +740,7 @@
     /* The reload control lives beside the ℹ on the heading, not as a wide
        button below it: it is a verb you use occasionally, and it was taking a
        full row in every section. */
-    .refreshbtn { font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
+    .refreshbtn { flex: 0 0 auto; font-size: calc(15px * var(--s)); font-weight: 700; line-height: 1;
                   margin-left: 6px; padding: 2px 8px; border-radius: var(--btn-radius-pill);
                   border: 1px solid var(--line); background: transparent;
                   color: var(--muted); vertical-align: middle; }
@@ -885,7 +885,8 @@
        same reason — on an engine without `clip` the declaration is simply
        dropped, which is exactly where we already are. */
     .panel { overflow-x: clip; }
-    .panel h2 { font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
+    .panel h2 { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px;
+                font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel h2 .dim { display: none; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line);
       /* ⚠️ F270. THE 80% WIDTH BUG, FOUND AT LAST — AND IT WAS THE NAVBAR.
@@ -3126,10 +3127,20 @@
            list offers to reorder nothing, and this section takes ~60
            throttled calls to fill on a cold cache — so it would sit there
            inert for a minute promising something it cannot do. -->
-      <div class="row" id="easySortRow" hidden>
-        <button id="easyByFreq" class="secondary sortbtn" type="button" aria-pressed="true" aria-label="Sort by how often it is reported">📊 Commonest</button>
-        <button id="easyByDate" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by most recently seen">📅 Date</button>
-        <button id="easyByDist" class="secondary sortbtn" type="button" aria-pressed="false" aria-label="Sort by distance">📍 Distance</button>
+      <div class="raritycontrols" id="easySortRow" hidden>
+        <div class="raritycontrolrow rarityfilterrow raritysortrow" id="easyControls">
+          <span class="sortpick" role="group" aria-label="Sort common birds">
+            <button id="easyByFreq" class="sortbtn" type="button" aria-pressed="true">Commonest</button>
+            <button id="easyByDate" class="sortbtn" type="button" aria-pressed="false">Newest</button>
+            <button id="easyByDist" class="sortbtn" type="button" aria-pressed="false">Nearest</button>
+          </span>
+          <span class="sortpick twopill" role="group" aria-label="Filter common birds by distance">
+            <button id="easyNear" class="sortbtn" type="button" aria-pressed="true">20mi</button>
+            <button id="easyAll" class="sortbtn" type="button" aria-pressed="false">All</button>
+          </span>
+          <button id="easyNotes" class="pressbtn" type="button" aria-pressed="false">💬 Notes</button>
+          <button id="easyView" class="pressbtn" type="button" aria-pressed="false">▦ Group</button>
+        </div>
       </div>
       <div id="easyResults"></div>
       <div class="row">
@@ -3277,7 +3288,7 @@
       <label for="bcProfileSel">Account profile</label>
       <div class="row">
         <select id="bcProfileSel"></select>
-        <input id="bcProfileName" type="text" autocorrect="off" spellcheck="false" placeholder="Name this profile" maxlength="24" />
+        <input id="bcProfileName" type="text" readonly aria-label="eBird account profile name" />
       </div>
       <p class="hint"><b>Changes save automatically.</b> Switching profiles reloads the app.
         Each profile keeps a <b>separate</b> eBird key, alert code, year list, favourites and
@@ -3285,11 +3296,11 @@
         taxonomy caches are shared on purpose — they describe <i>places</i>, not you, and
         re-fetching them per profile would burn the API budget you are trying to test.</p>
       <label for="ebirdName">eBird display name</label>
-      <input id="ebirdName" type="text" autocorrect="off" spellcheck="false" placeholder="Your public eBird display name" />
+      <input id="ebirdName" type="text" readonly aria-label="eBird display name" />
       <p class="hint" id="ebirdNameHint">Used to find your row and your own checklists.
         Bird Chaser reads it from the signed-in account menu on the same eBird bird-list
         page it already uses. The API key and public web key do not identify the account.
-        A manually entered name is never overwritten.</p>
+        Fetched eBird identity always replaces obsolete stored overrides.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
@@ -3577,7 +3588,13 @@
           _webSessionReady = false;
           try { _rawLS.setItem(WEB_SESSION_BLOCK_KEY, '1'); } catch (e) {}
           _identityGeneration++;
-          return false;
+          try {
+            localStorage.setItem(key, payload);
+            _storePressure.retryStored = true;
+            return true;
+          } catch (second) {
+            return false;
+          }
         });
       }
       function bcProfile() {
@@ -3666,13 +3683,20 @@
       // Read through _rawLS rather than the shim, because the picker has to
       // name profiles it is NOT standing in.
       var PROFILE_NAME_KEY = 'ebird_profile_names';
+      var PROFILE_IDENTITY_MIGRATION_KEY = 'ebird_profile_identity_v2';
+      try {
+        if (_rawLS.getItem(PROFILE_IDENTITY_MIGRATION_KEY) !== 'ebird-only') {
+          _rawLS.removeItem(PROFILE_NAME_KEY);
+          _rawLS.setItem(PROFILE_IDENTITY_MIGRATION_KEY, 'ebird-only');
+        }
+      } catch (e) {}
       var PROFILE_SLOTS = ['', '2', '3', '4'];
       function profileNames() {
         try { return JSON.parse(_rawLS.getItem(PROFILE_NAME_KEY) || '{}') || {}; }
         catch (e) { return {}; }
       }
       function profileNameValue(name) {
-        return String(name || '').slice(0, 24);
+        return String(name || '').replace(/\s+/g, ' ').trim();
       }
       function setProfileName(slot, name) {
         var all = profileNames();
@@ -3694,7 +3718,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.127.2';
+      var APP_VERSION = '1.128.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12548,7 +12572,8 @@
             sub: yearStatus,
             below: '<div class="stakeoutSpeciesActions">'
               + qrButton('species', g.code)
-              + watchlistActionHtml(g.code, g.name, 'spLookupWatchlist')
+              + ((watched || seenIt)
+                ? watchlistActionHtml(g.code, g.name, 'spLookupWatchlist') : '')
               + '</div>'
           });
         var recent = $('spLookupRecent');
@@ -13394,6 +13419,12 @@
       function setRarityNotes(on) {
         try { localStorage.setItem(RARITY_NOTES_KEY, on ? 'on' : 'off'); } catch (e) {}
       }
+      function syncReportNotesVisibility(root) {
+        if (!root) return;
+        var show = rarityNotes();
+        var notes = root.querySelectorAll('.cknote, .evnotes');
+        for (var i = 0; i < notes.length; i++) notes[i].hidden = !show;
+      }
       var TWITCH_VIEW_KEY = 'ebird_twitch_view_v1';
       function twitchView() {
         try { return localStorage.getItem(TWITCH_VIEW_KEY) === 'grouped' ? 'grouped' : 'list'; }
@@ -13545,6 +13576,8 @@
             dbg('info', 'notes toggle \u00b7 owner ' + prefix + ' \u00b7 on '
               + visibleSectionId() + ' \u2192 ' + (want ? 'on' : 'off'));
             setRarityNotes(want);
+            n.setAttribute('aria-pressed', String(want));
+            n.setAttribute('data-notes', want ? 'off' : 'on');
             reload();
             return;
           }
@@ -13552,7 +13585,10 @@
           if (v) {
             ev.preventDefault();
             ev.stopPropagation();
-            setTwitchView(v.getAttribute('data-twitchview'));
+            var nextView = v.getAttribute('data-twitchview');
+            setTwitchView(nextView);
+            v.setAttribute('aria-pressed', String(nextView === 'grouped'));
+            v.setAttribute('data-twitchview', nextView === 'grouped' ? 'list' : 'grouped');
             reload();
             return;
           }
@@ -13564,6 +13600,11 @@
             + visibleSectionId() + ' \u2192 ' + b.getAttribute('data-filter')
             + '=' + b.getAttribute('data-value'));
           setRarityFilter(b.getAttribute('data-filter'), b.getAttribute('data-value'));
+          [].forEach.call(host.querySelectorAll(
+            '.rarityfilterbtn[data-filter="' + kind + '"]'), function (button) {
+              button.setAttribute('aria-pressed', String(
+                button.getAttribute('data-value') === b.getAttribute('data-value')));
+            });
           // Filtering is local work over the cached rows, just like sorting.
           reload();
         });
@@ -13605,6 +13646,10 @@
           var b = ev.target.closest ? ev.target.closest('.sortbtn[data-sort]') : null;
           if (!b) return;
           setRaritySort(b.getAttribute('data-sort'));
+          [].forEach.call(host.querySelectorAll('.sortbtn[data-sort]'), function (button) {
+            button.setAttribute('aria-pressed', String(
+              button.getAttribute('data-sort') === b.getAttribute('data-sort')));
+          });
           // Re-sorting is local work on rows already in hand, so this must NOT
           // force a reload — changing the order should never cost 47 calls.
           reload();
@@ -19993,6 +20038,7 @@
       // WKWebView default. It is labelled as an assumption on the line itself
       // so nobody later quotes it as something we measured.
       var STORE_BUDGET_KB = 5 * 1024;
+      var _storePressure = { failedBytes: 0, reclaimedBytes: 0, retryStored: false };
       function storeReport() {
         var by = {}, total = 0, lines = [];
         try {
@@ -20011,11 +20057,13 @@
           }
         } catch (err) { return ['cache: unreadable']; }
         var names = Object.keys(by).sort(function (a, b) { return by[b].b - by[a].b; });
-        lines.push('cache: ' + Math.round(total / 1024) + ' KB across '
-          + names.length + ' namespaces, '
-          + Math.round(total / 1024 / STORE_BUDGET_KB * 100)
-          + '% of an ASSUMED ' + Math.round(STORE_BUDGET_KB / 1024) + ' MB budget'
-          + ' (WKWebView default; the quota is not readable)');
+        lines.push('cache estimate: ' + Math.round(total / 1024) + ' KB of UTF-16 characters across '
+          + names.length + ' namespaces (actual WKWebView quota/headroom is not readable)');
+        lines.push(_storePressure.failedBytes
+          ? 'demonstrated write pressure: ' + Math.round(_storePressure.failedBytes / 1024)
+            + ' KB write failed; reclaimed ' + Math.round(_storePressure.reclaimedBytes / 1024)
+            + ' KB measured payload; retry ' + (_storePressure.retryStored ? 'stored' : 'failed')
+          : 'demonstrated write pressure: none this session; writable headroom is unknown');
         lines.push('  entries      KB   mean  gzip  namespace');
         names.forEach(function (nm) {
           var e = by[nm];
@@ -20233,13 +20281,8 @@
         return packJson(val).then(function (payload) {
           st.out += payload.length;
           zcLog(payload.slice(0, 2) === 'z:' ? 'PUT' : 'PUT(raw)', key, payload.length);
-          try { localStorage.setItem(key, payload); return true; }
-          catch (e) {
-            // One retry after making room, which is what every ad-hoc caller
-            // was doing by hand — and what two of them forgot.
-            if (!freeCacheSpace(60)) { st.fail++; return false; }
-            try { localStorage.setItem(key, payload); return true; }
-            catch (e2) {
+          if (storeWithReclaim(key, payload)) return true;
+          {
               st.fail++;
               // ⚠️ F247. NAME THE CULPRIT, from ANY failing write.
               //
@@ -20257,21 +20300,25 @@
               // that failed.
               dbg('warn', 'cache not stored (' + key.split(':')[0] + ', '
                 + Math.round(payload.length / 1024) + ' KB): '
-                + (e2 && e2.name || 'QuotaExceededError')
+                + 'QuotaExceededError'
                 + (_zcSaidComposition ? '' : ' · store holds ' + storeComposition()));
               _zcSaidComposition = true;
               return false;
-            }
           }
         }).catch(function () { return false; });
       }
 
-      // Make room by dropping the cheapest thing there is. Returns how many
-      // entries went, so a caller can tell whether retrying is worth it.
-      function freeCacheSpace(want) {
-        want = want || 60;
-        var freed = 0;
-        for (var t = 0; t < DISPOSABLE.length && freed < want; t++) {
+      function storedBytes(key) {
+        try {
+          var value = localStorage.getItem(key);
+          return value == null ? 0 : key.length + value.length;
+        } catch (e) { return 0; }
+      }
+      // Make room by measured stored payload, cheapest namespaces first.
+      function freeCacheSpace(wantBytes) {
+        wantBytes = Math.max(1, Number(wantBytes) || 1);
+        var freed = 0, entries = 0;
+        for (var t = 0; t < DISPOSABLE.length && freed < wantBytes; t++) {
           var pre = DISPOSABLE[t], keys = storeKeys(pre);
           if (!keys.length) continue;
           // Within a namespace of many entries, oldest fetch first: the ones
@@ -20285,22 +20332,51 @@
               return String(a.d).localeCompare(String(b.d));
             }).map(function (x) { return x.k; });
           }
-          for (var j = 0; j < keys.length && freed < want; j++) {
-            try { localStorage.removeItem(keys[j]); freed++; } catch (e) {}
+          for (var j = 0; j < keys.length && freed < wantBytes; j++) {
+            try {
+              var bytes = storedBytes(keys[j]);
+              localStorage.removeItem(keys[j]);
+              freed += bytes; entries++;
+            } catch (e) {}
           }
         }
         // Other reports' snapshots last: expensive to rebuild, but a snapshot
         // for a region you are not looking at is worth less than the one you
         // are looking at right now.
-        if (freed < want) {
+        if (freed < wantBytes) {
           var mine = chaseKey(getReport().slug);
           storeKeys(CHASE_NS).forEach(function (k) {
-            if (k === mine || freed >= want) return;
-            try { localStorage.removeItem(k); freed++; } catch (e) {}
+            if (k === mine || freed >= wantBytes) return;
+            try {
+              var bytes = storedBytes(k);
+              localStorage.removeItem(k);
+              freed += bytes; entries++;
+            } catch (e) {}
           });
         }
-        if (freed) dbg('warn', 'freed ' + freed + ' cached items to make room');
+        if (freed) dbg('warn', 'freed ' + entries + ' cached items · '
+          + Math.round(freed / 1024) + ' KB measured payload to make room');
         return freed;
+      }
+      function storeWithReclaim(key, payload) {
+        try {
+          localStorage.setItem(key, payload);
+          return true;
+        } catch (first) {
+          var need = key.length + payload.length;
+          _storePressure.failedBytes = need;
+          _storePressure.retryStored = false;
+          var reclaimed = freeCacheSpace(need);
+          _storePressure.reclaimedBytes += reclaimed;
+          if (!reclaimed) return false;
+          try {
+            localStorage.setItem(key, payload);
+            _storePressure.retryStored = true;
+            return true;
+          } catch (second) {
+            return false;
+          }
+        }
       }
       var _cklView = {};
       var _cklWrites = 0;
@@ -20327,10 +20403,15 @@
       // so its contract is unchanged and `logic.js` — parity-tested against
       // Python — is not touched at all.
       function cklWrite(sub, d, hasMedia, v) {
-        localStorage.setItem(CKL_NS + sub, JSON.stringify({
+        var key = CKL_NS + sub;
+        var payload = JSON.stringify({
           d: todayStr(), o: String((d && d.obsDt) || '').slice(0, 10),
           m: hasMedia ? 1 : 0, v: PACK_RAW + JSON.stringify(v)
-        }));
+        });
+        if (!storeWithReclaim(key, payload)) {
+          throw new DOMException('Checklist cache write exceeded local storage',
+            'QuotaExceededError');
+        }
         // Opportunistic upgrade: once the gzip lands, rewrite the same key
         // with the smaller payload. Failure is silent and harmless — the raw
         // entry above is already valid and already readable.
@@ -21741,12 +21822,6 @@
           yearCountable: yearCountable, source: 'csv',
           displayName: importedName
         }));
-        if (importedName && !getDisplayName()) {
-          setDisplayNameValue(importedName, 'csv');
-          if (!profileNames()[String(bcProfile())]) {
-            setProfileName(bcProfile(), importedName);
-          }
-        }
         return n;
       }
 
@@ -21863,11 +21938,8 @@
         }));
         return name;
       }
-      // Manual, CSV and legacy values are explicit overrides. An earlier value
-      // fetched from this same account-menu source may be refreshed when the
-      // authenticated WebView account changes; otherwise signing out of one
-      // account and into another would leave ownership filters tied to the old
-      // account forever.
+      // The signed-in eBird account is authoritative. Every successful capture
+      // replaces legacy, CSV, or manually stored identity values.
       function applyCapturedIdentity(identity) {
         identity = identity || {};
         if (identity.status !== 'ok') {
@@ -21876,34 +21948,18 @@
         var found = String(identity.displayName || '').replace(/\s+/g, ' ').trim();
         if (!found) return { applied: false, status: 'malformed' };
         var field = $('ebirdName');
-        if (field) {
-          var loaded = String(field.dataset.loadedValue || '').trim();
-          var typed = String(field.value || '').replace(/\s+/g, ' ').trim();
-          if (typed !== loaded) {
-            return { applied: false, status: 'manual-override' };
-          }
-        }
         var existing = getDisplayName(), meta = getIdentityMeta();
-        if (existing) {
-          if (existing === found) return { applied: false, status: 'already-set' };
-          if (!(meta && meta.source === 'ebird-bird-list')) {
-            return { applied: false, status: 'manual-override' };
-          }
+        if (existing === found && meta && meta.source === 'ebird-bird-list') {
+          return { applied: false, status: 'already-set' };
         }
         var previous = existing;
         setDisplayNameValue(found, 'ebird-bird-list');
         var profileField = $('bcProfileName');
-        var profileUntouched = !profileField
-          || String(profileField.value || '') === String(profileField.dataset.loadedValue || '');
-        var savedProfileName = profileNames()[String(bcProfile())] || '';
-        var previousProfileName = profileNameValue(previous);
         var nextProfileName = profileNameValue(found);
-        if (profileUntouched && (!savedProfileName || savedProfileName === previousProfileName)) {
-          setProfileName(bcProfile(), found);
-          if (profileField) {
-            profileField.value = nextProfileName;
-            profileField.dataset.loadedValue = nextProfileName;
-          }
+        setProfileName(bcProfile(), found);
+        if (profileField) {
+          profileField.value = nextProfileName;
+          profileField.dataset.loadedValue = nextProfileName;
         }
         if (field) {
           field.value = found;
@@ -21924,12 +21980,11 @@
         if (status === 'applied') return 'Your signed-in eBird display name was found and saved.';
         if (status === 'updated') return 'Your saved name was updated to the currently signed-in eBird account.';
         if (status === 'already-set') return 'The signed-in eBird name matches the saved name.';
-        if (status === 'manual-override') return 'The signed-in eBird name was found; your manually saved name was kept.';
         if (status === 'logged-out') return 'Sign in to eBird in the opened window, then try again.';
         if (status === 'anonymous') return 'This eBird account is using Anonymous eBirder, which cannot identify your public rows.';
         if (status === 'ambiguous') return 'eBird exposed more than one account name, so nothing was changed.';
         if (status === 'malformed') return 'The eBird account label changed shape, so nothing was changed.';
-        return 'The signed-in eBird account name was not available. You can enter it manually.';
+        return 'The signed-in eBird account name was not available.';
       }
       function refreshIdentityHint() {
         var hint = $('ebirdNameHint');
@@ -21937,15 +21992,11 @@
         var meta = getIdentityMeta(), source = meta && meta.source;
         var suffix = source === 'ebird-bird-list'
           ? ' Current source: signed-in eBird bird-list account menu.'
-          : source === 'csv'
-            ? ' Current source: imported eBird CSV.'
-            : getDisplayName()
-              ? ' Current source: manual entry.'
-              : '';
+          : '';
         hint.textContent = 'Used to find your row and your own checklists. '
           + 'Bird Chaser reads it from the signed-in account menu on the same '
           + 'eBird bird-list page it already uses. The API key and public web '
-          + 'key do not identify the account. A manually entered name is never overwritten.'
+          + 'key do not identify the account. This identity is read-only and refreshes from eBird.'
           + suffix;
       }
       function getAbaSid() { return (localStorage.getItem('ebird_aba_sid') || 'SN10489').trim().toUpperCase(); }
@@ -22479,8 +22530,7 @@
               + 'Bird Chaser can read the name from the signed-in account menu '
               + 'on the same eBird bird-list page it already uses.</p>'
               + '<div class="keyrow"><button id="nameFetchBtn" type="button">'
-              + 'Fetch my name</button><button id="nameBannerBtn" class="secondary" '
-              + 'type="button">Enter manually</button></div>'
+              + 'Fetch my name</button></div>'
               + '<p id="identityFetchStatus" class="hint"></p>';
             var fb = $('nameFetchBtn');
             if (fb) fb.addEventListener('click', function () {
@@ -22498,17 +22548,6 @@
               }).finally(function () {
                 if ($('nameFetchBtn')) $('nameFetchBtn').disabled = false;
               });
-            });
-            var nb = $('nameBannerBtn');
-            if (nb) nb.addEventListener('click', function () {
-              showSettings(true);
-              var name = $('ebirdName');
-              if (name) {
-                try {
-                  if (name.scrollIntoView) name.scrollIntoView({ block: 'center' });
-                } catch (e) {}
-                try { name.focus(); } catch (e) {}
-              }
             });
             return;
           }
@@ -22828,11 +22867,9 @@
 
       function ebirdSignOut() {
         var meta = getIdentityMeta(), oldName = getDisplayName();
-        if (meta && meta.source === 'ebird-bird-list') {
+        if (oldName || meta) {
           setDisplayNameValue('', 'ebird-sign-out');
-          if (profileNames()[String(bcProfile())] === profileNameValue(oldName)) {
-            setProfileName(bcProfile(), '');
-          }
+          setProfileName(bcProfile(), '');
           if ($('ebirdName')) {
             $('ebirdName').value = '';
             $('ebirdName').dataset.loadedValue = '';
@@ -23012,7 +23049,7 @@
           var c = JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || '{}');
           Object.keys(c).forEach(function (x) { if (c[x] && c[x].date !== todayStr()) delete c[x]; });
           c[k] = { date: todayStr(), data: data };
-          localStorage.setItem(RANK_CACHE_KEY, JSON.stringify(c));
+          storeWithReclaim(RANK_CACHE_KEY, JSON.stringify(c));
         } catch (e) {}
       }
       // Ordered URL forms for one leaderboard. The first mirrors rankings.py
@@ -24622,7 +24659,6 @@
       }
       function lastNewPasses(sp, info, code) {
         var f = rarityFilters();
-        if (f.year === 'unseen' && isSpeciesSeen(code, sp)) return false;
         if (f.distance === 'near') {
           var mi = lastNewNearest(info);
           // A row whose checklists have not landed yet has no distance, and a
@@ -24707,7 +24743,7 @@
         // lands is a control nobody can reach while they are waiting.
         var chost = $('lastNewControlsHost');
         if (chost && !chost.firstChild) {
-          chost.innerHTML = rarityControls('lastNew');
+          chost.innerHTML = rarityControls('lastNew', { unseenOnly: true, view: true });
           wireRarityControls('lastNew', function () {
             if (_lastNewState) {
               renderLastNew(_lastNewState.groups, _lastNewState.byName,
@@ -24715,28 +24751,19 @@
             }
           });
         }
-        var needed = [], already = [], hidden = 0;
+        var shown = [], hidden = 0;
         keys.forEach(function (sp) {
           var info = (byName || {})[sp] || null;
           var code = (info && info.code) || codeIdx[sp.toLowerCase()] || '';
           if (!lastNewPasses(sp, info, code)) { hidden++; return; }
-          (isSpeciesSeen(code, sp) ? already : needed).push(sp);
+          shown.push(sp);
         });
         var html = '', order = [];
-        function block(list, label, why) {
-          if (!list.length) return;
-          html += lastNewGroupHead(label, why);
-          order.push(null);
-          list.forEach(function (sp) {
-            html += lastNewCard(sp, groups[sp], (byName || {})[sp] || null, region,
-              codeIdx[sp.toLowerCase()] || '');
-            order.push(sp);
-          });
-        }
-        block(needed, '🔍 Still needed or awaiting verification',
-          'not yet confirmed here — absent from your year list or held on your watchlist');
-        block(already, '✅ Already on your year list',
-          'what is moving right now, not a new bird');
+        shown.forEach(function (sp) {
+          html += lastNewCard(sp, groups[sp], (byName || {})[sp] || null, region,
+            codeIdx[sp.toLowerCase()] || '');
+          order.push(sp);
+        });
         // A filter that silently shortens a list is indistinguishable from a
         // feed that returned less, so it says what it removed.
         if (hidden) {
@@ -24745,6 +24772,8 @@
           order.push(null);
         }
         out.innerHTML = html;
+        out.classList.toggle('report-list-view', twitchView() === 'list');
+        syncReportNotesVisibility(out);
         // The card markup comes from a shared template, so the species key is
         // stamped on afterwards rather than threaded through the template — the
         // cards module is pure layout and must not learn about this section.
@@ -24904,11 +24933,15 @@
                 }
               });
             };
-            ck = checklistDetails(uniq.slice(0, nShow).map(mkRow),
-              uniq.length, 'recent checklist', '',
-              moreDetails(uniq.length - nShow, { one: 'checklist', many: 'checklists' }, function () {
+            var shownRows = uniq.slice(0, nShow).map(mkRow);
+            var remainingRows = moreDetails(
+              uniq.length - nShow, { one: 'checklist', many: 'checklists' }, function () {
                 return ChecklistCards.list('small', uniq.slice(nShow).map(mkRow));
-              }));
+              });
+            ck = twitchView() === 'grouped'
+              ? checklistDetails(shownRows, uniq.length, 'recent checklist', '',
+                  remainingRows)
+              : ChecklistCards.list('small', shownRows) + remainingRows;
           }
           return SpeciesCards.medium({
             sci: sciFor(code),
@@ -27277,6 +27310,37 @@
         });
         if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
       }
+      function easyReportRows(rows) {
+        var out = [];
+        (rows || []).forEach(function (bird) {
+          easySpotsToPlaces(bird.spots || []).forEach(function (place) {
+            var checklists = place.checklists && place.checklists.length
+              ? place.checklists : [{ subId: '', dateStr: place.dateStr }];
+            checklists.forEach(function (checklist) {
+              out.push({
+                code: bird.code, name: bird.name, sci: sciFor(bird.code),
+                dateStr: checklist.dateStr || place.dateStr || bird.latest || '',
+                subId: checklist.subId || '', count: checklist.count,
+                observer: checklist.observer || '', durationHrs: checklist.durationHrs,
+                evidence: checklist.evidence || '',
+                loc: place.loc, locId: place.locId,
+                locationPrivate: place.locationPrivate,
+                lat: place.lat, lon: place.lon, distMi: place.distMi
+              });
+            });
+          });
+        });
+        return out;
+      }
+      function easyGroupFor(bird) {
+        var records = easyReportRows([bird]);
+        var groups = buildAllUnseen(records);
+        if (groups.length) return groups[0];
+        return {
+          code: bird.code, name: bird.name, sci: sciFor(bird.code),
+          places: [], dateStr: bird.latest || ''
+        };
+      }
       function renderEasyMisses(rows, totalDays, keepVisible) {
         var box = $('easyResults');
         // Remembered so a sort tap re-renders from data already in hand.
@@ -27284,7 +27348,15 @@
         var sortRow = $('easySortRow');
         if (sortRow) sortRow.hidden = !(rows && rows.length);
         if (!keepVisible) _easyVisible = EASY_MISS_BATCH;
-        if (rows && rows.length) rows = easySortRows(rows);
+        if (rows && rows.length) {
+          rows = easySortRows(rows);
+          if (rarityFilters().distance === 'near') {
+            rows = rows.filter(function (row) {
+              var mi = easyNearestMi(row);
+              return mi == null || mi <= chaseMaxMi();
+            });
+          }
+        }
         var totalRows = rows ? rows.length : 0;
         if (rows && rows.length) rows = rows.slice(0, _easyVisible);
         var more = $('easyMore');
@@ -27300,36 +27372,34 @@
           return;
         }
         var bar = Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100);
-        box.innerHTML = '<div class="status">Reported on <b>' + bar + '%+</b> of the last ' + totalDays
+        var statusHtml = '<div class="status">Reported on <b>' + bar + '%+</b> of the last ' + totalDays
           + ' sampled days near you, ranked by how many location-days had them.'
           + (bar < Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
              ? ' The bar starts at ' + Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
                + '% and drops until at least ' + EASY_MISS_MIN_ROWS
                + ' birds qualify — at this point in the year you already have the truly common ones.'
              : '')
-          + '</div>'
-          + '<ul class="obs big xl icon-sm">' + rows.map(function (r) {
-            var places = easySpotsToPlaces(r.spots);
-            var nearest = places.reduce(function (a, p) {
-              var d = (p.distMi == null || !isFinite(p.distMi)) ? Infinity : p.distMi;
-              return d < a ? d : a;
-            }, Infinity);
-            return speciesPlacesCard({
-              code: r.code, name: r.name,
-              tags: needTag(r.code, r.name),
-              distMi: isFinite(nearest) ? nearest : null,
-              // The rank badge is gone here for the same reason it went from
-              // All unseen: the list is already ordered and says so.
-              sub: [
-                r.days + '/' + r.totalDays + ' days',
-                Math.round(r.freq * 100) + '%',
-                r.locs + ' spot' + (r.locs === 1 ? '' : 's')
-              ].join(' · '),
-              places: places
+          + '</div>';
+        var grouped = twitchView() === 'grouped';
+        var cards = grouped
+          ? rows.map(function (r) {
+              return birdReportGroupCard(easyGroupFor(r), {
+                sortMode: _easySort === 'dist' ? 'distance' : 'date'
+              });
+            })
+          : easyReportRows(rows).map(function (r) {
+              return birdReportListCard(r, {
+                sortMode: _easySort === 'dist' ? 'distance' : 'date'
+              });
             });
-          }).join('') + '</ul>';
+        box.innerHTML = statusHtml + '<ul class="obs big xl icon-sm">'
+          + cards.join('') + '</ul>';
+        box.classList.toggle('report-list-view', twitchView() === 'list');
+        box.classList.toggle('report-notes-on', rarityNotes());
+        syncReportNotesVisibility(box);
         mountProgressiveLists(box);
         hydratePhotos(box);
+        if (rarityNotes()) hydrateChecklistEvidence(box);
       }
       function easySeedParentOf() {
         var seed = window.__SEED_BIRDLIST__ || {};
@@ -29983,7 +30053,6 @@
         hotspot: { priority: 4, word: 'HOTSPOT',     glyph: '📍' },
         patch:   { priority: 5, word: 'TOP PATCH',   glyph: '🥇' }
       };
-      var _surgeSort = 'priority';
       var _surgeEarlyPaint = null;
       var _surgeLoadGeneration = 0;
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
@@ -30224,21 +30293,8 @@
           + '</span>';
       }
 
-      function surgeSortControl() {
-        return ToggleControls.group({
-          label: 'Sort alert feed',
-          options: [
-            { label: 'Buzz', cls: 'surgesortbtn',
-              data: { 'surge-sort': 'priority' }, pressed: _surgeSort === 'priority' },
-            { label: 'Newest', cls: 'surgesortbtn',
-              data: { 'surge-sort': 'newest' }, pressed: _surgeSort === 'newest' }
-          ]
-        });
-      }
-
       function surgeControls() {
-        return '<div class="surgesortrow" aria-label="Alert feed controls">'
-          + surgeSortControl() + '</div>';
+        return '';
       }
 
       function surgeReasons(a) {
@@ -30433,7 +30489,6 @@
       }
 
       function applySurgeSort(mode) {
-        _surgeSort = mode === 'newest' ? 'newest' : 'priority';
         var list = $('surgeFeed');
         if (!list) return;
         var rows = [].slice.call(list.children);
@@ -30444,18 +30499,11 @@
           var bt = +(b.getAttribute('data-surge-latest') || 0);
           var ao = +(a.getAttribute('data-surge-order') || 0);
           var bo = +(b.getAttribute('data-surge-order') || 0);
-          if (_surgeSort === 'priority' && ap !== bp) return ap - bp;
+          if (ap !== bp) return ap - bp;
           if (at !== bt) return bt - at;
-          if (_surgeSort === 'newest' && ap !== bp) return ap - bp;
           return ao - bo;
         });
         rows.forEach(function (row) { list.appendChild(row); });
-        [].forEach.call(document.querySelectorAll('#surgeResults .surgesortbtn'), function (b) {
-          var on = b.getAttribute('data-surge-sort') === _surgeSort;
-          var label = b.getAttribute('data-label') || '';
-          b.setAttribute('aria-pressed', on ? 'true' : 'false');
-          b.textContent = label;
-        });
       }
 
       function wireSurgeHeadlines() {
@@ -30503,12 +30551,7 @@
       }
 
       function wireSurgeControls() {
-        [].forEach.call(document.querySelectorAll('#surgeResults .surgesortbtn'), function (b) {
-          b.addEventListener('click', function () {
-            applySurgeSort(b.getAttribute('data-surge-sort'));
-          });
-        });
-        applySurgeSort(_surgeSort);
+        applySurgeSort('priority');
         wireSurgeHeadlines();
       }
 
@@ -34990,14 +35033,14 @@
       var COVERAGE_LATEST_MAX = 36;
       var COVERAGE_BYTES_MAX = 120000;
       var COVERAGE_SECTIONS = [
-        'nemesis', 'open_targets', 'nearby_patches', 'todays_patches',
+        'nemesis', 'common_birds', 'nearby_patches', 'todays_patches',
         'half_day_patches', 'full_day_patches', 'stakeout_bird',
         'todays_rarities', 'last_7_days', 'mega', 'bird_gen',
         'on_passage', 'due_back_soon', 'dawn_dusk'
       ];
       var COVERAGE_AT = {
-        easyBtn: 'nemesis',
-        allUnseenBtn: 'open_targets',
+        easyBtn: 'common_birds',
+        allUnseenBtn: 'nemesis',
         quickBtn: 'nearby_patches',
         destBtn: 'todays_patches',
         excBtn: 'half_day_patches',
@@ -35179,7 +35222,8 @@
               : 'report',
             filter: /^(todays|half_day|full_day)_patches$/.test(section)
               ? 'unseen' : 'default',
-            sort: section === 'nemesis' ? _easySort : 'default',
+            sort: section === 'nemesis' ? raritySort()
+              : section === 'common_birds' ? _easySort : 'default',
             visibleSpecies: visibleSpecies,
             hiddenSpecies: hiddenSpecies,
             publicHotspots: hotspots,
@@ -35462,10 +35506,12 @@
         // the count is taken from the DOM instead: any slot still carrying no
         // data-q was never queued by anybody.
         try {
-          var _all = document.querySelectorAll('.thumb[data-bird]').length;
-          var _orphan = document.querySelectorAll('.thumb[data-bird]:not([data-q])').length;
+          var visible = _sections.filter(function (s) { return !s.hidden; })[0];
+          var _all = visible ? visible.querySelectorAll('.thumb[data-bird]').length : 0;
+          var _orphan = visible
+            ? visible.querySelectorAll('.thumb[data-bird]:not([data-q])').length : 0;
           if (_all) {
-            add('photo slots on screen: ' + _all + ' · ' + _orphan
+            add('visible photo slots on screen: ' + _all + ' · ' + _orphan
               + ' never queued' + (_orphan ? '  <-- a section forgot hydratePhotos()' : ''));
           }
         } catch (e) {}
@@ -36087,6 +36133,25 @@
           setEasySort(id === 'easyByDist' ? 'dist' : id === 'easyByDate' ? 'date' : 'freq');
         });
       });
+      ['easyNear', 'easyAll'].forEach(function (id) {
+        var b = $(id);
+        if (b) b.addEventListener('click', function () {
+          setRarityFilter('distance', id === 'easyNear' ? 'near' : 'region');
+          $('easyNear').setAttribute('aria-pressed', String(id === 'easyNear'));
+          $('easyAll').setAttribute('aria-pressed', String(id === 'easyAll'));
+          if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
+        });
+      });
+      if ($('easyNotes')) $('easyNotes').addEventListener('click', function () {
+        setRarityNotes(!rarityNotes());
+        $('easyNotes').setAttribute('aria-pressed', String(rarityNotes()));
+        if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
+      });
+      if ($('easyView')) $('easyView').addEventListener('click', function () {
+        setTwitchView(twitchView() === 'grouped' ? 'list' : 'grouped');
+        $('easyView').setAttribute('aria-pressed', String(twitchView() === 'grouped'));
+        if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
+      });
       $('iconicBtn').addEventListener('click', loadIconicSpots);      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
       if ($('iconicByPlace')) $('iconicByPlace').addEventListener('click', function () { setIconicView('place'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
@@ -36614,22 +36679,13 @@
           localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
         }
         localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
-        // Blank means blank. Preserve fetched/CSV provenance when the field was
-        // merely viewed; only an actual edit becomes the manual override.
-        var enteredName = ($('ebirdName').value || '').trim();
-        var loadedName = $('ebirdName').dataset.loadedValue || '';
-        if (enteredName !== loadedName) setDisplayNameValue(enteredName, 'manual');
-        else localStorage.setItem('ebird_display_name', enteredName);
+        // Identity is read-only and belongs to the authenticated eBird account.
+        // Settings must never turn stale field contents into an override.
         var oldAbaSid = getAbaSid();
         localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
         if (getAbaSid() !== oldAbaSid) invalidateMegaViews();
-        // Save the current profile before switching to another one.
+        // Switch profiles without persisting an editable identity label.
         var wantP = $('bcProfileSel') ? ($('bcProfileSel').value || '') : bcProfile();
-        if ($('bcProfileName')) {
-          var profileEntered = ($('bcProfileName').value || '').trim();
-          var profileLoaded = $('bcProfileName').dataset.loadedValue || '';
-          if (profileEntered !== profileLoaded) setProfileName(bcProfile(), profileEntered);
-        }
         if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
         clearChaseCache();
         _autoLoaded = {};
@@ -36770,6 +36826,7 @@
         GBIF_REFILL_PER_S: GBIF_REFILL_PER_S,
         loadAbaAlert: loadAbaAlert,
         renderSurge: renderSurge, loadSurge: loadSurge,
+        surgeControls: surgeControls, applySurgeSort: applySurgeSort,
         chaseAlertSourceState: chaseAlertSourceState,
         surgeDestinationsComplete: surgeDestinationsComplete,
         surgeSourceCacheKey: surgeSourceCacheKey,
@@ -36931,6 +36988,7 @@
         recScopes: recScopes, getRecScope: getRecScope,
         stateRecordFile: stateRecordFile, renderRecScope: renderRecScope,
         renderLastNew: renderLastNew, lastNewChecklists: lastNewChecklists,
+        lastNewPasses: lastNewPasses,
       reconcileLastNewOwnerTicks: reconcileLastNewOwnerTicks,
       lastNewKey: lastNewKey, lastNewPick: lastNewPick,
       loadLastNewCache: loadLastNewCache, saveLastNewCache: saveLastNewCache,
@@ -36968,8 +37026,10 @@
         hotspotOwnershipState: hotspotOwnershipState,
         HOTSPOT_OWN_DAYS: HOTSPOT_OWN_DAYS,
         easyCacheKey: easyCacheKey, easyCompact: easyCompact, zcPut: zcPut, zcGet: zcGet,
+        freeCacheSpace: freeCacheSpace, storeReport: storeReport, cklWrite: cklWrite,
         zcActivityReport: zcActivityReport, cacheLogOn: cacheLogOn,
         setCacheLog: setCacheLog,
+        recordSectionCoverage: recordSectionCoverage, coverageAuditExport: coverageAuditExport,
         renderHot: renderHot, renderCold: renderCold, showSection: showSection,
         auditOverflow: auditOverflow,
         dragSnapshot: dragSnapshot, dragExtremes: dragExtremes,
@@ -37080,6 +37140,7 @@
         openStakeSpecies: openStakeSpecies,
         clearSpeciesLookup: clearSpeciesLookup, setSpeciesLookupSort: setSpeciesLookupSort,
         setSpeciesLookupWithinChase: setSpeciesLookupWithinChase,
+        renderSpeciesLookup: renderSpeciesLookup,
         speciesLookupDetails: speciesLookupDetails,
         setSpeciesLookupGrouped: setSpeciesLookupGrouped,
         setSpeciesLookupNotes: setSpeciesLookupNotes,

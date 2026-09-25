@@ -389,3 +389,22 @@ test('F250 Sharp-shinned Hawk trades tail for measured crown clearance', () => {
   assert.deepEqual(jpegSize(output), { w: 240, h: 240 },
     'the public Sharp-shinned Hawk derivative was not optimized from its reviewed crop');
 });
+
+test('F529 Red-shouldered Hawk preserves the full portrait with deterministic headroom', () => {
+  const fitted = tableBody('FIT_OVERRIDES');
+  const pins = tableBody('OVERRIDE_SRC_SHA');
+  assert.match(fitted, /['"]reshaw\.jpg['"]/,
+    'Red-shouldered Hawk can fall back to the crown-clipping square crop');
+  assert.match(pins,
+    /['"]reshaw\.jpg['"]\s*:\s*['"]0c528c1c259026f4['"]/,
+    'the measured portrait source is not pinned');
+
+  const output = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'reshaw.jpg'));
+  assert.deepEqual(jpegSize(output), { w: 240, h: 240 });
+  assert.equal(output.length, 9156,
+    'the generated derivative changed size; re-check the full-frame inset and headroom');
+  assert.equal(sha256Hex(output),
+    'c786673b5249334fa31e5493397749ffc26a66b439b02aa16c0e298fc116922e',
+    'the deterministic Red-shouldered Hawk derivative changed');
+});

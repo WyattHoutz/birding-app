@@ -512,9 +512,13 @@ test('F317 the existing first-year fetch applies identity from the same page res
   app.window.close();
 });
 
-test('F317 applies a blank identity once and retains an existing manual override', async () => {
-  const app = await boot({ sample: false });
+test('F527 fetched identity replaces stale stored overrides', async () => {
+  const app = await boot({ sample: false, storage: {
+    ebird_profile_names: JSON.stringify({ '': 'Stale Profile Override' }),
+  } });
   const A = app.window.__app;
+  assert.equal(A.profileLabel(''), 'Main',
+    'the identity migration did not discard stored editable profile labels');
   const applied = A.applyCapturedIdentity({
     status: 'ok', displayName: 'Sample Observer',
     evidence: 'account-menu-aria-label', username: 'must_not_persist',
@@ -551,13 +555,13 @@ test('F317 applies a blank identity once and retains an existing manual override
     status: 'ok', displayName: 'Different Web Account',
     evidence: 'account-menu-aria-label',
   });
-  assert.equal(retained.status, 'manual-override');
-  assert.equal(A.getDisplayName(), 'Manual Override');
-  assert.equal(A.getIdentityMeta().source, 'manual');
+  assert.equal(retained.status, 'updated');
+  assert.equal(A.getDisplayName(), 'Different Web Account');
+  assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
   app.window.close();
 });
 
-test('F317 a dirty profile-label field wins over captured auto-naming', async () => {
+test('F527 profile identity is read-only and follows eBird', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   app.$('bcProfileName').value = 'My testing slot';
@@ -568,16 +572,17 @@ test('F317 a dirty profile-label field wins over captured auto-naming', async ()
   });
   assert.equal(applied.status, 'applied');
   assert.equal(A.getDisplayName(), 'Sample Observer');
-  assert.equal(app.$('bcProfileName').value, 'My testing slot');
-  assert.equal(A.profileLabel(''), 'Main',
-    'identity cannot overwrite a profile-label edit that has not been saved');
+  assert.equal(app.$('bcProfileName').readOnly, true);
+  assert.equal(app.$('bcProfileName').value, 'Sample Observer');
+  assert.equal(A.profileLabel(''), 'Sample Observer');
 
   A.persistSettings();
-  assert.equal(A.profileLabel(''), 'My testing slot');
+  assert.equal(A.profileLabel(''), 'Sample Observer',
+    'Settings cannot persist a stale profile-label override');
   app.window.close();
 });
 
-test('F317 does not overwrite a manual name being edited but not yet saved', async () => {
+test('F527 eBird identity replaces stale display-field contents', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   app.$('ebirdName').value = 'Unsaved Manual';
@@ -588,10 +593,10 @@ test('F317 does not overwrite a manual name being edited but not yet saved', asy
     status: 'ok', displayName: 'Captured Observer',
     evidence: 'account-menu-aria-label',
   });
-  assert.equal(retained.status, 'manual-override');
-  assert.equal(A.getDisplayName(), '');
-  assert.equal(app.$('ebirdName').value, 'Unsaved Manual',
-    'an asynchronous capture cannot repaint over an in-progress edit');
+  assert.equal(retained.status, 'applied');
+  assert.equal(A.getDisplayName(), 'Captured Observer');
+  assert.equal(app.$('ebirdName').readOnly, true);
+  assert.equal(app.$('ebirdName').value, 'Captured Observer');
   assert.equal(app.$('homePlace').value, 'Unsaved home');
   assert.equal(app.$('abaSid').value, 'SN99999',
     'identity completion updates only identity UI, never reloads all Settings');
@@ -1293,7 +1298,7 @@ test('F317 switching profiles clears the shared eBird WebView session first', as
   app.window.close();
 });
 
-test('F317 eBird sign-out clears fetched identity but preserves a manual override', async () => {
+test('F527 eBird sign-out clears every stored identity source', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   let clears = 0;
@@ -1317,9 +1322,8 @@ test('F317 eBird sign-out clears fetched identity but preserves a manual overrid
   A.setProfileName('', 'Manual Observer');
   assert.equal(await A.ebirdSignOut(), true);
   assert.equal(clears, 2);
-  assert.equal(A.getDisplayName(), 'Manual Observer',
-    'signing out of the browser does not erase an explicit manual override');
-  assert.equal(A.profileLabel(''), 'Manual Observer');
+  assert.equal(A.getDisplayName(), '');
+  assert.equal(A.profileLabel(''), 'Main');
   app.window.close();
 });
 
@@ -1339,12 +1343,12 @@ test('F317 long auto-fetched names refresh and clear their truncated profile lab
   assert.equal(A.applyCapturedIdentity({
     status: 'ok', displayName: first, evidence: 'account-menu-aria-label',
   }).status, 'applied');
-  assert.equal(A.profileLabel(''), first.slice(0, 24));
+  assert.equal(A.profileLabel(''), first);
   assert.equal(A.applyCapturedIdentity({
     status: 'ok', displayName: second, evidence: 'account-menu-aria-label',
   }).status, 'updated');
-  assert.equal(A.profileLabel(''), second.slice(0, 24),
-    'profile-label ownership compares the same canonical 24-character value');
+  assert.equal(A.profileLabel(''), second,
+    'the read-only profile identity follows the complete fetched display name');
 
   await A.ebirdSignOut();
   assert.equal(A.getDisplayName(), '');
@@ -1438,7 +1442,7 @@ test('F317 first-year identity is discarded when profile or key changes in fligh
   });
 });
 
-test('F317 an in-flight capture cannot restore a name the user cleared', async () => {
+test('F527 a read-only field cannot suppress an in-flight eBird identity', async () => {
   const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0];
   const pageHtml = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, (m) => m + header);
   const app = await boot({
@@ -1464,15 +1468,16 @@ test('F317 an in-flight capture cannot restore a name the user cleared', async (
   const before = A.identityRevision();
   app.$('ebirdName').value = '';
   A.persistSettings();
-  assert.equal(A.getDisplayName(), '');
-  assert.ok(A.identityRevision() > before, 'explicit deletion advances identity state');
+  assert.equal(A.getDisplayName(), 'Old Observer');
+  assert.equal(A.identityRevision(), before,
+    'Settings ignores programmatic changes to the read-only identity field');
 
   release();
   const page = await pending;
   assert.equal(page.valid, true,
     'identity revision changes do not discard unrelated regional bird-list data');
-  assert.equal(A.getDisplayName(), '',
-    'the stale response cannot reverse an explicit deletion of personal data');
+  assert.equal(A.getDisplayName(), 'Sample Observer',
+    'the authoritative eBird response replaces the stale stored identity');
   app.window.close();
 });
 
@@ -4773,6 +4778,8 @@ test('easy misses: ranked by location-days, excluding birds on your year list', 
 test('F414 Nemesis retains qualifiers beyond row 25 and reveals them without refetching', async () => {
   const app = await boot({ fetch: () => null });
   const A = app.window.__app;
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
   seedSeen(app, []);
   const obs = [];
   for (let i = 0; i < 30; i++) {
@@ -5577,14 +5584,16 @@ test('Easy misses renders through the SAME card as All unseen', async () => {
       { locId: 'L2', name: 'Juanita Bay', lat: 47.70, lng: -122.20, when: '2026-07-28 09:00', sub: 'S2', mi: 9.1 },
     ],
   }], { minFreq: 0.4 }), 30);
+  app.click(doc.getElementById('easyView'));
   const box = doc.getElementById('easyResults');
   const ul = box.querySelector('ul');
   for (const cls of ['obs', 'big', 'xl', 'icon-sm']) {
     assert.ok(ul.className.split(/\s+/).includes(cls),
       'the same wrapper All unseen uses, missing: ' + cls);
   }
-  assert.ok(box.querySelector('.spdist'), 'distance is the third column here too');
-  assert.ok(box.querySelector('.uplaces'), 'places render through the shared place list');
+  assert.match(box.textContent, /6\.7\s*mi/,
+    'the shared grouped card keeps the nearest distance visible');
+  assert.ok(box.querySelector('.birdreportplaces'), 'places render through the shared place list');
   assert.ok(box.querySelector('.cklcards'), 'with their checklists beneath them');
   assert.ok(!/#1/.test(box.textContent), 'and the "#N" rank badge is gone');
   assert.match(box.textContent, /Marymoor Park/, 'the places are still named');
@@ -8349,31 +8358,39 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   }], [], [], [], [], {
     mega: 'notLoaded', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
   });
+
   const section = app.$('sec-surgeBtn');
   assert.equal(section.querySelector('h2').childNodes[0].textContent.trim(),
     'Talk and news');
   assert.equal(section.querySelector('.sechint'), null,
     'the old subtitle still sits between the title and controls');
   const results = app.$('surgeResults');
-  assert.ok(results.firstElementChild.classList.contains('surgesortrow'),
-    'the toggles do not immediately follow the section header');
+  assert.ok(results.firstElementChild.classList.contains('surgefeedhead'),
+    'the feed count does not immediately follow the section header');
   assert.equal(results.querySelector('.surgeintro'), null,
     'the explanatory paragraph is still visible above the feed');
-  assert.ok(results.querySelector('.surgesortrow + .surgefeedhead'),
-    'the count does not follow the controls');
+  assert.equal(results.querySelector('.surgesortrow, [data-surge-sort]'), null,
+    'the removed Bird Gen order toggle is still rendered');
   assert.equal(results.querySelector('.surgenotesrow, [data-surge-notes]'), null,
     'the removed Bird Gen notes toggle still sits above the feed');
   const help = results.querySelector('.lanehelp[data-lane="feed"]');
   assert.ok(help, 'the moved explanation has no info-button destination');
   app.click(help);
   const sheet = app.document.querySelector('#appSheet');
-  assert.match(sheet.textContent, /Buzz.*Newest.*Hotspot alerts/s);
+  assert.match(sheet.textContent, /Buzz.*Hotspot alerts/s);
+  assert.doesNotMatch(sheet.textContent, /Newest/);
   assert.match(sheet.textContent, /Mega snapshot/i,
     'the dynamic source context was not moved into the info sheet');
   assert.ok(results.compareDocumentPosition(app.$('surgeStatus'))
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'status text still occupies the space before the controls');
   app.window.close();
+});
+
+test('F534 every report heading keeps its reload action on the same row', () => {
+  assert.match(HTML,
+    /\.panel h2\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;/s);
+  assert.match(HTML, /\.refreshbtn\s*\{[^}]*flex:\s*0 0 auto;/s);
 });
 
 test('Bird Gen relative age stays on one line as 24hr ago', async () => {
@@ -10387,8 +10404,10 @@ test('Happening now merges populated signals without burying the hotspot', async
   assert.match(box, /S9/, 'and a checklist to cite');
   const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
   const how = (docs.docs.surgeBtn.how || []).join(' ');
-  assert.match(how, /Buzz[\s\S]*Newest/,
-    'the section help does not explain the two feed sort modes');
+  assert.match(how, /Buzz/,
+    'the section help does not explain the fixed feed order');
+  assert.doesNotMatch(how, /Newest/,
+    'the section help still advertises the removed alternate order');
   assert.doesNotMatch(how, /independent lanes/i,
     'the section help still describes the removed visual lanes');
   assert.match(how, /CASCADE: 2\+ of the region's top 100/,
@@ -11564,36 +11583,34 @@ test('F315: a working 36-character key saves and closes first-run setup', async 
   assert.match(app.$('keyBanner').textContent, /Fetch your eBird display name/,
     'the blocking key setup is replaced by a separate nonblocking identity step');
   assert.ok(app.$('nameFetchBtn'), 'the primary identity action reads eBird');
-  assert.ok(app.$('nameBannerBtn'), 'manual entry remains available as a fallback');
+  assert.equal(app.$('nameBannerBtn'), null, 'manual identity entry is not offered');
   assert.equal(app.window.__app.getSeenMeta(), null,
     'a migrated owner sample is removed when a new account completes setup');
   assert.equal(app.window.__app.reportYearList().length, 0,
     'the new account does not inherit the bundled Washington year list');
 });
 
-test('F315: the display-name follow-up opens the field without restarting key setup', async () => {
+test('F527: the display-name follow-up offers only the eBird fetch', async () => {
   const app = await boot({ sample: false });
   assert.match(app.$('keyBanner').textContent, /Fetch your eBird display name/);
-  app.click(app.$('nameBannerBtn'));
-  assert.equal(app.$('settingsPanel').hidden, false);
-  assert.equal(app.window.document.activeElement, app.$('ebirdName'),
-    'the follow-up lands on the name field rather than at the top of Settings');
+  assert.ok(app.$('nameFetchBtn'));
+  assert.equal(app.$('nameBannerBtn'), null);
+  assert.equal(app.$('ebirdName').readOnly, true);
 });
 
-test('F317 editing the Settings field creates a manual override', async () => {
+test('F527 Settings cannot persist a programmatic identity override', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   app.$('ebirdName').value = 'Manual Observer';
   A.persistSettings();
 
-  assert.equal(A.getDisplayName(), 'Manual Observer');
-  assert.equal(A.getIdentityMeta().source, 'manual');
-  const retained = A.applyCapturedIdentity({
+  assert.equal(A.getDisplayName(), '');
+  const captured = A.applyCapturedIdentity({
     status: 'ok', displayName: 'Signed-in Observer',
     evidence: 'account-menu-aria-label',
   });
-  assert.equal(retained.status, 'manual-override');
-  assert.equal(A.getDisplayName(), 'Manual Observer');
+  assert.equal(captured.status, 'applied');
+  assert.equal(A.getDisplayName(), 'Signed-in Observer');
   app.window.close();
 });
 
@@ -11610,7 +11627,7 @@ test('F315: a clean install stays empty until sample data or a CSV is chosen', a
   assert.ok(A.reportYearList().length > 0);
 });
 
-test('F315: CSV identity fills the display/profile name and replaces sample data', async () => {
+test('F527: CSV imports birds but cannot replace eBird identity', async () => {
   const app = await boot();
   const A = app.window.__app;
   const csv = [
@@ -11618,9 +11635,9 @@ test('F315: CSV identity fills the display/profile name and replaces sample data
     'American Robin,Turdus migratorius,2026-09-04,Sample,Birder',
   ].join('\n');
   assert.equal(A.importCSV(csv), 1);
-  assert.equal(A.getDisplayName(), 'Sample Birder');
-  assert.equal(A.getIdentityMeta().source, 'csv');
-  assert.equal(A.profileLabel(''), 'Sample Birder');
+  assert.equal(A.getDisplayName(), '');
+  assert.equal(A.getIdentityMeta(), null);
+  assert.equal(A.profileLabel(''), 'Main');
   assert.equal(A.usesBundledSeed(), false,
     'an imported account list, not the bundled owner sample, is authoritative');
   assert.equal(A.reportYearList().length, 0,
@@ -11632,8 +11649,10 @@ test('F315: CSV identity fills the display/profile name and replaces sample data
   }).amerob, 1,
   'the chase algorithm receives species codes resolved from imported names');
   A.renderMenuIdentity();
-  assert.match(app.$('hdrId').textContent, /Sample Birder.*1sp/s,
-    'the header uses imported identity and count instead of 209sp');
+  assert.doesNotMatch(app.$('hdrId').textContent, /Sample Birder/,
+    'CSV metadata cannot masquerade as the authenticated eBird account');
+  assert.match(app.$('hdrId').textContent, /1sp/,
+    'the imported year-list count remains available');
 });
 
 
@@ -14849,6 +14868,36 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   app.window.close();
 });
 
+test('F528 Stakeout never offers Add to Watchlist for a genuinely unseen bird', async () => {
+  const app = await boot({
+    storage: { ebird_watchlist_v1: '[]' },
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/ruff/.test(url)) {
+        return [{
+          speciesCode: 'ruff', comName: 'Ruff',
+          locName: 'Coast', locId: 'L1', lat: 47.7, lng: -122.2,
+          obsDt: todayFixtureDate() + ' 08:00', subId: 'S1', obsValid: true,
+        }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  installSpuhFixture(app);
+  await A.lookupSpecies('ruff', 'Ruff');
+  assert.equal(app.document.querySelector('#spLookupResults .spLookupWatchlist'), null,
+    'an unseen Stakeout bird still offers Add to Watchlist');
+
+  A.setWatchlist([{ code: 'ruff', name: 'Ruff' }]);
+  A.renderSpeciesLookup();
+  const remove = app.document.querySelector('#spLookupResults .spLookupWatchlist');
+  assert.ok(remove, 'an already watched unseen bird cannot be removed');
+  assert.equal(remove.getAttribute('aria-label'), 'Remove from watchlist');
+  assert.equal(remove.getAttribute('aria-pressed'), 'true');
+  app.window.close();
+});
+
 test('F384 My Ticks gives every bird the shared watchlist action and full-size ordinal', async () => {
   const app = await boot({
     storage: { ebird_watchlist_v1: '[]' },
@@ -16059,16 +16108,12 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
 // stamps positionally. Interleaving heading rows shifts every index by one, and
 // a mis-stamped list means lastNewPatch silently updates the WRONG bird as each
 // checklist feed lands. Source regexes cannot see that.
-test('Leader Board Ticks splits unseen birds from seen ones', async () => {
+test('F530 Fresh Ticks renders one combined list without a seen-state control', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
   seedSeen(app, ['zzseen1']);
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
-  // The section now carries the shared Unseen/All chips, which default to
-  // Unseen — and a test about the SPLIT has to ask for the view that contains
-  // both halves, or it is asserting against a group the filter removed on
-  // purpose.
   app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
     JSON.stringify({ year: 'all', distance: 'region' }));
 
@@ -16093,27 +16138,66 @@ test('Leader Board Ticks splits unseen birds from seen ones', async () => {
   A.renderLastNew(groups, {}, 'US-WA', codeIdx);
 
   const out = doc.getElementById('lastNewResults');
-  const heads = [...out.querySelectorAll('.cardgroup .cghead')].map(e => e.textContent);
-  assert.equal(heads.length, 2, 'both groups render a heading');
-  assert.match(heads[0], /Still needed/, 'the birds you can still add come FIRST');
-  assert.match(heads[1], /Already on your year list/, 'the ones you have come second');
+  assert.equal(out.querySelectorAll('.cardgroup .cghead').length, 0);
+  assert.doesNotMatch(out.textContent, /Still needed|Already on your year list/);
+  assert.deepEqual([...out.children].map(e => e.getAttribute('data-sp')),
+    ['Zzz Junco', 'Zzz Sandpiper'],
+    'the combined list keeps leaderboard order and stamps every visible card');
+  assert.equal(doc.querySelector('#lastNewYear'), null,
+    'Fresh Ticks still exposes the removed Unseen control');
+  app.window.close();
+});
 
-  const kids = [...out.children];
-  const stamps = kids.map(e => e.getAttribute('data-sp'));
-  assert.deepEqual(stamps,
-    [null, 'Zzz Sandpiper', null, 'Zzz Junco'],
-    'data-sp lands on the CARDS and skips the headings — lastNewPatch finds '
-    + 'rows by this attribute, so an off-by-one here updates the wrong bird');
+test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.document;
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
+  const groups = {
+    'Far New Bird': {
+      birders: [{ name: 'A', rank: 1, date: '2026-09-24' }],
+      latest: '2026-09-24',
+    },
+    'Near Old Bird': {
+      birders: [{ name: 'B', rank: 2, date: '2026-09-20' }],
+      latest: '2026-09-20',
+    },
+  };
+  const byName = {
+    'Far New Bird': { code: 'farnew', obs: [{
+      subId: 'SFAR', obsDt: '2026-09-24 08:00', locName: 'Far Park',
+      locId: 'LFAR', lat: 48.6, lng: -122.9,
+    }] },
+    'Near Old Bird': { code: 'nearold', obs: [{
+      subId: 'SNEAR', obsDt: '2026-09-20 08:00', locName: 'Near Park',
+      locId: 'LNEAR', lat: 47.76, lng: -122.17,
+    }] },
+  };
+  A.renderLastNew(groups, byName, 'US-WA', {});
+  const names = () => [...doc.querySelectorAll('#lastNewResults > li')]
+    .map((li) => li.getAttribute('data-sp')).filter(Boolean);
+  assert.deepEqual(names(), ['Far New Bird', 'Near Old Bird']);
 
-  // The marker stays on the needed row even though the heading already says so:
-  // these are cards, and a card read on its own loses a heading scrolled past.
-  const need = kids[1].innerHTML, have = kids[3].innerHTML;
-  assert.match(need, /needflag/, 'an unseen bird still carries its own marker');
-  assert.ok(!/needflag/.test(have), 'and a seen bird never does');
+  doc.querySelector('#lastNewSort [data-sort="distance"]').click();
+  assert.deepEqual(names(), ['Near Old Bird', 'Far New Bird'],
+    'Nearest click did not visibly reorder the loaded cards');
+  assert.equal(doc.querySelector('#lastNewSort [data-sort="distance"]')
+    .getAttribute('aria-pressed'), 'true');
 
-  // The code must be known at PAINT time, or a row would start under one
-  // heading and jump to the other once its own feed landed.
-  assert.match(need, /zzneed1/, 'the card is built with the code from the index');
+  assert.ok(doc.querySelector('#lastNewResults > li .cklcards'),
+    'List view does not expose checklist rows');
+  assert.equal(doc.querySelector('#lastNewResults details.ckall'), null);
+  doc.getElementById('lastNewView').click();
+  assert.equal(doc.getElementById('lastNewView').getAttribute('aria-pressed'), 'true');
+  assert.ok(doc.querySelector('#lastNewResults details.ckall'),
+    'Group click did not replace the visible list with grouped checklist content');
+
+  const note = doc.querySelector('#lastNewResults .cknote');
+  assert.ok(note && note.hidden, 'Notes content does not start visibly hidden');
+  doc.getElementById('lastNewNotes').click();
+  assert.equal(doc.getElementById('lastNewNotes').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.querySelector('#lastNewResults .cknote').hidden, false,
+    'Notes click did not visibly reveal checklist-note actions');
   app.window.close();
 });
 
@@ -16177,7 +16261,7 @@ test('F377 a watchlisted owner tick remains chaseable and says why', async () =>
     JSON.stringify({ year: 'all', distance: 'region' }));
   A.renderLastNew(groups, {}, 'US-HI', { 'hawaii amakihi': 'hawama' });
   const out = app.$('lastNewResults');
-  assert.match(out.textContent, /Still needed/);
+  assert.doesNotMatch(out.textContent, /Still needed|Already on your year list/);
   assert.match(out.textContent, /on your watchlist for verification/i);
   assert.doesNotMatch(out.textContent, /not on your year list/i,
     'a verification hold is not the same as an absent year tick');
@@ -17056,8 +17140,10 @@ test('F247 cache logging names hits, misses, nearby keys and session activity', 
     'the report says how many entries that namespace actually holds');
 
   const context = A.dbgContext();
-  assert.match(context, /cache: .* across .* namespaces/,
+  assert.match(context, /cache estimate: .* across .* namespaces/,
     'the copied debug context always includes the storage composition');
+  assert.match(context, /demonstrated write pressure:/,
+    'estimated usage is separated from demonstrated write pressure');
   assert.match(context, /cache activity this session:/,
     'the copied debug context always includes the activity report');
   assert.match(context, /bc_test:/,
@@ -17089,11 +17175,15 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
     fetch(url) { if (/api\.ebird\.org/.test(url)) calls++; return []; },
   });
   const A = app.window.__app, doc = app.window.document;
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
   const rows = [
     { code: 'a', name: 'Alpha', freq: 0.9, days: 27, totalDays: 30, locs: 3,
-      latest: '2026-08-10 08:00', spots: [{ lat: 48.6, lng: -122.9 }] },
+      latest: '2026-08-10 08:00', spots: [{ name: 'Far Park', locId: 'L1',
+        lat: 48.6, lng: -122.9, mi: 80, when: '2026-08-10 08:00', sub: 'S1' }] },
     { code: 'b', name: 'Bravo', freq: 0.5, days: 15, totalDays: 30, locs: 2,
-      latest: '2026-08-28 08:00', spots: [{ lat: 47.76, lng: -122.17 }] },
+      latest: '2026-08-28 08:00', spots: [{ name: 'Near Park', locId: 'L2',
+        lat: 47.76, lng: -122.17, mi: 1, when: '2026-08-28 08:00', sub: 'S2' }] },
   ];
   rows.minFreq = 0.4;
 
@@ -17101,14 +17191,14 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
   const sortRow = doc.getElementById('easySortRow');
   assert.ok(sortRow && !sortRow.hidden, 'the sort row appears once there are rows');
 
-  const order = () => [...doc.querySelectorAll('#easyResults li')]
+  const order = () => [...doc.querySelectorAll('#easyResults > ul > li')]
     .map((li) => li.textContent).join('|');
   assert.match(order(), /Alpha[\s\S]*Bravo/, 'commonest first by default');
 
   const before = calls;
-  A.setEasySort('date');
+  doc.getElementById('easyByDate').click();
   assert.match(order(), /Bravo[\s\S]*Alpha/, 'by date puts the freshest first');
-  A.setEasySort('dist');
+  doc.getElementById('easyByDist').click();
   assert.match(order(), /Bravo[\s\S]*Alpha/, 'by distance puts the nearest first');
   assert.equal(calls, before,
     'sorting made an eBird call — it is a VIEW over data already in hand');
@@ -17117,6 +17207,22 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
   // which mode is active: aria-pressed is the non-colour channel here.
   assert.equal(doc.getElementById('easyByDist').getAttribute('aria-pressed'), 'true');
   assert.equal(doc.getElementById('easyByFreq').getAttribute('aria-pressed'), 'false');
+
+  assert.equal(doc.querySelector('#easyResults .birdreportplaces'), null);
+  doc.getElementById('easyView').click();
+  assert.equal(doc.getElementById('easyView').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.getElementById('easyResults').classList.contains('report-list-view'), false);
+  assert.ok(doc.querySelector('#easyResults .birdreportplaces'),
+    'Group must visibly replace checklist rows with grouped place content');
+
+  const note = doc.querySelector('#easyResults .cknote');
+  assert.ok(note && note.hidden, 'notes start visibly hidden');
+  doc.getElementById('easyNotes').click();
+  assert.equal(doc.getElementById('easyNotes').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.querySelector('#easyResults .cknote').hidden, false,
+    'Notes must visibly reveal checklist-note content');
+  assert.equal(calls, before,
+    'view and notes clicks must use the already loaded Common Birds data');
   app.window.close();
 });
 
@@ -23094,6 +23200,61 @@ test('a full store gives up its cheapest caches, not the wave', async () => {
   app.window.close();
 });
 
+test('F532 quota recovery retries Fresh Ticks, Common Birds, and checklist writes', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window;
+  const original = W.Storage.prototype.setItem;
+  W.localStorage.setItem('ebird_watchlist_v1', 'Tufted Puffin');
+  W.localStorage.setItem('ebird_own_seen:wa', '{"tuftpu":1}');
+
+  function currentBytes(except) {
+    let n = 0;
+    for (let i = 0; i < W.localStorage.length; i++) {
+      const key = W.localStorage.key(i);
+      if (key === except) continue;
+      n += key.length + String(W.localStorage.getItem(key) || '').length;
+    }
+    return n;
+  }
+  async function pressuredWrite(fillerKey, targetKey, write) {
+    original.call(W.localStorage, fillerKey, 'x'.repeat(4096));
+    const limit = currentBytes(targetKey) + 1;
+    let failures = 0;
+    W.Storage.prototype.setItem = function (key, value) {
+      const next = currentBytes(String(key)) + String(key).length + String(value).length;
+      if (next > limit) {
+        failures++;
+        throw new W.DOMException('measured fixture limit', 'QuotaExceededError');
+      }
+      return original.call(this, key, value);
+    };
+    await write();
+    W.Storage.prototype.setItem = original;
+    assert.ok(failures >= 1, `${targetKey} never reached the measured quota`);
+    assert.ok(W.localStorage.getItem(targetKey), `${targetKey} was not retried durably`);
+  }
+
+  await pressuredWrite('ebird_photos_v2', A.RANK_CACHE_KEY, () => {
+    A.rankCachePut('US-WA', { region: 'US-WA', rows: [{ name: 'A'.repeat(600) }] });
+  });
+  await pressuredWrite('ebird_birdinfo_v2', 'easymiss_v1:f532', () =>
+    A.zcPut('easymiss_v1:f532', { rows: Array.from({ length: 80 }, (_, i) => ({
+      code: 'bird' + i, name: 'Common Bird ' + i,
+    })) }));
+  await pressuredWrite('ebird_photos_neg_v1', 'bc_ckl2:F532', () => {
+    A.cklWrite('F532', { obsDt: '2026-09-24 08:00' }, false,
+      [{ speciesCode: 'amerob', comName: 'American Robin' }]);
+  });
+
+  assert.equal(W.localStorage.getItem('ebird_watchlist_v1'), 'Tufted Puffin');
+  assert.equal(W.localStorage.getItem('ebird_own_seen:wa'), '{"tuftpu":1}',
+    'quota recovery deleted user-authored or harvested state');
+  const report = A.storeReport().join('\n');
+  assert.match(report, /actual WKWebView quota\/headroom is not readable/);
+  assert.match(report, /demonstrated write pressure: .*retry stored/);
+  app.window.close();
+});
+
 
 // "speed up the load time, especially of the rare bird alerts"
 //
@@ -25121,7 +25282,7 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
   assert.match(pressed, /class="presslabel">Unseen<\/span>/);
   assert.match(HTML, /<script src="controls-toggle\.js"><\/script>/,
     'the app does not load the shared control template');
-  for (const name of ['raritySortControl', 'patchBoardControl', 'surgeSortControl']) {
+  for (const name of ['raritySortControl', 'patchBoardControl']) {
     const start = HTML.indexOf('function ' + name + '(');
     assert.ok(start >= 0, name + ' is missing');
     assert.match(HTML.slice(start, start + 1800), /ToggleControls\.group\(/,
@@ -25253,7 +25414,7 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
     'a bird whose distance never resolved was offered as somewhere to drive tonight');
 });
 
-test('F274 Buzz and Newest reorder existing alert rows without refetching', async () => {
+test('F526 Bird Gen always uses Buzz ordering and renders no sort control', async () => {
   const localStamp = (minsAgo) => {
     const d = new Date(Date.now() - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
@@ -25286,42 +25447,16 @@ test('F274 Buzz and Newest reorder existing alert rows without refetching', asyn
     const link = row.querySelector('.ntext a');
     return (link || row.querySelector('.ntext')).textContent.trim().split(/\s{2,}/)[0];
   });
-  const buzz = app.document.querySelector('[data-surge-sort="priority"]');
-  const newest = app.document.querySelector('[data-surge-sort="newest"]');
   assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
     'Buzz must rank category severity before report time');
   assert.match(names()[1], /Baird's Sandpiper/);
   assert.match(names()[2], /Ruff/,
     'Priority did not use recency as the tiebreak inside the CROWD category');
-  assert.equal(buzz.getAttribute('aria-pressed'), 'true');
-  assert.equal(buzz.textContent, 'Buzz');
-  assert.equal(newest.getAttribute('aria-pressed'), 'false');
-  assert.equal(newest.textContent, 'Newest');
-  assert.equal(app.document.querySelector('.surgesortrow').textContent.replace(/\s+/g, ''),
-    'BuzzNewest', 'the sort pill carries no inverse label');
-  assert.equal(app.document.querySelector('.surgesortselected'), null,
-    'the selected-word suffix still makes the controls wrap');
-
   const before = app.state.fetches.length;
-  newest.click();
-  assert.deepEqual(order(), ['crowd', 'cascade', 'crowd', 'need'],
-    'Newest did not sort report times across category boundaries');
-  assert.match(names()[0], /Baird's Sandpiper/);
-  assert.match(names()[1], /Northern Waterthrush/);
-  assert.match(names()[2], /Ruff/);
-  assert.match(names()[3], /Spotted Sandpiper/);
+  assert.equal(app.document.querySelector('[data-surge-sort], .surgesortrow'), null,
+    'Bird Gen still offers an alternate ordering');
   assert.equal(app.state.fetches.length, before,
-    'sorting is a DOM view over in-memory rows and must not refetch');
-  assert.equal(newest.getAttribute('aria-pressed'), 'true');
-  assert.equal(newest.textContent, 'Newest');
-  assert.equal(buzz.getAttribute('aria-pressed'), 'false');
-  assert.equal(buzz.textContent, 'Buzz');
-
-  buzz.click();
-  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
-    'Buzz cannot restore its category-severity order');
-  assert.equal(app.state.fetches.length, before,
-    'switching back to Buzz refetched the feed');
+    'rendering the in-memory Buzz order must not refetch');
 
   const observedAt = HTML.indexOf('function surgeObservedResult');
   const observed = HTML.slice(observedAt,
@@ -25397,8 +25532,8 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
     'a newly discovered mega was not rechecked against the active report after merging');
   assert.equal(feed.querySelector('[data-alert-kind="hotspot"]').dataset.surgeSeen,
     'not-applicable', 'the species-blind hotspot was falsely called unseen');
-  assert.doesNotMatch(app.document.querySelector('.surgesortrow').textContent, /Sort|Birds/,
-    'self-explanatory toggle groups still carry visible prefixes');
+  assert.equal(app.document.querySelector('.surgesortrow'), null,
+    'Bird Gen still renders its removed order controls');
   assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
   assert.equal(app.document.querySelector('[data-surge-hidden-count]'), null);
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
@@ -25477,9 +25612,9 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
     'the hotspot Notes date does not open the newest hot checklist');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
     'Priority order should still put CROWD ahead of HOTSPOT');
-  app.document.querySelector('[data-surge-sort="newest"]').click();
-  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['hotspot', 'crowd'],
-    'Newest inferred hotspot time from unrelated merged species observations');
+  assert.equal(app.document.querySelector('[data-surge-sort]'), null);
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
+    'the fixed Buzz order changed after rendering hotspot timing');
   app.window.close();
 });
 
@@ -27043,6 +27178,14 @@ test('every small checklist card can show age and compact duration', () => {
   assert.match(ChecklistCards.css,
     /\.cklcard \.ckageunit, \.cklcard \.ckduration \{ white-space: nowrap; \}/,
     'the relative-age number and unit are not kept together');
+  assert.match(ChecklistCards.css,
+    /\.cklcard \.ckage, \.cklcard \.ckduration \{\s*white-space: nowrap;/,
+    'the complete “2h ago” value can still break before “ago”');
+  assert.doesNotMatch(ChecklistCards.css, /\.cksummary[^}]*min-height:\s*44px/,
+    'a checklist with no Notes action still reserves an empty 44px row');
+  assert.match(ChecklistCards.css,
+    /\.ckmain > span \+ \.ckmeta \{\s*margin-left: \.25em;/,
+    'adjacent checklist values can concatenate without visible separation');
 
   const pending = ChecklistCards.small({
     date: 'Sep 21 5:17 PM',
@@ -29236,7 +29379,7 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
   const A = app.window.__app;
   const states = [
     ['nemesis', 'results'],
-    ['open_targets', 'true-empty'],
+    ['common_birds', 'true-empty'],
     ['nearby_patches', 'partial'],
     ['todays_patches', 'failed'],
     ['half_day_patches', 'not-opened'],
@@ -29340,6 +29483,35 @@ test('F330 visible Debug rendering is coalesced across an event burst', async ()
 
   assert.equal(renders, 1,
     'one cached-completion burst rebuilt the entire visible Debug log per event');
+});
+
+test('F533 diagnostics count only visible photos and export each section sort', async () => {
+  const app = await boot({ storage: { ebird_report: 'hi' } });
+  const A = app.window.__app, doc = app.window.document;
+
+  A.showSection('sec-easyBtn');
+  const common = app.$('easyBtn').closest('section');
+  const nemesis = app.$('allUnseenBtn').closest('section');
+  common.insertAdjacentHTML('beforeend',
+    '<span class="thumb" data-bird="visible-a" data-q="a"></span>'
+    + '<span class="thumb" data-bird="visible-b"></span>');
+  nemesis.insertAdjacentHTML('beforeend',
+    '<span class="thumb" data-bird="hidden-a"></span>'
+    + '<span class="thumb" data-bird="hidden-b"></span>'
+    + '<span class="thumb" data-bird="hidden-c"></span>');
+  const context = A.dbgContext();
+  assert.match(context, /visible photo slots on screen: 2 · 1 never queued/);
+  assert.doesNotMatch(context, /visible photo slots on screen: 5/,
+    'hidden report sections inflated the on-screen photo count');
+
+  A.setRaritySort('distance');
+  A.setEasySort('freq');
+  A.recordSectionCoverage(nemesis, true);
+  A.recordSectionCoverage(common, true);
+  const sections = JSON.parse(A.coverageAuditExport()).sections;
+  assert.equal(sections.find((row) => row.section === 'nemesis').sort, 'distance');
+  assert.equal(sections.find((row) => row.section === 'common_birds').sort, 'freq');
+  app.window.close();
 });
 
 test('F330 previous-session persistence batches writes instead of writing per event', async () => {
@@ -30947,13 +31119,7 @@ test('the checklist id on a hotspot sub-line is big enough to hit', async () => 
   app.window.close();
 });
 
-// --- Leader Board Ticks gets the same two questions the twitch lists get ----
-// "it does say Leader Board Ticks on menu button and report but the toggles
-// are missing." Not a regression - F180 was scoped to the two twitch lists -
-// but the section was already answering half of one of these questions by
-// splitting "Still needed" from "Already on your year list", so the chip pair
-// makes that split a control instead of a layout.
-test('Leader Board Ticks can be filtered to unseen and to chase range', async () => {
+test('F530 Fresh Ticks keeps chase range but removes the Unseen control', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -30980,8 +31146,8 @@ test('Leader Board Ticks can be filtered to unseen and to chase range', async ()
   const chips = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
     .map((b) => b.querySelector('.presslabel')
       ? b.querySelector('.presslabel').textContent : b.textContent.trim());
-  assert.deepEqual(chips.filter((c) => c === 'Unseen'), ['Unseen'],
-    `the year-list toggle: ${chips.join(', ')}`);
+  assert.deepEqual(chips.filter((c) => c === 'Unseen'), [],
+    `the removed year-list toggle returned: ${chips.join(', ')}`);
   assert.ok(chips.some((c) => /\d+mi$/.test(c)),
     `and the distance pair, whose label states the bar: ${chips.join(', ')}`);
 

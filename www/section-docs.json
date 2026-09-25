@@ -22,7 +22,7 @@
   "docs": {
     "surgeBtn": {
       "report": "## 🔔 Bird Gen — Talk and news",
-      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz/Newest, Unseen/All, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
+      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
       "summary": "One ranked feed of fresh megas, celebrity birds, crowd attention, leaderboard cascades, unusually busy hotspots and high-yield top patches.",
       "inputs": [
         "the region's ABA Code 3+ snapshot, refreshed lazily by Bird Gen after its first useful observation paint",
@@ -31,8 +31,8 @@
         "hotspot activity and the complete destination projection in the same feeds"
       ],
       "how": [
-        "One SpeciesCards.small feed runs over data other sections already pay for. Sorting only reorders those in-memory rows and never fetches.",
-        "Buzz is the default: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category. Newest ignores category severity and sorts every row by report time.",
+        "One SpeciesCards.small feed runs over data other sections already pay for.",
+        "Buzz is the only order: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category.",
         "Every alert is one always-visible three-line card. The name cell contains two lines: the name alone, then a flush-left four-letter code, xN, linked place and linked compact date. The category badge begins a separate full-width explanation row below the headline cell, followed by the bold reason without a repeated written category prefix. The alert icon and relative age remain at the right.",
         "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
         "Seen status is resolved once after duplicate species and their reasons are merged. An explicitly empty per-report year list is authoritative: birds seen in another region do not become seen here. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
@@ -46,7 +46,7 @@
         "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
         "CROWD: distinct OBSERVERS (not checklists — one birder filing three lists is how a quiet spot fakes a crowd) in the last 36 h, against that species' trailing baseline at that place, clustered to 300 m. With no trailing baseline, the bold third line says so instead of claiming the reports are above normal or printing an infinite ratio.",
         "CASCADE: 2+ of the region's top 100 adding the same species within 3 days. The board sees counties our feeds never cover and can lag a day; the actionable place and time come from a species-scoped state feed.",
-        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact date and Newest-sort time come from the newest hot checklist that triggered the event, not from a species observation merged for detail. The place name opens Stakeout hotspot; Bird Gen performs no hidden species/checklist hydration.",
+        "HOTSPOT: species-blind. It fires when a place gets unusually busy even if no bird was ever flagged notable. Its compact date comes from the newest hot checklist that triggered the event, not from a species observation merged for detail. The place name opens Stakeout hotspot; Bird Gen performs no hidden species/checklist hydration.",
         "TOP PATCH: only the highest yieldBand from a complete destination projection, meaning a score at least twice the current list median when at least four destinations can be compared. The headline opens Stakeout hotspot.",
         "A surge needs two distinct observers AND two distinct checklists. Two names on one shared checklist is one observation, not corroboration."
       ],

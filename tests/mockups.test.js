@@ -606,8 +606,8 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the lazy-expanded Stakeout fixture leaves its app-wide loading bar visible');
   assert.match(source, /ready\.missing\.length/,
     'the capture must fail if a section-specific production shape is absent');
-  assert.match(source, /Bird Gen controls drifted from the single Buzz\/Newest pill/,
-    'the exact 393px/402px release render does not guard the one remaining control');
+  assert.match(source, /Bird Gen release fixture restored the removed order controls/,
+    'the exact 393px/402px release render does not guard Buzz-only ordering');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
   const mergedStart = source.indexOf('async function prepareBirdFinderMerged');

@@ -63,7 +63,7 @@
           + 'and <b>Closest spots</b>. A one-report mega belongs in '
           + '<b>Twitches today</b>; CELEBRITY has no reviewed-rarity exemption.</p>'
           + '<p>Within this category the unified feed uses the newest report '
-          + 'time, just as its Buzz and Newest descriptions state.</p>'
+          + 'time as the tiebreak inside its fixed Buzz order.</p>'
           + '<p>Every report-specific fact on a row comes from the <b>same newest '
           + 'report</b> — place, distance, count, date and checklist link. Private addresses '
           + 'are never listed.</p>'
@@ -131,10 +131,9 @@
     };
     docs.feed = {
       title: '🔔 Bird Gen',
-      body: '<p>One feed ranks every active alert. <b>Buzz</b> orders the '
-        + 'six categories — mega, celebrity, crowd, cascade, hotspot, top patch — then '
-        + 'uses recency inside each category. <b>Newest</b> ignores category '
-        + 'severity and orders every row by its latest report time.</p>'
+      body: '<p>One feed ranks every active alert in <b>Buzz</b> order: '
+        + 'the six categories — mega, celebrity, crowd, cascade, hotspot, top patch — '
+        + 'then recency inside each category.</p>'
         + '<p>Hotspot alerts stay visible in Unseen mode because they describe '
         + 'a place, not one bird.</p>'
         + '<p>If one species qualifies more than once, it appears once under '

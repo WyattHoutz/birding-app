@@ -152,6 +152,44 @@ const AUDIT = `<script>
     while (n && n !== document.body && i++ < 4) { out.push(sel(n)); n = n.parentElement; }
     return out.join(' < ');
   }
+  function releaseLayoutChecks() {
+    var panel = document.querySelector('section.panel:not([hidden])');
+    if (!panel) return null;
+    var host = document.createElement('div');
+    host.innerHTML = '<h2><span class="fixturetitle">Fresh ticks — Newest on board</span>'
+      + '<button class="refreshbtn" type="button" aria-label="Reload">↻</button></h2>'
+      + '<ul class="cklcards cklcards-sm"><li class="cklcard cklcard-sm">'
+      + '<div class="cksummary"><div class="ckmain"><span class="cklead">2:00 PM</span>'
+      + '<span class="ckmeta"><span class="fixtureplace">Discovery Park</span>'
+      + '<span class="ckage"><span class="ckageunit">12h</span> ago</span></span>'
+      + '</div></div></li></ul>';
+    panel.appendChild(host);
+    var title = host.querySelector('.fixturetitle').getBoundingClientRect();
+    var reload = host.querySelector('.refreshbtn').getBoundingClientRect();
+    var summary = host.querySelector('.cksummary');
+    var lead = host.querySelector('.cklead').getBoundingClientRect();
+    var place = host.querySelector('.fixtureplace').getBoundingClientRect();
+    var age = host.querySelector('.ckage');
+    var ageLineTops = {};
+    var ageRange = document.createRange();
+    ageRange.selectNodeContents(age);
+    [].slice.call(ageRange.getClientRects()).forEach(function (rect) {
+      if (rect.width || rect.height) ageLineTops[Math.round(rect.top)] = 1;
+    });
+    var result = {
+      reloadInline: Math.abs(reload.top - title.top) < Math.max(4, title.height * 0.35),
+      emptyMinHeight: parseFloat(getComputedStyle(summary).minHeight) || 0,
+      ageLines: Object.keys(ageLineTops).length,
+      ageHeight: age.getBoundingClientRect().height,
+      ageLineHeight: parseFloat(getComputedStyle(age).lineHeight)
+        || parseFloat(getComputedStyle(age).fontSize) * 1.2,
+      metadataWrapped:
+        Math.abs(place.top - lead.top) > Math.max(place.height, lead.height) * 0.5,
+      metadataGap: place.left - lead.right
+    };
+    host.remove();
+    return result;
+  }
   function scan(label) {
     var vw = document.documentElement.clientWidth;
     var items = [], all = document.querySelectorAll('body *'), maxRight = 0;
@@ -504,7 +542,8 @@ const AUDIT = `<script>
       small: small.slice(0, 8),
       unnamed: unnamed.slice(0, 10),
       controlRows: controlRows,
-      sharedControls: sharedControls.slice(0, 12)
+      sharedControls: sharedControls.slice(0, 12),
+      releaseLayout: releaseLayoutChecks()
     };
   }
   function run() {
@@ -847,6 +886,25 @@ server.listen(0, '127.0.0.1', () => {
           console.log('   SHARED CONTROL ' + it.issue + '  '
             + it.w + 'x' + it.h + '  ' + it.sel);
         });
+      }
+      var layout = r.releaseLayout;
+      if (layout) {
+        var layoutProblems = [];
+        if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
+        if (layout.emptyMinHeight > 0.5) {
+          layoutProblems.push('empty checklist reserves ' + layout.emptyMinHeight + 'px min-height');
+        }
+        if (layout.ageLines !== 1
+            || layout.ageHeight > layout.ageLineHeight * 1.5) {
+          layoutProblems.push('12h ago wrapped');
+        }
+        if (!layout.metadataWrapped && layout.metadataGap < 2) {
+          layoutProblems.push('checklist metadata gap is ' + layout.metadataGap.toFixed(1) + 'px');
+        }
+        if (layoutProblems.length) {
+          bad++;
+          console.log('   RELEASE LAYOUT ' + layoutProblems.join(', '));
+        }
       }
       if (r.over <= 0.5 && !r.items.length) return;
       bad++;
