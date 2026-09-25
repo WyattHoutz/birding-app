@@ -7560,9 +7560,14 @@ test('F519 Nemesis shares the right-edge pending Notes action in both views', as
     dateStr: '2026-09-24 08:00', loc: 'List Park', locId: 'LNEMLIST',
     lat: 47.6, lon: -122.3, distMi: 4,
   }]);
-  assert.ok(app.document.querySelector(
-    '#allUnseenResults > li > .meta > .spmetaact .cknote-pending'),
+  let pending = app.document.querySelector(
+    '#allUnseenResults > li > .meta > .spmetaact .cknote-pending');
+  assert.ok(pending,
   'ungrouped Nemesis has no right-edge pending Notes action');
+  assert.equal(pending.textContent.trim(), '…',
+    'ungrouped Nemesis assumes notes exist before its checklist is checked');
+  assert.ok(!pending.classList.contains('cknote-expected'),
+    'ungrouped Nemesis uses the settled-looking Notes control while still loading');
 
   app.window.localStorage.setItem('ebird_twitch_view_v1', 'grouped');
   const place = {
@@ -7574,9 +7579,14 @@ test('F519 Nemesis shares the right-edge pending Notes action in both views', as
     code: 'nemgroup', name: 'Grouped Nemesis',
     near: [place], places: [place], distMi: 5,
   }]);
-  assert.ok(app.document.querySelector(
-    '#allUnseenResults .birdreportplaces .cklcard-sm .cknote-pending'),
+  pending = app.document.querySelector(
+    '#allUnseenResults .birdreportplaces .cklcard-sm .cknote-pending');
+  assert.ok(pending,
   'grouped Nemesis has no right-edge pending Notes action');
+  assert.equal(pending.textContent.trim(), '…',
+    'grouped Nemesis assumes notes exist before its checklist is checked');
+  assert.ok(!pending.classList.contains('cknote-expected'),
+    'grouped Nemesis uses the settled-looking Notes control while still loading');
   app.window.close();
 });
 
@@ -7602,8 +7612,13 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   let card = app.document.querySelector('#abaReportResults > li');
   assert.ok(card.querySelector(':scope > .name > .thumb'),
     'Mega wraps its photo outside the shared medium-card thumbnail selector');
-  assert.ok(card.querySelector(':scope > .meta > .spmetaact .cknote-pending'),
+  let noteButton = card.querySelector(':scope > .meta > .spmetaact .cknote-pending');
+  assert.ok(noteButton,
     'ungrouped Mega has no shared pending Notes action');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'ungrouped Mega shows an ellipsis instead of the expected Notes control');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'ungrouped Mega does not show the Notes icon before hydration');
   assert.match(card.querySelector('.rarewhere').textContent, /×2/,
     'ungrouped Mega omits the checklist bird count');
   assert.equal(card.querySelectorAll('.rareflags').length, 1,
@@ -7625,8 +7640,13 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   assert.match(checklist.textContent, /mi/);
   assert.equal(checklist.querySelector('.ckmap'), null,
     'grouped Mega invented a separate map pin beside the shared distance action');
-  assert.ok(checklist.querySelector('.cknote-pending'),
+  noteButton = checklist.querySelector('.cknote-pending');
+  assert.ok(noteButton,
     'grouped Mega checklist has no shared pending Notes action');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'grouped Mega shows an ellipsis instead of the expected Notes control');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'grouped Mega does not show the Notes icon before hydration');
   app.window.close();
 });
 
@@ -12618,8 +12638,13 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
     'List view is still limited to the last day instead of all available rarity rows');
   assert.equal(doc.querySelectorAll('#results details.ckall').length, 0,
     'List view should stay one checklist row at a time');
-  assert.ok(doc.querySelector('#results > li > .meta > .spmetaact .cknote-pending'),
+  let noteButton = doc.querySelector('#results > li > .meta > .spmetaact .cknote-pending');
+  assert.ok(noteButton,
     'ungrouped Twitches has no pending Notes action');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'ungrouped Twitches shows an ellipsis instead of the expected Notes control');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'ungrouped Twitches does not show the Notes icon before hydration');
   assert.match(app.window.SpeciesCards.css,
     /\.obs\.xl > li > \.meta > \.spmetaact,[\s\S]*float: right;/,
     'ungrouped Twitches Notes action is not pinned to the card edge');
@@ -12633,9 +12658,14 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
   assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
     'Grouped view is not bird → numbered hotspot → checklist');
-  assert.ok(doc.querySelector(
-    '#results .birdreportplaces .hscard-sm .cklcard-sm .cknote-pending'),
+  noteButton = doc.querySelector(
+    '#results .birdreportplaces .hscard-sm .cklcard-sm .cknote-pending');
+  assert.ok(noteButton,
   'grouped Twitches has no pending Notes action');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'grouped Twitches shows an ellipsis instead of the expected Notes control');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'grouped Twitches does not show the Notes icon before hydration');
   app.window.close();
 });
 
@@ -16514,6 +16544,79 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   app.window.close();
 });
 
+test('F553 Today’s patches keeps newest checklist coverage when product lists lags', async () => {
+  const lists = [
+    {
+      subId: 'S-NEW', numSpecies: 22, isoObsDate: '2026-09-24 08:59',
+      userDisplayName: 'Nancy Jones',
+      loc: { locId: 'L-EDMONDS', locName: 'Edmonds Waterfront',
+             latitude: 47.8, longitude: -122.4 },
+    },
+    {
+      subId: 'S-OLD', numSpecies: 29, isoObsDate: '2026-09-23 07:20',
+      userDisplayName: 'Joe Sweeney',
+      loc: { locId: 'L-EDMONDS', locName: 'Edmonds Waterfront',
+             latitude: 47.8, longitude: -122.4 },
+    },
+  ];
+  const locationRows = [
+    { speciesCode: 'comloo', comName: 'Common Loon',
+      obsDt: '2026-09-24 08:59', subId: 'S-NEW', howMany: 1 },
+    { speciesCode: 'wesgre', comName: 'Western Grebe',
+      obsDt: '2026-09-24 08:59', subId: 'S-NEW', howMany: 4 },
+    { speciesCode: 'pacloo', comName: 'Pacific Loon',
+      obsDt: '2026-09-24 08:48', subId: 'S-MID', howMany: 2 },
+    { speciesCode: 'parjae', comName: 'Parasitic Jaeger',
+      obsDt: '2026-09-24 08:48', subId: 'S-MID', howMany: 1 },
+    { speciesCode: 'whwsco2', comName: 'White-winged Scoter',
+      obsDt: '2026-09-24 08:48', subId: 'S-MID', howMany: 7 },
+    { speciesCode: 'merlin', comName: 'Merlin',
+      obsDt: '2026-09-23 07:20', subId: 'S-OLD', howMany: 1 },
+  ];
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) return lists;
+      if (/data\/obs\/L-EDMONDS\/recent/.test(url)) return locationRows;
+      return null;
+    },
+  });
+  const doc = app.window.document, A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  A.renderHot({
+    hot: [{
+      locId: 'L-EDMONDS', name: 'Edmonds Waterfront',
+      lat: 47.8, lng: -122.4, dist: 11, fresh: 6,
+      checklists: 3, share: 5, latest: '2026-09-24',
+      birds: locationRows.map((row) => ({
+        name: row.comName, code: row.speciesCode, unseen: true,
+        subId: row.subId, dateStr: row.obsDt, count: row.howMany,
+      })),
+    }],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 900));
+
+  const card = doc.querySelector('#hotResults [data-hsloc="L-EDMONDS"]');
+  const rows = [...card.querySelectorAll('.hotspotChecklistProgress .cklcard-sm')];
+  assert.equal(rows.length, 3,
+    'the fresh 8:48 checklist vanished because product/lists had not indexed it; '
+    + 'wanted=' + card.getAttribute('data-unseen-subs')
+    + ' targets=' + card.getAttribute('data-unseen-codes'));
+  assert.deepEqual(rows.map((row) => row.getAttribute('data-ev-sub')),
+    ['S-NEW', 'S-MID', 'S-OLD'],
+    'coverage is not filtered newest first');
+  assert.match(rows[0].textContent, /(?:COLO|COMLOO) ×1.*(?:WEGR|WESGRE) ×4/,
+    'the newest checklist does not cover both birds it reported');
+  assert.match(rows[1].textContent,
+    /(?:PALO|PACLOO) ×2.*(?:PAJA|PARJAE) ×1.*(?:WWSC|WHWSCO2) ×7/,
+    'the unindexed checklist does not cover its three unseen birds');
+  assert.match(rows[2].textContent, /(?:MERL|MERLIN) ×1/,
+    'the older checklist needed for Merlin coverage is missing');
+  app.window.close();
+});
+
 // ── F223: one list, not five-plus-one ─────────────────────────────────────
 //
 // Reported at Juanita Bay Park: a heading of "6 recent checklists", five rows,
@@ -16537,12 +16640,12 @@ test('F223: six checklists are one list, not five plus one', async () => {
     fetch(url) {
       if (/product\/lists\//.test(url)) return lists;
       if (/data\/obs\/L1\/recent/.test(url)) {
-        // A bird you need, reported on a checklist the INDEX has never heard
-        // of. That is the documented fallback: the card cannot rule any list
-        // out, so it keeps the FULL set under the neutral label — the
-        // unfiltered path, which is where the owner saw the split.
+        // A bird you need whose location row carries no checklist id. The card
+        // genuinely cannot identify a qualifying row, so it keeps the FULL set
+        // under the neutral label — the unfiltered path where the owner saw
+        // the split.
         return [{ speciesCode: 'sp0', comName: 'Needed Bird',
-                  obsDt: '2026-08-07 08:00', subId: 'SX' }];
+                  obsDt: '2026-08-07 08:00', subId: '' }];
       }
       return null;
     },
@@ -29519,8 +29622,8 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   'the initial checklist set contains duplicate rows');
   assert.deepEqual(
     Array.from(list.children).slice(0, 8).map((row) => row.getAttribute('data-ckl-sub')),
-    ['S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18'],
-    'the initial checklist set does not cover the newest checklist for every unseen bird');
+    ['S1', 'S2', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16'],
+    'the initial checklist set is not newest-first while covering every unseen bird');
   assert.ok(Array.from(list.children).some((row) =>
     row.getAttribute('data-ckl-sub') === 'S1'),
   'the initial checklist set did not fill remaining capacity with a recent checklist');
@@ -29543,7 +29646,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   assert.equal(list.children.length, 20);
   assert.deepEqual(
     Array.from(list.children).slice(0, 8).map((row) => row.getAttribute('data-ckl-sub')),
-    ['S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18'],
+    ['S1', 'S2', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16'],
     'loading more reordered the coverage-first checklist set');
   assert.equal(progress.querySelectorAll(':scope > ul').length, 1);
   assert.ok(checklistViews > 0, 'the checklist-only comment path never fetched');

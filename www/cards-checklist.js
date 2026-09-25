@@ -338,11 +338,15 @@
     return (h ? h + 'h' : '') + (m || !h ? m + 'm' : '');
   }
 
-  function pendingNoteAction() {
+  function pendingNoteAction(notesExpected) {
     return '<span class="cknote"><button type="button"'
-      + ' class="evidbtn cknote-pending" data-note-pending="1"'
-      + ' aria-label="Checking for notes; activate to load now" aria-busy="true"'
-      + '><span aria-hidden="true">\u2026</span></button></span>';
+      + ' class="evidbtn cknote-pending' + (notesExpected ? ' cknote-expected' : '') + '"'
+      + ' data-note-pending="1"'
+      + ' aria-label="' + (notesExpected
+        ? 'Show notes; activate to load'
+        : 'Checking for notes; activate to load now') + '" aria-busy="true"'
+      + '><span aria-hidden="true">' + (notesExpected ? '\uD83D\uDCCB' : '\u2026')
+      + '</span></button></span>';
   }
 
   function build(tpl, v, isMedium) {
@@ -493,7 +497,7 @@
     var pendingNote = !isMedium && v.data && v.data['ev-sub']
       && (v.data['ev-checklist-only'] === '1'
         || v.data['ev-note-pending'] === '1')
-      ? pendingNoteAction()
+      ? pendingNoteAction(v.data['ev-notes-expected'] === '1')
       : '';
 
     // The headline IS the link to the checklist. `placeHtml` lets a caller

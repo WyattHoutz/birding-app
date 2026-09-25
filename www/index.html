@@ -3694,7 +3694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.129.1';
+      var APP_VERSION = '1.130.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9115,7 +9115,8 @@
                 // entry there holds only speciesCode/howMany*/comments/present
                 // /obsId — no mediaCounts and no asset id at all.
                 'ev-media': r.evidence || '',
-                'ev-when': when
+                'ev-when': when,
+                'ev-notes-expected': '1'
               } : null,
               // F230. LAST, after the comments — and emitted by the card rather
               // than by the comment hydration, so it is present with notes
@@ -9175,7 +9176,8 @@
               flag: reviewFlag(r),
               data: {
                 'ev-sub': r.subId || '',
-                'ev-checklist-only': '1'
+                'ev-checklist-only': '1',
+                'ev-notes-expected': '1'
               }
             });
           }
@@ -9917,6 +9919,7 @@
           data['mega-view'] = megaView;
           data['mega-name'] = r.name || r.code;
         }
+        if (data && opts.rare) data['ev-notes-expected'] = '1';
         var evidence = birdReportEvidence(r, {
           rare: opts.rare
         });
@@ -9927,11 +9930,13 @@
           tags: birdReportTags([r], opts.rare) + reviewFlag(r),
           primary: birdReportMetric(r, opts.sortMode),
           sub: evidence,
-          metaAction: data ? ChecklistCards.pendingNoteAction() : '',
+          metaAction: data
+            ? ChecklistCards.pendingNoteAction(data['ev-notes-expected'] === '1') : '',
           data: data
         });
       }
-      function birdReportChecklistCard(row, place, group) {
+      function birdReportChecklistCard(row, place, group, opts) {
+        opts = opts || {};
         var dataRow = {
           subId: row.subId, code: group.code, name: group.name,
           dateStr: row.dateStr || place.dateStr,
@@ -9941,7 +9946,10 @@
           locId: place.locId, distMi: place.distMi
         };
         var checklistData = birdReportData(dataRow, group.code, group.name);
-        if (checklistData) checklistData['ev-evidence-end'] = '1';
+        if (checklistData) {
+          checklistData['ev-evidence-end'] = '1';
+          if (opts.rare) checklistData['ev-notes-expected'] = '1';
+        }
         return ChecklistCards.small({
           date: fmtDateTime(dataRow.dateStr),
           observedAt: dataRow.dateStr,
@@ -9959,10 +9967,10 @@
           data: checklistData
         });
       }
-      function birdReportPlaceCard(place, group, index) {
+      function birdReportPlaceCard(place, group, index, opts) {
         var publicHotspot = place.locId && !place.locationPrivate;
         var allReports = (place.checklists || []).map(function (row) {
-          return birdReportChecklistCard(row, place, group);
+          return birdReportChecklistCard(row, place, group, opts);
         });
         var reports = allReports.slice(0, 10);
         var rest = allReports.length - reports.length;
@@ -9986,7 +9994,7 @@
         var megaView = opts.megaView || group.megaView || '';
         var groupRows = recordsFromGroup(group);
         var places = HotspotCards.list('small', (group.places || []).map(function (place, i) {
-          return birdReportPlaceCard(place, group, i);
+          return birdReportPlaceCard(place, group, i, opts);
         }));
         var anyConfirmed = groupRows.some(function (row) {
           return row.reviewState === 'confirmed' || row.valid === true;
@@ -17924,6 +17932,7 @@
       function hotspotChecklistInitial(got, targetCodes) {
         var selected = [], selectedSubs = {}, covered = {};
         (got || []).forEach(function (chk) {
+          if (selected.length >= HOTSPOT_CKL_SHOWN) return;
           var sub = chk.subId || chk.subID || '';
           var targets = (targetCodes && targetCodes[sub]) || [];
           var addsCoverage = targets.some(function (target) {
@@ -18023,6 +18032,33 @@
             if (nUnseen === '0') return;
             var kept = false, rest = [];
             if (want.length) {
+              // The location feed is fresher than product/lists. A newly
+              // submitted checklist can already identify every species it
+              // contains while the county checklist index still omits the
+              // checklist itself. Intersecting the feeds used to delete that
+              // known row, which left PALO/PAJA/WWSC visible above an Edmonds
+              // card with no checklist covering any of them.
+              //
+              // Add only the missing wanted submissions, using the newest
+              // target observation time as the row time. The later sort keeps
+              // all coverage newest-first, and hydration can fill the observer,
+              // duration and species total when the checklist endpoint catches
+              // up.
+              var indexedSubs = {};
+              got = got.slice();
+              got.forEach(function (chk) {
+                indexedSubs[chk.subId || chk.subID || ''] = 1;
+              });
+              want.forEach(function (sub) {
+                var targets = targetCodes[sub] || [];
+                if (!sub || indexedSubs[sub] || !targets.length) return;
+                var newest = targets.reduce(function (best, target) {
+                  return String(target.dateStr || '') > best
+                    ? String(target.dateStr || '') : best;
+                }, '');
+                got.push({ subId: sub, isoObsDate: newest });
+                indexedSubs[sub] = 1;
+              });
               var hit = got.filter(function (chk) {
                 return want.indexOf(chk.subId || chk.subID || '') >= 0;
               });
@@ -18261,13 +18297,20 @@
             unseen.forEach(function (u) {
               if (!u.subId) return;
               if (wantSubs.indexOf(u.subId) < 0) wantSubs.push(u.subId);
-              var alpha = alphaFor(u.code);
+              // Coverage cannot depend on the taxonomy cache having loaded.
+              // The eBird species code is longer than a banding code, but it
+              // still names the target and keeps its checklist eligible.
+              var alpha = alphaFor(u.code) || String(u.code || '').toUpperCase();
               if (!alpha) return;
               var codes = unseenCodes[u.subId] || (unseenCodes[u.subId] = []);
               var counted = alpha + (u.count == null || u.count === ''
                 ? '' : ' \u00d7' + u.count);
               if (!codes.some(function (item) { return item.code === u.code; })) {
-                codes.push({ code: u.code, label: counted });
+                codes.push({
+                  code: u.code,
+                  label: counted,
+                  dateStr: u.dateStr || ''
+                });
               }
             });
             el.setAttribute('data-unseen-subs', wantSubs.join(','));
