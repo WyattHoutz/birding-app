@@ -11153,6 +11153,8 @@
       var _spLookupGeneration = 0;
       var _spLookupLoading = false;
       var _spLookupEvidence = null;
+      var ICONIC_MIN_VISIBLE = 3;
+      var _spLookupIconicRadius = null;
 
       function speciesLookupPath(region, code, back) {
         return 'data/obs/' + encodeURIComponent(region) + '/recent/'
@@ -11233,6 +11235,7 @@
         _spLookupGroup = null;
         _spLookupEvidence = null;
         _spLookupIconic = null; _spLookupSeason = null;
+        _spLookupIconicRadius = null;
         _spLookupLoading = false;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupDetailsContent')) $('spLookupDetailsContent').hidden = true;
@@ -12340,6 +12343,7 @@
         if (host) {
           host.innerHTML = '<h3>\u2744\ufe0e Good odds, nobody looking</h3>'
             + spLookupIconicHtml(name);
+          wireIconicExpand(host, name);
         }
       }
 
@@ -12358,6 +12362,32 @@
         var byMult = function (a, b) { return (b.mult || 0) - (a.mult || 0); };
         near.sort(byMult); far.sort(byMult);
         return { near: near, far: far, all: near.concat(far), lim: lim };
+      }
+      function iconicVisible(ord) {
+        if (!_spLookupWithinChase) {
+          return { rows: ord.all.slice(), radius: null, expanded: false };
+        }
+        var radius = _spLookupIconicRadius || ord.lim, rows = [];
+        while (rows.length < ICONIC_MIN_VISIBLE && isFinite(radius)
+            && radius < 10000) {
+          rows = ord.all.filter(function (row) {
+            return row.distMi != null && row.distMi <= radius;
+          });
+          if (rows.length >= ICONIC_MIN_VISIBLE) break;
+          radius *= 2;
+        }
+        if (rows.length < ICONIC_MIN_VISIBLE) rows = ord.all.slice();
+        rows.sort(function (a, b) {
+          return (b.mult || 0) - (a.mult || 0)
+            || ((a.distMi == null ? Infinity : a.distMi)
+              - (b.distMi == null ? Infinity : b.distMi));
+        });
+        return {
+          rows: rows,
+          radius: radius,
+          expanded: radius > ord.lim && rows.length > 0,
+          canExpand: rows.length < ord.all.length && isFinite(radius)
+        };
       }
 
       function iconicRowHtml(r, num) {
@@ -12408,7 +12438,8 @@
             + 'it is not a bird with a reliable address here.</div>';
         }
         var ord = iconicOrdered();
-        var visible = _spLookupWithinChase ? ord.near : ord.all;
+        var visibleState = iconicVisible(ord);
+        var visible = visibleState.rows;
         var cold = rows.filter(function (r) { return r.unwatched; });
         h += '<div class="status">Places where ' + esc(name) + ' has historically been '
           + 'well above the county average, measured across the whole year \u2014 each row '
@@ -12419,16 +12450,33 @@
               : 'All of them already have recent reports.')
           + ' These are <strong>historical odds, not sightings</strong>, so there is no '
           + 'checklist behind a row \u2014 that is the point of the view.</div>';
-        if (_spLookupWithinChase && !visible.length) {
-          h += '<div class="hint">Nothing within <b>' + ord.lim + ' mi</b> stands out for '
-            + esc(name) + ' in any month. Turn off Chase distance to see all '
-            + 'regional evidence.</div>';
-          return h;
+        if (_spLookupWithinChase && visibleState.expanded) {
+          h += '<div class="hint">Expanded the Iconic search to <b>'
+            + Math.round(visibleState.radius) + ' mi</b> to show at least '
+            + ICONIC_MIN_VISIBLE + ' nearby historical hotspots.</div>';
+        }
+        if (_spLookupWithinChase && visibleState.canExpand) {
+          h += '<button type="button" class="secondary iconicExpand" '
+            + 'data-radius="' + esc(visibleState.radius) + '">'
+            + 'Show more nearby iconic hotspots</button>';
         }
         h += HotspotCards.list('small', visible.map(function (r, i) {
           return iconicRowHtml(r, i + 1);
         }));
         return h;
+      }
+
+      function wireIconicExpand(host, name) {
+        if (!host) return;
+        var more = host.querySelector('.iconicExpand');
+        if (!more) return;
+        more.addEventListener('click', function () {
+          var current = parseFloat(more.getAttribute('data-radius'));
+          if (!isFinite(current) || current <= 0) current = chaseMaxMi();
+          _spLookupIconicRadius = current * 2;
+          host.innerHTML = spLookupIconicHtml(name);
+          wireIconicExpand(host, name);
+        });
       }
 
       function hydrateUnwatched(code, name, hostId, seenNames, generation) {
@@ -12517,6 +12565,9 @@
         var lookupSummary = '';
         var sightingsFailure = '';
         sortSpeciesPlaces(g, _spLookupSort);
+        var nearbyPlaces = (g.places || []).filter(spLookupPlaceReachable);
+        var usingRegionalEvidence = _spLookupWithinChase
+          && (g.places || []).length > 0 && !nearbyPlaces.length;
         var watched = isWatched(g.code);
         var seenIt = !!getReportSeen()[g.code];
         st.hidden = false;
@@ -12544,9 +12595,11 @@
             + ' in the last ' + SP_LOOKUP_BACK + ' days'
             + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
             + ' · ' + (_spLookupSort === 'dist' ? 'by distance' : 'by date')
-            + ' · ' + (_spLookupWithinChase
+            + ' · ' + (_spLookupWithinChase && !usingRegionalEvidence
               ? 'within ' + chaseMaxMi().toFixed(0) + ' mi chase distance'
-              : 'all regional evidence')
+              : (usingRegionalEvidence
+                ? 'all regional evidence · none within ' + chaseMaxMi().toFixed(0) + ' mi'
+                : 'all regional evidence'))
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
@@ -12609,6 +12662,7 @@
         var iconicHost = $('spLookupUnwatched');
         if (iconicHost && _spLookupIconic !== null) {
           iconicHost.innerHTML = spLookupIconicHtml(g.name);
+          wireIconicExpand(iconicHost, g.name);
         }
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -12675,7 +12729,7 @@
           var pts;
           if (iconicMode) {
             var ord = iconicOrdered();
-            var shown = _spLookupWithinChase ? ord.near : ord.all;
+            var shown = iconicVisible(ord).rows;
             pts = shown.slice(0, visibleCount)
               .map(function (r) { return { lat: +r.lat, lng: +r.lng, name: r.place }; })
               .filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
@@ -12786,9 +12840,13 @@
 
       function spLookupOrderedPlaces(places) {
         var all = (places || []).slice();
-        return _spLookupWithinChase
-          ? all.filter(spLookupPlaceReachable)
-          : all;
+        if (!_spLookupWithinChase) return all;
+        var near = all.filter(spLookupPlaceReachable);
+        // A bird opened from a real report must not become a blank Stakeout
+        // page just because the current Home/chase radius moved. Keep the
+        // distance control meaningful when nearby evidence exists, but show
+        // the regional evidence as a labelled fallback when none is reachable.
+        return near.length ? near : all;
       }
 
       function stakeoutChecklistRow(row, place, bird, num, flat) {
@@ -13006,13 +13064,18 @@
       function spLookupPlacesHtmlInner(places, bird) {
         var all = spLookupOrderedPlaces(places || []);
         if (!all.length && _spLookupWithinChase) {
-          return '<div class="status">No physically reachable reports are within '
-            + chaseMaxMi().toFixed(0)
-            + ' mi in this report’s target counties. Turn off Chase distance to see '
-            + 'all regional evidence.</div>';
+          return '<div class="status">No reports of this bird are available in the '
+            + 'current regional evidence.</div>';
         }
+        var nearby = (places || []).filter(spLookupPlaceReachable);
+        var regionalFallback = _spLookupWithinChase && !nearby.length;
+        var intro = regionalFallback
+          ? '<div class="hint">Nothing is within <b>' + chaseMaxMi().toFixed(0)
+            + ' mi</b>; showing all regional evidence so this Stakeout search '
+            + 'does not hide available checklists.</div>'
+          : '';
         var generation = _spLookupGeneration;
-        return progressiveListHtml({
+        return intro + progressiveListHtml({
           items: all,
           initialCount: SP_ROWS_MAX,
           batchSize: SP_ROWS_MAX,
@@ -37163,6 +37226,7 @@
                                       active: _fgActive, reservations: _fgStarts.length,
                                       nextAt: _fgNextAt }; },
         hydrateBestPlaces: hydrateBestPlaces,
+        renderUnwatched: renderUnwatched,
         locLink: locLink,
         setScopeSites: function (m) { _scopeMap = m || {}; },
         fmtDateTime: fmtDateTime,

@@ -24286,10 +24286,15 @@ test('species lookup chase distance filters independently of Date and Distance',
 
   A.setSpeciesLookupWithinChase(true);
   A.setSpeciesLookupSort('date');
-  // Nothing within range is stated plainly rather than silently returning no markup.
+  // With no nearby evidence, Stakeout keeps the regional answer visible rather
+  // than making a real search look empty.
   const allFar = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
-  assert.match(allFar, /No physically reachable reports/);
-  assert.doesNotMatch(allFar, /OnlyFar/);
+  assert.match(allFar, /showing all regional evidence/);
+  const allFarHost = app.window.document.createElement('div');
+  allFarHost.innerHTML = allFar;
+  A.mountProgressiveLists(allFarHost);
+  assert.match(allFarHost.innerHTML, /OnlyFar/);
+  assert.match(allFarHost.innerHTML, /data-ev-place="OnlyFar"/);
   app.window.close();
 });
 
@@ -27422,20 +27427,16 @@ test('the odds rows are numbered, readable, and honor the chase filter', () => {
   assert.match(HC.css, /\.hscard-sm > \.name > \.ntext > \.sub \{[^}]*display: block/,
     'the small hotspot card sub-line is not a block, so it renders inline');
 
-  // 3: the same chase-distance toggle used by Date and Distance also controls
-  // Iconic, rather than Iconic inventing a separate disclosure interaction.
+  // 3: Iconic derives from the same chase-distance setting, then owns a
+  // nearest-location minimum rather than disappearing with a sparse result.
   const at = HTML.indexOf('function spLookupIconicHtml');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
   assert.ok(at > 0, 'spLookupIconicHtml not found');
   assert.ok(/iconicOrdered\(\)/.test(src), 'the odds list is not split by distance at all');
-  assert.ok(/_spLookupWithinChase\s*\?\s*ord\.near\s*:\s*ord\.all/.test(src),
-    'Iconic ignores the shared chase-distance filter');
+  assert.ok(/iconicVisible\(ord\)/.test(src),
+    'Iconic does not apply its independent nearest-location minimum');
   assert.doesNotMatch(src, /<details class="farplaces"/,
     'Iconic kept a second hidden-distance control after the shared toggle was added');
-
-  // Nothing nearby is an ANSWER, not a silent empty list.
-  assert.ok(/Nothing within[\s\S]*Turn off Chase distance/.test(src),
-    'a bird with no nearby site renders an empty view instead of saying so');
 
   // The MAP must follow the same split, or it zooms out to fit pins whose rows
   // are hidden - which is what made this look state-wide in the first place.
@@ -27818,6 +27819,53 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
     .test(listFn), 'progressive batches do not keep one continuous row number');
   assert.ok(!/_spLookupGroup\.name/.test(HTML),
     'the row renderer still reaches for module state instead of its argument');
+});
+
+test('F548 Stakeout expands sparse iconic evidence without refetching', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const W = app.window;
+  W.localStorage.setItem(A.homeKey('lat'), '47.75');
+  W.localStorage.setItem(A.homeKey('lng'), '-122.16');
+  W.localStorage.setItem(A.chaseMiKey(), '40');
+  A.setSpeciesLookupWithinChase(true);
+
+  const atMiles = (miles) => 47.75 + miles / 69;
+  const rows = [
+    { place: 'First Near', locId: 'L1', lat: atMiles(10), lng: -122.16,
+      mult: 2, n: 2, effort: 100, unwatched: true },
+    { place: 'Second Near', locId: 'L2', lat: atMiles(30), lng: -122.16,
+      mult: 4, n: 4, effort: 100, unwatched: true },
+    { place: 'Third At Eighty', locId: 'L3', lat: atMiles(70), lng: -122.16,
+      mult: 9, n: 9, effort: 100, unwatched: true },
+    { place: 'Fourth At One Sixty', locId: 'L4', lat: atMiles(130), lng: -122.16,
+      mult: 12, n: 12, effort: 100, unwatched: true },
+  ];
+  const host = W.document.createElement('div');
+  A.renderUnwatched(host, 'American Pipit', rows, null);
+
+  const names = () => [].slice.call(host.querySelectorAll('li.hscard-md .ntext'))
+    .map((el) => el.firstChild.textContent.trim());
+  assert.deepEqual(names(), ['Third At Eighty', 'Second Near', 'First Near'],
+    'the 40-mile search did not expand to the nearest three rows in X-factor order');
+  assert.match(host.textContent, /Expanded the Iconic search to 80 mi/);
+  const more = host.querySelector('.iconicExpand');
+  assert.ok(more, 'the sparse Iconic result has no radius expansion control');
+  assert.equal(more.getAttribute('data-radius'), '80');
+
+  let fetchCalls = 0;
+  W.fetch = () => {
+    fetchCalls++;
+    return Promise.reject(new Error('unexpected fetch'));
+  };
+  more.click();
+  assert.equal(fetchCalls, 0, 'expanding cached Iconic rows refetched the network');
+  assert.deepEqual(names(),
+    ['Fourth At One Sixty', 'Third At Eighty', 'Second Near', 'First Near'],
+    'the expansion control did not reveal the wider cached rows in X-factor order');
+  assert.equal(host.querySelector('.iconicExpand'), null,
+    'the expansion control remains after every cached regional row is visible');
+  app.window.close();
 });
 
 test('background fill leaves budget for the section you just opened', () => {
