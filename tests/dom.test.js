@@ -29240,11 +29240,23 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       if (/data\/obs\/L1\/recent/.test(url)) {
         return [
           { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
-            subId: 'S1', howMany: 2 },
+            subId: 'S11', howMany: 2 },
           { speciesCode: 'whcspa', comName: 'White-crowned Sparrow',
-            subId: 'S1', howMany: 3 },
+            subId: 'S11', howMany: 3 },
           { speciesCode: 'sonspa', comName: 'Song Sparrow',
-            subId: 'S2', howMany: null },
+            subId: 'S12', howMany: null },
+          { speciesCode: 'fixture3', comName: 'Fixture Bird 3',
+            subId: 'S13', howMany: 1 },
+          { speciesCode: 'fixture4', comName: 'Fixture Bird 4',
+            subId: 'S14', howMany: 1 },
+          { speciesCode: 'fixture5', comName: 'Fixture Bird 5',
+            subId: 'S15', howMany: 1 },
+          { speciesCode: 'fixture6', comName: 'Fixture Bird 6',
+            subId: 'S16', howMany: 1 },
+          { speciesCode: 'fixture7', comName: 'Fixture Bird 7',
+            subId: 'S17', howMany: 1 },
+          { speciesCode: 'fixture8', comName: 'Fixture Bird 8',
+            subId: 'S18', howMany: 1 },
         ].concat(Array.from({ length: 10 }, (_, i) => ({
           speciesCode: 'fixture' + (i + 3),
           comName: 'Fixture Bird ' + (i + 3),
@@ -29290,6 +29302,12 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       { code: 'shtsan', alpha: 'SPTS' },
       { code: 'whcspa', alpha: 'WCSP' },
       { code: 'sonspa', alpha: 'SOSP' },
+      { code: 'fixture3', alpha: 'F003' },
+      { code: 'fixture4', alpha: 'F004' },
+      { code: 'fixture5', alpha: 'F005' },
+      { code: 'fixture6', alpha: 'F006' },
+      { code: 'fixture7', alpha: 'F007' },
+      { code: 'fixture8', alpha: 'F008' },
     ].concat(Array.from({ length: 10 }, (_, i) => ({
       code: 'fixture' + (i + 3),
       alpha: 'F' + String(i + 3).padStart(3, '0'),
@@ -29302,6 +29320,12 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       birds: [
         { name: 'Sharp-tailed Sandpiper', code: 'shtsan', unseen: true },
         { name: 'Song Sparrow', code: 'sonspa', unseen: true },
+        { name: 'Fixture Bird 3', code: 'fixture3', unseen: true },
+        { name: 'Fixture Bird 4', code: 'fixture4', unseen: true },
+        { name: 'Fixture Bird 5', code: 'fixture5', unseen: true },
+        { name: 'Fixture Bird 6', code: 'fixture6', unseen: true },
+        { name: 'Fixture Bird 7', code: 'fixture7', unseen: true },
+        { name: 'Fixture Bird 8', code: 'fixture8', unseen: true },
       ].concat(Array.from({ length: 10 }, (_, i) => ({
         name: 'Fixture Bird ' + (i + 3),
         code: 'fixture' + (i + 3),
@@ -29318,9 +29342,16 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     'Today’s patches still creates multiple checklist lists');
   assert.equal(list.children.length, 10,
     'the first paint is not capped at ten useful checklists');
-  assert.deepEqual(Array.from(list.children, (row) => row.getAttribute('data-ckl-sub')),
-    Array.from({ length: 10 }, (_, i) => 'S' + (i + 1)),
-    'the first ten useful checklists are not newest first');
+  assert.equal(new Set(Array.from(list.children, (row) =>
+    row.getAttribute('data-ckl-sub'))).size, 10,
+  'the initial checklist set contains duplicate rows');
+  assert.deepEqual(
+    Array.from(list.children).slice(0, 8).map((row) => row.getAttribute('data-ckl-sub')),
+    ['S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18'],
+    'the initial checklist set does not cover the newest checklist for every unseen bird');
+  assert.ok(Array.from(list.children).some((row) =>
+    row.getAttribute('data-ckl-sub') === 'S1'),
+  'the initial checklist set did not fill remaining capacity with a recent checklist');
   const multiSpeciesRow = Array.from(list.children).find((row) =>
     /SPTS ×2/.test(row.querySelector('.cktargets')?.textContent || ''));
   assert.equal(multiSpeciesRow?.querySelector('.cktargets')?.textContent.trim(),
@@ -29338,9 +29369,10 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   assert.strictEqual(progress.querySelector('ul'), list,
     'Show more replaced the checklist list instead of appending to it');
   assert.equal(list.children.length, 20);
-  assert.equal(Array.from(list.children).slice(0, 12).filter((row) =>
-    row.querySelector('.cktargets')?.textContent.trim()).length, 12,
-  'ordinary recent checklists appeared before all useful checklists');
+  assert.deepEqual(
+    Array.from(list.children).slice(0, 8).map((row) => row.getAttribute('data-ckl-sub')),
+    ['S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18'],
+    'loading more reordered the coverage-first checklist set');
   assert.equal(progress.querySelectorAll(':scope > ul').length, 1);
   assert.ok(checklistViews > 0, 'the checklist-only comment path never fetched');
   await waitFor(() => multiSpeciesRow.querySelector('.cknote .evidbtn[data-evid]'),

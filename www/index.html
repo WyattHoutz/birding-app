@@ -17881,6 +17881,28 @@
       // The same progressive list reveals the remaining useful rows before
       // ordinary recent checklists.
       var HOTSPOT_CKL_SHOWN = 10;
+      function hotspotChecklistInitial(got, targetCodes) {
+        var selected = [], selectedSubs = {}, covered = {};
+        (got || []).forEach(function (chk) {
+          var sub = chk.subId || chk.subID || '';
+          var targets = (targetCodes && targetCodes[sub]) || [];
+          var addsCoverage = targets.some(function (target) {
+            return target && target.code && !covered[target.code];
+          });
+          if (!addsCoverage) return;
+          selected.push(chk);
+          selectedSubs[sub] = 1;
+          targets.forEach(function (target) {
+            if (target && target.code) covered[target.code] = 1;
+          });
+        });
+        var targetCount = selected.length;
+        var fill = (got || []).filter(function (chk) {
+          return !selectedSubs[chk.subId || chk.subID || ''];
+        });
+        return selected.concat(fill.slice(0, Math.max(0,
+          HOTSPOT_CKL_SHOWN - targetCount)));
+      }
       function hotspotChecklistIndex() {
         return recentLists().then(function (lists) {
           var by = {};
@@ -18002,7 +18024,10 @@
             // SLACK: a remainder small enough to absorb never earns a control
             // of its own. Splitting 26 into 25-plus-1 is the same defect as
             // splitting 6 into 5-plus-1, just further along the list.
-            var shown = Math.min(got.length, HOTSPOT_CKL_SHOWN);
+            var initial = kept
+              ? hotspotChecklistInitial(got, targetCodes)
+              : got.slice(0, HOTSPOT_CKL_SHOWN);
+            var shown = initial.length;
             // The label says WHAT was kept, or a reader who knows the place
             // had twelve lists today reads a count of three as a bug.
             var label = kept
@@ -18010,8 +18035,13 @@
                   many: 'checklists with a bird you need' }
               : 'recent checklist';
             var CKL_NOUN = { one: 'checklist', many: 'checklists' };
-            var initial = got.slice(0, shown);
-            var ordered = got.concat(rest);
+            var selectedSubs = {};
+            initial.forEach(function (chk) {
+              selectedSubs[chk.subId || chk.subID || ''] = 1;
+            });
+            var ordered = initial.concat(got.filter(function (chk) {
+              return !selectedSubs[chk.subId || chk.subID || ''];
+            })).concat(rest);
             var open = rarityNotes() ? ' open' : '';
             slot.innerHTML = '<details class="ckall"' + open + '><summary>'
               + got.length + ' '
