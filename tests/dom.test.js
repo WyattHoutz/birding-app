@@ -2346,8 +2346,10 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
     'the raw submission id is eleven characters of noise on a phone row');
   // Drawn separators, so a report with no observer, no count and no
   // stakeout cannot strand a "·" — the flags are optional now too.
-  assert.match(HTML, /\.rarewhere > span \+ span::before/,
-    'the separators are drawn by CSS, not typed into the string');
+  assert.match(HTML, /\.rarewhere > \* \+ \*::before/,
+    'the separators cover every adjacent metadata element, not spans only');
+  assert.match(HTML, /content:\s*"\\00a0\\00b7\\00a0"/,
+    'each separator carries visible spaces around its bullet');
   // The NAME row carries the name alone. 🔍, ×count and 📍 Day N are facts
   // about the sighting, so they sit with the rest of them on the sub-line.
   assert.match(today, /tags: ''/, 'the header is the bird, and nothing else');

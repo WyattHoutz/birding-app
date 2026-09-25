@@ -1727,8 +1727,8 @@
        unbroken runs ("Marymoor--Audubon/Interpretive-Boardwalk") that would
        otherwise push the card past the panel. */
     .rarewhere { display: block; min-width: 0; overflow-wrap: anywhere; }
-    .rarewhere > span + span::before {
-      content: "\00b7"; margin: 0 5px; color: var(--line); }
+    .rarewhere > * + *::before {
+      content: "\00a0\00b7\00a0"; color: var(--line); }
     /* The flags keep their own spacing INSIDE their cell, so the drawn
        separator sits between the group and the place rather than between
        every badge. */
