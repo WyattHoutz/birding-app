@@ -347,7 +347,7 @@
        eBird link was lowered.
        Inherit instead of restating a number, so the row's size stays the one
        fact and the two cannot drift again. Same fix `.cklrows` already needed. */
-    '.hsact .maplink, .hsact .extlink, .hsact .favlink, .hsact .mylink {',
+    '.hsact .maplink, .hsact .extlink, .hsact .ebirdlink, .hsact .favlink, .hsact .mylink {',
     '  margin-top: 0; font-size: inherit; font-weight: 700;',
     '  vertical-align: baseline; }',
     ''

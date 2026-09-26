@@ -11109,7 +11109,7 @@ test('a card title that is a link keeps the TITLE type, not the action-link type
   // Maps" — so the fix is scoping, not deletion, and this pins the rule it is
   // allowed to be so the guard keeps meaning something if it is retuned.
   const actionRule = (HTML.match(
-    /\.maplink, \.extlink, \.favlink, \.mylink \{[^}]*\}/) || [])[0];
+    /\.maplink, \.extlink, \.ebirdlink, \.favlink, \.mylink \{[^}]*\}/) || [])[0];
   assert.ok(actionRule && /font-size:/.test(actionRule),
     'the action-link rule still exists and still sets a font-size');
   const actionSize = actionRule.match(/font-size: (calc\([^)]*\)[^;]*);/)[1];
@@ -11270,7 +11270,11 @@ test('the hotspot card omits facts it was not given', async () => {
 // they say the spot is alive rather than empty — but they are context, so they
 // collapse. A section may not swap which is which.
 test('a hotspot card shows the unseen birds and collapses the seen ones', async () => {
-  const app = await boot();
+  const app = await boot({ storage: {
+    'bcp:2:ebird_api_key': 'TEST-KEY',
+    ebird_home_lat: '47.75',
+    ebird_home_lng: '-122.16',
+  } });
   const A = app.window.__app;
   const li = A.hotspotCard({
     n: 1, locId: 'L2', locName: 'Edmonds Marsh', lat: 47.8, lng: -122.38,
@@ -11299,9 +11303,14 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
   }
   // And the actions come last, after the birds — you decide, then you go.
   const acts = li.querySelector('.hsact');
-  assert.ok(acts, 'every hotspot card offers Open in Maps / Save');
+  assert.ok(acts, 'every hotspot card offers map, eBird, and favorite actions');
   assert.match(acts.textContent, /Open in Maps/, 'Open in Maps');
-  assert.match(acts.textContent, /Save|Saved/, 'and Save, exactly like the quick outing');
+  const fav = acts.querySelector('.favlink');
+  const openFav = acts.querySelector('.openfavlink');
+  assert.equal(fav.textContent.trim(), '☆ Save to favorites');
+  assert.equal(openFav.textContent.trim(), 'Open Favorite patches');
+  assert.equal(fav.nextElementSibling, openFav,
+    'Open Favorite patches is not next to Save to favorites');
   // ── F219(c): the eBird link is an ACTION, like the ones beside it ───────
   //
   // It read "on eBird" — a bare preposition with no icon, no verb and no
@@ -11330,6 +11339,17 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
     assert.match(a.textContent, /\bOpen in\b/,
       `${name} must say what pressing it DOES, in the same words as its neighbour`);
   }
+  const mapStyle = app.window.getComputedStyle(mapA);
+  const ebirdStyle = app.window.getComputedStyle(eb);
+  assert.equal(ebirdStyle.fontWeight, mapStyle.fontWeight,
+    'Open in eBird is not the same weight as Open in Maps');
+  assert.equal(ebirdStyle.fontSize, mapStyle.fontSize,
+    'Open in eBird is not the same size as Open in Maps');
+  app.click(openFav);
+  await waitFor(() => !app.$('sec-favResults').hidden,
+    'Favorite patches section to open');
+  assert.equal(app.$('sec-favResults').hidden, false,
+    'Open Favorite patches did not navigate to the saved-patches section');
   assert.ok(li.querySelector('.hsseen').compareDocumentPosition(acts)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'actions sit below the lists');
   app.window.close();
@@ -14592,7 +14612,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.equal(section.querySelectorAll(':scope input[type="search"]').length, 1,
     'Stakeout bird has more than one primary query field');
 
-  app.open(/Stakeout bird/);
+  app.open(/Stakeout Birds/);
   app.$('spLookup').value = 'peep sp.';
   app.click(app.$('spLookupBtn'));
   await waitFor(() => app.document.querySelector(
@@ -15071,7 +15091,7 @@ test('Stakeout bird renders the approved marked-spuh taxonomic hierarchy', async
     },
   });
   installSpuhFixture(app, true);
-  app.open(/Stakeout bird/);
+  app.open(/Stakeout Birds/);
   app.$('spLookup').value = 'peep sp.';
   await app.window.__app.runSpuhSearch();
 
@@ -15852,7 +15872,7 @@ test('pending Spuh searches cannot repaint after Close or a newer query', async 
   const app = await boot();
   const model = installSpuhFixture(app);
   const A = app.window.__app;
-  app.open(/Stakeout bird/);
+  app.open(/Stakeout Birds/);
 
   let resolveFirst;
   A.setSpuhModelPromise(new Promise((resolve) => { resolveFirst = resolve; }));
@@ -15940,7 +15960,7 @@ test('broad Spuh browsing reports totals and pages every matching label', async 
   });
   const model = app.window.Spuh.createFromTaxonomy(rows);
   app.window.__app.setSpuhModel(model);
-  app.open(/Stakeout bird/);
+  app.open(/Stakeout Birds/);
   app.$('spLookup').value = 'sample group';
   app.window.__app.runSpuhSearch();
   await new Promise((r) => setTimeout(r, 20));
@@ -17249,9 +17269,8 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
     'the remaining-checklist action is still styled as a filled button');
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
-  assert.ok(list.children[0].querySelector(
-    '.cksummary > .cknote .cknote-pending[data-note-pending="1"]'),
-  'patch checklist rows do not show the shared right-edge pending Notes action');
+  assert.ok(list.children[0].querySelector('.cksummary > .cknote .evidbtn'),
+    'patch checklist rows do not show the shared right-edge Notes action');
   const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
   assert.doesNotMatch(checklistCss, /padding-left:\s*1em;\s*text-indent:\s*-1em/,
     'patch checklist rows restored the removed hanging indent');
@@ -17347,7 +17366,7 @@ test('F553 Today’s patches keeps newest checklist coverage when product lists 
   app.window.close();
 });
 
-test('F579 every hotspot report that paints all notes exposes a working Notes control', async () => {
+test('F579/F582/F583 hotspot Notes default off above the map without hiding evidence', async () => {
   let checklistViews = 0;
   const app = await boot({
     storage: { ebird_rarity_notes_v1: 'on' },
@@ -17387,26 +17406,41 @@ test('F579 every hotspot report that paints all notes exposes a working Notes co
       subId: 'S-NOTE', count: 1,
     }],
   }], app.$('destMap'), app.$('destResults'));
-  await waitFor(() => doc.querySelector('#destResults .evnoterow blockquote'),
-    'Today’s patches inline notes');
+  await waitFor(() => doc.getElementById('destResultsNotesControl'),
+    'Today’s patches Notes control');
 
   const host = doc.getElementById('destResultsNotesControl');
   assert.ok(host, 'a hotspot report can paint all notes without a Notes control');
+  assert.equal(host.nextElementSibling, doc.getElementById('destMap'),
+    'the Notes control is not immediately above the report map');
+  assert.equal(host.querySelector('.reportnotesbtn').getAttribute('aria-pressed'), 'false',
+    'the new Notes control inherited the old selected state');
+  assert.equal(checklistViews, 0, 'default-off Notes fetched checklist detail');
+  const evidence = doc.querySelector('#destResults details.ckall');
+  assert.ok(evidence && evidence.open,
+    'Notes off collapsed the recent checklists for unseen birds');
+  assert.ok(evidence.querySelector('.cklcard-sm'),
+    'Notes off removed the recent checklist row');
+  assert.match(evidence.textContent, /SABGUL/,
+    'Notes off removed the unseen-bird checklist evidence');
+  assert.ok(doc.querySelector('#destResults .cknote .evidbtn'),
+    'default-off Notes hid the per-checklist on-demand note action');
+
+  const on = host.querySelector('.reportnotesbtn[data-notes="on"]');
+  assert.ok(on, 'the default-off control cannot turn notes on');
+  app.click(on);
+  await waitFor(() => checklistViews === 1, 'Today’s patches checklist detail');
+  await waitFor(() => !doc.querySelector('#destResults .evnoterow').hidden,
+    'Today’s patches notes restored');
+  assert.equal(checklistViews, 1, 'turning Notes on did not hydrate checklist detail once');
+
   const off = host.querySelector('.reportnotesbtn[data-notes="off"]');
-  assert.ok(off, 'the control does not reflect that all notes are currently on');
   app.click(off);
   assert.equal(A.rarityNotes(), false, 'the report control did not turn notes off');
   assert.equal(doc.querySelector('#destResults .evnoterow').hidden, true,
     'turning Notes off left inline prose visible');
-  assert.ok(doc.querySelector('#destResults .cknote .evidbtn'),
-    'turning Notes off hid the per-checklist on-demand note action');
-
-  const on = host.querySelector('.reportnotesbtn[data-notes="on"]');
-  assert.ok(on, 'the repainted control cannot turn notes back on');
-  app.click(on);
-  await waitFor(() => !doc.querySelector('#destResults .evnoterow').hidden,
-    'Today’s patches notes restored');
-  assert.equal(checklistViews, 1, 'toggling reused hydrated checklist detail');
+  assert.equal(evidence.open, true,
+    'turning Notes off collapsed the recent checklist evidence');
   app.window.close();
 });
 
@@ -17670,8 +17704,8 @@ test('a hotspot card shows its recent checklists, and pays nothing extra', async
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
   const det = card.querySelector('.hsckl details.ckall');
-  assert.ok(det, 'the card carries a collapsed checklist list');
-  assert.ok(!det.open, 'collapsed — it is the evidence, not the decision');
+  assert.ok(det, 'the card carries its recent checklist list');
+  assert.ok(det.open, 'recent checklist evidence starts visible even with Notes off');
   assert.match(det.querySelector('summary').textContent, /2 recent checklists/,
     'the summary counts only the checklists filed AT THIS HOTSPOT');
   const rows = det.querySelectorAll('.cklcard-sm');
@@ -17838,7 +17872,7 @@ test('F219: a Twitches today row carries the note hook, because the row IS the c
     howMany: 1, obsValid: true }];
   let views = 0;
   const app = await boot({
-    storage: { ebird_rarity_notes_v1: 'on' },
+    storage: { ebird_rarity_notes_v2: 'on' },
     fetch(url) {
       if (/product\/checklist\/view\//.test(url)) {
         views++;
@@ -21701,7 +21735,7 @@ test('F524 Mega rarities uses the Twitches and Nemesis List/Group report display
 // mistake." Two top-level sections had become options inside a THIRD section's
 // control, so finding "excursions" meant knowing it lived on the Quick outing
 // panel. They are menu entries again, grouped with the other place-finders.
-test('the place-finding sections are top-level, and grouped as Go birding', async () => {
+test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
   // Trip planner is deliberately absent: switched off behind `enabled: false`
@@ -21715,8 +21749,6 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // with no menu entry is not managed by showSection, so without it the app
   // booted with a panel already open.
   //
-  // Stakeout bird joins them instead, and last: the others answer "where shall
-  // I go", it answers "I know the bird already - where do I stand and wait".
   // Producing and Under-birded patches joined on 2026-08-18: they answer the
   // same question the rest of this group answers - "where shall I go" - and
   // sitting them under Hotspots & birders separated them from it.
@@ -21732,10 +21764,8 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // patches moved IN — which is coherent: the first two start from a thing you
   // have already chosen, the rest answer "where shall I go".
   //
-  // The group NAME is no longer asserted, because it is the owner's wording
-  // and will move again. What is asserted is the property the entry was
-  // written for: each of these is its own top-level tile rather than a mode
-  // buried inside another section, and they sit together.
+  // F581 separates those two chosen-target searches from the predictive tools.
+  // Stakeouts leads into Patches; the remaining Birding Tools follow Patches.
   const GO = ['destBtn', 'quickBtn', 'excBtn', 'fullDayBtn', 'favResults',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
@@ -21743,7 +21773,7 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
   for (const want of ['Today', 'Nearby Patches', 'Half-day patches', 'Full-day patches',
-                      'Stakeout bird', 'Stakeout Patch',
+                      'Stakeout Birds', 'Stakeout Patches',
                       'Iconic Patches',
                       'Hot patches', 'Cold patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
@@ -21756,6 +21786,32 @@ test('the place-finding sections are top-level, and grouped as Go birding', asyn
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
   const kids = [...doc.querySelectorAll('#menuList > li')];
+  const headings = kids.filter((k) => k.classList.contains('tocgroup'))
+    .map((k) => k.textContent.trim());
+  const stakeoutIdx = headings.indexOf('Stakeouts - Birds and Hotspots');
+  const patchesIdx = headings.indexOf('Patches - Go birding');
+  const toolsIdx = headings.indexOf('Birding Tools');
+  assert.ok(stakeoutIdx > -1, 'the dedicated Stakeouts heading is missing');
+  assert.equal(patchesIdx, stakeoutIdx + 1, 'Patches must immediately follow Stakeouts');
+  assert.equal(toolsIdx, patchesIdx + 1, 'Birding Tools must immediately follow Patches');
+
+  function labelsUnder(heading) {
+    const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
+      && k.textContent.trim() === heading);
+    const result = [];
+    for (let i = headIdx + 1; i < kids.length; i++) {
+      if (kids[i].classList.contains('tocgroup')) break;
+      result.push(kids[i].querySelector('.toclink').getAttribute('aria-label'));
+    }
+    return result;
+  }
+  assert.deepEqual(labelsUnder('Stakeouts - Birds and Hotspots'),
+    ['🔎 Stakeout Birds', '🏞 Stakeout Patches']);
+  assert.deepEqual(labelsUnder('Birding Tools'), [
+    '🌤 Twitch weather', '📆 Due back soon', '🛬 On passage', '🌙 BirdCast',
+    '🌄 Dawn and dusk', '🏅 Break a record', '🐦 Common birds',
+  ]);
+
   const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
     && /go birding/i.test(k.textContent));
   assert.ok(headIdx > -1, 'there is a Go birding heading');
@@ -30337,7 +30393,7 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
     },
   });
   const A = app.window.__app;
-  app.open(/Stakeout Patch/);
+  app.open(/Stakeout Patches/);
 
   const panel = app.$('sec-stakeHsBtn');
   const searchRow = panel.querySelector('.stakeHsActions');
@@ -30448,7 +30504,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
   });
   let checklistViews = 0;
   const app = await boot({
-    storage: { ebird_rarity_notes_v1: 'on' },
+    storage: { ebird_rarity_notes_v2: 'on' },
     fetch(url) {
       if (/product\/lists\//.test(url)) return lists;
       if (/data\/obs\/L1\/recent/.test(url)) {

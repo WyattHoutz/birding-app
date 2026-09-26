@@ -1296,7 +1296,7 @@
     .megajump { color: var(--ink); text-decoration: none; }
     .megajump:hover, .megajump:focus-visible { text-decoration: underline; }
     .megaphoto { display: contents; color: inherit; text-decoration: none; }
-    .maplink, .extlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
+    .maplink, .extlink, .ebirdlink, .favlink, .mylink { display: inline-block; margin-top: 8px; font-size: calc(13px * var(--s)); font-weight: 700; color: var(--accent); cursor: pointer; }
     /* A checklist id is the one thing on its line you can actually open, and
        it was set at the size of the metadata around it. Raised to the tag
        scale and given the 📋 that marks it — see checklistLink(), which is the
@@ -2809,9 +2809,9 @@
     </section>
 
     <section class="panel">
-      <h2>🏞 Stakeout Patch <span class="dim" id="stakeHsRegionLabel"></span>
+      <h2>🏞 Stakeout Patches <span class="dim" id="stakeHsRegionLabel"></span>
         <button id="stakeHsRefresh" class="refreshbtn" type="button"
-                aria-label="Reload Stakeout Patch" disabled></button></h2>
+                aria-label="Reload Stakeout Patches" disabled></button></h2>
       <div class="row stakeHsActions">
         <input id="stakeHs" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="stakeHsBtn" class="secondary" type="button">Go</button>
@@ -2826,7 +2826,7 @@
     </section>
 
     <section class="panel" id="sec-spLookupBtn">
-      <h2>🔎 Stakeout bird <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <h2>🔎 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
                placeholder="Search for birds and spuhs…" autocomplete="off" />
@@ -3789,7 +3789,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.6';
+      var APP_VERSION = '1.130.7';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13599,7 +13599,9 @@
       // that pass is already capped at CKL_EVID_MAX calls. This changes where
       // an already-fetched note is PAINTED, not how much is bought — which
       // matters, because product/checklist/view is 66% of all eBird traffic.
-      var RARITY_NOTES_KEY = 'ebird_rarity_notes_v1';
+      // F582 starts the newly shared report controls off even on devices where
+      // an older report left the legacy preference enabled.
+      var RARITY_NOTES_KEY = 'ebird_rarity_notes_v2';
       function rarityNotes() {
         try { return localStorage.getItem(RARITY_NOTES_KEY) === 'on'; }
         catch (e) { return false; }
@@ -13621,7 +13623,10 @@
           host = document.createElement('div');
           host.id = id;
           host.className = 'reportnotescontrol';
-          root.parentNode.insertBefore(host, root);
+          var mapId = (root.id || '').replace(/Results$/, 'Map');
+          var map = mapId !== root.id ? document.getElementById(mapId) : null;
+          root.parentNode.insertBefore(host,
+            map && map.parentNode === root.parentNode ? map : root);
         }
         function paint() {
           host.innerHTML = ToggleControls.pressed({
@@ -16934,7 +16939,14 @@
       }
       function favLink(o) {
         return '<a class="favlink" data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') +
-          '" data-lat="' + esc(o.lat) + '" data-lng="' + esc(o.lng) + '">' + (isFav(favId(o)) ? '★ Saved' : '☆ Save') + '</a>';
+          '" data-lat="' + esc(o.lat) + '" data-lng="' + esc(o.lng) + '">' +
+          (isFav(favId(o)) ? '★ Saved to favorites' : '☆ Save to favorites') + '</a>' +
+          '<a class="mylink openfavlink">Open Favorite patches</a>';
+      }
+      function openFavoritePatches() {
+        var results = $('favResults');
+        var panel = results && results.closest('section');
+        if (panel) showSection(panel.id);
       }
       function stakeHsFavoriteButton(o) {
         var saved = isFav(favId(o));
@@ -18151,6 +18163,11 @@
         if (o.speciesDays != null && isFinite(+o.speciesDays)) {
           el.setAttribute('data-hsdays', String(Math.max(1, Math.floor(+o.speciesDays))));
         }
+        var openFav = el.querySelector('.openfavlink');
+        if (openFav) openFav.addEventListener('click', function (event) {
+          event.preventDefault();
+          openFavoritePatches();
+        });
         return el;
       }
 
@@ -18436,8 +18453,9 @@
             var ordered = initial.concat(got.filter(function (chk) {
               return !selectedSubs[chk.subId || chk.subID || ''];
             })).concat(rest);
-            var open = rarityNotes() ? ' open' : '';
-            slot.innerHTML = '<details class="ckall"' + open + '><summary>'
+            // F583. Checklist evidence answers which unseen birds were found;
+            // Notes only controls the optional comment prose inside those rows.
+            slot.innerHTML = '<details class="ckall" open><summary>'
               + got.length + ' '
               + ((label && typeof label === 'object')
                 ? (got.length === 1 ? label.one : label.many)
@@ -18479,12 +18497,12 @@
             // wired up. A device log is the only thing that showed it.
             if (det) {
               det.addEventListener('toggle', function () {
-                if (det.open) {
+                if (det.open && rarityNotes()) {
                   hydrateChecklistMedia(det);
                   hydrateChecklistEvidence(det);
                 }
               });
-              if (det.open) {
+              if (det.open && rarityNotes()) {
                 hydrateChecklistMedia(det);
                 hydrateChecklistEvidence(det);
               }
@@ -33046,6 +33064,8 @@
         { at: 'allUnseenBtn',  label: '🎯 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News', enabled: false },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'spLookupBtn',   label: '🔎 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
+        { at: 'stakeHsBtn',    label: '🏞 Stakeout Patches', group: 'Stakeouts - Birds and Hotspots' },
         { at: 'destBtn',       label: '🥇 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'quickBtn',      label: '🚶 Nearby Patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'excBtn',        label: '🚗 Half-day patches', needs: 'geo', group: 'Patches - Go birding' },
@@ -33055,20 +33075,18 @@
         { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
-        { at: 'spLookupBtn',   label: '🔎 Stakeout bird', group: 'Stakeouts - Birding tools' },
-        { at: 'stakeHsBtn',    label: '🏞 Stakeout Patch', group: 'Stakeouts - Birding tools' },
-        { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Stakeouts - Birding tools' },
-        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Stakeouts - Birding tools' },
-        { at: 'migBtn',        label: '🛬 On passage', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'bcBody',        label: '🌙 BirdCast', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Stakeouts - Birding tools' },
-        { at: 'recordBody',    label: '🏅 Break a record', group: 'Stakeouts - Birding tools' },
+        { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Birding Tools' },
+        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Birding Tools' },
+        { at: 'migBtn',        label: '🛬 On passage', needs: 'county', group: 'Birding Tools' },
+        { at: 'bcBody',        label: '🌙 BirdCast', needs: 'county', group: 'Birding Tools' },
+        { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Birding Tools' },
+        { at: 'recordBody',    label: '🏅 Break a record', group: 'Birding Tools' },
         // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
         // in the F201 reorder and both tiles came back — caught by the contract
         // guard, which lists them in `menuOmittedAts`. Trip planner is off
         // pending a redesign.
         //
-        { at: 'easyBtn',      label: '🐦 Common birds', needs: 'county', group: 'Stakeouts - Birding tools' },
+        { at: 'easyBtn',      label: '🐦 Common birds', needs: 'county', group: 'Birding Tools' },
         { at: 'lastNewBtn',    label: '🔭 Fresh ticks', needs: 'geo', group: 'Leader Board / Ranking' },
         { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
         { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
@@ -34102,8 +34120,9 @@
       // F201: authored by the owner, grouped by task.
       var MENU_GROUPS = [
         'Buzz - Celebrity and Rare Bird News',
+        'Stakeouts - Birds and Hotspots',
         'Patches - Go birding',
-        'Stakeouts - Birding tools',
+        'Birding Tools',
         'Leader Board / Ranking',
         'My Bird List',
         'Settings & Doc',
@@ -37430,7 +37449,7 @@
           var fullFavLabel = fav.getAttribute('data-fav-label') === 'full';
           fav.textContent = fullFavLabel
             ? (nowFav ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
-            : (nowFav ? '★ Saved' : '☆ Save');
+            : (nowFav ? '★ Saved to favorites' : '☆ Save to favorites');
           if (fav.hasAttribute('aria-pressed')) {
             fav.setAttribute('aria-pressed', String(nowFav));
           }
