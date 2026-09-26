@@ -3788,7 +3788,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.4';
+      var APP_VERSION = '1.130.5';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -16903,9 +16903,9 @@
           + '</button>';
       }
       // The report's favorites section does not list what is AT a hotspot — it
-      // lists what is worth driving for: rarities (⭐), watchlist verifications
-      // (🔍) and species not on your year list. Common birds you have already
-      // seen are dropped on purpose, because a hotspot's own species list tells
+      // lists unseen birds and watchlist verifications (🔍), with eligible
+      // rarities (⭐) ranked first. A rarity flag must not bypass the seen
+      // filter, because a hotspot's own species list tells
       // you nothing about whether to go today. The app showed only a name and a
       // tap-to-load dump of every species including the ones you've seen, which
       // is the opposite filter.
@@ -16929,7 +16929,7 @@
           var isRare = !!(rarityCodes && rarityCodes[lc]);
           var isWatch = !!nv[lc];
           var isUnseen = !isSpeciesSeen(code, o.comName);
-          if (!isRare && !isWatch && !isUnseen) continue;
+          if (!isWatch && !isUnseen) continue;
           scored.push({ tier: isRare ? 0 : (isWatch ? 1 : 2), o: o, code: code,
                         rare: isRare, watch: isWatch });
         }
@@ -16949,7 +16949,7 @@
           ' · ' + (fresh ? '<b>' + fresh + ' report' + (fresh === 1 ? '' : 's') + ' in last 24h</b>'
                          : 'no reports in last 24h') + '</div>';
         if (!res.rows.length) {
-          return head + '<div class="favmeta">No rarities, watchlist hits, or ' +
+          return head + '<div class="favmeta">No watchlist hits or ' +
             'unseen-this-year species in the last week.</div>';
         }
         // The one small-card builder, not a hand-rolled copy of it. Favorites
@@ -16982,12 +16982,18 @@
         if (!box) return Promise.resolve();
         if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div>'; return Promise.resolve(); }
         var hit = _favDetail[f.locId];
-        if (hit && !force && (Date.now() - hit.t) < 600000) { box.innerHTML = hit.html; hydratePhotos(box); return Promise.resolve(); }
+        if (hit && !force && (Date.now() - hit.t) < 600000) {
+          box.innerHTML = favDetailHtml(f, hit.obs, rarityCodes);
+          hydratePhotos(box);
+          return Promise.resolve();
+        }
         box.innerHTML = '<div class="favmeta">Loading recent reports…</div>';
-        return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS)
+        return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS,
+          false, !!force, !!force)
           .then(function (obs) {
+            if (!Array.isArray(obs)) throw new Error('eBird returned an unreadable hotspot feed.');
             var html = favDetailHtml(f, obs, rarityCodes);
-            _favDetail[f.locId] = { t: Date.now(), html: html };
+            _favDetail[f.locId] = { t: Date.now(), obs: obs };
             if (box.isConnected !== false) { box.innerHTML = html; hydratePhotos(box); }
           })
           .catch(function (e) {
@@ -17029,8 +17035,8 @@
         st.textContent = favs.length + ' saved ' + (getReport().label || getRegion())
           + ' hotspot' + (favs.length === 1 ? '' : 's') +
           ' · in your order, first to last. Showing last ' + FAV_BACK_DAYS +
-          '-day reports there: rarities (⭐), watchlist verifications (🔍), and species ' +
-          "you haven't logged this year — common birds you've already seen are skipped.";
+          '-day reports there: unseen species and watchlist verifications (🔍), ' +
+          'with rarities (⭐) ranked first. Already-seen birds are skipped unless watchlisted.';
         var home = getHome();
         favs.forEach(function (f, i) {
           var li = document.createElement('li');
@@ -17069,7 +17075,10 @@
         var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
         favs.forEach(function (f, i) {
           var hit = f.locId && _favDetail[f.locId];
-          if (hit && boxes[i]) { boxes[i].innerHTML = hit.html; hydratePhotos(boxes[i]); }
+          if (hit && boxes[i]) {
+            boxes[i].innerHTML = favDetailHtml(f, hit.obs, rc);
+            hydratePhotos(boxes[i]);
+          }
         });
       }
       // Reuses the merged snapshot the chase sections already fetched for this
@@ -29629,6 +29638,8 @@
         }
         if (!doc) return account;
         var selectors = [
+          // The live ProfileUser heading is outside <main>.
+          '.ProfileUser-infoColumn h1',
           '[data-testid="profile-displayName"]',
           '[data-testid="profile-name"]',
           '.ProfileHeader-name',
@@ -29667,7 +29678,7 @@
         out.profileNodes = profileNodes.length;
         var candidates = [], seen = [];
         function add(nodes) {
-          for (var i = 0; i < nodes.length && candidates.length < 8; i++) {
+          for (var i = 0; i < nodes.length && candidates.length < 4; i++) {
             if (seen.indexOf(nodes[i]) >= 0) continue;
             seen.push(nodes[i]);
             candidates.push(nodes[i]);
@@ -29676,19 +29687,28 @@
         add(headings);
         add(profileNodes);
         function safeSemantic(value) {
+          // Only known template tokens are safe; arbitrary class names can
+          // themselves contain account data.
+          var known = [
+            'Heading', 'Heading--h1', 'Heading--h2', 'ProfileUser',
+            'ProfileUser-header', 'ProfileUser-infoColumn', 'ProfilePage-user',
+            'ProfileHeader-name', 'Profile-heading-name', 'Profile-heading-title',
+            'profile-displayName', 'profile-name'
+          ];
           return String(value || '').split(/\s+/).filter(function (token) {
-            return token.length <= 40 && /^[A-Za-z_-]+$/.test(token)
-              && /(profile|header|heading|title|name|user|display)/i.test(token);
-          }).slice(0, 4).join('.');
+            return known.indexOf(token) >= 0;
+          }).slice(0, 2).join('.');
         }
         candidates.forEach(function (node) {
           var text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
           var role = String(node.getAttribute && node.getAttribute('role') || '');
-          role = /^[a-z-]{1,24}$/i.test(role) ? role.toLowerCase() : '';
+          role = /^(heading|banner|main|button|link)$/i.test(role) ? role.toLowerCase() : '';
+          var tag = String(node.tagName || '').toLowerCase();
+          if (!/^(h[1-6]|div|span|section|main|header|nav|p|a|button)$/.test(tag)) tag = 'other';
           var testId = safeSemantic(
             node.getAttribute && node.getAttribute('data-testid'));
           out.samples.push({
-            tag: String(node.tagName || '').toLowerCase().slice(0, 12),
+            tag: tag,
             role: role,
             cls: safeSemantic(node.className),
             test: testId,
@@ -37376,8 +37396,8 @@
           ev.preventDefault();
           if (!getKey()) { showSettings(true); return; }
           var li = rec.closest('li'), idx = +rec.getAttribute('data-i');
-          var favsNow = getFavs();
-          if (li && favsNow[idx]) loadFavDetail(favsNow[idx], li.querySelector('.recentbox'), favRarityCodes());
+          var entry = favoriteEntriesForRegion(getRegion())[idx];
+          if (li && entry) loadFavDetail(entry.favorite, li.querySelector('.recentbox'), favRarityCodes(), true);
           return;
         }
       });

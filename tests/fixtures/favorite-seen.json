@@ -1,0 +1,14 @@
+{
+  "seenCodes": ["westan", "merlin"],
+  "seenNames": ["Western Tanager", "Merlin"],
+  "seenScientificNames": ["piranga ludoviciana", "falco columbarius"],
+  "watchlist": [{"code": "merlin", "name": "Merlin"}],
+  "rarityCodes": {"westan": 1, "ruff": 1},
+  "expectedCodes": ["ruff", "merlin", "calqua"],
+  "observations": [
+    {"speciesCode": "westan", "comName": "Western Tanager", "obsDt": "2026-09-19 07:08", "howMany": 2, "subId": "S-tanager", "userDisplayName": "Example Observer"},
+    {"speciesCode": "merlin", "comName": "Merlin", "obsDt": "2026-09-19 07:08", "howMany": 1, "subId": "S-merlin", "userDisplayName": "Example Observer"},
+    {"speciesCode": "ruff", "comName": "Ruff", "obsDt": "2026-09-20 09:00", "howMany": 1, "subId": "S-ruff", "userDisplayName": "Example Observer"},
+    {"speciesCode": "calqua", "comName": "California Quail", "obsDt": "2026-09-20 08:00", "howMany": 1, "subId": "S-quail", "userDisplayName": "Example Observer"}
+  ]
+}

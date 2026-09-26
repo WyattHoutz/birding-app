@@ -67,6 +67,10 @@ const ACCOUNT_LOGIN_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-account-login.html'), 'utf8');
 const ACCOUNT_SIGNED_OUT_HTML = fs.readFileSync(
   path.join(__dirname, 'fixtures', 'ebird-account-signed-out.html'), 'utf8');
+const PROFILE_DETAIL_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'ebird-profile-detail.html'), 'utf8');
+const FAVORITE_SEEN = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'favorite-seen.json'), 'utf8'));
 const MEGA_STAKEOUT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
 const SEED = JSON.parse(fs.readFileSync(wwwFixture('seed-birdlist.json'), 'utf8'));
@@ -804,11 +808,76 @@ test('F569 identity injection reaches the native WKWebView bridge without window
   app.window.close();
 });
 
+test('F577 live ProfileUser heading reaches mobileApp and persists the fetched identity', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const profile = new JSDOM(PROFILE_DETAIL_HTML.replaceAll('Sample Observer', 'Birder Wyatt'), {
+    runScripts: 'outside-only', url: 'https://ebird.org/profile/sample-account',
+  });
+  _booted.push(profile.window);
+  assert.equal(profile.window.document.querySelector('main h1'), null);
+  const handlers = {}, receipts = [];
+  let removals = 0, injections = 0;
+  profile.window.mobileApp = {
+    postMessage(message) {
+      receipts.push(message.detail);
+      handlers.messageFromWebview({ id: 'f577-window', detail: message.detail });
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    addListener(name, handler) {
+      handlers[name] = handler;
+      return Promise.resolve({ remove() { removals++; } });
+    },
+    openWebView(options) {
+      assert.equal(options.url, 'https://ebird.org/profile');
+      assert.equal(options.persistWebViewData, true);
+      setTimeout(() => handlers.browserPageLoaded({ id: 'f577-window' }), 0);
+      return Promise.resolve({ id: 'f577-window' });
+    },
+    executeScript({ code }) {
+      injections++;
+      profile.window.eval(code);
+      return Promise.resolve();
+    },
+    hide() {}, show() {}, close() {},
+  } } };
+  const result = await A.fetchIdentityFromBirdList();
+  assert.equal(result.applied, true);
+  assert.equal(A.getDisplayName(), 'Birder Wyatt');
+  assert.equal(app.window.localStorage.getItem('ebird_display_name'), 'Birder Wyatt');
+  assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+  assert.equal(injections, 1, 'a loaded ProfileUser name should not exhaust the parser retries');
+  assert.equal(receipts[0].transport, 'mobileApp');
+  assert.equal(receipts[0].parseStatus, 'ok');
+  assert.equal(receipts[0].hasName, true);
+  assert.equal(receipts[0].pageShape, null);
+  assert.equal(removals, 4);
+  const log = app.window.__dbg.buf.map((row) => row.msg).join('\n');
+  assert.match(log, /bridge receipt.*mobileApp.*parse=ok.*name found/,
+    'the installed-device log must distinguish a successfully parsed name');
+});
+
+test('F577 profile heading fallback keeps missing, anonymous and logged-out identities explicit', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.parseEbirdProfileIdentity(PROFILE_DETAIL_HTML).displayName, 'Sample Observer');
+  const missing = PROFILE_DETAIL_HTML.replace('<h1 class="Heading Heading--h2">Sample Observer</h1>', '');
+  assert.equal(A.parseEbirdProfileIdentity(missing).status, 'missing',
+    'the page title, region, photo credit or a generic heading must not become the identity');
+  const anonymous = A.parseEbirdProfileIdentity(
+    PROFILE_DETAIL_HTML.replaceAll('Sample Observer', 'Anonymous eBirder'));
+  assert.equal(anonymous.status, 'anonymous');
+  assert.equal(anonymous.displayName, '');
+  const login = PROFILE_DETAIL_HTML.replace('</body>', '<input type="password"></body>');
+  assert.equal(A.parseEbirdProfileIdentity(login).status, 'logged-out');
+});
+
 test('F577 missing profile identity reports bounded structure without page text', async () => {
   const app = await boot();
   const profile = new JSDOM(
     '<html><body data-account="private_login"><main class="ProfileShell">'
-      + '<section class="ProfileContainer-private1234">'
+      + '<section class="ProfileContainer-private1234 Profile-Birder-Wyatt">'
       + '<div class="ProfileDisplayTitle" data-testid="profile-owner">'
       + 'Birder Wyatt</div><p>wyatt@example.com private_login</p></section>'
       + '<h2 class="Profile-heading-title">Recent activity</h2></main></body></html>',
@@ -830,12 +899,22 @@ test('F577 missing profile identity reports bounded structure without page text'
   const diagnostic = JSON.stringify(shape);
   for (const sensitive of [
     'Birder Wyatt', 'wyatt@example.com', 'private_login',
-    'private-account-id', 'private1234',
+    'private-account-id', 'private1234', 'Profile-Birder-Wyatt',
   ]) {
     assert.doesNotMatch(diagnostic, new RegExp(sensitive, 'i'),
       `the structural diagnostic leaked ${sensitive}`);
   }
   assert.ok(diagnostic.length < 1200, 'the structural diagnostic is not bounded');
+  for (let i = 0; i < 20; i++) {
+    const node = profile.window.document.createElement('h2');
+    node.className = 'ProfileUser-infoColumn ProfileUser-header Profile-heading-title';
+    node.dataset.testid = 'profile-displayName profile-name';
+    profile.window.document.body.appendChild(node);
+  }
+  assert.ok(JSON.stringify(app.window.__app.identityPageShape(profile.window.document)).length < 1200,
+    'many semantic nodes must not make the structural diagnostic unbounded');
+  profile.window.eval(app.window.__app.buildIdentityInject(1));
+  assert.equal(posted.detail.pageShape, null, 'structural samples should not repeat every half-second');
   profile.window.close();
   app.window.close();
 });
@@ -848,8 +927,8 @@ test('F577 capture log records the sanitized profile shape stage', async () => {
     ready: 'complete', bodyChars: 8421, mains: 1, headings: 2,
     profileNodes: 3,
     samples: [{
-      tag: 'div', role: 'heading', cls: 'ProfileDisplayTitle',
-      test: 'profile-owner', chars: 13, words: 2,
+      tag: 'h1', role: 'heading', cls: 'Heading.Heading--h2',
+      test: '', chars: 13, words: 2,
       aria: false, hidden: false,
     }],
   };
@@ -886,7 +965,7 @@ test('F577 capture log records the sanitized profile shape stage', async () => {
     timeout: 1500,
   });
   const log = app.window.__dbg.buf.map((row) => row.msg).join('\n');
-  assert.match(log, /profile shape.*"headings":2.*ProfileDisplayTitle/s,
+  assert.match(log, /profile shape.*"headings":2.*Heading--h2/s,
     'the safe injected structure never reaches the on-device debug log');
   app.window.close();
 });
@@ -10857,8 +10936,97 @@ test('Leader Board Ticks answers how far away the bird is', async () => {
   assert.match(dist.textContent, /3\.\d/);
 });
 
+test('F578 Favorite patches never lets a rarity flag bypass CSV-seen filtering', async () => {
+  for (const [field, keys] of [
+    ['sciName', FAVORITE_SEEN.seenScientificNames],
+    ['comName', FAVORITE_SEEN.seenNames.map((name) => name.toLowerCase())],
+    ['speciesCode', FAVORITE_SEEN.seenCodes],
+  ]) {
+    const app = await boot({
+      sample: false,
+      storage: {
+        ebird_seen: JSON.stringify(Object.fromEntries(keys.map((key) => [key, 1]))),
+        ebird_seen_field: field,
+        ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+        ebird_year_names: JSON.stringify(FAVORITE_SEEN.seenNames),
+        ebird_life_names: JSON.stringify(FAVORITE_SEEN.seenNames),
+        ebird_watchlist_v1: JSON.stringify(FAVORITE_SEEN.watchlist),
+      },
+    });
+    const A = app.window.__app;
+    assert.equal(A.isSpeciesSeen('westan', 'Western Tanager'), true,
+      `${field}: control must recognize the imported bird`);
+    assert.equal(Boolean(A.watchCodes().westan), false);
+    const result = A.favInteresting(FAVORITE_SEEN.observations, FAVORITE_SEEN.rarityCodes);
+    assert.deepEqual(arr(result.rows, (row) => row.code), FAVORITE_SEEN.expectedCodes,
+      `${field}: already-seen tanager survived only because it was marked rare`);
+    const html = A.favDetailHtml({}, FAVORITE_SEEN.observations, FAVORITE_SEEN.rarityCodes);
+    assert.doesNotMatch(html, /Western Tanager/);
+    for (const name of ['Ruff', 'Merlin', 'California Quail']) assert.ok(html.includes(name));
+    app.window.close();
+  }
+});
+
+test('F578 Favorite patches reclassifies cached observations and Refresh fetches the visible patch', async () => {
+  let observations = FAVORITE_SEEN.observations;
+  const app = await boot({
+    sample: false,
+    storage: {
+      ebird_seen: '{}', ebird_seen_field: 'sciName',
+      ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+      ebird_year_names: '[]', ebird_life_names: '[]', ebird_watchlist_v1: '[]',
+      ebird_favs: JSON.stringify([
+        { id: 'L-HI', locId: 'L-HI', locName: 'Hidden Hawaii Patch', region: 'US-HI' },
+        { id: 'L-CSV', locId: 'L-CSV', locName: 'CSV Patch', region: 'US-WA' },
+      ]),
+    },
+    fetch(url) {
+      if (url.includes('/data/obs/L-CSV/recent?')) {
+        return JSON.parse(JSON.stringify(observations));
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  await A.loadFavs();
+  assert.match(app.$('favResults').textContent, /Western Tanager/);
+  const calls = () => app.state.fetches.filter((url) => url.includes('/data/obs/L-CSV/recent?')).length;
+  assert.equal(calls(), 1);
+  app.window.localStorage.setItem('ebird_seen', JSON.stringify({ 'piranga ludoviciana': 1 }));
+  app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Western Tanager']));
+  A.renderFavs();
+  assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager/,
+    'a repaint reused HTML classified before the CSV import');
+  await A.loadFavs();
+  assert.equal(calls(), 1, 'reclassifying cached observations should not refetch them');
+  assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager/);
+  app.window.localStorage.setItem(A.WATCH_KEY,
+    JSON.stringify([{ code: 'westan', name: 'Western Tanager' }]));
+  A.renderFavs();
+  assert.match(app.$('favResults').textContent, /Western Tanager/,
+    'a newly watchlisted species should reappear from the same cached observations');
+  app.window.localStorage.setItem(A.WATCH_KEY, '[]');
+  A.renderFavs();
+  assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager/,
+    'removing a seen bird from the watchlist must hide it without refetching');
+  observations = [{
+    speciesCode: 'comnig', comName: 'Common Nighthawk', obsDt: '2026-09-26 08:00',
+    subId: 'S-new-feed',
+  }];
+  app.click(app.$('favResults').querySelector('.recentlink'));
+  for (let i = 0; i < 300 && !app.$('favResults').textContent.includes('Common Nighthawk'); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(calls(), 2, 'Refresh did not bypass both rendered-detail and eBird response caches');
+  assert.match(app.$('favResults').textContent, /Common Nighthawk/);
+  assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager|Hidden Hawaii Patch/);
+  assert.equal(app.state.fetches.some((url) => url.includes('/data/obs/L-HI/')), false,
+    'Refresh used an index from all profiles instead of the visible region');
+  app.window.close();
+});
+
 test('Favorite hotspots shows what is worth driving for, not a species dump', async () => {
-  const app = await boot();
+  const app = await boot({ sample: false, storage: { ebird_display_name: 'Birder Wyatt' } });
   const A = app.window.__app;
   // A hotspot list that includes birds you have already seen answers "what
   // lives here", which is not the question. The report drops them.
@@ -10880,7 +11048,7 @@ test('Favorite hotspots shows what is worth driving for, not a species dump', as
   assert.match(html, /⭐/, 'and flags the rarity the way the report does');
   assert.match(html, /species in 7d/, 'header states the window it counted');
   const quiet = A.favDetailHtml({ name: 'x' }, [obs[1]], {});
-  assert.match(quiet, /No rarities, watchlist hits, or unseen/, 'says nothing is here rather than going blank');
+  assert.match(quiet, /No watchlist hits or unseen/, 'says nothing is here rather than going blank');
 });
 test('there are exactly three card templates and each one is really used', () => {
   // The templates are a system, not three coincidences, and they now live in

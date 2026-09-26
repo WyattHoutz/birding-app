@@ -451,8 +451,9 @@
         "Each new pin stores the active eBird region. Only pins for the active report region are rendered or fetched; pins from other regions stay saved and return when that region is opened.",
         "Legacy hotspot-id pins are assigned only when they match the already-cached active-region hotspot directory. Coordinate-only legacy pins remain unresolved rather than being guessed into a region.",
         "Order is yours within the active region: each visible pin has up/down controls that skip preserved rows from other regions.",
-        "Each pin lists only what would make you go: rarities (⭐), watchlist verifications (🔍), and species you have not logged this year — sorted in that order, newest first.",
-        "Common birds you have already seen are dropped on purpose: a hotspot's own species list answers 'what lives here', not 'should I drive there today'.",
+        "Each pin lists species you have not logged this year and watchlist verifications (🔍), ranking eligible rarities (⭐) first, then watchlist birds, then other unseen birds; newest first within each tier.",
+        "Already-seen birds are dropped unless explicitly watchlisted. A rarity flag never bypasses the seen filter, including for imported CSV lists.",
+        "Cached observations are reclassified against the current seen list and watchlist on every repaint. Refresh bypasses both hotspot-detail and eBird response caches for that visible pin.",
         "Your own checklists are excluded, so the list is what OTHERS are finding at your regular spots.",
         "The header counts species seen in the last 7 days and reports filed in the last 24 hours, so a quiet spot reads as quiet rather than as a loading failure."
       ],
