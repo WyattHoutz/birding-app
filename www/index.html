@@ -2318,22 +2318,26 @@
        filter shows only those rows. The printed word carries the meaning
        independently of colour. */
     .rankrow.hscard-md {
-      grid-template-columns: calc(38px * var(--s)) minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 0 10px; padding: 4px 0; border-top: 0; border-radius: 0;
     }
-    .rankrow.hscard-md > .name > :where(.hsnum) {
+    .rankrow.hscard-md > .name > .rankstack {
       grid-column: 1; grid-row: 1; align-self: start;
+      display: flex; flex-direction: column; align-items: flex-end;
+      gap: 1px; min-width: 0;
+    }
+    .rankrow.hscard-md > .name > .rankstack > :where(.hsnum) {
       width: auto; min-width: 0; height: auto; border: 0; border-radius: 0;
       background: transparent; box-shadow: none; color: var(--ink);
-      justify-content: flex-start; align-items: baseline;
-      font-size: calc(28px * var(--s)); letter-spacing: -.04em;
+      justify-content: flex-end; align-items: baseline;
+      font-size: calc(28px * var(--s)); line-height: 1; letter-spacing: -.04em;
     }
-    .rankrow.hscard-md > .name > :where(.hsnum)::before {
+    .rankrow.hscard-md > .name > .rankstack > :where(.hsnum)::before {
       content: "#"; margin-right: 1px; color: var(--muted);
       font-size: .55em; letter-spacing: 0;
     }
     .rankrow.hscard-md > .name > .ntext {
-      grid-column: 2; grid-row: 1 / 3; align-self: start;
+      grid-column: 2; grid-row: 1; align-self: start;
       font-size: calc(15px * var(--s)); line-height: 1.25;
     }
     .rankrow.hscard-md > .name > .hsdist {
@@ -2346,10 +2350,8 @@
       display: block; margin: 2px 0 0; line-height: 1;
     }
     .rankrow.hscard-md > .meta {
-      grid-column: 1; grid-row: 2; align-self: start; justify-self: start;
-      min-height: 0; margin-top: -5px; line-height: 1;
+      display: none;
     }
-    .rankrow.hscard-md > .meta:empty { display: none; }
     .rankrow.hscard-md .wholine {
       display: inline; font-size: inherit; font-weight: 700;
     }
@@ -2362,8 +2364,9 @@
     .rankrow .rankbirdline a { font-weight: 400; }
     .rankrow .rankbirdline { color: var(--muted); }
     .rankrow .rankbirdline a { color: var(--accent); }
-    .rankrow.hscard-md > .meta .mv {
+    .rankrow.hscard-md .rankstack .mv {
       font-size: calc(12px * var(--s)); font-weight: 700;
+      line-height: 1;
     }
     .rankme { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 700; }
     .rankme .rk, .rankme .n { color: var(--ink); }
@@ -3785,7 +3788,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.3';
+      var APP_VERSION = '1.130.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10020,7 +10023,7 @@
           data['mega-view'] = megaView;
           data['mega-name'] = r.name || r.code;
         }
-        if (data && opts.rare) data['ev-notes-expected'] = '1';
+        if (data && opts.rare && !opts.notesUnknown) data['ev-notes-expected'] = '1';
         var evidence = birdReportEvidence(r, {
           rare: opts.rare
         });
@@ -10049,7 +10052,7 @@
         var checklistData = birdReportData(dataRow, group.code, group.name);
         if (checklistData) {
           checklistData['ev-evidence-end'] = '1';
-          if (opts.rare) checklistData['ev-notes-expected'] = '1';
+          if (opts.rare && !opts.notesUnknown) checklistData['ev-notes-expected'] = '1';
         }
         return ChecklistCards.small({
           date: fmtDateTime(dataRow.dateStr),
@@ -10141,11 +10144,13 @@
             return grouped
               ? birdReportGroupCard(row, {
                   need: opts.need, rare: opts.rare,
-                  sortMode: opts.sortMode, megaView: opts.megaView
+                  sortMode: opts.sortMode, megaView: opts.megaView,
+                  notesUnknown: opts.notesUnknown
                 })
               : birdReportListCard(row, {
                   need: opts.need, rare: opts.rare,
-                  sortMode: opts.sortMode, megaView: opts.megaView
+                  sortMode: opts.sortMode, megaView: opts.megaView,
+                  notesUnknown: opts.notesUnknown
                 });
           },
           isCurrent: opts.isCurrent,
@@ -14180,6 +14185,116 @@
               return out;
             });
           });
+      }
+      var _remoteNotableLoads = {};
+      function remoteNotableRows(profile) {
+        var feeds = BL.planFeeds(profile, 30).filter(function (feed) {
+          return feed.kind === 'notable';
+        });
+        var key = feeds.map(BL.requestUrl).join('|');
+        if (_remoteNotableLoads[key]) return _remoteNotableLoads[key];
+        var failed = 0;
+        _remoteNotableLoads[key] = Promise.all(feeds.map(function (feed) {
+          return ebird(BL.requestUrl(feed)).then(function (rows) {
+            return (Array.isArray(rows) ? rows : []).map(function (row) {
+              return Object.assign({}, row, { __notable: true });
+            });
+          }).catch(function (e) {
+            failed++;
+            dbg('warn', 'older notable feed failed · ' + feed.file + ' · '
+              + ((e && e.message) || e));
+            return [];
+          });
+        })).then(function (parts) {
+          if (feeds.length && failed === feeds.length) {
+            delete _remoteNotableLoads[key];
+            throw new Error('all bounded notable feeds failed');
+          }
+          return {
+            rows: [].concat.apply([], parts),
+            partial: failed > 0,
+            feedCount: feeds.length
+          };
+        });
+        return _remoteNotableLoads[key];
+      }
+      function appendRemoteNotableLane(c, bandId, finalRows, map, results, st) {
+        return remoteNotableRows(c.profile).then(function (source) {
+          var isSeen = seenResolver(), seen = {};
+          source.rows.forEach(function (row) {
+            if (row && row.speciesCode
+                && isSeen(row.speciesCode, row.comName || '')) {
+              seen[String(row.speciesCode).toLowerCase()] = 1;
+            }
+          });
+          var fresh = [].concat(
+            c.cv.destinations || [], c.cv.excursions || [], c.cv.fullDay || [],
+            finalRows || []);
+          var lanes = BL.remoteNotableSites(c.profile, source.rows, {
+            snapshotDate: todayStr(),
+            home: getHome(),
+            todayRadiusMi: c.cv.destRadiusMi,
+            freshDestinations: fresh,
+            seen: seen,
+            watch: watchCodes(),
+            travelCfg: c.profile.travelCfg || null
+          });
+          var clusters = bandId === 'full' ? lanes.full : lanes.half;
+          var old = results.querySelector('.remote-notable-lane');
+          if (old) old.parentNode.removeChild(old);
+          if (!clusters.length) {
+            st.textContent += ' · no additional older notable hotspot';
+            return [];
+          }
+          var lane = document.createElement('div');
+          lane.className = 'remote-notable-lane';
+          lane.innerHTML = '<h3>Remote notable sites</h3>'
+            + '<p class="hint"><b>Older notable evidence.</b> Separate from the current rankings. These birds were '
+            + 'reported 3–30 days ago, so each card states the age and does not imply '
+            + 'the bird is still present.</p><ul class="obs hscards hscards-medium"></ul>';
+          var list = lane.querySelector('ul');
+          var rendered = clusters.map(function (cluster, i) {
+            var d = BL.toRenderDest(cluster);
+            var unseen = [], already = [];
+            (cluster.species || []).forEach(function (species) {
+              var item = {
+                comName: species.name || species.code || 'Unknown species',
+                code: species.code || '',
+                rare: true,
+                dateStr: species.dateStr || '',
+                subId: species.subId || '',
+                tag: species.seen ? 'Already seen' : 'Unseen'
+              };
+              (species.seen ? already : unseen).push(item);
+            });
+            list.appendChild(hotspotCard({
+              n: i + 1,
+              locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
+              distMi: d.dist,
+              facts: [
+                'Older notable evidence',
+                'last reported ' + cluster.remoteEvidenceDays + ' day'
+                  + (cluster.remoteEvidenceDays === 1 ? '' : 's') + ' ago',
+                d.travelNote || d.travelLabel || '',
+                cluster.species.length + ' notable species'
+              ],
+              species: unseen,
+              seenSpecies: already
+            }));
+            return d;
+          });
+          results.appendChild(lane);
+          hydratePhotos(lane);
+          renderMap(map, (finalRows || []).concat(rendered), anchorPoint(), false);
+          st.textContent += ' · ' + clusters.length + ' older notable '
+            + (clusters.length === 1 ? 'hotspot' : 'hotspots')
+            + (source.partial ? ' from partial 30-day coverage' : ' from bounded 30-day feeds');
+          return clusters;
+        }).catch(function (e) {
+          st.textContent += ' · Older notable evidence unavailable';
+          dbg('warn', 'older notable lane unavailable · ' + ((e && e.message) || e));
+          return [];
+        });
       }
       function projectChaseResult(res, profile, slug) {
         if (!res || !res.rows) return res;
@@ -18818,21 +18933,22 @@
                 st.textContent = 'Incomplete ' + label.toLowerCase()
                   + ' answer — some observation feeds are unavailable'
                   + partial + '. Refresh to retry.';
-                return;
+              } else {
+                st.textContent = 'No target-rich ' + label.toLowerCase()
+                  + ' hotspots are reported '
+                  + (usedFallback ? 'in the bounded 30-day evidence' : 'right now')
+                  + ' · ' + scope + partial + '.';
               }
-              st.textContent = 'No target-rich ' + label.toLowerCase()
-                + ' hotspots are reported '
-                + (usedFallback ? 'in the bounded 30-day evidence' : 'right now')
-                + ' · ' + scope + partial + '.';
-              return;
+            } else {
+              st.textContent = finalRows.length + ' ' + label.toLowerCase() + ' option'
+                + (finalRows.length === 1 ? '' : 's')
+                + ' with an unseen bird'
+                + fromHere()
+                + ' · ' + scope + partial
+                + (feedIssue ? ' · Cached results shown — refresh could not reach all eBird feeds'
+                             : ' · updated ' + nowTime());
             }
-            st.textContent = finalRows.length + ' ' + label.toLowerCase() + ' option'
-              + (finalRows.length === 1 ? '' : 's')
-              + ' with an unseen bird'
-              + fromHere()
-              + ' · ' + scope + partial
-              + (feedIssue ? ' · Cached results shown — refresh could not reach all eBird feeds'
-                           : ' · updated ' + nowTime());
+            appendRemoteNotableLane(c, bandId, finalRows, map, results, st);
           }
           var currentFallback = [];
           if (c.profile.stateCode !== 'US-HI' || rows.length >= minRows) {
@@ -23021,9 +23137,9 @@
         return '(function(){' +
           'function send(message){' +
           'try{if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){' +
-          'window.mobileApp.postMessage(message);return true;}}catch(_){}' +
+          'message.detail.transport="mobileApp";window.mobileApp.postMessage(message);return true;}}catch(_){}' +
           'try{var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
-          'if(h&&typeof h.postMessage==="function"){h.postMessage(message);return true;}}catch(_){}' +
+          'if(h&&typeof h.postMessage==="function"){message.detail.transport="webkit";h.postMessage(message);return true;}}catch(_){}' +
           'return false;}' +
           'try{' +
           'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
@@ -23034,7 +23150,7 @@
           'var I=parseEbirdProfileIdentity(document);' +
           'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
           'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
-          'send({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
+          'send({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),parseStatus:I&&I.status||"missing",hasName:!!(I&&I.displayName),onProfile:onPage,data:I}});' +
           '}catch(e){send({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}})();';
       }
 
@@ -23072,12 +23188,24 @@
 
       // Open an eBird page, wait through the login redirect if needed, inject a
       // parser on each page load, and resolve with the first successful parse.
+      var _captureEbirdAttempt = 0;
       function captureEbird(opts) {
         var IB = ib();
         if (!IB) return Promise.reject(new Error('The in-app browser is only available in the installed app.'));
         return new Promise(function (resolve, reject) {
+          var captureId = (opts.kind || 'page') + '-' + (++_captureEbirdAttempt);
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
-          var injectTimer = null, handles = [], pendingEvents = [];
+          var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
+          function trace(stage, detail, level) {
+            dbg(level || 'info', 'eBird capture ' + captureId + ' · ' + stage
+              + (detail ? ' · ' + detail : ''));
+          }
+          function safeUrl(raw) {
+            try {
+              var parsed = new URL(String(raw || ''));
+              return parsed.origin + parsed.pathname;
+            } catch (e) { return 'unreadable URL'; }
+          }
           function addH(name, fn) {
             function keep(h) {
               // Registration is asynchronous. A rejected open or an obsolete
@@ -23088,15 +23216,21 @@
               } else {
                 handles.push(h);
               }
+              trace('listener ready', name);
+              return h;
             }
+            trace('listener registration', name);
             try {
               var registration = IB.addListener(name, fn);
-              if (registration && typeof registration.then === 'function') {
-                Promise.resolve(registration).then(keep).catch(function () {});
-              } else {
-                keep(registration);
-              }
-            } catch (e) {}
+              registrations.push(Promise.resolve(registration).then(keep).catch(function (e) {
+                trace('listener failed', name + ': ' + ((e && e.message) || e), 'error');
+                throw new Error('Could not listen for eBird ' + name + '.');
+              }));
+            } catch (e) {
+              trace('listener failed', name + ': ' + ((e && e.message) || e), 'error');
+              registrations.push(Promise.reject(
+                new Error('Could not listen for eBird ' + name + '.')));
+            }
           }
           function belongs(ev) {
             // These listeners belong to the PLUGIN, not one WebView. The
@@ -23129,7 +23263,7 @@
             pendingEvents = [];
             queued.forEach(function (item) { whenOwned(item.ev, item.fn); });
           }
-          function cleanup() {
+          function cleanup(reason) {
             done = true;
             if (timer) clearTimeout(timer);
             if (revealTimer) clearTimeout(revealTimer);
@@ -23137,10 +23271,11 @@
             handles.forEach(function (h) { try { h && h.remove && h.remove(); } catch (e) {} });
             handles = [];
             pendingEvents = [];
+            trace('cleanup', reason || 'finished');
           }
           function finish(err, data) {
             if (done) return;
-            cleanup();
+            cleanup(err ? 'error: ' + ((err && err.message) || err) : 'success');
             if (id) { try { IB.close({ id: id }); } catch (e) {} }
             err ? reject(err) : resolve(data);
           }
@@ -23154,6 +23289,7 @@
             if (done || !id || revealed) return;
             if (!alive()) { stopObsolete(); return; }
             revealed = true;
+            trace('browser revealed', 'waiting for the signed-in page');
             try { IB.show({ id: id }); } catch (e) {}
             if (opts.onStatus) opts.onStatus('Finish on eBird if prompted — this closes automatically.');
           }
@@ -23174,15 +23310,30 @@
             // Promise; scheduling afterward would turn one bridge hiccup into
             // a permanent one-shot capture.
             try {
+              trace('inject', 'attempt ' + (attempt + 1));
               var request = IB.executeScript({ id: id, code: opts.buildInject(attempt) });
-              if (request && request.catch) request.catch(function () {});
-            } catch (e) {}
+              if (request && request.then) {
+                request.then(function () {
+                  trace('inject returned', 'attempt ' + (attempt + 1));
+                }).catch(function (e) {
+                  trace('inject failed', 'attempt ' + (attempt + 1) + ': '
+                    + ((e && e.message) || e), 'warn');
+                });
+              }
+            } catch (e) {
+              trace('inject failed', 'attempt ' + (attempt + 1) + ': '
+                + ((e && e.message) || e), 'warn');
+            }
           }
           addH('messageFromWebview', function (ev) {
             whenOwned(ev, function (owned) {
               if (!alive()) { stopObsolete(); return; }
               var d = owned && owned.detail; if (!d || !d.__ebird) return;
               if (opts.kind && d.kind !== opts.kind) return;
+              trace('bridge receipt', (d.transport || 'unknown transport')
+                + (d.parseStatus ? ' · parse=' + d.parseStatus : '')
+                + (d.hasName ? ' · name found' : ' · no name')
+                + (d.onProfile === false ? ' · wrong page' : ''));
               if (d.needsLogin) { reveal(); return; }
               // Listeners are registered on the plugin, not on one window, so a
               // leftover eBird window could otherwise resolve this capture with
@@ -23194,34 +23345,48 @@
             whenOwned(ev, function (owned) {
               if (!alive()) { stopObsolete(); return; }
               var u = (owned && owned.url) || '';
+              trace('navigation', safeUrl(u));
               if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
             });
           });
           addH('browserPageLoaded', function (ev) {
             whenOwned(ev, function () {
               if (!alive()) { stopObsolete(); return; }
+              trace('page loaded', 'starting parser samples');
               if (injectTimer) clearTimeout(injectTimer);
               injectTimer = setTimeout(function () { inject(0); }, 500);
             });
           });
           addH('closeEvent', function (ev) {
             whenOwned(ev, function () {
+              trace('user close', 'before a usable identity arrived', 'warn');
               finish(new Error('The eBird window was closed before it finished.'));
             });
           });
-          IB.openWebView({
-            url: opts.url, showReloadButton: true, hidden: true,
-            persistWebViewData: true
+          Promise.all(registrations).then(function () {
+            trace('listeners ready', registrations.length + ' registered before open');
+            trace('open start', safeUrl(opts.url));
+            return IB.openWebView({
+              url: opts.url, showReloadButton: true, hidden: true,
+              persistWebViewData: true
+            });
           }).then(function (r) {
             id = r && r.id;
             if (!id) { finish(new Error('eBird did not return a browser window id.')); return; }
+            trace('open result', 'window id received');
             if (done) { try { IB.close({ id: id }); } catch (e) {} return; }
             flushPending();
             if (done) return;
             try { IB.hide({ id: id }); } catch (e) {}
             revealTimer = setTimeout(reveal, 6000);
-            timer = setTimeout(function () { finish(new Error('Timed out waiting for eBird — try “View on eBird”.')); }, opts.timeout || 120000);
-          }).catch(function (e) { finish(e); });
+            timer = setTimeout(function () {
+              trace('timeout', 'no usable bridge message', 'warn');
+              finish(new Error('Timed out waiting for eBird — try “View on eBird”.'));
+            }, opts.timeout || 120000);
+          }).catch(function (e) {
+            trace('open failed', (e && e.message) || String(e), 'error');
+            finish(e);
+          });
         });
       }
 
@@ -24145,7 +24310,7 @@
         bar.style.margin = '0 0 8px';
         bar.innerHTML = freshN
           ? ToggleControls.pressed({
-            id: 'rankNewOnly', icon: 'NEW', iconCls: 'newflag', label: 'Recent',
+            id: 'rankNewOnly', label: 'Recent',
             ariaLabel: _rankNewOnly
               ? 'Show all Top 100 rows'
               : 'Show ' + freshN + ' additions from the last '
@@ -24171,14 +24336,14 @@
           var movement = boardMoveHTML(boardDeltasFor(bhist, r.name, bnow));
           cards.push(HotspotCards.medium({
             cls: 'rankrow' + (mine ? ' rankme' : ''),
-            num: esc(r.rank),
-            tone: '#0072B2',
+            icon: '<span class="rankstack"><span class="hsnum">'
+              + esc(r.rank) + '</span>' + movement + '</span>',
             name: '<span class="wholine">' + who
               + (mine ? ' <span class="star">you</span>' : '') + '</span>'
               + rankInlineDetailsHTML(r),
             distance: r.species,
             distanceLabel: 'sp',
-            sub: movement,
+            sub: '',
             below: ''
           }));
         });
@@ -26147,9 +26312,33 @@
           + '&sortBy=obsDt&o=desc';
         var btn = $('abaBtn'), st = $('abaStatus');
         btn.disabled = true;
-        $('abaResults').innerHTML = '';
-        st.innerHTML = '<b>Loading the ABA rarities alert'
-          + '<span class="loadingdots" aria-hidden="true">\u2026</span></b>';
+        var cached = null, cachedPainted = false;
+        try { cached = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null'); }
+        catch (e) { cached = null; }
+        if (cached && cached.region === startRegion && cached.sid === startSid
+            && Array.isArray(cached.rows) && cached.rows.length) {
+          var cachedAgeH = Math.max(0, (Date.now() - Number(cached.at || 0)) / 3600000);
+          renderAbaAlert(cached.rows, url, startScoped, false, {
+            generation: loadGeneration,
+            reportSlug: startSlug,
+            region: startRegion,
+            sid: startSid,
+            scope: 'state',
+            reportLabel: startReport.label || startRegion,
+            stateName: BL.stateNameFor(startReport),
+            country: String(startRegion).split('-')[0] || 'US',
+            stateRows: cached.rows
+          }, function () {});
+          cachedPainted = true;
+          st.textContent = 'Cached ABA rarities shown · '
+            + (cachedAgeH < 1 ? Math.max(1, Math.round(cachedAgeH * 60)) + ' min'
+              : Math.round(cachedAgeH) + ' hr')
+            + ' old · refreshing the alert…';
+        } else {
+          $('abaResults').innerHTML = '';
+          st.innerHTML = '<b>Loading the ABA rarities alert'
+            + '<span class="loadingdots" aria-hidden="true">\u2026</span></b>';
+        }
         // aba_rba.py scrapes this exact page with no credentials — the alert
         // summary is public. Read it directly (native fetch, no CORS) so the
         // section shows what the report shows without an eBird login; fall back
@@ -26268,7 +26457,9 @@
           })
           .catch(function (e) {
             if (!stillCurrent() || (e && e.abaSuperseded)) return;
-            st.innerHTML = esc(e.message || 'Could not load the alert.') + ' '
+            st.innerHTML = (cachedPainted
+              ? 'Cached alert remains visible — live refresh failed. '
+              : '') + esc(e.message || 'Could not load the alert.') + ' '
               + extA(url, 'View on eBird');
           })
           .finally(function () {
@@ -26447,6 +26638,7 @@
           id: 'abaReportResults',
           grouped: grouped,
           rare: true,
+          notesUnknown: true,
           initialCount: ABA_CARD_REPORTS,
           batchSize: ABA_CARD_REPORTS,
           buttonClass: 'abaReportMore',
@@ -28981,7 +29173,7 @@
         });
         var unseen = [], seen = [];
         Object.keys(byCode).forEach(function (c) {
-          (isSeen(c) ? seen : unseen).push(byCode[c]);
+          (isSeen(c, byCode[c].comName) ? seen : unseen).push(byCode[c]);
         });
 
         // ---- THE PATTERN LEADS. How often this place is birded and what it

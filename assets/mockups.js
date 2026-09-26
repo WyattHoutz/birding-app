@@ -1597,10 +1597,11 @@ const BOOTSTRAP = `
       var firstRankRow = Array.from(document.querySelectorAll(
         '#rankResults .rankrow.hscard-md'
       )).find(function (row) {
-        var marker = row.querySelector(':scope > .name > .hsnum');
+        var marker = row.querySelector(':scope > .name > .rankstack > .hsnum');
         return marker && marker.textContent.trim() === '1';
       });
-      var rankMarker = firstRankRow && firstRankRow.querySelector(':scope > .name > .hsnum');
+      var rankMarker = firstRankRow && firstRankRow.querySelector(
+        ':scope > .name > .rankstack > .hsnum');
       var rankName = firstRankRow && firstRankRow.querySelector(':scope > .name > .ntext');
       var rankSpecies = firstRankRow && firstRankRow.querySelector(':scope > .name > .hsdist');
       if (!rankMarker || !rankName || !rankSpecies) {
@@ -1669,7 +1670,8 @@ const BOOTSTRAP = `
         throw new Error('Top 100 mockup does not show both movement directions: '
           + movements.join(' | '));
       }
-      var firstMovement = firstRankRow.querySelector(':scope > .meta > .mv');
+      var firstMovement = firstRankRow.querySelector(
+        ':scope > .name > .rankstack > .mv');
       var movementRect = firstMovement && firstMovement.getBoundingClientRect();
       if (!movementRect || movementRect.left >= nameRect.left
           || movementRect.top < markerRect.bottom - 3

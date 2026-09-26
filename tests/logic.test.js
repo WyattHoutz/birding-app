@@ -18,6 +18,81 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+const TRAVEL = JSON.parse(fs.readFileSync(
+  path.join(__dirname, '..', 'www', 'travel-zones.json'), 'utf8'));
+
+test('F573 remote notable evidence is separate, bounded, public, and ranked', () => {
+  const profile = {
+    slug: 'fixture', stateCode: 'US-WA', dailyDriveMi: 20,
+    excludeLocIds: [], excludeNameSubstrings: [],
+  };
+  function row(id, code, name, locId, locName, lat, date, extra = {}) {
+    return {
+      obsId: id, speciesCode: code, comName: name,
+      locId, locName, lat, lng: -122.16, obsDt: date,
+      subId: `S-${id}`, __notable: true, ...extra,
+    };
+  }
+  const rows = [
+    row('half-a', 'halfa', 'Half Bird A', 'L-HALF', 'Remote Marsh', 48.25,
+      '2026-09-22 10:00'),
+    row('half-b', 'halfb', 'Half Bird B', 'L-HALF', 'Remote Marsh', 48.2503,
+      '2026-09-22 11:00'),
+    row('half-newer', 'halfnew', 'Newer Half Bird', 'L-NEWER', 'North Fields', 48.28,
+      '2026-09-23 09:00'),
+    row('full', 'fullbird', 'Full-day Bird', 'L-FULL', 'Far Prairie', 48.65,
+      '2026-09-21 08:00'),
+    row('fresh', 'freshbird', 'Too Fresh Bird', 'L-FRESH', 'Fresh Park', 48.3,
+      '2026-09-25 08:00'),
+    row('old', 'oldbird', 'Too Old Bird', 'L-OLD', 'Old Park', 48.3,
+      '2026-08-20 08:00'),
+    row('near', 'nearbird', 'Inside Today Bird', 'L-NEAR', 'Near Park', 47.8,
+      '2026-09-20 08:00'),
+    row('private', 'privatebird', 'Private Bird', 'L-PRIVATE', 'Private Yard', 48.3,
+      '2026-09-20 08:00', { locationPrivate: true }),
+    row('duplicate', 'dupbird', 'Fresh-list Duplicate', 'L-DUP', 'Duplicate Park', 48.32,
+      '2026-09-20 08:00'),
+    {
+      ...row('ordinary', 'ordinary', 'Ordinary Bird', 'L-ORD', 'Ordinary Park', 48.34,
+        '2026-09-20 08:00'),
+      __notable: false,
+    },
+  ];
+  const result = BL.remoteNotableSites(profile, rows, {
+    snapshotDate: '2026-09-26',
+    home: { lat: 47.75, lng: -122.16 },
+    todayRadiusMi: 20,
+    freshDestinations: [{ locId: 'L-DUP', lat: 48.32, lon: -122.16 }],
+    seen: { halfb: 1 },
+    travelCfg: TRAVEL,
+  });
+
+  assert.deepEqual(result.half.map((site) => site.locId), ['L-NEWER', 'L-HALF'],
+    'newest evidence leads, then the two-species site fills the two-card lane');
+  assert.deepEqual(result.full.map((site) => site.locId), ['L-FULL']);
+  const marsh = result.half.find((site) => site.locId === 'L-HALF');
+  assert.equal(marsh.remoteEvidenceDays, 4);
+  assert.deepEqual(marsh.species.map((species) => [species.code, species.seen]),
+    [['halfa', false], ['halfb', true]],
+    'the lane retains both unseen and already-seen notable birds');
+  const allIds = result.half.concat(result.full).map((site) => site.locId);
+  for (const excluded of ['L-FRESH', 'L-OLD', 'L-NEAR', 'L-PRIVATE', 'L-DUP', 'L-ORD']) {
+    assert.ok(!allIds.includes(excluded), `${excluded} escaped its exclusion gate`);
+  }
+  assert.ok(result.half.length <= 2 && result.full.length <= 2,
+    'a remote lane exceeded its two-card cap');
+});
+
+test('F573 production discovery has no named-site exceptions', () => {
+  const logic = fs.readFileSync(path.join(__dirname, '..', 'www', 'logic.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const source = logic.slice(logic.indexOf('function remoteNotableSites('),
+    logic.indexOf('// Collapse repeat obs', logic.indexOf('function remoteNotableSites(')))
+    + index.slice(index.indexOf('var _remoteNotableLoads'),
+      index.indexOf('function projectChaseResult(', index.indexOf('var _remoteNotableLoads')));
+  assert.doesNotMatch(source, /Bolt Creek|Big Four/i,
+    'production remote-site selection contains a fixture-specific place name');
+});
 
 test('F268 first-year evidence keeps observed reports separate from forecasts', () => {
   const rows = [

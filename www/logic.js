@@ -2768,6 +2768,88 @@
     return out;
   }
 
+  var REMOTE_NOTABLE_DAYS = 30;
+  var REMOTE_NOTABLE_MIN_AGE_DAYS = 3;
+  var REMOTE_NOTABLE_TOP = 2;
+
+  // Older NOTABLE evidence is a separate discovery lane. It never fills or
+  // displaces the ordinary two-day destination rankings: those fresh lists are
+  // supplied only as exclusions, so this function can surface a remote public
+  // hotspot without changing what "Today", "Half-day", or "Full-day" mean.
+  function remoteNotableSites(profile, rows, opts) {
+    opts = opts || {};
+    var home = opts.home || (profile && profile.home) || null;
+    var snap = parseObsDt(opts.snapshotDate);
+    if (!home || !snap) return { half: [], full: [] };
+    var snapDay = new Date(snap.getFullYear(), snap.getMonth(), snap.getDate());
+    var todayRadius = Number(opts.todayRadiusMi);
+    if (!isFinite(todayRadius)) {
+      todayRadius = Number((profile && profile.dailyDriveMi) || CONST.DAILY_DRIVE_MI);
+    }
+    var fresh = opts.freshDestinations || [];
+    var seen = opts.seen || {};
+    var accepted = (rows || []).filter(function (r) {
+      return r && (r.__notable === true || r.obsNotable === true || r.kind === 'Rarity');
+    });
+    var recs = applyExclusions(mergeSnapshot([{
+      kind: 'notable', src: 'RemoteNotable30d', rows: accepted
+    }]), profile);
+    annotateDistance(recs, home);
+    recs = recs.filter(function (r) {
+      var d = parseObsDt(r.dateStr);
+      if (!d || !isReachable(r, {})) return false;
+      var obsDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      var age = Math.round((snapDay.getTime() - obsDay.getTime()) / 86400000);
+      if (age < REMOTE_NOTABLE_MIN_AGE_DAYS || age > REMOTE_NOTABLE_DAYS) return false;
+      if (!(r.distMi > todayRadius)) return false;
+      r.remoteEvidenceDays = age;
+      return true;
+    });
+    function samePlace(a, b) {
+      if (a.locId && b.locId && a.locId === b.locId) return true;
+      var alon = a.lon == null ? a.lng : a.lon;
+      var blon = b.lon == null ? b.lng : b.lon;
+      return isFinite(a.lat) && isFinite(alon) && isFinite(b.lat) && isFinite(blon)
+        && haversineKm(a.lat, alon, b.lat, blon) * 1000 <= CONST.CLUSTER_RADIUS_M;
+    }
+    var clusters = scoreDestinationClusters(recs, opts.watch).filter(function (cluster) {
+      return !fresh.some(function (row) { return samePlace(cluster, row); });
+    }).map(function (cluster) {
+      cluster.latestMs = cluster.records.reduce(function (latest, r) {
+        var d = parseObsDt(r.dateStr);
+        return d ? Math.max(latest, d.getTime()) : latest;
+      }, -Infinity);
+      cluster.remoteEvidenceDays = cluster.records.reduce(function (age, r) {
+        return Math.min(age, r.remoteEvidenceDays);
+      }, Infinity);
+      cluster.species.forEach(function (species) {
+        species.seen = !!seen[String(species.code || '').toLowerCase()];
+      });
+      var band = destinationTravelBand(opts.travelCfg, home, cluster);
+      cluster.travelBand = band.id;
+      cluster.travelLabel = band.label;
+      cluster.travelNote = travelNote(opts.travelCfg, cluster.distMi,
+        home.lat, home.lng, cluster.lat, cluster.lon);
+      var extra = Math.max(0, cluster.distMi - todayRadius);
+      cluster.effective = cluster.score / (1 + extra / CONST.EXCURSION_DECAY_MI);
+      return cluster;
+    });
+    clusters.sort(function (a, b) {
+      if (b.latestMs !== a.latestMs) return b.latestMs - a.latestMs;
+      if (b.species.length !== a.species.length) return b.species.length - a.species.length;
+      if (b.effective !== a.effective) return b.effective - a.effective;
+      return a.distMi - b.distMi;
+    });
+    return {
+      half: clusters.filter(function (c) {
+        return c.travelBand === 'quick' || c.travelBand === 'half';
+      }).slice(0, REMOTE_NOTABLE_TOP),
+      full: clusters.filter(function (c) {
+        return c.travelBand === 'full';
+      }).slice(0, REMOTE_NOTABLE_TOP)
+    };
+  }
+
 
   // Collapse repeat obs of same species at same location (keep max howMany).
   // ---- Checklist evidence: photos, recordings and the observer's note -------
@@ -4650,6 +4732,7 @@
     seenSlugFor: seenSlugFor,
     applyExclusions: applyExclusions,
     computeChaseViews: computeChaseViews,
+    remoteNotableSites: remoteNotableSites,
     toRenderDest: toRenderDest,
     planFeeds: planFeeds,
     geoRecentDistKm: geoRecentDistKm,

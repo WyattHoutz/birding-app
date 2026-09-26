@@ -420,6 +420,36 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
   app.window.close();
 });
 
+test('F568 Mega paints its matching snapshot before the live alert settles', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
+    at: Date.now() - 20 * 60000,
+    region: 'US-WA',
+    sid: 'SN10489',
+    rows: [{
+      speciesCode: 'shtsan', comName: 'Cached Sharp-tailed Sandpiper',
+      obsDt: '2026-09-25 10:00', locName: 'Cached Estuary',
+      locId: 'L-CACHED', subId: 'S-CACHED', lat: 47.7, lng: -122.2,
+    }],
+  }));
+  let rejectFetch;
+  app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+
+  const load = A.loadAbaAlert();
+  assert.match(app.$('abaResults').textContent, /Cached Sharp-tailed Sandpiper/,
+    'opening Mega blanked the durable snapshot while waiting for the network');
+  assert.match(app.$('abaStatus').textContent, /Cached ABA rarities shown.*20 min old.*refreshing/s,
+    'the cached paint does not identify its age and live refresh');
+  rejectFetch(new Error('offline fixture'));
+  await load;
+  assert.match(app.$('abaResults').textContent, /Cached Sharp-tailed Sandpiper/,
+    'a failed alert refresh erased the useful cached answer');
+  assert.match(app.$('abaStatus').textContent, /Cached alert remains visible/i,
+    'the failed later phase does not say what remains usable');
+  app.window.close();
+});
+
 // ---------------------------------------------------------------------------
 // F317 — the authenticated eBird page carries the current account in the
 // header's My Account accessibility label. The public web key
@@ -661,6 +691,68 @@ test('F317 Fetch my name uses the persistent eBird profile WebView session', asy
   app.window.close();
 });
 
+test('F575 identity listeners are active before the installed WebView can load', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const handlers = {};
+  let openedBeforeReady = false;
+  const fake = {
+    addListener(name, fn) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          handlers[name] = fn;
+          resolve({ remove() {} });
+        }, 20);
+      });
+    },
+    openWebView() {
+      openedBeforeReady = Object.keys(handlers).length !== 4;
+      setTimeout(() => {
+        if (handlers.browserPageLoaded) {
+          handlers.browserPageLoaded({ id: 'f575-window' });
+        }
+      }, 0);
+      return Promise.resolve({ id: 'f575-window' });
+    },
+    hide() {},
+    show() {},
+    close() {},
+    executeScript() {
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f575-window',
+        detail: {
+          __ebird: true, kind: 'identity', ok: true,
+          parseStatus: 'ok', hasName: true, onProfile: true,
+          transport: 'webkit',
+          data: {
+            status: 'ok', displayName: 'Birder Wyatt',
+            evidence: 'profile-heading',
+          },
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  const identity = await A.captureEbird({
+    kind: 'identity',
+    url: 'https://ebird.org/profile',
+    buildInject: A.buildIdentityInject,
+    timeout: 2000,
+  });
+  assert.equal(openedBeforeReady, false,
+    'openWebView raced ahead of asynchronous native listener registration');
+  assert.equal(identity.displayName, 'Birder Wyatt');
+  assert.match(HTML, /listener registration[\s\S]*listeners ready[\s\S]*open start/,
+    'the installed-device diagnostics do not identify listener and open stages');
+  for (const stage of ['page loaded', 'inject returned', 'bridge receipt', 'cleanup']) {
+    assert.match(HTML, new RegExp(stage),
+      `the installed-device diagnostics omit the ${stage} stage`);
+  }
+  app.window.close();
+});
+
 test('F567 identity capture reads the direct signed-in profile page', async () => {
   const app = await boot();
   const profile = '<html><body><main><h1>Sample Observer</h1>'
@@ -696,11 +788,15 @@ test('F569 identity injection reaches the native WKWebView bridge without window
       kind: 'identity',
       needsLogin: false,
       ok: true,
+      parseStatus: 'ok',
+      hasName: true,
+      onProfile: true,
       data: {
         status: 'ok',
         displayName: 'Birder Wyatt',
         evidence: 'profile-heading',
       },
+      transport: 'webkit',
     },
   });
   profile.window.close();
@@ -1626,33 +1722,38 @@ test('a stale WebView event cannot settle a capture before its own id is known',
   app.window.close();
 });
 
-test('a finished eBird capture removes listener handles that resolve late', async () => {
+test('an eBird capture waits for every asynchronous listener registration', async () => {
   const app = await boot();
   const A = app.window.__app;
   const registrations = [];
-  let removed = 0;
+  let opened = false;
   const fake = {
-    addListener() {
+    addListener(name, fn) {
       return new Promise((resolve) => {
-        registrations.push(() => resolve({ remove() { removed++; } }));
+        registrations.push(() => resolve({ remove() {} }));
       });
     },
-    openWebView() { return Promise.reject(new Error('fixture open failed')); },
+    openWebView() {
+      opened = true;
+      return Promise.reject(new Error('fixture open failed'));
+    },
     close() {},
   };
   app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
 
-  await assert.rejects(A.captureEbird({
+  const capture = A.captureEbird({
     kind: 'aba',
     url: 'https://ebird.org/alert/summary?sid=X',
     buildInject: () => '/* fixture parser */',
     timeout: 5000,
-  }), /fixture open failed/);
-  assert.equal(registrations.length, 4, 'all global listeners began registration');
-  registrations.forEach((resolve) => resolve());
+  });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(removed, 4,
-    'every listener that arrives after cleanup removes itself immediately');
+  assert.equal(registrations.length, 4, 'all global listeners began registration');
+  assert.equal(opened, false,
+    'the WebView opened while a native listener could still miss its first event');
+  registrations.forEach((resolve) => resolve());
+  await assert.rejects(capture, /fixture open failed/);
+  assert.equal(opened, true, 'the WebView did not open after listeners became active');
   app.window.close();
 });
 
@@ -3716,9 +3817,11 @@ test('rankings: history is compact above the official Top 100 order', async () =
     'the heading names the selected leaderboard region and year once');
   assert.equal(app.document.querySelector('.rankcap'), null,
     'the duplicate Top 100 eBirders region/year caption is removed');
-  assert.match(HTML,
-    /id:\s*'rankNewOnly',\s*icon:\s*'NEW',\s*iconCls:\s*'newflag',\s*label:\s*'Recent'/,
-    'the filter uses the shared textual NEW tag with the concise Recent label');
+  assert.match(HTML, /id:\s*'rankNewOnly',\s*label:\s*'Recent'/,
+    'the filter keeps the same concise Recent label as the other Recent controls');
+  assert.doesNotMatch(HTML,
+    /id:\s*'rankNewOnly'[\s\S]{0,100}(?:icon:\s*'NEW'|iconCls:\s*'newflag')/,
+    'the filter still carries a row-level freshness badge');
   assert.doesNotMatch(HTML, /id:\s*'rankNewOnly',\s*cls:\s*'ranknewbtn'/,
     'the leaderboard filter does not retain its one-off button treatment');
   assert.ok(app.$('rankBtn').closest('section').classList.contains('compacthead'),
@@ -7683,10 +7786,10 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   let noteButton = card.querySelector(':scope > .meta > .spmetaact .cknote-pending');
   assert.ok(noteButton,
     'ungrouped Mega has no shared pending Notes action');
-  assert.ok(noteButton.classList.contains('cknote-expected'),
-    'ungrouped Mega shows an ellipsis instead of the expected Notes control');
-  assert.equal(noteButton.textContent.trim(), '📋',
-    'ungrouped Mega does not show the Notes icon before hydration');
+  assert.ok(!noteButton.classList.contains('cknote-expected'),
+    'ungrouped Mega claims Notes exist before its checklist is checked');
+  assert.equal(noteButton.textContent.trim(), '…',
+    'ungrouped Mega does not show the unknown Notes state before hydration');
   assert.match(card.querySelector('.rarewhere').textContent, /×2/,
     'ungrouped Mega omits the checklist bird count');
   assert.equal(card.querySelectorAll('.rareflags').length, 1,
@@ -7711,10 +7814,10 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   noteButton = checklist.querySelector('.cknote-pending');
   assert.ok(noteButton,
     'grouped Mega checklist has no shared pending Notes action');
-  assert.ok(noteButton.classList.contains('cknote-expected'),
-    'grouped Mega shows an ellipsis instead of the expected Notes control');
-  assert.equal(noteButton.textContent.trim(), '📋',
-    'grouped Mega does not show the Notes icon before hydration');
+  assert.ok(!noteButton.classList.contains('cknote-expected'),
+    'grouped Mega claims Notes exist before its checklist is checked');
+  assert.equal(noteButton.textContent.trim(), '…',
+    'grouped Mega does not show the unknown Notes state before hydration');
   app.window.close();
 });
 
@@ -11083,6 +11186,55 @@ test('Today’s patches treats imported-CSV name matches as seen before ranking'
   assert.ok(cv.unseen.some((row) => row.code === 'calqua'),
     'a bird not in the imported CSV remains chaseable');
   app.window.close();
+});
+
+test('F571 Stakeout Patch filters imported-CSV birds by common name', async () => {
+  const app = await boot({
+    sample: false,
+    storage: {
+      ebird_seen: JSON.stringify({ 'chlorodrepanis virens': 1 }),
+      ebird_seen_field: 'sciName',
+      ebird_year_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_life_names: JSON.stringify(['Hawaii Amakihi']),
+      ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+    },
+  });
+  const A = app.window.__app;
+  A.renderStakeHs('L-CSV', 'CSV Patch', [], [{
+    speciesCode: 'hawama', comName: 'Hawaii Amakihi',
+  }, {
+    speciesCode: 'calqua', comName: 'California Quail',
+  }], {}, false);
+  const box = app.$('stakeHsResults');
+  const open = box.querySelector('.hsunseen');
+  const seen = box.querySelector('.hsseen');
+  assert.doesNotMatch(open ? open.textContent : '', /Hawaii Amakihi/,
+    'the imported name match remains in the unseen list');
+  assert.match(seen ? seen.textContent : '', /Hawaii Amakihi/,
+    'the imported name match was not moved to already seen');
+  assert.match(open ? open.textContent : '', /California Quail/,
+    'an actually unseen bird was removed with the imported name match');
+  app.window.close();
+});
+
+test('F573 remote evidence uses only bounded notable feeds and a separate lane', () => {
+  const start = HTML.indexOf('var _remoteNotableLoads');
+  const end = HTML.indexOf('function projectChaseResult(', start);
+  const source = HTML.slice(start, end);
+  assert.match(source,
+    /BL\.planFeeds\(profile,\s*30\)\.filter\(function \(feed\) \{\s*return feed\.kind === 'notable'/,
+    'remote discovery is not bounded to the existing 30-day notable feed plan');
+  assert.doesNotMatch(source, /product\/lists|recent\/[^{+'"`]*species|ref\/hotspot/,
+    'remote discovery added a per-hotspot or per-species request');
+  assert.match(source, /className = 'remote-notable-lane'/,
+    'older evidence is mixed into ordinary ranking capacity');
+  for (const text of ['Remote notable sites', 'Older notable evidence', 'last reported',
+    'Already seen', 'Unseen']) {
+    assert.match(source, new RegExp(text),
+      `the separate lane does not state "${text}" directly`);
+  }
+  assert.match(source, /Older notable evidence unavailable/,
+    'an optional-lane fetch failure can replace the ordinary answer');
 });
 
 test('a stale pre-scored hotspot list is re-partitioned against the current seen list', async () => {
@@ -31679,7 +31831,7 @@ test('the top 100 board names the newest bird, not just its banding code', async
   assert.equal(doc.querySelector('.rankrow .thumb'), null,
     'the one-row leaderboard still renders a bird thumbnail');
   assert.match(HTML,
-    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*calc\(38px \* var\(--s\)\) minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*4px 0[^}]*border-top:\s*0/,
+    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*4px 0[^}]*border-top:\s*0/,
     'Top 100 entries are not using the compact divider-free row rhythm');
   assert.match(HTML,
     /\.rankrow \.rankbirdline,\s*\.rankrow \.rankbirdline a \{[^}]*font-size:\s*inherit/,
@@ -31740,7 +31892,7 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
   const link = bird.querySelector('a');
   const details = bird.querySelector('.rankdetail');
   const mark = birdRow.querySelector('.ranknew');
-  const movement = rows[0].querySelector(':scope > .meta > .mv');
+  const movement = rows[0].querySelector(':scope > .name > .rankstack > .mv');
   const birderLink = birdRow.querySelector('.wholine a.extlink');
   assert.equal(bird.textContent.includes(longBird), true,
     'the complete newest species name is absent');
@@ -31751,8 +31903,8 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
   'the recent bird name lost its species action link');
   assert.ok(mark && mark.classList.contains('newflag') && mark.textContent.trim() === 'NEW',
     'the recent tick does not use the shared textual NEW tag');
-  assert.ok(movement && movement.parentElement.classList.contains('meta'),
-    'movement must render below the rank in column 1');
+  assert.ok(movement && movement.parentElement.classList.contains('rankstack'),
+    'movement must share the fixed first-column stack with the rank');
   assert.ok(details && mark && (details.compareDocumentPosition(mark)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
   'NEW must follow the date in DOM order: ' + birdRow.outerHTML);
@@ -31847,8 +31999,12 @@ test('F549 Top 100 Recent filters by addition date and visibly changes state', a
     ['Fresh Birder'], 'Recent did not filter out the older addition');
   const pressed = doc.getElementById('rankNewOnly');
   assert.equal(pressed.getAttribute('aria-pressed'), 'true');
-  assert.match(pressed.textContent, /Recent/,
-    'the pressed filter lost its concise shared-control label');
+  assert.equal(pressed.textContent.trim(), 'Recent',
+    'the pressed filter does not match the other text-only Recent controls');
+  assert.equal(pressed.querySelector('.newflag'), null,
+    'the filter reuses the row-level NEW freshness badge');
+  assert.ok(rows[0].querySelector('.ranknew.newflag'),
+    'removing NEW from the filter also removed it from the fresh row');
   app.click(pressed);
   assert.equal(doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)').length, 2,
     'Show all did not restore the full board');
@@ -34284,11 +34440,14 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
   assert.ok(css.length, 'the leaderboard rules still bound this window');
 
   assert.match(HTML,
-    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*calc\(38px \* var\(--s\)\) minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px/,
+    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px/,
     'the compact three-column layout or its 10px gutter is missing');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > :where\(\.hsnum\) \{[^}]*grid-column:\s*1[^}]*grid-row:\s*1[^}]*align-self:\s*start[^}]*font-size:\s*calc\(28px \* var\(--s\)\)/,
-    'the large rank is not top-aligned in the first column');
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*grid-column:\s*1[^}]*grid-row:\s*1[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*align-items:\s*flex-end[^}]*gap:\s*1px/,
+    'rank and movement do not share one deterministic first-column stack');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.rankstack > :where\(\.hsnum\) \{[^}]*font-size:\s*calc\(28px \* var\(--s\)\)[^}]*line-height:\s*1/,
+    'the large rank is not fixed inside the first-column stack');
   assert.match(HTML,
     /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
     'the center sentence is not one compact, top-level grid cell');
@@ -34305,8 +34464,10 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
     /\.rankrow\.hscard-md > \.name > \.hsdist small \{[^}]*display:\s*block/,
     'the sp unit is not on a line below the species count');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.meta \{[^}]*grid-column:\s*1[^}]*grid-row:\s*2[^}]*margin-top:\s*-5px/,
-    'position movement is not tightly placed below the rank');
+    /\.rankrow\.hscard-md > \.meta \{[^}]*display:\s*none/,
+    'the old name-height-dependent movement grid row remains active');
+  assert.doesNotMatch(HTML, /\.rankrow\.hscard-md > \.meta \{[^}]*margin-top:\s*-5px/,
+    'position movement still depends on a negative font-metric margin');
   assert.match(HTML, /\.rankbig \{[^}]*24px/,
     'the personal standing rank has returned to the oversized 34px treatment');
   assert.match(HTML, /\.rankstats b \{[^}]*16px/,
@@ -34331,8 +34492,12 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
   assert.match(HTML,
     /name: '<span class="wholine">'[\s\S]{0,250}\+ rankInlineDetailsHTML\(r\)/,
     'the birder and recent-bird details are not emitted as one sentence');
-  assert.match(HTML, /sub:\s*movement/,
-    'the movement arrow is not emitted beneath the rank');
+  assert.match(HTML, /icon:\s*'<span class="rankstack">/,
+    'the rank does not emit a dedicated fixed stack');
+  assert.match(HTML, /\+\s*esc\(r\.rank\)\s*\+\s*'<\/span>'\s*\+\s*movement\s*\+\s*'<\/span>'/,
+    'the movement arrow is not emitted in the same fixed stack as the rank');
+  assert.match(HTML, /sub:\s*''/,
+    'the obsolete second-row movement slot is still populated');
   assert.doesNotMatch(HTML, /icon:\s*pic/,
     'the compact sentence layout still renders a bird thumbnail');
 });
