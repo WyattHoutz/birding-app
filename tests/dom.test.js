@@ -791,6 +791,7 @@ test('F569 identity injection reaches the native WKWebView bridge without window
       parseStatus: 'ok',
       hasName: true,
       onProfile: true,
+      pageShape: null,
       data: {
         status: 'ok',
         displayName: 'Birder Wyatt',
@@ -800,6 +801,93 @@ test('F569 identity injection reaches the native WKWebView bridge without window
     },
   });
   profile.window.close();
+  app.window.close();
+});
+
+test('F577 missing profile identity reports bounded structure without page text', async () => {
+  const app = await boot();
+  const profile = new JSDOM(
+    '<html><body data-account="private_login"><main class="ProfileShell">'
+      + '<section class="ProfileContainer-private1234">'
+      + '<div class="ProfileDisplayTitle" data-testid="profile-owner">'
+      + 'Birder Wyatt</div><p>wyatt@example.com private_login</p></section>'
+      + '<h2 class="Profile-heading-title">Recent activity</h2></main></body></html>',
+    { runScripts: 'outside-only', url: 'https://ebird.org/profile/private-account-id' }
+  );
+  let posted = null;
+  profile.window.mobileApp = {
+    postMessage(message) { posted = message; },
+  };
+  profile.window.eval(app.window.__app.buildIdentityInject(0));
+  const shape = posted.detail.pageShape;
+  assert.equal(posted.detail.transport, 'mobileApp');
+  assert.equal(posted.detail.parseStatus, 'missing');
+  assert.ok(shape && shape.headings >= 1 && shape.profileNodes >= 1,
+    'the installed-page failure does not report whether heading/profile structures exist');
+  assert.ok(shape.samples.some((sample) =>
+    sample.cls === 'Profile-heading-title' && sample.chars > 0),
+  'the diagnostic omits safe semantic structure needed to choose a selector');
+  const diagnostic = JSON.stringify(shape);
+  for (const sensitive of [
+    'Birder Wyatt', 'wyatt@example.com', 'private_login',
+    'private-account-id', 'private1234',
+  ]) {
+    assert.doesNotMatch(diagnostic, new RegExp(sensitive, 'i'),
+      `the structural diagnostic leaked ${sensitive}`);
+  }
+  assert.ok(diagnostic.length < 1200, 'the structural diagnostic is not bounded');
+  profile.window.close();
+  app.window.close();
+});
+
+test('F577 capture log records the sanitized profile shape stage', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const handlers = {};
+  const shape = {
+    ready: 'complete', bodyChars: 8421, mains: 1, headings: 2,
+    profileNodes: 3,
+    samples: [{
+      tag: 'div', role: 'heading', cls: 'ProfileDisplayTitle',
+      test: 'profile-owner', chars: 13, words: 2,
+      aria: false, hidden: false,
+    }],
+  };
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return { remove() {} };
+    },
+    openWebView() {
+      setTimeout(() => handlers.browserPageLoaded({ id: 'f577-window' }), 0);
+      return Promise.resolve({ id: 'f577-window' });
+    },
+    hide() {},
+    show() {},
+    close() {},
+    executeScript() {
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f577-window',
+        detail: {
+          __ebird: true, kind: 'identity', ok: true,
+          parseStatus: 'missing', hasName: false, onProfile: true,
+          transport: 'mobileApp', pageShape: shape,
+          data: { status: 'missing', displayName: '', evidence: '' },
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+  await A.captureEbird({
+    kind: 'identity',
+    url: 'https://ebird.org/profile',
+    buildInject: A.buildIdentityInject,
+    timeout: 1500,
+  });
+  const log = app.window.__dbg.buf.map((row) => row.msg).join('\n');
+  assert.match(log, /profile shape.*"headings":2.*ProfileDisplayTitle/s,
+    'the safe injected structure never reaches the on-device debug log');
   app.window.close();
 });
 

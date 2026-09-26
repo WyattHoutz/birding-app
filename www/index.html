@@ -23142,15 +23142,19 @@
           'if(h&&typeof h.postMessage==="function"){message.detail.transport="webkit";h.postMessage(message);return true;}}catch(_){}' +
           'return false;}' +
           'try{' +
-          'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
+          'var attempt=' + Math.max(0, Number(attempt) || 0) + ';' +
+          'var finalAttempt=attempt>=19;' +
           'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
           'var onPage=/(?:^|\\/)profile(?:\\/|$)/.test(path);' +
           parseEbirdAccountIdentity.toString() + ';' +
           parseEbirdProfileIdentity.toString() + ';' +
+          identityPageShape.toString() + ';' +
           'var I=parseEbirdProfileIdentity(document);' +
           'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
           'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
-          'send({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),parseStatus:I&&I.status||"missing",hasName:!!(I&&I.displayName),onProfile:onPage,data:I}});' +
+          'var shape=(I&&I.status==="missing"&&(attempt===0||attempt===9||finalAttempt))' +
+          '?identityPageShape(document):null;' +
+          'send({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),parseStatus:I&&I.status||"missing",hasName:!!(I&&I.displayName),onProfile:onPage,pageShape:shape,data:I}});' +
           '}catch(e){send({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}})();';
       }
 
@@ -23334,6 +23338,9 @@
                 + (d.parseStatus ? ' · parse=' + d.parseStatus : '')
                 + (d.hasName ? ' · name found' : ' · no name')
                 + (d.onProfile === false ? ' · wrong page' : ''));
+              if (d.pageShape) {
+                trace('profile shape', JSON.stringify(d.pageShape));
+              }
               if (d.needsLogin) { reveal(); return; }
               // Listeners are registered on the plugin, not on one window, so a
               // leftover eBird window could otherwise resolve this capture with
@@ -29640,6 +29647,59 @@
           }
         }
         return account;
+      }
+
+      function identityPageShape(doc) {
+        var out = {
+          ready: 'unknown', bodyChars: 0, mains: 0, headings: 0,
+          profileNodes: 0, samples: []
+        };
+        if (!doc || typeof doc.querySelectorAll !== 'function') return out;
+        var state = String(doc.readyState || '').toLowerCase();
+        if (/^(loading|interactive|complete)$/.test(state)) out.ready = state;
+        out.bodyChars = Math.min(999999,
+          String(doc.body && doc.body.textContent || '').replace(/\s+/g, ' ').trim().length);
+        out.mains = doc.querySelectorAll('main').length;
+        var headings = doc.querySelectorAll('h1,h2,h3,[role="heading"]');
+        out.headings = headings.length;
+        var profileNodes = doc.querySelectorAll(
+          '[data-testid*="profile" i],[class*="profile" i]');
+        out.profileNodes = profileNodes.length;
+        var candidates = [], seen = [];
+        function add(nodes) {
+          for (var i = 0; i < nodes.length && candidates.length < 8; i++) {
+            if (seen.indexOf(nodes[i]) >= 0) continue;
+            seen.push(nodes[i]);
+            candidates.push(nodes[i]);
+          }
+        }
+        add(headings);
+        add(profileNodes);
+        function safeSemantic(value) {
+          return String(value || '').split(/\s+/).filter(function (token) {
+            return token.length <= 40 && /^[A-Za-z_-]+$/.test(token)
+              && /(profile|header|heading|title|name|user|display)/i.test(token);
+          }).slice(0, 4).join('.');
+        }
+        candidates.forEach(function (node) {
+          var text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+          var role = String(node.getAttribute && node.getAttribute('role') || '');
+          role = /^[a-z-]{1,24}$/i.test(role) ? role.toLowerCase() : '';
+          var testId = safeSemantic(
+            node.getAttribute && node.getAttribute('data-testid'));
+          out.samples.push({
+            tag: String(node.tagName || '').toLowerCase().slice(0, 12),
+            role: role,
+            cls: safeSemantic(node.className),
+            test: testId,
+            chars: Math.min(9999, text.length),
+            words: Math.min(99, text ? text.split(/\s+/).length : 0),
+            aria: !!(node.hasAttribute && node.hasAttribute('aria-label')),
+            hidden: !!(node.hidden || (node.getAttribute
+              && node.getAttribute('aria-hidden') === 'true'))
+          });
+        });
+        return out;
       }
 
       function parseFirstYearBirdList(html) {
@@ -37672,6 +37732,7 @@
         rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         parseEbirdAccountIdentity: parseEbirdAccountIdentity,
         parseEbirdProfileIdentity: parseEbirdProfileIdentity,
+        identityPageShape: identityPageShape,
         parseFirstYearBirdList: parseFirstYearBirdList,
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
         firstYearWrite: firstYearWrite, firstYearFetch: firstYearFetch,
